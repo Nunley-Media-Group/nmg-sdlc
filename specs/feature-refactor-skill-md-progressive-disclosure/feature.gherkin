@@ -1,7 +1,7 @@
 # File: specs/feature-refactor-skill-md-progressive-disclosure/feature.gherkin
 #
 # Generated from: specs/feature-refactor-skill-md-progressive-disclosure/requirements.md
-# Issue: #138
+# Issues: #138, #145, #146, #83
 
 Feature: Refactor SKILL.md via Progressive Disclosure
   As a nmg-sdlc plugin maintainer and Claude Code agent invoking these skills

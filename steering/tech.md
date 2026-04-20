@@ -119,9 +119,11 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 
 **Before creating or modifying any Claude Code resource (skill, agent, hook, plugin manifest), review the official Claude Code documentation to ensure best practices are followed.**
 
-### Skills (SKILL.md)
+### Skills (SKILL.md and the rest of the skill bundle)
 
-**Authoring rule:** Any time a skill is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`/skill-creator`). Do not hand-author or hand-edit `SKILL.md` files directly. `skill-creator` enforces Anthropic's official best practices for frontmatter, triggering descriptions, structure, and validation. Skills that bypass `skill-creator` tend to drift from these conventions and trigger incorrectly.
+**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`/skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every per-skill subagent definition under `agents/*.md`. `skill-creator` enforces Anthropic's official best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
+
+**No hand-edit fallback.** If `/skill-creator` is unavailable, do not silently fall back to direct `Write`/`Edit`. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `/skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
 
 | Aspect | Best Practice |
 |--------|---------------|

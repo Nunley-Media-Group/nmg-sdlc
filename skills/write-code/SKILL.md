@@ -118,11 +118,11 @@ The implementation approach (whether internal or in plan mode) should:
 
 **If `.claude/unattended-mode` exists:** The runner handles implementation directly via its code phase — proceed to execute tasks inline using the approach designed in your thinking.
 
-**If `.claude/unattended-mode` does NOT exist:** After the user approves the plan, delegate implementation to the `spec-implementer` agent via the Task tool. Include the Step 5a skill-routing contract in the delegation prompt so the agent classifies and routes skill tasks:
+**If `.claude/unattended-mode` does NOT exist:** After the user approves the plan, delegate implementation to the `spec-implementer` agent via the Task tool. Include the Step 5a skill-routing contract in the delegation prompt so the agent classifies and routes skill-bundled tasks:
 
 ```
 Task(subagent_type="nmg-sdlc:spec-implementer",
-     prompt="Implement the specs for issue #N in specs/{feature-name}/. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then execute all tasks sequentially. For each task, apply the SKILL-TASK DETECTOR and Skill-Creator Probe Contract defined in the agent's Routing Skill Tasks Through /skill-creator section — route skill-related tasks through /skill-creator when available; fall back to direct authoring with the verbatim warning when not.")
+     prompt="Implement the specs for issue #N in specs/{feature-name}/. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then execute all tasks sequentially. For each task, apply the SKILL-BUNDLED FILE DETECTOR and Skill-Creator Probe Contract defined in the agent's Routing Skill-Bundled Tasks Through /skill-creator section — route every skill-bundled file edit through /skill-creator. There is no hand-edit fallback: if /skill-creator is unavailable, escalate and stop.")
 ```
 
 The agent will read all spec and steering documents, execute tasks from `tasks.md` sequentially, and return a completion summary with files created/modified.
@@ -134,7 +134,7 @@ If the agent reports partial completion or deviations, review its output and dec
 For each task in `tasks.md`:
 
 1. **Mark in-progress**: Note which task you're working on
-2. **Classify**: Apply the SKILL-TASK DETECTOR from Step 5a. If skill-related, route through `/skill-creator` per the Skill-Creator Probe Contract in Step 5a instead of authoring `SKILL.md` directly with `Write`/`Edit`.
+2. **Classify**: Apply the SKILL-BUNDLED FILE DETECTOR from Step 5a. If the task touches a skill-bundled file, route through `/skill-creator` per the Skill-Creator Probe Contract in Step 5a — never author or edit those files with `Write`/`Edit`.
 3. **Write code**: Follow the spec's design.md for architecture decisions
    - Use patterns from `structure.md` and `tech.md`
    - Follow existing code style in the project
@@ -169,20 +169,24 @@ If you discover during implementation that the spec needs changes:
 2. **Major deviation**: Stop and discuss with the user
 3. **Blocker**: Flag the issue, suggest alternatives
 
-### Step 5a: Route Skill Tasks Through /skill-creator
+### Step 5a: Route Skill-Bundled Tasks Through /skill-creator
 
-Skills are Markdown instructions, and `steering/tech.md` declares an architectural invariant: any time a skill is created or edited — whether by a human or by an SDLC workflow — the work MUST be driven through `/skill-creator`. This step detects skill-related tasks and routes them through `/skill-creator` when available, falling back to direct `Write`/`Edit` authoring with a verbatim warning when it is not.
+Skills are Markdown instructions, and `steering/tech.md` declares an architectural invariant: any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow — the work MUST be driven through `/skill-creator`. The invariant covers the whole bundle (SKILL.md, per-skill `references/`/`scripts/`/`templates/`/`checklists/`/`assets/`, shared plugin/repo-root `references/`, and per-skill subagent files under `agents/*.md`) because every one of those files shapes how the skill behaves at runtime.
 
 Apply this step both when delegating to the `spec-implementer` agent (include this contract in the delegation prompt) AND in the inline-fallback path of Step 5. Cache the probe result for the duration of the run.
 
-#### SKILL-TASK DETECTOR
+#### SKILL-BUNDLED FILE DETECTOR
 
-A task is classified as **skill-related** when ANY of the following signals is present:
-- The target file path ends with `/SKILL.md` (case-sensitive path match)
-- The task description contains `skill`, `SKILL.md`, or `skill definition` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not)
-- The issue title or body contains `skill` (case-insensitive, word-boundary match)
+A task is classified as **skill-bundled** when ANY of the following signals is present:
 
-Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill tasks skip the probe entirely and use direct `Write`/`Edit` authoring as today.
+- **Path signals** — the target file path matches any of:
+  - `**/skills/*/SKILL.md`
+  - `**/skills/*/references/**`, `**/skills/*/scripts/**`, `**/skills/*/templates/**`, `**/skills/*/checklists/**`, `**/skills/*/assets/**`
+  - `references/**` at the plugin or repo root (cross-skill shared references)
+  - `**/agents/*.md` (per-plugin subagent definitions invoked by skills)
+- **Description signals** — the task description, issue title, or issue body contains `skill`, `SKILL.md`, `skill definition`, `skill reference`, or `skill bundle` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not).
+
+Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill tasks skip the probe entirely and use direct `Write`/`Edit` authoring.
 
 #### Skill-Creator Probe Contract
 
@@ -190,16 +194,12 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
    - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
-2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target `SKILL.md` path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the `SKILL.md` — do not use `Write`/`Edit` to hand-author it.
-3. **If unavailable**: emit the warning verbatim:
+2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the file — never `Write`/`Edit` a skill-bundled file directly.
+3. **If unavailable**: do NOT silently fall back to `Write`/`Edit`. The hand-edit escape hatch was removed because it consistently produced drift from skill-creator's best practices.
+   - **Interactive mode**: surface the missing dependency to the user — `/skill-creator is required to author skill-bundled files but is not installed. Install it (e.g., via the official skill-creator plugin) and re-run.` Stop the workflow.
+   - **Unattended mode**: emit `ESCALATION: /skill-creator is required for skill-bundled file edits — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-   ```
-   skill-creator not available — implementing skill directly
-   ```
-
-   Then proceed with direct `Write`/`Edit` authoring for that task.
-
-Cache the probe result for the duration of the run so the warning is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to Step 5b.
 

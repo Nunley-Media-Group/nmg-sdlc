@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.53.3] - 2026-04-19
+
+### Added
+
+- **Bulk refactor write-spec, onboard-project, upgrade-project to line targets** (issue #83) — reduces write-spec (516→≤250), onboard-project (473→≤280), and upgrade-project (572→≤250) by extracting variant-specific blocks into `references/` directories loaded on demand; regenerates `scripts/skill-inventory.baseline.json`. (partial delivery — see epic #77)
+
 ## [1.53.2] - 2026-04-19
 
 ### Added

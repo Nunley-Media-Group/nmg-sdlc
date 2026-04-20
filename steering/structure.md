@@ -208,7 +208,7 @@ These are hard contracts that must never be violated. `/verify-code` should flag
 
 | Invariant | Rationale | How to Verify |
 |-----------|-----------|---------------|
-| Skills must be authored via `/skill-creator` | Anthropic's official best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skills drift | New/modified `SKILL.md` files should be produced through `/skill-creator` — flag direct edits in PR review |
+| Skill-bundled files must be authored via `/skill-creator` | Anthropic's official best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skill-bundled files drift. The bundle includes `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and per-skill subagent definitions under `agents/*.md` | Any new/modified file in the skill bundle must be produced through `/skill-creator` — flag direct edits in PR review. There is no hand-edit fallback when `/skill-creator` is unavailable; the workflow escalates and exits instead |
 | Skills must be stack-agnostic | Skills work across any project; project specifics live in steering docs | Grep skill content for hardcoded language/framework/tool names that aren't Claude Code tools |
 | One skill = one SDLC step | Each skill has a single, well-defined purpose in the pipeline | A skill's postconditions must be the preconditions of exactly one downstream skill |
 | Skills must reference steering docs for project context | Decouples workflow logic from project specifics | Skills say "reference `tech.md` for..." rather than embedding conventions directly |
