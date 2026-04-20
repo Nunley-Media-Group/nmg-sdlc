@@ -211,19 +211,23 @@ Process findings in severity order: **Critical → High → Medium → Low**.
 
 For each finding:
 1. Locate the relevant code via `Glob` / `Grep`
-2. **Classify the finding** using the SKILL-TASK DETECTOR below — is this a `SKILL.md` finding?
-3. If skill-related, route the fix through `/skill-creator` per the Skill-Creator Probe Contract below. Otherwise, apply the fix using `Write` or `Edit` directly.
+2. **Classify the finding** using the SKILL-BUNDLED FILE DETECTOR below — does this finding touch a skill-bundled file?
+3. If skill-bundled, route the fix through `/skill-creator` per the Skill-Creator Probe Contract below. Otherwise, apply the fix using `Write` or `Edit` directly.
 4. Verify the fix addresses the finding
 5. Record: original issue, location, fix applied, and routing path (`skill-creator` vs. `direct`) in the Fixes Applied table
 
-##### SKILL-TASK DETECTOR
+##### SKILL-BUNDLED FILE DETECTOR
 
-A finding is classified as **skill-related** when ANY of the following signals is present:
-- The affected file path ends with `/SKILL.md` (case-sensitive path match)
-- The finding summary contains `skill`, `SKILL.md`, or `skill definition` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not)
-- The issue title or body contains `skill` (case-insensitive, word-boundary match)
+A finding is classified as **skill-bundled** when ANY of the following signals is present:
 
-Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill findings skip the probe entirely and are fixed with direct `Write`/`Edit` as today.
+- **Path signals** — the affected file path matches any of:
+  - `**/skills/*/SKILL.md`
+  - `**/skills/*/references/**`, `**/skills/*/scripts/**`, `**/skills/*/templates/**`, `**/skills/*/checklists/**`, `**/skills/*/assets/**`
+  - `references/**` at the plugin or repo root (cross-skill shared references)
+  - `**/agents/*.md` (per-plugin subagent definitions invoked by skills)
+- **Description signals** — the finding summary, issue title, or issue body contains `skill`, `SKILL.md`, `skill definition`, `skill reference`, or `skill bundle` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not).
+
+Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill-bundled findings skip the probe entirely and are fixed with direct `Write`/`Edit`.
 
 ##### Skill-Creator Probe Contract
 
@@ -231,16 +235,12 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
    - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
-2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target `SKILL.md` path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the `SKILL.md` — do not use `Write`/`Edit` to hand-patch it.
-3. **If unavailable**: emit the warning verbatim:
+2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the file — never `Write`/`Edit` a skill-bundled file directly.
+3. **If unavailable**: do NOT silently fall back to `Write`/`Edit`. The hand-patch escape hatch was removed because it consistently produced drift from skill-creator's best practices.
+   - **Interactive mode**: surface the missing dependency to the user — `/skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run /verify-code.` Stop the workflow.
+   - **Unattended mode**: emit `ESCALATION: /skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-   ```
-   skill-creator not available — implementing skill directly
-   ```
-
-   Then proceed with direct `Write`/`Edit` to apply the fix.
-
-Cache the probe result for the duration of the verify-code run so the warning is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 

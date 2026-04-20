@@ -1,6 +1,6 @@
 # Tasks: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146
+**Issues**: #138, #145, #146, #83
 **Date**: 2026-04-19
 **Status**: Planning
 **Author**: Rich Nunley
@@ -20,7 +20,7 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 | 5: Testing (BDD + Exercise Suite) | 3 | [ ] | threaded |
 | **Total** | **25** | | |
 
-> **Skill-edit authoring note:** `steering/structure.md` lists "Skills must be authored via `/skill-creator`" as an architectural invariant. For this content-moving refactor, each `SKILL.md` edit task routes through `/skill-creator` per the invariant; the frontmatter is unchanged (AC5), so the `/skill-creator` session focuses on body restructuring. If `/skill-creator`'s interview-driven flow becomes impractical at scale, the implementer may hand-edit with a PR-body note documenting the exception — the architectural invariant is a floor, not a ceiling for bulk mechanical moves.
+> **Skill-bundled-file authoring note:** `steering/structure.md` lists "Skill-bundled files must be authored via `/skill-creator`" as an architectural invariant. The bundle covers `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and per-skill subagent files under `agents/*.md`. For this content-moving refactor, **every** edit to any skill-bundled file (SKILL.md and the per-skill `references/*.md` files extracted alongside it) routes through `/skill-creator` per the invariant; the frontmatter is unchanged (AC5), so each `/skill-creator` session focuses on body restructuring or new-file authoring. There is no hand-edit fallback — if `/skill-creator` is unavailable, the workflow escalates and stops rather than silently editing a bundled file directly.
 
 ---
 
@@ -391,6 +391,7 @@ Phase 5 (threaded)
 | #145 | 2026-04-19 | Phase 1 child — scope covers T001–T008 (Setup + additive infra): shared `references/` files, `skill-inventory-audit.mjs` + baseline + fixtures + Jest tests, audit CI workflow, and `claude-review.yml`. No SKILL.md edits, no version bump. |
 | #145 | 2026-04-19 | T007 expanded: workflow now enforces Claude's review verdict (exit non-zero on `CHANGES_REQUESTED`) and must be declared a required status check on `main`. Acceptance list gained two bullets covering the enforce-verdict step and the required-check declaration. |
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. Scope maps to existing tasks T009–T012 (extract variant content, refactor SKILL.md to ≤ 300 lines, regenerate audit baseline with inventory-removal justification, exercise test against fixture). No new tasks added — Phase 2 was pre-planned under #138. |
+| #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. Scope maps to existing tasks T013 (write-spec ≤ 250), T014 (onboard-project ≤ 280), T015 (upgrade-project ≤ 250). No new tasks added — Phase 3 was pre-planned under #138. Applies the pilot pattern from #146 (T009–T012) and reuses the shared-reference scaffolding from #145 (T001). |
 
 ---
 
