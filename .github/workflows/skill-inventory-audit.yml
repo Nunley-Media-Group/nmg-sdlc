@@ -3,8 +3,8 @@ name: Skill Inventory Audit
 on:
   pull_request:
     paths:
-      - 'plugins/nmg-sdlc/skills/**/SKILL.md'
-      - 'plugins/nmg-sdlc/**/references/**'
+      - 'skills/**/SKILL.md'
+      - '**/references/**'
       - 'scripts/skill-inventory.baseline.json'
       - 'scripts/skill-inventory-audit.mjs'
       - 'scripts/__fixtures__/audit-canary/**'
