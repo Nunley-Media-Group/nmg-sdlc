@@ -66,6 +66,7 @@ const {
   autoCommitIfDirty,
   buildClaudeArgs,
   readSkill,
+  resolveSkillsBase,
   handleFailure,
   escalate,
   haltFailureLoop,
@@ -2720,35 +2721,36 @@ describe('validateConfig (#77)', () => {
   });
 
   it('returns empty array for valid global effort', () => {
-    const errors = validateConfig({ effort: 'high', model: 'opus' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'high', model: 'opus' });
     expect(errors).toEqual([]);
   });
 
   it('rejects invalid global effort', () => {
-    const errors = validateConfig({ effort: 'turbo' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'turbo' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('turbo');
     expect(errors[0]).toContain('low, medium, high, xhigh');
   });
 
   it('rejects empty string model', () => {
-    const errors = validateConfig({ model: '' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', model: '' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('non-empty string');
   });
 
   it('rejects whitespace-only model', () => {
-    const errors = validateConfig({ model: '  ' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', model: '  ' });
     expect(errors).toHaveLength(1);
   });
 
   it('accepts undefined model and effort (not set)', () => {
-    const errors = validateConfig({});
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q' });
     expect(errors).toEqual([]);
   });
 
   it('validates per-step effort', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { writeSpecs: { effort: 'invalid' } },
     });
     expect(errors).toHaveLength(1);
@@ -2757,6 +2759,7 @@ describe('validateConfig (#77)', () => {
 
   it('validates per-step model', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { startIssue: { model: '' } },
     });
     expect(errors).toHaveLength(1);
@@ -2765,6 +2768,7 @@ describe('validateConfig (#77)', () => {
 
   it('silently ignores legacy plan/code sub-objects', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { implement: { plan: { model: '', effort: 'max' }, code: { effort: 'ultra' } } },
     });
     // plan/code sub-objects are no longer validated — they are silently ignored
@@ -2773,6 +2777,7 @@ describe('validateConfig (#77)', () => {
 
   it('collects multiple errors', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       effort: 'bad',
       model: '',
       steps: { writeSpecs: { effort: 'wrong' } },
@@ -2782,6 +2787,7 @@ describe('validateConfig (#77)', () => {
 
   it('accepts valid per-step config', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       effort: 'high',
       model: 'opus',
       steps: {
@@ -2851,19 +2857,20 @@ describe('resolveStepConfig (#77)', () => {
 
 describe('validateConfig — issue #130 additions', () => {
   it('accepts xhigh at the global level', () => {
-    const errors = validateConfig({ effort: 'xhigh' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'xhigh' });
     expect(errors).toEqual([]);
   });
 
   it('accepts xhigh at the per-step level', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { writeSpecs: { effort: 'xhigh' } },
     });
     expect(errors).toEqual([]);
   });
 
   it('rejects the max effort tier at the global level with a policy message', () => {
-    const errors = validateConfig({ effort: 'max' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'max' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('intentionally excluded');
     expect(errors[0]).toContain('max');
@@ -2871,6 +2878,7 @@ describe('validateConfig — issue #130 additions', () => {
 
   it('rejects the max effort tier at the per-step level', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { implement: { effort: 'max' } },
     });
     expect(errors).toHaveLength(1);
@@ -2880,6 +2888,7 @@ describe('validateConfig — issue #130 additions', () => {
 
   it('rejects effort on a haiku step (step-level)', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       steps: { commitPush: { model: 'haiku', effort: 'low' } },
     });
     expect(errors).toHaveLength(1);
@@ -2890,6 +2899,7 @@ describe('validateConfig — issue #130 additions', () => {
 
   it('rejects effort on a haiku step when effort falls through from global', () => {
     const errors = validateConfig({
+      projectPath: '/p', pluginsPath: '/q',
       effort: 'medium',
       steps: { merge: { model: 'haiku' } },
     });
@@ -2897,7 +2907,7 @@ describe('validateConfig — issue #130 additions', () => {
   });
 
   it('rejects hyphenated variants like x-high', () => {
-    const errors = validateConfig({ effort: 'x-high' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'x-high' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('x-high');
     expect(errors[0]).toContain('xhigh');
@@ -3176,6 +3186,163 @@ describe('--issue flag (single-issue mode) (#107)', () => {
       expect(args[promptIdx]).toContain('Do NOT select');
       expect(args[promptIdx]).toContain('#10');
       expect(args[promptIdx]).toContain('#20');
+    });
+  });
+});
+
+// ===========================================================================
+// Skill path resolution (#88) — pluginRoot support for CC plugin cache layout
+// ===========================================================================
+
+describe('skill path resolution (#88)', () => {
+  const PLUGIN_ROOT = '/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3';
+  const PLUGINS_PATH = '/Users/dev/repos/nmg-plugins';
+
+  beforeEach(() => {
+    __test__.setConfig({ pluginRoot: '', pluginsPath: '' });
+  });
+
+  describe('AC1: pluginRoot composes paths at the plugin root', () => {
+    it('readSkill resolves to {pluginRoot}/skills/<name>/SKILL.md when only pluginRoot is set', () => {
+      __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: '' });
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# skill');
+
+      readSkill('write-spec');
+
+      const expected = `${PLUGIN_ROOT}/skills/write-spec/SKILL.md`;
+      expect(mockFs.existsSync).toHaveBeenCalledWith(expected);
+      expect(mockFs.readFileSync).toHaveBeenCalledWith(expected, 'utf8');
+    });
+
+    it('buildClaudeArgs emits skillRoot under pluginRoot', () => {
+      __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: '' });
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# skill');
+      __test__.singleIssueNumber = 42; // hit the deterministic startIssue branch
+
+      const step = { ...STEPS[1], skill: 'start-issue' };
+      const args = buildClaudeArgs(step, defaultState());
+      const promptIdx = args.indexOf('-p') + 1;
+
+      expect(args[promptIdx]).toContain(`${PLUGIN_ROOT}/skills/start-issue`);
+
+      __test__.singleIssueNumber = null;
+    });
+  });
+
+  describe('AC2: pluginsPath-only config keeps the legacy nested composition', () => {
+    it('readSkill resolves to {pluginsPath}/plugins/nmg-sdlc/skills/<name>/SKILL.md', () => {
+      __test__.setConfig({ pluginRoot: '', pluginsPath: PLUGINS_PATH });
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# skill');
+
+      readSkill('write-spec');
+
+      const expected = `${PLUGINS_PATH}/plugins/nmg-sdlc/skills/write-spec/SKILL.md`;
+      expect(mockFs.existsSync).toHaveBeenCalledWith(expected);
+    });
+
+    it('SKILL_ROOT_SOURCE reports pluginsPath when the legacy branch is taken', () => {
+      __test__.setConfig({ pluginRoot: '', pluginsPath: PLUGINS_PATH });
+      resolveSkillsBase();
+      expect(__test__.skillRootSource).toBe('pluginsPath');
+    });
+  });
+
+  describe('AC3: diagnostic error names the field, value, and attempted path', () => {
+    it('error message from readSkill includes pluginRoot, its value, and the full path', () => {
+      const badRoot = '/wrong/path';
+      __test__.setConfig({ pluginRoot: badRoot, pluginsPath: '' });
+      mockFs.existsSync.mockReturnValue(false);
+
+      try {
+        readSkill('write-spec');
+        throw new Error('expected readSkill to throw');
+      } catch (err) {
+        expect(err.message).toContain('pluginRoot');
+        expect(err.message).toContain(badRoot);
+        expect(err.message).toContain(`${badRoot}/skills/write-spec/SKILL.md`);
+      }
+    });
+
+    it('error message from readSkill names pluginsPath when it was the chosen field', () => {
+      __test__.setConfig({ pluginRoot: '', pluginsPath: PLUGINS_PATH });
+      mockFs.existsSync.mockReturnValue(false);
+
+      try {
+        readSkill('write-spec');
+        throw new Error('expected readSkill to throw');
+      } catch (err) {
+        expect(err.message).toContain('pluginsPath');
+        expect(err.message).toContain(PLUGINS_PATH);
+        expect(err.message).toContain('/plugins/nmg-sdlc/skills/write-spec/SKILL.md');
+      }
+    });
+  });
+
+  describe('AC4: validateConfig errors when neither pluginRoot nor pluginsPath is set', () => {
+    it('returns an error naming both supported fields', () => {
+      const errors = validateConfig({ projectPath: '/p' });
+      expect(errors.length).toBeGreaterThanOrEqual(1);
+      const message = errors.find(e => e.includes('pluginRoot') && e.includes('pluginsPath'));
+      expect(message).toBeDefined();
+      expect(message).toMatch(/at least one/i);
+    });
+
+    it('accepts pluginRoot alone', () => {
+      const errors = validateConfig({ projectPath: '/p', pluginRoot: PLUGIN_ROOT });
+      expect(errors).toEqual([]);
+    });
+
+    it('accepts pluginsPath alone (legacy)', () => {
+      const errors = validateConfig({ projectPath: '/p', pluginsPath: PLUGINS_PATH });
+      expect(errors).toEqual([]);
+    });
+  });
+
+  describe('AC5: pluginRoot wins when both fields are set', () => {
+    it('resolveSkillsBase picks pluginRoot and records it in SKILL_ROOT_SOURCE', () => {
+      __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: PLUGINS_PATH });
+
+      const base = resolveSkillsBase();
+
+      expect(base).toBe(PLUGIN_ROOT);
+      expect(__test__.skillRootSource).toBe('pluginRoot');
+    });
+
+    it('readSkill composes against pluginRoot, ignoring pluginsPath', () => {
+      __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: PLUGINS_PATH });
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# skill');
+
+      readSkill('verify-code');
+
+      expect(mockFs.existsSync).toHaveBeenCalledWith(`${PLUGIN_ROOT}/skills/verify-code/SKILL.md`);
+      expect(mockFs.existsSync).not.toHaveBeenCalledWith(expect.stringContaining(PLUGINS_PATH));
+    });
+  });
+
+  describe('readSkill and buildClaudeArgs share a prefix', () => {
+    it('produces the same …/skills/<name> prefix across both call sites', () => {
+      __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: '' });
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# skill');
+      __test__.singleIssueNumber = 42;
+
+      readSkill('start-issue');
+      const readPath = mockFs.existsSync.mock.calls.find(c => typeof c[0] === 'string' && c[0].endsWith('SKILL.md'))[0];
+
+      const step = { ...STEPS[1], skill: 'start-issue' };
+      const args = buildClaudeArgs(step, defaultState());
+      const promptIdx = args.indexOf('-p') + 1;
+      const prompt = args[promptIdx];
+
+      const expectedPrefix = `${PLUGIN_ROOT}/skills/start-issue`;
+      expect(readPath).toBe(`${expectedPrefix}/SKILL.md`);
+      expect(prompt).toContain(expectedPrefix);
+
+      __test__.singleIssueNumber = null;
     });
   });
 });

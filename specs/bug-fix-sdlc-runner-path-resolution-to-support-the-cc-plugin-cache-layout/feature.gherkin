@@ -1,0 +1,68 @@
+# File: scripts/__tests__/sdlc-runner.test.mjs (new describe block)
+#
+# Generated from: specs/bug-fix-sdlc-runner-path-resolution-to-support-the-cc-plugin-cache-layout/requirements.md
+# Issue: #88
+# Type: Defect regression
+
+@regression
+Feature: sdlc-runner resolves skill files under the CC plugin cache layout
+  The runner previously hardcoded `{pluginsPath}/plugins/nmg-sdlc/skills/<name>/SKILL.md`,
+  which is satisfied by neither the Claude Code plugin cache
+  (`~/.claude/plugins/cache/nmg-plugins/nmg-sdlc/<version>/`) nor the marketplace checkout —
+  every `readSkill()` call threw `Skill file not found` and the process exited immediately.
+  This was fixed by introducing a `pluginRoot` config field and a shared `resolveSkillsBase()`
+  resolver that composes paths as `{pluginRoot}/skills/<name>/SKILL.md`, with the legacy
+  `pluginsPath` nested layout preserved as a fallback.
+
+  # --- Bug Is Fixed ---
+
+  @regression
+  Scenario: Skill resolves under plugin-root layout via pluginRoot
+    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
+    And pluginsPath is not set
+    When the runner starts and readSkill("write-spec") is called
+    Then the composed path is "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec/SKILL.md"
+    And buildClaudeArgs emits a skillRoot of "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec"
+    And the runner does not throw "Skill file not found"
+
+  # --- Related Behavior Still Works ---
+
+  @regression
+  Scenario: Legacy pluginsPath nested layout keeps working unchanged
+    Given an sdlc-config.json sets only pluginsPath to "/Users/dev/repos/nmg-plugins"
+    And pluginRoot is not set
+    When the runner starts and readSkill("write-spec") is called
+    Then the composed path is "/Users/dev/repos/nmg-plugins/plugins/nmg-sdlc/skills/write-spec/SKILL.md"
+    And the runner exhibits the exact behavior it did before this fix
+
+  # --- Diagnostic Error ---
+
+  @regression
+  Scenario: Error message names the config field, its value, and the full attempted path
+    Given pluginRoot is set to "/wrong/path"
+    And the composed skill file does not exist on disk
+    When readSkill("write-spec") is called
+    Then the thrown error message contains the field name "pluginRoot"
+    And the message contains the configured value "/wrong/path"
+    And the message contains the full composed path "/wrong/path/skills/write-spec/SKILL.md"
+
+  # --- Config Validation ---
+
+  @regression
+  Scenario: Validation errors when neither pluginRoot nor pluginsPath is set
+    Given an sdlc-config.json sets projectPath but neither pluginRoot nor pluginsPath
+    When validateConfig runs at startup
+    Then validation returns a non-empty error list
+    And the error message names both "pluginRoot" and "pluginsPath"
+    And the error indicates at least one must be set
+
+  # --- Precedence ---
+
+  @regression
+  Scenario: pluginRoot wins when both fields are set
+    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
+    And pluginsPath to "/Users/dev/repos/nmg-plugins"
+    When the runner resolves any skill path
+    Then the composition uses pluginRoot, not pluginsPath
+    And SKILL_ROOT_SOURCE reports "pluginRoot"
+    And the startup log records that pluginRoot was the chosen field
