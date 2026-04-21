@@ -22,11 +22,9 @@ README.md                        — Public docs: workflow, installation, skills
 
 ## Version Bumping
 
-When bumping the plugin version, update BOTH:
-1. `.claude-plugin/plugin.json` → `"version"`
-2. The plugin entry in the marketplace repo's `.claude-plugin/marketplace.json` → plugin `"version"` (in `Nunley-Media-Group/nmg-plugins`)
+When bumping the plugin version, update only `.claude-plugin/plugin.json` → `"version"` (the `/open-pr` skill also keeps `VERSION` and `CHANGELOG.md` in sync).
 
-The two versions must stay in sync for Claude Code's plugin system to behave correctly.
+Do NOT also bump the plugin entry in the marketplace repo's `.claude-plugin/marketplace.json`. For GitHub-sourced plugins, Claude Code reads the authoritative version from the fetched `plugin.json` and silently ignores any `version` set on the marketplace entry — the official docs explicitly warn against declaring version in both places.
 
 ## README Updates
 
