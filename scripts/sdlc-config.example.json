@@ -1,6 +1,8 @@
 {
   "projectPath": "/path/to/your/project",
+  "pluginRoot": "/Users/you/.claude/plugins/cache/nmg-plugins/nmg-sdlc/<version>",
   "pluginsPath": "/path/to/nmg-plugins",
+  "_plugin_root_note": "Set pluginRoot for Claude Code plugin-cache installs (points directly at the plugin root with skills/ as a direct child). Set pluginsPath for the legacy nmg-plugins monorepo layout (runner appends plugins/nmg-sdlc). At least one is required; if both are set, pluginRoot wins.",
   "model": "sonnet",
   "logDir": "",
   "maxLogDiskUsageMB": 500,

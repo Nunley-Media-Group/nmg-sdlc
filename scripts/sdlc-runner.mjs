@@ -37,6 +37,8 @@ let RESUME = false;
 let SINGLE_ISSUE_NUMBER = null;
 let PROJECT_PATH = '';
 let PLUGINS_PATH = '';
+let PLUGIN_ROOT = '';
+let SKILL_ROOT_SOURCE = '';
 let MODEL = 'sonnet';
 let EFFORT = 'medium';
 let MAX_RETRIES = 3;
@@ -100,7 +102,8 @@ Options:
 
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   PROJECT_PATH = config.projectPath;
-  PLUGINS_PATH = config.pluginsPath;
+  PLUGINS_PATH = config.pluginsPath || '';
+  PLUGIN_ROOT = config.pluginRoot || '';
   MODEL = config.model || 'sonnet';
   EFFORT = config.effort || 'medium';
   MAX_RETRIES = config.maxRetriesPerStep || 3;
@@ -113,11 +116,6 @@ Options:
   const configErrors = validateConfig(config);
   if (configErrors.length > 0) {
     for (const err of configErrors) console.error(`Config error: ${err}`);
-    process.exit(1);
-  }
-
-  if (!PROJECT_PATH || !PLUGINS_PATH) {
-    console.error('Error: config must include projectPath and pluginsPath');
     process.exit(1);
   }
 
@@ -189,6 +187,14 @@ const STEP_NUMBER = Object.fromEntries(STEP_KEYS.map((key, i) => [key, i + 1]));
  */
 function validateConfig(config) {
   const errors = [];
+
+  if (!config.projectPath) {
+    errors.push('config must include projectPath');
+  }
+
+  if (!config.pluginRoot && !config.pluginsPath) {
+    errors.push('config must include either pluginRoot (recommended for Claude Code plugin-cache installs) or pluginsPath (legacy nmg-plugins monorepo layout) — at least one is required');
+  }
 
   if (config.effort === 'max') {
     errors.push('Global effort "max" is intentionally excluded from nmg-sdlc defaults — max is prone to overthinking on coding workloads; use "xhigh" instead');
@@ -889,10 +895,35 @@ function validatePreconditions(step, state) {
 // Build claude -p arguments for each step
 // ---------------------------------------------------------------------------
 
+/**
+ * Return the directory that contains `skills/` for the current config.
+ * Precedence: `pluginRoot` wins if set (Claude Code plugin-cache layout),
+ * otherwise fall back to `{pluginsPath}/plugins/nmg-sdlc` (legacy monorepo).
+ * Records the chosen field name in SKILL_ROOT_SOURCE so error messages and
+ * the startup log can name it.
+ */
+function resolveSkillsBase() {
+  if (PLUGIN_ROOT) {
+    SKILL_ROOT_SOURCE = 'pluginRoot';
+    return PLUGIN_ROOT;
+  }
+  if (PLUGINS_PATH) {
+    SKILL_ROOT_SOURCE = 'pluginsPath';
+    return path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc');
+  }
+  throw new Error('Cannot resolve skills base: neither pluginRoot nor pluginsPath is set in config');
+}
+
 function readSkill(skillName) {
-  const skillPath = path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc', 'skills', skillName, 'SKILL.md');
+  const base = resolveSkillsBase();
+  const skillPath = path.join(base, 'skills', skillName, 'SKILL.md');
   if (!fs.existsSync(skillPath)) {
-    throw new Error(`Skill file not found: ${skillPath}`);
+    const configuredValue = SKILL_ROOT_SOURCE === 'pluginRoot' ? PLUGIN_ROOT : PLUGINS_PATH;
+    throw new Error(
+      `Skill file not found: ${skillPath} ` +
+      `(resolved from ${SKILL_ROOT_SOURCE}="${configuredValue}"). ` +
+      `Check that ${SKILL_ROOT_SOURCE} in sdlc-config.json points at a directory containing skills/${skillName}/SKILL.md.`
+    );
   }
   return fs.readFileSync(skillPath, 'utf8');
 }
@@ -901,7 +932,7 @@ function buildClaudeArgs(step, state, overrides = {}) {
   const issue = state.currentIssue || '<unknown>';
   const branch = state.currentBranch || '<unknown>';
   const skillRoot = step.skill
-    ? path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc', 'skills', step.skill)
+    ? path.join(resolveSkillsBase(), 'skills', step.skill)
     : null;
 
   const prompts = {
@@ -2184,7 +2215,8 @@ async function main() {
   log('SDLC Runner starting...');
   log(`Config: ${configPath}`);
   log(`Project: ${PROJECT_PATH}`);
-  log(`Plugins: ${PLUGINS_PATH}`);
+  const resolvedSkillsBase = resolveSkillsBase();
+  log(`Plugin root: ${resolvedSkillsBase} (from ${SKILL_ROOT_SOURCE})`);
   log(`Model: ${MODEL}`);
   if (EFFORT) log(`Effort: ${EFFORT}`);
   if (DRY_RUN) log('DRY-RUN MODE — no actions will be executed');
@@ -2398,6 +2430,7 @@ const __test__ = {
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;
     PLUGINS_PATH = cfg.pluginsPath ?? PLUGINS_PATH;
+    PLUGIN_ROOT = cfg.pluginRoot ?? PLUGIN_ROOT;
     MODEL = cfg.model ?? MODEL;
     if ('effort' in cfg) EFFORT = cfg.effort;
     MAX_RETRIES = cfg.maxRetriesPerStep ?? MAX_RETRIES;
@@ -2415,6 +2448,7 @@ const __test__ = {
   },
   get singleIssueNumber() { return SINGLE_ISSUE_NUMBER; },
   set singleIssueNumber(v) { SINGLE_ISSUE_NUMBER = v; },
+  get skillRootSource() { return SKILL_ROOT_SOURCE; },
   get bounceCount() { return bounceCount; },
   set bounceCount(v) { bounceCount = v; },
   get consecutiveEscalations() { return consecutiveEscalations; },
@@ -2457,6 +2491,7 @@ export {
   autoCommitIfDirty,
   buildClaudeArgs,
   readSkill,
+  resolveSkillsBase,
   handleFailure,
   escalate,
   haltFailureLoop,
