@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.54.1] - 2026-04-21
+
+### Fixed
+
+- **sdlc-runner skill path resolution broken under CC plugin cache layout** (issue #88) — adds `pluginRoot` config field so the runner resolves skill paths as `{pluginRoot}/skills/{name}/SKILL.md` when the plugin is installed via the Claude Code plugin cache (where `skills/` is at the plugin root, not nested under `plugins/nmg-sdlc/`). Preserves backward-compatible `pluginsPath` fallback for monorepo installs. Improves `readSkill()` error message to include the configured field name, its value, and the full attempted path. Updates config validation to accept `pluginRoot` alone as a valid configuration, and adds regression test coverage for AC1–AC5 in a new `describe('skill path resolution (#88)')` block.
+
 ## [1.54.0] - 2026-04-20
 
 ### Added
