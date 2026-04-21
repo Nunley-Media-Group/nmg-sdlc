@@ -1,7 +1,7 @@
 # Design: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146, #83
-**Date**: 2026-04-19
+**Issues**: #138, #145, #146, #83, #84
+**Date**: 2026-04-20
 **Status**: Draft
 **Author**: Rich Nunley
 
@@ -428,6 +428,7 @@ None — both Phase-1 open questions were resolved and codified in requirements.
 | #145 | 2026-04-19 | Replaced "Scope Boundary" section with "Required-Pass Gate" + "Verdict-To-Exit-Code Mapping" — the Claude review is now a required status check that blocks merge on REQUEST_CHANGES rather than an advisory comment. Added the enforce-verdict workflow step spec. |
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. No design changes; the pilot scope was already captured in the Per-Skill Reference Extractions table (draft-issue row: `multi-issue.md`, `design-url.md`, `interview-depth.md`, `feature-template.md`, `bug-template.md`; ceiling ≤ 300) and in the Multi-PR Rollout (PR 2 row). This child issue validates the extraction pattern on the largest skill before Phases 3–4 fire. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (write-spec → `discovery.md`, `amendment-mode.md`, `defect-variant.md`, `review-gates.md`; onboard-project → `greenfield.md`, `brownfield.md`, `interview.md`; upgrade-project → `detection.md`, `migration-steps.md`, `verification.md`) and in the Multi-PR Rollout (PR 3 row). Applies the pilot pattern established in #146. |
+| #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of the five smallest-delta skills plus release. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (start-issue → `dirty-tree.md`, `milestone-selection.md`; verify-code → `exercise-testing.md` [exists], `autofix-loop.md`, `defect-path.md`; run-retro → `learning-extraction.md`, `transferability.md`; open-pr → `version-bump.md`, `ci-monitoring.md`; write-code → `plan-mode.md`, `resumption.md`) and in the Multi-PR Rollout (PR 4 row). verify-code additionally migrates its existing `[text](path)` pointers to the AC7 grammar per the "Pointer Grammar" section. `steering/structure.md` gains the `references/` layer (FR12); plugin version bumps to 1.53.0 (FR9). Applies the pilot pattern established in #146; shared-reference scaffolding inherited from #145 (T001). |
 
 ---
 

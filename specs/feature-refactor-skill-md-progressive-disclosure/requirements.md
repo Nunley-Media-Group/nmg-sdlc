@@ -1,7 +1,7 @@
 # Requirements: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146, #83
-**Date**: 2026-04-19
+**Issues**: #138, #145, #146, #83, #84
+**Date**: 2026-04-20
 **Status**: Draft
 **Author**: Rich Nunley
 
@@ -281,6 +281,7 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | #145 | 2026-04-19 | Promoted the Claude-review workflow from advisory to required-pass gate. Added AC11 and tightened FR14 and AC10 accordingly — the workflow must exit non-zero on REQUEST_CHANGES and be declared a required status check on `main`. |
 | #146 | 2026-04-19 | Phase 2 child — scope is the `draft-issue` pilot (AC1 line target for one skill, AC2 exercise-test parity, AC5 frontmatter byte-identity, AC6 audit-clean-after-baseline-regen, AC7 pointer grammar, FR2/FR7/FR8). Maps to tasks T009–T012. No new ACs or FRs — child ACs narrow umbrella ACs to the draft-issue file only. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec` (≤ 250), `onboard-project` (≤ 280), `upgrade-project` (≤ 250). Narrows umbrella AC1/AC2/AC5/AC6/AC7 to these three skills; narrows FR3/FR7/FR8. Maps to tasks T013–T015. No new ACs or FRs. Depends on #146 (pilot pattern) landing first. |
+| #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of `start-issue` (≤ 220), `verify-code` (≤ 220), `run-retro` (≤ 180), `open-pr` (≤ 180), `write-code` (≤ 180); update `steering/structure.md` to document `references/` layer; version bump to 1.53.0. Narrows umbrella AC1/AC2/AC5/AC6/AC7/AC8 to these five skills; narrows FR4/FR7/FR8 and incorporates FR9 and FR12. Maps to tasks T016–T022 plus T025 (Phase 5 final verification). No new ACs or FRs. Depends on #83 (Phase 3) landing first. Closes umbrella epic #77. |
 
 ---
 

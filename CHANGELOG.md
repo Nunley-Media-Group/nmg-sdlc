@@ -10,6 +10,20 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.54.0] - 2026-04-20
+
+### Added
+
+- **Refactor remaining 5 skills + structure.md for progressive disclosure** (issue #84, closes epic #77) — extracts variant and rarely-fired content from `start-issue`, `verify-code`, `run-retro`, `open-pr`, and `write-code` into per-skill `references/` directories; adds shared-reference pointers using the AC7 grammar (`` Read `references/{name}.md` when {trigger}. ``); migrates `verify-code`'s legacy `[text](path)` pointers to the same grammar. Every SKILL.md frontmatter stays byte-identical. `steering/structure.md` now documents the `references/` layer (plugin-shared + per-skill) across the layout tree, layer-architecture diagram, responsibilities table, naming conventions, and file-templates section.
+
+  | Skill | Before | After | Target |
+  |-------|--------|-------|--------|
+  | `start-issue`  | 406 | 207 | ≤ 220 |
+  | `verify-code`  | 437 | 190 | ≤ 220 |
+  | `run-retro`    | 307 | 171 | ≤ 180 |
+  | `open-pr`      | 357 | 100 | ≤ 180 |
+  | `write-code`   | 278 | 105 | ≤ 180 |
+
 ## [1.53.3] - 2026-04-19
 
 ### Added

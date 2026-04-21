@@ -7,24 +7,21 @@ model: sonnet
 effort: low
 ---
 
-> **CRITICAL (Headless/Unattended-Mode):** If `.claude/unattended-mode` exists, **NEVER** call `AskUserQuestion`. Select issues automatically and skip all confirmation steps. Calling `AskUserQuestion` in pipe mode will be denied and waste all turns.
-
 # Start Issue
 
 Select a GitHub issue to work on, create a linked feature branch, and set the issue to "In Progress" in any associated GitHub Project.
 
-## When to Use
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.claude/steering/` or `.claude/specs/` (the current Claude Code release refuses to Edit/Write there).
 
-- Starting work on a specific GitHub issue
-- Picking up the next issue from your milestone
-- Setting up a feature branch linked to an issue before writing specs or implementing
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `AskUserQuestion` call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
 
-## Unattended Mode
+## Unattended-Mode Behaviour Specific to This Skill
 
-If the file `.claude/unattended-mode` exists in the project directory:
-- If an issue number was provided as an argument, **skip Steps 2–3** (selection and confirmation) — go directly to Step 4.
-- If no issue number was provided, **select the first unblocked `automatable` issue in topological order** (ties broken by issue number ascending) from the first viable milestone (sorted alphabetically) (or all open issues if no viable milestone exists) **without calling `AskUserQuestion`**. **Skip Step 3 confirmation.** Blocked issues (any issue whose declared dependencies include an open issue) are never selected, even if they have the lowest issue number — see Step 1a: Dependency Resolution.
-- **Only issues with the `automatable` label are eligible.** Add `--label automatable` to all `gh issue list` commands in unattended mode. If no automatable issues are found, run a diagnostic query (see "Unattended-Mode: Empty Result Handling") and exit without creating a branch.
+The shared reference covers sentinel semantics; these skill-specific branches apply when `.claude/unattended-mode` exists:
+
+- **Argument supplied** (`/start-issue #N`): skip Steps 2–3 (selection and confirmation) and go directly to Step 4.
+- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. `AskUserQuestion` is never called.
+- Only issues with the `automatable` label are eligible. Every `gh issue list` command gains `--label automatable`. If no automatable issues exist, run the diagnostic per `references/milestone-selection.md` and exit without creating a branch.
 
 ## Workflow Overview
 
@@ -42,109 +39,19 @@ If the file `.claude/unattended-mode` exists in the project directory:
 
 ---
 
-## Step 0: Legacy-Layout Gate
-
-**Before any other work**, check whether this project still uses the legacy `.claude/steering/` or `.claude/specs/` directory layout. Current Claude Code releases protect the project-level `.claude/` directory from Edit/Write, so SDLC skills can no longer author files under those paths. Canonical SDLC artifacts must live at `steering/` and `specs/` at the project root.
-
-1. Run `Glob` for `.claude/steering/*.md` and `.claude/specs/*/requirements.md`.
-2. If either glob returns at least one match, the project uses the legacy layout. **Abort immediately without creating a branch, updating issue status, or modifying anything.**
-
-Print the following message and exit:
-
-```
-ERROR: This project uses the legacy `.claude/steering/` and/or `.claude/specs/` directory layout, which current Claude Code releases refuse to write to. The SDLC pipeline cannot proceed until the project is upgraded.
-
-Run `/upgrade-project` first. It will:
-  - Relocate `.claude/steering/` → `steering/`
-  - Relocate `.claude/specs/` → `specs/`
-  - Rewrite intra-file cross-references
-  - Preserve runtime artifacts (`.claude/unattended-mode`, `.claude/sdlc-state.json`) unchanged
-
-Then re-run `/start-issue`.
-```
-
-**Unattended-mode:** The gate still fires. Automation on a legacy-layout project must halt — do not silently write to a mixed state. Output the same message (framed as an orchestrator escalation) and exit without creating a branch.
-
-If the glob returns no matches, proceed to Step 1.
-
----
-
 ## Step 1: Identify Issue
 
 If an argument was provided (e.g., `/start-issue #42`), skip to Step 3 using that issue number.
 
-Otherwise, discover available issues:
+Otherwise, discover available issues.
 
-### Fetch Viable Milestones
+Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. interactive prompt, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
 
-Fetch milestones that have at least one open issue, sorted alphabetically:
-
-```bash
-gh api repos/{owner}/{repo}/milestones --jq '[.[] | select(.open_issues > 0) | {title: .title, open_issues: .open_issues}] | sort_by(.title)'
-```
-
-If this call fails (network error, auth failure, or no milestones endpoint), treat as zero viable milestones and fall back to all open issues.
-
-### Select Milestone and Fetch Issues
-
-Apply deterministic selection based on the number of viable milestones:
-
-- **Zero viable milestones:** Fall back to all open issues:
-  ```bash
-  # Interactive mode:
-  gh issue list -s open -L 10 --json number,title,labels
-  # Unattended-mode:
-  gh issue list -s open --label automatable -L 10 --json number,title,labels
-  ```
-
-- **One viable milestone:** Auto-select it and fetch its issues:
-  ```bash
-  # Interactive mode:
-  gh issue list -s open -m "<milestone>" -L 10 --json number,title,labels
-  # Unattended-mode:
-  gh issue list -s open -m "<milestone>" --label automatable -L 10 --json number,title,labels
-  ```
-
-- **Multiple viable milestones:**
-  - **Interactive mode:** Present the filtered milestone list via `AskUserQuestion` (label: milestone title, description: "N open issues"), then fetch issues from the selected milestone.
-  - **Unattended-mode:** Select the first milestone alphabetically and fetch its issues (with `--label automatable`).
-
-#### Unattended-Mode: Empty Result Handling
-
-After fetching issues in unattended mode, if the result is an empty array (`[]`):
-
-1. **Run a diagnostic query** to count total open issues in the same scope, **without** the `--label automatable` filter. The diagnostic query MUST match the same scope as the original query:
-
-   - If the original query was milestone-scoped (`-m "<milestone>"`):
-     ```bash
-     gh issue list -s open -m "<milestone>" --json number --jq 'length'
-     ```
-   - If the original query was repo-wide (no milestone):
-     ```bash
-     gh issue list -s open --json number --jq 'length'
-     ```
-
-2. **Output based on the total open count:**
-
-   - **If total open > 0:**
-     ```
-     No automatable issues found (N open issues exist without the automatable label).
-     Consider adding the automatable label to issues that should be picked up automatically.
-     Done. Awaiting orchestrator.
-     ```
-   - **If total open = 0:**
-     ```
-     No automatable issues found. 0 open issues in scope.
-     Done. Awaiting orchestrator.
-     ```
-
-3. Exit immediately — do **not** create a branch, do **not** fall back to non-automatable issues.
-
-After the raw candidate set is produced by Step 1 (and the empty-result handler has not fired), **proceed to Step 1a before any presentation or auto-selection**.
+After the raw candidate set is produced (and the empty-result handler has not fired), proceed to Step 1a before any presentation or auto-selection.
 
 ## Step 1a: Dependency Resolution
 
-Filter out blocked issues and topologically order the remainder so parents appear before their descendants. This runs in **both interactive and unattended mode**, on the candidate set produced by Step 1. Emit a session note reporting the filtered count before presentation/auto-selection, even when the count is zero.
+Filter out blocked issues and topologically order the remainder so parents appear before their descendants. This runs in **both** interactive and unattended mode, on the candidate set produced by Step 1. Emit a session note reporting the filtered count before presentation/auto-selection, even when the count is zero.
 
 ### Fetch Dependency Metadata (single GraphQL batch)
 
@@ -162,18 +69,18 @@ issue(number: N) {
 
 Any parent whose `state` is not `CLOSED` (including `OPEN`) is treated as an unresolved dependency.
 
-If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — **this is not a fallback condition**.
+If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — this is not a fallback condition.
 
 ### Parse Body Cross-Refs
 
-Scan each issue body **line-by-line, case-insensitive, line-anchored**:
+Scan each issue body line-by-line, case-insensitive, line-anchored:
 
 | Pattern | Meaning |
 |---------|---------|
 | `^\s*Depends on:\s*(#\d+(?:\s*,\s*#\d+)*)` | Current issue depends on the listed issues (they are parents) |
 | `^\s*Blocks:\s*(#\d+(?:\s*,\s*#\d+)*)` | Current issue blocks the listed issues (they depend on current) |
 
-Extract issue numbers with `#?(\d+)`. **Normalize**: a `Blocks: #Y` on issue `X` is recorded as a `Depends on: #X` on issue `Y`. Cross-repo references (e.g. `owner/repo#N`) are ignored.
+Extract issue numbers with `#?(\d+)`. Normalize: `Blocks: #Y` on issue `X` is recorded as `Depends on: #X` on issue `Y`. Cross-repo references (`owner/repo#N`) are ignored.
 
 ### Build Graph
 
@@ -187,8 +94,8 @@ An issue `I` is **blocked** and dropped from the candidate set if any element of
 
 ### Topological Sort (Kahn's algorithm)
 
-1. Compute in-degree counting only parents that are **also in the candidate set** (external parents are already closed by precondition).
-2. Seed a priority queue with all zero-in-degree nodes, ordered by **issue number ascending**.
+1. Compute in-degree counting only parents that are also in the candidate set (external parents are already closed by precondition).
+2. Seed a priority queue with all zero-in-degree nodes, ordered by issue number ascending.
 3. Pop the lowest-numbered zero-in-degree node, append it to the output, decrement in-degrees of its children, and enqueue newly-zero children.
 4. Repeat until the queue drains.
 
@@ -196,13 +103,13 @@ Ties between sibling zero-in-degree nodes always break by issue number ascending
 
 ### Cycle Handling
 
-If any candidate remains un-emitted after the queue drains, those nodes form a cycle. **Do not abort**:
+If any candidate remains un-emitted after the queue drains, those nodes form a cycle. Do not abort:
 
 1. Emit a warning naming the participants:
    ```
    WARNING: Dependency cycle detected among issues #A, #B, #C — placing at end of list in issue-number order.
    ```
-2. Append the cycle members to the output list in **issue-number ascending order**.
+2. Append the cycle members to the output list in issue-number ascending order.
 3. Continue.
 4. In unattended mode, this warning is informational only — the runner does not escalate based on cycles.
 
@@ -221,81 +128,32 @@ Before presentation (interactive) or auto-selection (unattended), emit exactly o
 Filtered N blocked issues from selection.
 ```
 
-Emit the line **even when `N == 0`** — it confirms dependency resolution ran (observability per FR14).
+Emit the line even when `N == 0` — it confirms dependency resolution ran.
 
-### Output
-
-The topologically-ordered, blocked-filtered list from Step 1a is what Steps 2 and the unattended auto-pick consume.
+The topologically-ordered, blocked-filtered list is what Step 2 and the unattended auto-pick consume.
 
 ## Step 2: Present Issue Selection
 
-> **Unattended-mode:** If `.claude/unattended-mode` exists, skip this step entirely — do NOT call `AskUserQuestion`.
+In unattended mode, skip this step entirely — the auto-pick rule in the Unattended-Mode Behaviour section replaces it.
 
-Use `AskUserQuestion` to present up to 4 issues as options, drawn from the **topologically-ordered, blocked-filtered list produced by Step 1a** (not the raw Step 1 fetch).
+Interactive mode uses `AskUserQuestion` to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none. If the issue has the `automatable` label, append `(automatable)` to the description.
-- Include a final option: **"Enter issue number manually"** with description "Type a specific issue number"
-- If more than 4 issues exist in the milestone, show the first 4
+- Include a final option: **"Enter issue number manually"** with description "Type a specific issue number".
+- If more than 4 issues exist, show the first 4.
 
-If the user selects "Enter issue number manually", they will type their issue number via the "Other" free-text input.
+If the user selects "Enter issue number manually", they type their issue number via the "Other" free-text input.
 
 ## Step 3: Confirm Selection
 
-Read the full issue details:
+Read the full issue details via `gh issue view #N` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, and milestone.
 
-```bash
-gh issue view #N
-```
-
-Present a brief summary to the user:
-- Issue title and number
-- User story (if present)
-- Number of acceptance criteria
-- Labels and milestone
-
-Ask: "Ready to start working on this issue?"
-
-If the user says no, return to Step 2.
+Ask: "Ready to start working on this issue?" If the user says no, return to Step 2.
 
 ## Step 4: Create Feature Branch & Link to Issue
 
-### Precondition: Working Tree Check
-
-Before any branch operation, verify the working tree is clean:
-
-```bash
-git status --porcelain
-```
-
-**Filter SDLC runner artifacts** before evaluating the output. Remove any lines whose file path ends with `.claude/sdlc-state.json` or `.claude/unattended-mode` — these are runtime artifacts managed by the SDLC runner and are not real working-tree dirt.
-
-- **If the filtered output is empty** (clean tree): proceed to branch creation below.
-- **If the filtered output is non-empty** (dirty tree): abort immediately. Do **not** call `gh issue develop`.
-
-**Interactive mode** — output an error and stop:
-
-```
-ERROR: Working tree is not clean. Cannot create feature branch.
-
-Dirty files:
-[paste the git status --porcelain output here]
-
-Please resolve these changes (commit, stash, or discard) before running /start-issue again.
-```
-
-**Unattended-mode** (`.claude/unattended-mode` exists) — report as an escalation reason for the runner:
-
-```
-Working tree is not clean. Cannot create feature branch.
-
-Dirty files:
-[paste the git status --porcelain output here]
-
-Resolve these changes before retrying. Done. Awaiting orchestrator.
-```
-
-Then exit — do **not** proceed to branch creation or any subsequent steps.
+Read `references/dirty-tree.md` when Step 4 begins — the reference covers the `git status --porcelain` filter for SDLC-runner artifacts and the abort messaging (interactive vs. unattended) when the filtered output is non-empty. Branch creation must not proceed against a dirty tree.
 
 ### Create Branch
 
@@ -305,9 +163,9 @@ Check if already on a feature branch for this issue:
 git branch --show-current
 ```
 
-If already on a branch that references the issue number, stay on it and skip branch creation.
+If the current branch already references the issue number, stay on it and skip branch creation.
 
-If the current branch is `main` or `master`, create a linked feature branch using `gh issue develop`, which both creates the branch AND associates it with the issue in GitHub's "Development" sidebar:
+If the current branch is `main` or `master`, create a linked feature branch using `gh issue develop`, which both creates the branch and associates it with the issue in GitHub's "Development" sidebar:
 
 ```bash
 gh issue develop N --checkout --name N-feature-name
@@ -315,72 +173,15 @@ gh issue develop N --checkout --name N-feature-name
 
 Where `N` is the issue number and `feature-name` is a kebab-case slug derived from the issue title.
 
+Read `../../references/feature-naming.md` when deriving the branch-name slug — the reference defines the slug rules and the intentional mismatch between branch names (`{issue#}-{slug}`) and spec directories (`feature-{slug}` / `bug-{slug}`).
+
 ### Update Issue Status to In Progress
 
-After creating the branch, move the issue to "In Progress" in any associated GitHub Project. Use the GraphQL API to discover the project, field, and option IDs, then update:
-
-1. **Get the issue's project item info:**
-
-```bash
-gh api graphql -f query='
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      issue(number: $number) {
-        projectItems(first: 10) {
-          nodes {
-            id
-            project { id title }
-            fieldValueByName(name: "Status") {
-              ... on ProjectV2ItemFieldSingleSelectValue {
-                name
-                field {
-                  ... on ProjectV2SingleSelectField {
-                    id
-                    options { id name }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-' -f owner=OWNER -f repo=REPO -F number=N
-```
-
-Replace `OWNER`, `REPO`, and `N` with actual values derived from `gh repo view --json owner,name`.
-
-2. **From the response, extract:**
-   - `projectId` — the project's ID
-   - `itemId` — the issue's project item ID
-   - `fieldId` — the Status field's ID
-   - `optionId` — the ID of the "In Progress" option (match by name, case-insensitive)
-
-3. **Update the status:**
-
-```bash
-gh api graphql -f query='
-  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-    updateProjectV2ItemFieldValue(input: {
-      projectId: $projectId
-      itemId: $itemId
-      fieldId: $fieldId
-      value: { singleSelectOptionId: $optionId }
-    }) {
-      projectV2Item { id }
-    }
-  }
-' -f projectId=PROJECT_ID -f itemId=ITEM_ID -f fieldId=FIELD_ID -f optionId=OPTION_ID
-```
-
-If the issue is not in any project, or no "In Progress" option exists, skip the status update silently and continue.
+Read `references/project-status.md` when the branch has been created successfully — the reference covers GraphQL discovery of the project/field/option IDs and the `updateProjectV2ItemFieldValue` mutation. The update is best-effort: if the issue is not in any project or no "In Progress" option exists, skip silently and proceed to Output.
 
 ---
 
 ## Output
-
-When complete, output a structured summary:
 
 ```
 --- Issue Ready ---
@@ -394,7 +195,7 @@ Status: In Progress
 [If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
-This summary serves as the handoff contract for downstream skills like `/write-spec` and `/write-code`.
+This summary is the handoff contract for downstream skills like `/write-spec` and `/write-code`.
 
 ---
 
