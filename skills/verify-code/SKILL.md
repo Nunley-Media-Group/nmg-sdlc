@@ -11,33 +11,21 @@ effort: high
 
 Verify the implementation against specifications, fix any findings, review architecture and test coverage, then update the GitHub issue with evidence.
 
-## When to Use
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.claude/steering/` or `.claude/specs/` trees are still present. Verification against a mixed layout produces misleading results.
 
-- After implementation is complete via `/write-code`
-- Before creating a pull request via `/open-pr`
-- When reviewing whether a feature meets its specification
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `AskUserQuestion` call site in this skill so the runner proceeds through all steps without blocking.
 
-## Unattended Mode
+Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
 
-If the file `.claude/unattended-mode` exists in the project directory:
-- All approval gates are pre-approved. Do NOT call `AskUserQuestion` — proceed through all steps without stopping for user input.
+Read `../../references/steering-schema.md` when you need to know which steering doc to read for which step — steering docs are required inputs to this skill, not optional references.
+
+Read `../../references/spec-frontmatter.md` when a frontmatter field drives behaviour (e.g., singular `**Issue**` + `**Related Spec**` signals the defect path).
 
 ## Prerequisites
 
-1. Specs exist at `specs/{feature-name}/`. The `{feature-name}` is the spec directory name. For specs created with v1.25.0+, this follows the `feature-{slug}` or `bug-{slug}` convention (e.g., `feature-dark-mode`). Legacy specs use `{issue#}-{slug}` (e.g., `42-add-precipitation-overlay`). **Fallback:** Use `Glob` to find `specs/*/requirements.md`. For each result, read the `**Issues**` (or legacy `**Issue**`) frontmatter field and match against the current issue number. If no frontmatter match, try matching the issue number or branch name keywords against the directory name.
-2. Implementation is complete (or believed to be complete)
-3. A GitHub issue exists for tracking
-4. The project uses the current directory layout — no `.claude/steering/` or `.claude/specs/` content remains. See the **Legacy-Layout Precondition** below.
-
-### Legacy-Layout Precondition
-
-Before Step 1, run `Glob` for `.claude/steering/*.md` and `.claude/specs/*/requirements.md`. If either returns a match, abort and print:
-
-```
-ERROR: This project uses the legacy `.claude/steering/` and/or `.claude/specs/` directory layout, which current Claude Code releases refuse to write to. Run `/upgrade-project` first, then re-run `/verify-code`.
-```
-
-The gate fires in both interactive and unattended mode — do not silently verify against a mixed layout.
+1. Specs exist at `specs/{feature-name}/`.
+2. Implementation is complete (or believed to be complete).
+3. A GitHub issue exists for tracking.
 
 ---
 
@@ -55,7 +43,7 @@ specs/{feature-name}/
 └── feature.gherkin    — BDD scenarios to check
 ```
 
-Read all steering documents (these define project conventions used throughout verification):
+Read all steering documents — these define project conventions used throughout verification and are required inputs, not optional references:
 
 ```
 steering/
@@ -64,20 +52,9 @@ steering/
 └── product.md     — Product principles, intent verification postconditions
 ```
 
-**These are required inputs, not optional references.** Steering docs define the verification framework (behavioral contracts, checklist applicability, script verification contracts) and must be loaded before any evaluation begins. They must also be provided to any subagents dispatched during the review.
+Steering docs define the verification framework (behavioral contracts, checklist applicability, script verification contracts) and must be loaded before any evaluation begins. They must also be provided to any subagents dispatched during the review.
 
-#### Extract Verification Gates
-
-After loading `tech.md`, check if it contains a `## Verification Gates` section:
-
-- **If present**: Parse each table row as a named gate with four fields:
-  - **Gate** — human-readable name (used in reports)
-  - **Condition** — when the gate applies (`Always`, `{path} directory exists`, `{glob} files exist in {path}`)
-  - **Action** — shell command to execute
-  - **Pass Criteria** — how to determine success (`Exit code 0`, `{file} file generated`, compound `AND`)
-- **If absent**: No gates are enforced. This is backward-compatible — existing projects without the section are unaffected.
-
-Queue the extracted gates as mandatory steps for execution during Step 5 (sub-step 5f).
+Read `references/verification-gates.md` when `tech.md` is being parsed — the reference covers how to extract the `## Verification Gates` table (if present) so the extracted gates can be executed in Step 5f. Absence of the section is backward-compatible — no gates are enforced.
 
 ### Step 2: Load Issue
 
@@ -87,308 +64,84 @@ Read the GitHub issue for the original acceptance criteria:
 gh issue view #N
 ```
 
-### Bug Fix Verification
-
-When verifying a **defect fix** (specs use defect variants):
-
-- **Reproduction check**: Verify the bug no longer reproduces using the exact steps from `requirements.md`
-- **Regression scenarios**: All `@regression`-tagged Gherkin scenarios must pass
-- **Architecture review**: Focus on blast radius assessment — full SOLID review is optional for small, targeted fixes
-- **Regression test is mandatory**: A `@regression`-tagged test must exist; flag if missing
-- **Minimal change check**: Review the diff for unrelated modifications — flag any changes outside the fix scope
+Read `references/defect-path.md` when the spec under verification uses the defect variant (heading `# Defect Report:` or singular `**Issue**` frontmatter) — the reference narrows verification to reproduction check, regression-scenario validation, blast-radius architecture review, and a minimal-change diff check.
 
 ### Step 3: Verify Implementation
 
 Check each acceptance criterion against actual code:
 
-1. **For each AC in requirements.md**:
-   - Find the implementing code via `Glob` and `Grep`
-   - Verify the behavior matches the criterion
-   - Mark as: Pass / Fail / Partial
-2. **For each task in tasks.md**:
-   - Verify the file exists and contains the expected code
-   - Check the task's acceptance criteria
-   - Mark as: Complete / Incomplete / Skipped
+1. **For each AC in requirements.md**: find the implementing code via `Glob` / `Grep`, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
+2. **For each task in tasks.md**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
 
 ### Step 4: Architecture Review
 
 Run the architecture review using the `Task` tool with `subagent_type='nmg-sdlc:architecture-reviewer'`. The architecture-reviewer agent evaluates the implementation against all five checklists and returns structured scores and findings.
 
-**You MUST include the steering doc content in the subagent prompt.** The architecture-reviewer has no access to conversation context — it only sees the prompt you give it. Include:
-- `tech.md` — checklist applicability table (which checklists apply to scripts vs. skills), script verification contracts (preconditions/postconditions/invariants/boundaries), coding standards, cross-platform constraints
-- `structure.md` — architectural invariants (hard contracts that must never be violated), cross-platform contracts
+The architecture-reviewer has no access to conversation context — it only sees the prompt you give it. Include the steering doc content in the subagent prompt:
+
+- `tech.md` — checklist applicability table (scripts vs. skills), script verification contracts (preconditions / postconditions / invariants / boundaries), coding standards, cross-platform constraints.
+- `structure.md` — architectural invariants (hard contracts that must never be violated), cross-platform contracts.
 
 | Area | Checklist | Priority |
 |------|-----------|----------|
-| SOLID Principles | [checklists/solid-principles.md](checklists/solid-principles.md) | 1 |
-| Security | [checklists/security.md](checklists/security.md) | 2 |
-| Performance | [checklists/performance.md](checklists/performance.md) | 3 |
-| Testability | [checklists/testability.md](checklists/testability.md) | 4 |
-| Error Handling | [checklists/error-handling.md](checklists/error-handling.md) | 5 |
+| SOLID Principles | Read `checklists/solid-principles.md` when evaluating SOLID compliance | 1 |
+| Security | Read `checklists/security.md` when evaluating security posture | 2 |
+| Performance | Read `checklists/performance.md` when evaluating performance | 3 |
+| Testability | Read `checklists/testability.md` when evaluating testability | 4 |
+| Error Handling | Read `checklists/error-handling.md` when evaluating error handling | 5 |
 
-For each area:
-1. Load the checklist
-2. Evaluate the implementation against each item
-3. Score 1-5 (5 = excellent)
-4. Note any issues found
+For each area: load the checklist, evaluate the implementation against each item, score 1–5 (5 = excellent), note any issues found.
 
 ### Step 5: Verify Test Coverage
 
 #### 5a: Detect Plugin Changes
 
 Run `git diff main...HEAD --name-only` and check if any changed files match these patterns:
+
 - `plugins/*/skills/*/SKILL.md`
 - `plugins/*/agents/*.md`
+- `skills/*/SKILL.md` or `agents/*.md` at the repo root (for standalone-plugin repos)
 
 Template-only changes (files in `templates/` without an accompanying SKILL.md change) do not trigger exercise testing.
 
-**If plugin changes are detected** → proceed to **5b–5e** (exercise-based verification).
-
-**If no plugin changes are detected** → run the standard BDD verification below, then skip to Step 6.
+- **If plugin changes are detected** → proceed to 5b–5e (exercise-based verification).
+- **If no plugin changes are detected** → run the Standard BDD Verification below, then skip to Step 6.
 
 #### Standard BDD Verification (non-plugin projects)
 
 Check that BDD tests exist and cover the acceptance criteria:
 
-1. **Feature files**: Do `.feature` files exist at the location specified in `tech.md`?
-2. **Scenario coverage**: Does each AC from requirements.md have a corresponding Gherkin scenario?
-3. **Step definitions**: Are step definitions implemented for all scenarios?
-4. **Test execution**: Reference `tech.md` for the command to run tests
+1. Feature files — do `.feature` files exist at the location specified in `tech.md`?
+2. Scenario coverage — does each AC from requirements.md have a corresponding Gherkin scenario?
+3. Step definitions — are step definitions implemented for all scenarios?
+4. Test execution — reference `tech.md` for the command to run tests.
 
 Report coverage gaps.
 
 #### 5b–5e: Exercise Testing
 
-Follow the full exercise testing procedure in [references/exercise-testing.md](references/exercise-testing.md). This includes:
+Read `references/exercise-testing.md` when Step 5a detected plugin changes — the reference covers scaffolding a disposable test project (5b), exercising the changed skill via Agent SDK / `claude -p` with dry-run mode for GitHub-integrated skills (5c), evaluating exercise output against acceptance criteria (5d), and cleanup (5e).
 
-1. **5b**: Scaffold a disposable test project with steering docs and git
-2. **5c**: Exercise the changed skill via Agent SDK (preferred) or `claude -p` (fallback), with dry-run mode for GitHub-integrated skills
-3. **5d**: Evaluate exercise output against acceptance criteria (Pass/Fail/Partial verdicts)
-4. **5e**: Cleanup the test project directory
-
-Exercise findings are treated as findings for Step 6, just like any other verification finding. If neither Agent SDK nor `claude` CLI is available, skip exercise testing and record the reason for the report (graceful degradation).
+Exercise findings are treated as findings for Step 6, just like any other verification finding. If neither Agent SDK nor the `claude` CLI is available, skip exercise testing and record the reason for the report (graceful degradation).
 
 #### 5f: Execute Verification Gates
 
-If verification gates were extracted from `tech.md` in Step 1, execute each gate:
-
-**For each gate:**
-
-1. **Evaluate Condition**
-   - `Always` — proceed to execution
-   - `{path} directory exists` — check via `test -d {path}`. If the directory does not exist, **skip** this gate silently (do not report as Incomplete)
-   - `{glob} files exist in {path}` — check via Glob tool or `ls {path}/{glob}`. If no matching files exist, **skip** this gate silently
-   - If the condition cannot be evaluated → record as **Incomplete** with reason: `"Cannot evaluate condition: {reason}"`
-
-2. **Execute Action**
-   - Run the Action command via Bash, capturing exit code, stdout, and stderr
-   - If the command is not found or prerequisites are missing → record as **Incomplete** with reason: `"Tool unavailable: {details}"`
-   - If the command times out → record as **Incomplete** with reason: `"Command timed out"`
-
-3. **Evaluate Pass Criteria**
-   - Parse the Pass Criteria string from the gate definition
-   - `Exit code 0` — check that the Action command exited with code 0
-   - `{file} file generated` — check that the named file exists after the Action completes
-   - `output contains "{text}"` — check that stdout or stderr contains the specified text
-   - Compound criteria using `AND` — **all** sub-criteria must be satisfied
-   - All sub-criteria pass → gate status is **Pass**
-   - Any sub-criteria fails → gate status is **Fail**
-
-4. **Record Result**
-   - Gate name, status (**Pass** / **Fail** / **Incomplete**), and evidence (output excerpt, artifact path, or blocker reason)
-
-**Important**: The skill evaluates textual pass criteria against actual results. It does NOT contain stack-specific logic — any shell command works as a gate action.
-
-If no gates were extracted (section absent in `tech.md`), skip this sub-step entirely.
+Read `references/verification-gates.md` when gates were extracted in Step 1 — the reference covers per-gate Condition evaluation, Action execution, Pass-Criteria grading, and result recording. If no `## Verification Gates` section was present in `tech.md`, skip this sub-step entirely.
 
 ### Step 6: Fix Findings
 
-Work through all findings discovered in Steps 3–5 and fix them before generating the report.
-
-#### 6a. Prioritize and Fix
-
-Process findings in severity order: **Critical → High → Medium → Low**.
-
-For each finding:
-1. Locate the relevant code via `Glob` / `Grep`
-2. **Classify the finding** using the SKILL-BUNDLED FILE DETECTOR below — does this finding touch a skill-bundled file?
-3. If skill-bundled, route the fix through `/skill-creator` per the Skill-Creator Probe Contract below. Otherwise, apply the fix using `Write` or `Edit` directly.
-4. Verify the fix addresses the finding
-5. Record: original issue, location, fix applied, and routing path (`skill-creator` vs. `direct`) in the Fixes Applied table
-
-##### SKILL-BUNDLED FILE DETECTOR
-
-A finding is classified as **skill-bundled** when ANY of the following signals is present:
-
-- **Path signals** — the affected file path matches any of:
-  - `**/skills/*/SKILL.md`
-  - `**/skills/*/references/**`, `**/skills/*/scripts/**`, `**/skills/*/templates/**`, `**/skills/*/checklists/**`, `**/skills/*/assets/**`
-  - `references/**` at the plugin or repo root (cross-skill shared references)
-  - `**/agents/*.md` (per-plugin subagent definitions invoked by skills)
-- **Description signals** — the finding summary, issue title, or issue body contains `skill`, `SKILL.md`, `skill definition`, `skill reference`, or `skill bundle` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not).
-
-Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill-bundled findings skip the probe entirely and are fixed with direct `Write`/`Edit`.
-
-##### Skill-Creator Probe Contract
-
-1. **Probe for availability** — treat the `skill-creator` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
-   - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
-2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the file — never `Write`/`Edit` a skill-bundled file directly.
-3. **If unavailable**: do NOT silently fall back to `Write`/`Edit`. The hand-patch escape hatch was removed because it consistently produced drift from skill-creator's best practices.
-   - **Interactive mode**: surface the missing dependency to the user — `/skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run /verify-code.` Stop the workflow.
-   - **Unattended mode**: emit `ESCALATION: /skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
-
-Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
-
-If `/skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
-
-The Fixes Applied table in the verification report records the routing path taken for each fix so reviewers can confirm the skill-authoring invariant was honored.
-
-#### 6a-bis. Simplify After Fix
-
-If at least one fix was applied in 6a AND the `simplify` marketplace skill is available, run `/simplify` over the files just modified to ensure the fix itself is clean before re-testing. If no fixes were applied in 6a, skip this sub-step entirely (no Claude turn consumed).
-
-##### Simplify-Skill Probe Contract
-
-1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/simplify/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/simplify/SKILL.md`
-   - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
-2. **If available**: invoke `/simplify` on the files touched by fixes in 6a. Apply any returned changes before proceeding to 6b.
-3. **If unavailable**: emit the warning verbatim:
-
-   ```
-   simplify skill not available — skipping simplification pass
-   ```
-
-   Then proceed to 6b without simplification.
-
-If the `simplify` skill is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
-
-Unattended-mode behaviour is preserved — the probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate.
-
-#### 6b. Run Tests After Fixes
-
-Reference `steering/tech.md` for the project's test command. Run the full test suite and fix any regressions introduced by the fixes.
-
-#### 6c. Re-verify Changed Areas
-
-Re-check modified files against acceptance criteria and architecture checklists. Update scores if fixes improved them.
-
-#### 6d. Handle Unfixable Findings
-
-Fix findings that can be resolved in roughly 20 lines of change or fewer. Defer findings that would require architectural changes, new dependencies, or modifications outside the feature's scope.
-
-If a finding cannot be safely fixed (e.g., requires spec clarification, would change scope, or risks breaking unrelated functionality):
-1. Document **why** it cannot be fixed now
-2. Categorize as **"Deferred"** in the report
-
-#### Fix Rules
-
-| Rule | Detail |
-|------|--------|
-| Follow the spec | Fixes must not contradict requirements.md or design.md |
-| Follow steering docs | Reference tech.md and structure.md for conventions |
-| Match code style | Mirror the patterns already used in the codebase |
-| One finding at a time | Fix, verify, then move to the next |
-| Test after each batch | Run the test suite after each group of related fixes |
-| No scope changes | Do not add features or refactor beyond the finding |
+Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `/skill-creator` probe contract that routes skill-bundled fixes away from direct `Write` / `Edit`, the `/simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
 
 ### Step 7: Generate Verification Report
 
-Use [checklists/report-template.md](checklists/report-template.md) to create the verification report.
-
-The report includes:
-- Executive summary with post-fix scores
-- Acceptance criteria checklist (pass/fail)
-- Architecture review scores (SOLID, security, performance, testability, error handling)
-- Test coverage analysis
-- Exercise test results (if plugin changes were detected in Step 5a — includes skill exercised, method, AC evaluation, and captured output summary; or graceful degradation note if exercise was skipped)
-- **Steering Doc Verification Gates** (if gates were extracted from `tech.md` — includes each gate's name, status, and evidence; or omitted entirely if no `## Verification Gates` section exists)
-- Fixes applied (what was found and how it was fixed)
-- Remaining issues (items that could not be auto-fixed, with reasons)
-- Recommendations
-
-#### Gate Status Aggregation
-
-Gate results act as a **ceiling** on the overall verification status — they can lower it but never raise it:
-
-| Gate Results | Overall Status Impact |
-|-------------|----------------------|
-| All gates Pass | No effect (status determined by other factors) |
-| Any gate Fail | Overall status cannot exceed "Partial" |
-| Any gate Incomplete | Overall status cannot exceed "Incomplete" |
-| Mix of Fail and Incomplete | Overall status cannot exceed "Incomplete" |
-| No `## Verification Gates` section | No effect (backward-compatible) |
-
-Status hierarchy from best to worst: **Pass > Partial > Incomplete > Fail**.
+Read `references/report-format.md` when authoring the report — the reference covers the Step 7 local report structure (built from `checklists/report-template.md`) and the Step 8 GitHub issue-comment Markdown template. The report sections include executive summary, acceptance-criteria checklist, architecture-review scores, test coverage, exercise test results (when Step 5a fired), Steering Doc Verification Gates (when extracted from `tech.md`), Fixes Applied (with Routing column), Remaining Issues, and Recommendations.
 
 ### Step 8: Update GitHub Issue
 
-Post the verification results as an issue comment:
+Post the verification results as an issue comment following the Markdown template in `references/report-format.md`:
 
 ```bash
 gh issue comment #N --body "[verification summary]"
-```
-
-The comment should include:
-
-```markdown
-## Verification Report
-
-### Implementation Status: [Pass / Partial / Fail]
-
-### Acceptance Criteria
-
-- [x] AC1: [criterion] — Implemented in `path/to/file`
-- [x] AC2: [criterion] — Implemented in `path/to/file`
-- [ ] AC3: [criterion] — **Not implemented** / **Partial**
-
-### Architecture Review
-
-| Area | Score (1-5) |
-|------|-------------|
-| SOLID Principles | [score] |
-| Security | [score] |
-| Performance | [score] |
-| Testability | [score] |
-| Error Handling | [score] |
-
-### Test Coverage
-
-- BDD scenarios: [X/Y] acceptance criteria covered
-- Step definitions: [Implemented / Missing]
-- Test execution: [Pass / Fail / Not run]
-
-### Steering Doc Verification Gates
-
-*Include this section when gates were extracted from tech.md. Omit entirely if tech.md has no `## Verification Gates` section.*
-
-| Gate | Status | Evidence |
-|------|--------|----------|
-| [gate name] | Pass / Fail / Incomplete | [output excerpt or blocker reason] |
-
-**Gate Summary**: [X/Y] passed, [Z] failed, [W] incomplete
-
-### Fixes Applied
-
-| Severity | Category | Location | Issue | Fix | Routing |
-|----------|----------|----------|-------|-----|---------|
-| [sev] | [cat] | `path/to/file` | [what was wrong] | [what was done] | `skill-creator` or `direct` |
-
-The Routing column records how the fix was applied: `skill-creator` when the fix was routed through `/skill-creator` per Step 6a, `direct` for standard `Write`/`Edit` fixes.
-
-### Remaining Issues
-
-| Severity | Category | Location | Issue | Reason Not Fixed |
-|----------|----------|----------|-------|------------------|
-| [sev] | [cat] | `path/to/file` | [what is wrong] | [why deferred] |
-
-### Recommendation
-
-[Ready for PR / Needs fixes for remaining items / Major rework needed]
 ```
 
 ### Step 9: Output
@@ -418,12 +171,12 @@ GitHub issue #N updated with verification report.
 
 | Checklist | Purpose |
 |-----------|---------|
-| [solid-principles.md](checklists/solid-principles.md) | SOLID principles compliance |
-| [security.md](checklists/security.md) | Security review (OWASP-aligned) |
-| [performance.md](checklists/performance.md) | Performance patterns |
-| [testability.md](checklists/testability.md) | Dependency injection and mock patterns |
-| [error-handling.md](checklists/error-handling.md) | Error hierarchy and propagation |
-| [report-template.md](checklists/report-template.md) | Verification report template |
+| `checklists/solid-principles.md` | SOLID principles compliance |
+| `checklists/security.md` | Security review (OWASP-aligned) |
+| `checklists/performance.md` | Performance patterns |
+| `checklists/testability.md` | Dependency injection and mock patterns |
+| `checklists/error-handling.md` | Error hierarchy and propagation |
+| `checklists/report-template.md` | Verification report template |
 
 ---
 
@@ -434,4 +187,4 @@ GitHub issue #N updated with verification report.
                                                                                                                ▲ You are here
 ```
 
-`/simplify` is an optional external marketplace skill. When installed, it runs once between `/write-code` and `/verify-code`, and again inside `/verify-code`'s Step 6a-bis after each batch of fixes. When not installed, the step logs a warning and proceeds.
+`/simplify` is an optional external marketplace skill. When installed, it runs once between `/write-code` and `/verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes. When not installed, the step logs a warning and proceeds.

@@ -23,19 +23,34 @@ nmg-plugins/
 │   └── nmg-sdlc/                 # The main plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json       # Plugin manifest (name, version, description)
+│       ├── references/           # Plugin-shared references (loaded on demand)
+│       │   ├── legacy-layout-gate.md
+│       │   ├── unattended-mode.md
+│       │   ├── feature-naming.md
+│       │   ├── versioning.md
+│       │   ├── steering-schema.md
+│       │   └── spec-frontmatter.md
 │       ├── skills/               # Skill definitions (one dir per skill)
 │       │   ├── draft-issue/
+│       │   │   └── references/   # Per-skill on-demand content (multi-issue, design-url, templates, etc.)
 │       │   ├── open-pr/
+│       │   │   └── references/   # version-bump, pr-body, ci-monitoring
 │       │   ├── init-config/
 │       │   ├── write-code/
+│       │   │   └── references/   # plan-mode, resumption
 │       │   ├── run-retro/
+│       │   │   ├── references/   # learning-extraction, transferability, edge-cases
 │       │   │   └── templates/    # Retrospective output template
 │       │   ├── onboard-project/
+│       │   │   ├── references/   # greenfield, brownfield, interview
 │       │   │   └── templates/    # Steering document templates
 │       │   ├── start-issue/
+│       │   │   └── references/   # dirty-tree, milestone-selection, project-status
 │       │   ├── verify-code/
+│       │   │   ├── references/   # exercise-testing, autofix-loop, defect-path, verification-gates, report-format
 │       │   │   └── checklists/   # Architecture review checklists
 │       │   └── write-spec/
+│       │       ├── references/   # discovery, amendment-mode, defect-variant, review-gates
 │       │       └── templates/    # Spec document templates
 │       └── agents/
 │           └── architecture-reviewer.md  # Subagent for verification
@@ -60,17 +75,27 @@ Plugin Marketplace (.claude-plugin/marketplace.json)
     ↓ (indexes)
 Plugin Package (plugins/nmg-sdlc/)
     ↓ (contains)
-┌─────────────────────┐
-│  Skills (SKILL.md)  │ ← Workflow definitions, prompt-based
-└────────┬────────────┘
+┌─────────────────────────────────┐
+│  Skills (SKILL.md)              │ ← Trigger + workflow skeleton, prompt-based
+└────────┬────────────────────────┘
+         ↓ (on-demand pointer)
+┌─────────────────────────────────┐
+│  Plugin-shared references       │ ← Cross-skill rules (legacy-layout-gate, unattended-mode, etc.)
+│  (plugins/nmg-sdlc/references/) │
+└────────┬────────────────────────┘
+         ↓ (on-demand pointer)
+┌─────────────────────────────────┐
+│  Per-skill references           │ ← Variant branches, extended examples, rarely-fired paths
+│  (skills/*/references/)         │
+└────────┬────────────────────────┘
          ↓ (reference)
-┌─────────────────────┐
-│  Templates (*.md)   │ ← Output structure for specs and steering docs
-└────────┬────────────┘
+┌─────────────────────────────────┐
+│  Templates (*.md)               │ ← Output structure for specs and steering docs
+└────────┬────────────────────────┘
          ↓ (used by)
-┌─────────────────────┐
-│  Agents (*.md)      │ ← Specialized subagents (architecture review)
-└─────────────────────┘
+┌─────────────────────────────────┐
+│  Agents (*.md)                  │ ← Specialized subagents (architecture review)
+└─────────────────────────────────┘
 
 SDLC Runner (scripts/) — automation layer
     ↓ (drives)
@@ -83,7 +108,9 @@ Claude Code sessions via `claude -p`
 |-------|------|------------|
 | Marketplace index | Registers plugins, tracks versions | Contain plugin logic |
 | Plugin manifest | Declares plugin identity and metadata | Define workflows |
-| Skills | Define SDLC workflow steps, prompt Claude | Execute code directly; skills are Markdown |
+| Skills | Define SDLC workflow trigger + skeleton, prompt Claude | Inline full variant branches, exhaustive examples, cross-skill duplication |
+| Plugin-shared references | Consolidate rules repeated across ≥ 2 skills (legacy-layout-gate, unattended-mode, feature-naming, versioning, steering-schema, spec-frontmatter); loaded on demand via pointer | Hold skill-specific workflow steps |
+| Per-skill references | Hold variant branches, extended examples, rarely-fired paths for a single skill; loaded on demand via pointer | Hold content other skills consume (that lives in plugin-shared references) |
 | Templates | Provide output structure for generated documents | Contain logic or conditionals |
 | Agents | Perform specialized analysis (architecture review) | Spawn subagents or use Task tool |
 | Runner scripts | Orchestrate `claude -p` sessions deterministically | Contain SDLC logic (that lives in skills) |
@@ -99,6 +126,7 @@ Claude Code sessions via `claude -p`
 | Skill directories | kebab-case | `write-spec/`, `draft-issue/` |
 | Template directories | `templates/` inside skill dir | `write-spec/templates/` |
 | Checklist directories | `checklists/` inside skill dir | `verify-code/checklists/` |
+| Reference directories | `references/` — plugin-shared at `plugins/nmg-sdlc/references/`, per-skill at `skills/{name}/references/` | `plugins/nmg-sdlc/references/`, `skills/start-issue/references/` |
 | Agent files | kebab-case `.md` | `architecture-reviewer.md` |
 
 ### Files
@@ -146,8 +174,8 @@ Claude Code sessions via `claude -p`
 
 [One-line description]
 
-## When to Use
-[Trigger conditions]
+Read `../../references/{shared-name}.md` when {triggering-condition}.
+Read `references/{per-skill-name}.md` when {triggering-condition}.
 
 ## Workflow
 ### Step 1: [Action]
@@ -159,6 +187,14 @@ Claude Code sessions via `claude -p`
 ## Integration with SDLC Workflow
 [Where this skill fits in the pipeline]
 ```
+
+**Reference pointer grammar** (mandatory for every SKILL.md → references pointer):
+
+- Shape: `` Read `references/{name}.md` when {triggering-condition}. ``
+- Shared references resolve via `` `../../references/{name}.md` `` (relative to the SKILL.md).
+- Per-skill references resolve via `` `references/{name}.md` `` (also relative).
+- The triggering condition always travels in the same sentence as the pointer — never delegated to surrounding prose — so the reader and the inventory audit can both see it.
+- `when` is the only conjunction used (not "if", "on", "where") so pointers stay greppable.
 
 ### Plugin Manifest (plugin.json)
 
