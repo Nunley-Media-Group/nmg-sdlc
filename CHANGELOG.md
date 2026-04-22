@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.54.2] - 2026-04-21
+
+### Fixed
+
+- **Drop unsupported `parent` field from `gh issue view` JSON query** (issue #91) — removes `parent` from the `--json` field list in `selectNextIssueFromMilestone` so `gh issue view` succeeds on `gh` 2.86.0 and other releases that do not expose the field. The existing `if (d.parent && typeof d.parent.number === 'number' …)` guard already handles the absent value, so no guard logic changes are needed.
+
 ## [1.54.1] - 2026-04-21
 
 ### Fixed
