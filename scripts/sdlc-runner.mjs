@@ -1576,7 +1576,7 @@ function selectNextIssueFromMilestone(milestone, opts = {}) {
   for (const n of candidates) {
     try {
       const raw = ghRunner(
-        `issue view ${n} --json number,state,body,parent,closedByPullRequestsReferences`
+        `issue view ${n} --json number,state,body,closedByPullRequestsReferences`
       );
       details.set(n, JSON.parse(raw));
     } catch (err) {

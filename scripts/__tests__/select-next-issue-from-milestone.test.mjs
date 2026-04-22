@@ -230,4 +230,57 @@ describe('selectNextIssueFromMilestone', () => {
     expect(seen[0]).not.toContain('-m');
     expect(seen[0]).toContain('--label automatable');
   });
+
+  // @regression
+  test('issue view commands do not request the unsupported parent field', () => {
+    const seen = [];
+    const ghRunner = (cmd) => {
+      seen.push(cmd);
+      if (cmd.startsWith('issue list')) {
+        return JSON.stringify([{ number: 10 }, { number: 20 }]);
+      }
+      const viewMatch = cmd.match(/^issue view (\d+)\b/);
+      if (viewMatch) {
+        return JSON.stringify({
+          number: Number(viewMatch[1]),
+          state: 'OPEN',
+          body: '',
+          closedByPullRequestsReferences: [],
+        });
+      }
+      throw new Error(`unexpected gh call: ${cmd}`);
+    };
+    selectNextIssueFromMilestone('M1', { ghRunner });
+    const viewCommands = seen.filter((cmd) => /^issue view \d+/.test(cmd));
+    expect(viewCommands.length).toBeGreaterThan(0);
+    for (const cmd of viewCommands) {
+      expect(cmd).not.toContain('parent');
+    }
+  });
+
+  // @regression
+  test('returns a non-null ready issue when gh rejects --json queries containing "parent"', () => {
+    const ghRunner = (cmd) => {
+      if (cmd.startsWith('issue list')) {
+        return JSON.stringify([{ number: 10 }, { number: 20 }]);
+      }
+      const viewMatch = cmd.match(/^issue view (\d+) --json (\S+)/);
+      if (viewMatch) {
+        const fields = viewMatch[2];
+        if (fields.split(',').includes('parent')) {
+          throw new Error('Unknown JSON field: "parent"');
+        }
+        return JSON.stringify({
+          number: Number(viewMatch[1]),
+          state: 'OPEN',
+          body: '',
+          closedByPullRequestsReferences: [],
+        });
+      }
+      throw new Error(`unexpected gh call: ${cmd}`);
+    };
+    const result = selectNextIssueFromMilestone('M1', { ghRunner });
+    expect(result.issue).toBe(10);
+    expect(result.blockedIssues).toEqual([]);
+  });
 });
