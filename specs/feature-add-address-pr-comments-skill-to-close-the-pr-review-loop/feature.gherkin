@@ -1,0 +1,135 @@
+# File: specs/feature-add-address-pr-comments-skill-to-close-the-pr-review-loop/feature.gherkin
+#
+# Generated from: specs/feature-add-address-pr-comments-skill-to-close-the-pr-review-loop/requirements.md
+# Issue: #86
+
+Feature: /address-pr-comments skill
+  As a developer using Claude Code or an automated SDLC runner
+  I want a local slash-command skill that reads automated-reviewer threads on a PR, applies fixes via /write-code + /verify-code, and loops until review-clean
+  So that PR review findings are resolved locally without manual intervention or switching to a cloud tool
+
+  Background:
+    Given a GitHub pull request exists on the current feature branch
+    And the user has gh CLI authenticated with GITHUB_TOKEN
+    And the project has steering documents at steering/ and this skill's bundle at skills/address-pr-comments/
+
+  # --- Happy Path ---
+
+  Scenario: AC1 — Entry preconditions validated on a clean PR
+    Given the PR is open and the current branch matches the PR head ref
+    And the working tree has no staged or unstaged changes
+    When the user invokes /address-pr-comments
+    Then the skill resolves the PR number from the branch
+    And preconditions pass
+    And the workflow proceeds to fetching threads
+
+  Scenario: AC2 — Fetch unresolved review threads via GraphQL
+    Given preconditions have passed
+    When the skill queries reviewThreads(first:100) with comments(first:50)
+    Then unresolved threads are returned
+    And the result is filtered to threads whose author __typename is "Bot" or whose login matches the configured allow-list
+
+  Scenario: AC3 — Short-circuit when PR is review-clean on entry
+    Given no unresolved automated-reviewer threads exist
+    And gh pr reviews returns no CHANGES_REQUESTED state
+    When the skill finishes the initial fetch
+    Then the skill prints "PR #N is review-clean — no action taken."
+    And the skill exits with code zero
+    And no sub-skills are invoked
+    And no commits or pushes are made
+
+  Scenario: AC4 — No automated reviewer has posted on the PR
+    Given the PR exists but no review has been posted by the automated reviewer
+    When the skill finishes the initial fetch
+    Then the skill prints "No automated-reviewer threads found on PR #N — nothing to address."
+    And the skill exits with code zero
+    And the message is distinguishable from the AC3 "review-clean" message
+
+  Scenario: AC5 — Classify each unresolved thread
+    Given one or more unresolved automated-reviewer threads
+    When the skill evaluates each thread
+    Then each thread is classified as exactly one of clear-fix, ambiguous, or disagreement
+    And each classification carries a one-sentence rationale retained for later reply and escalation messages
+
+  Scenario: AC6 — Fix a clear-fix thread end-to-end via /write-code + /verify-code
+    Given an unresolved clear-fix thread naming a specific file and line
+    When the skill addresses the thread
+    Then /write-code is invoked with the thread text, file path, line number, and diff hunk as context
+    And /verify-code is invoked after /write-code completes
+    And the fix is committed on the current branch with a "fix: address review finding on {file}:{line}" message
+
+  Scenario: AC7 — Postcondition verification before replying
+    Given /write-code and /verify-code have completed for a clear-fix thread
+    When the skill evaluates whether to reply and resolve
+    Then it confirms the commit SHA changed, the fix commit touches the referenced file, and /verify-code reported no regressions
+    And if any postcondition fails, no reply is posted, the thread is not resolved, the thread joins the skipped-set, and the skill continues to the next thread
+
+  Scenario: AC8 — Reply and resolve after a successful fix
+    Given a clear-fix thread where all postconditions passed
+    When the skill responds
+    Then a reply is posted via gh api REST to POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies with a body naming the fix commit SHA
+    And the thread is marked resolved via the GraphQL resolveReviewThread mutation
+
+  # --- Alternative Paths ---
+
+  Scenario: AC9 — Ambiguous or disagreement thread in interactive mode
+    Given a thread classified as ambiguous or disagreement
+    And the sentinel .claude/unattended-mode does not exist
+    When the skill processes the thread
+    Then AskUserQuestion is invoked with the thread text, classification, rationale, and three options: "Fix it anyway", "Skip — leave unresolved", "Reply without fixing"
+    And the user's selection routes the thread to the matching outcome
+
+  Scenario: AC10 — Ambiguous or disagreement thread in unattended mode
+    Given a thread classified as ambiguous or disagreement
+    And the sentinel .claude/unattended-mode exists
+    When the skill processes the thread
+    Then the skill prints "ESCALATION: address-pr-comments — pr=#N thread={id} classification={class} rationale={one-sentence}"
+    And AskUserQuestion is not invoked
+    And the thread joins the skipped-set and is left unresolved
+
+  # --- Loop, Push, and Polling ---
+
+  Scenario: AC11 — Push after each round uses plain git push
+    Given one or more commits were produced in the current round
+    When the round ends
+    Then the skill runs plain "git push"
+    And no --force, --force-with-lease, or --force-if-includes variant is ever passed
+    And if the remote has diverged, the push is rejected, the skill prints the rejection, and exits non-zero without retry
+
+  Scenario: AC12 — Loop until review-clean or round cap
+    Given a round has finished processing all fetched threads and pushing
+    When the loop re-evaluates
+    Then the skill polls for the reviewer to re-run at 30-second intervals for up to 30 minutes
+    And re-fetches unresolved threads, excluding any in the in-process skipped-set
+    And exits with code zero when gh pr reviews shows no CHANGES_REQUESTED and the unresolved-minus-skipped set is empty
+    And exits with a non-zero round-cap diagnostic when the configured max rounds (default 10) is reached without reaching review-clean
+
+  Scenario: AC13 — Re-review polling timeout
+    Given the skill has pushed fix commits and is polling for the reviewer to re-run
+    When 30 minutes elapse with no new thread and no change in CHANGES_REQUESTED state
+    Then the skill prints "Re-review polling timeout reached after 30 min on round {N} — exiting so you can investigate."
+    And the skill exits non-zero
+    And no threads are resolved and no commits are amended or reverted
+
+  Scenario: AC14 — No force-push under any circumstance
+    Given any push invocation inside the skill — per-round, retry, or final
+    When the push command is built
+    Then only "git push" is used
+    And --force, --force-with-lease, and --force-if-includes are never passed
+    And this holds in interactive mode, unattended mode, on push rejection, and regardless of any AskUserQuestion selection
+
+  Scenario: AC15 — Unattended-mode livelock guard
+    Given unattended mode is active
+    And a round produced zero commits because every thread was escalated per AC10
+    When the loop considers starting another round
+    Then the skill exits with code zero
+    And prints "Round {N}: {M} threads escalated, 0 fixes applied — exiting unattended loop."
+    And no further rounds occur
+
+  # --- Integration ---
+
+  Scenario: AC16 — SDLC pipeline diagram reflects the new step
+    Given the README and every SDLC skill show the pipeline diagram in their Integration section
+    When this skill ships
+    Then README.md's pipeline diagram contains "/address-pr-comments #N" immediately after "/open-pr #N"
+    And every SDLC SKILL.md's "Integration with SDLC Workflow" chain that shows the full pipeline is updated to include the new step in the same position

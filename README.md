@@ -4,16 +4,18 @@ Stack-agnostic BDD spec-driven development toolkit for Claude Code, by Nunley Me
 
 ## Overview
 
-The **nmg-sdlc** plugin brings structured software delivery to Claude Code. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, and PR creation — but the core flow is five commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. A dedicated architecture reviewer agent scores every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling), while a retrospective system analyzes past defects to continuously improve spec quality. Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Claude Code plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
+The **nmg-sdlc** plugin brings structured software delivery to Claude Code. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is six commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr` → `/address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. A dedicated architecture reviewer agent scores every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling), while a retrospective system analyzes past defects to continuously improve spec quality. Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Claude Code plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
 
 It provides a GitHub issue-driven workflow. Projects first run `/onboard-project` (once per project lifetime) to bootstrap steering docs and — for existing codebases — reconcile specs from closed issues; afterward the per-feature cycle kicks in:
 
 ```
-Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Optional                 Step 5                    Step 6
-/onboard-project  →  /draft-issue  →  /start-issue #42  →  /write-spec #42  →  /write-code #42  →  /simplify  →  /verify-code #42  →  /open-pr #42
-Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean & simplify         Verify implementation,    Create PR with
-or brownfield spec   create groomed       linked branch, set       specs (requirements/    mode, create plan,         changed code             review architecture,      summary referencing
-reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               (optional external)      update issue              specs and issue
+Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Optional                 Step 5                    Step 6                Step 7
+/onboard-project  →  /draft-issue  →  /start-issue #42  →  /write-spec #42  →  /write-code #42  →  /simplify  →  /verify-code #42  →  /open-pr #42  →  /address-pr-comments #42
+Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean & simplify         Verify implementation,    Create PR with        Close the PR review loop:
+or brownfield spec   create groomed       linked branch, set       specs (requirements/    mode, create plan,         changed code             review architecture,      summary referencing   read automated-reviewer
+reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               (optional external)      update issue              specs and issue       threads, fix via
+                                                                                                                                                                                                /write-code + /verify-code,
+                                                                                                                                                                                                loop until review-clean
 ```
 
 `/simplify` is an optional marketplace skill. When installed, `/write-code` invokes it before signalling completion and `/verify-code` re-runs it after each batch of fixes. When not installed, both steps log `simplify skill not available — skipping simplification pass` and proceed without failing.
@@ -136,6 +138,14 @@ Determines the version bump (patch for bugs, minor for enhancements; major bumps
 - Version bump details
 - `Closes #42` to auto-close the issue on merge
 
+### Step 6: Close the PR Review Loop
+
+```bash
+/address-pr-comments #42
+```
+
+Reads the automated reviewer's unresolved threads on the open PR via GitHub GraphQL, classifies each as `clear-fix` / `ambiguous` / `disagreement`, invokes `/write-code` + `/verify-code` to apply clear-fix changes, verifies postconditions (commit SHA changed, referenced file touched, no regressions) before replying and resolving each thread, pushes with plain `git push` (never force), polls for the reviewer to re-run (30 s / 30 min, mirroring `/open-pr` Step 7), and loops until the PR is review-clean or a configurable round cap is reached. Ambiguous and disagreement threads prompt the user in interactive mode and emit `ESCALATION: address-pr-comments — …` sentinels in unattended mode. Automated-reviewer identity is configured in `steering/tech.md` → Automated Review.
+
 ## Unattended Mode
 
 The plugin supports fully automated operation through a deterministic Node.js runner (`scripts/sdlc-runner.mjs`) that drives the full development cycle — issue selection, spec writing, implementation, verification, PR creation, CI monitoring, and merge — looping continuously until no open issues remain.
@@ -240,6 +250,7 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `/write-code #N` | Read specs for current branch, enter plan mode, then execute implementation tasks sequentially |
 | `/verify-code #N` | Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue |
 | `/open-pr #N` | Determine version bump, update VERSION/CHANGELOG/stack files, create PR with spec-driven summary |
+| `/address-pr-comments [#N] [--max-rounds=K]` | Close the PR review loop: read automated-reviewer threads, apply fixes via `/write-code` + `/verify-code`, reply and resolve until review-clean |
 | `/run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
 | `/run-loop [#N]` | Run the full SDLC pipeline from within an active Claude Code session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
 | `/end-loop` | Stop unattended mode and clear runner state |
