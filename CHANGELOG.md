@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.55.0] - 2026-04-22
+
+### Added
+
+- **Add `/address-pr-comments` skill to close the PR review loop** (issue #86) — new stack-agnostic skill that reads unresolved automated-reviewer threads on an open PR via the GitHub GraphQL API, classifies each as `clear-fix` / `ambiguous` / `disagreement`, invokes `/write-code` + `/verify-code` for clear-fix threads, verifies postconditions before replying and resolving, and loops until the PR is review-clean or a configurable round cap is reached. Automated-reviewer identity is configured in `steering/tech.md` → Automated Review. Slots into the SDLC pipeline immediately after `/open-pr`.
+
 ## [1.54.2] - 2026-04-21
 
 ### Fixed
