@@ -198,5 +198,5 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   └── initialized → /upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
 ```

@@ -41,6 +41,17 @@ SDLC Runner (automation layer)
 | Console/Log | Status updates from SDLC runner | Via log files in `<tmpdir>/sdlc-logs/` |
 | Claude API | Powers Claude Code sessions | Underlying LLM for all skills |
 
+### Automated Review
+
+The `/address-pr-comments` skill reads this section to decide which PR review threads it may address. Treat threads whose author satisfies either predicate below as in-scope; all other threads (including human reviewers) are out of scope and left untouched.
+
+| Predicate | Default | Description |
+|-----------|---------|-------------|
+| `bots` | `true` | When `true`, any thread whose first comment has `author.__typename == "Bot"` is eligible |
+| `logins` | `["claude[bot]"]` | Explicit GitHub login allow-list (in addition to the Bot typename rule); add a login here to opt a new reviewer in |
+
+Modify the defaults above to change the eligibility rules — no skill or script changes are needed. The skill fails closed: if this section is missing or malformed, `/address-pr-comments` treats every thread as out of scope and exits with the no-reviewer message.
+
 ---
 
 ## Versioning

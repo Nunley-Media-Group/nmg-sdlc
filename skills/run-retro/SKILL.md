@@ -162,7 +162,7 @@ State saved to steering/retrospective-state.json
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
                                                    ▲                                                                         │
                                                    │                                                                         ▼
                                                    └──── reads retrospective.md ◄──── /run-retro ◄──── defect specs

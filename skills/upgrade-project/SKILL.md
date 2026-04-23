@@ -237,7 +237,7 @@ Run this skill periodically after plugin updates to keep project files current:
          ↓
 /upgrade-project (after plugin updates)
          ↓
-/draft-issue  →  /start-issue  →  /write-spec  →  /write-code  →  /simplify  →  /verify-code  →  /open-pr
+/draft-issue  →  /start-issue  →  /write-spec  →  /write-code  →  /simplify  →  /verify-code  →  /open-pr  →  /address-pr-comments
 ```
 
 Next step: Once the upgrade completes, resume your normal SDLC workflow — run `/draft-issue` for new work or `/start-issue` to pick up an existing issue.

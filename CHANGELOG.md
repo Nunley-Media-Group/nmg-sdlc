@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.56.0] - 2026-04-23
+
+### Added
+
+- **Deliver `/address-pr-comments` feature content** (issue #86) — the 1.55.0 release contained only the version-bump commit; this release ships the full 22-file payload: `skills/address-pr-comments/SKILL.md` + 5 per-skill references, complete spec set, cross-skill pipeline-diagram updates in all 10 sibling `SKILL.md` files and `README.md`, `steering/tech.md` Automated Review config, and the `[Unreleased]` CHANGELOG entry.
+
 ## [1.55.0] - 2026-04-22
 
 ### Added
