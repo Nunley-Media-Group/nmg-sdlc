@@ -85,12 +85,13 @@ Extract the user story, acceptance criteria, functional requirements, and out-of
 1. Read the issue via `gh issue view #N` and apply Defect Detection (above).
 2. Read `steering/product.md` for user context and product vision.
 3. If `steering/retrospective.md` exists, read it and apply relevant learnings when drafting acceptance criteria — read each learning as a transferable principle and adapt it to the current feature's domain. Example: a learning like "When specifying features that interact with external systems via session-scoped protocols, include ACs for state persistence across invocations" applied to a connection-pool feature becomes: "Given a connection is checked out and used for a query / When the connection is returned to the pool / Then any session-level state (temp tables, variables) is reset before reuse."
-4. **In amendment mode**: follow `references/amendment-mode.md` § Phase 1.
-5. **In creation mode**:
+4. Read `references/interview.md` when Phase 1 has read the issue and steering docs and is about to enter amendment or creation mode.
+5. **In amendment mode**: follow `references/amendment-mode.md` § Phase 1.
+6. **In creation mode**:
    1. Create `requirements.md` from [templates/requirements.md](templates/requirements.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
    2. Bootstrap acceptance criteria from the issue body.
    3. Use `**Issues**: #N` (plural even for the first issue) and add the initial Change History entry: `| #N | [today] | Initial feature spec |`.
-6. Consult steering docs for project-specific requirements (accessibility, platform support, etc.).
+7. Consult steering docs for project-specific requirements (accessibility, platform support, etc.).
 
 ### Output
 

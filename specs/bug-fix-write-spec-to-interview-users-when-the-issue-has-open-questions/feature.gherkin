@@ -1,0 +1,95 @@
+# File: specs/bug-fix-write-spec-to-interview-users-when-the-issue-has-open-questions/feature.gherkin
+#
+# Generated from: specs/bug-fix-write-spec-to-interview-users-when-the-issue-has-open-questions/requirements.md
+# Issue: #94
+# Type: Defect regression
+
+@regression
+Feature: write-spec interviews the user to resolve open questions before drafting
+
+  Before this fix, /write-spec Phase 1 read the GitHub issue and wrote requirements.md
+  immediately, with no step to detect unresolved open questions or underspecified
+  acceptance criteria. The **Open Questions** field in the Phase 1 review gate was
+  display-only. This was fixed by inserting a Gap Detection & Interview step in
+  Phase 1 that fires AskUserQuestion per gap in interactive mode, skips cleanly
+  when the issue is well-specified, bypasses under unattended mode, and tailors
+  its probes to feature vs. defect classification.
+
+  # --- Bug Is Fixed: interactive interview on open questions ---
+
+  @regression
+  Scenario: AC1 — interview fires when the issue has unresolved open questions
+    Given a GitHub issue #201 whose body contains an "## Open Questions" section with one unresolved item "Should the cache be per-user or global?"
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #201"
+    Then before "requirements.md" is written, the skill calls AskUserQuestion once for the unresolved open question
+    And my answer "Per-user" is threaded into the drafted requirements
+    And the final "## Open Questions" section of "requirements.md" does not list the resolved item
+
+  # --- Bug Is Fixed: interactive interview on malformed ACs ---
+
+  @regression
+  Scenario: AC2 — interview fires when acceptance criteria are underspecified
+    Given a GitHub issue #202 whose Acceptance Criteria section lists one bullet "The feature should work well" with no Given/When/Then structure
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #202"
+    Then before "requirements.md" is written, the skill calls AskUserQuestion with a targeted clarifying question about the missing Given/When/Then structure
+    And my answer shapes the AC written into "requirements.md" so it uses Given/When/Then
+
+  # --- Related Behavior Still Works: adaptive skip ---
+
+  @regression
+  Scenario: AC3 — well-specified issues skip the interview with no prompt
+    Given a GitHub issue #203 whose body has no "## Open Questions" section and whose three acceptance criteria each use Given/When/Then
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #203"
+    Then the Gap Detection & Interview step detects zero gaps
+    And AskUserQuestion is NOT called by the interview step
+    And the skill proceeds directly to drafting "requirements.md"
+
+  # --- Related Behavior Still Works: unattended-mode bypass ---
+
+  @regression
+  Scenario: AC4 — unattended mode bypasses the interview even when gaps exist
+    Given a GitHub issue #204 whose body has an unresolved open question and one malformed AC
+    And the file ".claude/unattended-mode" exists
+    When I run "/write-spec #204"
+    Then the Gap Detection & Interview step does NOT call AskUserQuestion
+    And a one-line divergence note is emitted to stdout stating the interview was bypassed due to unattended mode
+    And the skill proceeds directly to drafting "requirements.md" using only the issue body
+
+  # --- Related Behavior Still Works: amendment mode ---
+
+  @regression
+  Scenario: AC5 — amendment mode interviews only the new-issue gaps
+    Given an existing feature spec "specs/feature-example/" was approved for issue #100 and is now being amended for issue #205
+    And issue #205 has one unresolved open question and previously-approved ACs remain valid
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #205"
+    Then the Gap Detection & Interview step reads only issue #205's body for gaps, not the existing "requirements.md"
+    And AskUserQuestion fires once for the new-issue open question
+    And the amendment appends the answer-shaped content to "requirements.md" without rewriting the content approved for #100
+
+  # --- Related Behavior Still Works: defect-tailored interview ---
+
+  @regression
+  Scenario: AC6 — bug-labelled issues get defect-specific probes
+    Given a GitHub issue #206 labelled "bug" whose body omits the "## Reproduction Steps" section and whose "Expected vs Actual" table is empty
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #206"
+    Then the Gap Detection & Interview step classifies the issue as defect
+    And AskUserQuestion probes for reproduction steps and expected-vs-actual behavior
+    And does NOT ask feature-scope / user-story / success-metric questions
+    And the answers populate the Defect Report template sections in "requirements.md"
+
+  # --- Bounded Behavior & Residual Capture ---
+
+  @regression
+  Scenario: AC7 — gap detection is bounded and residual items are captured
+    Given a GitHub issue #207 with five unresolved open questions
+    And the documented per-run interview cap is three questions
+    And the file ".claude/unattended-mode" does not exist
+    When I run "/write-spec #207"
+    Then AskUserQuestion is called at most three times for this run
+    And the two unasked questions are recorded verbatim in the "## Open Questions" section of "requirements.md"
+    And the cap value and the gap-signal definitions are documented in "skills/write-spec/references/interview.md"

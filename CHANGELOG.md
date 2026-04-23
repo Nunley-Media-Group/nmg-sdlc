@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.56.1] - 2026-04-23
+
+### Fixed
+
+- **`/write-spec` now interviews users before drafting** (issue #94) — adds a pre-draft gap-detection step that fires `AskUserQuestion` for each open question or underspecified AC detected in the issue body; adapts probes to issue type (feature vs. bug); skips automatically for well-specified issues; bypasses in unattended mode.
+
 ## [1.56.0] - 2026-04-23
 
 ### Added
