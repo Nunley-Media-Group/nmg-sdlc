@@ -2,8 +2,8 @@
 name: write-code
 description: "Read specs for current branch, enter plan mode, then execute implementation tasks sequentially. Use when user says 'implement the spec', 'start coding', 'build the feature', 'implement issue #N', 'resume implementation', 'how do I implement this', 'how to start coding', 'write the code', or 'build it'. Do NOT use for writing specs, verifying implementations, or creating PRs. Reads requirements, design, and tasks from specs/ and executes them in order. Fourth step in the SDLC pipeline — follows /write-spec and precedes /verify-code."
 argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Task, Write, Edit, WebFetch, WebSearch, EnterPlanMode, Bash(gh:*), Bash(git:*)
-model: opus
+allowed-tools: Read, Glob, Grep, Task, Write, Edit, WebFetch, WebSearch, plan approval, Bash(gh:*), Bash(git:*)
+model: gpt-5.5
 effort: xhigh
 ---
 
@@ -11,9 +11,9 @@ effort: xhigh
 
 Read the specifications for the current branch's issue, enter plan mode to design the implementation approach, then execute tasks sequentially.
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.claude/steering/` or `.claude/specs/` trees are still present. Implementing against a mixed layout silently writes against the wrong paths.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Implementing against a mixed layout silently writes against the wrong paths.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 delegation gate AND forces Step 4 to skip `EnterPlanMode` (plan mode fails headless). The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 delegation gate AND forces Step 4 to skip `plan approval` (plan mode fails headless). The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
 
 ## Prerequisites
 
@@ -74,7 +74,7 @@ If specs do not exist:
 
   Done. Awaiting orchestrator.
   ```
-- **Interactive mode**: use `AskUserQuestion` to prompt `"No specs found. Run /write-spec #N first."`
+- **Interactive mode**: use `request_user_input` to prompt `"No specs found. Run /write-spec #N first."`
 
 ### Step 3: Read Steering Documents
 
@@ -88,7 +88,7 @@ steering/
 
 ### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
 
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (`EnterPlanMode` in interactive, internal design in unattended), Step 5 (`spec-implementer` delegation with the skill-routing contract baked into the prompt, plus the inline fallback and bug-fix variant), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`/simplify` probe-and-skip).
+Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (`plan approval` in interactive, internal design in unattended), Step 5 (`spec-implementer` delegation with the skill-routing contract baked into the prompt, plus the inline fallback and bug-fix variant), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`/simplify` probe-and-skip).
 
 ### Resuming Partial Implementation
 
@@ -105,8 +105,8 @@ Tasks completed: [X/Y]
 Files created: [list]
 Files modified: [list]
 
-[If `.claude/unattended-mode` does NOT exist]: Next step: Run `/verify-code #N` to verify implementation and update the issue.
-[If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/verify-code #N` to verify implementation and update the issue.
+[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
 ---

@@ -1,10 +1,10 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, VERSION + stack-manifest initialization, v1 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues, merged PR diffs, and the current source tree (including deterministic source-tree backfill when no closed issues exist). Optionally ingests a Claude Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
+description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, VERSION + stack-manifest initialization, v1 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues, merged PR diffs, and the current source tree (including deterministic source-tree backfill when no closed issues exist). Optionally ingests a Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, WebFetch, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), AskUserQuestion
+allowed-tools: Read, Glob, Grep, Write, Edit, WebFetch, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), request_user_input
 argument-hint: "[--dry-run] [--design-url <url>]"
-model: opus
+model: gpt-5.5
 effort: high
 ---
 
@@ -35,7 +35,7 @@ Steering bootstrap and steering enhancement run **inside** this skill. Steering 
 
 ## Prerequisites
 
-- `gh` CLI authenticated (`gh auth status` passes) — required for brownfield reconciliation.
+- `gh`codex exec authenticated (`gh auth status` passes) — required for brownfield reconciliation.
 - Git-initialized repository.
 - `nmg-sdlc` plugin installed at current version.
 
@@ -59,9 +59,9 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 ## Unattended Mode Summary
 
-When `.claude/unattended-mode` exists, the unattended-mode contract from `../../references/unattended-mode.md` applies. Skill-specific defaults applied in unattended mode:
+When `.codex/unattended-mode` exists, the unattended-mode contract from `../../references/unattended-mode.md` applies. Skill-specific defaults applied in unattended mode:
 
-- All `AskUserQuestion` prompts skipped — defaults from the priority chain in `references/interview.md` apply.
+- All `request_user_input` prompts skipped — defaults from the priority chain in `references/interview.md` apply.
 - Consolidation groups (brownfield) auto-accepted as proposed.
 - Inferred dependency DAG auto-accepted; the proposed graph is logged for the summary.
 - Starter-issue candidate cut to ≤ 7 applied automatically when interview output exceeds the cap.
@@ -75,7 +75,7 @@ When `.claude/unattended-mode` exists, the unattended-mode contract from `../../
 
 ### Step 0: Legacy-Layout Precondition
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before mode detection if the legacy `.claude/{steering,specs}/` layout is still in place. The gate fires in both interactive and unattended mode.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before mode detection if the legacy `.codex/{steering,specs}/` layout is still in place. The gate fires in both interactive and unattended mode.
 
 ### Step 1: Detect Mode
 
@@ -103,7 +103,7 @@ After Step 2G's seeding loop completes, the same reference covers Step 3G's prom
 ### Step 2I: Already-Initialized — Route to /upgrade-project
 
 1. List the existing spec directories under `specs/` so the user can audit what is already present.
-2. In interactive mode, `AskUserQuestion`: `[1] Delegate to /upgrade-project now`, `[2] Exit without changes`.
+2. In interactive mode, `request_user_input`: `[1] Delegate to /upgrade-project now`, `[2] Exit without changes`.
 3. In unattended mode, auto-accept option 1. Log the auto-decision.
 4. On accept, invoke `/upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
 5. On decline, exit cleanly — jump to Step 5 summary with no specs modified.
@@ -157,7 +157,7 @@ Emit a structured summary with these sections:
     - Brownfield: `Review the reconciled specs, then run /draft-issue for new work or /upgrade-project to bring reconciled specs up to the latest templates.`
     - Already-initialized (after `/upgrade-project`): `Run /draft-issue for the next feature.`
 
-If `.claude/unattended-mode` exists, replace the "Next step" with `Done. Awaiting orchestrator.`
+If `.codex/unattended-mode` exists, replace the "Next step" with `Done. Awaiting orchestrator.`
 
 ---
 
@@ -165,11 +165,11 @@ If `.claude/unattended-mode` exists, replace the "Next step" with `Done. Awaitin
 
 | Condition | Behavior |
 |-----------|----------|
-| Legacy `.claude/steering/` or `.claude/specs/` layout detected | Abort in Step 0 per `../../references/legacy-layout-gate.md` |
+| Legacy `.codex/steering/` or `.codex/specs/` layout detected | Abort in Step 0 per `../../references/legacy-layout-gate.md` |
 | `gh auth status` fails in brownfield mode | Abort in Step 2B with `gh auth login` pointer |
 | Steering bootstrap leaves any of the three files missing | Abort the greenfield flow; gap recorded for summary |
-| Claude Design URL fetch/decode fails (greenfield) | Logged with URL + reason; `design_context = {}`; greenfield flow continues; gap recorded |
-| Non-HTTPS Claude Design URL | Rejected before fetch; gap recorded; greenfield flow continues |
+| Design URL fetch/decode fails (greenfield) | Logged with URL + reason; `design_context = {}`; greenfield flow continues; gap recorded |
+| Non-HTTPS Design URL | Rejected before fetch; gap recorded; greenfield flow continues |
 | `VERSION` read failure (Step 2G.3a / 2B.0a) | Logged; VERSION outcome recorded as `read-failure`; init step skipped for VERSION; manifest probe still runs; gap recorded |
 | Manifest version-field parse failure (malformed JSON/TOML) | Logged with the failing probe command output; manifest outcome recorded as `parse-failure`; VERSION-only path fires; gap recorded |
 | Polyglot repo — wrong manifest detected | Detection is first-match-wins against the documented order; Step 5 summary names the detected manifest path so the choice is auditable; user can rename or remove the unintended manifest before re-running |

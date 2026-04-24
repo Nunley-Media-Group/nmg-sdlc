@@ -12,7 +12,7 @@ Run:
 git status --porcelain
 ```
 
-Filter SDLC-runner artifacts from the output before evaluating cleanliness. Remove any lines whose file path ends with `.claude/sdlc-state.json` or `.claude/unattended-mode` — these are runtime artifacts managed by the SDLC runner (they flicker in and out of the working tree during an unattended run) and are not real user-authored dirt.
+Filter SDLC-runner artifacts from the output before evaluating cleanliness. Remove any lines whose file path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode` — these are runtime artifacts managed by the SDLC runner (they flicker in and out of the working tree during an unattended run) and are not real user-authored dirt.
 
 - **Filtered output empty** (clean tree): proceed with the workflow.
 - **Filtered output non-empty** (dirty tree): abort immediately. Do NOT proceed with the operation, do NOT modify any repository state.
@@ -34,7 +34,7 @@ Dirty files:
 Please resolve these changes (commit, stash, or discard) before running [skill invocation] again.
 ```
 
-### Unattended mode (`.claude/unattended-mode` exists)
+### Unattended mode (`.codex/unattended-mode` exists)
 
 Frame as an escalation reason for the runner and stop:
 

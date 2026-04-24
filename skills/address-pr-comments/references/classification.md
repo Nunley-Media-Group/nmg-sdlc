@@ -15,7 +15,7 @@ Use when all of the following hold:
 - The comment identifies a specific file and (usually) line — either explicitly in the body, or through GitHub's inline `path` / `line` fields on the comment.
 - The requested change is unambiguous: one reasonable interpretation, one target outcome.
 - The current code matches the reviewer's description of the problem (reading the file confirms the issue exists).
-- Claude can execute the change without further decisions.
+- Codex can execute the change without further decisions.
 
 Common signals: `reply:` with a concrete suggestion; quoted snippet with named replacement; typo fix; missing null/bounds check; incorrect string literal; unused import; obvious copy/paste bug; a specific regex the reviewer names.
 
@@ -27,7 +27,7 @@ Common signals: the comment ends in a question mark without a concrete suggestio
 
 ### `disagreement`
 
-Use when — after reading the current code — Claude assesses the comment as incorrect: false positive, reviewer misread, already addressed, or directly contradicts the approved spec.
+Use when — after reading the current code — Codex assesses the comment as incorrect: false positive, reviewer misread, already addressed, or directly contradicts the approved spec.
 
 Common signals: the comment describes a problem that the file does not actually have; the reviewer suggests removing code that a later step depends on; the comment predates a newer commit on the branch that already addresses it; the reviewer's proposed fix violates a spec'd behaviour.
 

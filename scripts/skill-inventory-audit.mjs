@@ -4,8 +4,8 @@
  * Skill Inventory Audit
  *
  * Deterministic content-inventory check that guards SKILL.md edits against
- * silent content loss. Walks every plugins/nmg-sdlc/skills/* /SKILL.md and
- * every plugins/nmg-sdlc/** /references/* .md, extracts inventory items from
+ * silent content loss. Walks every skills/* /SKILL.md and references/* .md in
+ * the Codex plugin root, extracts inventory items from
  * tracked sections, normalizes and hashes each one, and either produces a
  * baseline (--baseline) or checks the current tree against a committed
  * baseline (--check, default).
@@ -198,13 +198,26 @@ function walk(root, predicate, acc = [], baseRoot = root) {
   return acc;
 }
 
+/** Resolve the Codex plugin root, with legacy monorepo fixtures supported for older tests. */
+function resolvePluginRoot(repoRoot) {
+  const rootLayout = path.join(repoRoot, 'skills');
+  if (fs.existsSync(rootLayout)) return repoRoot;
+
+  const legacyLayout = path.join(repoRoot, 'plugins', 'nmg-sdlc');
+  if (fs.existsSync(path.join(legacyLayout, 'skills'))) return legacyLayout;
+
+  return repoRoot;
+}
+
 /** Build an array of audit-tracked file paths (SKILL.md + references/*.md) under a plugin root. */
 export function findTrackedFiles(repoRoot) {
-  const pluginRoot = path.join(repoRoot, 'plugins', 'nmg-sdlc');
+  const pluginRoot = resolvePluginRoot(repoRoot);
   if (!fs.existsSync(pluginRoot)) return [];
   return walk(pluginRoot, (rel) => {
-    if (rel.endsWith('/SKILL.md')) return true;
-    if (rel.includes('/references/') && rel.endsWith('.md')) return true;
+    const pluginRel = path.relative(pluginRoot, path.join(repoRoot, rel)).split(path.sep).join('/');
+    if (/^skills\/[^/]+\/SKILL\.md$/.test(pluginRel)) return true;
+    if (/^references\/.+\.md$/.test(pluginRel)) return true;
+    if (/^skills\/[^/]+\/references\/.+\.md$/.test(pluginRel)) return true;
     return false;
   }, [], repoRoot).sort();
 }

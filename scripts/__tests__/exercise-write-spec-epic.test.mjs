@@ -1,5 +1,5 @@
 /**
- * Agent SDK exercise test for /write-spec parent-link resolution + seal-spec.
+ * Codex exercise test for /write-spec parent-link resolution + seal-spec.
  *
  * Derived from: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
  * Issue: #149 (T016)
@@ -11,7 +11,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,7 +25,7 @@ function scaffoldProject({ withParentSpec = false, cycle = false, epicNumber = 1
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-write-spec-epic-'));
   fs.mkdirSync(path.join(dir, 'steering'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'README.md'), '# Test\n');
-  fs.writeFileSync(path.join(dir, '.gitignore'), '.claude/\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.codex/\n');
   fs.writeFileSync(path.join(dir, 'steering', 'product.md'), '# Product\n');
   fs.writeFileSync(path.join(dir, 'steering', 'tech.md'), '# Tech\n');
   fs.writeFileSync(path.join(dir, 'steering', 'structure.md'), '# Structure\n');
@@ -48,29 +48,20 @@ function scaffoldProject({ withParentSpec = false, cycle = false, epicNumber = 1
   return { dir, epicNumber, childNumber, siblingNumber, cycle };
 }
 
-async function runSkill({ cwd, prompt, answers }) {
-  const env = { ...process.env, CLAUDECODE: '' };
-  const sdkPath = env.NODE_PATH || '/Users/rnunley/.npm/_npx/81bbc6515d992ace/node_modules';
-  const { query } = await import(`${sdkPath}/@anthropic-ai/claude-agent-sdk/sdk.mjs`);
-  const messages = [];
-  for await (const m of query({
+async function runSkill({ cwd, prompt }) {
+  const proc = spawnSync('codex', [
+    'exec',
+    '--cd', cwd,
+    '--sandbox', 'workspace-write',
+    '--ask-for-approval', 'never',
     prompt,
-    options: {
-      plugins: [{ type: 'local', path: PLUGIN_DIR }],
-      cwd,
-      canUseTool: async (toolName, input) => {
-        if (toolName === 'AskUserQuestion') {
-          const patch = {};
-          for (const q of input.questions || []) {
-            patch[q.question] = (answers && answers[q.question]) || (q.options[0] && q.options[0].label);
-          }
-          return { behavior: 'allow', updatedInput: { ...input, answers: patch } };
-        }
-        return { behavior: 'allow', updatedInput: input };
-      },
-    },
-  })) messages.push(m);
-  return messages;
+  ], { encoding: 'utf8' });
+
+  return [{
+    exitCode: proc.status ?? 1,
+    stdout: proc.stdout || '',
+    stderr: proc.stderr || '',
+  }];
 }
 
 describeRunner('exercise: /write-spec parent-link + seal-spec', () => {

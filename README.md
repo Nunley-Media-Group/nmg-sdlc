@@ -1,10 +1,10 @@
 # nmg-sdlc
 
-Stack-agnostic BDD spec-driven development toolkit for Claude Code, by Nunley Media Group.
+Stack-agnostic BDD spec-driven development toolkit for Codex, by Nunley Media Group.
 
 ## Overview
 
-The **nmg-sdlc** plugin brings structured software delivery to Claude Code. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is six commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr` → `/address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. A dedicated architecture reviewer agent scores every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling), while a retrospective system analyzes past defects to continuously improve spec quality. Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Claude Code plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
+The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is six commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr` → `/address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. A dedicated architecture reviewer agent scores every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling), while a retrospective system analyzes past defects to continuously improve spec quality. Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
 
 It provides a GitHub issue-driven workflow. Projects first run `/onboard-project` (once per project lifetime) to bootstrap steering docs and — for existing codebases — reconcile specs from closed issues; afterward the per-feature cycle kicks in:
 
@@ -22,14 +22,11 @@ reconciliation       GitHub issue         status to In Progress    design/tasks)
 
 ## Installation
 
-This plugin is distributed through the [nmg-plugins marketplace](https://github.com/Nunley-Media-Group/nmg-plugins):
+This plugin is packaged for Codex via `.codex-plugin/plugin.json` and distributed through the [nmg-plugins marketplace](https://github.com/Nunley-Media-Group/nmg-plugins):
 
 ```bash
 # Add the marketplace
-/plugin marketplace add Nunley-Media-Group/nmg-plugins
-
-# Install the plugin
-/plugin install nmg-sdlc@nmg-plugins
+codex plugin marketplace add Nunley-Media-Group/nmg-plugins
 ```
 
 For auto-updates from a private repo, ensure `GITHUB_TOKEN` is set with read access to both the marketplace and plugin repositories.
@@ -42,7 +39,7 @@ Run `/onboard-project` in your project — it is the single entry point for adop
 /onboard-project
 ```
 
-- **Greenfield projects** (no code yet): optionally ingests a Claude Design URL, runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target), bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds `v1 (MVP)` and `v2` GitHub milestones, generates 3–7 starter issues via a `/draft-issue` loop with dependency-aware autolinking, then offers to run `/init-config` for the unattended runner. Pass `--design-url <url>` to skip the interactive prompt for the design URL.
+- **Greenfield projects** (no code yet): optionally ingests a Design URL, runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target), bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds `v1 (MVP)` and `v2` GitHub milestones, generates 3–7 starter issues via a `/draft-issue` loop with dependency-aware autolinking, then offers to run `/init-config` for the unattended runner. Pass `--design-url <url>` to skip the interactive prompt for the design URL.
 - **Greenfield-Enhancement (re-run)**: when steering files already exist but `specs/` does not, the same Step 2G pipeline runs in enhancement mode — steering files are edited in place (no overwrites), and milestones or issues already seeded by a prior run (detected via the `seeded-by-onboard` label) are skipped.
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `/upgrade-project` rather than duplicating work.
@@ -73,11 +70,11 @@ Selects an issue (or presents a picker if no number is given), creates a linked 
 /draft-issue "add user authentication"
 ```
 
-**Interactive-only** (v1.41.0+) — `/draft-issue` always runs the full interactive workflow regardless of `.claude/unattended-mode`. Classifies the issue type (Bug or Enhancement/Feature), investigates the codebase for relevant context, then interviews you with adaptive depth (core 3-round or extended 4-round with NFR/edge-case probing). Assigns the issue to a version milestone. Plays back its understanding before drafting (Step 5c), then renders a structured inline summary with `[1] Approve / [2] Revise` review menu before creating the issue.
+**Interactive-only** (v1.41.0+) — `/draft-issue` always runs the full interactive workflow regardless of `.codex/unattended-mode`. Classifies the issue type (Bug or Enhancement/Feature), investigates the codebase for relevant context, then interviews you with adaptive depth (core 3-round or extended 4-round with NFR/edge-case probing). Assigns the issue to a version milestone. Plays back its understanding before drafting (Step 5c), then renders a structured inline summary with `[1] Approve / [2] Revise` review menu before creating the issue.
 
 **Multi-issue mode (v1.46.0)**: Step 1b heuristically detects multi-part asks (conjunction markers, bullet lists, distinct component mentions) and proposes a split with per-ask summaries and a `high`/`medium`/`low` confidence indicator. A split-confirm menu (`[1] Approve / [2] Adjust / [3] Collapse`) lets you recover from false-positive splits. Step 1d infers a dependency DAG with a graph-confirm menu before any drafting begins. Each planned issue runs the full Steps 2–9 independently; created issues are autolinked via `gh issue edit --add-sub-issue` (availability probe + body cross-ref fallback). Batch abandonment at any review gate preserves already-created issues with no rollback.
 
-**Claude Design URL**: supply an optional `claude.ai` design URL to share parsed archive context read-only across every per-issue investigation, interview, and synthesis in the batch — reuses the `/onboard-project` fetch/gzip-decode/README-parse helper.
+**Design URL**: supply an optional `design archive` design URL to share parsed archive context read-only across every per-issue investigation, interview, and synthesis in the batch — reuses the `/onboard-project` fetch/gzip-decode/README-parse helper.
 
 ### Step 2: Write Specs
 
@@ -154,7 +151,7 @@ The plugin supports fully automated operation through a deterministic Node.js ru
 
 #### 1. Generate a project config
 
-From within the target project (must have a `.claude/` directory):
+From within the target project (must have a `.codex/` directory):
 
 ```bash
 /init-config
@@ -164,7 +161,7 @@ This writes `sdlc-config.json` to the project root and adds it to `.gitignore`. 
 
 #### 2. Launch the runner
 
-From within a Claude Code session:
+From within a Codex session:
 
 ```bash
 /run-loop
@@ -180,16 +177,16 @@ Available flags: `--resume`, `--dry-run`, `--step N`, `--issue N`.
 
 ### Unattended-mode flag
 
-> **Not to be confused with Claude Code's native Auto Mode.** Claude Code (since v2.1.83) ships its own "Auto Mode" — a permission feature that auto-approves safe tool calls via a classifier. This plugin's `.claude/unattended-mode` flag is independent: it signals that the SDLC runner is driving the session headlessly and causes skills to skip interactive gates. The two features are orthogonal — you can run either, both, or neither.
+> **Not to be confused with Codex's native Auto Mode.** Codex (since v2.1.83) ships its own "Auto Mode" — a permission feature that auto-approves safe tool calls via a classifier. This plugin's `.codex/unattended-mode` flag is independent: it signals that the SDLC runner is driving the session headlessly and causes skills to skip interactive gates. The two features are orthogonal — you can run either, both, or neither.
 
-The runner creates `.claude/unattended-mode` automatically. When this file exists, skills skip interactive prompts. You can also toggle it manually:
+The runner creates `.codex/unattended-mode` automatically. When this file exists, skills skip interactive prompts. You can also toggle it manually:
 
 ```bash
 # Enable unattended mode
-mkdir -p .claude && touch .claude/unattended-mode
+mkdir -p .codex && touch .codex/unattended-mode
 
 # Disable unattended mode
-rm .claude/unattended-mode
+rm .codex/unattended-mode
 ```
 
 To stop an in-flight runner cleanly (signal the live PID and clear both runner artifacts in one step), use `/end-loop` — the explicit counterpart to `/run-loop`.
@@ -199,7 +196,7 @@ To stop an in-flight runner cleanly (signal the live PID and clear both runner a
 - **Issue selection**: picks the first open issue in the milestone, sorted by issue number ascending (oldest first)
 - **Confirmations**: answers yes
 - **Review gates**: auto-approves all phases (requirements, design, tasks)
-- **Plan mode**: skipped — `EnterPlanMode` is never called; Claude designs the approach internally from specs
+- **Plan mode**: skipped — `plan approval` is never called; Codex designs the approach internally from specs
 - **Skill output**: all "Next step" suggestions suppressed; skills output `Done. Awaiting orchestrator.` instead
 
 ### Safety net
@@ -255,16 +252,16 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `/open-pr #N` | Determine version bump, update VERSION/CHANGELOG/stack files, create PR with spec-driven summary |
 | `/address-pr-comments [#N] [--max-rounds=K]` | Close the PR review loop: read automated-reviewer threads, apply fixes via `/write-code` + `/verify-code`, reply and resolve until review-clean |
 | `/run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
-| `/run-loop [#N]` | Run the full SDLC pipeline from within an active Claude Code session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
+| `/run-loop [#N]` | Run the full SDLC pipeline from within an active Codex session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
 | `/end-loop` | Stop unattended mode and clear runner state |
-| `/upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.claude/steering/` and `.claude/specs/` to the project root |
+| `/upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/` to the project root |
 | `/init-config` | Generate an `sdlc-config.json` for the SDLC runner |
 | `/onboard-project [--dry-run] [--design-url <url>]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating
 
 ```bash
-/plugin marketplace update nmg-plugins
+codex plugin marketplace upgrade nmg-plugins
 ```
 
 ## License

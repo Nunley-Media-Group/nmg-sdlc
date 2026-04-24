@@ -2,7 +2,7 @@
 name: spec-implementer
 description: "Execute implementation tasks from BDD specs. Reads specifications, steering documents, and tasks, then implements code changes sequentially. Auto-invoked by write-code during the code phase."
 tools: Read, Glob, Grep, Write, Edit, Bash, WebFetch, WebSearch
-model: sonnet
+model: gpt-5.4
 skills: write-code
 ---
 
@@ -48,13 +48,13 @@ Detection is deliberately conservative — any single signal triggers routing (f
 ### Skill-Creator Probe Contract
 
 1. **Probe for availability** — treat the `skill-creator` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
 2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the file — never `Write`/`Edit` a skill-bundled file directly.
 3. **If unavailable**: do NOT silently fall back to `Write`/`Edit`. The hand-edit escape hatch was removed because it consistently produced drift from skill-creator's best practices. Stop the task and surface the missing dependency in the completion report — `/skill-creator is required for skill-bundled file edits but is not installed.` In unattended mode, emit `ESCALATION: /skill-creator is required for skill-bundled file edits — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an `request_user_input` gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to the next task.
 
@@ -64,7 +64,7 @@ If `/skill-creator` is available but errors or reports failures, surface those a
 - One task at a time — maintains focus and traceability
 - Test after each task — catches issues early
 - Reference steering docs — ensures consistency with project conventions
-- Do NOT call `EnterPlanMode` — this runs in a headless context
+- Do NOT call `plan approval` — this runs in a headless context
 - Skill-bundled file tasks must be routed through `/skill-creator` (see Routing Skill-Bundled Tasks above); when `/skill-creator` is unavailable, escalate and stop — there is no hand-edit fallback
 
 ## Bug Fix Implementation

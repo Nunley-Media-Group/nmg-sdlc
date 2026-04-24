@@ -11,7 +11,7 @@ Use this template to generate the final verification report.
 
 **Date**: [Current Date]
 **Issue**: #[number]
-**Reviewer**: Claude Code
+**Reviewer**: Codex
 **Scope**: Implementation verification against spec
 
 ---
@@ -125,8 +125,8 @@ Use this template to generate the final verification report.
 |-------|-------|
 | **Skill Exercised** | [skill name] |
 | **Test Project** | [temp dir path] |
-| **Exercise Method** | Agent SDK with `canUseTool` / `claude -p` fallback |
-| **AskUserQuestion Handling** | Programmatic first-option / Denied / N/A |
+| **Exercise Method** | `codex exec` |
+| **request_user_input Handling** | Programmatic first-option / Denied / N/A |
 | **Duration** | [seconds] |
 
 ### Captured Output Summary
@@ -147,7 +147,7 @@ Use this template to generate the final verification report.
 
 | Field | Value |
 |-------|-------|
-| **Reason** | [e.g., claude CLI not found, Agent SDK unavailable, timeout] |
+| **Reason** | [e.g., codex CLI not found, timeout] |
 | **Recommendation** | Manual exercise testing recommended as follow-up |
 
 ---

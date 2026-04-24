@@ -11,7 +11,7 @@ allowed-tools: Read
 >
 > The rename reflects the skill's primary job — bringing a project forward to match the current plugin contract, not just "migrating" isolated artifacts.
 >
-> **Run `/upgrade-project` instead.** It performs everything the old `/migrate-project` did, plus the new legacy-layout relocation (`.claude/steering/` → `steering/` and `.claude/specs/` → `specs/`) required by current Claude Code releases.
+> **Run `/upgrade-project` instead.** It performs everything the old `/migrate-project` did, plus the new legacy-layout relocation (`.codex/steering/` → `steering/` and `.codex/specs/` → `specs/`) required by current Codex releases.
 >
 > This deprecation stub will be removed in the next minor release. Update any automation, documentation, or muscle memory to use `/upgrade-project`.
 
@@ -20,8 +20,8 @@ allowed-tools: Read
 | Old | New |
 |-----|-----|
 | `/migrate-project` | `/upgrade-project` |
-| `.claude/migration-exclusions.json` | `.claude/upgrade-exclusions.json` (auto-migrated on first `/upgrade-project` run) |
-| Analyzed `.claude/steering/` and `.claude/specs/` | Analyzes `steering/` and `specs/` at the project root; relocates legacy `.claude/{steering,specs}` in Step 1.5 |
+| `.codex/migration-exclusions.json` | `.codex/upgrade-exclusions.json` (auto-migrated on first `/upgrade-project` run) |
+| Analyzed `.codex/steering/` and `.codex/specs/` | Analyzes `steering/` and `specs/` at the project root; relocates legacy `.codex/{steering,specs}` in Step 1.5 |
 
 ## Action
 

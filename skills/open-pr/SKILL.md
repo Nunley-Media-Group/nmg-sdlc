@@ -3,8 +3,8 @@ name: open-pr
 description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in /commit-push. Links specs and acceptance criteria into the PR body. Eighth step in the SDLC pipeline — follows /commit-push and precedes /address-pr-comments."
 argument-hint: "[#issue-number] [--major]"
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(sleep:*), AskUserQuestion
-model: sonnet
+allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(sleep:*), request_user_input
+model: gpt-5.4
 effort: low
 ---
 
@@ -12,13 +12,13 @@ effort: low
 
 Create a pull request with a spec-driven summary that links to the GitHub issue and references specification documents.
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.claude/steering/` or `.claude/specs/`.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
 Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging). Version-bump and push duties have moved to `/commit-push` as of FR1; this skill no longer owns a human-review gate for version bumping.
 
 Read `../../references/feature-naming.md` when locating the spec directory for the issue and no `{feature-name}` is already known — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
 
-Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, dual-file update (plugin.json + marketplace.json), CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `/commit-push` owns the bump itself.
+Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, `.codex-plugin/plugin.json` manifest update, CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `/commit-push` owns the bump itself.
 
 Read `../../references/steering-schema.md` when reading `steering/tech.md` for the `## Versioning` bump matrix or stack-specific versioned-files table — `tech.md` is the authoritative source for project-specific bump behaviour.
 
@@ -39,7 +39,7 @@ Inspect the invocation arguments for a `--major` token (alongside the issue numb
 - `--major` present → set a `major_requested` flag and remember it through Step 2. This is the only supported path to a major version bump — the label-based classification matrix never produces one on its own.
 - `--major` absent → `major_requested` is false and the rest of the workflow behaves normally.
 
-**Unattended-mode escalation**: if `.claude/unattended-mode` exists AND `major_requested` is true, print this line exactly and stop:
+**Unattended-mode escalation**: if `.codex/unattended-mode` exists AND `major_requested` is true, print this line exactly and stop:
 
 ```
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
@@ -99,14 +99,14 @@ Add labels matching the issue when appropriate. Read `references/pr-body.md` for
 
 ### Step 6: Output (Base Case)
 
-Follows the output block from `references/pr-body.md`. After printing, branch on `.claude/unattended-mode`:
+Follows the output block from `references/pr-body.md`. After printing, branch on `.codex/unattended-mode`:
 
 - **Sentinel exists**: print `Done. Awaiting orchestrator.` and stop. Do NOT proceed to Step 7 — the runner owns CI monitoring and merging.
 - **Sentinel absent**: fall through to Step 7.
 
 ### Step 7: Interactive CI Monitor + Auto-Merge (Opt-In)
 
-Read `references/ci-monitoring.md` when `.claude/unattended-mode` does NOT exist — the reference covers the opt-in prompt, the 30-second polling loop with 30-minute timeout, the pre-merge `mergeStateStatus == CLEAN` check, the squash-merge-and-cleanup path, the failure path (which leaves the user on the feature branch), and the no-CI graceful-skip path. In unattended mode this step is actively suppressed and must not run.
+Read `references/ci-monitoring.md` when `.codex/unattended-mode` does NOT exist — the reference covers the opt-in prompt, the 30-second polling loop with 30-minute timeout, the pre-merge `mergeStateStatus == CLEAN` check, the squash-merge-and-cleanup path, the failure path (which leaves the user on the feature branch), and the no-CI graceful-skip path. In unattended mode this step is actively suppressed and must not run.
 
 ---
 

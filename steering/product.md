@@ -7,17 +7,17 @@ All feature development should align with these guidelines.
 
 ## Mission
 
-**nmg-plugins provides a BDD spec-driven development toolkit for Claude Code that transforms GitHub issues into verified, production-ready implementations through a structured SDLC workflow.**
+**nmg-plugins provides a BDD spec-driven development toolkit for Codex that transforms GitHub issues into verified, production-ready implementations through a structured SDLC workflow.**
 
 ---
 
 ## Target Users
 
-### Primary: Developer using Claude Code
+### Primary: Developer using Codex
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Claude Code CLI daily | Skills must integrate seamlessly with Claude Code's tool system |
+| Uses Codex daily | Skills must integrate seamlessly with Codex's tool system |
 | Works from GitHub issues | Workflow must be issue-driven with branch linking |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
 | Values quality gates | Verification step catches drift before PR |
@@ -26,7 +26,7 @@ All feature development should align with these guidelines.
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Headless execution | Skills must detect `.claude/unattended-mode` and skip interactive prompts |
+| Headless execution | Skills must detect `.codex/unattended-mode` and skip interactive prompts |
 | Deterministic orchestration | Runner script drives steps sequentially with preconditions |
 | Log-based reporting | Status updates flow to console and log files |
 
@@ -49,7 +49,7 @@ All feature development should align with these guidelines.
 | Process over tooling | Provide the workflow structure; project steering provides the technical details |
 | Human gates by default | Interactive review at each phase; unattended mode is opt-in for automation |
 | Spec as source of truth | All implementation and verification traces back to spec documents |
-| Dogfooding | The SDLC develops itself — changes to skills are verified by exercising them in Claude Code |
+| Dogfooding | The SDLC develops itself — changes to skills are verified by exercising them in Codex |
 
 ---
 
@@ -106,7 +106,7 @@ All feature development should align with these guidelines.
 
 ```
 1. Runner picks oldest open issue from milestone
-2. Runs each skill sequentially via claude -p subprocesses
+2. Runs each skill sequentially via codex exec subprocesses
 3. Auto-approves all gates (unattended mode enabled)
 4. Logs status updates at each step
 5. Creates PR, monitors CI, merges on green
@@ -123,14 +123,14 @@ This project uses its own SDLC toolkit to develop itself. The verification step 
 3. Runs /write-code — modifies SKILL.md files and templates
 4. Runs /verify-code — must exercise the changed skill:
    a. Scaffold a disposable test project
-   b. Load the modified plugin: claude --plugin-dir ./plugins/nmg-sdlc
+   b. Load the modified plugin: codex exec --cd /path/to/test-project "/nmg-sdlc:skill-name args"
    c. Invoke the changed skill against the test project
    d. For GitHub-integrated skills: evaluate what WOULD be created (dry-run)
    e. Confirm output matches spec ACs
 5. Runs /open-pr — PR includes verification evidence
 ```
 
-The key difference from Journey 1: traditional "run tests" is replaced by "exercise the skill in Claude Code and evaluate the output."
+The key difference from Journey 1: traditional "run tests" is replaced by "exercise the skill in Codex and evaluate the output."
 
 ---
 
@@ -142,12 +142,12 @@ Each product principle translates to a verifiable behavioral contract. `/verify-
 
 | Product Principle | Behavioral Contract | Verification Check |
 |-------------------|--------------------|--------------------|
-| **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | Grep changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Claude Code tool names |
+| **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | Grep changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
 | **OS-agnostic** | No platform-specific paths, commands, or assumptions | Grep for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
 | **Spec as source of truth** | Every implementation change traces to a requirement in the spec | Each modified file must map to a task in `tasks.md` or an AC in `requirements.md` |
-| **Human gates by default** | Interactive approval exists at every decision point | Skills contain `AskUserQuestion` at gates, guarded by unattended-mode check |
+| **Human gates by default** | Interactive approval exists at every decision point | Skills contain `request_user_input` at gates, guarded by unattended-mode check |
 | **Process over tooling** | Skills define workflow structure; project details live in steering docs | Skills reference steering docs for conventions, not hardcode them |
-| **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `claude --plugin-dir` and invoked against a test project |
+| **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `codex exec --cd` and invoked against a test project |
 
 ### Skill Pipeline Contracts
 
@@ -191,8 +191,8 @@ When verifying a change to any skill, confirm it preserves these contracts — t
 
 | Data | Usage | Shared |
 |------|-------|--------|
-| GitHub issues/PRs | Read/write via gh CLI for workflow | Only within the user's GitHub org |
-| Source code | Analyzed locally by Claude Code | Never transmitted beyond Claude API |
+| GitHub issues/PRs | Read/write via `gh` CLI for workflow | Only within the user's GitHub org |
+| Source code | Analyzed locally by Codex | Never transmitted beyond OpenAI API |
 | Steering docs | Local project context | Committed to repo at user's discretion |
 
 ---

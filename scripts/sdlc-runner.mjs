@@ -4,8 +4,8 @@
  * Deterministic SDLC Orchestrator
  *
  * Replaces the prompt-engineered heartbeat loop with a Node.js script that
- * deterministically orchestrates `claude -p` subprocess invocations for each
- * SDLC step. All SDLC work still executes inside Claude Code sessions.
+ * deterministically orchestrates `codex exec` subprocess invocations for each
+ * SDLC step. All SDLC work still executes inside Codex sessions.
  *
  * Usage:
  *   node sdlc-runner.mjs --config <path-to-sdlc-config.json>
@@ -39,7 +39,7 @@ let PROJECT_PATH = '';
 let PLUGINS_PATH = '';
 let PLUGIN_ROOT = '';
 let SKILL_ROOT_SOURCE = '';
-let MODEL = 'sonnet';
+let MODEL = 'gpt-5.5';
 let EFFORT = 'medium';
 let MAX_RETRIES = 3;
 let MAX_BOUNCE_RETRIES = 3;
@@ -104,7 +104,7 @@ Options:
   PROJECT_PATH = config.projectPath;
   PLUGINS_PATH = config.pluginsPath || '';
   PLUGIN_ROOT = config.pluginRoot || '';
-  MODEL = config.model || 'sonnet';
+  MODEL = config.model || 'gpt-5.5';
   EFFORT = config.effort || 'medium';
   MAX_RETRIES = config.maxRetriesPerStep || 3;
   MAX_BOUNCE_RETRIES = parseMaxBounceRetries(config.maxBounceRetries);
@@ -119,7 +119,7 @@ Options:
     process.exit(1);
   }
 
-  STATE_PATH = path.join(PROJECT_PATH, '.claude', 'sdlc-state.json');
+  STATE_PATH = path.join(PROJECT_PATH, '.codex', 'sdlc-state.json');
 
   // Logging setup (uses the already-parsed config)
   LOG_DIR = resolveLogDir(config, PROJECT_PATH);
@@ -149,7 +149,7 @@ let bounceCount = 0;
 
 // Structured context carried from a failed step to the step it bounces to.
 // Set at both bounce sites (runStep precondition fail, handleFailure
-// precondition fail), consumed by buildClaudeArgs exactly once, cleared after
+// precondition fail), consumed by buildCodexArgs exactly once, cleared after
 // the receiving step completes or a new cycle starts. Keeps the receiving
 // subagent from re-investigating divergence from scratch on every bounce.
 let bounceContext = null;
@@ -160,7 +160,7 @@ let bounceContext = null;
 
 // NOTE: draftIssue is intentionally absent. /draft-issue is interactive-only
 // as of plugin v1.41.0 (issue #116). Do not add it here — see
-// plugins/nmg-sdlc/skills/draft-issue/SKILL.md for the rationale.
+// skills/draft-issue/SKILL.md for the rationale.
 const STEP_KEYS = [
   'startCycle',   // 1
   'startIssue',   // 2
@@ -200,7 +200,7 @@ function validateConfig(config) {
   }
 
   if (!config.pluginRoot && !config.pluginsPath) {
-    errors.push('config must include either pluginRoot (recommended for Claude Code plugin-cache installs) or pluginsPath (legacy nmg-plugins monorepo layout) — at least one is required');
+    errors.push('config must include either pluginRoot (recommended for Codex plugin installs) or pluginsPath (legacy nmg-plugins monorepo layout) — at least one is required');
   }
 
   if (config.effort === 'max') {
@@ -225,11 +225,7 @@ function validateConfig(config) {
         errors.push(`Invalid steps.${key}.effort "${step.effort}" — must be one of: ${VALID_EFFORTS.join(', ')}`);
       }
 
-      const resolvedModel = step.model || globalModel;
-      const resolvedEffort = step.effort !== undefined ? step.effort : globalEffort;
-      if (resolvedModel === 'haiku' && resolvedEffort !== undefined) {
-        errors.push(`steps.${key}: Haiku does not support the effort parameter — remove effort from this step (or the global effort field if the step inherits it)`);
-      }
+      void (step.model || globalModel);
     }
   }
 
@@ -246,14 +242,14 @@ function getConfigObject() {
 /**
  * Resolve model and effort for a step using the fallback chain:
  *   step.field → config.field → default
- * Model default: 'sonnet'; effort default: 'medium' (cleared to undefined when model is haiku).
+ * Model default: 'gpt-5.5'; effort default: 'medium'.
  */
 function resolveStepConfig(step, config) {
-  const model = step.model || config.model || 'sonnet';
+  const model = step.model || config.model || 'gpt-5.5';
   const effort = step.effort || config.effort || 'medium';
   return {
     model,
-    effort: model === 'haiku' ? undefined : effort,
+    effort,
   };
 }
 
@@ -591,7 +587,7 @@ function gh(args, cwd = PROJECT_PATH) {
 }
 
 // Runner-managed files that should not count as "dirty" working tree
-const RUNNER_ARTIFACTS = ['.claude/sdlc-state.json', '.claude/unattended-mode'];
+const RUNNER_ARTIFACTS = ['.codex/sdlc-state.json', '.codex/unattended-mode'];
 
 /**
  * Ensure each RUNNER_ARTIFACTS entry is listed in the target project's .gitignore.
@@ -641,8 +637,8 @@ function untrackRunnerArtifactsIfTracked() {
 
 function removeUnattendedMode() {
   try {
-    fs.unlinkSync(path.join(PROJECT_PATH, '.claude', 'unattended-mode'));
-    log('Removed .claude/unattended-mode flag');
+    fs.unlinkSync(path.join(PROJECT_PATH, '.codex', 'unattended-mode'));
+    log('Removed .codex/unattended-mode flag');
   } catch { /* best effort — file may not exist */ }
 }
 
@@ -757,13 +753,13 @@ function findProcessesByPattern(pattern) {
 // ---------------------------------------------------------------------------
 
 function cleanupProcesses() {
-  const phase1Ran = !!lastClaudePid;
+  const phase1Ran = !!lastCodexPid;
 
-  // Phase 1: tree-based cleanup via lastClaudePid
-  if (lastClaudePid) {
-    const killed = killProcessTree(lastClaudePid);
-    log(`[CLEANUP] Phase 1: killed ${killed} process(es) in tree rooted at PID ${lastClaudePid}`);
-    lastClaudePid = null;
+  // Phase 1: tree-based cleanup via lastCodexPid
+  if (lastCodexPid) {
+    const killed = killProcessTree(lastCodexPid);
+    log(`[CLEANUP] Phase 1: killed ${killed} process(es) in tree rooted at PID ${lastCodexPid}`);
+    lastCodexPid = null;
   }
 
   // Phase 2: pattern-based fallback
@@ -899,12 +895,12 @@ function validatePreconditions(step, state) {
 }
 
 // ---------------------------------------------------------------------------
-// Build claude -p arguments for each step
+// Build codex exec arguments for each step
 // ---------------------------------------------------------------------------
 
 /**
  * Return the directory that contains `skills/` for the current config.
- * Precedence: `pluginRoot` wins if set (Claude Code plugin-cache layout),
+ * Precedence: `pluginRoot` wins if set (Codex plugin-cache layout),
  * otherwise fall back to `{pluginsPath}/plugins/nmg-sdlc` (legacy monorepo).
  * Records the chosen field name in SKILL_ROOT_SOURCE so error messages and
  * the startup log can name it.
@@ -935,7 +931,7 @@ function readSkill(skillName) {
   return fs.readFileSync(skillPath, 'utf8');
 }
 
-function buildClaudeArgs(step, state, overrides = {}) {
+function buildCodexArgs(step, state, overrides = {}) {
   const issue = state.currentIssue || '<unknown>';
   const branch = state.currentBranch || '<unknown>';
   const skillRoot = step.skill
@@ -946,10 +942,10 @@ function buildClaudeArgs(step, state, overrides = {}) {
     [STEP_NUMBER.startCycle]: 'Check out main, clean the working tree, and pull latest. Run: git checkout main && git clean -fd && git checkout -- . && git pull. Report the current branch and latest commit.',
 
     [STEP_NUMBER.startIssue]: (SINGLE_ISSUE_NUMBER || preSelectedIssue)
-      ? `Start issue #${SINGLE_ISSUE_NUMBER || preSelectedIssue}. Create a linked feature branch and set the issue to In Progress. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`
+      ? `Start issue #${SINGLE_ISSUE_NUMBER || preSelectedIssue}. Create a linked feature branch and set the issue to In Progress. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`
       : [
-          `You are running in UNATTENDED MODE (\`.claude/unattended-mode\` exists).`,
-          `Do NOT call AskUserQuestion — it will be denied and waste turns. Do NOT emit`,
+          `You are running in UNATTENDED MODE (\`.codex/unattended-mode\` exists).`,
+          `Do NOT ask the user questions — there is no interactive user in this runner. Do NOT emit`,
           `text asking the user to reply. Follow the skill's unattended-mode path:`,
           ``,
           `1. Fetch viable milestones via \`gh api repos/{owner}/{repo}/milestones --jq '[.[] | select(.open_issues > 0) | {title: .title, open_issues: .open_issues}] | sort_by(.title)'\`.`,
@@ -960,19 +956,19 @@ function buildClaudeArgs(step, state, overrides = {}) {
           `6. Exit successfully. HEAD must be on the new <number>-<slug> feature branch when you exit.`,
           ``,
           escalatedIssues.size > 0 ? `Do NOT select any of these previously-escalated issues: ${[...escalatedIssues].map(i => `#${i}`).join(', ')}.` : '',
-          `Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+          `Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
         ].filter(Boolean).join('\n'),
 
-    [STEP_NUMBER.writeSpecs]: `Write BDD specifications for issue #${issue} on branch ${branch}. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.writeSpecs]: `Write BDD specifications for issue #${issue} on branch ${branch}. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.implement]: `Implement the specifications for issue #${issue} on branch ${branch}. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.implement]: `Implement the specifications for issue #${issue} on branch ${branch}. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
     [STEP_NUMBER.simplify]: [
       `Run the simplify pass over files changed on branch ${branch} for issue #${issue}.`,
       ``,
       `1. Probe for the simplify skill. Treat it as available if ANY of these is true:`,
-      `   - Glob finds ~/.claude/skills/simplify/SKILL.md`,
-      `   - Glob finds ~/.claude/plugins/**/skills/simplify/SKILL.md`,
+      `   - Glob finds ~/.codex/skills/simplify/SKILL.md`,
+      `   - Glob finds ~/.codex/plugins/**/skills/simplify/SKILL.md`,
       `   - The available-skills list in your system reminder advertises a skill named "simplify" (or "*:simplify")`,
       `2. If NOT available, print the following line verbatim and exit with code 0:`,
       `   simplify skill not available — skipping simplification pass`,
@@ -981,11 +977,11 @@ function buildClaudeArgs(step, state, overrides = {}) {
       `   If /simplify errors or reports failures, print the error details to stdout and exit with code 1.`,
     ].join('\n'),
 
-    [STEP_NUMBER.verify]: `Verify the implementation for issue #${issue} on branch ${branch}. Fix any findings. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.verify]: `Verify the implementation for issue #${issue} on branch ${branch}. Fix any findings. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.commitPush]: `Commit and push the work for issue #${issue} on branch ${branch}. Stage changes, apply the version bump per the skill's procedure, write a conventional-commit message, fetch + reconcile with origin/main (rebase + --force-with-lease under unattended mode when local was rebased and the lease check is safe), and push. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.commitPush]: `Commit and push the work for issue #${issue} on branch ${branch}. Stage changes, apply the version bump per the skill's procedure, write a conventional-commit message, fetch + reconcile with origin/main (rebase + --force-with-lease under unattended mode when local was rebased and the lease check is safe), and push. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. The version bump has already been applied by /commit-push; your responsibility is preconditions + ancestry check + gh pr create + labels. If local is behind origin/main, exit non-zero with the sentinel "DIVERGED: re-run commit-push to reconcile before creating PR" on stdout — the runner will bounce control back to /commit-push. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. The version bump has already been applied by /commit-push; your responsibility is preconditions + ancestry check + gh pr create + labels. If local is behind origin/main, exit non-zero with the sentinel "DIVERGED: re-run commit-push to reconcile before creating PR" on stdout — the runner will bounce control back to /commit-push. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
     [STEP_NUMBER.monitorCI]: [
       `Monitor CI for the PR on branch ${branch}. Follow these steps exactly:`,
@@ -1030,37 +1026,50 @@ function buildClaudeArgs(step, state, overrides = {}) {
     basePrompt = `${ctxBlock}\n${basePrompt}`;
   }
 
-  const claudeArgs = [
-    '--model', overrides.model || MODEL,
-    '-p', basePrompt,
-    '--dangerously-skip-permissions',
-    '--verbose',
-    '--output-format', 'stream-json',
-    '--max-turns', String(step.maxTurns || 20),
-  ];
+  let prompt = basePrompt;
 
-  if (step.skill) {
+  if (step.skill && !overrides.prompt) {
     const skillContent = readSkill(step.skill);
-    claudeArgs.push('--append-system-prompt', skillContent);
+    prompt = [
+      basePrompt,
+      '',
+      '## Skill instructions',
+      skillContent,
+    ].join('\n');
   }
 
-  return claudeArgs;
+  const codexArgs = [
+    'exec',
+    '--model', overrides.model || MODEL,
+    '--cd', PROJECT_PATH,
+    '--sandbox', 'workspace-write',
+    '--ask-for-approval', 'never',
+    '--json',
+  ];
+
+  if (overrides.effort) {
+    codexArgs.push('-c', `model_reasoning_effort="${overrides.effort}"`);
+  }
+
+  codexArgs.push(prompt);
+
+  return codexArgs;
 }
 
 // ---------------------------------------------------------------------------
-// Claude subprocess execution
+// Codex subprocess execution
 // ---------------------------------------------------------------------------
 
-function runClaude(step, state, overrides = {}) {
+function runCodex(step, state, overrides = {}) {
   const resolved = resolveStepConfig(step, getConfigObject());
   const model = overrides.model || resolved.model;
   const effort = overrides.effort ?? resolved.effort;
 
-  const claudeArgs = buildClaudeArgs(step, state, { model, prompt: overrides.prompt });
+  const codexArgs = buildCodexArgs(step, state, { model, effort, prompt: overrides.prompt });
   const timeoutMs = (step.timeoutMin || 10) * 60 * 1000;
 
   if (DRY_RUN) {
-    log(`[DRY-RUN] Would run: claude ${claudeArgs.slice(0, 6).join(' ')} ... (timeout: ${step.timeoutMin || 10}min)`);
+    log(`[DRY-RUN] Would run: codex ${codexArgs.slice(0, 8).join(' ')} ... (timeout: ${step.timeoutMin || 10}min)`);
     return Promise.resolve({ exitCode: 0, stdout: '{"type":"result","result":"dry-run"}', stderr: '', duration: 0 });
   }
 
@@ -1082,13 +1091,10 @@ function runClaude(step, state, overrides = {}) {
       cwd: PROJECT_PATH,
       stdio: ['ignore', 'pipe', 'pipe'],
     };
-    if (effort) {
-      spawnOpts.env = { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: effort };
-    }
 
-    const proc = spawn('claude', claudeArgs, spawnOpts);
+    const proc = spawn('codex', codexArgs, spawnOpts);
     currentProcess = proc;
-    lastClaudePid = proc.pid;
+    lastCodexPid = proc.pid;
 
     let stdout = '';
     let stderr = '';
@@ -1183,7 +1189,7 @@ function matchErrorPattern(output) {
 
 // Tools that are benign when denied — the model attempted them but recovered.
 // These should NOT trigger soft failure escalation.
-const BENIGN_DENIED_TOOLS = new Set(['EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion']);
+const BENIGN_DENIED_TOOLS = new Set(['request_user_input', 'plan approval']);
 
 // OS temp directory — resolved once at startup. Permission denials targeting
 // paths inside this directory are treated as benign because SDLC skills
@@ -1198,8 +1204,8 @@ const OS_TMPDIR = os.tmpdir();
 // find no failure indicators.  Each entry has a regex and a human-readable label
 // used in the soft-failure reason string and status log messages.
 const TEXT_FAILURE_PATTERNS = [
-  { pattern: /EnterPlanMode/i, label: 'EnterPlanMode' },
-  { pattern: /AskUserQuestion.*unattended-mode/i, label: 'AskUserQuestion in unattended-mode' },
+  { pattern: /plan approval/i, label: 'plan approval' },
+  { pattern: /request_user_input.*unattended-mode/i, label: 'request_user_input in unattended-mode' },
 ];
 
 function getToolName(denial) {
@@ -1301,7 +1307,7 @@ function probeDivergenceHints(branch) {
 
 /**
  * Capture the current bounce state so the receiving step sees it once via
- * buildClaudeArgs. `reason` is one of 'precondition_failed' | 'error_max_turns'.
+ * buildCodexArgs. `reason` is one of 'precondition_failed' | 'error_max_turns'.
  */
 function setBounceContext({ fromStep, reason, failedCheck, branch }) {
   bounceContext = {
@@ -1326,7 +1332,7 @@ function clearBounceContext() {
  * repo / GitHub, making a retry unnecessary (and usually harmful). Currently
  * only the merge step is covered — it's the only step whose inner action
  * produces irreversible side-effects (squash-merge + branch delete) before
- * the Claude session might exit non-zero on unrelated follow-up noise.
+ * the Codex session might exit non-zero on unrelated follow-up noise.
  *
  * Other steps (spec writing, implement, verify, createPR, monitorCI) are
  * either purely local or idempotent enough that retrying is safe.
@@ -1360,7 +1366,7 @@ async function handleFailure(step, result, state) {
   // 0. Idempotency check: did the step already achieve its outcome before
   // exiting non-zero? The merge step is the canonical example — `gh pr merge`
   // can squash-merge the PR (mutating shared GitHub state and deleting the
-  // branch) and then the Claude session exits non-zero on an unrelated
+  // branch) and then the Codex session exits non-zero on an unrelated
   // follow-up (rate_limit noise, post-merge `gh pr checks` on the
   // auto-switched `main` branch, etc.). Retrying such a step can't redo a
   // completed merge, and precondition probing sees a deleted branch and
@@ -1526,7 +1532,7 @@ function extractStateFromStep(step, result, state) {
   }
 
   if (step.number === STEP_NUMBER.startIssue) {
-    // Detect branch first — more reliable than parsing Claude output
+    // Detect branch first — more reliable than parsing Agent output
     try {
       const branch = git('rev-parse --abbrev-ref HEAD');
       if (branch !== 'main') {
@@ -1728,7 +1734,7 @@ function selectNextIssueFromMilestone(milestone, opts = {}) {
 }
 
 // Set by runStep() when pre-selecting the next issue in JS; cleared after
-// the startIssue step completes. Used by buildClaudeArgs to emit the simple
+// the startIssue step completes. Used by buildCodexArgs to emit the simple
 // "Start issue #N" prompt instead of the prompt-driven selection path.
 let preSelectedIssue = null;
 
@@ -2080,7 +2086,7 @@ function sleep(ms) {
 // ---------------------------------------------------------------------------
 
 let currentProcess = null;
-let lastClaudePid = null;
+let lastCodexPid = null;
 let shuttingDown = false;
 
 function handleSignal(signal) {
@@ -2215,9 +2221,9 @@ async function runStep(step, state) {
     }
   }
 
-  // Run claude
+  // Run Codex
   let result;
-  result = await runClaude(step, state);
+  result = await runCodex(step, state);
   log(`Step ${step.number} exited with code ${result.exitCode} in ${result.duration}s`);
   writeStepLog(step.key, result);
   cleanupProcesses();
@@ -2240,7 +2246,7 @@ async function runStep(step, state) {
     state = updateState(patch);
 
     // Step 2 postcondition: a feature branch must be checked out. When the
-    // skill bails without creating one (e.g., AskUserQuestion was denied in
+    // skill bails without creating one (e.g., a user-input request was denied in
     // unattended mode and the model fell back to a text prompt), the exit
     // code is still 0 but HEAD stays on main. Without this gate, downstream
     // preconditions bounce repeatedly until the bounce-loop guard escalates.
@@ -2340,12 +2346,12 @@ async function main() {
   untrackRunnerArtifactsIfTracked();
 
   // Ensure unattended-mode flag exists
-  const unattendedModePath = path.join(PROJECT_PATH, '.claude', 'unattended-mode');
+  const unattendedModePath = path.join(PROJECT_PATH, '.codex', 'unattended-mode');
   if (!fs.existsSync(unattendedModePath)) {
     const dir = path.dirname(unattendedModePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(unattendedModePath, '');
-    log('Created .claude/unattended-mode flag');
+    log('Created .codex/unattended-mode flag');
   }
 
   // Detect in-progress work from git state (runs on every startup)
@@ -2465,7 +2471,7 @@ async function main() {
         continue;
       }
 
-      // Post-startIssue safety check: halt if Claude selected an escalated issue (skip in single-issue mode)
+      // Post-startIssue safety check: halt if Codex selected an escalated issue (skip in single-issue mode)
       if (!SINGLE_ISSUE_NUMBER && result === 'ok' && step.number === STEP_NUMBER.startIssue) {
         const freshState = readState();
         if (freshState.currentIssue && escalatedIssues.has(freshState.currentIssue)) {
@@ -2556,8 +2562,8 @@ const __test__ = {
   set consecutiveEscalations(v) { consecutiveEscalations = v; },
   get escalatedIssues() { return escalatedIssues; },
   get currentProcess() { return currentProcess; },
-  get lastClaudePid() { return lastClaudePid; },
-  set lastClaudePid(v) { lastClaudePid = v; },
+  get lastCodexPid() { return lastCodexPid; },
+  set lastCodexPid(v) { lastCodexPid = v; },
 };
 
 // ---------------------------------------------------------------------------
@@ -2593,7 +2599,7 @@ export {
   validateVersionBump,
   performDeterministicVersionBump,
   autoCommitIfDirty,
-  buildClaudeArgs,
+  buildCodexArgs,
   readSkill,
   resolveSkillsBase,
   handleFailure,
@@ -2605,7 +2611,7 @@ export {
   readState,
   writeState,
   updateState,
-  runClaude,
+  runCodex,
   removeUnattendedMode,
   ensureRunnerArtifactsGitignored,
   cleanupProcesses,

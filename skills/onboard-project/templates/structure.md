@@ -157,7 +157,7 @@ class [Name] {
 
 ## References
 
-- CLAUDE.md for project overview
+- AGENTS.md for project overview
 - `steering/product.md` for product direction
 - `steering/tech.md` for technical standards
 ```

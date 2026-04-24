@@ -46,7 +46,7 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
 
 ## Human Review Gate menu (interactive)
 
-Call `AskUserQuestion` with three options — the HRG decides how the research output flows into GitHub:
+Call `request_user_input` with three options — the HRG decides how the research output flows into GitHub:
 
 ```
 question: "Phase 0 research complete. Choose a scope shape:"
@@ -76,7 +76,7 @@ options:
 
 ## Unattended deterministic default
 
-Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.claude/unattended-mode` exists, do NOT call `AskUserQuestion` — apply the default below and emit a one-line divergence note.
+Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call `request_user_input` — apply the default below and emit a one-line divergence note.
 
 | `component-count` (from researcher output) | Default scope shape |
 |---|---|

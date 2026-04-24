@@ -3,7 +3,7 @@ name: run-retro
 description: "Analyze defect specs to identify spec-writing gaps and produce actionable learnings. Use when user says 'run retrospective', 'analyze defects', 'review past bugs', 'what can we learn from bugs', 'update retrospective', 'how do I run a retrospective', or 'learn from our bugs'. Produces steering/retrospective.md that /write-spec reads to avoid repeating past failures. Utility skill — run periodically, outside the main SDLC pipeline."
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(shasum:*), Bash(sha256sum:*)
-model: opus
+model: gpt-5.5
 effort: high
 ---
 
@@ -11,9 +11,9 @@ effort: high
 
 Batch-analyze defect specs to identify recurring spec-writing gaps and produce `steering/retrospective.md` — a steering document that `/write-spec` reads during Phase 1 to avoid repeating past spec failures.
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.claude/steering/` or `.claude/specs/`.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `AskUserQuestion` call site so the runner can drive a retro without stopping for user input.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` call site so the runner can drive a retro without stopping for user input.
 
 Read `../../references/spec-frontmatter.md` when you need the defect-spec schema or the `**Related Spec**` field conventions — Step 2's chain resolution depends on `**Related Spec**` pointing at either a feature spec (terminating) or another defect spec (recursive).
 
@@ -163,8 +163,8 @@ Learnings generated: [total] ([new_count] new, [carried_count] carried forward)
 Written to steering/retrospective.md
 State saved to steering/retrospective-state.json
 
-[If `.claude/unattended-mode` does NOT exist]: Next step: This document will be read automatically by `/write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `/draft-issue` or `/start-issue` to continue the SDLC workflow.
-[If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If `.codex/unattended-mode` does NOT exist]: Next step: This document will be read automatically by `/write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `/draft-issue` or `/start-issue` to continue the SDLC workflow.
+[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
 ---

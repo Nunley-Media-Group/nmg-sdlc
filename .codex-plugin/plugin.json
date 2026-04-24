@@ -1,0 +1,39 @@
+{
+  "name": "nmg-sdlc",
+  "version": "1.59.0",
+  "description": "Stack-agnostic BDD spec-driven development toolkit",
+  "author": {
+    "name": "Nunley Media Group",
+    "url": "https://github.com/Nunley-Media-Group"
+  },
+  "homepage": "https://github.com/Nunley-Media-Group/nmg-sdlc#readme",
+  "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "bdd",
+    "spec-driven-development",
+    "github-issues",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "NMG SDLC",
+    "shortDescription": "BDD spec-driven delivery workflow for GitHub issue work.",
+    "longDescription": "NMG SDLC provides a structured software delivery loop: onboard a project, draft and start GitHub issues, write BDD requirements and implementation plans, implement from specs, verify against acceptance criteria, open pull requests, address review comments, and run unattended delivery cycles.",
+    "developerName": "Nunley Media Group",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "Automation"
+    ],
+    "websiteURL": "https://github.com/Nunley-Media-Group/nmg-sdlc",
+    "defaultPrompt": [
+      "Onboard this project for spec-driven delivery.",
+      "Draft a GitHub issue for this feature.",
+      "Run the SDLC loop for issue #42."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

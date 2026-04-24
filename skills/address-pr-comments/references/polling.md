@@ -41,7 +41,7 @@ Failure paths:
 
 ## Step 5b: Livelock Guard (Unattended Only)
 
-Applies only when the cached `.claude/unattended-mode` sentinel is present. The guard prevents the runner from burning budget re-polling for threads the skill will never change:
+Applies only when the cached `.codex/unattended-mode` sentinel is present. The guard prevents the runner from burning budget re-polling for threads the skill will never change:
 
 If `commits_this_round == 0` AND `escalations_this_round > 0`, exit with code **zero** and:
 

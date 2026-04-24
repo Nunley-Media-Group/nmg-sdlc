@@ -1,9 +1,9 @@
-# Claude Design URL — Fetch & Decode
+# Design URL — Fetch & Decode
 
 **Consumed by**: `draft-issue` Step 1a.
-**Triggering condition**: `session.designUrl` is non-null after Step 1 (the user supplied a `claude.ai` design URL either in the CLI argument or at the single optional prompt).
+**Triggering condition**: `session.designUrl` is non-null after Step 1 (the user supplied a design archive URL either in the CLI argument or at the single optional prompt).
 
-This reference documents how the skill fetches a Claude Design archive, decodes its payload, extracts the README, and gracefully degrades when anything goes wrong. A design-fetch failure must NEVER abort the `draft-issue` session — the skill continues without design context and logs a single-line failure note consumed by Step 11.
+This reference documents how the skill fetches a design archive, decodes its payload, extracts the README, and gracefully degrades when anything goes wrong. A design-fetch failure must NEVER abort the `draft-issue` session — the skill continues without design context and logs a single-line failure note consumed by Step 11.
 
 ## Procedure
 

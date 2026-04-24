@@ -1,9 +1,9 @@
 ---
 name: draft-issue
 description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when user says 'create issue', 'new feature', 'report a bug', 'log a bug', 'request a feature', 'I need a...', 'file an issue', 'draft an issue', 'how do I create an issue', or 'how to file a feature request'. Do NOT use for writing specs, implementing code, or creating PRs. Supports feature and bug templates with codebase investigation and milestone assignment. First step in the SDLC pipeline — followed by /start-issue."
-argument-hint: "[brief description of the need] [optional Claude Design URL]"
+argument-hint: "[brief description of the need] [optional Design URL]"
 allowed-tools: Read, Glob, Grep, Bash(gh:*), WebSearch, WebFetch
-model: sonnet
+model: gpt-5.4
 effort: medium
 ---
 
@@ -27,7 +27,7 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 - The user has an idea but hasn't formalized it yet
 - You need a trackable GitHub issue before writing specs
 
-`/draft-issue` does not honor `.claude/unattended-mode`. Issue drafting requires interactive input.
+`/draft-issue` does not honor `.codex/unattended-mode`. Issue drafting requires interactive input.
 
 ## Workflow Overview
 
@@ -35,7 +35,7 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 ┌──────────────────────────────────────────────────────────────┐
 │                   /draft-issue Skill                         │
 ├──────────────────────────────────────────────────────────────┤
-│  Step 1:  Gather Context (+ optional Claude Design URL)      │
+│  Step 1:  Gather Context (+ optional Design URL)      │
 │  Step 1a: Fetch & Decode Design URL                          │
 │  Step 1b: Detect Multi-Issue Prompt                          │
 │  Step 1c: Split-Confirm Menu  ◀── Human Review Gate          │
@@ -63,23 +63,23 @@ Single-issue prompts bypass Steps 1c, 1d, and the batch phases — Step 1b emits
 
 ### Step 0: Legacy-Layout Precondition
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate checks for legacy `.claude/steering/` and `.claude/specs/` trees and aborts with a pointer to `/upgrade-project` before any drafting happens.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate checks for legacy `.codex/steering/` and `.codex/specs/` trees and aborts with a pointer to `/upgrade-project` before any drafting happens.
 
 ### Step 1: Gather Context
 
-**Input**: optional CLI argument; optional Claude Design URL; `steering/product.md` if present.
+**Input**: optionalcodex exec argument; optional Design URL; `steering/product.md` if present.
 
 **Process**:
 
 1. If an argument was provided, use it as the starting description. Otherwise, ask the user what they need.
-2. Detect a Claude Design URL in the argument. If none is present, ask once: `"Supply an optional Claude Design URL? (press Enter to skip)"`. Store as `session.designUrl` (may be null).
+2. Detect a Design URL in the argument. If none is present, ask once: `"Supply an optional Design URL? (press Enter to skip)"`. Store as `session.designUrl` (may be null).
 3. Read `steering/product.md` for product vision, personas, MoSCoW priorities, and existing user journeys.
 
 Read `../../references/steering-schema.md` when you need the roster of steering documents and their read-timing.
 
 **Output**: `session.initialDescription`, `session.designUrl`, `session.productContext`.
 
-### Step 1a: Fetch & Decode the Claude Design URL
+### Step 1a: Fetch & Decode the Design URL
 
 Read `references/design-url.md` when `session.designUrl` is non-null. If it is null, skip this step entirely and proceed to Step 1b.
 
@@ -101,7 +101,7 @@ Read `references/multi-issue.md` when you need the shared read-only `SessionStat
 - Step 1b's `distinctComponents >= 4` AND `sentenceCount >= 3`.
 - The description contains references to multiple sequential delivery phases (e.g., "first … then … finally …").
 
-Call `AskUserQuestion`:
+Call `request_user_input`:
 
 ```
 question: "What type of issue is this?"
@@ -123,7 +123,7 @@ When `epicRecommended` is true, append `(Recommended)` to the Epic option label.
 **Process**:
 
 1. Read the `VERSION` file at the project root. If it exists and parses as semver (`X.Y.Z`), extract the major (`2.11.0` → `2`). Otherwise skip milestone assignment entirely (omit `--milestone` from `gh issue create` in Step 8).
-2. Call `AskUserQuestion` with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
+2. Call `request_user_input` with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
 3. Ensure the milestone exists: `gh api repos/{owner}/{repo}/milestones --jq '.[].title'`. If the chosen milestone is missing, create it via `gh api repos/{owner}/{repo}/milestones --method POST --field title="v{N}"`. If creation fails (permission denied, API error), proceed without milestone and note the failure in Step 9 output.
 
 Read `../../references/versioning.md` when you need the project's VERSION-file conventions.
@@ -138,7 +138,7 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 **If Enhancement / Feature**: `Glob` for `specs/*/requirements.md` and read related specs; `Glob`/`Grep` source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
-**If Bug**: `Grep` for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `AskUserQuestion` (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
+**If Bug**: `Grep` for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose and read-timing.
 
@@ -156,7 +156,7 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 
 **Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
 
-Call `AskUserQuestion`:
+Call `request_user_input`:
 
 ```
 question: "Is this issue suitable for hands-off automation?"
@@ -186,7 +186,7 @@ Understanding check:
   Scope out: [bullets]
 ```
 
-Call `AskUserQuestion`: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
+Call `request_user_input`: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
 
 **Output**: `understanding` (persona, outcome, AC outline, scope in/out); `understandingConfirmed` must be true before Step 6.
 
@@ -230,7 +230,7 @@ Out of Scope: [comma-separated list]
 Labels: [applied labels]
 ```
 
-Call `AskUserQuestion`:
+Call `request_user_input`:
 
 ```
 question: "Approve this draft?"

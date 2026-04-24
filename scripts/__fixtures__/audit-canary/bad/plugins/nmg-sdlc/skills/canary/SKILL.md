@@ -28,7 +28,7 @@ intentionally stable — changing it requires regenerating the canary fixtures.
 2. Each tracked clause is normalized and hashed.
 3. The extracted inventory is compared to the baseline.
 
-When `.claude/unattended-mode` exists, the skill proceeds deterministically.
+When `.codex/unattended-mode` exists, the skill proceeds deterministically.
 
 #### Output
 

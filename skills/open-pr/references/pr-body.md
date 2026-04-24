@@ -117,7 +117,7 @@ Issue: Closes #N
 [If specs-not-found]: The PR extracts acceptance criteria from the issue body and will close issue #N when merged.
 ```
 
-Then branch on the `.claude/unattended-mode` sentinel:
+Then branch on the `.codex/unattended-mode` sentinel:
 
 - **Sentinel exists**: print `Done. Awaiting orchestrator.` and stop. Do NOT proceed to Step 7 — the runner owns CI monitoring and merging.
 - **Sentinel absent**: fall through to Step 7 (see `ci-monitoring.md`).

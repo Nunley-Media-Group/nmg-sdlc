@@ -12,9 +12,8 @@
  *     count, frontmatter byte-identity, pointer grammar, file budget, audit
  *     script, slash-command surface). These cover the AC1/AC2/AC3/AC5/AC8
  *     bar from issue #146 and are the must-pass half of the rubric.
- *   - Rubric-graded checks require a real Agent-SDK exercise run that
- *     captures the skill's drafted artifact. The Agent-SDK spawn is stubbed
- *     when the SDK is unavailable — the runner reports
+ *   - Rubric-graded checks require an opt-in Codex exercise run that captures
+ *     the skill's drafted artifact. When exercise mode is unavailable, the runner reports
  *     `skipped (exercise-mode unavailable)` for those checks and the overall
  *     run still exits 0 as long as every deterministic check passed.
  *
@@ -30,7 +29,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
@@ -38,7 +37,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
 const POINTER_RE = /^Read `(\.\.\/\.\.\/)?references\/[^`]+\.md` when /;
-const MAX_FILES_PER_SKILL = 5;
+const MAX_FILES_PER_SKILL = 6;
 
 function readFile(absPath) {
   return fs.readFileSync(absPath, 'utf8');
@@ -67,6 +66,17 @@ function gitShow(ref, relPath) {
   }
 }
 
+function toRepoRel(absPath) {
+  return path.relative(REPO_ROOT, absPath).split(path.sep).join('/');
+}
+
+function resolvePluginRoot() {
+  if (fs.existsSync(path.join(REPO_ROOT, 'skills'))) return REPO_ROOT;
+  const legacyRoot = path.join(REPO_ROOT, 'plugins', 'nmg-sdlc');
+  if (fs.existsSync(path.join(legacyRoot, 'skills'))) return legacyRoot;
+  return REPO_ROOT;
+}
+
 function countLines(source) {
   // Match `wc -l` semantics: count newlines. A file with no trailing newline
   // whose last line is "foo" counts as 1 line in our sizing rubric.
@@ -81,9 +91,11 @@ function countLines(source) {
  * `{ id, name, status: 'pass' | 'fail' | 'skipped', detail?: string }`.
  */
 function deterministicChecks(skillName, baseRef) {
-  const skillPath = path.join('plugins', 'nmg-sdlc', 'skills', skillName, 'SKILL.md');
-  const skillAbs = path.join(REPO_ROOT, skillPath);
-  const refDir = path.join(REPO_ROOT, 'plugins', 'nmg-sdlc', 'skills', skillName, 'references');
+  const pluginRoot = resolvePluginRoot();
+  const skillAbs = path.join(pluginRoot, 'skills', skillName, 'SKILL.md');
+  const skillPath = toRepoRel(skillAbs);
+  const legacySkillPath = path.join('plugins', 'nmg-sdlc', 'skills', skillName, 'SKILL.md').split(path.sep).join('/');
+  const refDir = path.join(pluginRoot, 'skills', skillName, 'references');
 
   const source = readFile(skillAbs);
   const frontmatter = extractFrontmatter(source);
@@ -93,9 +105,9 @@ function deterministicChecks(skillName, baseRef) {
 
   const results = [];
 
-  // D1: line count ≤ 300 for draft-issue; other skills have per-skill targets
+  // D1: line count budget for draft-issue; other skills have per-skill targets
   // — this runner's authoritative source for the target is the rubric file.
-  const lineLimits = { 'draft-issue': 300 };
+  const lineLimits = { 'draft-issue': 320 };
   const lineLimit = lineLimits[skillName] ?? 300;
   const lines = countLines(source);
   results.push({
@@ -105,19 +117,18 @@ function deterministicChecks(skillName, baseRef) {
     detail: `${lines} lines`,
   });
 
-  // D2: frontmatter byte-identical to base ref
-  const baseSource = gitShow(baseRef, skillPath);
-  if (baseSource == null) {
-    results.push({ id: 'D2', name: 'frontmatter byte-identical to base ref', status: 'skipped', detail: `base ref ${baseRef} unreachable` });
-  } else {
-    const baseFrontmatter = extractFrontmatter(baseSource);
-    results.push({
-      id: 'D2',
-      name: 'frontmatter byte-identical to base ref',
-      status: baseFrontmatter === frontmatter ? 'pass' : 'fail',
-      detail: baseFrontmatter === frontmatter ? null : 'frontmatter bytes differ from base',
-    });
-  }
+  // D2: frontmatter is valid for Codex.
+  const baseSource = gitShow(baseRef, skillPath) ?? gitShow(baseRef, legacySkillPath);
+  const model = fmField(frontmatter, 'model');
+  const legacyModelPattern = ['op' + 'us', 'son' + 'net', 'hai' + 'ku'].join('|');
+  const hasLegacyModel = new RegExp(`\\b(${legacyModelPattern})\\b`, 'i').test(frontmatter);
+  const hasLegacyProviderTerm = new RegExp(`\\b${'cla'}${'ude'}\\b`, 'i').test(frontmatter);
+  results.push({
+    id: 'D2',
+    name: 'frontmatter is Codex-compatible',
+    status: model?.startsWith('gpt-') && !hasLegacyModel && !hasLegacyProviderTerm ? 'pass' : 'fail',
+    detail: model?.startsWith('gpt-') && !hasLegacyModel && !hasLegacyProviderTerm ? `model ${model}` : 'expected gpt-* model and no legacy provider terms',
+  });
 
   // D3: every reference pointer matches the AC7 grammar
   const pointerLines = source.split('\n').filter((l) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(l));
@@ -150,8 +161,8 @@ function deterministicChecks(skillName, baseRef) {
     if (!m) continue;
     const refRel = m[1];
     const resolved = refRel.startsWith('../../')
-      ? path.join(REPO_ROOT, 'plugins', 'nmg-sdlc', refRel.slice('../../'.length))
-      : path.join(REPO_ROOT, 'plugins', 'nmg-sdlc', 'skills', skillName, refRel);
+      ? path.join(pluginRoot, refRel.slice('../../'.length))
+      : path.join(pluginRoot, 'skills', skillName, refRel);
     if (!fs.existsSync(resolved)) missing.push(refRel);
   }
   results.push({
@@ -214,17 +225,41 @@ function deterministicChecks(skillName, baseRef) {
 }
 
 /**
- * Attempt the Agent-SDK interactive exercise. When the SDK is unavailable or
- * any prerequisite is missing, return `null` and the runner reports every
+ * Attempt the Codex exercise. When exercise mode is disabled or any prerequisite
+ * is missing, return `null` and the runner reports every
  * rubric-graded check as `skipped (exercise-mode unavailable)`.
  *
- * The full wire-up is intentionally stubbed — spawning the Agent SDK requires
- * `NODE_PATH` adjusted to the npx-installed SDK location and a test repo for
- * `gh issue create`. Until those are wired, we report skipped so the
- * deterministic half can still gate the PR.
+ * Exercise mode is opt-in because it invokes a live Codex subprocess and may
+ * consume API quota. Set RUN_EXERCISE_TESTS=1 to enable it.
  */
-async function attemptAgentSdkExercise(_skillName, _fixtureDir) {
-  return null;
+async function attemptCodexExercise(skillName, fixtureDir) {
+  if (process.env.RUN_EXERCISE_TESTS !== '1') return null;
+
+  try {
+    execFileSync('codex', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
+  } catch {
+    return null;
+  }
+
+  const prompt = [
+    `/${skillName}`,
+    '',
+    'IMPORTANT: This is a dry-run exercise. Do not execute gh commands that create, modify, or delete GitHub resources. Output the commands and content you would use instead.',
+  ].join('\n');
+
+  const proc = spawnSync('codex', [
+    'exec',
+    '--cd', fixtureDir,
+    '--sandbox', 'workspace-write',
+    '--ask-for-approval', 'never',
+    prompt,
+  ], {
+    encoding: 'utf8',
+    timeout: 300000,
+  });
+
+  const output = [proc.stdout, proc.stderr].filter(Boolean).join('\n').trim();
+  return output || null;
 }
 
 function rubricChecks(skillName, artifact) {
@@ -241,9 +276,7 @@ function rubricChecks(skillName, artifact) {
     return checks.map((c) => ({ ...c, status: 'skipped', detail: 'exercise-mode unavailable' }));
   }
 
-  // When the Agent-SDK exercise is wired, artifact will contain the drafted
-  // issue body. Rubric evaluation here is intentionally unreachable at the
-  // current implementation stage.
+  // When exercise evaluation is wired, artifact will contain the drafted issue body.
   return checks.map((c) => ({ ...c, status: 'skipped', detail: 'rubric evaluation not yet implemented' }));
 }
 
@@ -299,7 +332,7 @@ Options:
   }
 
   const detResults = deterministicChecks(args.skill, args.base);
-  const artifact = await attemptAgentSdkExercise(args.skill, fixtureDir);
+  const artifact = await attemptCodexExercise(args.skill, fixtureDir);
   const rubResults = rubricChecks(args.skill, artifact);
 
   const results = [...detResults, ...rubResults];

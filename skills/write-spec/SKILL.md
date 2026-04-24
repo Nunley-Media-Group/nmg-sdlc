@@ -3,7 +3,7 @@ name: write-spec
 description: "Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Do NOT use for creating issues, implementing code, or verifying implementations. Produces requirements.md, design.md, tasks.md, and feature.gherkin with human review gates. Third step in the SDLC pipeline — follows /start-issue and precedes /write-code."
 argument-hint: "[#issue-number]"
 allowed-tools: Read, Glob, Grep, Task, Write, Edit, WebFetch, WebSearch, Bash(gh:*)
-model: opus
+model: gpt-5.5
 effort: xhigh
 ---
 
@@ -38,9 +38,9 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 3. Spec directories follow the `feature-{slug}` / `bug-{slug}` convention.
 4. The project uses the current directory layout (`steering/` and `specs/` at the repo root).
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.claude/{steering,specs}/` layout is still in place.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
 
-Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no `AskUserQuestion`, no inline summary) when the `.claude/unattended-mode` sentinel exists.
+Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no `request_user_input`, no inline summary) when the `.codex/unattended-mode` sentinel exists.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose, read-timing, or discovery rules.
 
@@ -192,7 +192,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.1 Offer Seal (interactive) or Auto-Execute (unattended)
 
-- **Interactive mode.** `AskUserQuestion`: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
+- **Interactive mode.** `request_user_input`: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
 - **Unattended mode.** Auto-execute the seal per 3b.2 (deterministic-default gate per `../../references/unattended-mode.md`).
 
 #### 3b.2 Idempotency Check and Seal Commit
@@ -212,7 +212,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.3 Offer Child-Issue Creation
 
-- **Interactive mode.** After a successful seal, `AskUserQuestion` whether to create child issues now via `/draft-issue` batch mode using the design's Delivery Phases table as input.
+- **Interactive mode.** After a successful seal, `request_user_input` whether to create child issues now via `/draft-issue` batch mode using the design's Delivery Phases table as input.
 - **Unattended mode.** Auto-execute child creation (no prompt).
 
 #### 3b.4 After-Seal Next-Step Hint
@@ -237,8 +237,8 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 - tasks.md — Phased implementation tasks
 - feature.gherkin — BDD test scenarios
 
-[If `.claude/unattended-mode` does NOT exist]: Next step: Run `/write-code #N` to plan and execute implementation.
-[If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/write-code #N` to plan and execute implementation.
+[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
 ---

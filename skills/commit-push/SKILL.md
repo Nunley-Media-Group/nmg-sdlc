@@ -2,15 +2,15 @@
 name: commit-push
 description: "Stage, bump version, commit with conventional-commit message, fetch, rebase if diverged, and push the feature branch. Use when user says 'commit and push', 'push my changes', 'push to remote', 'commit the work', 'ship the commit', or when the SDLC runner invokes the commitPush step. Do NOT use for creating PRs, merging, or verifying code. Handles force-with-lease safely under unattended mode after a rebase. Seventh step in the SDLC pipeline — follows /verify-code and precedes /open-pr."
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(git:*), Bash(gh:*), AskUserQuestion
-model: haiku
+allowed-tools: Read, Glob, Grep, Edit, Write, Bash(git:*), Bash(gh:*), request_user_input
+model: gpt-5.4-mini
 ---
 
 # Commit and Push
 
 Stage implementation work, bump the project version, write a conventional-commit message, reconcile with the remote base branch if necessary, and push the feature branch. Owns history reconciliation for the pipeline so `/open-pr` can stay scoped to PR creation.
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.claude/steering/` or `.claude/specs/` (the current Claude Code release refuses to Edit/Write there).
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
 Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the force-with-lease branch in Step 6 and actively suppresses the interactive confirmation prompt used in manual mode.
 
@@ -76,7 +76,7 @@ Mark this session as `rebased = true` so Step 6 takes the force-with-lease branc
 
 ### Step 6: Push
 
-The push branches on four signals: remote tracking state, whether Step 5 rebased, the `.claude/unattended-mode` sentinel, and the force-with-lease safety check.
+The push branches on four signals: remote tracking state, whether Step 5 rebased, the `.codex/unattended-mode` sentinel, and the force-with-lease safety check.
 
 1. **No remote tracking branch** (first push for this branch):
    ```bash
@@ -86,13 +86,13 @@ The push branches on four signals: remote tracking state, whether Step 5 rebased
    ```bash
    git push
    ```
-3. **Tracking exists, `rebased === true`, `.claude/unattended-mode` sentinel present, safe lease**:
+3. **Tracking exists, `rebased === true`, `.codex/unattended-mode` sentinel present, safe lease**:
    ```bash
    git push --force-with-lease=HEAD:$EXPECTED_SHA
    ```
    Where `$EXPECTED_SHA` is the `origin/{branch}` SHA recorded **before** the rebase (the `git fetch` output). The safe-lease check fails if the remote advanced between the fetch and the push — this is the safety envelope.
 4. **Tracking exists, `rebased === true`, sentinel absent** (interactive mode):
-   Use `AskUserQuestion` with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
+   Use `request_user_input` with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
 
 Read `references/rebase-and-push.md` § "Safe lease" for the exact `--force-with-lease` invocation and the recovery path when the lease check rejects the push.
 
@@ -118,8 +118,8 @@ Version bump: {old → new | none}
 Rebased: {yes | no}
 Force-with-lease used: {yes | no}
 
-[If `.claude/unattended-mode` does NOT exist]: Next step: Run `/open-pr #N` to open a pull request.
-[If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/open-pr #N` to open a pull request.
+[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
 ---

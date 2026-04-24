@@ -2,7 +2,7 @@
 name: spike-researcher
 description: "Execute Phase 0 research for spike-labelled issues: survey the candidate set from the issue body, identify honest gaps, produce a structured gap-analysis output. Auto-invoked by write-spec when the issue carries the spike label."
 tools: Read, Glob, Grep, WebSearch, WebFetch
-model: opus
+model: gpt-5.5
 skills: write-spec
 ---
 

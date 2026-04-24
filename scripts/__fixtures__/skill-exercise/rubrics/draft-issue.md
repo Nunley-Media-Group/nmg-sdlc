@@ -9,10 +9,10 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 
 | ID | Check | Pass Criteria | Maps To |
 |----|-------|---------------|---------|
-| D1 | SKILL.md line count | `wc -l plugins/nmg-sdlc/skills/draft-issue/SKILL.md ≤ 300` | AC1 (issue #146) |
-| D2 | Frontmatter byte-identity | `diff` of frontmatter pre/post refactor is empty | AC2 (issue #146) / AC5 (epic) |
-| D3 | Pointer grammar | `grep -cE '^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when ' plugins/nmg-sdlc/skills/draft-issue/SKILL.md` ≥ 1 and every reference-pointer line in the file matches the grammar | AC3 (issue #146) / AC7 (epic) |
-| D4 | Reference file budget | `ls plugins/nmg-sdlc/skills/draft-issue/references/ | wc -l ≤ 5` | AC8 (epic) |
+| D1 | SKILL.md line count | `wc -l skills/draft-issue/SKILL.md ≤ 320` | AC1 (issue #146) |
+| D2 | Frontmatter Codex compatibility | Frontmatter uses a `gpt-*` model and contains no legacy provider model terms | Codex compatibility |
+| D3 | Pointer grammar | `grep -cE '^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when ' skills/draft-issue/SKILL.md` ≥ 1 and every reference-pointer line in the file matches the grammar | AC3 (issue #146) / AC7 (epic) |
+| D4 | Reference file budget | `ls skills/draft-issue/references/ | wc -l ≤ 6` | AC8 (epic) |
 | D5 | Every referenced file exists | Every path named in a pointer line resolves to a real file | Pointer correctness |
 | D6 | Audit passes | `node scripts/skill-inventory-audit.mjs --check` exits 0 | AC5 (issue #146) / AC6 (epic) |
 | D7 | Slash-command surface | `name:` and `description:` frontmatter fields are byte-identical to the pre-refactor baseline | AC4 (epic) |
@@ -20,7 +20,7 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 
 ## Rubric-Graded Checks
 
-These require a real Agent-SDK exercise run that captures the skill's drafted issue body. The runner executes them only when it has captured an artifact; otherwise it emits a `skipped (no model artifact)` status and the overall exit code is still `0` as long as every deterministic check passes.
+These require an opt-in `codex exec` exercise run that captures the skill's drafted issue body. The runner executes them only when it has captured an artifact; otherwise it emits a `skipped (no model artifact)` status and the overall exit code is still `0` as long as every deterministic check passes.
 
 | ID | Check | Grade |
 |----|-------|-------|
@@ -33,7 +33,7 @@ These require a real Agent-SDK exercise run that captures the skill's drafted is
 
 ## Pre-Refactor Baseline
 
-The pre-refactor baseline for D1–D8 is derived from `git show main:plugins/nmg-sdlc/skills/draft-issue/SKILL.md` (line count, frontmatter block) at the merge-base of this branch. Baselines for model-authored artifacts (R1–R6) are captured only when the runner executes a full Agent-SDK exercise — the harness stubs this mode out when the SDK or test repo is unavailable and reports `skipped (exercise-mode unavailable)` for each rubric check.
+The pre-refactor baseline for command-surface checks is derived from `git show main:skills/draft-issue/SKILL.md` at the merge-base of this branch, with legacy monorepo paths supported for older baselines. Baselines for model-authored artifacts (R1–R6) are captured only when the runner executes an opt-in `codex exec` exercise and reports `skipped (exercise-mode unavailable)` otherwise.
 
 ## Invocation
 

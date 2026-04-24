@@ -112,13 +112,13 @@ describe('extractClauses', () => {
   test('captures unattended-mode mentions even outside tracked sections', () => {
     const source = [
       '## Background',
-      'When `.claude/unattended-mode` exists the skill skips prompts.',
+      'When `.codex/unattended-mode` exists the skill skips prompts.',
       '## Input',
       '- tracked',
     ].join('\n');
     const clauses = extractClauses(source);
     const texts = clauses.map((c) => c.text);
-    expect(texts).toContain('When `.claude/unattended-mode` exists the skill skips prompts.');
+    expect(texts).toContain('When `.codex/unattended-mode` exists the skill skips prompts.');
     expect(texts).toContain('- tracked');
   });
 
@@ -243,7 +243,7 @@ describe('scan', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Canary fixture via CLI (exit codes)
+// Canary fixture viacodex exec (exit codes)
 // ---------------------------------------------------------------------------
 
 describe('CLI canary fixture', () => {

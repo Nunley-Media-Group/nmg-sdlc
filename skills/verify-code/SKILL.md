@@ -3,7 +3,7 @@ name: verify-code
 description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows /write-code and precedes /open-pr."
 argument-hint: "[#issue-number]"
 allowed-tools: Read, Glob, Grep, Task, WebFetch, WebSearch, Write, Edit, Bash(gh:*), Bash(git:*), Bash(node:*), Bash(which:*), Bash(rm:*)
-model: opus
+model: gpt-5.5
 effort: high
 ---
 
@@ -11,9 +11,9 @@ effort: high
 
 Verify the implementation against specifications, fix any findings, review architecture and test coverage, then update the GitHub issue with evidence.
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.claude/steering/` or `.claude/specs/` trees are still present. Verification against a mixed layout produces misleading results.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Verification against a mixed layout produces misleading results.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `AskUserQuestion` call site in this skill so the runner proceeds through all steps without blocking.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` call site in this skill so the runner proceeds through all steps without blocking.
 
 Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
 
@@ -136,9 +136,9 @@ Report coverage gaps.
 
 #### 5b–5e: Exercise Testing
 
-Read `references/exercise-testing.md` when Step 5a detected plugin changes — the reference covers scaffolding a disposable test project (5b), exercising the changed skill via Agent SDK / `claude -p` with dry-run mode for GitHub-integrated skills (5c), evaluating exercise output against acceptance criteria (5d), and cleanup (5e).
+Read `references/exercise-testing.md` when Step 5a detected plugin changes — the reference covers scaffolding a disposable test project (5b), exercising the changed skill via `codex exec` with dry-run mode for GitHub-integrated skills (5c), evaluating exercise output against acceptance criteria (5d), and cleanup (5e).
 
-Exercise findings are treated as findings for Step 6, just like any other verification finding. If neither Agent SDK nor the `claude` CLI is available, skip exercise testing and record the reason for the report (graceful degradation).
+Exercise findings are treated as findings for Step 6, just like any other verification finding. If the `codex` CLI is unavailable, skip exercise testing and record the reason for the report (graceful degradation).
 
 #### 5f: Execute Verification Gates
 
@@ -175,10 +175,10 @@ Remaining issues: [count]
 
 GitHub issue #N updated with verification report.
 
-[If `.claude/unattended-mode` does NOT exist AND passing]: Next step: Run `/open-pr #N` to create a pull request.
-[If `.claude/unattended-mode` does NOT exist AND remaining issues]: Deferred items documented — review before creating a PR.
-[If `.claude/unattended-mode` does NOT exist AND failing]: Critical issues remain — address the items above before creating a PR.
-[If `.claude/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If `.codex/unattended-mode` does NOT exist AND passing]: Next step: Run `/open-pr #N` to create a pull request.
+[If `.codex/unattended-mode` does NOT exist AND remaining issues]: Deferred items documented — review before creating a PR.
+[If `.codex/unattended-mode` does NOT exist AND failing]: Critical issues remain — address the items above before creating a PR.
+[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
 ---

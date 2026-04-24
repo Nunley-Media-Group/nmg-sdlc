@@ -27,7 +27,7 @@ Major-version bumps are not triggered by labels, milestones, or breaking-change 
 
 The `--major` flag forces bump type `major` (`X.Y.Z → (X+1).0.0`) regardless of the classified type. When the flag is absent, `/open-pr` can only produce a patch or minor bump.
 
-**Unattended-mode escalation.** When `.claude/unattended-mode` exists AND `--major` is present, `/open-pr` prints:
+**Unattended-mode escalation.** When `.codex/unattended-mode` exists AND `--major` is present, `/open-pr` prints:
 
 ```
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
@@ -35,14 +35,11 @@ ESCALATION: --major flag requires human confirmation — unattended mode cannot 
 
 …and exits non-zero without reading or writing any version file. A major-version bump is a deliberate release decision that a headless runner cannot make on a human's behalf.
 
-## Dual-file update
+## Manifest update
 
-Every version bump touches **both** of the following:
+Every version bump updates `.codex-plugin/plugin.json` at the plugin root:
 
-1. `plugins/nmg-sdlc/.claude-plugin/plugin.json` — plugin manifest `version`
-2. `.claude-plugin/marketplace.json` — the plugin's entry `version` in the `plugins` array (not `metadata.version`, which is the collection version and remains untouched by a plugin bump)
-
-Updating only one of the two leaves the marketplace index stale. The architectural invariant is documented in `steering/structure.md` under "Version and Release Contracts".
+1. `.codex-plugin/plugin.json` — plugin manifest `version`
 
 Projects may declare additional stack-specific files in `steering/tech.md` under `## Versioning` (e.g., `package.json`, `Cargo.toml`, plain-text files). `/open-pr` reads that table and updates every listed file in lock-step with `VERSION`.
 

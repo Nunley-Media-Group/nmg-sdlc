@@ -20,7 +20,7 @@ Use this table to determine whether a missing template section is relevant to th
 
 ## Exclusion File Schema
 
-The `.claude/upgrade-exclusions.json` file stores section headings the user has previously declined:
+The `.codex/upgrade-exclusions.json` file stores section headings the user has previously declined:
 
 ```json
 {
@@ -99,9 +99,9 @@ New: "maxRetriesPerStep": 3
 
 After applying approved changes, persist any newly declined steering doc sections:
 
-1. Read `.claude/upgrade-exclusions.json` from the project root (or start with `{ "excludedSections": {} }` if it doesn't exist)
+1. Read `.codex/upgrade-exclusions.json` from the project root (or start with `{ "excludedSections": {} }` if it doesn't exist)
 2. For each steering doc section that was **proposed but not selected** by the user in Step 9 Part A, add the heading text to the `excludedSections` array for that file
-3. Write the updated JSON to `.claude/upgrade-exclusions.json` using `Write`
+3. Write the updated JSON to `.codex/upgrade-exclusions.json` using `Write`
 
 **Important:** Only add newly declined sections. Do not remove existing entries — they represent prior user decisions.
 
@@ -117,7 +117,7 @@ After applying changes, output a summary:
 - **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
 
 ### Declined (will be skipped in future runs)
-- **product.md** — "Brand Voice" (saved to .claude/upgrade-exclusions.json)
+- **product.md** — "Brand Voice" (saved to .codex/upgrade-exclusions.json)
 
 ### Skipped (already up to date)
 - tech.md, structure.md, 42-add-auth/design.md
@@ -127,5 +127,5 @@ After applying changes, output a summary:
 
 ### Recommendations
 - Review added sections and customize placeholder content
-- To re-propose a declined section, remove it from .claude/upgrade-exclusions.json
+- To re-propose a declined section, remove it from .codex/upgrade-exclusions.json
 ```

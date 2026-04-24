@@ -14,7 +14,7 @@ Before Step 2 begins, check the issue's labels:
 gh issue view #N --json labels --jq '.labels[].name'
 ```
 
-If any label is `spike`, skip Steps 2 and 3 entirely — do NOT read `VERSION`, write `CHANGELOG.md`, write `plugin.json` / `marketplace.json`, or create a `chore: bump version to ...` commit.
+If any label is `spike`, skip Steps 2 and 3 entirely — do NOT read `VERSION`, write `CHANGELOG.md`, write `.codex-plugin/plugin.json`, or create a `chore: bump version to ...` commit.
 
 Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line and adds `Type: Spike research (no version bump)` in its place.
 
@@ -39,8 +39,8 @@ Before presenting to the user, determine whether the current issue is an epic ch
    - Every sibling complete → this is the final child. Keep the classified bump (`siblingClass = 'final'`).
    - At least one sibling incomplete → this is an intermediate child. Force `bump_type = 'patch'`, recompute the proposed version, and set `siblingClass = 'intermediate'`.
 6. **Epic-closure warning.** Also query `gh issue view #E --json state`. If the epic itself is `CLOSED` while the current child is `OPEN`, warn:
-   - **Interactive mode:** use `AskUserQuestion` to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). Abort exits the skill without creating the PR.
-   - **Unattended mode** (`.claude/unattended-mode` exists): do NOT call `AskUserQuestion`. Escalate via the runner sentinel and exit non-zero with message `Epic #E is closed but child #N is still open — confirm the epic was not closed prematurely`.
+   - **Interactive mode:** use `request_user_input` to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). Abort exits the skill without creating the PR.
+   - **Unattended mode** (`.codex/unattended-mode` exists): do NOT call `request_user_input`. Escalate via the runner sentinel and exit non-zero with message `Epic #E is closed but child #N is still open — confirm the epic was not closed prematurely`.
 
 Record `siblingClass` (one of `non-epic`, `intermediate`, `final`) and `epicParentNumber` (the resolved epic issue number, or null) for Step 3 and Step 4 use.
 
@@ -57,7 +57,7 @@ options:
 
 When `major_requested` is true, the displayed `{bump_type}` is `major`, `{proposed}` is the major-bumped version, and "Accept {proposed}" is pre-selected as the recommended answer — the developer can still choose Patch or Minor. When `major_requested` is false, the classified type (patch or minor) is the recommended answer. Major remains available as an override for developers who decide a major bump is warranted after seeing the prompt.
 
-**Unattended mode**: apply the classified bump without confirmation — do not call `AskUserQuestion`. Without `--major`, this path produces only patch or minor bumps; the `major_requested` + unattended combination is rejected in Step 0 so it cannot reach this step.
+**Unattended mode**: apply the classified bump without confirmation — do not call `request_user_input`. Without `--major`, this path produces only patch or minor bumps; the `major_requested` + unattended combination is rejected in Step 0 so it cannot reach this step.
 
 ## Step 3: Update version artifacts
 
@@ -71,7 +71,7 @@ If Step 2 determined a version bump, update all version-related files before gen
    - Leave the `[Unreleased]` section empty (just the heading with a blank line after it).
    - **Partial-delivery note.** If `siblingClass === 'intermediate'`, append ` (partial delivery — see epic #{epicParentNumber})` to the primary bullet under the new version heading. The primary bullet is the first entry line; if there are multiple bullets, only the first receives the suffix. The note must NOT be added for `siblingClass === 'final'` or `non-epic`.
 3. **Update stack-specific files.** Read `steering/tech.md`'s `## Versioning` table and update each listed file:
-   - **JSON files** (e.g., `package.json`, `plugin.json`, `marketplace.json`): use the dot-notation path to locate and update the version field.
+   - **JSON files** (e.g., `package.json`, `.codex-plugin/plugin.json`): use the dot-notation path to locate and update the version field.
    - **TOML files** (e.g., `Cargo.toml`): use the dot-notation path to locate and update the version field.
    - **Plain-text files**: replace the version string on the specified line (or the entire file content if no line is specified).
    - Versioning section missing or table empty → only update `VERSION` and `CHANGELOG.md`.

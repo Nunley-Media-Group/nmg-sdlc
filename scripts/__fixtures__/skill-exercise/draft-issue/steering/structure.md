@@ -5,7 +5,7 @@
 ```
 ./
 ├── src/
-│   └── index.js        — CLI entrypoint (trivial)
+│   └── index.js        —codex exec entrypoint (trivial)
 ├── steering/
 │   ├── product.md
 │   ├── tech.md

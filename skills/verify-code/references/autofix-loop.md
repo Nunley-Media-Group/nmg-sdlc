@@ -32,15 +32,15 @@ Detection is deliberately conservative — any single signal triggers routing (f
 ### Skill-Creator Probe Contract
 
 1. **Probe for availability** — treat the `skill-creator` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
 2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the file — never `Write` / `Edit` a skill-bundled file directly.
 3. **If unavailable**: there is no hand-edit fallback — skill-bundled files must route through `/skill-creator`.
    - **Interactive mode**: surface the missing dependency to the user — `/skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run /verify-code.` Stop the workflow.
    - **Unattended mode**: emit `ESCALATION: /skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not an `AskUserQuestion` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not an `request_user_input` gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
@@ -48,13 +48,13 @@ The Fixes Applied table in the verification report records the routing path take
 
 ## 6a-bis. Simplify After Fix
 
-If at least one fix was applied in 6a AND the `simplify` marketplace skill is available, run `/simplify` over the files just modified to ensure the fix itself is clean before re-testing. If no fixes were applied in 6a, skip this sub-step entirely (no Claude turn consumed).
+If at least one fix was applied in 6a AND the `simplify` marketplace skill is available, run `/simplify` over the files just modified to ensure the fix itself is clean before re-testing. If no fixes were applied in 6a, skip this sub-step entirely (no Codex turn consumed).
 
 ### Simplify-Skill Probe Contract
 
 1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/simplify/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/simplify/SKILL.md`
+   - `Glob` finds `~/.codex/skills/simplify/SKILL.md`
+   - `Glob` finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
 2. **If available**: invoke `/simplify` on the files touched by fixes in 6a. Apply any returned changes before proceeding to 6b.
 3. **If unavailable**: emit the warning verbatim:
@@ -67,7 +67,7 @@ If at least one fix was applied in 6a AND the `simplify` marketplace skill is av
 
 If the `simplify` skill is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an `AskUserQuestion` gate.
+Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an `request_user_input` gate.
 
 ## 6b. Run Tests After Fixes
 

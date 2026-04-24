@@ -1,5 +1,5 @@
 /**
- * Agent SDK exercise test for /open-pr sibling-aware bumping + race detection.
+ * Codex exercise test for /open-pr sibling-aware bumping + race detection.
  *
  * Derived from: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
  * Issue: #149 (T017)
@@ -11,7 +11,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,7 +24,7 @@ const PLUGIN_DIR = path.resolve(process.cwd(), '..', 'plugins', 'nmg-sdlc');
 function scaffoldProject({ version = '1.0.0', onBranch = 'feature/test' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-open-pr-epic-'));
   fs.writeFileSync(path.join(dir, 'README.md'), '# Test\n');
-  fs.writeFileSync(path.join(dir, '.gitignore'), '.claude/\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.codex/\n');
   fs.writeFileSync(path.join(dir, 'VERSION'), `${version}\n`);
   fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n- Feature work\n`);
   fs.mkdirSync(path.join(dir, 'steering'), { recursive: true });
@@ -42,29 +42,20 @@ function scaffoldProject({ version = '1.0.0', onBranch = 'feature/test' } = {}) 
   return dir;
 }
 
-async function runSkill({ cwd, prompt, answers }) {
-  const env = { ...process.env, CLAUDECODE: '' };
-  const sdkPath = env.NODE_PATH || '/Users/rnunley/.npm/_npx/81bbc6515d992ace/node_modules';
-  const { query } = await import(`${sdkPath}/@anthropic-ai/claude-agent-sdk/sdk.mjs`);
-  const messages = [];
-  for await (const m of query({
+async function runSkill({ cwd, prompt }) {
+  const proc = spawnSync('codex', [
+    'exec',
+    '--cd', cwd,
+    '--sandbox', 'workspace-write',
+    '--ask-for-approval', 'never',
     prompt,
-    options: {
-      plugins: [{ type: 'local', path: PLUGIN_DIR }],
-      cwd,
-      canUseTool: async (toolName, input) => {
-        if (toolName === 'AskUserQuestion') {
-          const patch = {};
-          for (const q of input.questions || []) {
-            patch[q.question] = (answers && answers[q.question]) || (q.options[0] && q.options[0].label);
-          }
-          return { behavior: 'allow', updatedInput: { ...input, answers: patch } };
-        }
-        return { behavior: 'allow', updatedInput: input };
-      },
-    },
-  })) messages.push(m);
-  return messages;
+  ], { encoding: 'utf8' });
+
+  return [{
+    exitCode: proc.status ?? 1,
+    stdout: proc.stdout || '',
+    stderr: proc.stderr || '',
+  }];
 }
 
 describeRunner('exercise: /open-pr sibling-aware bump', () => {
@@ -140,8 +131,8 @@ describeRunner('exercise: /open-pr sibling-aware bump', () => {
   test('Scenario E (AC7a) — epic CLOSED while child OPEN escalates in unattended mode', async () => {
     const dir = scaffoldProject();
     projects.push(dir);
-    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.claude', 'unattended-mode'), '');
+    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.codex', 'unattended-mode'), '');
 
     const messages = await runSkill({
       cwd: dir,

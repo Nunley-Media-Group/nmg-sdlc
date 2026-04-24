@@ -8,10 +8,10 @@ Before reading the issue, spec files, or `VERSION` / `CHANGELOG.md`, Step 1 must
 
 ## Step 1a: Dirty-Tree Check
 
-Read `../../../references/dirty-tree.md` when Step 1a runs — the reference covers the filter algorithm (remove lines whose path ends with `.claude/sdlc-state.json` or `.claude/unattended-mode` from `git status --porcelain` output, then evaluate the remainder for cleanliness) and the generic abort-message shapes. The inputs to the filter and the expected outcomes are:
+Read `../../../references/dirty-tree.md` when Step 1a runs — the reference covers the filter algorithm (remove lines whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode` from `git status --porcelain` output, then evaluate the remainder for cleanliness) and the generic abort-message shapes. The inputs to the filter and the expected outcomes are:
 
 - **Command**: `git status --porcelain`
-- **Filter out**: lines whose path ends with `.claude/sdlc-state.json` or `.claude/unattended-mode`
+- **Filter out**: lines whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode`
 - **Filtered output empty**: clean — proceed to Step 1b.
 - **Filtered output non-empty**: dirty tree — abort with the messaging in the "Abort messaging" section below.
 
@@ -75,9 +75,9 @@ Dirty files:
 Please resolve these changes (commit, stash, or discard) before running /open-pr again.
 ```
 
-#### Unattended mode (`.claude/unattended-mode` exists)
+#### Unattended mode (`.codex/unattended-mode` exists)
 
-Emit the escalation sentinel and stop — do NOT call `AskUserQuestion`. `/open-pr` uses the single-line `ESCALATION:` sentinel shape rather than the multi-line shape shown in `../../../references/dirty-tree.md`; the SDLC runner matches escalations on the `ESCALATION:` prefix, so the single-line shape is what the runner consumes:
+Emit the escalation sentinel and stop — do NOT call `request_user_input`. `/open-pr` uses the single-line `ESCALATION:` sentinel shape rather than the multi-line shape shown in `../../../references/dirty-tree.md`; the SDLC runner matches escalations on the `ESCALATION:` prefix, so the single-line shape is what the runner consumes:
 
 ```
 ESCALATION: open-pr — Working tree is not clean. Dirty files: [filtered git status --porcelain output, space-separated or newline-separated].
@@ -89,9 +89,9 @@ ESCALATION: open-pr — Working tree is not clean. Dirty files: [filtered git st
 
 Print the exact abort string from Step 1b above and stop.
 
-#### Unattended mode (`.claude/unattended-mode` exists)
+#### Unattended mode (`.codex/unattended-mode` exists)
 
-Emit the escalation sentinel and stop — do NOT call `AskUserQuestion`:
+Emit the escalation sentinel and stop — do NOT call `request_user_input`:
 
 ```
 ESCALATION: open-pr — No implementation commits found on this branch — run /write-code before opening a PR.

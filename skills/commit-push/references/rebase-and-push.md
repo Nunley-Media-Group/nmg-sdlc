@@ -41,7 +41,7 @@ If Step 2 committed a version bump, the rebase may have pulled in a sibling's bu
 
 ### Conflict handling
 
-If the rebase produces conflicts in `VERSION`, `plugin.json`, `marketplace.json`, `package.json`, or `CHANGELOG.md`, abort:
+If the rebase produces conflicts in `VERSION`, `.codex-plugin/plugin.json`, `package.json`, or `CHANGELOG.md`, abort:
 
 - **Interactive mode**: print the conflict list and the abort message below, then stop.
 - **Unattended mode**: emit the escalation sentinel and exit non-zero — do NOT `git rebase --abort` silently; leave the conflict state for the operator.
@@ -64,7 +64,7 @@ Record `rebased = true` before returning to Step 6 so the push takes the force-w
 
 ## Step 6: Safe force-push branch
 
-When `rebased === true` AND `.claude/unattended-mode` exists, push with `--force-with-lease` bound to the `EXPECTED_SHA` captured **before** the rebase:
+When `rebased === true` AND `.codex/unattended-mode` exists, push with `--force-with-lease` bound to the `EXPECTED_SHA` captured **before** the rebase:
 
 ```bash
 git push --force-with-lease=HEAD:$EXPECTED_SHA
@@ -85,7 +85,7 @@ After a rebase the commit SHAs on local diverge from what the remote still holds
 
 ### Interactive fallback
 
-When `.claude/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Use `AskUserQuestion` with two options:
+When `.codex/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Use `request_user_input` with two options:
 
 - `[1] Force-push with lease — overwrite the remote feature branch`
 - `[2] Abort — investigate the divergence manually`

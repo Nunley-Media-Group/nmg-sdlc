@@ -1,13 +1,13 @@
 # Product
 
 **Project**: draft-issue exercise fixture
-**Mission**: Provide a minimal, disposable project that exercises the `/draft-issue` skill for Agent-SDK automated testing.
+**Mission**: Provide a minimal, disposable project that exercises the `/draft-issue` skill with Codex.
 
 ## Personas
 
 | Persona | Goal |
 |---------|------|
-| Plugin maintainer | Add features and fix bugs in a small JavaScript CLI without leaving pending work undocumented in GitHub |
+| Plugin maintainer | Add features and fix bugs in a small JavaScriptcodex exec without leaving pending work undocumented in GitHub |
 
 ## Feature Prioritization (MoSCoW)
 

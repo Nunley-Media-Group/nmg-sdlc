@@ -35,7 +35,7 @@ const mockFs = {
   statSync: jest.fn(() => ({ isDirectory: () => true, size: 100, mtimeMs: Date.now() })),
   appendFileSync: jest.fn(),
   unlinkSync: jest.fn(),
-  openSync: jest.fn(() => 3), // fake fd — runClaude live log path
+  openSync: jest.fn(() => 3), // fake fd — runCodex live log path
   writeSync: jest.fn(),
   closeSync: jest.fn(),
 };
@@ -66,7 +66,7 @@ const {
   validateVersionBump,
   performDeterministicVersionBump,
   autoCommitIfDirty,
-  buildClaudeArgs,
+  buildCodexArgs,
   readSkill,
   resolveSkillsBase,
   handleFailure,
@@ -80,7 +80,7 @@ const {
   updateState,
   removeUnattendedMode,
   ensureRunnerArtifactsGitignored,
-  runClaude,
+  runCodex,
   cleanupProcesses,
   getChildPids,
   getProcessTree,
@@ -112,14 +112,14 @@ const {
 
 const TEST_PROJECT = '/tmp/test-project';
 const TEST_PLUGINS = '/tmp/test-plugins';
-const TEST_STATE_PATH = '/tmp/test-project/.claude/sdlc-state.json';
+const TEST_STATE_PATH = '/tmp/test-project/.codex/sdlc-state.json';
 
 function setupTestConfig() {
   __test__.setConfig({
     projectPath: TEST_PROJECT,
     pluginsPath: TEST_PLUGINS,
     maxRetriesPerStep: 3,
-    model: 'opus',
+    model: 'gpt-5.5',
     effort: undefined,
     statePath: TEST_STATE_PATH,
     dryRun: false,
@@ -173,10 +173,10 @@ describe('AC2: Runner detects permission denials as failure', () => {
     expect(result.reason).toContain('SomeDangerousTool');
   });
 
-  it('returns isSoftFailure:false when all denials are benign (EnterPlanMode, AskUserQuestion)', () => {
+  it('returns isSoftFailure:false when all denials are benign (plan approval, request_user_input)', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
-      permission_denials: ['AskUserQuestion', 'EnterPlanMode'],
+      permission_denials: ['request_user_input', 'plan approval'],
       session_id: 'abc123',
     });
     const result = detectSoftFailure(stdout);
@@ -186,28 +186,28 @@ describe('AC2: Runner detects permission denials as failure', () => {
   it('filters benign denials and reports only serious ones', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
-      permission_denials: ['AskUserQuestion', 'ToolA', 'EnterPlanMode', 'ToolB'],
+      permission_denials: ['request_user_input', 'ToolA', 'plan approval', 'ToolB'],
     });
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
     expect(result.reason).toContain('ToolA');
     expect(result.reason).toContain('ToolB');
-    expect(result.reason).not.toContain('AskUserQuestion');
-    expect(result.reason).not.toContain('EnterPlanMode');
+    expect(result.reason).not.toContain('request_user_input');
+    expect(result.reason).not.toContain('plan approval');
   });
 
   it('handles object-shaped permission_denials with tool_name field', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
       permission_denials: [
-        { tool_name: 'EnterPlanMode', tool_use_id: 'x' },
+        { tool_name: 'plan approval', tool_use_id: 'x' },
         { tool_name: 'SeriousTool', tool_use_id: 'y' },
       ],
     });
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
     expect(result.reason).toContain('SeriousTool');
-    expect(result.reason).not.toContain('EnterPlanMode');
+    expect(result.reason).not.toContain('plan approval');
   });
 
   it('treats denials targeting paths inside OS temp directory as benign (test scaffold writes)', async () => {
@@ -216,7 +216,7 @@ describe('AC2: Runner detects permission denials as failure', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
       permission_denials: [
-        { tool_name: 'Write', tool_use_id: 'a', tool_input: { file_path: `${tmp}/nmg-sdlc-test-123/.claude/unattended-mode`, content: '' } },
+        { tool_name: 'Write', tool_use_id: 'a', tool_input: { file_path: `${tmp}/nmg-sdlc-test-123/.codex/unattended-mode`, content: '' } },
         { tool_name: 'Bash', tool_use_id: 'b', tool_input: { command: `touch ${tmp}/nmg-sdlc-test-123/state.json`, description: 'scaffold' } },
       ],
     });
@@ -230,7 +230,7 @@ describe('AC2: Runner detects permission denials as failure', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
       permission_denials: [
-        { tool_name: 'Write', tool_use_id: 'a', tool_input: { file_path: `${tmp}/nmg-sdlc-test-123/.claude/state.json`, content: '{}' } },
+        { tool_name: 'Write', tool_use_id: 'a', tool_input: { file_path: `${tmp}/nmg-sdlc-test-123/.codex/state.json`, content: '{}' } },
         { tool_name: 'Write', tool_use_id: 'b', tool_input: { file_path: '/etc/passwd', content: 'bad' } },
       ],
     });
@@ -289,19 +289,19 @@ describe('Non-JSON output does not trigger false positive', () => {
 // ===========================================================================
 
 describe('Text-pattern soft failure detection', () => {
-  it('detects EnterPlanMode text pattern as soft failure (AC1)', () => {
-    const stdout = 'Some output\nEnterPlanMode called in headless session — cannot enter plan mode without a TTY\nMore output';
+  it('detects plan approval text pattern as soft failure (AC1)', () => {
+    const stdout = 'Some output\nplan approval called in headless session — cannot enter plan mode without a TTY\nMore output';
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
-    expect(result.reason).toBe('text_pattern: EnterPlanMode');
+    expect(result.reason).toBe('text_pattern: plan approval');
   });
 
-  it('detects AskUserQuestion unattended-mode text pattern as soft failure (AC1)', () => {
-    const stdout = 'AskUserQuestion called in unattended-mode — this skill does not support unattended-mode';
+  it('detects request_user_input unattended-mode text pattern as soft failure (AC1)', () => {
+    const stdout = 'request_user_input called in unattended-mode — this skill does not support unattended-mode';
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
     expect(result.reason).toContain('text_pattern:');
-    expect(result.reason).toContain('AskUserQuestion');
+    expect(result.reason).toContain('request_user_input');
   });
 
   it('returns isSoftFailure:false for normal success text with no failure patterns (AC6)', () => {
@@ -314,7 +314,7 @@ describe('Text-pattern soft failure detection', () => {
     // JSON check fires first; text pattern scan should not override
     const stdout = JSON.stringify({
       subtype: 'error_max_turns',
-      result: 'EnterPlanMode called in headless session',
+      result: 'plan approval called in headless session',
     });
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
@@ -385,7 +385,7 @@ describe('Precondition validation', () => {
 
   it('step 2 (startIssue) ignores runner artifacts in dirty check', () => {
     mockGitMulti({
-      'status --porcelain': '?? .claude/sdlc-state.json\n?? .claude/unattended-mode',
+      'status --porcelain': '?? .codex/sdlc-state.json\n?? .codex/unattended-mode',
       'rev-parse --abbrev-ref HEAD': 'main',
     });
     const result = validatePreconditions(STEPS[1], defaultState());
@@ -726,8 +726,8 @@ describe('Error pattern matching', () => {
     expect(result.reason).toMatch(/^permission_denials:/);
   });
 
-  it('does not match EnterPlanMode (benign denial, not unrecoverable)', () => {
-    const result = matchErrorPattern('Attempted to call EnterPlanMode in headless mode');
+  it('does not match plan approval (benign denial, not unrecoverable)', () => {
+    const result = matchErrorPattern('Attempted to call plan approval in headless mode');
     expect(result).toBeNull();
   });
 
@@ -937,7 +937,7 @@ describe('Same-issue loop detection', () => {
     mockExit.mockRestore();
   });
 
-  it('buildClaudeArgs excludes escalated issues from step 2 prompt', () => {
+  it('buildCodexArgs excludes escalated issues from step 2 prompt', () => {
     __test__.escalatedIssues.add(10);
     __test__.escalatedIssues.add(20);
 
@@ -947,9 +947,9 @@ describe('Same-issue loop detection', () => {
 
     const step = { ...STEPS[1], skill: 'start-issue' };
     const state = { ...defaultState() };
-    const args = buildClaudeArgs(step, state);
+    const args = buildCodexArgs(step, state);
 
-    const promptIdx = args.indexOf('-p') + 1;
+    const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
     expect(prompt).toContain('#10');
     expect(prompt).toContain('#20');
@@ -1029,11 +1029,11 @@ describe('State hydration', () => {
 
 describe('Unattended-mode lifecycle', () => {
   it('RUNNER_ARTIFACTS includes unattended-mode and state file', () => {
-    expect(RUNNER_ARTIFACTS).toContain('.claude/sdlc-state.json');
-    expect(RUNNER_ARTIFACTS).toContain('.claude/unattended-mode');
+    expect(RUNNER_ARTIFACTS).toContain('.codex/sdlc-state.json');
+    expect(RUNNER_ARTIFACTS).toContain('.codex/unattended-mode');
   });
 
-  it('removeUnattendedMode calls unlinkSync for .claude/unattended-mode', () => {
+  it('removeUnattendedMode calls unlinkSync for .codex/unattended-mode', () => {
     removeUnattendedMode();
     expect(mockFs.unlinkSync).toHaveBeenCalledWith(
       expect.stringContaining('unattended-mode')
@@ -1042,7 +1042,7 @@ describe('Unattended-mode lifecycle', () => {
 
   it('autoCommitIfDirty ignores runner artifacts in dirty check', () => {
     mockExecSync.mockImplementation((cmd) => {
-      if (cmd.includes('status --porcelain')) return '?? .claude/sdlc-state.json\n?? .claude/unattended-mode';
+      if (cmd.includes('status --porcelain')) return '?? .codex/sdlc-state.json\n?? .codex/unattended-mode';
       return '';
     });
 
@@ -1086,14 +1086,14 @@ describe('ensureRunnerArtifactsGitignored (#57)', () => {
 
     const call = gitignoreAppend();
     expect(call).toBeDefined();
-    expect(call[1]).toContain('.claude/unattended-mode');
-    expect(call[1]).toContain('.claude/sdlc-state.json');
+    expect(call[1]).toContain('.codex/unattended-mode');
+    expect(call[1]).toContain('.codex/sdlc-state.json');
     expect(call[1]).toContain('# SDLC runner artifacts');
   });
 
   it('does not duplicate entries already in .gitignore', () => {
     mockFs.readFileSync.mockImplementation((p) => {
-      if (p.endsWith('.gitignore')) return 'node_modules/\n.claude/unattended-mode\n.claude/sdlc-state.json\n';
+      if (p.endsWith('.gitignore')) return 'node_modules/\n.codex/unattended-mode\n.codex/sdlc-state.json\n';
       return '{}';
     });
 
@@ -1116,8 +1116,8 @@ describe('ensureRunnerArtifactsGitignored (#57)', () => {
 
     const call = gitignoreAppend();
     expect(call).toBeDefined();
-    expect(call[1]).toContain('.claude/unattended-mode');
-    expect(call[1]).toContain('.claude/sdlc-state.json');
+    expect(call[1]).toContain('.codex/unattended-mode');
+    expect(call[1]).toContain('.codex/sdlc-state.json');
   });
 
   it('adds trailing newline before appending when file lacks one', () => {
@@ -1134,7 +1134,7 @@ describe('ensureRunnerArtifactsGitignored (#57)', () => {
 
   it('only appends entries that are missing (partial match)', () => {
     mockFs.readFileSync.mockImplementation((p) => {
-      if (p.endsWith('.gitignore')) return '.claude/unattended-mode\n';
+      if (p.endsWith('.gitignore')) return '.codex/unattended-mode\n';
       return '{}';
     });
 
@@ -1142,8 +1142,8 @@ describe('ensureRunnerArtifactsGitignored (#57)', () => {
 
     const call = gitignoreAppend();
     expect(call).toBeDefined();
-    expect(call[1]).toContain('.claude/sdlc-state.json');
-    expect(call[1]).not.toContain('.claude/unattended-mode');
+    expect(call[1]).toContain('.codex/sdlc-state.json');
+    expect(call[1]).not.toContain('.codex/unattended-mode');
   });
 
   it('re-throws non-ENOENT read errors', () => {
@@ -1179,12 +1179,12 @@ describe('Soft failure integration', () => {
       return '{}';
     });
 
-    // Mock runClaude via spawn — we need to mock the spawn that runClaude uses
-    // Since runClaude uses spawn internally, and DRY_RUN is false, we need to
+    // Mock runCodex via spawn — we need to mock the spawn that runCodex uses
+    // Since runCodex uses spawn internally, and DRY_RUN is false, we need to
     // set DRY_RUN to true to get a controlled response
     __test__.setConfig({ dryRun: true });
 
-    // In DRY_RUN mode, runClaude returns { exitCode: 0, stdout: '{"result":"dry-run"}', ... }
+    // In DRY_RUN mode, runCodex returns { exitCode: 0, stdout: '{"result":"dry-run"}', ... }
     // But we need stdout to contain error_max_turns...
     // Instead, let's test detectSoftFailure + handleFailure path directly
 
@@ -1203,12 +1203,12 @@ describe('Soft failure integration', () => {
     mockExit.mockRestore();
   });
 
-  it('runStep treats benign permission_denials (AskUserQuestion) as success, not soft failure (AC2 integration)', () => {
-    // AskUserQuestion is benign — the model tried it, got denied, and recovered.
+  it('runStep treats benign permission_denials (request_user_input) as success, not soft failure (AC2 integration)', () => {
+    // request_user_input is benign — the model tried it, got denied, and recovered.
     // This should NOT be treated as a soft failure.
     const softResult = detectSoftFailure(JSON.stringify({
       subtype: 'success',
-      permission_denials: ['AskUserQuestion'],
+      permission_denials: ['request_user_input'],
     }));
     expect(softResult.isSoftFailure).toBe(false);
   });
@@ -1527,8 +1527,8 @@ describe('STEP_KEYS and STEPS', () => {
   it('simplify prompt contains verbatim skip warning and git diff command (issue #140)', () => {
     const step = STEPS[STEP_KEYS.indexOf('simplify')];
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
-    const args = buildClaudeArgs(step, state);
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(step, state);
+    const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
     expect(prompt).toContain('simplify skill not available — skipping simplification pass');
     expect(prompt).toContain('git diff main...HEAD --name-only');
@@ -1541,8 +1541,8 @@ describe('STEP_KEYS and STEPS', () => {
 // ===========================================================================
 
 describe('Edge case fixes (#51)', () => {
-  // F1: currentProcess is assigned during runClaude and cleared after
-  describe('F1: currentProcess lifecycle in runClaude', () => {
+  // F1: currentProcess is assigned during runCodex and cleared after
+  describe('F1: currentProcess lifecycle in runCodex', () => {
     it('assigns currentProcess during execution and clears on close', async () => {
       // Create a mock process that behaves like a ChildProcess
       let closeHandler;
@@ -1557,14 +1557,14 @@ describe('Edge case fixes (#51)', () => {
       };
       mockSpawn.mockReturnValue(mockProc);
 
-      // Need to read skill for buildClaudeArgs
+      // Need to read skill for buildCodexArgs
       mockFs.existsSync.mockReturnValue(false);
 
       const step = { ...STEPS[0], timeoutMin: 1 };
       const state = defaultState();
 
-      // Start runClaude (it returns a promise)
-      const promise = runClaude(step, state);
+      // Start runCodex (it returns a promise)
+      const promise = runCodex(step, state);
 
       // After spawn, currentProcess should be set
       expect(__test__.currentProcess).toBe(mockProc);
@@ -1645,7 +1645,7 @@ describe('Edge case fixes (#51)', () => {
       const step = { ...STEPS[0], timeoutMin: 1 };
       const state = defaultState();
 
-      await runClaude(step, state);
+      await runCodex(step, state);
 
       // Check the spawn options (3rd argument)
       const spawnOptions = mockSpawn.mock.calls[0][2];
@@ -1806,8 +1806,8 @@ describe('findProcessesByPattern', () => {
 });
 
 describe('cleanupProcesses (#55 rewrite)', () => {
-  it('Phase 1: kills process tree when lastClaudePid is set', () => {
-    __test__.lastClaudePid = 12345;
+  it('Phase 1: kills process tree when lastCodexPid is set', () => {
+    __test__.lastCodexPid = 12345;
 
     // getProcessTree will call pgrep -P 12345 → no children
     mockExecSync.mockImplementation(() => { throw new Error('no match'); });
@@ -1817,24 +1817,24 @@ describe('cleanupProcesses (#55 rewrite)', () => {
     cleanupProcesses();
 
     expect(killSpy).toHaveBeenCalledWith(12345, 'SIGTERM');
-    expect(__test__.lastClaudePid).toBeNull();
+    expect(__test__.lastCodexPid).toBeNull();
 
     killSpy.mockRestore();
   });
 
-  it('Phase 1: clears lastClaudePid after tree kill', () => {
-    __test__.lastClaudePid = 99999;
+  it('Phase 1: clears lastCodexPid after tree kill', () => {
+    __test__.lastCodexPid = 99999;
     mockExecSync.mockImplementation(() => { throw new Error('no match'); });
     const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
 
     cleanupProcesses();
-    expect(__test__.lastClaudePid).toBeNull();
+    expect(__test__.lastCodexPid).toBeNull();
 
     killSpy.mockRestore();
   });
 
   it('Phase 2: kills processes matching patterns, filtering self PID', () => {
-    __test__.lastClaudePid = null;
+    __test__.lastCodexPid = null;
     __test__.setConfig({
       cleanup: { processPatterns: ['--test-pattern'] },
     });
@@ -1856,7 +1856,7 @@ describe('cleanupProcesses (#55 rewrite)', () => {
   });
 
   it('Phase 2: skips pattern with no matches', () => {
-    __test__.lastClaudePid = null;
+    __test__.lastCodexPid = null;
     __test__.setConfig({
       cleanup: { processPatterns: ['--no-match'] },
     });
@@ -1870,8 +1870,8 @@ describe('cleanupProcesses (#55 rewrite)', () => {
     killSpy.mockRestore();
   });
 
-  it('runs both phases when lastClaudePid and patterns are set', () => {
-    __test__.lastClaudePid = 11111;
+  it('runs both phases when lastCodexPid and patterns are set', () => {
+    __test__.lastCodexPid = 11111;
     __test__.setConfig({
       cleanup: { processPatterns: ['--fallback-pattern'] },
     });
@@ -1901,8 +1901,8 @@ describe('cleanupProcesses (#55 rewrite)', () => {
     killSpy.mockRestore();
   });
 
-  it('logs "No matching processes found" when no patterns and no lastClaudePid', () => {
-    __test__.lastClaudePid = null;
+  it('logs "No matching processes found" when no patterns and no lastCodexPid', () => {
+    __test__.lastCodexPid = null;
     __test__.setConfig({
       cleanup: { processPatterns: [] },
     });
@@ -1917,7 +1917,7 @@ describe('cleanupProcesses (#55 rewrite)', () => {
   });
 
   it('logs "No matching processes found" when patterns configured but no matches', () => {
-    __test__.lastClaudePid = null;
+    __test__.lastCodexPid = null;
     __test__.setConfig({
       cleanup: { processPatterns: ['--nonexistent-pattern'] },
     });
@@ -1937,7 +1937,7 @@ describe('cleanupProcesses (#55 rewrite)', () => {
   });
 
   it('does not log "No matching processes found" when Phase 1 ran', () => {
-    __test__.lastClaudePid = 12345;
+    __test__.lastCodexPid = 12345;
     __test__.setConfig({
       cleanup: { processPatterns: [] },
     });
@@ -1957,15 +1957,15 @@ describe('cleanupProcesses (#55 rewrite)', () => {
   });
 });
 
-describe('lastClaudePid tracking', () => {
-  it('__test__ exposes lastClaudePid getter/setter', () => {
-    __test__.lastClaudePid = 42;
-    expect(__test__.lastClaudePid).toBe(42);
-    __test__.lastClaudePid = null;
-    expect(__test__.lastClaudePid).toBeNull();
+describe('lastCodexPid tracking', () => {
+  it('__test__ exposes lastCodexPid getter/setter', () => {
+    __test__.lastCodexPid = 42;
+    expect(__test__.lastCodexPid).toBe(42);
+    __test__.lastCodexPid = null;
+    expect(__test__.lastCodexPid).toBeNull();
   });
 
-  it('runClaude sets lastClaudePid from spawned process', async () => {
+  it('runCodex sets lastCodexPid from spawned process', async () => {
     const mockProc = {
       pid: 55555,
       stdout: { on: jest.fn() },
@@ -1982,16 +1982,16 @@ describe('lastClaudePid tracking', () => {
     const step = { ...STEPS[0], timeoutMin: 1 };
     const state = defaultState();
 
-    await runClaude(step, state);
+    await runCodex(step, state);
 
-    // lastClaudePid should persist after process closes (unlike currentProcess)
-    expect(__test__.lastClaudePid).toBe(55555);
+    // lastCodexPid should persist after process closes (unlike currentProcess)
+    expect(__test__.lastCodexPid).toBe(55555);
     // currentProcess should be cleared
     expect(__test__.currentProcess).toBeNull();
   });
 
-  it('lastClaudePid persists after process close (not cleared like currentProcess)', async () => {
-    __test__.lastClaudePid = 77777;
+  it('lastCodexPid persists after process close (not cleared like currentProcess)', async () => {
+    __test__.lastCodexPid = 77777;
 
     const mockProc = {
       pid: 88888,
@@ -2007,10 +2007,10 @@ describe('lastClaudePid tracking', () => {
     mockFs.existsSync.mockReturnValue(false);
 
     const step = { ...STEPS[0], timeoutMin: 1 };
-    await runClaude(step, defaultState());
+    await runCodex(step, defaultState());
 
     // Should be updated to the new PID, not cleared
-    expect(__test__.lastClaudePid).toBe(88888);
+    expect(__test__.lastCodexPid).toBe(88888);
   });
 });
 
@@ -2086,7 +2086,7 @@ describe('readState resilience (corrupted state file)', () => {
 describe('haltFailureLoop calls cleanupProcesses', () => {
   it('calls cleanupProcesses before process.exit', async () => {
     const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
-    __test__.lastClaudePid = 99999;
+    __test__.lastCodexPid = 99999;
 
     // Track whether cleanup ran
     mockExecSync.mockImplementation(() => { throw new Error('no match'); });
@@ -2094,8 +2094,8 @@ describe('haltFailureLoop calls cleanupProcesses', () => {
 
     await haltFailureLoop('test loop', ['detail 1']);
 
-    // cleanupProcesses should have been called (evidenced by lastClaudePid being cleared)
-    expect(__test__.lastClaudePid).toBeNull();
+    // cleanupProcesses should have been called (evidenced by lastCodexPid being cleared)
+    expect(__test__.lastCodexPid).toBeNull();
     expect(mockExit).toHaveBeenCalledWith(1);
 
     killSpy.mockRestore();
@@ -2121,7 +2121,7 @@ describe('Consolidated commit paths use autoCommitIfDirty', () => {
 
     // Only runner artifacts dirty — autoCommitIfDirty should skip
     mockExecSync.mockImplementation((cmd) => {
-      if (cmd.includes('status --porcelain')) return '?? .claude/sdlc-state.json\n?? .claude/unattended-mode';
+      if (cmd.includes('status --porcelain')) return '?? .codex/sdlc-state.json\n?? .codex/unattended-mode';
       return '';
     });
 
@@ -2147,7 +2147,7 @@ describe('Consolidated commit paths use autoCommitIfDirty', () => {
 
     // Only runner artifacts dirty
     mockExecSync.mockImplementation((cmd) => {
-      if (cmd.includes('status --porcelain')) return '?? .claude/unattended-mode';
+      if (cmd.includes('status --porcelain')) return '?? .codex/unattended-mode';
       return '';
     });
 
@@ -2228,10 +2228,10 @@ describe('Cross-cycle state contamination (#62)', () => {
 
   it('step 1 prompt includes git clean -fd and git checkout -- .', () => {
     const state = defaultState();
-    const args = buildClaudeArgs(STEPS[0], state);
-    // buildClaudeArgs returns an array: ['--model', model, '-p', prompt, ...]
-    const promptIdx = args.indexOf('-p');
-    const prompt = args[promptIdx + 1];
+    const args = buildCodexArgs(STEPS[0], state);
+    // buildCodexArgs returns an array: ['--model', model, '-p', prompt, ...]
+    const promptIdx = args.length - 1;
+    const prompt = args[promptIdx];
     expect(prompt).toContain('git clean -fd');
     expect(prompt).toContain('git checkout -- .');
   });
@@ -2637,7 +2637,7 @@ describe('performDeterministicVersionBump (#60)', () => {
       '',
       '| File | Path | Notes |',
       '|------|------|-------|',
-      '| `plugins/nmg-sdlc/.claude-plugin/plugin.json` | `version` | Plugin manifest |',
+      '| `.codex-plugin/plugin.json` | `version` | Plugin manifest |',
       '',
       '## Technical Constraints',
     ].join('\n');
@@ -2682,7 +2682,7 @@ describe('performDeterministicVersionBump (#60)', () => {
       '',
       '| File | Path | Notes |',
       '|------|------|-------|',
-      '| `.claude-plugin/marketplace.json` | `plugins[0].version` | Marketplace index |',
+      '| `.codex-plugin/marketplace.json` | `plugins[0].version` | Marketplace index |',
       '',
       '## Technical Constraints',
     ].join('\n');
@@ -2732,9 +2732,9 @@ describe('createPR prompt contract post-FR1 (issue #102 AC4)', () => {
 
     const step = { ...STEPS[STEP_KEYS.indexOf('createPR')], skill: 'open-pr' };
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
-    const args = buildClaudeArgs(step, state);
+    const args = buildCodexArgs(step, state);
 
-    const promptIdx = args.indexOf('-p') + 1;
+    const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
     expect(prompt).toContain('already been applied by /commit-push');
     expect(prompt).toContain('DIVERGED: re-run commit-push to reconcile');
@@ -2759,7 +2759,7 @@ describe('validateConfig (#77)', () => {
   });
 
   it('returns empty array for valid global effort', () => {
-    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'high', model: 'opus' });
+    const errors = validateConfig({ projectPath: '/p', pluginsPath: '/q', effort: 'high', model: 'gpt-5.5' });
     expect(errors).toEqual([]);
   });
 
@@ -2827,14 +2827,14 @@ describe('validateConfig (#77)', () => {
     const errors = validateConfig({
       projectPath: '/p', pluginsPath: '/q',
       effort: 'high',
-      model: 'opus',
+      model: 'gpt-5.5',
       steps: {
-        writeSpecs: { model: 'opus', effort: 'high' },
+        writeSpecs: { model: 'gpt-5.5', effort: 'high' },
         implement: {
-          model: 'opus',
+          model: 'gpt-5.5',
           effort: 'high',
-          plan: { model: 'opus', effort: 'high' },
-          code: { model: 'sonnet', effort: 'medium' },
+          plan: { model: 'gpt-5.5', effort: 'high' },
+          code: { model: 'gpt-5.4', effort: 'medium' },
         },
       },
     });
@@ -2845,34 +2845,34 @@ describe('validateConfig (#77)', () => {
 describe('resolveStepConfig (#77)', () => {
   it('returns step-level model and effort when present', () => {
     const result = resolveStepConfig(
-      { model: 'sonnet', effort: 'low' },
-      { model: 'opus', effort: 'high' }
+      { model: 'gpt-5.4', effort: 'low' },
+      { model: 'gpt-5.5', effort: 'high' }
     );
-    expect(result.model).toBe('sonnet');
+    expect(result.model).toBe('gpt-5.4');
     expect(result.effort).toBe('low');
   });
 
   it('falls back to config-level when step has no overrides', () => {
     const result = resolveStepConfig(
       { maxTurns: 10 },
-      { model: 'opus', effort: 'high' }
+      { model: 'gpt-5.5', effort: 'high' }
     );
-    expect(result.model).toBe('opus');
+    expect(result.model).toBe('gpt-5.5');
     expect(result.effort).toBe('high');
   });
 
   it('falls back to defaults when neither step nor config set', () => {
     const result = resolveStepConfig({}, {});
-    expect(result.model).toBe('sonnet');
+    expect(result.model).toBe('gpt-5.5');
     expect(result.effort).toBe('medium');
   });
 
   it('step model overrides config model', () => {
     const result = resolveStepConfig(
-      { model: 'haiku' },
-      { model: 'opus' }
+      { model: 'gpt-5.4-mini' },
+      { model: 'gpt-5.5' }
     );
-    expect(result.model).toBe('haiku');
+    expect(result.model).toBe('gpt-5.4-mini');
   });
 
   it('step effort overrides config effort', () => {
@@ -2883,13 +2883,13 @@ describe('resolveStepConfig (#77)', () => {
     expect(result.effort).toBe('low');
   });
 
-  it('omits effort when resolved model is haiku (#130)', () => {
+  it('keeps effort when resolved model is gpt-5.4-mini', () => {
     const result = resolveStepConfig(
-      { model: 'haiku' },
+      { model: 'gpt-5.4-mini' },
       { effort: 'medium' }
     );
-    expect(result.model).toBe('haiku');
-    expect(result.effort).toBeUndefined();
+    expect(result.model).toBe('gpt-5.4-mini');
+    expect(result.effort).toBe('medium');
   });
 });
 
@@ -2924,24 +2924,21 @@ describe('validateConfig — issue #130 additions', () => {
     expect(errors[0]).toContain('intentionally excluded');
   });
 
-  it('rejects effort on a haiku step (step-level)', () => {
+  it('accepts effort on a gpt-5.4-mini step', () => {
     const errors = validateConfig({
       projectPath: '/p', pluginsPath: '/q',
-      steps: { commitPush: { model: 'haiku', effort: 'low' } },
+      steps: { commitPush: { model: 'gpt-5.4-mini', effort: 'low' } },
     });
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('steps.commitPush');
-    expect(errors[0]).toContain('Haiku');
-    expect(errors[0]).toContain('effort');
+    expect(errors).toEqual([]);
   });
 
-  it('rejects effort on a haiku step when effort falls through from global', () => {
+  it('accepts effort on a gpt-5.4-mini step when effort falls through from global', () => {
     const errors = validateConfig({
       projectPath: '/p', pluginsPath: '/q',
       effort: 'medium',
-      steps: { merge: { model: 'haiku' } },
+      steps: { merge: { model: 'gpt-5.4-mini' } },
     });
-    expect(errors.some(e => e.includes('steps.merge') && e.includes('Haiku'))).toBe(true);
+    expect(errors).toEqual([]);
   });
 
   it('rejects hyphenated variants like x-high', () => {
@@ -2962,44 +2959,44 @@ describe('getConfigObject (#77)', () => {
   });
 });
 
-describe('buildClaudeArgs overrides (#77)', () => {
+describe('buildCodexArgs overrides (#77)', () => {
   it('uses override model instead of global MODEL', () => {
     const step = STEPS[0];
     const state = defaultState();
-    const args = buildClaudeArgs(step, state, { model: 'sonnet' });
+    const args = buildCodexArgs(step, state, { model: 'gpt-5.4' });
     const modelIdx = args.indexOf('--model') + 1;
-    expect(args[modelIdx]).toBe('sonnet');
+    expect(args[modelIdx]).toBe('gpt-5.4');
   });
 
   it('uses override prompt instead of default prompt', () => {
     const step = STEPS[0];
     const state = defaultState();
     const customPrompt = 'Custom plan phase prompt';
-    const args = buildClaudeArgs(step, state, { prompt: customPrompt });
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(step, state, { prompt: customPrompt });
+    const promptIdx = args.length - 1;
     expect(args[promptIdx]).toBe(customPrompt);
   });
 
   it('falls back to global MODEL when no override', () => {
-    __test__.setConfig({ model: 'opus' });
+    __test__.setConfig({ model: 'gpt-5.5' });
     const step = STEPS[0];
     const state = defaultState();
-    const args = buildClaudeArgs(step, state);
+    const args = buildCodexArgs(step, state);
     const modelIdx = args.indexOf('--model') + 1;
-    expect(args[modelIdx]).toBe('opus');
+    expect(args[modelIdx]).toBe('gpt-5.5');
   });
 
   it('falls back to default prompt when no override', () => {
     const step = STEPS[0];
     const state = defaultState();
-    const args = buildClaudeArgs(step, state);
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(step, state);
+    const promptIdx = args.length - 1;
     expect(args[promptIdx]).toContain('Check out main');
   });
 });
 
-describe('runClaude effort env var (#77)', () => {
-  it('sets CLAUDE_CODE_EFFORT_LEVEL in spawn env when effort is configured', async () => {
+describe('runCodex reasoning effort config (#77)', () => {
+  it('passes model_reasoning_effort to codex exec when effort is configured', async () => {
     __test__.setConfig({ effort: 'high' });
 
     const mockProc = {
@@ -3016,14 +3013,14 @@ describe('runClaude effort env var (#77)', () => {
     mockFs.existsSync.mockReturnValue(false);
 
     const step = { ...STEPS[0], effort: 'high', timeoutMin: 1 };
-    await runClaude(step, defaultState());
+    await runCodex(step, defaultState());
 
-    const spawnOpts = mockSpawn.mock.calls[0][2];
-    expect(spawnOpts.env).toBeDefined();
-    expect(spawnOpts.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('high');
+    const codexArgs = mockSpawn.mock.calls[0][1];
+    expect(codexArgs).toContain('-c');
+    expect(codexArgs).toContain('model_reasoning_effort="high"');
   });
 
-  it('does not set env when resolved model is haiku (#130)', async () => {
+  it('passes inherited effort when resolved model is gpt-5.4-mini', async () => {
     __test__.setConfig({ effort: 'medium' });
 
     const mockProc = {
@@ -3039,14 +3036,11 @@ describe('runClaude effort env var (#77)', () => {
     mockSpawn.mockReturnValue(mockProc);
     mockFs.existsSync.mockReturnValue(false);
 
-    const step = { ...STEPS[0], timeoutMin: 1, model: 'haiku' };
-    await runClaude(step, defaultState());
+    const step = { ...STEPS[0], timeoutMin: 1, model: 'gpt-5.4-mini' };
+    await runCodex(step, defaultState());
 
-    const spawnOpts = mockSpawn.mock.calls[0][2];
-    // Haiku resolves to effort=undefined, so no env var — spawn uses default inherited env
-    if (spawnOpts.env !== undefined) {
-      expect(spawnOpts.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
-    }
+    const codexArgs = mockSpawn.mock.calls[0][1];
+    expect(codexArgs).toContain('model_reasoning_effort="medium"');
   });
 
   it('uses override effort over resolved effort', async () => {
@@ -3066,14 +3060,14 @@ describe('runClaude effort env var (#77)', () => {
     mockFs.existsSync.mockReturnValue(false);
 
     const step = { ...STEPS[0], timeoutMin: 1 };
-    await runClaude(step, defaultState(), { effort: 'high' });
+    await runCodex(step, defaultState(), { effort: 'high' });
 
-    const spawnOpts = mockSpawn.mock.calls[0][2];
-    expect(spawnOpts.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('high');
+    const codexArgs = mockSpawn.mock.calls[0][1];
+    expect(codexArgs).toContain('model_reasoning_effort="high"');
   });
 
-  it('uses override model in claude args', async () => {
-    __test__.setConfig({ model: 'opus' });
+  it('uses override model in codex args', async () => {
+    __test__.setConfig({ model: 'gpt-5.5' });
 
     const mockProc = {
       pid: 77004,
@@ -3089,27 +3083,27 @@ describe('runClaude effort env var (#77)', () => {
     mockFs.existsSync.mockReturnValue(false);
 
     const step = { ...STEPS[0], timeoutMin: 1 };
-    await runClaude(step, defaultState(), { model: 'sonnet' });
+    await runCodex(step, defaultState(), { model: 'gpt-5.4' });
 
-    const claudeArgs = mockSpawn.mock.calls[0][1];
-    const modelIdx = claudeArgs.indexOf('--model') + 1;
-    expect(claudeArgs[modelIdx]).toBe('sonnet');
+    const codexArgs = mockSpawn.mock.calls[0][1];
+    const modelIdx = codexArgs.indexOf('--model') + 1;
+    expect(codexArgs[modelIdx]).toBe('gpt-5.4');
   });
 });
 
-describe('Step 4 uses standard runClaude path (#91)', () => {
+describe('Step 4 uses standard runCodex path (#91)', () => {
   it('runStep source does not delegate step 4 to runImplementStep', () => {
-    // After #91, step 4 should use the same runClaude path as all other steps.
+    // After #91, step 4 should use the same runCodex path as all other steps.
     const src = runStep.toString();
     expect(src).not.toContain('runImplementStep');
   });
 
-  it('step 4 prompt does not mention EnterPlanMode', () => {
-    __test__.setConfig({ model: 'opus' });
+  it('step 4 prompt does not mention plan approval', () => {
+    __test__.setConfig({ model: 'gpt-5.5' });
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
-    const args = buildClaudeArgs(STEPS[3], state);
-    const prompt = args[args.indexOf('--prompt') + 1] || args[args.indexOf('-p') + 1];
-    expect(prompt).not.toContain('EnterPlanMode');
+    const args = buildCodexArgs(STEPS[3], state);
+    const prompt = args[args.length - 1];
+    expect(prompt).not.toContain('plan approval');
   });
 });
 
@@ -3121,7 +3115,7 @@ describe('__test__.setConfig supports effort and configSteps (#77)', () => {
   });
 
   it('setConfig sets configSteps', () => {
-    __test__.setConfig({ configSteps: { implement: { model: 'sonnet' } } });
+    __test__.setConfig({ configSteps: { implement: { model: 'gpt-5.4' } } });
     // STEPS won't change (built at module load time), but configSteps module var is set
     // Verify through getConfigObject and step resolution
     const obj = getConfigObject();
@@ -3161,8 +3155,8 @@ describe('--issue flag (single-issue mode) (#107)', () => {
 
       const step = STEPS[1]; // Step 2 = startIssue
       const state = defaultState();
-      const args = buildClaudeArgs(step, state);
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, state);
+      const promptIdx = args.length - 1;
 
       expect(args[promptIdx]).toContain('Start issue #42');
       expect(args[promptIdx]).not.toContain('Select and start the next');
@@ -3177,15 +3171,15 @@ describe('--issue flag (single-issue mode) (#107)', () => {
 
       const step = STEPS[1]; // Step 2 = startIssue
       const state = defaultState();
-      const args = buildClaudeArgs(step, state);
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, state);
+      const promptIdx = args.length - 1;
 
       // Unattended-mode prompt (see bug-fix-start-issue-unattended-mode-
       // interactive-fallback/requirements.md FR1/FR2): the deterministic
       // selection formula replaced the terse "Select and start the next"
-      // wording so the model can't accidentally fall back to AskUserQuestion.
+      // wording so the model can't accidentally fall back to request_user_input.
       expect(args[promptIdx]).toContain('UNATTENDED MODE');
-      expect(args[promptIdx]).toContain('Do NOT call AskUserQuestion');
+      expect(args[promptIdx]).toContain('Do NOT ask the user questions');
       expect(args[promptIdx]).toContain('--label automatable');
       expect(args[promptIdx]).not.toContain('Start issue #');
     });
@@ -3199,8 +3193,8 @@ describe('--issue flag (single-issue mode) (#107)', () => {
 
       const step = STEPS[1]; // Step 2 = startIssue
       const state = defaultState();
-      const args = buildClaudeArgs(step, state);
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, state);
+      const promptIdx = args.length - 1;
 
       expect(args[promptIdx]).not.toContain('Do NOT select');
       expect(args[promptIdx]).not.toContain('#10');
@@ -3218,8 +3212,8 @@ describe('--issue flag (single-issue mode) (#107)', () => {
 
       const step = STEPS[1]; // Step 2 = startIssue
       const state = defaultState();
-      const args = buildClaudeArgs(step, state);
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, state);
+      const promptIdx = args.length - 1;
 
       expect(args[promptIdx]).toContain('Do NOT select');
       expect(args[promptIdx]).toContain('#10');
@@ -3233,7 +3227,7 @@ describe('--issue flag (single-issue mode) (#107)', () => {
 // ===========================================================================
 
 describe('skill path resolution (#88)', () => {
-  const PLUGIN_ROOT = '/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3';
+  const PLUGIN_ROOT = '/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3';
   const PLUGINS_PATH = '/Users/dev/repos/nmg-plugins';
 
   beforeEach(() => {
@@ -3253,15 +3247,15 @@ describe('skill path resolution (#88)', () => {
       expect(mockFs.readFileSync).toHaveBeenCalledWith(expected, 'utf8');
     });
 
-    it('buildClaudeArgs emits skillRoot under pluginRoot', () => {
+    it('buildCodexArgs emits skillRoot under pluginRoot', () => {
       __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: '' });
       mockFs.existsSync.mockReturnValue(true);
       mockFs.readFileSync.mockReturnValue('# skill');
       __test__.singleIssueNumber = 42; // hit the deterministic startIssue branch
 
       const step = { ...STEPS[1], skill: 'start-issue' };
-      const args = buildClaudeArgs(step, defaultState());
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, defaultState());
+      const promptIdx = args.length - 1;
 
       expect(args[promptIdx]).toContain(`${PLUGIN_ROOT}/skills/start-issue`);
 
@@ -3361,7 +3355,7 @@ describe('skill path resolution (#88)', () => {
     });
   });
 
-  describe('readSkill and buildClaudeArgs share a prefix', () => {
+  describe('readSkill and buildCodexArgs share a prefix', () => {
     it('produces the same …/skills/<name> prefix across both call sites', () => {
       __test__.setConfig({ pluginRoot: PLUGIN_ROOT, pluginsPath: '' });
       mockFs.existsSync.mockReturnValue(true);
@@ -3372,8 +3366,8 @@ describe('skill path resolution (#88)', () => {
       const readPath = mockFs.existsSync.mock.calls.find(c => typeof c[0] === 'string' && c[0].endsWith('SKILL.md'))[0];
 
       const step = { ...STEPS[1], skill: 'start-issue' };
-      const args = buildClaudeArgs(step, defaultState());
-      const promptIdx = args.indexOf('-p') + 1;
+      const args = buildCodexArgs(step, defaultState());
+      const promptIdx = args.length - 1;
       const prompt = args[promptIdx];
 
       const expectedPrefix = `${PLUGIN_ROOT}/skills/start-issue`;
@@ -3445,7 +3439,7 @@ describe('handleFailure: error_max_turns does not sleep (issue #102 AC3, FR3)', 
   });
 });
 
-describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', () => {
+describe('bounceContext injection into buildCodexArgs (issue #102 AC5, FR4)', () => {
   beforeEach(() => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockReturnValue('skill content');
@@ -3464,8 +3458,8 @@ describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', (
     // default commit-push prompt.
     const receivingStep = { ...STEPS[6], skill: 'commit-push' };
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
-    const args = buildClaudeArgs(receivingStep, state);
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(receivingStep, state);
+    const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
 
     expect(prompt).toContain('## Bounce context');
@@ -3480,8 +3474,8 @@ describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', (
   it('does NOT inject the block when bounceContext is null (green path)', () => {
     __test__.bounceContext = null;
     const step = STEPS[0];
-    const args = buildClaudeArgs(step, defaultState());
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(step, defaultState());
+    const promptIdx = args.length - 1;
     expect(args[promptIdx]).not.toContain('## Bounce context');
   });
 
@@ -3497,8 +3491,8 @@ describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', (
     // Unrelated step (not N-1): writeSpecs (step 3) — fromStepNumber + 1 = 9, not 3
     const unrelatedStep = { ...STEPS[2], skill: 'write-spec' };
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
-    const args = buildClaudeArgs(unrelatedStep, state);
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(unrelatedStep, state);
+    const promptIdx = args.length - 1;
     expect(args[promptIdx]).not.toContain('## Bounce context');
 
     __test__.bounceContext = null;
@@ -3514,11 +3508,10 @@ describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', (
     };
 
     const receivingStep = { ...STEPS[6], skill: 'commit-push' };
-    const args = buildClaudeArgs(receivingStep, defaultState(), { prompt: 'OVERRIDE' });
-    const promptIdx = args.indexOf('-p') + 1;
+    const args = buildCodexArgs(receivingStep, defaultState(), { prompt: 'OVERRIDE' });
+    const promptIdx = args.length - 1;
     expect(args[promptIdx]).toBe('OVERRIDE');
 
     __test__.bounceContext = null;
   });
 });
-

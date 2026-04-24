@@ -2,7 +2,7 @@
 name: architecture-reviewer
 description: "Evaluates architecture quality: SOLID principles, layer separation, security, performance, testability. Auto-invoked by verify-code."
 tools: Read, Glob, Grep
-model: opus
+model: gpt-5.5
 skills: verify-code
 ---
 

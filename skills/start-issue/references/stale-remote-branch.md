@@ -49,7 +49,7 @@ git merge-base --is-ancestor {remote-tip-sha} origin/main
 
 Unattended-mode deterministic-default (per `../../../references/unattended-mode.md`): delete without prompting. Interactive mode: confirm first.
 
-#### Unattended mode (`.claude/unattended-mode` exists)
+#### Unattended mode (`.codex/unattended-mode` exists)
 
 ```bash
 git push origin --delete {branch}
@@ -65,7 +65,7 @@ Proceed to Step 4 — `gh issue develop --checkout` will now create a fresh bran
 
 #### Interactive mode
 
-Use `AskUserQuestion` with two options:
+Use `request_user_input` with two options:
 
 - `[1] Delete stale branch and proceed` — issue `git push origin --delete {branch}`, log the "Reconciled stale remote branch" line, and proceed to Step 4.
 - `[2] Abort — keep stale branch for inspection` — exit non-zero without creating a branch so the user can inspect the remote state before re-running.

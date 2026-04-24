@@ -42,7 +42,7 @@ gh issue list -s open -m "<milestone>" --label automatable -L 10 --json number,t
 
 ### Multiple viable milestones
 
-- **Interactive mode**: present the filtered milestone list via `AskUserQuestion` (option label: milestone title; description: "N open issues"), then fetch issues from the selected milestone.
+- **Interactive mode**: present the filtered milestone list via `request_user_input` (option label: milestone title; description: "N open issues"), then fetch issues from the selected milestone.
 - **Unattended mode**: select the first milestone alphabetically and fetch its issues with `--label automatable`.
 
 ## Unattended-mode empty-result handling

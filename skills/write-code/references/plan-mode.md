@@ -2,13 +2,13 @@
 
 **Consumed by**: `write-code` Steps 4 (Design Implementation Approach), 5 (Execute Tasks), and 5a (Route Skill-Bundled Tasks Through `/skill-creator`).
 
-Steps 4 and 5 turn the loaded specs and steering docs into running code. Interactive mode takes the approach through `EnterPlanMode` so the user can approve it before any file is touched; unattended mode skips that call (plan mode requires a human approver and fails headless) and designs the approach internally. Step 5a's skill-routing contract applies on both paths — skill-bundled edits go through `/skill-creator` or escalate.
+Steps 4 and 5 turn the loaded specs and steering docs into running code. Interactive mode takes the approach through `plan approval` so the user can approve it before any file is touched; unattended mode skips that call (plan mode requires a human approver and fails headless) and designs the approach internally. Step 5a's skill-routing contract applies on both paths — skill-bundled edits go through `/skill-creator` or escalate.
 
 ## Step 4: Design Implementation Approach
 
-**Unattended mode** (`.claude/unattended-mode` exists): skip `EnterPlanMode` entirely — it will fail in a headless session because there is no user to approve the plan. Design the approach internally in your thinking, covering the points below, then go straight to Step 5.
+**Unattended mode** (`.codex/unattended-mode` exists): skip `plan approval` entirely — it will fail in a headless session because there is no user to approve the plan. Design the approach internally in your thinking, covering the points below, then go straight to Step 5.
 
-**Interactive mode**: call `EnterPlanMode` to design the approach with user approval.
+**Interactive mode**: call `plan approval` to design the approach with user approval.
 
 The implementation approach (whether internal or in plan mode) should:
 
@@ -91,8 +91,8 @@ Detection is deliberately conservative — any single signal triggers routing (f
 ### Skill-Creator Probe Contract
 
 1. **Probe for availability** — treat the `skill-creator` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/skills/skill-creator/SKILL.md`
+   - `Glob` finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
 2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the file — never `Write` / `Edit` a skill-bundled file directly.
 3. **If unavailable**: there is no hand-edit fallback — skill-bundled files must route through `/skill-creator`.
@@ -108,8 +108,8 @@ After all tasks are complete and before signalling completion, run the `/simplif
 ### Simplify-Skill Probe Contract
 
 1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.claude/skills/simplify/SKILL.md`
-   - `Glob` finds `~/.claude/plugins/**/skills/simplify/SKILL.md`
+   - `Glob` finds `~/.codex/skills/simplify/SKILL.md`
+   - `Glob` finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
 2. **If available**: invoke `/simplify` against the files returned by `git diff main...HEAD --name-only`. Apply any fixes it returns in-place. Only proceed to Step 6 once findings are cleared.
 3. **If unavailable**: emit the warning verbatim:
@@ -122,4 +122,4 @@ After all tasks are complete and before signalling completion, run the `/simplif
 
 If the `simplify` skill is available but errors or reports failures, surface those as additional findings and address them before proceeding to Step 6.
 
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an `AskUserQuestion` gate.
+Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an `request_user_input` gate.

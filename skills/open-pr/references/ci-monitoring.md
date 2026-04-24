@@ -1,14 +1,14 @@
 # Interactive CI Monitor + Auto-Merge (Step 7)
 
-**Consumed by**: `open-pr` Step 7. Runs **only** when `.claude/unattended-mode` does NOT exist — in unattended mode the SDLC runner owns CI monitoring and merging, so the skill must not poll, prompt, or merge.
+**Consumed by**: `open-pr` Step 7. Runs **only** when `.codex/unattended-mode` does NOT exist — in unattended mode the SDLC runner owns CI monitoring and merging, so the skill must not poll, prompt, or merge.
 
 ## Entry gate
 
-If `.claude/unattended-mode` exists, Step 7 is actively suppressed — do NOT call `AskUserQuestion` for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
+If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT call `request_user_input` for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
 
 Otherwise:
 
-1. **Prompt the user** via `AskUserQuestion`:
+1. **Prompt the user** via `request_user_input`:
 
    ```
    question: "Monitor CI and auto-merge this PR once all required checks pass?"

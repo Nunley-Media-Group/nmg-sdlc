@@ -1,9 +1,9 @@
 ---
 name: upgrade-project
-description: "Upgrade a project to the latest nmg-sdlc contract — relocate legacy `.claude/steering/` and `.claude/specs/` to the project root, update specs, steering docs, and configs to current template standards. Use when user says 'upgrade project', 'update templates', 'check for outdated docs', 'sync with latest plugin', 'relocate specs', 'how do I update my project', or 'bring my project up to date'. Detects the legacy `.claude/{steering,specs}` directory layout and migrates it in place via `git mv`, then diffs headings against current templates and merges missing sections while preserving all user content. Utility skill — run after plugin updates, outside the main SDLC pipeline."
+description: "Upgrade a project to the latest nmg-sdlc contract — relocate legacy `.codex/steering/` and `.codex/specs/` to the project root, update specs, steering docs, and configs to current template standards. Use when user says 'upgrade project', 'update templates', 'check for outdated docs', 'sync with latest plugin', 'relocate specs', 'how do I update my project', or 'bring my project up to date'. Detects the legacy `.codex/{steering,specs}` directory layout and migrates it in place via `git mv`, then diffs headings against current templates and merges missing sections while preserving all user content. Utility skill — run after plugin updates, outside the main SDLC pipeline."
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(gh:*), Bash(git:*), AskUserQuestion
-model: opus
+allowed-tools: Read, Glob, Grep, Edit, Write, Bash(gh:*), Bash(git:*), request_user_input
+model: gpt-5.5
 effort: high
 ---
 
@@ -11,7 +11,7 @@ effort: high
 
 Bring an existing project forward to the current nmg-sdlc contract. The skill covers two related jobs:
 
-1. **Directory relocation** — move `.claude/steering/` → `steering/` and `.claude/specs/` → `specs/` at the project root (current Claude Code releases protect `.claude/` from Edit/Write; canonical SDLC artifacts must live at the root).
+1. **Directory relocation** — move `.codex/steering/` → `steering/` and `.codex/specs/` → `specs/` at the project root (current Codex releases protect `.codex/` from Edit/Write; canonical SDLC artifacts must live at the root).
 2. **Template reconciliation** — diff existing steering docs, spec files, and runner configs against current templates and merge missing sections while preserving all user content.
 
 `/upgrade-project` is the **only** pipeline skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md` — every other skill aborts on the legacy layout and points users here.
@@ -20,7 +20,7 @@ This skill is **self-updating**: it reads templates at runtime, so when template
 
 ## When to Use
 
-- Immediately after upgrading the nmg-sdlc plugin on a project that still uses the legacy `.claude/steering/` and `.claude/specs/` layout (these paths are now refused by Claude Code).
+- Immediately after upgrading the nmg-sdlc plugin on a project that still uses the legacy `.codex/steering/` and `.codex/specs/` layout (these paths are now refused by Codex).
 - When steering docs or specs were created with an older plugin version.
 - To check whether project files are up to date with current standards.
 
@@ -34,19 +34,19 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 | Destructive | Spec directory consolidation, legacy spec-directory deletes (Steps 4b–4e) | Skipped; recorded under "Skipped Operations (Unattended-Mode)" |
 | Informational only | Config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval |
 
-When `.claude/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via `AskUserQuestion` per Step 8.
+When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via `request_user_input` per Step 8.
 
 ## What Gets Analyzed
 
 ```
-.claude/steering/                   — Legacy steering directory (relocated in Step 1.5)
-.claude/specs/                      — Legacy spec directory (relocated in Step 1.5)
-.claude/migration-exclusions.json   — Legacy exclusions file (renamed in Step 1.5 to upgrade-exclusions.json)
+.codex/steering/                   — Legacy steering directory (relocated in Step 1.5)
+.codex/specs/                      — Legacy spec directory (relocated in Step 1.5)
+.codex/migration-exclusions.json   — Legacy exclusions file (renamed in Step 1.5 to upgrade-exclusions.json)
 steering/*.md                       — Steering docs (product, tech, structure, retrospective)
 specs/*/{requirements,design,tasks}.md — Spec files (feature + defect variants)
 specs/*/                            — Spec directory naming (legacy `{issue#}-{slug}` vs feature-/bug-)
 specs/feature-*/*.md                — Spec frontmatter format (`**Issue**` → `**Issues**`, Change History)
-.claude/upgrade-exclusions.json     — Declined sections (read to skip, written after user declines)
+.codex/upgrade-exclusions.json     — Declined sections (read to skip, written after user declines)
 sdlc-config.json                    — SDLC runner config (key merge + value drift)
 CHANGELOG.md                        — Changelog format and completeness (Keep a Changelog)
 VERSION                             — Single source of truth for project version
@@ -60,7 +60,7 @@ Read `../../references/spec-frontmatter.md` when validating or migrating any spe
 
 ## Workflow
 
-**Before Step 1:** Check whether `.claude/unattended-mode` exists in the project root. Set an unattended-mode flag for the entire session — re-reading the file at each branch point would invite drift.
+**Before Step 1:** Check whether `.codex/unattended-mode` exists in the project root. Set an unattended-mode flag for the entire session — re-reading the file at each branch point would invite drift.
 
 ### Step 1: Resolve Template Paths
 
@@ -69,9 +69,9 @@ Locate the template directories from the installed plugin. Use this skill's own 
 - **Steering templates**: `../onboard-project/templates/*.md` — `product.md`, `tech.md`, `structure.md`.
 - **Retrospective template**: `../run-retro/templates/retrospective.md` → `steering/retrospective.md`.
 - **Spec templates**: `../write-spec/templates/*.md` — `requirements.md`, `design.md`, `tasks.md`.
-- **Config template**: `scripts/sdlc-config.example.json` (resolved from the marketplace root, two levels above the plugin root).
+- **Config template**: `scripts/sdlc-config.example.json` (resolved from the plugin root).
 
-Use `Glob` to find the skill's own `SKILL.md` path, then resolve `../../..` to get the plugin root and `../..` from there to get the marketplace root. Read all template files. If a template file cannot be found, skip that category and note it in the summary.
+Use `Glob` to find the skill's own `SKILL.md` path, then resolve `../..` to get the plugin root. Read all template files. If a template file cannot be found, skip that category and note it in the summary.
 
 ### Step 1.5: Detect And Relocate Legacy Layout
 
@@ -100,11 +100,11 @@ For each existing steering doc (e.g., `steering/product.md`):
 3. **Parse headings** — extract all `## ` headings from both the template content and the existing project file.
 4. **Diff headings** — identify headings present in the template but absent from the project file.
 5. **Filter by relevance** — for each missing heading, check whether it matches a keyword in the **Relevance Heuristic Table** in `references/upgrade-procedures.md`. If it matches, use `Glob` to check the project codebase for the associated evidence patterns. If **no evidence is found**, exclude the section from the proposal. If the heading does **not match any keyword** (unknown section), **conservatively include it** — let the user decide.
-6. **Filter by exclusions** — read `.claude/upgrade-exclusions.json` from the project root (if it exists). If the file exists but contains invalid JSON, treat it as empty (log a warning and proceed). If the current file's name (e.g., `tech.md`) appears in `excludedSections` and the missing heading text appears in that array, skip the section — it was previously declined by the user.
+6. **Filter by exclusions** — read `.codex/upgrade-exclusions.json` from the project root (if it exists). If the file exists but contains invalid JSON, treat it as empty (log a warning and proceed). If the current file's name (e.g., `tech.md`) appears in `excludedSections` and the missing heading text appears in that array, skip the section — it was previously declined by the user.
 7. **Extract missing sections** — for each remaining missing heading, extract the full section content from the template (from the `## ` heading to the next `## ` heading or end of content).
 8. **Determine insertion point** — insert after the predecessor heading in template order. If the template order is `## A`, `## B`, `## C` and `## B` is missing, insert it after the `## A` section's content.
 
-Read `references/upgrade-procedures.md` when you need the **Relevance Heuristic Table** (keyword-to-glob mapping) or the **Exclusion File Schema** (`.claude/upgrade-exclusions.json` format).
+Read `references/upgrade-procedures.md` when you need the **Relevance Heuristic Table** (keyword-to-glob mapping) or the **Exclusion File Schema** (`.codex/upgrade-exclusions.json` format).
 
 ### Step 4: Analyze Spec Files
 
@@ -155,28 +155,28 @@ Display a per-file summary of all proposed changes grouped by category — Legac
 
 The approval flow has four parts:
 
-**If `.claude/unattended-mode` exists:** Skip Parts A/B/C/D approval prompts. Auto-select all proposed steering doc sections (equivalent to selecting all). Auto-approve all non-destructive changes (legacy layout relocation already applied in Step 1.5, solo renames already applied in Step 4d). Record any remaining destructive operations as skipped operations. Config value drift is reported but NOT applied — skip Part C entirely. Proceed directly to Step 9.
+**If `.codex/unattended-mode` exists:** Skip Parts A/B/C/D approval prompts. Auto-select all proposed steering doc sections (equivalent to selecting all). Auto-approve all non-destructive changes (legacy layout relocation already applied in Step 1.5, solo renames already applied in Step 4d). Record any remaining destructive operations as skipped operations. Config value drift is reported but NOT applied — skip Part C entirely. Proceed directly to Step 9.
 
-**If `.claude/unattended-mode` does NOT exist:** Follow the interactive approval flow below.
+**If `.codex/unattended-mode` does NOT exist:** Follow the interactive approval flow below.
 
 #### Part A: Steering doc sections (per-section approval)
 
-If there are proposed steering doc sections, present them via `AskUserQuestion` with `multiSelect: true`. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
+If there are proposed steering doc sections, present them via `request_user_input` with `multiSelect: true`. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group `AskUserQuestion` for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
+Per-group `request_user_input` for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
-If Step 5 found drifted scalars, present them via `AskUserQuestion` with `multiSelect: true`. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
+If Step 5 found drifted scalars, present them via `request_user_input` with `multiSelect: true`. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
 
 #### Part D: Recommended runner defaults diff (batch approve)
 
 This flow is additive — Parts A/B/C are unchanged. Part D specifically surfaces changes to the per-step `model` / `effort` / `maxTurns` / `timeoutMin` defaults so users upgrading across plugin versions can adopt the shipped recommendations without clicking through each field individually.
 
 1. **Build the diff** for each step in `steps.*` against `scripts/sdlc-config.example.json`. Include only fields where the user's value differs from (or inherits a value different than) the shipped example. Present unset/inherited values as `(unset — inherited "<global>")` so the source of each value is visible.
-2. **Present the diff** in a single `AskUserQuestion` with three options:
+2. **Present the diff** in a single `request_user_input` with three options:
    - `Apply all recommended defaults`.
    - `Review each field individually (falls back to Part C behavior)`.
    - `Decline — keep my current values`.
@@ -194,14 +194,14 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 5. **Related Spec corrections** — replace `**Related Spec**:` lines with resolved feature spec paths.
 6. **JSON config** — add missing keys only; never overwrite existing values.
 7. **Config value drift updates** — for each user-selected drifted value from Part C (interactive only; skipped in unattended): read, `Edit` to replace the old value with the template default, re-read to verify. Preserve all unselected values.
-8. **Persist declined sections** — if interactive, save unselected steering doc sections to `.claude/upgrade-exclusions.json`. Skip in unattended mode.
+8. **Persist declined sections** — if interactive, save unselected steering doc sections to `.codex/upgrade-exclusions.json`. Skip in unattended mode.
 9. **Output summary** — report changes applied (including drift updates and the legacy layout relocation), declined, skipped, and filtered sections with recommendations.
 10. **Skipped Operations (Unattended-Mode)** — if running unattended and any destructive operations were skipped, emit a machine-readable block:
 
     ```
     ## Skipped Operations (Unattended-Mode)
 
-    The following destructive operations were skipped because `.claude/unattended-mode` is active.
+    The following destructive operations were skipped because `.codex/unattended-mode` is active.
     Run `/upgrade-project` interactively to apply them.
 
     | Operation Type | Affected Paths | Reason |
@@ -216,15 +216,15 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 ## Key Rules
 
 1. **Never modify existing content** — only insert new sections or add new keys.
-2. **Never create files** — only update files that already exist (exceptions: `CHANGELOG.md`, `VERSION`, and `.claude/upgrade-exclusions.json` may be created if missing).
+2. **Never create files** — only update files that already exist (exceptions: `CHANGELOG.md`, `VERSION`, and `.codex/upgrade-exclusions.json` may be created if missing).
 3. **Never overwrite values** — for JSON, only add absent keys. Exception: config value drift updates are applied only with explicit per-value user approval (Step 8 Part C); in unattended mode, value updates are never applied.
 4. **Skip `feature.gherkin`** — generated, not templated.
-5. **Interactive by default** — when `.claude/unattended-mode` is absent, present findings with per-section approval for steering docs and wait for user selection before applying.
+5. **Interactive by default** — when `.codex/unattended-mode` is absent, present findings with per-section approval for steering docs and wait for user selection before applying.
 6. **Unattended-mode aware** — auto-apply all non-destructive changes; skip destructive operations and report them.
 7. **Self-updating** — read templates at runtime; never hardcode template content.
-8. **Filter irrelevant sections** — use codebase analysis to exclude sections with no evidence of relevance; persist user declines in `.claude/upgrade-exclusions.json` (interactive only).
+8. **Filter irrelevant sections** — use codebase analysis to exclude sections with no evidence of relevance; persist user declines in `.codex/upgrade-exclusions.json` (interactive only).
 9. **Conservative defaults** — when a missing section's heading doesn't match any keyword in the heuristic table, include it and let the user decide.
-10. **Preserve runtime artifacts** — never relocate `.claude/unattended-mode` or `.claude/sdlc-state.json`; only the exclusions file is renamed.
+10. **Preserve runtime artifacts** — never relocate `.codex/unattended-mode` or `.codex/sdlc-state.json`; only the exclusions file is renamed.
 
 ---
 

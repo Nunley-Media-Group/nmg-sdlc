@@ -1,6 +1,6 @@
 # Per-Thread Fix Loop
 
-**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `/address-pr-comments` — no `claude -p` subprocesses — so sub-skill output (including any `ESCALATION:` lines emitted by `/write-code` or `/verify-code`) lands in the same transcript and can be observed inline.
+**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `/address-pr-comments` — no `codex exec` subprocesses — so sub-skill output (including any `ESCALATION:` lines emitted by `/write-code` or `/verify-code`) lands in the same transcript and can be observed inline.
 
 ## Why a postcondition gate
 
@@ -34,7 +34,7 @@ Because `/write-code` normally reads `specs/{feature-name}/tasks.md`, it needs a
 **Commit message**: use exactly `fix: address review finding on {path}:{line}`. Omit the `:{line}` segment when `line` is null.
 ```
 
-`/write-code`'s internal workflow still runs (steering-doc load, its own plan mode in interactive, tasks-md read if a spec exists for the current branch) — the synthetic-task prompt sits alongside its usual spec input so Claude treats the reviewer finding as the task of record.
+`/write-code`'s internal workflow still runs (steering-doc load, its own plan mode in interactive, tasks-md read if a spec exists for the current branch) — the synthetic-task prompt sits alongside its usual spec input so Codex treats the reviewer finding as the task of record.
 
 ### 2. /verify-code
 
