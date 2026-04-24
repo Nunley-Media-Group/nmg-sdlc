@@ -1,12 +1,12 @@
 # Phase Review Gates
 
-**Read this when** a phase has finished writing its file and the workflow is presenting findings for human approval. The three phase summaries (Requirements, Design, Tasks) follow the same shape: an inline summary the reviewer can evaluate without opening the file, then a two-option Codex interactive gate menu. Loop until the reviewer approves; revise iterations apply user-described changes wholesale rather than preserving prior drafts as diffs.
+**Read this when** a phase has finished drafting its file content and the workflow is presenting findings for human approval. The three phase summaries (Requirements, Design, Tasks) follow the same shape: an inline summary the reviewer can evaluate without opening the file, then a `request_user_input` gate in Plan Mode. Loop until the reviewer approves; revise iterations apply user-described changes wholesale rather than preserving prior drafts as diffs. After all phase gates are approved, finalize one decision-complete `<proposed_plan>` and auto-execute it.
 
 The summaries exist because reviewers should not have to switch context to a separate file to evaluate a phase. Inline summaries make the review gate honest — what the user sees here is what they're approving.
 
 ## Unattended-mode behavior
 
-In unattended mode (`.codex/unattended-mode` present), all three gates are **pre-approved**: do NOT present a Codex interactive gate, do NOT render the inline summary, and proceed directly from each phase to the next. The shared semantics live in `../../references/unattended-mode.md`.
+In unattended mode (`.codex/unattended-mode` present), all three gates are **pre-approved**: do NOT call `request_user_input`, do NOT render the inline summary, and proceed directly from each phase to the next. The shared semantics live in `../../references/unattended-mode.md`.
 
 ## Phase 1 — Requirements Review Gate
 
@@ -32,12 +32,22 @@ Render this exact structure:
 **Open Questions**: [list any, or "None"]
 ```
 
-Then present a numbered menu via Codex interactive gate:
+Then ask through `request_user_input`:
 
-```
-Select an option:
-  [1] Approve — proceed to technical design
-  [2] Revise — I'll describe what to change
+```json
+{
+  "questions": [
+    {
+      "id": "requirements_review",
+      "header": "Requirements",
+      "question": "Approve these requirements?",
+      "options": [
+        { "label": "Approve (Recommended)", "description": "Proceed to technical design." },
+        { "label": "Revise", "description": "I will describe what to change before design." }
+      ]
+    }
+  ]
+}
 ```
 
 If the user selects 2 (or provides feedback), apply the changes to the file and re-present the summary and menu. Repeat until they select 1.
@@ -65,12 +75,22 @@ If the user selects 2 (or provides feedback), apply the changes to the file and 
 **Risks**: [top 1-2 risks with their mitigations]
 ```
 
-Menu:
+Ask through `request_user_input`:
 
-```
-Select an option:
-  [1] Approve — proceed to implementation tasks
-  [2] Revise — I'll describe what to change
+```json
+{
+  "questions": [
+    {
+      "id": "design_review",
+      "header": "Design",
+      "question": "Approve this technical design?",
+      "options": [
+        { "label": "Approve (Recommended)", "description": "Proceed to implementation tasks." },
+        { "label": "Revise", "description": "I will describe what to change before tasks." }
+      ]
+    }
+  ]
+}
 ```
 
 Same revise-loop semantics as Phase 1.
@@ -102,12 +122,22 @@ Same revise-loop semantics as Phase 1.
 **Gherkin scenarios**: [count] scenarios covering [count] acceptance criteria
 ```
 
-Menu:
+Ask through `request_user_input`:
 
-```
-Select an option:
-  [1] Approve — specs are complete
-  [2] Revise — I'll describe what to change
+```json
+{
+  "questions": [
+    {
+      "id": "tasks_review",
+      "header": "Tasks",
+      "question": "Approve this task plan?",
+      "options": [
+        { "label": "Approve (Recommended)", "description": "Finalize the specs and prepare execution." },
+        { "label": "Revise", "description": "I will describe what to change before finalizing." }
+      ]
+    }
+  ]
+}
 ```
 
 Same revise-loop semantics. After approval, the workflow may enter the Seal-Spec Flow when a multi-PR delivery trigger fires (see SKILL.md).

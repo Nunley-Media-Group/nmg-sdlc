@@ -20,7 +20,7 @@ Before any move, verify the working tree is clean enough to relocate safely:
 
 ## Proposal (interactive mode only)
 
-If NOT unattended, present the proposed actions via Codex interactive gate:
+If NOT unattended, present the proposed actions via `request_user_input` gate:
 
 ```
 question: "The project uses the legacy `.codex/steering/` and `.codex/specs/` layout. Relocate to `steering/` and `specs/` at the project root?"

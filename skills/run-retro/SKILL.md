@@ -7,13 +7,13 @@ description: "Analyze defect specs to identify spec-writing gaps and produce act
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Batch-analyze defect specs to identify recurring spec-writing gaps and produce `steering/retrospective.md` — a steering document that `$nmg-sdlc:write-spec` reads during Phase 1 to avoid repeating past spec failures.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every Codex interactive gate call site so the runner can drive a retro without stopping for user input.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` gate call site so the runner can drive a retro without stopping for user input.
 
 Read `../../references/spec-frontmatter.md` when you need the defect-spec schema or the `**Related Spec**` field conventions — Step 2's chain resolution depends on `**Related Spec**` pointing at either a feature spec (terminating) or another defect spec (recursive).
 

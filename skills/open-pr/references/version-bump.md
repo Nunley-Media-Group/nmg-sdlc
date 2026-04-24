@@ -39,8 +39,8 @@ Before presenting to the user, determine whether the current issue is an epic ch
    - Every sibling complete → this is the final child. Keep the classified bump (`siblingClass = 'final'`).
    - At least one sibling incomplete → this is an intermediate child. Force `bump_type = 'patch'`, recompute the proposed version, and set `siblingClass = 'intermediate'`.
 6. **Epic-closure warning.** Also query `gh issue view #E --json state`. If the epic itself is `CLOSED` while the current child is `OPEN`, warn:
-   - **Interactive mode:** present a Codex interactive gate to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). Abort exits the skill without creating the PR.
-   - **Unattended mode** (`.codex/unattended-mode` exists): do NOT present a Codex interactive gate. Escalate via the runner sentinel and exit non-zero with message `Epic #E is closed but child #N is still open — confirm the epic was not closed prematurely`.
+   - **Interactive mode:** present a `request_user_input` gate to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). Abort exits the skill without creating the PR.
+   - **Unattended mode** (`.codex/unattended-mode` exists): do NOT present a `request_user_input` gate. Escalate via the runner sentinel and exit non-zero with message `Epic #E is closed but child #N is still open — confirm the epic was not closed prematurely`.
 
 Record `siblingClass` (one of `non-epic`, `intermediate`, `final`) and `epicParentNumber` (the resolved epic issue number, or null) for Step 3 and Step 4 use.
 
@@ -57,7 +57,7 @@ options:
 
 When `major_requested` is true, the displayed `{bump_type}` is `major`, `{proposed}` is the major-bumped version, and "Accept {proposed}" is pre-selected as the recommended answer — the developer can still choose Patch or Minor. When `major_requested` is false, the classified type (patch or minor) is the recommended answer. Major remains available as an override for developers who decide a major bump is warranted after seeing the prompt.
 
-**Unattended mode**: apply the classified bump without confirmation — do not present a Codex interactive gate. Without `--major`, this path produces only patch or minor bumps; the `major_requested` + unattended combination is rejected in Step 0 so it cannot reach this step.
+**Unattended mode**: apply the classified bump without confirmation — do not present a `request_user_input` gate. Without `--major`, this path produces only patch or minor bumps; the `major_requested` + unattended combination is rejected in Step 0 so it cannot reach this step.
 
 ## Step 3: Update version artifacts
 

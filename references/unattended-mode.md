@@ -14,17 +14,17 @@ file discovery('.codex/unattended-mode')  →  fileExists
 
 ## Invariant: interactive by default, unattended is opt-in
 
-Manual mode is the default behavior for every skill. Unattended mode is opt-in per run, driven by the sentinel, and should not become the default. Each Codex interactive gate call site should be guarded by an explicit unattended-mode branch, with the interactive path as the fall-through case — the special-case branch is the headless one.
+Manual mode is the default behavior for every skill. Unattended mode is opt-in per run, driven by the sentinel, and should not become the default. Each `request_user_input` gate call site should be guarded by an explicit unattended-mode branch, with the interactive path as the fall-through case — the special-case branch is the headless one.
 
-Read `interactive-gates.md` when a skill reaches a manual-mode gate — it defines the Codex-native prompt shape. In short: render a numbered conversational prompt, stop the turn, and continue only after the user replies.
+Read `interactive-gates.md` when a skill reaches a manual-mode gate — it defines the Codex-native Plan Mode input shape. In short: ask through `request_user_input`, stop the turn, continue only after the user replies, then finalize one `<proposed_plan>` before executing.
 
 ## Gate semantics
 
-Each skill's workflow declares Human Review Gates (places where a Codex interactive gate fires in interactive mode). When the sentinel is present, gates follow one of three patterns — the skill specifies which:
+Each skill's workflow declares Human Review Gates (places where a `request_user_input` gate fires in interactive mode). When the sentinel is present, gates follow one of three patterns — the skill specifies which:
 
 | Pattern | Behavior in unattended mode |
 |---------|-----------------------------|
-| **Pre-approved** | The gate proceeds automatically. Do NOT prompt. Used for gates whose purpose is human pacing, not human judgment (e.g., `$nmg-sdlc:write-spec` phase gates, `$nmg-sdlc:write-code` interactive plan review). |
+| **Pre-approved** | The gate proceeds automatically. Do NOT call `request_user_input`. Used for gates whose purpose is human pacing, not human judgment (e.g., `$nmg-sdlc:write-spec` phase gates, `$nmg-sdlc:write-code` interactive plan review). |
 | **Deterministic default** | The skill applies a pre-declared default selection. Do NOT prompt. Used where a deterministic outcome is acceptable (e.g., seal-spec auto-execute, version-bump classification from labels). |
 | **Escalate-and-exit** | The skill prints an `ESCALATION:` line describing why the gate needs a human and exits non-zero. Used where the decision cannot be delegated safely to an automated runner (e.g., `$nmg-sdlc:open-pr --major`, epic closure anomaly). |
 
@@ -32,7 +32,7 @@ The skill's workflow states the pattern for each gate — do not improvise a fou
 
 ## Plan-mode calls
 
-Interactive plan review is interactive by definition — it produces a plan for the user to approve. In a headless session it fails because there is no user. Skills that enter plan mode interactively (e.g., `$nmg-sdlc:write-code` Step 4) must skip the call entirely when the sentinel is present and design the approach inline instead. This is NOT a Codex interactive gate; do not emit an `ESCALATION:` line — just proceed without plan mode.
+Interactive plan review is interactive by definition — it produces a plan for the user to approve. In a headless session it fails because there is no user. Skills that enter Plan Mode interactively (e.g., `$nmg-sdlc:write-code` Step 4) must skip the call entirely when the sentinel is present and design the approach inline instead. This is NOT a `request_user_input` gate; do not emit an `ESCALATION:` line — just proceed without Plan Mode.
 
 ## Logging
 
@@ -43,4 +43,4 @@ When a skill diverges from its interactive workflow due to unattended mode, emit
 - It does not grant additional permissions — tools that would otherwise prompt still prompt under the runner's permission mode.
 - It does not alter the legacy-layout gate. That gate fires in both modes (see `references/legacy-layout-gate.md`).
 - It does not activate `$nmg-sdlc:draft-issue`. That skill refuses to run headless regardless of the sentinel.
-- It does not silence output. Skills produce the same stdout/stderr — they just do not block on conversational prompts.
+- It does not silence output. Skills produce the same stdout/stderr — they just do not call `request_user_input` or block on Plan Mode input gates.

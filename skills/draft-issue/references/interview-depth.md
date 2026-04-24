@@ -35,7 +35,7 @@ Emit a one-sentence user-visible log line explaining the selection, for example:
 
 ### 5.3 Offer Depth Override
 
-Immediately after the log line, present a Codex interactive gate with two options:
+Immediately after the log line, present a `request_user_input` gate with two options:
 
 ```
 question: "Which interview depth would you like to use?"
@@ -50,7 +50,7 @@ If the user selects `[2]`, switch `depth` to the other value and emit a one-line
 
 ### 5.4 Run the Probe Rounds
 
-Skip any topics already answered by the initial description, the Step 4 investigation, or `session.designContext`. When `session.designContext` is present, the interview may reference design components or flows as pre-known context rather than re-eliciting them from the user (e.g., `"The design shows the overlay layer toggles from the map-controls panel — is the same trigger acceptable here?"`). Group related questions when natural. Use multi-question Codex interactive gate rounds rather than individual questions.
+Skip any topics already answered by the initial description, the Step 4 investigation, or `session.designContext`. When `session.designContext` is present, the interview may reference design components or flows as pre-known context rather than re-eliciting them from the user (e.g., `"The design shows the overlay layer toggles from the map-controls panel — is the same trigger acceptable here?"`). Group related questions when natural. Use multi-question `request_user_input` gate rounds rather than individual questions.
 
 #### If Feature / Enhancement
 

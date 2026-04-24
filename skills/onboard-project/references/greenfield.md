@@ -10,7 +10,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 ## Step 2G.1 Optional Design URL Ingestion
 
-1. Resolve the design URL: if `--design-url <url>` was passed, use it. Else (interactive only) Codex interactive gate: `"Provide a Design URL? (optional — press Enter to skip)"`. In unattended mode without `--design-url`, skip 2G.1 entirely.
+1. Resolve the design URL: if `--design-url <url>` was passed, use it. Else (interactive only) `request_user_input` gate: `"Provide a Design URL? (optional — press Enter to skip)"`. In unattended mode without `--design-url`, skip 2G.1 entirely.
 2. **Validate URL is HTTPS.** If not, log `design URL rejected (non-HTTPS)`, record the rejection as a gap, and continue to 2G.2 with empty `design_context`.
 3. Fetch via Codex web browsing with a 30s timeout.
 4. **Decode**: if the response indicates gzip (content-type `application/gzip`/`application/x-gzip` OR magic bytes `1f 8b` at offset 0), decode via `Bash(node -e "process.stdout.write(require('node:zlib').gunzipSync(Buffer.from(process.argv[1],'base64')).toString())" "<base64>")` — pass the payload as a base64 argument; never interpolate raw payload bytes into a shell command.
@@ -140,7 +140,7 @@ All candidates seed into the `v1` milestone at `$nmg-sdlc:draft-issue` invocatio
 Generation rules:
 
 - Mine `interview_context.success_criteria` and (if present) `design_context` filenames/READMEs for distinct functional concerns.
-- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via Codex interactive gate (auto-cut in unattended mode, with the cut list logged for Step 5).
+- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate (auto-cut in unattended mode, with the cut list logged for Step 5).
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 
@@ -168,7 +168,7 @@ Set up auth
    └─▶ Add user profile
 ```
 
-Codex interactive gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
+`request_user_input` gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
 
 In unattended mode: auto-accept option 1 and log the full DAG for Step 5.
 
@@ -201,7 +201,7 @@ Emit per candidate: `Seeded: <title> = #<num> (parents: #X #Y, blocks: #Z) | fai
 
 ## Step 3G Greenfield — Optional Init-Config
 
-1. In interactive mode, Codex interactive gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`.
+1. In interactive mode, `request_user_input` gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`.
 2. In unattended mode, auto-yes without prompting. Log the auto-decision.
 3. If yes, invoke `$nmg-sdlc:init-config` (delegated) and record its exit status.
 4. Jump to Step 5 (Summary). Greenfield does not reconcile specs.

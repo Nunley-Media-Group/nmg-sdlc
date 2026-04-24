@@ -7,7 +7,7 @@ description: "Interview user about a feature need, create groomed GitHub issue w
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Interview the user to understand their need, then create a well-groomed GitHub issue with BDD acceptance criteria. The skill adapts its interview depth to issue complexity and plays back its understanding before drafting so the result is aligned with intent before a single byte lands in GitHub.
 
@@ -101,7 +101,7 @@ Read `references/multi-issue.md` when you need the shared read-only `SessionStat
 - Step 1b's `distinctComponents >= 4` AND `sentenceCount >= 3`.
 - The description contains references to multiple sequential delivery phases (e.g., "first … then … finally …").
 
-Present a Codex interactive gate:
+Present a `request_user_input` gate:
 
 ```
 question: "What type of issue is this?"
@@ -123,7 +123,7 @@ When `epicRecommended` is true, append `(Recommended)` to the Epic option label.
 **Process**:
 
 1. Read the `VERSION` file at the project root. If it exists and parses as semver (`X.Y.Z`), extract the major (`2.11.0` → `2`). Otherwise skip milestone assignment entirely (omit `--milestone` from `gh issue create` in Step 8).
-2. Present a Codex interactive gate with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
+2. Present a `request_user_input` gate with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
 3. Ensure the milestone exists: `gh api repos/{owner}/{repo}/milestones --jq '.[].title'`. If the chosen milestone is missing, create it via `gh api repos/{owner}/{repo}/milestones --method POST --field title="v{N}"`. If creation fails (permission denied, API error), proceed without milestone and note the failure in Step 9 output.
 
 Read `../../references/versioning.md` when you need the project's VERSION-file conventions.
@@ -138,7 +138,7 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 **If Enhancement / Feature**: file discovery for `specs/*/requirements.md` and read related specs; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
-**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via Codex interactive gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
+**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose and read-timing.
 
@@ -156,7 +156,7 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 
 **Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
 
-Present a Codex interactive gate:
+Present a `request_user_input` gate:
 
 ```
 question: "Is this issue suitable for hands-off automation?"
@@ -186,7 +186,7 @@ Understanding check:
   Scope out: [bullets]
 ```
 
-Present a Codex interactive gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
+Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
 
 **Output**: `understanding` (persona, outcome, AC outline, scope in/out); `understandingConfirmed` must be true before Step 6.
 
@@ -230,7 +230,7 @@ Out of Scope: [comma-separated list]
 Labels: [applied labels]
 ```
 
-Present a Codex interactive gate:
+Present a `request_user_input` gate:
 
 ```
 question: "Approve this draft?"

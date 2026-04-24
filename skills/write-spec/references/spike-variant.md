@@ -20,33 +20,33 @@ Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues)
 
 ## Phase 0 procedure
 
-Execute in order — the commit-before-HRG rule (step 7) is not optional:
+Execute in order — Plan Mode input gates must fire before new ADR writes, commits, pushes, comments, or issue edits:
 
 1. **Skip Spec Discovery** entirely.
 2. **Collect research context**:
    - The full issue body (Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol).
    - `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
 3. **Idempotency check**: file discovery for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
-   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `$nmg-sdlc:write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
+   - Match found → load the existing ADR and skip to step 7 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `$nmg-sdlc:write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
    - No match → proceed to step 4.
 4. **Run the research pass**: perform the research inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
    - Output contract: the structured markdown block defined in `agents/spike-researcher.md` § Output.
 5. **Receive the research output**.
-6. **Write the ADR**: `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` where `<slug>` is derived from the issue title. Ensure `docs/decisions/` exists (`mkdir -p docs/decisions`) before writing. Use forward slashes for cross-platform compatibility.
-7. **Commit the ADR** — **this must happen BEFORE the HRG**:
+6. **Draft the ADR**: prepare `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` content where `<slug>` is derived from the issue title. Do not write, commit, push, comment, or edit GitHub resources until the interactive HRG decision has been captured in Plan Mode. In unattended mode, apply the deterministic default below before executing the write.
+7. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
+8. **Write and commit the ADR** after the HRG decision is included in the accepted `<proposed_plan>`. If step 3 found an existing ADR, skip this write/commit because the ADR is already the research artifact for this run. For a newly drafted ADR, ensure `docs/decisions/` exists (`mkdir -p docs/decisions`) before writing. Use forward slashes for cross-platform compatibility.
     ```bash
     git add docs/decisions/
     git commit -m "docs: add gap-analysis ADR for spike #{N}"
     ```
     The commit scope MUST be only `docs/decisions/`.
-8. **Push** `HEAD` so the ADR is on the remote before the user is asked to choose a scope shape.
-9. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
+9. **Push** `HEAD` so the ADR is on the remote before applying the selected scope-shape action.
 10. **Emit the next-step hint**: `Next step: $nmg-sdlc:open-pr #{N} to ship the ADR`.
 
-## Human Review Gate menu (interactive)
+## Human Review Gate (interactive)
 
-Present a Codex interactive gate with three options — the HRG decides how the research output flows into GitHub:
+Ask with `request_user_input` in Plan Mode — the HRG decides how the research output flows into GitHub. Include the selection in the final `<proposed_plan>` and auto-execute after acceptance:
 
 ```
 question: "Phase 0 research complete. Choose a scope shape:"
@@ -76,7 +76,7 @@ options:
 
 ## Unattended deterministic default
 
-Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT present a Codex interactive gate — apply the default below and emit a one-line divergence note.
+Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call `request_user_input` — apply the default below and emit a one-line divergence note.
 
 | `component-count` (from researcher output) | Default scope shape |
 |---|---|

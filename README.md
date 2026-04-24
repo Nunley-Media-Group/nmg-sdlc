@@ -39,7 +39,7 @@ Run `$nmg-sdlc:onboard-project` in your project — it is the single entry point
 $nmg-sdlc:onboard-project
 ```
 
-- **Greenfield projects** (no code yet): optionally ingests a Design URL, runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target), bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds `v1 (MVP)` and `v2` GitHub milestones, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner. Pass `--design-url <url>` to skip the conversational prompt for the design URL.
+- **Greenfield projects** (no code yet): optionally ingests a Design URL, runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds `v1 (MVP)` and `v2` GitHub milestones, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner. Pass `--design-url <url>` to skip the design URL input gate.
 - **Greenfield-Enhancement (re-run)**: when steering files already exist but `specs/` does not, the same Step 2G pipeline runs in enhancement mode — steering files are edited in place (no overwrites), and milestones or issues already seeded by a prior run (detected via the `seeded-by-onboard` label) are skipped.
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
@@ -179,7 +179,7 @@ Available flags: `--resume`, `--dry-run`, `--step N`, `--issue N`.
 
 > **Not to be confused with Codex's native Auto Mode.** Codex (since v2.1.83) ships its own "Auto Mode" — a permission feature that auto-approves safe tool calls via a classifier. This plugin's `.codex/unattended-mode` flag is independent: it signals that the SDLC runner is driving the session headlessly and causes skills to skip interactive gates. The two features are orthogonal — you can run either, both, or neither.
 
-The runner creates `.codex/unattended-mode` automatically. When this file exists, skills skip conversational prompts. You can also toggle it manually:
+The runner creates `.codex/unattended-mode` automatically. When this file exists, skills skip Plan Mode `request_user_input` gates. You can also toggle it manually:
 
 ```bash
 # Enable unattended mode

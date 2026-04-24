@@ -77,7 +77,7 @@ Please resolve these changes (commit, stash, or discard) before running $nmg-sdl
 
 #### Unattended mode (`.codex/unattended-mode` exists)
 
-Emit the escalation sentinel and stop — do NOT present a Codex interactive gate. `$nmg-sdlc:open-pr` uses the single-line `ESCALATION:` sentinel shape rather than the multi-line shape shown in `../../../references/dirty-tree.md`; the SDLC runner matches escalations on the `ESCALATION:` prefix, so the single-line shape is what the runner consumes:
+Emit the escalation sentinel and stop — do NOT present a `request_user_input` gate. `$nmg-sdlc:open-pr` uses the single-line `ESCALATION:` sentinel shape rather than the multi-line shape shown in `../../../references/dirty-tree.md`; the SDLC runner matches escalations on the `ESCALATION:` prefix, so the single-line shape is what the runner consumes:
 
 ```
 ESCALATION: open-pr — Working tree is not clean. Dirty files: [filtered git status --porcelain output, space-separated or newline-separated].
@@ -91,7 +91,7 @@ Print the exact abort string from Step 1b above and stop.
 
 #### Unattended mode (`.codex/unattended-mode` exists)
 
-Emit the escalation sentinel and stop — do NOT present a Codex interactive gate:
+Emit the escalation sentinel and stop — do NOT present a `request_user_input` gate:
 
 ```
 ESCALATION: open-pr — No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.

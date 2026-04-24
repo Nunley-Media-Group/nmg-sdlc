@@ -7,7 +7,7 @@ description: "Stop unattended mode and clear runner state. Use when user says 'e
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Tear down unattended mode and clear SDLC runner state. This is the explicit counterpart to `$nmg-sdlc:run-loop`: one command to stop the loop cleanly, whether the runner is live, crashed, or already gone.
 
@@ -143,7 +143,7 @@ Already handled in Step 6 — a deletion failure exits non-zero with a specific-
 
 ## Unattended Mode
 
-This skill always runs non-interactively. It does not present a Codex interactive gate, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
+This skill always runs non-interactively. It does not present a `request_user_input` gate, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
 
 ## Integration with SDLC Workflow
 

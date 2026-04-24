@@ -7,7 +7,7 @@ description: "Create BDD specifications from a GitHub issue: requirements, techn
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Create BDD specifications from a GitHub issue through three phases — Requirements, Design, Tasks — each ending with a human review gate. Each phase reads at most one variant-specific reference (defect, amendment, discovery) so the typical run only loads the workflow skeleton plus the gates it actually fires.
 
@@ -40,7 +40,7 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
 
-Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no Codex interactive gate, no inline summary) when the `.codex/unattended-mode` sentinel exists.
+Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no `request_user_input`, no inline summary) when the `.codex/unattended-mode` sentinel exists.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose, read-timing, or discovery rules.
 
@@ -96,18 +96,18 @@ Extract the user story, acceptance criteria, functional requirements, and out-of
 4. Read `references/interview.md` when Phase 1 has read the issue and steering docs and is about to enter amendment or creation mode.
 5. **In amendment mode**: follow `references/amendment-mode.md` § Phase 1.
 6. **In creation mode**:
-   1. Create `requirements.md` from [templates/requirements.md](templates/requirements.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
+   1. Draft `requirements.md` content from [templates/requirements.md](templates/requirements.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
    2. Bootstrap acceptance criteria from the issue body.
    3. Use `**Issues**: #N` (plural even for the first issue) and add the initial Change History entry: `| #N | [today] | Initial feature spec |`.
 7. Consult steering docs for project-specific requirements (accessibility, platform support, etc.).
 
 ### Output
 
-Write to (or amend) `specs/{feature-name}/requirements.md`.
+After the Phase 1 Human Review Gate approves the draft, write to (or amend) `specs/{feature-name}/requirements.md`.
 
 ### Human Review Gate
 
-Read `references/review-gates.md` when this gate fires — § Phase 1 contains the Requirements Summary template and the approve/revise menu.
+Read `references/review-gates.md` when this gate fires — § Phase 1 contains the Requirements Summary template and `request_user_input` review gate.
 
 ---
 
@@ -127,7 +127,7 @@ Read `references/review-gates.md` when this gate fires — § Phase 1 contains t
    - Do deeper investigation inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded read-only question.
 3. **In amendment mode**: follow `references/amendment-mode.md` § Phase 2.
 4. **In creation mode**:
-   1. Create `design.md` from [templates/design.md](templates/design.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
+   1. Draft `design.md` content from [templates/design.md](templates/design.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
    2. Use `**Issues**: #N` and include an initial Change History entry.
    3. Design the solution per variant:
       - **Feature**: map to the project's architecture layers; design data flow, API changes, database changes, state management; consider alternatives.
@@ -135,7 +135,7 @@ Read `references/review-gates.md` when this gate fires — § Phase 1 contains t
 
 ### Output
 
-Write to (or amend) `specs/{feature-name}/design.md`.
+After the Phase 2 Human Review Gate approves the draft, write to (or amend) `specs/{feature-name}/design.md`.
 
 ### Human Review Gate
 
@@ -159,7 +159,7 @@ Read `references/review-gates.md` when this gate fires — § Phase 2 contains t
    3. Map tasks to actual file paths in the project (reference `structure.md`).
    4. Define dependencies between tasks. Features map a full dependency graph across phases; defects are linear (fix → test → verify).
    5. Ensure each task has verifiable acceptance criteria and includes BDD testing tasks.
-   6. Create the Gherkin feature file using [templates/feature.gherkin](templates/feature.gherkin). For defects, tag scenarios `@regression`.
+   6. Draft the Gherkin feature file using [templates/feature.gherkin](templates/feature.gherkin). For defects, tag scenarios `@regression`.
 
 ### Phasing (Features Only)
 
@@ -175,7 +175,7 @@ Defect issues skip phasing and use the flat task list (typically T001: Fix, T002
 
 ### Output
 
-Write to (or amend) `specs/{feature-name}/tasks.md` and `specs/{feature-name}/feature.gherkin`.
+After the Phase 3 Human Review Gate approves the draft, write to (or amend) `specs/{feature-name}/tasks.md` and `specs/{feature-name}/feature.gherkin`.
 
 ### Human Review Gate
 
@@ -192,7 +192,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.1 Offer Seal (interactive) or Auto-Execute (unattended)
 
-- **Interactive mode.** Codex interactive gate: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
+- **Interactive mode.** Ask through `request_user_input` in Plan Mode: `Seal and transition` (commit `specs/{feature-name}/`, push, offer child issue creation) or `Do not seal` (the user will handle child-issue creation manually). Include the selected seal behavior in the `<proposed_plan>` and auto-execute after acceptance.
 - **Unattended mode.** Auto-execute the seal per 3b.2 (deterministic-default gate per `../../references/unattended-mode.md`).
 
 #### 3b.2 Idempotency Check and Seal Commit
@@ -212,7 +212,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.3 Offer Child-Issue Creation
 
-- **Interactive mode.** After a successful seal, Codex interactive gate whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input.
+- **Interactive mode.** After a successful seal, ask through `request_user_input` in Plan Mode whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input. Include the selected child-issue action in the `<proposed_plan>` and auto-execute after acceptance.
 - **Unattended mode.** Auto-execute child creation (no prompt).
 
 #### 3b.4 After-Seal Next-Step Hint

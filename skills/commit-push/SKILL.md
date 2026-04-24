@@ -7,7 +7,7 @@ description: "Stage, bump version, commit with conventional-commit message, fetc
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Stage implementation work, bump the project version, write a conventional-commit message, reconcile with the remote base branch if necessary, and push the feature branch. Owns history reconciliation for the pipeline so `$nmg-sdlc:open-pr` can stay scoped to PR creation.
 
@@ -93,7 +93,7 @@ The push branches on four signals: remote tracking state, whether Step 5 rebased
    ```
    Where `$EXPECTED_SHA` is the `origin/{branch}` SHA recorded **before** the rebase (the `git fetch` output). The safe-lease check fails if the remote advanced between the fetch and the push — this is the safety envelope.
 4. **Tracking exists, `rebased === true`, sentinel absent** (interactive mode):
-   Present a Codex interactive gate with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
+   Present a `request_user_input` gate with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
 
 Read `references/rebase-and-push.md` § "Safe lease" for the exact `--force-with-lease` invocation and the recovery path when the lease check rejects the push.
 

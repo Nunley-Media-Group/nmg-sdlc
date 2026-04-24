@@ -7,13 +7,13 @@ description: "Close the PR review loop locally: read the automated reviewer's un
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Read the automated reviewer's unresolved threads on the current branch's pull request, fix each `clear-fix` thread via `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code` (with a postcondition gate before replying and resolving), push without force, poll for the reviewer to re-run, and loop until the PR is review-clean or a configured round cap is reached.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Running this skill against a mixed layout would drive `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` against the wrong paths.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel turns the Step 4 per-thread gate for `ambiguous` / `disagreement` threads from a Codex interactive gate into an `ESCALATION:` sentinel + skip (deterministic default) and activates the livelock guard in Step 5.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel turns the Step 4 per-thread gate for `ambiguous` / `disagreement` threads from a `request_user_input` gate into an `ESCALATION:` sentinel + skip (deterministic default) and activates the livelock guard in Step 5.
 
 Read `../../references/feature-naming.md` when you need the spec directory for the issue and no `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
 
@@ -58,7 +58,7 @@ Each thread carries its classification and rationale into Step 4.
 For each unresolved thread in the current round, route based on classification:
 
 - **`clear-fix`** → Read `references/fix-loop.md` when a thread is classified as `clear-fix` — the reference covers the in-session invocation of `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code` with synthetic task context (thread body, file, line, diff hunk), the postcondition gate (commit SHA changed, fix commit touches the referenced file, `$nmg-sdlc:verify-code` reports no regressions), the reply-and-resolve path via `gh api` REST + GraphQL `resolveReviewThread` mutation, the commit-message convention (`fix: address review finding on {file}:{line}`), and the mapping from sub-skill `ESCALATION:` output to per-thread escalation (never a hard exit).
-- **`ambiguous`** or **`disagreement`** → Read `references/escalation.md` when a thread is classified as `ambiguous` or `disagreement` — the reference covers the interactive Codex interactive gate menu (`Fix it anyway` / `Skip — leave unresolved` / `Reply without fixing`) and the unattended-mode `ESCALATION: address-pr-comments — pr=#{N} thread={node_id} classification={class} rationale={one-sentence}` sentinel. Both paths add the thread to the in-process skipped-set so the round loop in Step 5 will not re-evaluate it.
+- **`ambiguous`** or **`disagreement`** → Read `references/escalation.md` when a thread is classified as `ambiguous` or `disagreement` — the reference covers the interactive `request_user_input` gate menu (`Fix it anyway` / `Skip — leave unresolved` / `Reply without fixing`) and the unattended-mode `ESCALATION: address-pr-comments — pr=#{N} thread={node_id} classification={class} rationale={one-sentence}` sentinel. Both paths add the thread to the in-process skipped-set so the round loop in Step 5 will not re-evaluate it.
 
 Track `commits_this_round` and `escalations_this_round` as Step 4 iterates — Step 5 needs both to decide between normal re-polling and the livelock guard exit.
 

@@ -2,7 +2,7 @@
 
 **Read this when** Step 1 detects `brownfield` (existing code and closed issues but no specs). The brownfield branch reverse-engineers one spec directory per reconciled feature from the historical record: closed GitHub issues, merged PR diffs, commit messages, and the current implementation.
 
-Read `../../references/unattended-mode.md` when applying auto-accept defaults — the consolidation gate (Step 3B.4) and any other Codex interactive gate site reads sentinel semantics from there.
+Read `../../references/unattended-mode.md` when applying auto-accept defaults — the consolidation gate (Step 3B.4) and any other `request_user_input` gate site reads sentinel semantics from there.
 
 ## Step 2B Preflight
 
@@ -21,7 +21,7 @@ Seed `VERSION` at the project root before the steering bootstrap delegation and 
 
 1. Run `gh auth status`. If it fails, abort with a clear message pointing the user at `gh auth login` — do not proceed to reconciliation.
 2. If `steering/` is missing or incomplete (fewer than all three of `product.md`, `tech.md`, `structure.md`), run the absorbed steering bootstrap (Step 2G.1 → 2G.3 from `references/greenfield.md`) first to establish the steering docs, then return to Step 2B. Skip Step 2G.3a (VERSION init is already satisfied by 2B.0a above) and 2G.4–2G.7 (milestone and starter-issue seeding are greenfield-only and not appropriate for brownfield). After steering bootstrap returns, re-verify all three files exist before continuing. If still incomplete, record a gap and abort.
-3. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No Codex interactive gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
+3. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No `request_user_input` gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
 4. Read the four `$nmg-sdlc:write-spec` template files from `../write-spec/templates/`:
    - `requirements.md` — contains both the full feature variant and the lightweight "Defect Requirements Variant" (search for the `# Defect Requirements Variant` heading to locate the defect section)
    - `design.md`
@@ -95,7 +95,7 @@ After all issues are classified:
 1. Group issues that share a non-trivial label (excluding pipeline-mechanical labels: `enhancement`, `bug`, `automatable`, `good-first-issue`).
 2. Additionally group by Jaccard overlap ≥ 0.3 on title tokens, after stop-word filtering (`the`, `a`, `an`, `add`, `fix`, `update`, `remove`, `for`, `to`, `of`, `and`, `or`).
 3. Merge overlapping groups transitively (if A groups with B and B groups with C, A/B/C form one group).
-4. For each group with ≥ 2 issues, present a consolidation proposal via Codex interactive gate:
+4. For each group with ≥ 2 issues, present a consolidation proposal via `request_user_input` gate:
 
    ```
    Issues #10, #14, #27 share the label "dark-mode" and overlapping keywords ("toggle", "theme").

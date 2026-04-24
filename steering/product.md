@@ -26,7 +26,7 @@ All feature development should align with these guidelines.
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Headless execution | Skills must detect `.codex/unattended-mode` and skip conversational prompts |
+| Headless execution | Skills must detect `.codex/unattended-mode` and skip Plan Mode `request_user_input` gates |
 | Deterministic orchestration | Runner script drives steps sequentially with preconditions |
 | Log-based reporting | Status updates flow to console and log files |
 
@@ -145,7 +145,7 @@ Each product principle translates to a verifiable behavioral contract. `$nmg-sdl
 | **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | text search changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
 | **OS-agnostic** | No platform-specific paths, commands, or assumptions | text search for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
 | **Spec as source of truth** | Every implementation change traces to a requirement in the spec | Each modified file must map to a task in `tasks.md` or an AC in `requirements.md` |
-| **Human gates by default** | Interactive approval exists at every decision point | Skills contain Codex interactive gates, guarded by unattended-mode checks |
+| **Human gates by default** | Interactive approval exists at every decision point | Skills contain `request_user_input` gates, guarded by unattended-mode checks |
 | **Process over tooling** | Skills define workflow structure; project details live in steering docs | Skills reference steering docs for conventions, not hardcode them |
 | **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `codex exec --cd` and invoked against a test project |
 

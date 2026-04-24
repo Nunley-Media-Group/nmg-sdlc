@@ -7,7 +7,7 @@ description: "Initialize a project for the SDLC: bootstrap greenfield projects w
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Single entry point for adopting nmg-sdlc on a project that isn't already spec-driven. Detects whether the project is **greenfield** (no code, no specs), **greenfield-enhancement** (steering exists, specs do not — re-run on a previously bootstrapped project), **brownfield** (existing code and closed issues but no specs), or **already-initialized**, then routes work to the matching branch.
 
@@ -60,7 +60,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 When `.codex/unattended-mode` exists, the unattended-mode contract from `../../references/unattended-mode.md` applies. Skill-specific defaults applied in unattended mode:
 
-- All Codex interactive gates skipped — defaults from the priority chain in `references/interview.md` apply.
+- All `request_user_input` gates skipped — defaults from the priority chain in `references/interview.md` apply.
 - Consolidation groups (brownfield) auto-accepted as proposed.
 - Inferred dependency DAG auto-accepted; the proposed graph is logged for the summary.
 - Starter-issue candidate cut to ≤ 7 applied automatically when interview output exceeds the cap.
@@ -102,7 +102,7 @@ After Step 2G's seeding loop completes, the same reference covers Step 3G's prom
 ### Step 2I: Already-Initialized — Route to $nmg-sdlc:upgrade-project
 
 1. List the existing spec directories under `specs/` so the user can audit what is already present.
-2. In interactive mode, Codex interactive gate: `[1] Delegate to $nmg-sdlc:upgrade-project now`, `[2] Exit without changes`.
+2. In interactive mode, `request_user_input` gate: `[1] Delegate to $nmg-sdlc:upgrade-project now`, `[2] Exit without changes`.
 3. In unattended mode, auto-accept option 1. Log the auto-decision.
 4. On accept, invoke `$nmg-sdlc:upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
 5. On decline, exit cleanly — jump to Step 5 summary with no specs modified.

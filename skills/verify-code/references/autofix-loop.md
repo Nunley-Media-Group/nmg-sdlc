@@ -40,7 +40,7 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - **Interactive mode**: surface the missing dependency to the user — `$skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run $nmg-sdlc:verify-code.` Stop the workflow.
    - **Unattended mode**: emit `ESCALATION: $skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not a Codex interactive gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not a `request_user_input` gate — unattended-mode behaviour is preserved.
 
 If `$skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
@@ -67,7 +67,7 @@ If at least one fix was applied in 6a AND the `simplify` marketplace skill is av
 
 If the `simplify` skill is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a Codex interactive gate.
+Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a `request_user_input` gate.
 
 ## 6b. Run Tests After Fixes
 

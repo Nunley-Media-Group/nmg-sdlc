@@ -2,13 +2,13 @@
 
 **Consumed by**: `write-code` Steps 4 (Design Implementation Approach), 5 (Execute Tasks), and 5a (Route Skill-Bundled Tasks Through `$skill-creator`).
 
-Steps 4 and 5 turn the loaded specs and steering docs into running code. Interactive mode presents a concise plan for user approval before any file is touched; unattended mode skips that approval and designs the approach internally. Step 5a's skill-routing contract applies on every execution path — skill-bundled edits go through `$skill-creator` or escalate.
+Steps 4 and 5 turn the loaded specs and steering docs into running code. Interactive mode enters Plan Mode before any file is touched, collects any missing implementation decisions with `request_user_input`, emits one decision-complete `<proposed_plan>`, and auto-executes after that plan is accepted. Unattended mode skips that approval and designs the approach internally. Step 5a's skill-routing contract applies on every execution path — skill-bundled edits go through `$skill-creator` or escalate.
 
 ## Step 4: Design Implementation Approach
 
-**Unattended mode** (`.codex/unattended-mode` exists): skip interactive approval entirely because there is no user to approve the plan. Design the approach internally, covering the points below, then go straight to Step 5.
+**Unattended mode** (`.codex/unattended-mode` exists): skip Plan Mode entirely because there is no user to approve the plan. Design the approach internally, covering the points below, then go straight to Step 5. Do not call `request_user_input`.
 
-**Interactive mode**: present the implementation approach to the user and wait for approval before editing files.
+**Interactive mode**: enter Plan Mode and gather any unresolved implementation choices with `request_user_input` before editing files. When all required input has been received, emit a decision-complete `<proposed_plan>` and treat the accepted plan as approval to edit; do not ask for a separate execution confirmation.
 
 The implementation approach (whether internal or in plan mode) should:
 
@@ -16,13 +16,13 @@ The implementation approach (whether internal or in plan mode) should:
 2. **Identify reuse** — find existing code patterns to follow: similar features already implemented, shared utilities, base classes, common patterns.
 3. **Propose implementation order** — based on task dependencies.
 4. **Flag any deviations** — if the codebase has evolved since specs were written.
-5. **Present the plan** for user approval (interactive only).
+5. **Present the plan** for user approval (interactive only) as the final `<proposed_plan>` after required input has been collected.
 
 ## Step 5: Execute Tasks
 
 **Unattended mode**: the runner handles implementation directly via its code phase — proceed to execute tasks inline using the approach designed in your thinking.
 
-**Interactive mode**: after the user approves the plan, execute tasks inline by default. If the user explicitly authorizes subagents, spawn a Codex `worker` subagent for implementation and include the Step 5a skill-routing contract in the delegation prompt so the worker classifies and routes skill-bundled tasks:
+**Interactive mode**: after the `<proposed_plan>` is accepted, execute tasks inline by default. If the user explicitly authorized subagents during Plan Mode, spawn a Codex `worker` subagent for implementation and include the Step 5a skill-routing contract in the delegation prompt so the worker classifies and routes skill-bundled tasks:
 
 ```
 Spawn a Codex worker with this bounded task:
@@ -122,4 +122,4 @@ After all tasks are complete and before signalling completion, run the `$simplif
 
 If the `simplify` skill is available but errors or reports failures, surface those as additional findings and address them before proceeding to Step 6.
 
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a Codex interactive gate.
+Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a `request_user_input` gate.

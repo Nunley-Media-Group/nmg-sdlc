@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-04-24
+
+### Changed
+
+- Updated manual input gates to use Plan Mode `request_user_input` prompts, finalize a single `<proposed_plan>`, and auto-execute after the plan is accepted while preserving `.codex/unattended-mode` bypass behavior.
+
 ## [1.60.2] - 2026-04-24
 
 ### Fixed

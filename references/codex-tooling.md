@@ -13,14 +13,14 @@ Use this reference whenever a skill describes tool use. The skill text should de
 | `Bash(...)` | Run shell commands through the Codex shell tool, respecting sandboxing and approval rules. |
 | Legacy web fetch/search wording | Use Codex web browsing for internet sources and prefer primary sources. Use the in-app browser only for local browser targets or explicit browser inspection. |
 | Legacy task-delegation wording | Do not name legacy task tools. If the user explicitly authorizes delegation, use Codex subagents (`explorer` for read-only exploration, `worker` for implementation); otherwise perform the work inline. |
-| `plan approval` | Do not name a tool. Present a concise implementation plan and wait for the user's approval in interactive mode; in unattended mode, design internally and proceed. |
-| Legacy question widgets | Do not name a tool in skill instructions. Use `references/interactive-gates.md`: render a numbered conversational prompt, stop the turn, and continue only after the user replies. In unattended mode, follow the skill's deterministic default or escalation rule. |
+| `plan approval` | Use `references/interactive-gates.md`: collect all required user decisions in Plan Mode with `request_user_input`, emit a decision-complete `<proposed_plan>`, and auto-execute after that plan is accepted. In unattended mode, design internally and proceed. |
+| Legacy question widgets | Do not name legacy widgets in skill instructions. Use `references/interactive-gates.md`: ask with `request_user_input` during Plan Mode, stop until the user answers, then finalize one `<proposed_plan>` before executing. In unattended mode, follow the skill's deterministic default or escalation rule. |
 | `Skill` | Do not name a tool. Invoke another skill by telling Codex to use that skill, or let the SDLC runner inject the target skill's instructions. |
 
 ## Skill Authoring Rules
 
 - Keep `SKILL.md` frontmatter to `name` and `description`; detailed UI metadata belongs in `agents/openai.yaml` when needed.
 - Prefer imperative workflow instructions over low-level tool names unless the exact shell command is the contract.
-- Make interactive gates Codex-native: say what choice the user must make, render it as a conversational numbered menu, stop for the user's reply, and document how unattended mode bypasses or escalates it.
+- Make interactive gates Codex-native: say what choice the user must make, ask through `request_user_input` in Plan Mode, stop for the user's reply, and document how unattended mode bypasses or escalates it.
 - Use Codex subagents only when the user or runner prompt explicitly asks for delegation; every subagent task needs a bounded scope and clear output contract.
 - Codex plugins can bundle skills, apps, MCP server configuration, and assets. Do not document `agents/*.md` as installable plugin components; use them as reusable prompt contracts that skills include when spawning built-in Codex subagents.

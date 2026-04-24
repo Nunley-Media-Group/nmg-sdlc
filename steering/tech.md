@@ -421,7 +421,7 @@ Every skill has implicit contracts. When verifying a skill change, check:
 #### Invariants (Throughout Execution)
 - Stack-agnostic: no project-specific technology hardcoded in skill instructions
 - Steering docs used as the abstraction layer for project-specific details
-- Unattended-mode gates: conversational prompts present unless `.codex/unattended-mode` exists
+- Unattended-mode gates: Plan Mode `request_user_input` gates present unless `.codex/unattended-mode` exists
 - Cross-platform: no platform-specific paths, commands, or assumptions
 
 #### Behavioral Boundaries
@@ -452,7 +452,7 @@ For Markdown skills, the "code quality" equivalent is prompt quality. The Prompt
 | **Complete workflow paths** | Happy path, error/edge cases, and unattended mode all covered |
 | **Correct tool references** | Skills use Codex-native language from `references/codex-tooling.md` and do not name legacy-only tools |
 | **Logical step ordering** | Dependencies flow forward; no step references information from a later step |
-| **Gate integrity** | Decision points present a Codex interactive gates (or unattended-mode bypass) |
+| **Gate integrity** | Decision points present `request_user_input` gates in Plan Mode (or unattended-mode bypass) |
 | **Template-output chain** | Output format matches what downstream skills expect as input |
 | **Cross-reference validity** | Links to templates, checklists, and other skills resolve correctly |
 

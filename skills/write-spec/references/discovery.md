@@ -44,10 +44,10 @@ Step 0 is stateless — it derives everything fresh from `gh` state on each invo
 5. **Rank and filter**: Sort candidates by total keyword hits. Filter to candidates with at least 2 keyword hits.
 6. **If one or more candidates found**:
    - Read the top candidate's first `# ` heading and user story for context.
-   - Present to the user via Codex interactive gate:
+   - Ask the user via `request_user_input` in Plan Mode:
      - Option 1: "Amend existing spec: `feature-{slug}`" (with brief description from heading/user story).
      - Option 2: "Create new spec" (derives a new `feature-{slug}` from the current issue title).
-   - **If unattended mode** (`.codex/unattended-mode` exists): skip Codex interactive gate entirely and proceed in amendment mode against the top-scored existing spec.
+   - **If unattended mode** (`.codex/unattended-mode` exists): skip `request_user_input` entirely and proceed in amendment mode against the top-scored existing spec.
 7. **If no candidates found**: proceed to create a new spec without prompting.
 
 The result determines whether subsequent phases operate in **amendment mode** (modifying an existing spec) or **creation mode** (writing a new spec from scratch).

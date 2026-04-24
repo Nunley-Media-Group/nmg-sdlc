@@ -7,20 +7,20 @@ description: "Select a GitHub issue, create a linked feature branch, and set the
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
 Select a GitHub issue to work on, create a linked feature branch, and set the issue to "In Progress" in any associated GitHub Project.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every Codex interactive gate call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` gate call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
 
 ## Unattended-Mode Behaviour Specific to This Skill
 
 The shared reference covers sentinel semantics; these skill-specific branches apply when `.codex/unattended-mode` exists:
 
 - **Argument supplied** (`$nmg-sdlc:start-issue #N`): skip Steps 2–3 (selection and confirmation) and go directly to Step 4.
-- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. Codex interactive gate is never called.
+- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. `request_user_input` gate is never called.
 - Only issues with the `automatable` label are eligible. Every `gh issue list` command gains `--label automatable`. If no automatable issues exist, run the diagnostic per `references/milestone-selection.md` and exit without creating a branch.
 
 ## Workflow Overview
@@ -30,7 +30,7 @@ $nmg-sdlc:start-issue [#N]
     │
     ├─ 1.  Fetch milestones & issues
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
-    ├─ 2.  Present issue selection (Codex interactive gate)
+    ├─ 2.  Present issue selection (`request_user_input` gate)
     ├─ 3.  Confirm selected issue
     ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
@@ -46,7 +46,7 @@ If an argument was provided (e.g., `$nmg-sdlc:start-issue #42`), skip to Step 3 
 
 Otherwise, discover available issues.
 
-Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. Codex interactive gate, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
+Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. `request_user_input` gate, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
 
 After the raw candidate set is produced (and the empty-result handler has not fired), proceed to Step 1a before any presentation or auto-selection.
 
@@ -137,7 +137,7 @@ The topologically-ordered, blocked-filtered list is what Step 2 and the unattend
 
 In unattended mode, skip this step entirely — the auto-pick rule in the Unattended-Mode Behaviour section replaces it.
 
-Interactive mode uses Codex interactive gate to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
+Interactive mode uses `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none. If the issue has the `automatable` label, append `(automatable)` to the description.
