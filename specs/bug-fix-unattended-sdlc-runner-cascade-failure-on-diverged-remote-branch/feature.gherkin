@@ -1,0 +1,97 @@
+# File: specs/bug-fix-unattended-sdlc-runner-cascade-failure-on-diverged-remote-branch/feature.gherkin
+#
+# Generated from: specs/bug-fix-unattended-sdlc-runner-cascade-failure-on-diverged-remote-branch/requirements.md
+# Issue: #102
+# Type: Defect regression
+
+@regression
+Feature: Unattended SDLC runner handles diverged remote branches without cascade failure
+  The createPR step previously rewrote history then non-force-pushed, the runner mis-classified the
+  resulting error_max_turns as rate-limiting, and commitPush refused to force-push without a user it
+  could not reach under unattended mode. This was fixed by moving version-bump + rebase + push into
+  a new commit-push skill with force-with-lease support under unattended mode, teaching the runner
+  to distinguish error_max_turns from rate-limiting, threading structured bounce context between
+  steps, and reconciling stale remote branches in start-issue before re-picked cycles rebuild local.
+
+  # --- AC1: createPR does not non-force-push after rewriting history ---
+
+  @regression
+  Scenario: createPR delegates history reconciliation to commit-push
+    Given createPR runs on branch "249-fix-config-init-custom-path" whose remote has diverged from local
+    When the skill reaches its push step
+    Then the skill does not run "git reset --hard" or "git pull --rebase" itself
+    And the skill exits non-zero with "DIVERGED: re-run commit-push to reconcile before creating PR" when local is not an ancestor of origin/main
+    And no non-force "git push" is issued by createPR after a history rewrite
+
+  # --- AC2: commitPush force-pushes with lease in unattended mode when safe ---
+
+  @regression
+  Scenario: commit-push uses --force-with-lease under unattended mode after rebase
+    Given the runner is in unattended mode with ".claude/unattended-mode" present
+    And commit-push has rebased local onto origin/main so the remote tip is no longer in local history
+    And the remote tip matches the SHA captured in the fetch that preceded the rebase
+    When commit-push evaluates the push
+    Then it issues "git push --force-with-lease=ref:<expected-sha>" without prompting
+    And the push succeeds without operator input
+
+  # --- AC3: Runner distinguishes error_max_turns from rate-limiting ---
+
+  @regression
+  Scenario: matchErrorPattern catches error_max_turns before the rate-limit regex
+    Given a step session exits with a result stream containing "\"subtype\":\"error_max_turns\""
+    When handleFailure inspects the result
+    Then the runner log does NOT contain "Rate limited. Waiting 60s before retry..."
+    And the runner does NOT sleep for 60 seconds
+    And handleFailure takes the error_max_turns recovery branch with an accurate status message
+
+  # --- AC4: createPR is scoped to its name ---
+
+  @regression
+  Scenario: createPR has no version-bump or rebase responsibilities
+    Given /open-pr SKILL.md after the fix
+    When its workflow is read
+    Then the workflow contains precondition checks, ancestry check vs origin/main, and "gh pr create"
+    And the workflow does NOT contain steps for version bumping, changelog rolling, or history reconciliation
+    And "skills/open-pr/references/pr-body.md" does NOT contain Section 0 pre-push race detection or push rules
+
+  # --- AC5: Bounce transitions carry structured state ---
+
+  @regression
+  Scenario: Bounced step receives structured bounce context in its prompt
+    Given step 8 (createPR) fails its precondition check with failedCheck "branch pushed to remote"
+    And the runner bounces to step 7 (commitPush)
+    When buildClaudeArgs is called for step 7
+    Then the generated prompt begins with a "## Bounce context" block
+    And the block contains the keys "from:", "reason:", "failedCheck:", "remoteCommitsSuperseded:"
+    And the receiving commit-push subagent does not need to re-investigate the divergence from scratch
+
+  # --- AC6: createPR budget fits its responsibilities ---
+
+  @regression
+  Scenario: createPR completes within the re-evaluated turn budget
+    Given createPR has been scoped to preconditions + "gh pr create" + labels (post-FR1)
+    When createPR runs on three consecutive unattended green-path cycles
+    Then every run completes within the configured "maxTurns" without an error_max_turns result
+    And if the p95 turn usage is under 20, "sdlc-config.example.json" reflects the lowered default
+
+  # --- AC7: startIssue reconciles stale remote branches ---
+
+  @regression
+  Scenario: start-issue deletes a stale remote branch before rebuild
+    Given the runner picks issue #249
+    And origin/249-fix-config-init-custom-path exists with a tip that is not reachable from origin/main
+    When /start-issue Step 3.5 runs in unattended mode
+    Then the runner logs "Reconciled stale remote branch 249-fix-config-init-custom-path (tip <sha> not ancestor of origin/main)"
+    And "git push origin --delete 249-fix-config-init-custom-path" has been issued
+    And Step 4 "gh issue develop --checkout" creates a fresh feature branch against the current origin/main
+
+  # --- AC8: No regression for the green-path cycle ---
+
+  @regression
+  Scenario: Green-path unattended cycle does not invoke any new recovery paths
+    Given a fresh unattended cycle on an issue with no pre-existing remote branch
+    And origin/main does not advance during the run
+    When the runner executes all steps end-to-end
+    Then the PR is created normally and CI monitoring proceeds
+    And the runner log contains NONE of "force-with-lease", "Reconciled stale remote branch", or "## Bounce context"
+    And no step exits with "DIVERGED: re-run commit-push to reconcile before creating PR"

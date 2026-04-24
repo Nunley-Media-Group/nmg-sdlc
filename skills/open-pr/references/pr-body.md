@@ -1,8 +1,8 @@
-# PR Body Templates and Push Logic
+# PR Body Templates
 
-**Consumed by**: `open-pr` Steps 4 (generate PR content) and 5 (push and create PR).
+**Consumed by**: `open-pr` Steps 4 (generate PR content) and 5 (create PR).
 
-Step 4 picks the PR body template based on the specs-found / specs-not-found flag from Step 1. Step 5 handles race detection with `origin/main` (for epic-child version bumps), the push itself, and the `gh pr create` invocation.
+Step 4 picks the PR body template based on the specs-found / specs-not-found flag from Step 1. Step 5 verifies local ancestry vs. `origin/main` and invokes `gh pr create`. Push and rebase responsibilities have moved to `/commit-push` — this reference no longer covers them.
 
 ## Step 4: Generate PR content
 
@@ -82,48 +82,25 @@ From issue body:
 Closes #N
 ```
 
-## Step 5: Push and create PR
+## Step 5: Create PR
 
-### 0. Pre-push race detection (epic children)
+Ancestry, push, and rebase are owned by `/commit-push` (see `skills/commit-push/references/rebase-and-push.md` for the force-with-lease envelope). By the time this reference is consulted, local must already be pushed and `origin/main` must already be an ancestor of HEAD.
 
-If Step 2/3 committed a version bump, detect whether `origin/{base-branch}` advanced during the local bump-and-commit (a concurrent epic-child PR merged first). Base branch is `main` unless a different target was specified.
+SKILL.md Step 5 runs a final ancestry check:
 
-1. Run `git fetch origin`.
-2. Run `git merge-base --is-ancestor HEAD origin/{base-branch}`. Exit code 0 → bases are in sync, skip to step 1 below.
-3. Non-zero (local is behind) → rebase:
-   ```bash
-   git pull --rebase origin {base-branch}
-   ```
-4. **Re-compute the bump** against the now-current `plugin.json` / `package.json` / `VERSION`:
-   - Re-read the current version from `VERSION` (authoritative per `steering/tech.md`).
-   - Apply the same `siblingClass`-aware bump logic from Step 2 to the new baseline.
-   - If the re-computed version differs from what was committed in Step 3, amend the version-bump commit:
-     ```bash
-     git checkout VERSION CHANGELOG.md [stack-specific files]
-     # redo Step 3 updates against the new baseline
-     git add VERSION CHANGELOG.md [stack-specific files]
-     git commit --amend -m "chore: bump version to {re-computed-new-version}" --no-edit
-     ```
-5. **Conflict handling.** If the rebase produces conflicts in `VERSION`, `plugin.json`, `marketplace.json`, `package.json`, or `CHANGELOG.md`, abort with:
-   ```
-   ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run /open-pr. Force-push is NEVER used by this skill.
-   ```
-   Exit non-zero. Do NOT pass `--force` or `--force-with-lease` to any `git push` invocation.
+```bash
+git merge-base --is-ancestor origin/main HEAD
+```
 
-### 1. Push
+Exit 0 → proceed to `gh pr create`. Non-zero → exit non-zero with the sentinel line `DIVERGED: re-run commit-push to reconcile before creating PR` on stdout. The SDLC runner reads this sentinel through `bounceContext` and bounces control back to `/commit-push`; in interactive use, the user re-runs `/commit-push` manually.
 
-Check if the remote tracking branch exists:
-
-- No remote tracking branch: `git push -u origin HEAD`.
-- Tracking branch exists but behind: `git push` (never `--force`).
-
-### 2. Create the PR
+### Create the PR
 
 ```bash
 gh pr create --title "[title]" --body "[body]"
 ```
 
-### 3. Labels
+### Labels
 
 Add labels matching the issue when appropriate.
 
@@ -143,4 +120,4 @@ Issue: Closes #N
 Then branch on the `.claude/unattended-mode` sentinel:
 
 - **Sentinel exists**: print `Done. Awaiting orchestrator.` and stop. Do NOT proceed to Step 7 — the runner owns CI monitoring and merging.
-- **Sentinel absent**: fall through to Step 7 (see `references/ci-monitoring.md`).
+- **Sentinel absent**: fall through to Step 7 (see `ci-monitoring.md`).

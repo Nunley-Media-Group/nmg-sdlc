@@ -2,7 +2,7 @@
 
 **Consumed by**: `open-pr` Step 1.
 
-Before reading or modifying `VERSION`, `CHANGELOG.md`, or any stack-specific version file, Step 1 must run both checks below in order. Either failure aborts the skill immediately — no version artifacts are touched.
+Before reading the issue, spec files, or `VERSION` / `CHANGELOG.md`, Step 1 must run the three checks below in order. Any failure aborts the skill immediately — no PR is created. `/open-pr` no longer owns version-artifact writes (that moved to `/commit-push`), so "no version artifacts are touched" is automatic; the checks below still exist because they guard PR creation against avoidable corruption of the pipeline handoff.
 
 ---
 
@@ -33,6 +33,28 @@ The exact abort string for this condition is:
 ```
 No implementation commits found on this branch — run /write-code before opening a PR.
 ```
+
+## Step 1c: Ancestry Check
+
+Verify `/commit-push` has already reconciled local with `origin/main` before PR creation:
+
+```bash
+git fetch origin main
+git merge-base --is-ancestor origin/main HEAD
+```
+
+- **Exit 0**: local contains every commit in `origin/main` — proceed to Step 1's existing reads (issue, spec files, git diff).
+- **Non-zero**: local is behind `origin/main` — abort. `/commit-push` owns the rebase; `/open-pr` must not rewrite history.
+
+### Divergence abort
+
+Print the exact sentinel line on stdout and exit non-zero (both interactive and unattended — the SDLC runner reads the sentinel via `bounceContext`):
+
+```
+DIVERGED: re-run commit-push to reconcile before creating PR
+```
+
+Do NOT rebase, do NOT amend, do NOT `git push`, and do NOT pass `--force` or `--force-with-lease` to any push. The sentinel is parsed by the runner to bounce control back to `/commit-push` (step 7 in the pipeline), which owns the rebase-and-push envelope.
 
 ---
 
@@ -77,4 +99,4 @@ ESCALATION: open-pr — No implementation commits found on this branch — run /
 
 ---
 
-In both failure cases: do NOT read or write `VERSION`, `CHANGELOG.md`, or any stack-specific version file, do NOT invoke `git add`, `git commit`, `git push`, or `gh pr create`.
+In all failure cases: do NOT invoke `git add`, `git commit`, `git push`, or `gh pr create`. `/open-pr` never writes to `VERSION`, `CHANGELOG.md`, or any stack-specific version file — those writes belong to `/commit-push`.
