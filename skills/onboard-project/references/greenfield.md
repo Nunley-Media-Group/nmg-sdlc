@@ -1,12 +1,12 @@
 # Greenfield — Steering, Milestones, Starter Issues
 
-**Read this when** Step 1 detects `greenfield` (no code, no specs, no closed issues) or `greenfield-enhancement` (steering files exist, specs do not — re-run on a previously bootstrapped project). Both modes run the same seven sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each. The interview itself is in `references/interview.md`.
+**Read this when** Step 1 detects `greenfield` (no code, no specs, no closed issues) or `greenfield-enhancement` (steering files exist, specs do not — re-run on a previously bootstrapped project). Both modes run the same eight sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each. The interview itself is in `references/interview.md`.
 
-The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: optional design-context ingestion, an intent + tech interview, steering docs, `v1`/`v2` milestones, and 3–7 starter issues seeded via `/draft-issue` with dependency-aware autolinking.
+The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: optional design-context ingestion, an intent + tech interview, steering docs, a `VERSION` file plus stack-native manifest sync, the `v1` milestone, and 3–7 starter issues seeded via `/draft-issue` with dependency-aware autolinking.
 
 Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster and read-timing referenced by 2G.3 live there.
 
-Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the seven sub-steps below live there.
+Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the eight sub-steps below live there.
 
 ## Step 2G.1 Optional Claude Design URL Ingestion
 
@@ -54,19 +54,73 @@ After this sub-step, verify all three of `steering/product.md`, `steering/tech.m
 
 Emit: `Steering: bootstrapped (3 files written) | enhanced (N sections updated)`.
 
+## Step 2G.3a Version File Initialization
+
+Seed `VERSION` at the project root and, if a stack-native manifest is detected, seed its version field in parallel. Idempotent in every mode — existing values are preserved.
+
+### Detect Stack
+
+Probe for a manifest at the project root via `git ls-files -- <candidate>`, in this order (first match wins):
+
+```
+package.json, pyproject.toml, Cargo.toml, go.mod, mix.exs, *.gemspec, build.gradle, pom.xml
+```
+
+Record the matched path (or `null` if none) for the Step 5 summary.
+
+### Write VERSION
+
+1. If `VERSION` exists at project root → `Read` it, record the current value, and emit `VERSION exists (value: <X>) — preserved`.
+2. Else `Write` `VERSION` containing the literal string `0.1.0\n` (one line, no leading `v`, trailing newline) and emit `VERSION created at 0.1.0`.
+
+### Write Stack Manifest Version Field
+
+If no stack manifest was detected, emit `No stack manifest detected — VERSION file seeded without manifest sync` and skip the rest of this section. Otherwise:
+
+1. Read the matched manifest's version field per the format-specific rule in the table below.
+2. If the field is already set to a non-empty value → preserve and emit `Manifest version exists (<path>: <X>) — preserved`.
+3. If the field is empty or absent → set it to `0.1.0` via the per-format rule (targeted line `Edit`, never a full-file rewrite) and emit `Manifest version set to 0.1.0 in <path>`.
+
+#### Stack manifest read/write rules
+
+Each rule uses a targeted command so formatting, key order, and comments in unrelated sections of the manifest are preserved. Never use a full-file `JSON.stringify` rewrite of `package.json` — lockfile hygiene and downstream tooling depend on byte-stable formatting.
+
+| Manifest | Version field | Read | Write (only when empty/absent) |
+|----------|---------------|------|--------------------------------|
+| `package.json` | `"version"` JSON key | `node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version||'')"` | `Edit` the `"version"` line only — do not reformat the rest of the JSON |
+| `pyproject.toml` | `[project] version` or `[tool.poetry] version` | `grep -E '^version\s*=' pyproject.toml` (first match under `[project]` or `[tool.poetry]`) | `Edit` the matched line in place |
+| `Cargo.toml` | `[package] version` | `grep -E '^version\s*=' Cargo.toml` (under `[package]`) | `Edit` the matched line in place |
+| `go.mod` | no version field | N/A — `go.mod` is detected for stack identification only; no version to write | N/A |
+| `mix.exs` | `@version` module attribute | `grep -E '@version\s+' mix.exs` | `Edit` the matched line in place |
+| `*.gemspec` | `spec.version` assignment | `grep -E '\.version\s*=' *.gemspec` | `Edit` the matched line in place |
+| `build.gradle` / `pom.xml` | `version =` (Gradle) / `<version>` (Maven) | `grep -E '^version\s*=' build.gradle` or `grep -m1 '<version>' pom.xml` | `Edit` the matched line in place |
+
+### Contribute to the Step 5 Versioning Section
+
+Emit a two-line outcome block for Step 5, covering both VERSION and manifest:
+
+```
+VERSION: created @ 0.1.0 | preserved @ <X>
+Manifest: <path> set @ 0.1.0 | preserved @ <X> | no-manifest
+```
+
+This section appears **before** Milestone Seeding in the Step 5 summary — versioning is a scaffold concern that lands before issue-tracker concerns.
+
 ## Step 2G.4 Idempotent Milestone Seeding
 
-For each of `v1 (MVP)` and `v2`:
+Seed only the single `v1` milestone. Later version lines are created by the user or by a future skill.
 
 1. List existing milestones: `gh api "repos/{owner}/{repo}/milestones?state=all&per_page=100" --jq '.[].title'`
-2. If the exact title is present → record `seeded vs skipped: <name> = skipped (already exists)` and continue.
-3. Else create: `gh api --method POST "repos/{owner}/{repo}/milestones" --field title="<name>" --field description="<one-line description>"`
-4. On HTTP error (403, 422 collision, network) → record `<name> = failed (<status>)` as a gap; **do not abort** the run.
+2. **Dual-name idempotency probe** — if either `v1` OR the legacy `v1 (MVP)` title (from prior runs that pre-date this narrowing) is present, reuse the existing milestone without creating a new one. On legacy match, record `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"` in the Step 5 summary alongside the skipped entry.
+3. If neither name is present, create:
+   ```
+   gh api --method POST "repos/{owner}/{repo}/milestones" \
+     --field title="v1" \
+     --field description="First version line — v1.x.y releases, seeded by /onboard-project."
+   ```
+4. On HTTP error (403, 422 collision, network) → record `v1 = failed (<status>)` as a gap; **do not abort** the run.
 
-`v1 (MVP)` description: `Minimum Viable Product — first shippable milestone seeded by /onboard-project.`
-`v2` description: `Post-MVP enhancements seeded by /onboard-project.`
-
-Emit per milestone: `Milestone: v1 (MVP) seeded | skipped | failed (<reason>)`.
+Emit: `Milestone: v1 seeded | skipped | failed (<reason>)`.
 
 ## Step 2G.5 Starter-Issue Candidate Generation
 
@@ -75,17 +129,17 @@ Synthesize 3–7 starter-issue candidates from `interview_context` and `design_c
 ```
 {
   title:           "Set up basic API",
-  milestone:       "v1 (MVP)" | "v2",
   body_seed:       "<one-paragraph seed used by /draft-issue>",
   component_refs:  ["api", "auth"],
   ordering_cue:    "first" | "before X" | null
 }
 ```
 
+All candidates seed into the `v1` milestone at `/draft-issue` invocation time — there is no per-candidate milestone choice.
+
 Generation rules:
 
 - Mine `interview_context.success_criteria` and (if present) `design_context` filenames/READMEs for distinct functional concerns.
-- Allocate the foundational/setup concerns to `v1 (MVP)`; allocate enhancements to `v2`.
 - Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `AskUserQuestion` (auto-cut in unattended mode, with the cut list logged for Step 5).
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
@@ -98,7 +152,6 @@ Build edges from the candidate set per these rules:
 
 1. **Shared component refs** — if candidate A's `component_refs` is a strict subset of B's, A → B (A introduces the component; B builds on it).
 2. **Ordering cues** — phrases like "first", "before X", "depends on" surfaced in the interview create explicit edges.
-3. **Milestone gate** — drop any edge with a `v2` candidate as parent of a `v1` candidate.
 
 **Cycle detection** — DFS with white/gray/black marking. On any back edge:
 
@@ -109,11 +162,10 @@ Build edges from the candidate set per these rules:
 Render the DAG as ASCII for the user, e.g.:
 
 ```
-[v1] Set up basic API
-   └─▶ [v1] Add user profile
-          └─▶ [v2] Add caching layer
-[v1] Set up auth
-   └─▶ [v1] Add user profile
+Set up basic API
+   └─▶ Add user profile
+Set up auth
+   └─▶ Add user profile
 ```
 
 `AskUserQuestion`: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
@@ -136,7 +188,7 @@ Before the first iteration:
 
 For each candidate:
 
-1. **Invoke `/draft-issue`** (delegated) with the shared `interview_context`, `design_context`, and this candidate's `{title, milestone, body_seed, component_refs}` as the seed payload. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
+1. **Invoke `/draft-issue`** (delegated) with the shared `interview_context`, `design_context`, and this candidate's `{title, body_seed, component_refs}` as the seed payload, and the fixed milestone assignment `v1`. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
 2. **Capture the created issue number** from `/draft-issue`'s return.
 3. **Apply the seeded-by-onboard label**: `gh issue edit <num> --add-label seeded-by-onboard`.
 4. **Wire DAG parents already created** (skip if `autolinking_available = false`): for each parent of this candidate already created in this loop, invoke `addSubIssue(parent_number, child_number)` on `/draft-issue`. Append a `Depends on: #<parent>` line to this issue's body via `gh issue edit <self> --body-file -`.

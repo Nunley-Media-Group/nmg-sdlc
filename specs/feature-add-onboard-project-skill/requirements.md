@@ -1,8 +1,8 @@
 # Requirements: Add /onboard-project Skill
 
-**Issues**: #115, #124
-**Date**: 2026-04-18
-**Status**: Draft
+**Issues**: #115, #124, #98
+**Date**: 2026-04-23
+**Status**: Amended
 **Author**: Claude
 
 ---
@@ -194,6 +194,76 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 **Then** `/init-config` is still invoked per the existing Step 3G behavior — no scope change to `/init-config` itself
 **And** in unattended mode, the invocation remains auto-yes (existing AC6 behavior preserved)
 
+---
+
+<!-- ACs added by issue #98: v1-only milestones, VERSION file initialization, brownfield source backfill.
+     Supersedes AC13 (v1 + v2 seeding) — onboard-project now seeds v1 only; v2 is never created.
+     Augments AC2/AC11 brownfield reconciliation with mandatory source-code scanning regardless of closed-issue count. -->
+
+### AC22: v1-Only Milestone Seeding (Supersedes AC13)
+
+**Given** a greenfield project with no existing milestones
+**When** `/onboard-project` runs the greenfield flow
+**Then** only a `v1` milestone is created; `v2` is never created, proposed, or mentioned in any user-facing output
+**And** AC13's v1-and-v2 contract is superseded — the prior expectation that `v2` is seeded alongside `v1` no longer applies from this issue forward
+
+### AC23: All Starter-Issue Candidates Assigned to v1
+
+**Given** the starter-issue candidate generation phase (Step 2G.5)
+**When** 3–7 candidates are synthesized from the interview
+**Then** all candidates are allocated to `v1`; no `v2` allocation bucket exists in the candidate model, the interview prompt, or the Step 5 summary
+
+### AC24: VERSION File Created During Greenfield Bootstrap
+
+**Given** a greenfield project with no existing `VERSION` file
+**When** steering bootstrap completes (Step 2G.3)
+**Then** a `VERSION` file containing the literal string `0.1.0` (no trailing `v` prefix, single line, no surrounding whitespace) is written to the project root
+
+### AC25: Stack-Native Version Manifest Initialized (Greenfield)
+
+**Given** a detectable stack manifest exists at project root (checked in order: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `mix.exs`, `*.gemspec`, `build.gradle`, `pom.xml` — first match wins)
+**When** the VERSION file is created during greenfield bootstrap
+**Then** the matching manifest's version field is also set to `0.1.0`
+**And** if no manifest is detected, the VERSION file is still created and a one-line note is emitted in the Step 5 summary ("No stack manifest detected — VERSION file seeded without manifest sync")
+
+### AC26: Brownfield VERSION File Backfill
+
+**Given** a brownfield project with no existing `VERSION` file
+**When** `/onboard-project` runs the brownfield flow
+**Then** a `VERSION` file is created using the version detected from the stack-native manifest if present (e.g., reading `package.json` `"version"`), otherwise defaulting to `0.1.0`
+**And** the version value mirrors the manifest byte-for-byte — no coercion, no semver normalization beyond trimming trailing whitespace
+
+### AC27: Brownfield Stack-Native Manifest Backfill
+
+**Given** a brownfield project with neither a `VERSION` file nor a stack-native version manifest
+**When** brownfield onboarding runs
+**Then** the `VERSION` file is initialized to `0.1.0`
+**And** no stack manifest is synthesized (onboard-project does not create a `package.json` or equivalent where none exists)
+**And** the Step 5 summary records "Brownfield without manifest — VERSION seeded at 0.1.0; no manifest sync"
+
+### AC28: Idempotent Version Initialization
+
+**Given** a project with an existing `VERSION` file OR an existing stack-manifest version field
+**When** `/onboard-project` runs in any mode (greenfield, brownfield, or re-run)
+**Then** the existing value is preserved and no file is overwritten
+**And** the Step 5 summary reports "VERSION exists (value: `{current}`) — preserved" and/or "Manifest version exists (`{path}`: `{current}`) — preserved"
+**And** idempotency holds even when VERSION and manifest disagree — both existing values are preserved as-is (per Out of Scope: reconciliation of divergence is not in scope)
+
+### AC29: Brownfield-No-Issues Backfills from Source
+
+**Given** a brownfield project with existing source files but zero closed GitHub issues
+**When** `/onboard-project` runs
+**Then** specs are synthesized from the source code rather than offering to treat the project as greenfield
+**And** the Mode Detection Matrix row 5 behavior (offer to treat as greenfield) is superseded — source-code backfill is now the deterministic path for this case
+
+### AC30: Brownfield Always Incorporates Source Code
+
+**Given** a brownfield project with both closed issues and existing source files
+**When** brownfield reconciliation runs
+**Then** specs incorporate both closed-issue history AND the current source tree — closed-issue evidence alone is insufficient, and source-tree evidence alone is insufficient
+**And** source enumeration uses `git ls-files` (tracked files only) filtered through the existing scaffold allowlist so generated/ignored files do not pollute reconciled specs
+**And** the `design.md` Evidence Sources table adds a `current source tree` row (in addition to issue body, PR body, PR diff, commit messages) for each reconciled spec
+
 ### Generated Gherkin Preview
 
 ```gherkin
@@ -319,6 +389,66 @@ Feature: Onboard Project
     Given backlog seeding has completed
     When the greenfield flow nears exit
     Then /init-config is still invoked per existing Step 3G behavior
+
+  # --- Added by issue #98 ---
+
+  Scenario: v1-only milestone seeding (supersedes v1+v2)
+    Given greenfield mode and no pre-existing milestones
+    When milestone seeding runs
+    Then only a "v1" milestone is created
+    And "v2" is never created, proposed, or mentioned in the Step 5 summary
+
+  Scenario: All starter-issue candidates allocated to v1
+    Given 3-7 starter-issue candidates are synthesized from the interview
+    When candidate generation produces the seed list
+    Then every candidate is allocated to "v1"
+    And no "v2" bucket exists in the candidate model or interview output
+
+  Scenario: VERSION file created during greenfield bootstrap
+    Given a greenfield project with no existing VERSION file
+    When steering bootstrap completes
+    Then a VERSION file containing "0.1.0" is written to the project root
+
+  Scenario: Stack-native manifest initialized alongside VERSION (greenfield)
+    Given a greenfield project with a detectable package.json at the project root
+    When the VERSION file is created
+    Then package.json's "version" field is also set to "0.1.0"
+
+  Scenario: VERSION seeded when no stack manifest is detected (greenfield)
+    Given a greenfield project with no matching stack manifest
+    When the VERSION file is created
+    Then the VERSION file is still written with "0.1.0"
+    And the Step 5 summary notes "No stack manifest detected — VERSION file seeded without manifest sync"
+
+  Scenario: Brownfield VERSION backfill mirrors manifest version
+    Given a brownfield project with a package.json declaring "version": "2.3.1" and no VERSION file
+    When /onboard-project runs the brownfield flow
+    Then a VERSION file is created containing "2.3.1" (mirroring the manifest value)
+
+  Scenario: Brownfield VERSION backfill defaults to 0.1.0 when no manifest exists
+    Given a brownfield project with neither a VERSION file nor a stack manifest
+    When /onboard-project runs the brownfield flow
+    Then a VERSION file is created containing "0.1.0"
+    And no stack manifest is synthesized
+
+  Scenario: Version initialization is idempotent
+    Given a project with an existing VERSION file containing "1.7.2"
+    When /onboard-project runs again (any mode)
+    Then the existing VERSION value is preserved — no overwrite occurs
+    And the Step 5 summary reports "VERSION exists (value: 1.7.2) — preserved"
+
+  Scenario: Brownfield with zero closed issues backfills from source
+    Given a brownfield project with existing source files and zero closed GitHub issues
+    When /onboard-project runs
+    Then specs are synthesized from the source code
+    And the skill does not offer to treat the project as greenfield
+
+  Scenario: Brownfield reconciliation always scans source tree
+    Given a brownfield project with both closed issues and existing source files
+    When brownfield reconciliation runs
+    Then specs incorporate both closed-issue evidence and the current source tree
+    And source enumeration uses "git ls-files" filtered by the scaffold allowlist
+    And design.md's Evidence Sources table includes a "current source tree" row for each reconciled spec
 ```
 
 ---
@@ -355,6 +485,16 @@ Feature: Onboard Project
 | FR26 | Degrade gracefully on Claude Design fetch or decode failure — log URL + failure mode + remediation hint, continue the greenfield flow without design context, surface the failure as a gap in the Step 5 summary | Should | Fetch failures must not abort the run. (Issue #124) |
 | FR27 | Detect re-run on a project that already has steering docs and switch to **steering-enhancement mode** — edit existing steering content in place, skip already-seeded milestones, skip already-seeded starter issues, preserve existing dependency links | Must | Already-seeded starter issues identified by either a `seeded-by-onboard` GitHub label or by title match against the prior run's summary; existing `--add-sub-issue` relationships are not rewritten or deleted. Distinct from the existing FR9 already-initialized branch (which routes to `/upgrade-project`) — enhancement mode applies when steering exists but specs do not. (Issue #124) |
 | FR28 | Emit progress lines during interview, design fetch/decode, milestone seeding, dependency inference, and the starter-issue loop | Should | Per the existing UI/UX requirement for long operations; one line per phase boundary plus per-issue progress in the seeding loop. (Issue #124) |
+| FR29 | Remove `v2` from Step 2G.4 milestone seeding in `greenfield.md` — seed only `v1` | Must | Supersedes FR18; the v2 creation branch is deleted, not gated. (Issue #98) |
+| FR30 | Remove the `v2` bucket from Step 2G.5 candidate generation — allocate all candidates to `v1` | Must | Interview prompt copy, candidate model, and summary output must not reference v2. (Issue #98) |
+| FR31 | Add Step 2G.3a — version file initialization — to `greenfield.md`, executed after steering bootstrap and before milestone seeding | Must | Writes `VERSION` at project root containing `0.1.0`. (Issue #98) |
+| FR32 | Detect stack via `git ls-files` manifest presence (order: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `mix.exs`, `*.gemspec`, `build.gradle`, `pom.xml`) and set the matched manifest's version field to `0.1.0` during greenfield bootstrap | Must | First match wins; if no match, VERSION-only with a Step 5 summary note. (Issue #98) |
+| FR33 | Add an equivalent version-init step to `brownfield.md` preflight (Step 2B) — read existing manifest version if present, else seed `0.1.0` | Must | Mirrors manifest byte-for-byte; no semver coercion. (Issue #98) |
+| FR34 | Make the version-init step idempotent across all modes — never overwrite an existing `VERSION` file or stack-manifest version field | Must | Idempotency holds even when VERSION and manifest disagree (reconciliation is out of scope). (Issue #98) |
+| FR35 | Route the brownfield-no-issues mode (Mode Detection Matrix row 5) to source-code backfill rather than the "treat as greenfield" offer | Should | Supersedes the prior row-5 UX. Source-backfill is now the deterministic path when source files exist. (Issue #98) |
+| FR36 | In brownfield reconciliation, always scan tracked source files (`git ls-files`) in addition to closed issues — filtered through the existing scaffold allowlist | Should | Neither source alone nor issues alone is sufficient; the combined evidence drives each reconciled spec. (Issue #98) |
+| FR37 | Update Step 5 Summary to reflect v1-only milestone seeding (remove the v2 status line) and add a Versioning section reporting VERSION/manifest creation status (created / preserved / no-manifest) | Must | Summary wording is the audit trail for unattended runs — explicit per-file outcome is required. (Issue #98) |
+| FR38 | Document the VERSION file creation step in `SKILL.md` — update the Step-by-Step integration diagram to include Step 2G.3a / Step 2B preflight, and add VERSION/manifest outcome rows to the Error States / Mode Detection tables | Should | SKILL.md is the user-facing contract; this keeps it in sync with greenfield.md / brownfield.md references. (Issue #98) |
 
 ---
 
@@ -440,6 +580,12 @@ Feature: Onboard Project
 - *(#124)* `/upgrade-project` behavioral changes — only the delegation target rewrites to match the absorbed `/setup-steering` (FR24)
 - *(#124)* `/init-config` scope changes — it is still delegated with current behavior (AC21)
 - *(#124)* Inventing dependency-detection or autolinking primitives — reuse the helper from Issue #125 rather than duplicating (FR22)
+- *(#98)* Changing the VERSION file format or introducing non-semver conventions — `VERSION` is a plain text file containing a semver string
+- *(#98)* Adding version-bumping logic to any SDLC step — that behavior lives in `/open-pr` and is unchanged by this issue
+- *(#98)* Modifying `/open-pr`, `/write-code`, or `/write-spec` versioning behavior — onboard-project only seeds initial state
+- *(#98)* Adding new SDLC pipeline steps beyond `/onboard-project`
+- *(#98)* Multi-milestone seeding strategies beyond v1 — this issue locks onboard-project to v1 only; later v2/v3 milestones are created by the user or by a future skill
+- *(#98)* Reconciling divergence between an existing VERSION file and a differing manifest version — the idempotent rule preserves both existing values as-is
 
 ---
 
@@ -467,6 +613,7 @@ Feature: Onboard Project
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
 | #124 | 2026-04-18 | Greenfield enhancement: intent + tech-selection interview, v1/v2 milestone seeding, 3–7 starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking, optional Claude Design URL ingestion (gzip-decoded), steering-enhancement re-run mode, absorption of `/setup-steering` into `/onboard-project` |
+| #98 | 2026-04-23 | Lock onboard-project to v1-only milestone seeding (supersedes AC13 v2 seeding), add VERSION file + stack-native manifest initialization (greenfield and brownfield, idempotent), and make brownfield always backfill specs from tracked source code (supersedes the treat-as-greenfield offer when no closed issues exist) |
 
 ---
 

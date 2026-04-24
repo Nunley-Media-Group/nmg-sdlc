@@ -10,6 +10,17 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.58.0] - 2026-04-23
+
+### Changed
+
+- **`/onboard-project` now seeds only the `v1` milestone** (issue #98) — supersedes the prior `v1 (MVP)` + `v2` seeding contract from #124. The v2 milestone is never created, and the starter-issue candidate schema drops the `milestone` field (all candidates land in `v1`). A dual-name idempotency probe detects legacy `v1 (MVP)` milestones from pre-#98 runs and reuses them with a Step 5 summary note rather than creating a duplicate.
+- **Brownfield mode always backfills from the current source tree** (issue #98) — `current_source_tree` is computed once from `git ls-files` (filtered by the scaffold allowlist) and attached to every reconciled spec's evidence set, so `design.md`'s Evidence Sources table always has a `current source tree` row. When zero closed issues exist, routing is deterministic: no `AskUserQuestion` offer to treat as greenfield — the skill backfills specs from the source tree directly.
+
+### Added
+
+- **`/onboard-project` initializes `VERSION` and the detected stack-native manifest** (issue #98) — new Step 2G.3a (greenfield, after steering bootstrap, before milestone seeding) writes `VERSION` at `0.1.0` and sets the matching manifest's version field to `0.1.0` via a targeted line `Edit` (stack detection order: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `mix.exs`, `*.gemspec`, `build.gradle`, `pom.xml`). New Step 2B.0a (brownfield, top of preflight) mirrors an existing manifest version into `VERSION` byte-for-byte when present, else seeds `0.1.0`; it never synthesizes a manifest where none exists. Both steps are idempotent — existing `VERSION` and existing manifest version fields are preserved in every mode. Step 5 summary gains a Versioning block reporting VERSION and manifest outcomes.
+
 ## [1.56.2] - 2026-04-23
 
 ### Fixed
