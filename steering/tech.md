@@ -71,6 +71,9 @@ The `/open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition 
 |-------|-----------|-------------|
 | `bug` | patch | Bug fix — backwards-compatible |
 | `enhancement` | minor | New feature — backwards-compatible |
+| `spike` | skip | Research-only PR — no release, no bump |
+
+The `skip` verdict is a special value — not a placeholder. When `skip` is the classified bump type, `/open-pr` skips Steps 2 and 3 entirely and produces a PR with no version change. The spike-skip logic is implemented in `skills/open-pr/references/version-bump.md` § Spike handling; this row makes the classification discoverable in the canonical table.
 
 **Default**: If an issue's labels do not match any row, the bump type is **minor**.
 
