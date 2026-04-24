@@ -233,8 +233,11 @@ The **classification matrix**:
 |-------------|-----------|---------|
 | `bug` | Patch | 1.5.1 → 1.5.2 |
 | `enhancement` | Minor | 1.5.1 → 1.6.0 |
+| `spike` | Skip | No bump — research-only PR |
 
 **Stack-specific files** (e.g., `package.json`, `Cargo.toml`) are declared in `tech.md`'s `## Versioning` section. The `/open-pr` skill reads this mapping to update all version files in a single commit. Run `/upgrade-project` to bootstrap `CHANGELOG.md` and `VERSION` from git history if they don't exist yet.
+
+**Spike research ADRs** are committed to `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` by `/write-spec` Phase 0. The directory is created on demand (on the first spike); no pre-existing file or placeholder is required. `/run-retro` scans this directory for ADRs older than 180 days and surfaces them as re-spike candidates in the retrospective output.
 
 ### Verification Gates
 

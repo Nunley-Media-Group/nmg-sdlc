@@ -109,11 +109,12 @@ options:
   - "Bug" — Something is broken or behaving incorrectly
   - "Enhancement / Feature" — New capability or improvement to existing behavior
   - "Epic" — A coordinated set of child issues delivering one logical feature across multiple PRs
+  - "Spike" — A research/evaluation task producing a decision (ADR) not code
 ```
 
 When `epicRecommended` is true, append `(Recommended)` to the Epic option label.
 
-**Output**: `classification` ∈ {`feature`, `bug`, `epic`}.
+**Output**: `classification` ∈ {`feature`, `bug`, `epic`, `spike`}.
 
 ### Step 3: Assign Milestone
 
@@ -152,6 +153,8 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 **Output**: `depth`, `depthOverridden`, `interviewAnswers`, `anythingMissed`.
 
 ### Step 5b: Automation Eligibility
+
+**Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
 
 Call `AskUserQuestion`:
 
@@ -198,6 +201,7 @@ Choose the template based on `classification`:
 Read `references/feature-template.md` when `classification === 'feature'`.
 Read `references/bug-template.md` when `classification === 'bug'`.
 Read `references/multi-issue.md` when `classification === 'epic'` — the Epic Coordination template lives there alongside the multi-issue pipeline.
+Read `references/spike-template.md` when `classification === 'spike'` — the spike template replaces User Story / Acceptance Criteria with Research Questions, Candidate Set, Time-box, Expected Output Shape, and Honest-Gap Protocol. Spike issues do not carry acceptance criteria (the deliverable is an ADR, not a working feature).
 
 When `session.designContext` is present, cite the design URL in the Background / Current State section and weave relevant design details into the narrative. Epics do NOT cite the design URL in the body — the reference belongs on the child feature/bug issues.
 
@@ -254,7 +258,8 @@ On `[2]`, ask one free-text follow-up (`"What would you like to change?"`), appl
    - Feature → `enhancement`
    - Bug → `bug`
    - Epic → `epic` + `enhancement` (BOTH; lazily create the `epic` label with color `5319E7` if absent)
-   - `automatable` applies to Feature/Bug when Step 5b answered "Yes" — epics do NOT receive `automatable`; children inherit it per iteration.
+   - Spike → `spike` (lazily create with color `0052CC` if absent)
+   - `automatable` applies to Feature/Bug when Step 5b answered "Yes" — epics and spikes do NOT receive `automatable`; epic children inherit it per iteration.
 5. Create the issue (include `--milestone` only when Step 3 assigned one):
    ```
    gh issue create --title "..." --body "..." --label "label1,label2" --milestone "v{N}"

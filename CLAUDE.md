@@ -14,6 +14,7 @@ references/                      — Shared reference files used across skills
 scripts/                         — SDLC runner, skill-inventory audit, exercise runners, tests
 specs/                           — BDD specs for the plugin's own development cycle
 steering/                        — Product/tech/structure steering docs for this plugin
+docs/decisions/                  — ADR directory (created on first spike; gap-analysis ADRs committed here by /write-spec Phase 0)
 VERSION                          — Plugin version (kept in sync with plugin.json)
 CHANGELOG.md                     — Keep an [Unreleased] section for pending changes
 README.md                        — Public docs: workflow, installation, skills reference

@@ -69,7 +69,10 @@ Feature-scope / user-story / success-metric questions never fire for bug-labelle
 
 2. **Apply the per-run cap of 3 questions.** If more than 3 gaps fire, take the first 3 in probe order and defer the rest to the residual-capture step below.
 
-3. **Call `AskUserQuestion` once per gap** (up to the cap) with the gap-specific question and two options — an **Answer** option (free-text via the `Other` affordance) and a **Skip — leave unresolved** option that records the gap in `## Open Questions`.
+3. **Call `AskUserQuestion` once per gap** (up to the cap). The menu shape depends on the gap type and the issue's classification:
+
+   - **Feature issues with an "Unresolved Open Questions" gap**: offer three options — `[1] Answer — I'll type the resolution` / `[2] Defer to spike — create a spike issue for this question (blocks #N until the spike ships)` / `[3] Skip — leave unresolved`. The Defer-to-Spike procedure is documented below.
+   - **All other gaps** (feature AC structure; every bug-issue gap): offer two options — an **Answer** option (free-text via the `Other` affordance) and a **Skip — leave unresolved** option that records the gap in `## Open Questions`. Bug-labelled issues never see the Defer-to-Spike option; repro-step, expected-vs-actual, and root-cause gaps are not spike-shaped questions.
 
 4. **Thread each answer into the draft.** The goal is for the answer to shape the written spec, not just live in session memory.
 
@@ -82,6 +85,21 @@ Feature-scope / user-story / success-metric questions never fire for bug-labelle
    | Missing root-cause hypothesis | Populate the Root Cause section of the defect template. |
 
 5. **Capture residual items.** Any gap the user skipped, plus every gap deferred past the cap, is recorded verbatim in the spec's `## Open Questions` section so reviewers and downstream phases can see it. Use the original issue text where available; otherwise use the gap-signal description.
+
+## Defer-to-Spike procedure (feature issues only)
+
+When the user selects `[2] Defer to spike` on a feature issue's Unresolved Open Questions gap, perform the following sequence:
+
+1. **Derive a spike title** from the gap question. Prefix with `Spike:` and start with a research verb — e.g., the gap `"Should we use OAuth or session cookies?"` becomes `"Spike: evaluate OAuth vs session cookies"`.
+2. **Create the spike issue** via the `/draft-issue` spike-template shape (or directly `gh issue create --label spike --body "..."` using the template at `skills/draft-issue/references/spike-template.md`). Seed the Research Questions section with the gap text verbatim. Capture the new issue number as `S`.
+3. **Mark the parent blocked**: `gh issue edit #{N} --body "$(existing body)\n\nDepends on: #{S}"`. The `Depends on:` line is the machine-read convention used by `skills/open-pr/references/version-bump.md` § 4a, but here it signals a human dependency — the current feature cannot ship until the spike ADR is merged.
+4. **Thread a placeholder into the draft**: in the requirements-draft's `## Open Questions` section (or an AC if the gap was AC-shaped), insert `See spike #{S} for resolution`. This preserves traceability without blocking the draft.
+5. **Record the gap as resolved-via-spike** in the interview session state so the residual-capture step in procedure step 5 does NOT re-record it in `## Open Questions` (the placeholder line already captures it).
+6. **Continue the interview** with the next gap. Creating a spike does not abort the current interview run.
+
+## Unattended-mode behavior for Defer-to-Spike
+
+The `Defer to spike` option is **never auto-selected** in unattended mode. The top-of-file unattended-mode rule already skips the interview entirely when `.claude/unattended-mode` exists (every gap becomes a residual item in `## Open Questions`). Spike creation requires explicit human selection.
 
 ## Amendment-mode rule
 
@@ -100,4 +118,5 @@ When Spec Discovery resolved an existing feature spec (amendment mode):
 | Sentinel absent, 1–3 gaps detected | Ask one `AskUserQuestion` per gap; thread answers into the draft |
 | Sentinel absent, more than 3 gaps | Ask the first 3 in probe order; record the rest in `## Open Questions` |
 | User chooses "Skip" for a gap | Record the gap verbatim in `## Open Questions` |
+| User chooses "Defer to spike" (feature + Unresolved OQ only) | Create spike issue, add `Depends on: #S` to parent body, thread `See spike #S for resolution` into the draft |
 | Amendment mode | Detect gaps in the new issue only; append answer-shaped content without touching approved sections |

@@ -6,6 +6,20 @@ Steps 2 and 3 take the current version from `VERSION`, decide the bump type from
 
 See `../../references/versioning.md` for the invariants this reference operationalises (single-source-of-truth, major-bumps-are-manual, dual-file update, CHANGELOG convention, epic-child downgrade rule).
 
+## Spike handling (no bump)
+
+Before Step 2 begins, check the issue's labels:
+
+```bash
+gh issue view #N --json labels --jq '.labels[].name'
+```
+
+If any label is `spike`, skip Steps 2 and 3 entirely — do NOT read `VERSION`, write `CHANGELOG.md`, write `plugin.json` / `marketplace.json`, or create a `chore: bump version to ...` commit.
+
+Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line and adds `Type: Spike research (no version bump)` in its place.
+
+> Rationale: spike PRs ship research (the ADR at `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md`), not a release. The `spike → skip` row in `steering/tech.md` § Version Bump Classification is the canonical declaration.
+
 ## Step 2: Determine version bump
 
 1. **Read the current version.** Read `VERSION` and verify it is valid semver (`X.Y.Z`). If not, warn and skip Steps 2 and 3.

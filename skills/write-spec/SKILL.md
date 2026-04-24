@@ -52,7 +52,7 @@ Read `../../references/spec-frontmatter.md` when writing or amending any spec fi
 
 ## Spec Discovery
 
-Read `references/discovery.md` when the issue is not bug-labelled — discovery decides between amending an existing feature spec (parent-link first, keyword fallback) and creating a new one. Bug-labelled issues skip discovery and always create a fresh `bug-{slug}/`.
+Read `references/discovery.md` when the issue is not bug-labelled — discovery decides between amending an existing feature spec (parent-link first, keyword fallback) and creating a new one. Bug-labelled issues skip discovery and always create a fresh `bug-{slug}/`. Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues) and proceed directly to Phase 0 per `references/spike-variant.md`.
 
 The discovery outcome flips the rest of the workflow into one of two modes — **amendment mode** when an existing spec was resolved, otherwise **creation mode**.
 
@@ -67,6 +67,14 @@ gh issue view #N --json labels --jq '.labels[].name'
 ```
 
 Read `references/defect-variant.md` when any label is `bug` — every phase swaps to the lighter defect template (reproduction + 2–3 ACs, root-cause + minimal-fix design, flat fix→test→verify tasks).
+
+## Spike Detection
+
+After reading the issue in Phase 1, check whether it has the `spike` label (reuse the label result from Defect Detection — do not re-query `gh`):
+
+Read `references/spike-variant.md` when any label is `spike` — the spike variant replaces Phases 1–3 with a single Phase 0: Research that commits a gap-analysis ADR under `docs/decisions/` and ends with a Human Review Gate.
+
+**Precedence**: spike > defect. If both labels appear on the same issue (unusual — `/draft-issue` Step 2 forces one classification), load `references/spike-variant.md` and ignore the defect path.
 
 ---
 

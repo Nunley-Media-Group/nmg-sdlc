@@ -10,6 +10,16 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.59.0] - 2026-04-23
+
+### Added
+
+- **First-class spike handling across the SDLC pipeline** (issue #99) — new `Spike` option in `/draft-issue` (auto-applies `spike` label and seeds a Research Questions / Candidate Set / Time-box / Expected Output Shape / Honest-Gap Protocol template); `/write-spec` detects the `spike` label, runs Phase 0 research via the new `agents/spike-researcher.md` subagent, commits a gap-analysis ADR to `docs/decisions/`, then presents a three-option HRG (single-PR, umbrella+children, re-scope+redraft) before exiting (Phases 1–3 are skipped entirely); `/write-spec` Phase 1 interview gains a "Defer to spike" option that graduates unanswered questions into their own spike issue. New references: `skills/write-spec/references/spike-variant.md`, `skills/write-spec/references/umbrella-mode.md`, `skills/draft-issue/references/spike-template.md`, `skills/run-retro/references/adr-aging.md`.
+- **Spike-skip in `/open-pr`** (issue #99) — `steering/tech.md` gains a `spike → skip` row in the Version Bump Classification table; `skills/open-pr/references/version-bump.md` treats the `skip` verdict as a special value that bypasses Steps 2 and 3 entirely, producing a PR with no `VERSION`, `CHANGELOG.md`, or `plugin.json` change.
+- **Spike aborts in `/write-code` and `/verify-code`** (issue #99) — both skills detect the `spike` label in Step 1.5 and exit with `"Spikes don't produce code — run /open-pr to merge the research spec"`.
+- **ADR aging surfaced in `/run-retro`** (issue #99) — the retrospective scans `docs/decisions/` and flags any ADR older than 6 months as a re-spike candidate, including the original decision summary, commit date, and re-evaluation rationale.
+- **`docs/decisions/` directory convention** (issue #99) — listed in `README.md` and `CLAUDE.md` as the ADR home (created on first spike).
+
 ## [1.58.0] - 2026-04-23
 
 ### Changed

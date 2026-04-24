@@ -56,6 +56,22 @@ Steering docs define the verification framework (behavioral contracts, checklist
 
 Read `references/verification-gates.md` when `tech.md` is being parsed — the reference covers how to extract the `## Verification Gates` table (if present) so the extracted gates can be executed in Step 5f. Absence of the section is backward-compatible — no gates are enforced.
 
+### Step 1.5: Spike Abort
+
+Check the issue's labels:
+
+```bash
+gh issue view #N --json labels --jq '.labels[].name'
+```
+
+If any label is `spike`, print exactly:
+
+```
+Spikes don't produce code — run /open-pr to merge the research spec
+```
+
+Exit 0 — this is a correctness guard, not a failure. Do NOT post a verification report to the issue, do NOT call the architecture-reviewer subagent, do NOT run exercise testing. The abort fires in both modes.
+
 ### Step 2: Load Issue
 
 Read the GitHub issue for the original acceptance criteria:

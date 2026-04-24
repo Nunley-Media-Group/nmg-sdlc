@@ -67,15 +67,17 @@ Gather all information needed for the PR:
 
 ### Step 2: Determine Version Bump
 
-Read `references/version-bump.md` when a `VERSION` file exists at the project root — the reference covers the current-version read, label-matrix lookup in `steering/tech.md`, the `--major` override, and the epic-child sibling-aware downgrade (including the epic-closure warning that gates on interactive vs. unattended mode). If no `VERSION` file exists, skip Steps 2 and 3 entirely.
+Read `references/version-bump.md` when a `VERSION` file exists at the project root **AND the issue does not carry the `spike` label** — the reference covers the current-version read, label-matrix lookup in `steering/tech.md`, the `--major` override, and the epic-child sibling-aware downgrade (including the epic-closure warning that gates on interactive vs. unattended mode). If no `VERSION` file exists, skip Steps 2 and 3 entirely. Spike-labelled issues skip Steps 2 and 3 entirely regardless of whether `VERSION` exists — the spike-skip branch is documented in `references/version-bump.md` § Spike handling and records `spike = true` for Step 4's PR body template.
 
 ### Step 3: Update Version Artifacts
 
-Read `references/version-bump.md` when Step 2 produced a bump — the same reference covers writing the new version into `VERSION`, rolling the `[Unreleased]` CHANGELOG section under the new version heading (with partial-delivery annotation for intermediate epic children), updating stack-specific files from the `## Versioning` table, and committing with `chore: bump version to {new_version}`.
+Read `references/version-bump.md` when Step 2 produced a bump — the same reference covers writing the new version into `VERSION`, rolling the `[Unreleased]` CHANGELOG section under the new version heading (with partial-delivery annotation for intermediate epic children), updating stack-specific files from the `## Versioning` table, and committing with `chore: bump version to {new_version}`. Spike-labelled issues skip this step (no artifacts to update).
 
 ### Step 4: Generate PR Content
 
 Read `references/pr-body.md` when assembling the PR title and body — the reference covers the conventional-commit title format, the specs-found Template A (full spec-linked body), and the specs-not-found Template B (fallback to issue-body ACs). Both templates include the conditional Version and epic-child "Bump" lines.
+
+**Spike PRs**: when the session's `spike` flag is `true` (set by Step 2's spike-skip branch), the PR body template omits the `Version` line entirely and adds `Type: Spike research (no version bump)` in its place. The rest of the template (summary, specs reference, test plan) is unchanged.
 
 ### Step 5: Push and Create PR
 
