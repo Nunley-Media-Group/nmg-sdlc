@@ -10,8 +10,11 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.59.1] - 2026-04-24
+
 ### Fixed
 
+- **`/onboard-project` skill loading** — shortens the `SKILL.md` frontmatter description below Codex's 1024-character loader limit and adds a skill metadata audit guard so oversized descriptions fail before release.
 - **Unattended SDLC runner cascade failure on diverged remote branches** (issue #102) — moves history reconciliation and push out of `/open-pr` into a new `/commit-push` skill, teaches the SDLC runner to distinguish `error_max_turns` from rate-limiting, threads structured bounce context between steps, and reconciles stale remote branches in `/start-issue` before re-picked cycles rebuild local.
   - New `skills/commit-push/` bundle (`SKILL.md`, `references/rebase-and-push.md`, `references/version-bump-delegation.md`) — owns stage + version-bump + commit + fetch + rebase + push. Under unattended mode plus a completed rebase plus a safe `--force-with-lease=HEAD:$EXPECTED_SHA` check, pushes without prompting.
   - `scripts/sdlc-runner.mjs` `matchErrorPattern` now parses `{"subtype":"error_max_turns"}` from stream-json **before** the rate-limit regex runs; `handleFailure` takes a `max_turns` branch that logs `"Turn budget exhausted..."` (never `"Rate limited"`) and falls through to the bounce path without a 60s sleep.

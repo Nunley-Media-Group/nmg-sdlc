@@ -21,6 +21,7 @@ import {
   hashId,
   scan,
   findTrackedFiles,
+  validateSkillMetadata,
 } from '../skill-inventory-audit.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -239,6 +240,43 @@ describe('scan', () => {
     const a = scan(GOOD_FIXTURE);
     const b = scan(GOOD_FIXTURE);
     expect(a.items).toEqual(b.items);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loader-facing metadata validation
+// ---------------------------------------------------------------------------
+
+describe('validateSkillMetadata', () => {
+  test('current skill descriptions fit the Codex loader limit', () => {
+    expect(validateSkillMetadata(REPO_ROOT)).toEqual([]);
+  });
+
+  test('flags SKILL.md descriptions longer than 1024 characters', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metadata-'));
+    const skillDir = path.join(tmpDir, 'skills', 'too-long');
+    try {
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+        '---',
+        'name: too-long',
+        `description: "${'x'.repeat(1025)}"`,
+        '---',
+        '',
+        '# Too Long',
+      ].join('\n'));
+
+      expect(validateSkillMetadata(tmpDir)).toEqual([
+        expect.objectContaining({
+          file: 'skills/too-long/SKILL.md',
+          field: 'description',
+          length: 1025,
+          max: 1024,
+        }),
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

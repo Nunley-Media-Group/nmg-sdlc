@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_BASELINE = 'scripts/skill-inventory.baseline.json';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT_DEFAULT = path.resolve(SCRIPT_DIR, '..');
+export const MAX_SKILL_DESCRIPTION_CHARS = 1024;
 
 // ---------------------------------------------------------------------------
 // Extraction: walk a Markdown file, emit one clause per tracked line.
@@ -222,6 +223,46 @@ export function findTrackedFiles(repoRoot) {
   }, [], repoRoot).sort();
 }
 
+function extractFrontmatter(source) {
+  const match = source.match(/^---\n([\s\S]*?)\n---\n/);
+  return match ? match[1] : null;
+}
+
+function extractDoubleQuotedField(frontmatter, fieldName) {
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = frontmatter.match(new RegExp(`^${escaped}:\\s*"((?:\\\\"|[^"])*)"\\s*$`, 'm'));
+  return match ? match[1].replace(/\\"/g, '"') : null;
+}
+
+/** Validate loader-facing SKILL.md metadata constraints. */
+export function validateSkillMetadata(repoRoot) {
+  const errors = [];
+  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)skills\/[^/]+\/SKILL\.md$/.test(rel));
+
+  for (const rel of skillFiles) {
+    const abs = path.join(repoRoot, rel);
+    const source = fs.readFileSync(abs, 'utf8');
+    const frontmatter = extractFrontmatter(source);
+    if (!frontmatter) continue;
+
+    const description = extractDoubleQuotedField(frontmatter, 'description');
+    if (description === null) continue;
+
+    const length = Array.from(description).length;
+    if (length > MAX_SKILL_DESCRIPTION_CHARS) {
+      errors.push({
+        file: rel,
+        field: 'description',
+        length,
+        max: MAX_SKILL_DESCRIPTION_CHARS,
+        message: `description exceeds maximum length of ${MAX_SKILL_DESCRIPTION_CHARS} characters (${length})`,
+      });
+    }
+  }
+
+  return errors;
+}
+
 /** Scan the repo and produce the inventory object. */
 export function scan(repoRoot) {
   const files = findTrackedFiles(repoRoot);
@@ -301,6 +342,15 @@ export function runBaseline(repoRoot, outPath) {
 
 /** --check: compare current scan to committed baseline. */
 export function runCheck(repoRoot, baselinePath) {
+  const metadataErrors = validateSkillMetadata(repoRoot);
+  if (metadataErrors.length > 0) {
+    console.error(`Skill metadata audit: ${metadataErrors.length} loader-facing metadata error(s).`);
+    for (const error of metadataErrors) {
+      console.error(`  - ${error.file}: invalid ${error.field}: ${error.message}`);
+    }
+    return 1;
+  }
+
   const baseline = readBaseline(baselinePath);
   const current = scan(repoRoot);
 
