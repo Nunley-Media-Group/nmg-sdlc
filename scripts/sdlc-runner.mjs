@@ -50,6 +50,7 @@ let configSteps = {};
 let LOG_DIR = '';
 let MAX_LOG_DISK_BYTES = 500 * 1024 * 1024;
 let ORCHESTRATION_LOG = '';
+let dryRunState = null;
 
 if (isMainModule) {
   const { values: args } = parseArgs({
@@ -323,6 +324,9 @@ function defaultState() {
 }
 
 function readState() {
+  if (DRY_RUN && dryRunState) {
+    return { ...dryRunState };
+  }
   if (fs.existsSync(STATE_PATH)) {
     try {
       return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
@@ -335,6 +339,11 @@ function readState() {
 }
 
 function writeState(state) {
+  if (DRY_RUN) {
+    dryRunState = { ...state };
+    log('[DRY-RUN] Would write .codex/sdlc-state.json');
+    return;
+  }
   const dir = path.dirname(STATE_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const tmp = STATE_PATH + '.tmp';
@@ -505,30 +514,81 @@ function log(msg) {
 // Per-step log persistence
 // ---------------------------------------------------------------------------
 
+function parseJsonEvents(streamOutput) {
+  if (!streamOutput || typeof streamOutput !== 'string') return [];
+  const events = [];
+  const lines = streamOutput.trim().split('\n');
+  for (const line of lines) {
+    try {
+      events.push(JSON.parse(line));
+    } catch { /* skip non-JSON lines */ }
+  }
+  if (events.length === 0) {
+    try {
+      events.push(JSON.parse(streamOutput));
+    } catch { /* not valid JSON */ }
+  }
+  return events;
+}
+
 /**
  * Extract the final result JSON object from stream-json output.
- * stream-json emits newline-delimited JSON events; the result event has type "result".
+ * Older Codex CLI versions emitted a final event with type "result".
  * Falls back to parsing the entire output as a single JSON object (legacy json format).
  */
 function extractResultFromStream(streamOutput) {
-  // Try stream-json: scan lines in reverse for the result event
-  const lines = streamOutput.trim().split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(lines[i]);
-      if (parsed.type === 'result') return parsed;
-    } catch { /* skip non-JSON lines */ }
+  const events = parseJsonEvents(streamOutput);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const parsed = events[i];
+    if (parsed?.type === 'result') return parsed;
   }
-  // Fallback: try parsing as a single JSON object.
-  try {
-    return JSON.parse(streamOutput);
-  } catch { /* not valid JSON */ }
+  if (events.length === 1 && events[0]?.type === undefined) return events[0];
   return null;
+}
+
+/**
+ * Extract the terminal JSON event from either legacy stream-json output or
+ * current Codex JSONL output. Current `codex exec --json` emits events like
+ * `turn.failed` instead of the older `result` event; matching both keeps
+ * failure classification stable across CLI versions.
+ */
+function extractTerminalEventFromStream(streamOutput) {
+  const events = parseJsonEvents(streamOutput);
+  const terminalTypes = new Set(['result', 'turn.failed', 'turn.completed', 'task_complete']);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event?.type && terminalTypes.has(event.type)) return event;
+  }
+  if (events.length === 1 && events[0]?.type === undefined) return events[0];
+  return null;
+}
+
+function getEventFailureCode(event) {
+  return event?.subtype ||
+    event?.error?.code ||
+    event?.error?.codexErrorInfo?.code ||
+    event?.error?.codex_error_info?.code ||
+    event?.codexErrorInfo?.code ||
+    event?.codex_error_info?.code ||
+    null;
+}
+
+function getEventMessage(event) {
+  return [
+    event?.message,
+    event?.error?.message,
+    event?.error?.reason,
+    event?.error?.details,
+    event?.reason,
+    event?.result,
+  ].filter(v => typeof v === 'string').join('\n');
 }
 
 function extractSessionId(jsonOutput) {
   const result = extractResultFromStream(jsonOutput);
   if (result?.session_id) return String(result.session_id).slice(0, 12);
+  const thread = parseJsonEvents(jsonOutput).find(e => e?.thread_id);
+  if (thread?.thread_id) return String(thread.thread_id).slice(0, 12);
   return randomUUID().slice(0, 12);
 }
 
@@ -1170,15 +1230,17 @@ function matchErrorPattern(output) {
   for (const pattern of IMMEDIATE_ESCALATION_PATTERNS) {
     if (pattern.test(output)) return { action: 'escalate', pattern: pattern.source };
   }
+  const terminalEvent = extractTerminalEventFromStream(output);
+  const terminalCode = getEventFailureCode(terminalEvent);
+  const terminalMessage = getEventMessage(terminalEvent);
   // error_max_turns is semantically distinct from rate-limiting: the session
   // exhausted its turn budget, not a rate cap. Detect via parsed JSON (stream
   // result) before the rate-limit regex so the "Rate limited. Waiting 60s..."
   // branch never fires for a max-turns exit.
-  const parsed = extractResultFromStream(output);
-  if (parsed?.subtype === 'error_max_turns') {
+  if (terminalCode === 'error_max_turns' || /error_max_turns/i.test(terminalMessage)) {
     return { action: 'max_turns', pattern: 'error_max_turns' };
   }
-  if (RATE_LIMIT_PATTERN.test(output)) return { action: 'wait', pattern: 'rate_limit' };
+  if (RATE_LIMIT_PATTERN.test(output) || RATE_LIMIT_PATTERN.test(terminalMessage)) return { action: 'wait', pattern: 'rate_limit' };
   return null;
 }
 
@@ -1225,10 +1287,15 @@ function isEphemeralScaffoldDenial(denial) {
 }
 
 function detectSoftFailure(stdout) {
-  const parsed = extractResultFromStream(stdout);
+  const parsed = extractTerminalEventFromStream(stdout);
   if (parsed) {
-    if (parsed.subtype === 'error_max_turns') {
+    const failureCode = getEventFailureCode(parsed);
+    if (failureCode === 'error_max_turns' || /error_max_turns/i.test(getEventMessage(parsed))) {
       return { isSoftFailure: true, reason: 'error_max_turns' };
+    }
+    if (parsed.type === 'turn.failed') {
+      const reason = getEventMessage(parsed) || failureCode || 'turn.failed';
+      return { isSoftFailure: true, reason: `turn_failed: ${reason}` };
     }
     if (Array.isArray(parsed.permission_denials) && parsed.permission_denials.length > 0) {
       // Filter out benign denials: interactive tools the model tried but
@@ -2339,15 +2406,21 @@ async function main() {
     process.exit(1);
   }
 
-  // Ensure runner artifacts are gitignored before creating any
-  ensureRunnerArtifactsGitignored();
-
-  // Self-heal: untrack runner artifacts that were committed before gitignore was in place
-  untrackRunnerArtifactsIfTracked();
+  // Ensure runner artifacts are gitignored before creating any. In dry-run
+  // mode, report the action without mutating the target repository.
+  if (DRY_RUN) {
+    log('[DRY-RUN] Would ensure runner artifacts are listed in .gitignore');
+    log('[DRY-RUN] Would untrack any previously committed runner artifacts');
+  } else {
+    ensureRunnerArtifactsGitignored();
+    untrackRunnerArtifactsIfTracked();
+  }
 
   // Ensure unattended-mode flag exists
   const unattendedModePath = path.join(PROJECT_PATH, '.codex', 'unattended-mode');
-  if (!fs.existsSync(unattendedModePath)) {
+  if (DRY_RUN) {
+    log('[DRY-RUN] Would ensure .codex/unattended-mode flag exists');
+  } else if (!fs.existsSync(unattendedModePath)) {
     const dir = path.dirname(unattendedModePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(unattendedModePath, '');
@@ -2531,6 +2604,7 @@ const __test__ = {
     escalatedIssues.clear();
     SINGLE_ISSUE_NUMBER = null;
     bounceContext = null;
+    dryRunState = null;
   },
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;

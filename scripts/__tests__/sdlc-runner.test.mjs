@@ -78,6 +78,7 @@ const {
   readState,
   writeState,
   updateState,
+  main,
   removeUnattendedMode,
   ensureRunnerArtifactsGitignored,
   runCodex,
@@ -319,6 +320,18 @@ describe('Text-pattern soft failure detection', () => {
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
     expect(result.reason).toBe('error_max_turns');
+  });
+
+  it('detects current Codex turn.failed JSONL as a soft failure when exit code is misleading', () => {
+    const stdout = [
+      '{"type":"thread.started","thread_id":"019dbe73-d382-7f12-a8b0-e4e9125851c2"}',
+      '{"type":"turn.started"}',
+      '{"type":"turn.failed","error":{"message":"stream disconnected before completion"}}',
+    ].join('\n');
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toContain('turn_failed:');
+    expect(result.reason).toContain('stream disconnected');
   });
 
   it('returns isSoftFailure:false for empty stdout (edge case)', () => {
@@ -775,6 +788,17 @@ describe('Error pattern matching', () => {
       const single = JSON.stringify({ subtype: 'error_max_turns', session_id: 'x' });
       const result = matchErrorPattern(single);
       expect(result?.action).toBe('max_turns');
+    });
+
+    it('returns max_turns from current Codex turn.failed JSONL output', () => {
+      const streamOutput = [
+        '{"type":"thread.started","thread_id":"019dbe73-d382-7f12-a8b0-e4e9125851c2"}',
+        '{"type":"turn.started"}',
+        '{"type":"turn.failed","error":{"code":"error_max_turns","message":"maximum turns exceeded after a rate_limit retry"}}',
+      ].join('\n');
+      const result = matchErrorPattern(streamOutput);
+      expect(result?.action).toBe('max_turns');
+      expect(result?.pattern).toBe('error_max_turns');
     });
 
     it('still returns wait for rate_limit without error_max_turns', () => {
@@ -1457,6 +1481,14 @@ describe('extractSessionId', () => {
     const id = extractSessionId('{"result": "ok"}');
     expect(id).toHaveLength(12);
   });
+
+  it('extracts thread_id from current Codex JSONL when session_id is absent', () => {
+    const id = extractSessionId([
+      '{"type":"thread.started","thread_id":"019dbe73-d382-7f12-a8b0-e4e9125851c2"}',
+      '{"type":"turn.failed","error":{"message":"stream disconnected"}}',
+    ].join('\n'));
+    expect(id).toBe('019dbe73-d38');
+  });
 });
 
 describe('resolveLogDir', () => {
@@ -2080,6 +2112,25 @@ describe('readState resilience (corrupted state file)', () => {
     const state = readState();
     expect(state.currentIssue).toBe(42);
     expect(state.currentBranch).toBe('42-feature');
+  });
+});
+
+describe('dry-run state handling', () => {
+  it('writeState stores state in memory without writing .codex/sdlc-state.json', () => {
+    __test__.setConfig({ dryRun: true });
+    const state = { ...defaultState(), currentStep: 4, currentIssue: 42 };
+
+    writeState(state);
+
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+    expect(mockFs.renameSync).not.toHaveBeenCalled();
+    expect(readState()).toMatchObject({ currentStep: 4, currentIssue: 42 });
+  });
+
+  it('main() source skips runner artifact mutation while DRY_RUN is active', () => {
+    const source = main.toString();
+    expect(source).toContain("log('[DRY-RUN] Would ensure runner artifacts are listed in .gitignore')");
+    expect(source).toContain("log('[DRY-RUN] Would ensure .codex/unattended-mode flag exists')");
   });
 });
 

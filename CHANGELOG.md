@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.60.2] - 2026-04-24
+
+### Fixed
+
+- Fixed the unattended SDLC runner's current Codex JSONL parsing and dry-run startup behavior, so `turn.failed` events are classified correctly and dry-runs no longer mutate runner artifact files.
+
 ## [1.60.1] - 2026-04-24
 
 ### Changed
