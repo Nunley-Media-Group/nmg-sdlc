@@ -1,0 +1,169 @@
+# File: specs/feature-add-first-class-spike-handling-to-the-sdlc-pipeline/feature.gherkin
+#
+# Generated from: specs/feature-add-first-class-spike-handling-to-the-sdlc-pipeline/requirements.md
+# Issue: #99
+
+Feature: First-Class Spike Handling for the SDLC Pipeline
+  As a developer starting a research or evaluation task
+  I want a dedicated spike template in /draft-issue and a research-only pipeline in /write-spec
+  So that spike issues produce a committed ADR + implementation issue(s) via a PR to main — never code — without requiring mid-flight scope pivots
+
+  Background:
+    Given the nmg-sdlc plugin is installed in Claude Code
+    And the `spike` label exists in the target GitHub repository
+    And steering documents exist at `steering/`
+
+  # --- AC1: Spike Template in /draft-issue ---
+
+  Scenario: Spike option appears in /draft-issue classification
+    Given I am drafting a research task in /draft-issue
+    When the issue-type classification prompt is shown
+    Then the options include "Bug", "Enhancement / Feature", "Epic", and "Spike"
+
+  Scenario: Selecting Spike applies the spike label and spike body template
+    Given I am drafting an issue in /draft-issue
+    When I select "Spike" at the classification prompt
+    And I complete the remaining interview steps
+    Then the created GitHub issue has the `spike` label
+    And the issue body contains sections: Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol
+    And the `automatable` label is not applied
+
+  # --- AC2: /write-spec Spike Detection and Phase 0 ---
+
+  Scenario: /write-spec runs Phase 0 on a spike-labelled issue
+    Given GitHub issue #42 has the `spike` label
+    When I run `/write-spec #42`
+    Then the skill reads `skills/write-spec/references/spike-variant.md`
+    And the skill invokes `agents/spike-researcher.md` via the Task tool
+    And Phase 1 SPECIFY, Phase 2 PLAN, and Phase 3 TASKS are not executed
+    And no `requirements.md`, `design.md`, `tasks.md`, or `feature.gherkin` is written for issue #42
+
+  # --- AC3: Phase 0 Produces a Committed ADR and GitHub Artifact ---
+
+  Scenario: Phase 0 commits the gap-analysis ADR before the HRG fires
+    Given GitHub issue #42 has the `spike` label
+    And the spike-researcher subagent has returned research findings
+    When /write-spec Phase 0 continues
+    Then the file `docs/decisions/2026-04-23-<slug>-gap-analysis.md` is created
+    And a git commit exists with message `docs: add gap-analysis ADR for spike #42`
+    And the commit touches only files under `docs/decisions/`
+    And the Phase 0 HRG has not yet been presented
+
+  Scenario Outline: Phase 0 HRG accepts one of three scope shapes
+    Given the gap-analysis ADR for issue #42 has been committed
+    When the Phase 0 HRG is presented
+    And I select "<scope>"
+    Then the expected follow-up action is "<action>"
+
+    Examples:
+      | scope               | action                                                                                  |
+      | Single-PR           | findings are appended to the spike issue as a gh issue comment                           |
+      | Umbrella+Children   | a new umbrella issue is created and child implementation issues link back to the spike  |
+      | Re-scope+Redraft    | the spike issue body is edited with refined scope and the user is told to re-run /write-spec |
+
+  # --- AC4: /open-pr No Version Bump for Spikes ---
+
+  Scenario: /open-pr skips version bump for spike-labelled issues
+    Given the current branch contains a committed ADR for spike-labelled issue #42
+    And the repo has `VERSION`, `plugin.json`, `marketplace.json`, and `CHANGELOG.md`
+    When I run `/open-pr #42`
+    Then the PR is created against main
+    And `VERSION` is unchanged
+    And `plugin.json` version is unchanged
+    And `marketplace.json` version is unchanged
+    And `CHANGELOG.md` has no new entry
+    And the PR body contains the line "Type: Spike research (no version bump)"
+
+  # --- AC5: /write-code and /verify-code Abort on Spike Issues ---
+
+  Scenario Outline: <skill> aborts immediately on spike-labelled issues
+    Given GitHub issue #42 has the `spike` label
+    When I run `<skill> #42`
+    Then the skill prints exactly "Spikes don't produce code — run /open-pr to merge the research spec"
+    And the skill exits with code 0
+    And no spec files are read
+    And no code files are modified
+    And no GitHub issue comment is posted
+
+    Examples:
+      | skill         |
+      | /write-code   |
+      | /verify-code  |
+
+  # --- AC6: Defer-to-Spike Option in /write-spec Phase 1 Interview ---
+
+  Scenario: Phase 1 interview offers "Defer to spike" on feature issues with unresolved questions
+    Given GitHub issue #50 has the `enhancement` label
+    And issue #50's body contains an `## Open Questions` section with an unresolved item
+    When I run `/write-spec #50`
+    And Phase 1 gap detection fires on the unresolved question
+    Then the `AskUserQuestion` menu offers three options: Answer, Defer to spike, Skip
+
+  Scenario: Selecting "Defer to spike" creates a spike issue and marks the parent blocked
+    Given issue #50's Phase 1 interview is showing a "Defer to spike" option
+    When I select "Defer to spike"
+    Then a new GitHub issue is created with the `spike` label and the spike body template
+    And issue #50's body is edited to include a `Depends on: #<spike-N>` line
+    And issue #50's requirements.md draft contains a placeholder "See spike #<spike-N> for resolution"
+
+  # --- AC7: references/spike-variant.md Added ---
+
+  Scenario: Spike variant reference exists and is loaded by /write-spec
+    Given the nmg-sdlc plugin is installed
+    When /write-spec detects a `spike` label on an issue
+    Then it reads `skills/write-spec/references/spike-variant.md`
+    And that file documents the Phase 0 procedure, HRG options, and the no-code invariant
+
+  # --- AC8: references/umbrella-mode.md Added ---
+
+  Scenario: Umbrella-mode reference exists and is consulted for umbrella+children flows
+    Given /write-spec Phase 0 HRG has selected "Umbrella+Children"
+    When /write-spec begins creating the umbrella structure
+    Then it reads `skills/write-spec/references/umbrella-mode.md`
+    And that file formalizes the `## Multi-PR Rollout` trigger, child body template, `Depends-on-parent:` line convention, and `epic-child-of-<N>` label naming
+
+  # --- AC9: /run-retro Spike ADR Aging Detection ---
+
+  Scenario: /run-retro flags ADRs older than 6 months as re-spike candidates
+    Given `docs/decisions/2025-09-01-old-spike-gap-analysis.md` exists
+    And the file's git authorship date is more than 180 days before today
+    When I run `/run-retro`
+    Then `steering/retrospective.md` contains a "Re-Spike Candidates" section
+    And the section lists `docs/decisions/2025-09-01-old-spike-gap-analysis.md` with its age in days and a decision summary
+
+  Scenario: /run-retro omits Re-Spike Candidates section when all ADRs are fresh
+    Given `docs/decisions/2026-04-01-recent-gap-analysis.md` exists
+    And the file's git authorship date is 22 days before today
+    When I run `/run-retro`
+    Then `steering/retrospective.md` does NOT contain a "Re-Spike Candidates" section
+
+  # --- AC10: Spike-Labelled Issues Skip Spec Discovery ---
+
+  Scenario: /write-spec bypasses Spec Discovery for spike-labelled issues
+    Given GitHub issue #42 has the `spike` label
+    And an existing feature spec directory `specs/feature-related-topic/` keyword-matches the issue title
+    When I run `/write-spec #42`
+    Then no parent-link resolution is attempted
+    And no keyword-based spec match is offered
+    And the skill proceeds directly to Phase 0
+
+  # --- AC11: Unattended Mode Auto-Approves Phase 0 HRG ---
+
+  Scenario: Unattended mode applies umbrella+children default when research returns ≥ 2 components
+    Given the file `.claude/unattended-mode` exists
+    And GitHub issue #42 has the `spike` label
+    And the spike-researcher output contains `component-count: 3`
+    When I run `/write-spec #42`
+    And Phase 0 research completes
+    Then the Phase 0 HRG is not presented via AskUserQuestion
+    And the umbrella+children scope shape is applied automatically
+    And a divergence note is emitted: "Unattended mode: Phase 0 HRG applied deterministic default (umbrella+children)"
+
+  Scenario: Unattended mode applies single-PR default when research returns < 2 components
+    Given the file `.claude/unattended-mode` exists
+    And GitHub issue #42 has the `spike` label
+    And the spike-researcher output contains `component-count: 1`
+    When I run `/write-spec #42`
+    And Phase 0 research completes
+    Then the single-PR scope shape is applied automatically
+    And a divergence note is emitted: "Unattended mode: Phase 0 HRG applied deterministic default (single-PR)"

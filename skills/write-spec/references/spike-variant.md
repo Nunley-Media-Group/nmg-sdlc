@@ -26,8 +26,8 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
 2. **Collect research context**:
    - The full issue body (Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol).
    - `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-3. **Idempotency check**: `Glob` for `docs/decisions/*-#{N}-gap-analysis.md` (or `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` when the slug is known).
-   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `/write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the ADR or change the issue number before re-running.
+3. **Idempotency check**: `Glob` for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
+   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `/write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
    - No match → proceed to step 4.
 4. **Invoke the researcher**: spawn `agents/spike-researcher.md` via the `Task` tool with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
