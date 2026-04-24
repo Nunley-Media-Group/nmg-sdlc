@@ -16,7 +16,7 @@ This agent is automatically invoked by `/write-spec` during Phase 0 (Research) w
 
 ## Research Process
 
-Use `Read`, `Glob`, `Grep`, `WebSearch`, and `WebFetch` to conduct the research. Do not use `Task` to spawn subagents and do not use `Write` or `Edit` — the parent `/write-spec` skill owns the ADR file write because the commit must happen at a specific workflow step (before the Human Review Gate).
+Do NOT use `Write` or `Edit` — the parent `/write-spec` skill owns the ADR commit (it must happen at a specific workflow step, before the HRG). Do NOT spawn subagents via `Task`.
 
 1. **Read the issue** — consume the full spike issue body, extracting the Research Questions, Candidate Set (if known), Time-box, Expected Output Shape, and Honest-Gap Protocol sections.
 2. **Read steering context** — read `steering/product.md` (product vision and user constraints), `steering/tech.md` (technology constraints), and `steering/structure.md` (code organization patterns for downstream decomposition).

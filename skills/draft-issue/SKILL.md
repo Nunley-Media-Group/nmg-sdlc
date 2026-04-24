@@ -154,7 +154,7 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 
 ### Step 5b: Automation Eligibility
 
-**Skip this step entirely when `classification === 'spike'`.** Spike issues are not automation-eligible — the Phase 0 Human Review Gate requires human judgment in the default case, so `automatable` does not apply. Proceed directly to Step 5c with `automatable = false`.
+**Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
 
 Call `AskUserQuestion`:
 

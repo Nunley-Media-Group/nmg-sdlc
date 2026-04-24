@@ -2,9 +2,7 @@
 
 **Consumed by**: `write-spec` Phase 0 HRG (spike umbrella+children scope shape) and Phase 3 Seal-Spec Flow (multi-PR triggered).
 
-**Read this when** `/write-spec` needs to produce an umbrella+children structure — either because the Phase 0 Human Review Gate chose "Umbrella+Children" for a spike issue, or because the Phase 3 Seal-Spec Flow detected a `## Multi-PR Rollout` heading in `design.md`.
-
-This reference consolidates the umbrella/child conventions so `/write-spec` has a single pointer rather than three separate sources. The authoritative machinery for each piece lives where noted; this file provides the production recipe.
+**Read this when** `/write-spec` needs to produce an umbrella+children structure — either because the Phase 0 Human Review Gate chose "Umbrella+Children" for a spike issue, or because the Phase 3 Seal-Spec Flow detected a `## Multi-PR Rollout` heading in `design.md`. The authoritative machinery for each piece lives where noted in § Authoritative Sources.
 
 ---
 
@@ -146,7 +144,7 @@ gh issue edit #{U} --add-sub-issue #{child-N}
 
 This reference gives `/write-spec` a single production recipe. The *machinery* for each behaviour lives in:
 
-| Behaviour | Authoritative Source |
+| Behavior | Authoritative Source |
 |-----------|---------------------|
 | Phase 3 Seal-Spec Flow (multi-PR trigger, seal commit, child-issue prompt) | `skills/write-spec/SKILL.md` § 3b |
 | Epic Coordination template and multi-issue batch mode | `skills/draft-issue/references/multi-issue.md` |

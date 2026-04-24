@@ -81,7 +81,7 @@ Found [N] defect specs: [new] new, [modified] modified, [unchanged] unchanged, [
 
 ### Step 1.6: Scan ADRs for Aging
 
-Read `references/adr-aging.md` when `docs/decisions/` exists — the reference covers scanning ADR files, reading commit dates via `git log --follow --format=%aI -- {file}`, flagging ADRs older than 6 months, and emitting re-spike candidate rows in the retrospective output.
+Read `references/adr-aging.md` when `docs/decisions/` exists — the reference covers scanning ADR files, reading commit dates via `git log --follow --format=%aI -- {file}`, flagging ADRs older than 180 days, and emitting re-spike candidate rows in the retrospective output.
 
 If `docs/decisions/` does not exist, skip this step entirely (no error, no warning — ADRs are optional, created on first spike via `/write-spec` Phase 0).
 

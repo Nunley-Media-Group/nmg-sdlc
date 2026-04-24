@@ -49,7 +49,7 @@ If any label is `spike`, print exactly:
 Spikes don't produce code — run /open-pr to merge the research spec
 ```
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to `spec-implementer`, do NOT touch any file. The abort fires in both interactive and unattended modes (it is not a user-preference question).
+Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to `spec-implementer`, do NOT touch any file. The abort fires in both interactive and unattended modes.
 
 ### Step 2: Read Specs
 

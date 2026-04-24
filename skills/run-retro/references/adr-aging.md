@@ -1,12 +1,6 @@
 # ADR Aging Scan
 
-**Consumed by**: `run-retro` Step 1.6.
-
-**Read this when** Step 1.6 has confirmed that `docs/decisions/` exists. This reference covers scanning ADR files, reading their commit dates from git history, flagging ADRs older than 180 days, and emitting a "Re-Spike Candidates" section in the retrospective output.
-
-If `docs/decisions/` does not exist, Step 1.6 does not load this reference — skip this entire step with no error or warning.
-
----
+**Consumed by**: `run-retro` Step 1.6 (only when `docs/decisions/` exists).
 
 ## Scan Procedure
 
@@ -70,7 +64,7 @@ ADRs older than 180 days that may benefit from re-evaluation.
 
 ## Graceful Degradation
 
-| Condition | Behaviour |
+| Condition | Behavior |
 |-----------|-----------|
 | `docs/decisions/` does not exist | Step 1.6 does not load this reference; scan is skipped |
 | `docs/decisions/` exists but is empty | Scan runs; no candidates found; section omitted |

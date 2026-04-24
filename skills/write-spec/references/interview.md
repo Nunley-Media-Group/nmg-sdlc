@@ -97,9 +97,9 @@ When the user selects `[2] Defer to spike` on a feature issue's Unresolved Open 
 5. **Record the gap as resolved-via-spike** in the interview session state so the residual-capture step in procedure step 5 does NOT re-record it in `## Open Questions` (the placeholder line already captures it).
 6. **Continue the interview** with the next gap. Creating a spike does not abort the current interview run.
 
-## Unattended-mode behaviour for Defer-to-Spike
+## Unattended-mode behavior for Defer-to-Spike
 
-The `Defer to spike` option is **never auto-selected** in unattended mode. The top-of-file unattended-mode rule already skips the interview entirely when `.claude/unattended-mode` exists (every gap becomes a residual item in `## Open Questions`). If, in a future mode that runs the interview headlessly, a third-option menu is ever wired to a deterministic default, the default MUST remain `Skip` — creating GitHub issues from the automated path would surprise the user. Spike creation requires explicit human selection.
+The `Defer to spike` option is **never auto-selected** in unattended mode. The top-of-file unattended-mode rule already skips the interview entirely when `.claude/unattended-mode` exists (every gap becomes a residual item in `## Open Questions`). Spike creation requires explicit human selection.
 
 ## Amendment-mode rule
 

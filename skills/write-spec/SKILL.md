@@ -72,7 +72,7 @@ Read `references/defect-variant.md` when any label is `bug` — every phase swap
 
 After reading the issue in Phase 1, check whether it has the `spike` label (reuse the label result from Defect Detection — do not re-query `gh`):
 
-Read `references/spike-variant.md` when any label is `spike` — the spike variant replaces Phases 1–3 with a single Phase 0: Research that commits a gap-analysis ADR under `docs/decisions/` and ends with a Human Review Gate choosing one of three scope shapes (single-PR, umbrella+children, re-scope+redraft). Spike issues never produce `requirements.md`, `design.md`, `tasks.md`, or `feature.gherkin`.
+Read `references/spike-variant.md` when any label is `spike` — the spike variant replaces Phases 1–3 with a single Phase 0: Research that commits a gap-analysis ADR under `docs/decisions/` and ends with a Human Review Gate.
 
 **Precedence**: spike > defect. If both labels appear on the same issue (unusual — `/draft-issue` Step 2 forces one classification), load `references/spike-variant.md` and ignore the defect path.
 

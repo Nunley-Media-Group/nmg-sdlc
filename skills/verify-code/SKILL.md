@@ -70,7 +70,7 @@ If any label is `spike`, print exactly:
 Spikes don't produce code — run /open-pr to merge the research spec
 ```
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT post a verification report to the issue, do NOT call the architecture-reviewer subagent, do NOT run exercise testing. The abort fires in both interactive and unattended modes.
+Exit 0 — this is a correctness guard, not a failure. Do NOT post a verification report to the issue, do NOT call the architecture-reviewer subagent, do NOT run exercise testing. The abort fires in both modes.
 
 ### Step 2: Load Issue
 

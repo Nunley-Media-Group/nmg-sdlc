@@ -3,19 +3,7 @@
 **Consumed by**: `draft-issue` Step 6.
 **Triggering condition**: `classification === 'spike'`.
 
-Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Spike. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` from Step 4. Unlike feature and bug templates, spikes do not carry acceptance criteria — the spike deliverable is an ADR, not a working implementation.
-
-## Template Structure vs. Feature / Bug Templates
-
-| Section | Spike Template | (Feature Template) |
-|---------|----------------|--------------------|
-| Opening | Spike Summary (research goal) | User Story (As a / I want / So that) |
-| Questions | Research Questions | Background + Current State |
-| Candidates | Candidate Set (optional at draft time) | N/A |
-| Scope bound | Time-box | Out of Scope |
-| Deliverable | Expected Output Shape (ADR / umbrella / redraft) | Acceptance Criteria |
-| Protocol | Honest-Gap Protocol | N/A |
-| Exclusions | Out of Scope | Out of Scope |
+Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Spike. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` from Step 4. Spikes do not carry acceptance criteria — the deliverable is an ADR, not a working implementation.
 
 ## Template
 

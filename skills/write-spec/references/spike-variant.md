@@ -1,8 +1,6 @@
 # Spike Variant
 
-**Read this when** the issue carries the `spike` label. The spike variant replaces Phases 1–3 with a single **Phase 0: Research** that produces a committed gap-analysis ADR and ends with a Human Review Gate choosing one of three scope shapes. Spike issues never produce `requirements.md`, `design.md`, `tasks.md`, or `feature.gherkin` — the ADR is the deliverable.
-
-> **No-code invariant.** A spike's output is a decision, not a feature. `/write-code` and `/verify-code` abort on spike-labelled issues. `/open-pr` ships the ADR without bumping the version. The whole pipeline exists to produce the ADR and (optionally) decompose the work into child implementation issues.
+**Read this when** the issue carries the `spike` label. The spike variant replaces Phases 1–3 with a single **Phase 0: Research** that produces a committed gap-analysis ADR and ends with a Human Review Gate choosing one of three scope shapes.
 
 ## Detecting the variant
 
@@ -22,32 +20,29 @@ Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues)
 
 ## Phase 0 procedure
 
-Execute in order — the commit-before-HRG rule (step 10) is not optional:
+Execute in order — the commit-before-HRG rule (step 7) is not optional:
 
-1. **Invoke** `/write-spec #N`.
-2. **Label check**: `gh issue view #N --json labels --jq '.labels[].name'` — confirm the `spike` label.
-3. **Load this reference**: read `skills/write-spec/references/spike-variant.md` (this file).
-4. **Skip Spec Discovery** entirely.
-5. **Collect research context**:
+1. **Skip Spec Discovery** entirely.
+2. **Collect research context**:
    - The full issue body (Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol).
    - `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-6. **Idempotency check**: `Glob` for `docs/decisions/*-#{N}-gap-analysis.md` (or `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` when the slug is known).
-   - Match found → load the existing ADR and skip to step 12 (HRG).
-   - No match → proceed to step 7.
-7. **Invoke the researcher**: spawn `agents/spike-researcher.md` via the `Task` tool with:
+3. **Idempotency check**: `Glob` for `docs/decisions/*-#{N}-gap-analysis.md` (or `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` when the slug is known).
+   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `/write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the ADR or change the issue number before re-running.
+   - No match → proceed to step 4.
+4. **Invoke the researcher**: spawn `agents/spike-researcher.md` via the `Task` tool with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
-   - Output contract: the structured markdown block defined in `agents/spike-researcher.md` § Output (Research Goal, Candidate Set, Findings, Honest Gaps, Recommendation, Decomposition with `component-count: N`, References).
-8. **Receive the research output**.
-9. **Write the ADR**: `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` where `<slug>` is derived from the issue title. Ensure `docs/decisions/` exists (`mkdir -p docs/decisions`) before writing. Use forward slashes in paths for cross-platform compatibility.
-10. **Commit the ADR** — **this must happen BEFORE the HRG**:
+   - Output contract: the structured markdown block defined in `agents/spike-researcher.md` § Output.
+5. **Receive the research output**.
+6. **Write the ADR**: `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` where `<slug>` is derived from the issue title. Ensure `docs/decisions/` exists (`mkdir -p docs/decisions`) before writing. Use forward slashes for cross-platform compatibility.
+7. **Commit the ADR** — **this must happen BEFORE the HRG**:
     ```bash
     git add docs/decisions/
     git commit -m "docs: add gap-analysis ADR for spike #{N}"
     ```
-    The commit scope MUST be only `docs/decisions/`. Do NOT commit anything else in this step.
-11. **Push** `HEAD` so the ADR is on the remote before the user is asked to choose a scope shape.
-12. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
-13. **Emit the next-step hint**: `Next step: /open-pr #{N} to ship the ADR`.
+    The commit scope MUST be only `docs/decisions/`.
+8. **Push** `HEAD` so the ADR is on the remote before the user is asked to choose a scope shape.
+9. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
+10. **Emit the next-step hint**: `Next step: /open-pr #{N} to ship the ADR`.
 
 ## Human Review Gate menu (interactive)
 
@@ -96,12 +91,6 @@ Follow the deterministic-default gate pattern in `../../references/unattended-mo
 Unattended mode: Phase 0 HRG applied deterministic default (umbrella+children)
 Unattended mode: Phase 0 HRG applied deterministic default (single-PR)
 ```
-
-## Idempotency
-
-Re-running `/write-spec #N` on a spike issue must not duplicate the ADR. Before invoking the researcher (step 7 above), `Glob` for `docs/decisions/*-#{N}-gap-analysis.md` or `docs/decisions/*-<slug>-gap-analysis.md`. If a match exists, load the file and skip directly to the HRG (step 12) — the researcher is NOT re-invoked.
-
-Re-scoped spikes (HRG option [3]) that trigger a later `/write-spec #N` run will see the existing ADR, skip the researcher, and present the HRG using the already-committed findings. If the user wants fresh research, they should delete the ADR or change the issue number before re-running.
 
 ## No-code invariant
 

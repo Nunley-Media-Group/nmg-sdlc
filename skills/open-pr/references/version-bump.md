@@ -14,18 +14,11 @@ Before Step 2 begins, check the issue's labels:
 gh issue view #N --json labels --jq '.labels[].name'
 ```
 
-If any label is `spike`, skip Steps 2 and 3 entirely:
+If any label is `spike`, skip Steps 2 and 3 entirely — do NOT read `VERSION`, write `CHANGELOG.md`, write `plugin.json` / `marketplace.json`, or create a `chore: bump version to ...` commit.
 
-- Do NOT read `VERSION`.
-- Do NOT write `CHANGELOG.md`.
-- Do NOT write `plugin.json`, `marketplace.json`, or any other file listed in `steering/tech.md`'s versioning table.
-- Do NOT create a `chore: bump version to ...` commit.
+Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line and adds `Type: Spike research (no version bump)` in its place.
 
-Record `spike = true` in the session state so Step 4 (Generate PR Content) can adjust the PR body template — the `Version` line is omitted and replaced with `Type: Spike research (no version bump)`.
-
-**Rationale**: spike PRs ship only the ADR at `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` (and, in HRG option [1], any committed single-PR spec files). They are a research deliverable, not a release. Rolling the version for a spike would misrepresent the change in `CHANGELOG.md` and consume a semver version number that should be reserved for shipping code.
-
-The `spike → skip` rule is declared canonically in `steering/tech.md` § Versioning → Version Bump Classification (the row added by T001 of the spike-handling feature). This section operationalises that declaration by bypassing the bump steps before `tech.md`'s table is even read — the spike-skip branch fires purely on the label.
+> Rationale: spike PRs ship research (the ADR at `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md`), not a release. The `spike → skip` row in `steering/tech.md` § Version Bump Classification is the canonical declaration.
 
 ## Step 2: Determine version bump
 
