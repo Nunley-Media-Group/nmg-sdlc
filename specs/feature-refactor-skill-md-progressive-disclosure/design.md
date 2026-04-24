@@ -63,7 +63,7 @@ scripts/
 
 ```
 ┌───────────────────────────────┐
-│  Claude Code loads SKILL.md   │
+│  Codex loads SKILL.md   │
 │  (trigger + workflow skeleton)│
 └──────────┬────────────────────┘
            │
@@ -123,8 +123,8 @@ Each of the six plugin-shared references consolidates content currently duplicat
 
 | File | Consolidated from | Sketch of contents |
 |------|--------------------|---------------------|
-| `legacy-layout-gate.md` | draft-issue, start-issue, write-spec, write-code, verify-code, open-pr, onboard-project, upgrade-project | Glob check for `.claude/steering/*.md` + `.claude/specs/*/requirements.md`; abort message (reworded per FR5 — no `ERROR:` prefix required since no downstream parser depends on it); action: instruct user to run `/upgrade-project`. |
-| `unattended-mode.md` | every pipeline skill | Check for `.claude/unattended-mode` file; semantics: skip every `AskUserQuestion` gate; the invariant "interactive mode is default, unattended is opt-in"; how each gate references this file in its own flow. |
+| `legacy-layout-gate.md` | draft-issue, start-issue, write-spec, write-code, verify-code, open-pr, onboard-project, upgrade-project | file discovery check for `.codex/steering/*.md` + `.codex/specs/*/requirements.md`; abort message (reworded per FR5 — no `ERROR:` prefix required since no downstream parser depends on it); action: instruct user to run `/upgrade-project`. |
+| `unattended-mode.md` | every pipeline skill | Check for `.codex/unattended-mode` file; semantics: skip every `interactive user prompt` gate; the invariant "interactive mode is default, unattended is opt-in"; how each gate references this file in its own flow. |
 | `feature-naming.md` | draft-issue, start-issue, write-spec, verify-code, open-pr | Slug derivation rules; `feature-` vs `bug-` prefix rules; fallback discovery by issue number in `**Issues**` frontmatter; legacy `{issue#}-{slug}/` support. |
 | `versioning.md` | open-pr, draft-issue | Plugin version bump matrix (label → bump type); major-bump opt-in (`--major`); dual-file update (plugin.json + marketplace.json); CHANGELOG conventions including `### Changed (BREAKING)` + `### Migration Notes`. |
 | `steering-schema.md` | onboard-project, write-spec, verify-code, open-pr | Roster of steering docs (product.md, tech.md, structure.md, retrospective.md); the purpose and read-timing of each; how skills discover and read them. |
@@ -273,7 +273,7 @@ Together these mechanisms make silent content loss require active, deliberate su
 
 ## Exercise Testing Approach (satisfies AC2)
 
-AC2 demands that each refactored skill produce the same artifacts as before when exercised against a fixture. Fixtures live at `scripts/__fixtures__/skill-exercise/` (new directory) and the runner at `scripts/skill-exercise-runner.mjs` (new, zero-dependency) spawns `claude -p --plugin-dir ./plugins/nmg-sdlc --project-dir <fixture>` via the Agent SDK pattern already documented in `steering/tech.md`.
+AC2 demands that each refactored skill produce the same artifacts as before when exercised against a fixture. Fixtures live at `scripts/__fixtures__/skill-exercise/` (new directory) and the runner at `scripts/skill-exercise-runner.mjs` (new, zero-dependency) spawns `codex exec --cd <fixture>` via the Agent SDK pattern already documented in `steering/tech.md`.
 
 For each refactored skill:
 
@@ -284,44 +284,44 @@ For each refactored skill:
    - **Deterministic artifacts** (file paths, structural fields, frontmatter, slash-command enumeration): byte-equivalent check.
    - **Model-authored prose** (issue bodies, spec content): graded against a rubric stored at `scripts/__fixtures__/skill-exercise/rubrics/{skill}.md` — same rubric the `/verify-code` pipeline already uses for plugin-scoped skills.
 
-Skills using `AskUserQuestion` use the `canUseTool` callback to auto-select the first option (per `steering/tech.md` → "Automated Exercise Testing via Agent SDK"), keeping runs deterministic.
+Skills using `interactive user prompt` use the `canUseTool` callback to auto-select the first option (per `steering/tech.md` → "Automated Exercise Testing via Agent SDK"), keeping runs deterministic.
 
 ---
 
-## Claude Code GitHub App Integration (satisfies AC10 + FR14)
+## Codex GitHub App Integration (satisfies AC10 + FR14)
 
-The Claude Code GitHub App is already installed org-wide on Nunley-Media-Group with access to this repo; the remaining work is a repo-level workflow that invokes the official action on every PR.
+The Codex GitHub App is already installed org-wide on Nunley-Media-Group with access to this repo; the remaining work is a repo-level workflow that invokes the official action on every PR.
 
 ### Workflow
 
-- File: `.github/workflows/claude-review.yml`
-- Action: `anthropics/claude-code-action@v1`
+- File: `.github/workflows/codex-review.yml`
+- Action: `openai/codex-action@v1`
 - Triggers:
   - `pull_request`: `opened`, `synchronize` — automatic review on every PR and on every push to an open PR.
-  - `issue_comment`: `created` — with a `contains(github.event.comment.body, '@claude')` condition so Claude responds to explicit mentions in PR/issue threads.
+  - `issue_comment`: `created` — with a `contains(github.event.comment.body, '@codex')` condition so Codex responds to explicit mentions in PR/issue threads.
 - Permissions: `contents: read`, `pull-requests: write`, `issues: write`.
-- Secrets: `ANTHROPIC_API_KEY` at the org level (already provisioned alongside the app). No repo-level secret configuration required.
-- Concurrency: `group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}`, `cancel-in-progress: true` — coalesces rapid pushes into a single review run to contain cost.
+- Secrets: `OPENAI_API_KEY` at the org level (already provisioned alongside the app). No repo-level secret configuration required.
+- Concurrency: `group: codex-review-${{ github.event.pull_request.number || github.event.issue.number }}`, `cancel-in-progress: true` — coalesces rapid pushes into a single review run to contain cost.
 
-### Context Claude Reads
+### Context Codex Reads
 
-The action picks up `CLAUDE.md` at the project root automatically. No additional configuration is needed to steer reviews toward the plugin's conventions — `CLAUDE.md` already documents the version-bump matrix, commit style, README-sync rule, and spec-commitment rule.
+The action picks up `AGENTS.md` at the project root automatically. No additional configuration is needed to steer reviews toward the plugin's conventions — `AGENTS.md` already documents the version-bump matrix, commit style, README-sync rule, and spec-commitment rule.
 
 ### Required-Pass Gate
 
-Both the audit workflow and the Claude review workflow are declared **required status checks** on `main`. A failing Claude review blocks merge — it is not advisory. The workflows are still functionally decoupled (a broken audit does not suppress Claude's review, and vice versa) but both must report `success` before merge.
+Both the audit workflow and the Codex review workflow are declared **required status checks** on `main`. A failing Codex review blocks merge — it is not advisory. The workflows are still functionally decoupled (a broken audit does not suppress Codex's review, and vice versa) but both must report `success` before merge.
 
 The job is wired to fail on `REQUEST_CHANGES`:
 
-- `anthropics/claude-code-action@v1` emits a review verdict; the workflow maps `APPROVE` / `COMMENT` (without blocking findings) to exit code 0 and `REQUEST_CHANGES` to a non-zero exit.
-- A subsequent push that triggers a passing review flips the check back to `success` via the `pull_request: synchronize` event. No manual override is introduced — the gate clears only when Claude posts a passing review against the current HEAD.
+- `openai/codex-action@v1` emits a review verdict; the workflow maps `APPROVE` / `COMMENT` (without blocking findings) to exit code 0 and `REQUEST_CHANGES` to a non-zero exit.
+- A subsequent push that triggers a passing review flips the check back to `success` via the `pull_request: synchronize` event. No manual override is introduced — the gate clears only when Codex posts a passing review against the current HEAD.
 
 ### Verdict-To-Exit-Code Mapping
 
-The action by default does not fail the job on `REQUEST_CHANGES`. The workflow adds an explicit post-step that reads the action's output (or the latest PR review by the Claude bot user) and fails when the verdict is `REQUEST_CHANGES`:
+The action by default does not fail the job on `REQUEST_CHANGES`. The workflow adds an explicit post-step that reads the action's output (or the latest PR review by the Codex bot user) and fails when the verdict is `REQUEST_CHANGES`:
 
 ```yaml
-- name: Enforce Claude review verdict
+- name: Enforce Codex review verdict
   if: github.event_name == 'pull_request'
   env:
     GH_TOKEN: ${{ github.token }}
@@ -329,14 +329,14 @@ The action by default does not fail the job on `REQUEST_CHANGES`. The workflow a
   run: |
     verdict=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
       --jq '[.[] | select(.user.type == "Bot")] | last | .state')
-    echo "Claude review verdict: ${verdict:-none}"
+    echo "Codex review verdict: ${verdict:-none}"
     if [ "$verdict" = "CHANGES_REQUESTED" ]; then
-      echo "::error::Claude requested changes — blocking merge until a passing review is posted."
+      echo "::error::Codex requested changes — blocking merge until a passing review is posted."
       exit 1
     fi
 ```
 
-Issue-comment (`@claude`) runs are not gated — those are ad-hoc interactions rather than PR-level reviews. The enforce-verdict step's `if:` condition scopes it to `pull_request` events only.
+Issue-comment (`@codex`) runs are not gated — those are ad-hoc interactions rather than PR-level reviews. The enforce-verdict step's `if:` condition scopes it to `pull_request` events only.
 
 ---
 
@@ -346,7 +346,7 @@ Four PRs in strict order, each independently mergeable and reverting cleanly. Th
 
 | Phase | Child Issue | Depends On | Summary |
 |-------|-------------|------------|---------|
-| **1** | #145 | — | Additive infrastructure: create `plugins/nmg-sdlc/references/` with the 6 shared files; add `scripts/skill-inventory-audit.mjs` + baseline + canary fixtures + CI workflow (required-check) + `/verify-code` integration + `.github/workflows/claude-review.yml` (AC10/FR14). **No SKILL.md edits yet** — audit baseline captures the pre-refactor state. *Gates*: runner tests pass; audit `--check` reports zero drift; canary fixture test passes; `/verify-code` invokes audit on a sample skill edit; Claude Code review posts on PR 1 itself (self-dogfood). |
+| **1** | #145 | — | Additive infrastructure: create `plugins/nmg-sdlc/references/` with the 6 shared files; add `scripts/skill-inventory-audit.mjs` + baseline + canary fixtures + CI workflow (required-check) + `/verify-code` integration + `.github/workflows/codex-review.yml` (AC10/FR14). **No SKILL.md edits yet** — audit baseline captures the pre-refactor state. *Gates*: runner tests pass; audit `--check` reports zero drift; canary fixture test passes; `/verify-code` invokes audit on a sample skill edit; Codex review posts on PR 1 itself (self-dogfood). |
 | **2** | #146 | #145 | `draft-issue` pilot — migrate the biggest skill first and validate the pattern before touching others. Adds per-skill `references/` and updates pointers. *Gates*: AC1 met for `draft-issue`; exercise test against fixture; audit `--check` passes with updated baseline. |
 | **3** | #147 | #146 | Bulk refactor: `write-spec` + `onboard-project` + `upgrade-project`. Apply lessons from PR 2. *Gates*: AC1 met for all three; exercise tests pass; audit clean. |
 | **4** | #148 | #147 | Remainder: `start-issue`, `verify-code`, `run-retro`, `open-pr`, `write-code`. *Gates*: every skill at target; full audit clean; `steering/structure.md` updated (FR12); version bump to 1.53.0 (FR9); CHANGELOG entry. |
@@ -424,8 +424,8 @@ None — both Phase-1 open questions were resolved and codified in requirements.
 | Issue | Date | Summary |
 |-------|------|---------|
 | #138 | 2026-04-19 | Initial design |
-| #145 | 2026-04-19 | Phase 1 child — additive infrastructure. No design changes; scope is the PR 1 slice of the Multi-PR Rollout (shared `references/` scaffold, audit script + CI, Claude review workflow). Also renamed `## Rollout Plan` → `## Multi-PR Rollout` and restructured its table to the epic-template Delivery Phases schema (`Phase \| Child Issue \| Depends On \| Summary`) populated with #145–#148 and their dependency chain, to conform to the epic-support contract introduced in #149. |
-| #145 | 2026-04-19 | Replaced "Scope Boundary" section with "Required-Pass Gate" + "Verdict-To-Exit-Code Mapping" — the Claude review is now a required status check that blocks merge on REQUEST_CHANGES rather than an advisory comment. Added the enforce-verdict workflow step spec. |
+| #145 | 2026-04-19 | Phase 1 child — additive infrastructure. No design changes; scope is the PR 1 slice of the Multi-PR Rollout (shared `references/` scaffold, audit script + CI, Codex review workflow). Also renamed `## Rollout Plan` → `## Multi-PR Rollout` and restructured its table to the epic-template Delivery Phases schema (`Phase \| Child Issue \| Depends On \| Summary`) populated with #145–#148 and their dependency chain, to conform to the epic-support contract introduced in #149. |
+| #145 | 2026-04-19 | Replaced "Scope Boundary" section with "Required-Pass Gate" + "Verdict-To-Exit-Code Mapping" — the Codex review is now a required status check that blocks merge on REQUEST_CHANGES rather than an advisory comment. Added the enforce-verdict workflow step spec. |
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. No design changes; the pilot scope was already captured in the Per-Skill Reference Extractions table (draft-issue row: `multi-issue.md`, `design-url.md`, `interview-depth.md`, `feature-template.md`, `bug-template.md`; ceiling ≤ 300) and in the Multi-PR Rollout (PR 2 row). This child issue validates the extraction pattern on the largest skill before Phases 3–4 fire. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (write-spec → `discovery.md`, `amendment-mode.md`, `defect-variant.md`, `review-gates.md`; onboard-project → `greenfield.md`, `brownfield.md`, `interview.md`; upgrade-project → `detection.md`, `migration-steps.md`, `verification.md`) and in the Multi-PR Rollout (PR 3 row). Applies the pilot pattern established in #146. |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of the five smallest-delta skills plus release. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (start-issue → `dirty-tree.md`, `milestone-selection.md`; verify-code → `exercise-testing.md` [exists], `autofix-loop.md`, `defect-path.md`; run-retro → `learning-extraction.md`, `transferability.md`; open-pr → `version-bump.md`, `ci-monitoring.md`; write-code → `plan-mode.md`, `resumption.md`) and in the Multi-PR Rollout (PR 4 row). verify-code additionally migrates its existing `[text](path)` pointers to the AC7 grammar per the "Pointer Grammar" section. `steering/structure.md` gains the `references/` layer (FR12); plugin version bumps to 1.53.0 (FR9). Applies the pilot pattern established in #146; shared-reference scaffolding inherited from #145 (T001). |

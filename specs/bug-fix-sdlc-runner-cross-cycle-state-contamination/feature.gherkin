@@ -6,7 +6,7 @@
 
 @regression
 Feature: SDLC runner cross-cycle state contamination fix
-  The extractStateFromStep function previously used a regex on Claude's
+  The extractStateFromStep function previously used a regex on Codex's
   JSON output to extract the selected issue number, which matched stale
   issue references from prior cycles. The working tree was also not cleaned
   between cycles, allowing file carryover. This was fixed by extracting
@@ -17,7 +17,7 @@ Feature: SDLC runner cross-cycle state contamination fix
 
   @regression
   Scenario: Issue number is extracted from branch name, not conversation output
-    Given the SDLC runner completes step 2 and the Claude session selected issue #122
+    Given the SDLC runner completes step 2 and the Codex session selected issue #122
     And the step 2 JSON output contains references to previously-completed issue #121
     And the current git branch is "122-fix-tabs-activate-list-sync"
     When extractStateFromStep parses the step 2 result

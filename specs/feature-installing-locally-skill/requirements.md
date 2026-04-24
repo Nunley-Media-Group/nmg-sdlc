@@ -3,21 +3,21 @@
 **Issues**: #15
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
 ## User Story
 
 **As a** plugin developer or user,
-**I want** a one-command skill that installs all marketplace plugins to my local Claude Code configuration,
+**I want** a one-command skill that installs all marketplace plugins to my local Codex configuration,
 **So that** I can use or test the latest plugin versions without manually copying files.
 
 ---
 
 ## Background
 
-The `/installing-locally` skill is a repo-level utility (in `.claude/skills/`, not part of any individual plugin) that installs all plugins from the marketplace to the user's local `~/.claude/plugins/` directory. It reads the marketplace index to discover available plugins, copies their skills, hooks, and agents to the appropriate local directories, and handles any necessary cleanup of stale files.
+The `/installing-locally` skill is a repo-level utility (in `.codex/skills/`, not part of any individual plugin) that installs all plugins from the marketplace to the user's local `~/.codex/plugins/` directory. It reads the marketplace index to discover available plugins, copies their skills, hooks, and agents to the appropriate local directories, and handles any necessary cleanup of stale files.
 
 ---
 
@@ -27,7 +27,7 @@ The `/installing-locally` skill is a repo-level utility (in `.claude/skills/`, n
 
 **Given** I invoke `/installing-locally` in the nmg-plugins repo
 **When** the skill completes
-**Then** all plugins listed in `marketplace.json` are installed to `~/.claude/plugins/`
+**Then** all plugins listed in `marketplace.json` are installed to `~/.codex/plugins/`
 
 ### AC2: Skills, Hooks, and Agents Are Copied
 
@@ -42,8 +42,8 @@ The `/installing-locally` skill is a repo-level utility (in `.claude/skills/`, n
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
 | FR1 | Read marketplace index to discover plugins | Must | From marketplace.json |
-| FR2 | Copy plugin skills, hooks, and agents to `~/.claude/plugins/` | Must | Via rsync |
-| FR5 | Available as a repo-level skill (not part of any plugin) | Must | In `.claude/skills/` |
+| FR2 | Copy plugin skills, hooks, and agents to `~/.codex/plugins/` | Must | Via rsync |
+| FR5 | Available as a repo-level skill (not part of any plugin) | Must | In `.codex/skills/` |
 
 ---
 

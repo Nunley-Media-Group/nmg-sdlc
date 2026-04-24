@@ -10,9 +10,9 @@ Process findings in severity order: **Critical → High → Medium → Low**.
 
 For each finding:
 
-1. Locate the relevant code via `Glob` / `Grep`.
+1. Locate the relevant code via file discovery / text search.
 2. **Classify the finding** using the SKILL-BUNDLED FILE DETECTOR below — does this finding touch a skill-bundled file?
-3. If skill-bundled, route the fix through `/skill-creator` per the Skill-Creator Probe Contract below. Otherwise, apply the fix using `Write` or `Edit` directly.
+3. If skill-bundled, route the fix through `/skill-creator` per the Skill-Creator Probe Contract below. Otherwise, apply the fix using normal Codex editing.
 4. Verify the fix addresses the finding.
 5. Record: original issue, location, fix applied, and routing path (`skill-creator` vs. `direct`) in the Fixes Applied table.
 
@@ -24,23 +24,23 @@ A finding is classified as **skill-bundled** when ANY of the following signals i
   - `**/skills/*/SKILL.md`
   - `**/skills/*/references/**`, `**/skills/*/scripts/**`, `**/skills/*/templates/**`, `**/skills/*/checklists/**`, `**/skills/*/assets/**`
   - `references/**` at the plugin or repo root (cross-skill shared references)
-  - `**/agents/*.md` (per-plugin subagent definitions invoked by skills)
+  - `**/agents/*.md` (plugin prompt contracts consumed by skills)
 - **Description signals** — the finding summary, issue title, or issue body contains `skill`, `SKILL.md`, `skill definition`, `skill reference`, or `skill bundle` (case-insensitive, word-boundary match — `skills` matches, `skillet` does not).
 
-Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill-bundled findings skip the probe entirely and are fixed with direct `Write` / `Edit`.
+Detection is deliberately conservative — any single signal triggers routing (false-positive preferred over false-negative). Non-skill-bundled findings skip the probe entirely and are fixed with direct Codex editing.
 
 ### Skill-Creator Probe Contract
 
 1. **Probe for availability** — treat the `skill-creator` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.codex/skills/skill-creator/SKILL.md`
-   - `Glob` finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
+   - file discovery finds `~/.codex/skills/skill-creator/SKILL.md`
+   - file discovery finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
-2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the file — never `Write` / `Edit` a skill-bundled file directly.
+2. **If available**: invoke `/skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `/skill-creator` update the file — never edit a skill-bundled file directly.
 3. **If unavailable**: there is no hand-edit fallback — skill-bundled files must route through `/skill-creator`.
    - **Interactive mode**: surface the missing dependency to the user — `/skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run /verify-code.` Stop the workflow.
    - **Unattended mode**: emit `ESCALATION: /skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not an `request_user_input` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not an interactive user prompt gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
@@ -53,8 +53,8 @@ If at least one fix was applied in 6a AND the `simplify` marketplace skill is av
 ### Simplify-Skill Probe Contract
 
 1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - `Glob` finds `~/.codex/skills/simplify/SKILL.md`
-   - `Glob` finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
+   - file discovery finds `~/.codex/skills/simplify/SKILL.md`
+   - file discovery finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
 2. **If available**: invoke `/simplify` on the files touched by fixes in 6a. Apply any returned changes before proceeding to 6b.
 3. **If unavailable**: emit the warning verbatim:
@@ -67,7 +67,7 @@ If at least one fix was applied in 6a AND the `simplify` marketplace skill is av
 
 If the `simplify` skill is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an `request_user_input` gate.
+Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not an interactive user prompt gate.
 
 ## 6b. Run Tests After Fixes
 

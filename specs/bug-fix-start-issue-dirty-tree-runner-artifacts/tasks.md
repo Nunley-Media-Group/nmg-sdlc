@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-26
 **Status**: Complete
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -36,7 +36,7 @@
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [x] Step 4 precondition instructs filtering `.claude/sdlc-state.json` and `.claude/unattended-mode` from `git status --porcelain` output
+- [x] Step 4 precondition instructs filtering `.codex/sdlc-state.json` and `.codex/unattended-mode` from `git status --porcelain` output
 - [x] Filtering happens before the clean/dirty evaluation
 - [x] Real dirty files (source code, config, etc.) still trigger the abort
 

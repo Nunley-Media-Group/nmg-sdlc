@@ -9,7 +9,7 @@ Feature: Unattended Mode Support
   So that the full workflow can be driven by external agents without human intervention
 
   Scenario: Unattended-mode flag enables headless operation
-    Given ".claude/unattended-mode" exists in the project
+    Given ".codex/unattended-mode" exists in the project
     When any SDLC skill is invoked
     Then it operates without interactive prompts or human review gates
 
@@ -41,7 +41,7 @@ Feature: Unattended Mode Support
   # Added by issue #71
   Scenario: Creating-issues asks automatable question in interactive mode
     Given a user is running "/draft-issue" in interactive mode
-    And ".claude/unattended-mode" does not exist
+    And ".codex/unattended-mode" does not exist
     When the issue draft is being prepared during the interview phase
     Then the user is asked "Is this issue suitable for automation?" with Yes and No options
 
@@ -104,38 +104,38 @@ Feature: Unattended Mode Support
   Scenario: Runner creates and cleans up the renamed flag
     Given the SDLC runner starts a cycle
     When it creates the headless-execution flag
-    Then the file created is ".claude/unattended-mode"
-    And on exit the runner removes ".claude/unattended-mode"
-    And the file ".claude/auto-mode" is neither created nor read
+    Then the file created is ".codex/unattended-mode"
+    And on exit the runner removes ".codex/unattended-mode"
+    And the file ".codex/auto-mode" is neither created nor read
 
   # Added by issue #118
   Scenario: Skills gate on the renamed flag
     Given a user invokes any SDLC skill with interactive gates
     When the skill reaches a point that checks for the headless-mode flag
-    Then it checks ".claude/unattended-mode" (not ".claude/auto-mode")
+    Then it checks ".codex/unattended-mode" (not ".codex/auto-mode")
     And its behavior is unchanged relative to the pre-rename implementation
 
   # Added by issue #118
-  Scenario: Claude Code Auto Mode alone does not suppress plugin gates
-    Given Claude Code's native "Auto Mode" is active
+  Scenario: Codex Auto Mode alone does not suppress plugin gates
+    Given Codex's native "Auto Mode" is active
     And the system-reminder "Auto mode is active" is present in the session
-    And ".claude/unattended-mode" does not exist
+    And ".codex/unattended-mode" does not exist
     When a user invokes "/draft-issue" or "/write-spec"
-    Then the skill calls AskUserQuestion at every documented human-review gate
-    And does not suppress interactive review based on Claude Code's Auto Mode alone
+    Then the skill calls interactive prompt at every documented human-review gate
+    And does not suppress interactive review based on Codex's Auto Mode alone
 
   # Added by issue #118
   Scenario: README and steering docs reference the new term
     Given a user reads "README.md" or "steering/product.md"
     When they look for automation-mode documentation
-    Then all references use "unattended-mode" or ".claude/unattended-mode"
-    And a disambiguation note contrasts the plugin's flag with Claude Code's native Auto Mode
+    Then all references use "unattended-mode" or ".codex/unattended-mode"
+    And a disambiguation note contrasts the plugin's flag with Codex's native Auto Mode
 
   # Added by issue #118
   Scenario: Historical spec bodies reference the new term
     Given a historical spec directory exists with the legacy name
     When the rename is applied
-    Then the spec body text references "unattended-mode" or ".claude/unattended-mode"
+    Then the spec body text references "unattended-mode" or ".codex/unattended-mode"
     And the directory name itself is preserved (historical identifier)
     And git history preserves the original wording
 
@@ -144,36 +144,36 @@ Feature: Unattended Mode Support
     Given the change is merged to main
     When a user reads "CHANGELOG.md"
     Then an "[Unreleased]" entry documents the rename
-    And the entry states the motivation (disambiguation from Claude Code's native Auto Mode)
-    And the entry includes migration guidance for users who manually created ".claude/auto-mode"
+    And the entry states the motivation (disambiguation from Codex's native Auto Mode)
+    And the entry includes migration guidance for users who manually created ".codex/auto-mode"
 
   # Added by issue #118
   Scenario: Runner tests pass after the rename
     Given the rename has been applied to "scripts/sdlc-runner.mjs" and its test suite
     When "node --test scripts/__tests__/sdlc-runner.test.mjs" is executed
     Then the test suite exits with code 0
-    And all test expectations reference ".claude/unattended-mode"
+    And all test expectations reference ".codex/unattended-mode"
 
   # Added by issue #118
   Scenario: Headless flow works identically under the new name
-    Given a user manually creates ".claude/unattended-mode"
+    Given a user manually creates ".codex/unattended-mode"
     When they invoke "/write-spec" or "/write-code"
-    Then the skill behaves identically to the pre-rename ".claude/auto-mode" behavior
+    Then the skill behaves identically to the pre-rename ".codex/auto-mode" behavior
     And headless review gates are suppressed
     And specs or code are generated without interactive prompts
 
   # Added by issue #118
-  Scenario: Claude Code Auto Mode plus unattended-mode suppresses gates as expected
-    Given Claude Code's native "Auto Mode" is active
-    And ".claude/unattended-mode" also exists in the project
+  Scenario: Codex Auto Mode plus unattended-mode suppresses gates as expected
+    Given Codex's native "Auto Mode" is active
+    And ".codex/unattended-mode" also exists in the project
     When a user invokes any SDLC skill with human-review gates
     Then the skill suppresses interactive gates as documented
-    And the suppression is driven by ".claude/unattended-mode", not by Claude Code's Auto Mode
+    And the suppression is driven by ".codex/unattended-mode", not by Codex's Auto Mode
 
   # Added by issue #118
   Scenario: Old flag name has no effect after the rename
-    Given a user manually creates ".claude/auto-mode" in a project after this rename is merged
-    And ".claude/unattended-mode" does not exist
+    Given a user manually creates ".codex/auto-mode" in a project after this rename is merged
+    And ".codex/unattended-mode" does not exist
     When any SDLC skill or the runner executes
     Then the old flag is ignored
     And interactive gates run normally

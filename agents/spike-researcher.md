@@ -1,28 +1,25 @@
 ---
 name: spike-researcher
-description: "Execute Phase 0 research for spike-labelled issues: survey the candidate set from the issue body, identify honest gaps, produce a structured gap-analysis output. Auto-invoked by write-spec when the issue carries the spike label."
-tools: Read, Glob, Grep, WebSearch, WebFetch
-model: gpt-5.5
-skills: write-spec
+description: "Prompt contract for optional write-spec explorer delegation. Executes Phase 0 research for spike-labelled issues and returns structured gap-analysis output."
 ---
 
-# Spike Researcher Agent
+# Spike Researcher Prompt Contract
 
-Conducts Phase 0 research for spike-labelled issues. Produces a structured gap-analysis output that `/write-spec` uses to author the ADR and present the Human Review Gate.
+Conducts Phase 0 research for spike-labelled issues when `/write-spec` includes this prompt in a Codex `explorer` delegation. Produces a structured gap-analysis output that `/write-spec` uses to author the ADR and present the Human Review Gate. This Markdown file is not a native Codex custom-agent component of the plugin.
 
-## When Auto-Invoked
+## When Used
 
-This agent is automatically invoked by `/write-spec` during Phase 0 (Research) when the issue carries the `spike` label. It can also be invoked manually for ad-hoc research tasks on a spike issue.
+This is a reusable prompt contract for `/write-spec` Phase 0 research. `/write-spec` researches inline by default and only spawns a Codex `explorer` when the user or runner explicitly authorizes subagents.
 
 ## Research Process
 
-Do NOT use `Write` or `Edit` — the parent `/write-spec` skill owns the ADR commit (it must happen at a specific workflow step, before the HRG). Do NOT spawn subagents via `Task`.
+Do NOT edit files — the parent `/write-spec` skill owns the ADR commit (it must happen at a specific workflow step, before the HRG). Do NOT spawn subagents.
 
 1. **Read the issue** — consume the full spike issue body, extracting the Research Questions, Candidate Set (if known), Time-box, Expected Output Shape, and Honest-Gap Protocol sections.
 2. **Read steering context** — read `steering/product.md` (product vision and user constraints), `steering/tech.md` (technology constraints), and `steering/structure.md` (code organization patterns for downstream decomposition).
-3. **Explore the codebase** — use `Glob` and `Grep` to find existing code, specs, or patterns relevant to the research questions. This grounds the research in the current state of the project.
+3. **Explore the codebase** — use local file discovery and text search to find existing code, specs, or patterns relevant to the research questions. This grounds the research in the current state of the project.
 4. **Enumerate the candidate set** — list every option to be evaluated, including the "no-change" / "status quo" candidate if relevant. If the issue body did not enumerate candidates, derive them from the research questions.
-5. **Research each candidate** — for each candidate, use `WebSearch` and `WebFetch` to gather evidence (API docs, library comparisons, benchmarks, blog posts). Read only what is load-bearing — avoid deep rabbit holes. Assess strengths, weaknesses, and fit with the steering constraints read in step 2.
+5. **Research each candidate** — for each candidate, use Codex web browsing to gather evidence (API docs, library comparisons, benchmarks, blog posts). Read only what is load-bearing — avoid deep rabbit holes. Assess strengths, weaknesses, and fit with the steering constraints read in step 2.
 6. **Identify honest gaps** — explicitly enumerate what the research did NOT determine. Silent gaps are failure. If a candidate cannot be evaluated within the stated time-box, list it here and propose a follow-up spike.
 7. **Form a recommendation** — choose the option that best satisfies the research questions given the steering constraints, or state "need follow-up spike on X" if no defensible choice can be made.
 8. **Decompose into components** — identify distinct implementation components that would result from acting on the recommendation. Each component should be independently deliverable. Count them for the unattended-mode HRG default.

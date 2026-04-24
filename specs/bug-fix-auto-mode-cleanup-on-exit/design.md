@@ -3,15 +3,15 @@
 **Issue**: #17
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The SDLC runner creates `.claude/unattended-mode` at startup (line ~1004) to signal skills that they should operate in headless mode. However, none of the five exit paths in the runner delete this file before exiting. The code is aware of the file — `RUNNER_ARTIFACTS` at line 359 lists `'.claude/unattended-mode'` for git exclusion purposes — but no cleanup logic was ever implemented.
+The SDLC runner creates `.codex/unattended-mode` at startup (line ~1004) to signal skills that they should operate in headless mode. However, none of the five exit paths in the runner delete this file before exiting. The code is aware of the file — `RUNNER_ARTIFACTS` at line 359 lists `'.codex/unattended-mode'` for git exclusion purposes — but no cleanup logic was ever implemented.
 
-The unattended-mode file path is constructed inline at the creation site (`path.join(PROJECT_PATH, '.claude', 'unattended-mode')`) and is not stored in a reusable variable or associated with any teardown logic. Each exit path (signal handler, escalation, no-more-issues, fatal crash, single-step) was written independently without a shared cleanup routine, so the omission was replicated across all of them.
+The unattended-mode file path is constructed inline at the creation site (`path.join(PROJECT_PATH, '.codex', 'unattended-mode')`) and is not stored in a reusable variable or associated with any teardown logic. Each exit path (signal handler, escalation, no-more-issues, fatal crash, single-step) was written independently without a shared cleanup routine, so the omission was replicated across all of them.
 
 The consequence is that after any runner exit, the flag file persists. Every SDLC skill checks for this file's existence to decide whether to skip interactive prompts — so all subsequent manual usage silently loses interactivity until the user manually discovers and deletes the file.
 

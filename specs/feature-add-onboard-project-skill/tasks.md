@@ -3,7 +3,7 @@
 **Issues**: #115, #124, #98
 **Date**: 2026-04-23
 **Status**: Amended
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -33,7 +33,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Directory `plugins/nmg-sdlc/skills/onboard-project/` exists
-- [ ] `SKILL.md` created with YAML frontmatter matching the spec in `design.md` (name, description, disable-model-invocation, allowed-tools, argument-hint)
+- [ ] `SKILL.md` created with YAML frontmatter matching the spec in `design.md` (name, description, minimal Codex frontmatter, workflow instructions, usage hint)
 - [ ] Frontmatter `description` includes the trigger phrases from the issue ("onboard project", "bootstrap project", "initialize project", "adopt nmg-sdlc", "reconcile specs from history")
 - [ ] File parses as valid Markdown with YAML frontmatter (verify with a quick `Read`)
 
@@ -46,9 +46,9 @@
 **Depends**: T001
 **Acceptance**:
 - [ ] `## When to Use` section added with trigger conditions from the issue
-- [ ] `## Prerequisites` section added: `gh` CLI authenticated, git-initialized repo, Claude Code ≥ current plugin version
+- [ ] `## Prerequisites` section added: `gh` CLI authenticated, git-initialized repo, Codex ≥ current plugin version
 - [ ] `## Mode Detection Matrix` section added, reproducing the decision table from `design.md`
-- [ ] Legacy-layout precondition block added — abort if `.claude/steering/` or `.claude/specs/*/requirements.md` exist, matching the pattern in `/write-spec` and `/setup-steering`
+- [ ] Legacy-layout precondition block added — abort if `.codex/steering/` or `.codex/specs/*/requirements.md` exist, matching the pattern in `/write-spec` and `/setup-steering`
 - [ ] `## Unattended Mode` section added explaining which gates are auto-decided and which decisions are logged in the summary
 
 ---
@@ -61,7 +61,7 @@
 **Type**: Modify
 **Depends**: T002
 **Acceptance**:
-- [ ] Step 0 instructs Claude to run `Glob` for `.claude/steering/*.md` and `.claude/specs/*/requirements.md`; abort with the shared error message if either matches
+- [ ] Step 0 instructs Codex to run `Glob` for `.codex/steering/*.md` and `.codex/specs/*/requirements.md`; abort with the shared error message if either matches
 - [ ] Step 1 enumerates the four detection inputs (steering/, specs/, source-file count excluding scaffold allowlist, `gh issue list --state closed --limit 1`)
 - [ ] Step 1 classifies the result per the Mode Detection Matrix and stores the mode + evidence for the summary
 - [ ] Step 1 prints the detected mode and evidence to the user before continuing (per UI/UX requirement)
@@ -74,9 +74,9 @@
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] Step 2G instructs Claude to delegate to `/setup-steering` and wait for completion
+- [ ] Step 2G instructs Codex to delegate to `/setup-steering` and wait for completion
 - [ ] After delegation returns, Step 2G verifies `steering/product.md`, `steering/tech.md`, `steering/structure.md` all exist — if any are missing, recorded as a gap and the run aborts
-- [ ] Step 3G prompts the user via `AskUserQuestion` to invoke `/init-config` (guarded by unattended-mode check — in unattended mode, auto-yes)
+- [ ] Step 3G prompts the user via `interactive prompt` to invoke `/init-config` (guarded by unattended-mode check — in unattended mode, auto-yes)
 - [ ] After Step 3G, the skill jumps to Step 5 (Summary) — greenfield does not reconcile specs
 - [ ] "Ready for `/draft-issue`" is the explicit completion state messaged to the user
 
@@ -115,7 +115,7 @@
 - [ ] Issues closed as `duplicate`, `wontfix`, or `not-planned` are skipped with a note in the summary (Out of Scope item)
 - [ ] Issues without a merged PR degrade per AC10 — spec is emitted with a `## Known Gaps` section; run continues
 - [ ] Consolidation grouping: shared-label grouping AND Jaccard overlap ≥ 0.3 on title tokens after stop-word filter
-- [ ] Consolidation confirmation via `AskUserQuestion` (auto-accept in unattended mode, decision logged for summary)
+- [ ] Consolidation confirmation via `interactive prompt` (auto-accept in unattended mode, decision logged for summary)
 - [ ] Slugification uses strict allowlist `[a-z0-9-]` with length ≤ 60 chars — addresses the security consideration
 - [ ] Per-spec synthesis writes all four files (requirements.md, design.md, tasks.md, feature.gherkin) using the templates read in T006
 - [ ] `design.md` includes an "Evidence Sources" section listing which of {issue body, PR body, PR diff, commit messages, current code} contributed to each major section (AC9)
@@ -157,12 +157,12 @@
 
 ### T010: Register Skill in plugin.json and Bump Version
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] `plugins/nmg-sdlc/.claude-plugin/plugin.json` `version` bumped one **minor** level (per tech.md — `enhancement` label → minor)
-- [ ] `.claude-plugin/marketplace.json` plugin entry `version` matches `plugin.json` — invariant per CLAUDE.md and the Architectural Invariants table
+- [ ] `plugins/nmg-sdlc/.codex-plugin/plugin.json` `version` bumped one **minor** level (per tech.md — `enhancement` label → minor)
+- [ ] `.codex-plugin/marketplace.json` plugin entry `version` matches `plugin.json` — invariant per AGENTS.md and the Architectural Invariants table
 - [ ] If the issue is the last open in its milestone, bump is **major** instead per `tech.md` version-bump classification — verify via `gh issue list --milestone <name> --state open`
 - [ ] `marketplace.json` `metadata.version` is NOT bumped (collection version, not plugin version)
 
@@ -183,7 +183,7 @@
 
 **Every acceptance criterion MUST have a Gherkin test.**
 
-This project uses exercise-based verification (per `tech.md`). BDD scenarios here serve as design artifacts and verification criteria for exercise testing via Agent SDK / Promptfoo / `claude -p` smoke tests.
+This project uses exercise-based verification (per `tech.md`). BDD scenarios here serve as design artifacts and verification criteria for exercise testing via Agent SDK / Promptfoo / `codex exec --cd` smoke tests.
 
 ### T012: Create feature.gherkin With All 11 AC Scenarios
 
@@ -206,7 +206,7 @@ This project uses exercise-based verification (per `tech.md`). BDD scenarios her
 - [ ] Fixture A (greenfield, empty repo) — `/onboard-project` routes to Step 2G, delegates to `/setup-steering`, offers `/init-config`, reports ready for `/draft-issue`
 - [ ] Fixture B (brownfield, 3 closed issues — 1 bug, 1 feature with merged PR, 1 feature with no merged PR) — skill produces: 1 `bug-*/` dir (defect template), 1 `feature-*/` dir (feature template), 1 `feature-*/` dir with `## Known Gaps` per AC10
 - [ ] Fixture C (already-initialized, specs/ populated) — skill detects and offers `/upgrade-project` without modifying any spec file
-- [ ] Unattended exercise (`.claude/unattended-mode` present, Agent SDK with `ask_user_question.behavior: deny`) on Fixture B — no prompts fire, summary records auto-decisions
+- [ ] Unattended exercise (`.codex/unattended-mode` present, Agent SDK with `ask_user_question.behavior: deny`) on Fixture B — no prompts fire, summary records auto-decisions
 - [ ] Idempotency exercise — run `/onboard-project` twice on Fixture B; second run modifies zero files (verify via `git status --porcelain`)
 
 ### T014: Verify Skill Passes /verify-code Behavioral-Contract Checks
@@ -216,7 +216,7 @@ This project uses exercise-based verification (per `tech.md`). BDD scenarios her
 **Depends**: T013
 **Acceptance**:
 - [ ] `/verify-code` reports the skill follows stack-agnostic invariant (no hardcoded languages/frameworks in `SKILL.md`)
-- [ ] Every `AskUserQuestion` invocation in `SKILL.md` is guarded by an unattended-mode check (Skill Contracts invariant)
+- [ ] Every `interactive prompt` invocation in `SKILL.md` is guarded by an unattended-mode check (Skill Contracts invariant)
 - [ ] Skill steps reference tools by correct name (`Read`, `Glob`, `Grep` — not `cat`, `find`, `grep`) per Prompt Quality Verification
 - [ ] Output format of reconciled specs matches what `/write-code` expects as input (template-output chain)
 - [ ] Cross-references to other skills resolve (`/setup-steering`, `/init-config`, `/upgrade-project`, `/write-spec` all exist in `plugins/nmg-sdlc/skills/`)
@@ -227,7 +227,7 @@ This project uses exercise-based verification (per `tech.md`). BDD scenarios her
 
 ## Phase 6: Enhancement — Issue #124
 
-Greenfield expansion: intent + tech-selection interview, milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking, optional Claude Design URL ingestion, steering-enhancement re-run mode, and absorption of `/setup-steering` into `/onboard-project`.
+Greenfield expansion: intent + tech-selection interview, milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking, optional design archive URL ingestion, steering-enhancement re-run mode, and absorption of `/setup-steering` into `/onboard-project`.
 
 These tasks all amend the existing skill (built by T001–T014). They are written to be implementable after Issue #125 has landed its dependency-inference + autolinking primitive (Blocked By in requirements.md).
 
@@ -267,21 +267,21 @@ These tasks all amend the existing skill (built by T001–T014). They are writte
 **Depends**: T015
 **Acceptance**:
 - [ ] `description` updated to reflect new capabilities (intent interview, milestone + issue seeding, autolinking, design URL ingestion) and to drop `/setup-steering` from the delegation list, add `/draft-issue`
-- [ ] `allowed-tools` adds `WebFetch` and `Bash(node:*)`
-- [ ] `argument-hint` adds `[--design-url <url>]`
+- [ ] `workflow instructions` adds `Codex web browsing` and `Bash(node:*)`
+- [ ] `usage hint` adds `[--design-url <url>]`
 - [ ] Frontmatter still parses as valid YAML
 - [ ] Maps to design.md → "Frontmatter Updates Required by Issue #124"
 
-### T018: Step 2G.1 — Optional Claude Design URL Ingestion
+### T018: Step 2G.1 — Optional design archive URL Ingestion
 
 **File(s)**: `plugins/nmg-sdlc/skills/onboard-project/SKILL.md`
 **Type**: Modify
 **Depends**: T017
 **Acceptance**:
 - [ ] Sub-step 2G.1 added before any existing Step 2G content
-- [ ] If `--design-url` argument present, use that URL; else `AskUserQuestion`: "Provide a Claude Design URL? (optional, press Enter to skip)" — guarded by unattended-mode check (skip prompt; use arg or empty)
+- [ ] If `--design-url` argument present, use that URL; else `interactive prompt`: "Provide a design archive URL? (optional, press Enter to skip)" — guarded by unattended-mode check (skip prompt; use arg or empty)
 - [ ] URL validated as HTTPS before fetch — non-HTTPS aborts the design step (continues without context per AC20)
-- [ ] `WebFetch` invoked with 30s timeout
+- [ ] `Codex web browsing` invoked with 30s timeout
 - [ ] If response indicates gzip (content-type or magic bytes `1f 8b`), decode via `Bash(node -e "...gunzipSync...")`
 - [ ] Archive entries listed (filename, size); `README.md` or `README` content surfaced to the user as a summary
 - [ ] All payload content displayed in fenced code blocks (no shell interpolation)
@@ -295,7 +295,7 @@ These tasks all amend the existing skill (built by T001–T014). They are writte
 **Type**: Modify
 **Depends**: T018
 **Acceptance**:
-- [ ] Sub-step 2G.2 conducts multi-round `AskUserQuestion` interview, rounds in order: vision, target users/personas, success criteria, language, framework, test tooling, deployment target
+- [ ] Sub-step 2G.2 conducts multi-round `interactive prompt` interview, rounds in order: vision, target users/personas, success criteria, language, framework, test tooling, deployment target
 - [ ] Each round's question pre-populates defaults from (in priority order): existing steering content (enhancement mode), `design_context` from 2G.1, the steering-template defaults
 - [ ] Unattended-mode branch: skip prompts, apply defaults from same priority chain, log every applied default with its source ("from design context", "from template default", "from existing steering") for the Step 5 summary
 - [ ] Interview answers stored as `interview_context` for later sub-steps
@@ -346,7 +346,7 @@ These tasks all amend the existing skill (built by T001–T014). They are writte
 - [ ] Sub-step 2G.6 builds DAG edges per the rules in design.md → "Dependency Inference Contract": shared component refs, ordering cues, milestone gate (v2 cannot block v1)
 - [ ] Cycle detection via DFS three-color marking; on cycle → log + skip wiring entirely (proceed to 2G.7 without autolinks)
 - [ ] DAG rendered as ASCII for user inspection
-- [ ] `AskUserQuestion`: approve / adjust / proceed-without-DAG (auto-accept in unattended mode, full DAG logged)
+- [ ] `interactive prompt`: approve / adjust / proceed-without-DAG (auto-accept in unattended mode, full DAG logged)
 - [ ] Maps to AC15, FR20, FR21
 
 ### T024: Step 2G.7 — Starter-Issue Seeding Loop with Autolinking
@@ -377,18 +377,18 @@ These tasks all amend the existing skill (built by T001–T014). They are writte
 
 ### T026: Update README, CHANGELOG, Plugin Version, and Verify-Code Pass
 
-**File(s)**: `README.md`, `CHANGELOG.md`, `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `specs/feature-add-onboard-project-skill/feature.gherkin`
+**File(s)**: `README.md`, `CHANGELOG.md`, `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`, `specs/feature-add-onboard-project-skill/feature.gherkin`
 **Type**: Modify
 **Depends**: T025
 **Acceptance**:
 - [ ] `README.md` skills reference: drop `/setup-steering`; expand `/onboard-project` description with new capabilities; update workflow diagram
 - [ ] `CHANGELOG.md` `[Unreleased]`:
-  - **Added**: intent interview, v1/v2 milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency-aware autolinking, optional Claude Design URL ingestion, steering-enhancement re-run mode (#124)
+  - **Added**: intent interview, v1/v2 milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency-aware autolinking, optional design archive URL ingestion, steering-enhancement re-run mode (#124)
   - **Removed**: standalone `/setup-steering` skill — absorbed into `/onboard-project` (#124)
-- [ ] Both `plugin.json` and `marketplace.json` versions bumped one **minor** level (per CLAUDE.md invariant — both files update together; `enhancement` label = minor unless this is the last open issue in the milestone, in which case = major — verify via `gh issue list --milestone v6 --state open`)
+- [ ] Both `plugin.json` and `marketplace.json` versions bumped one **minor** level (per AGENTS.md invariant — both files update together; `enhancement` label = minor unless this is the last open issue in the milestone, in which case = major — verify via `gh issue list --milestone v6 --state open`)
 - [ ] `marketplace.json` `metadata.version` is NOT bumped
 - [ ] `feature.gherkin` already contains the new scenarios (added in this spec amendment); confirm syntactic validity
-- [ ] Run `/verify-code` against the amended skill — must pass: stack-agnostic, every `AskUserQuestion` guarded by unattended-mode check, all tool refs valid, all delegated skills exist (`/init-config`, `/upgrade-project`, `/draft-issue`), no `/setup-steering` reference left anywhere
+- [ ] Run `/verify-code` against the amended skill — must pass: stack-agnostic, every `interactive prompt` guarded by unattended-mode check, all tool refs valid, all delegated skills exist (`/init-config`, `/upgrade-project`, `/draft-issue`), no `/setup-steering` reference left anywhere
 
 ---
 
@@ -454,7 +454,7 @@ Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add vers
 - [ ] Step 2B.0a: if VERSION exists → preserve; else if a manifest with a non-empty version exists → mirror that value into VERSION (byte-for-byte, no semver coercion beyond trailing-whitespace trim); else → write `0.1.0`
 - [ ] Step 2B.0a never synthesizes a stack manifest where none exists (AC27)
 - [ ] Step 2B.0a uses the same stack-detection order as Step 2G.3a (cite/reuse rather than duplicate if markdown cross-referencing is cleaner)
-- [ ] Step 2B bullet 3 (brownfield-no-issues) replaced: deterministic route to Step 3B source-backfill mode; emit `brownfield-no-issues: backfilling from source tree`; **no** `AskUserQuestion` gate (supersedes prior "treat as greenfield" offer)
+- [ ] Step 2B bullet 3 (brownfield-no-issues) replaced: deterministic route to Step 3B source-backfill mode; emit `brownfield-no-issues: backfilling from source tree`; **no** `interactive prompt` gate (supersedes prior "treat as greenfield" offer)
 - [ ] Step 3B evidence-set schema gains a `current_source_tree` field, **always populated** from `git ls-files` filtered by the scaffold allowlist, even when PR evidence exists
 - [ ] Step 3B's `design.md` synthesis adds a `current source tree` row to the Evidence Sources table for each major section
 - [ ] In source-backfill mode (no PR evidence), the PR-based rows are explicitly marked `N/A — source-backfill`
@@ -476,7 +476,7 @@ Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add vers
 
 ### T032: Update README.md, CHANGELOG.md, Plugin Version Bump
 
-**File(s)**: `README.md`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `VERSION`
+**File(s)**: `README.md`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, `VERSION`
 **Type**: Modify
 **Depends**: T031
 **Acceptance**:
@@ -484,9 +484,9 @@ Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add vers
 - [ ] `CHANGELOG.md` `[Unreleased]`:
   - **Changed**: `/onboard-project` now seeds only the `v1` milestone (supersedes prior v1+v2 seeding); brownfield mode always backfills specs from tracked source files, including when no closed issues exist (#98)
   - **Added**: `/onboard-project` now initializes `VERSION` and the detected stack-native manifest (`package.json`, `pyproject.toml`, etc.) to `0.1.0` in greenfield mode; brownfield mode mirrors an existing manifest version into `VERSION` when present (#98)
-- [ ] `plugin.json` version bumped one **minor** level per CLAUDE.md version-bump convention (`enhancement` label → minor, unless this is the last open issue in the milestone — check via `gh issue list --milestone v1 --state open`)
+- [ ] `plugin.json` version bumped one **minor** level per AGENTS.md version-bump convention (`enhancement` label → minor, unless this is the last open issue in the milestone — check via `gh issue list --milestone v1 --state open`)
 - [ ] `VERSION` file updated to match `plugin.json` version (per the project's own integrated-versioning convention)
-- [ ] Per CLAUDE.md: **Do NOT** bump the plugin entry's `version` in the marketplace repo's `.claude-plugin/marketplace.json` — that is authoritatively read from the fetched `plugin.json`
+- [ ] Per AGENTS.md: **Do NOT** bump the plugin entry's `version` in the marketplace repo's `.codex-plugin/marketplace.json` — that is authoritatively read from the fetched `plugin.json`
 - [ ] Maps to FR37, FR38 (Issue #98)
 
 ### T033: Exercise-Test Version Initialization and Brownfield Source-Backfill
@@ -499,7 +499,7 @@ Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add vers
 - [ ] Fixture E (greenfield, no VERSION, has `package.json` without version field) — run `/onboard-project`; `VERSION` created at `0.1.0`; `package.json`'s `version` field set to `0.1.0` via single-line `Edit` (verify diff touches only the `version` key)
 - [ ] Fixture F (brownfield, no VERSION, has `package.json` with `"version": "2.3.1"`) — run `/onboard-project`; `VERSION` created containing `2.3.1`; manifest version unchanged
 - [ ] Fixture G (brownfield, has VERSION at `1.7.2`, has manifest at `1.5.0` — divergent) — run `/onboard-project`; both files preserved as-is (idempotency trumps reconciliation per AC28 / Out of Scope)
-- [ ] Fixture H (brownfield, zero closed issues, has source files) — run `/onboard-project`; no `AskUserQuestion` fires; specs are synthesized from `git ls-files` output filtered by scaffold allowlist; summary routes as `brownfield-no-issues → source-backfill`
+- [ ] Fixture H (brownfield, zero closed issues, has source files) — run `/onboard-project`; no `interactive prompt` fires; specs are synthesized from `git ls-files` output filtered by scaffold allowlist; summary routes as `brownfield-no-issues → source-backfill`
 - [ ] Fixture I (greenfield, milestone seeding) — run `/onboard-project`; only `v1` milestone exists in the target repo after run; `v2` is absent; summary's milestone block shows a single v1 line
 - [ ] Fixture J (greenfield on project with pre-existing legacy `v1 (MVP)` milestone) — run `/onboard-project`; legacy milestone is reused (no duplicate `v1` created); summary emits the legacy-name warning
 - [ ] Idempotency re-run: run `/onboard-project` a second time on each fixture; `git status --porcelain` shows zero modifications in all cases
@@ -511,7 +511,7 @@ Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add vers
 **Depends**: T033
 **Acceptance**:
 - [ ] `/verify-code` reports the amended skill still follows stack-agnostic invariant (no hardcoded languages/frameworks beyond the documented stack-detection table in Step 2G.3a / Step 2B.0a, which is allowed because it's enumerating supported *detection targets*, not privileging one)
-- [ ] Every `AskUserQuestion` invocation still guarded by unattended-mode check (the brownfield-no-issues bullet no longer calls `AskUserQuestion` at all — that's the intended change)
+- [ ] Every `interactive prompt` invocation still guarded by unattended-mode check (the brownfield-no-issues bullet no longer calls `interactive prompt` at all — that's the intended change)
 - [ ] All tool refs valid in Steps 2G.3a and 2B.0a (`Read`, `Edit`, `Glob`, `Bash(git:*)`, `Bash(grep:*)` where used)
 - [ ] No `/setup-steering` or `v2` references remain in `SKILL.md`, `references/greenfield.md`, or `references/brownfield.md`
 - [ ] New scenarios in `feature.gherkin` added by #98 parse as valid Gherkin
@@ -563,7 +563,7 @@ T012 (feature.gherkin) can be written in parallel with Phase 2 since it derives 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
-| #124 | 2026-04-18 | Added Phase 6 (T015–T026): absorb `/setup-steering`, add greenfield interview, milestone seeding, starter-issue seeding via `/draft-issue` loop, dependency inference + autolinking (consumes Issue #125 primitive), Claude Design URL ingestion, steering-enhancement re-run mode. Updated summary table; T024 hard-blocked on Issue #125. |
+| #124 | 2026-04-18 | Added Phase 6 (T015–T026): absorb `/setup-steering`, add greenfield interview, milestone seeding, starter-issue seeding via `/draft-issue` loop, dependency inference + autolinking (consumes Issue #125 primitive), design archive URL ingestion, steering-enhancement re-run mode. Updated summary table; T024 hard-blocked on Issue #125. |
 | #98 | 2026-04-23 | Added Phase 7 (T027–T034): narrow milestone seeding to v1 only (T027), drop v2 bucket from candidate schema + DAG gate (T028), insert Step 2G.3a version-file initialization with stack-manifest sync (T029), insert Step 2B.0a + replace brownfield-no-issues bullet + extend Step 3B evidence set (T030), update SKILL.md mode matrix + step diagram + error states + versioning summary (T031), update README/CHANGELOG + plugin version bump (T032), exercise-test against fixtures D–J (T033), run /verify-code against amended skill (T034). Phase 7 routes all SKILL.md/references edits through `/skill-creator` per the project's skill-creator routing convention. |
 
 ---

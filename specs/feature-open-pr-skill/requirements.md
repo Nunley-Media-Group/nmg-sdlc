@@ -3,7 +3,7 @@
 **Issues**: #8, #128
 **Date**: 2026-04-18
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -51,7 +51,7 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 
 ### AC5: Interactive CI Monitor Opt-In — Happy Path
 
-**Given** `/open-pr` has created a PR in interactive mode (the `.claude/unattended-mode` sentinel does NOT exist)
+**Given** `/open-pr` has created a PR in interactive mode (the `.codex/unattended-mode` sentinel does NOT exist)
 **When** the skill prompts the user and the user selects "Yes, monitor CI and auto-merge"
 **Then** the skill polls PR checks until all required checks complete, squash-merges the PR via `gh pr merge --squash --delete-branch`, deletes the local feature branch, and returns the user to a clean state on `main`
 
@@ -69,15 +69,15 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 
 ### AC8: Unattended-Mode Parity — No Interactive Prompt
 
-**Given** the `.claude/unattended-mode` sentinel file exists
+**Given** the `.codex/unattended-mode` sentinel file exists
 **When** `/open-pr` completes Step 6
 **Then** no CI-monitor prompt is shown and the skill outputs `Done. Awaiting orchestrator.` so the runner retains ownership of CI monitoring and merging
 
 ### AC9: Active Suppression Regardless of Opt-In Default
 
-**Given** the `.claude/unattended-mode` sentinel file exists
+**Given** the `.codex/unattended-mode` sentinel file exists
 **When** `/open-pr` completes Step 6
-**Then** the new CI-monitor prompt is actively suppressed — the skill MUST NOT attempt `AskUserQuestion`, MUST NOT poll checks, and MUST NOT invoke `gh pr merge`
+**Then** the new CI-monitor prompt is actively suppressed — the skill MUST NOT attempt `interactive prompt`, MUST NOT poll checks, and MUST NOT invoke `gh pr merge`
 
 *Retrospective-derived defensive check (see `steering/retrospective.md` → "Missing Acceptance Criteria" on explicitly excluded automation modes).*
 
@@ -92,11 +92,11 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 | FR3 | Links to spec files in the PR body | Must | requirements, design, tasks |
 | FR4 | Implementation summary derived from specs and verification | Must | |
 | FR5 | Automation mode support with completion signal | Must | `Done. Awaiting orchestrator.` |
-| FR6 | After PR creation in interactive mode, prompt the user via `AskUserQuestion` with two options: monitor+merge, or skip | Must | Issue #128 |
+| FR6 | After PR creation in interactive mode, prompt the user via `interactive prompt` with two options: monitor+merge, or skip | Must | Issue #128 |
 | FR7 | On opt-in, poll the PR's checks (`gh pr checks <num>`) until all required checks reach a terminal state | Must | Issue #128 — mirror runner semantics |
 | FR8 | On all-success, merge the PR with `gh pr merge --squash --delete-branch` and delete the local feature branch, returning to `main` | Must | Issue #128 — squash is hardcoded this iteration |
 | FR9 | On any check failure, non-mergeable state, or integration absent (no checks configured), print check name(s) + details URL(s) and exit without merging or deleting the branch | Must | Issue #128 — covers CI failure + "no CI configured" graceful skip |
-| FR10 | When `.claude/unattended-mode` exists, actively suppress the new prompt, polling, and merge invocation — preserve current unattended output | Must | Issue #128 |
+| FR10 | When `.codex/unattended-mode` exists, actively suppress the new prompt, polling, and merge invocation — preserve current unattended output | Must | Issue #128 |
 | FR11 | Use a sensible polling cadence and timeout (30-second interval matching the runner, configurable constants documented in the skill) | Should | Issue #128 |
 
 ---
@@ -118,7 +118,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 
 | Element | Requirement |
 |---------|-------------|
-| **Interaction** | Two-option `AskUserQuestion` after PR creation (monitor+merge / skip) |
+| **Interaction** | Two-option `interactive prompt` after PR creation (monitor+merge / skip) |
 | **Loading States** | Poll progress output (e.g., "Checks pending: 3/5 complete") during monitoring |
 | **Error States** | Failing check names + details URLs printed; terminal state reached, skill exits |
 | **Empty States** | "No CI configured — nothing to monitor" message when `gh pr checks` reports no checks |
@@ -132,7 +132,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 | Field | Type | Validation | Required |
 |-------|------|------------|----------|
 | Issue number | integer | positive | Yes |
-| `.claude/unattended-mode` sentinel | file | presence/absence | Yes (controls branch) |
+| `.codex/unattended-mode` sentinel | file | presence/absence | Yes (controls branch) |
 | User selection | enum | {monitor, skip} | Yes (interactive branch only) |
 
 ### Output Data

@@ -3,13 +3,13 @@
 **Issue**: #82
 **Date**: 2026-02-23
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The `/open-pr` skill (SKILL.md) unconditionally reads spec files in Step 1 ("Read Context"). Lines 32-33 instruct Claude to read `requirements.md` and `tasks.md` from `specs/{feature-name}/` without first checking whether the spec directory or files exist. The skill was designed under the assumption that the full SDLC pipeline would always be followed (i.e., `/write-spec` would always run before `/open-pr`).
+The `/open-pr` skill (SKILL.md) unconditionally reads spec files in Step 1 ("Read Context"). Lines 32-33 instruct Codex to read `requirements.md` and `tasks.md` from `specs/{feature-name}/` without first checking whether the spec directory or files exist. The skill was designed under the assumption that the full SDLC pipeline would always be followed (i.e., `/write-spec` would always run before `/open-pr`).
 
 In practice, simple bug fixes, documentation changes, or quick patches may skip the spec-writing phase entirely. When `/open-pr` is invoked without specs, the `Read` tool fails on the non-existent files, and the skill has no fallback logic to recover gracefully.
 

@@ -1,19 +1,17 @@
 ---
 name: verify-code
-description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows /write-code and precedes /open-pr."
-argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Task, WebFetch, WebSearch, Write, Edit, Bash(gh:*), Bash(git:*), Bash(node:*), Bash(which:*), Bash(rm:*)
-model: gpt-5.5
-effort: high
+description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows /write-code and precedes /commit-push."
 ---
 
 # Verify Code
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Verify the implementation against specifications, fix any findings, review architecture and test coverage, then update the GitHub issue with evidence.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Verification against a mixed layout produces misleading results.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` call site in this skill so the runner proceeds through all steps without blocking.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site in this skill so the runner proceeds through all steps without blocking.
 
 Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
 
@@ -86,14 +84,14 @@ Read `references/defect-path.md` when the spec under verification uses the defec
 
 Check each acceptance criterion against actual code:
 
-1. **For each AC in requirements.md**: find the implementing code via `Glob` / `Grep`, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
+1. **For each AC in requirements.md**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
 2. **For each task in tasks.md**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
 
 ### Step 4: Architecture Review
 
-Run the architecture review using the `Task` tool with `subagent_type='nmg-sdlc:architecture-reviewer'`. The architecture-reviewer agent evaluates the implementation against all five checklists and returns structured scores and findings.
+Run the architecture review inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded prompt to evaluate the implementation against all five checklists and return structured scores and findings.
 
-The architecture-reviewer has no access to conversation context — it only sees the prompt you give it. Include the steering doc content in the subagent prompt:
+When using a subagent, assume it has no useful conversation context — it only sees the prompt you give it. Include the steering doc content in the subagent prompt:
 
 - `tech.md` — checklist applicability table (scripts vs. skills), script verification contracts (preconditions / postconditions / invariants / boundaries), coding standards, cross-platform constraints.
 - `structure.md` — architectural invariants (hard contracts that must never be violated), cross-platform contracts.
@@ -146,7 +144,7 @@ Read `references/verification-gates.md` when gates were extracted in Step 1 — 
 
 ### Step 6: Fix Findings
 
-Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `/skill-creator` probe contract that routes skill-bundled fixes away from direct `Write` / `Edit`, the `/simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
+Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `/skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, the `/simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
 
 ### Step 7: Generate Verification Report
 
@@ -199,7 +197,7 @@ GitHub issue #N updated with verification report.
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
                                                                                                                ▲ You are here
 ```
 

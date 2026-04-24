@@ -1,12 +1,11 @@
 ---
 name: init-config
 description: "Generate an SDLC runner config for the current project. Use when user says 'generate config', 'set up SDLC runner', 'configure runner', 'init config', 'how do I set up the runner', or asks about sdlc-config.json. Creates a ready-to-use sdlc-config.json from the template with project-specific paths. Prerequisite for /run-loop."
-disable-model-invocation: true
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash(basename:*), Bash(realpath:*), Bash(pwd:*), Bash(git:*), Bash(test:*)
-model: gpt-5.4-mini
 ---
 
 # Init Config
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting the current project directory into the config template.
 
@@ -24,7 +23,7 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
 
    Use this resolved project root for all subsequent steps — do NOT use `pwd` directly, as it may differ from the project root.
 
-2. **Find and read the template** from the local Codex plugin checkout. Use `Glob` to locate:
+2. **Find and read the template** from the local Codex plugin checkout. Use file discovery to locate:
    ```
    ~/.codex/plugins/**/nmg-sdlc/**/scripts/sdlc-config.example.json
    ```
@@ -42,7 +41,7 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
    - `"pluginRoot": "/path/to/nmg-sdlc"` → the resolved plugin root, expanded to the full absolute path
    - Leave `"pluginsPath"` empty unless the local checkout uses the legacy `plugins/nmg-sdlc` monorepo layout
 
-6. **Write the config file** — save the fully substituted config JSON to `sdlc-config.json` in the project root (resolved in Step 1). Use the Write tool.
+6. **Write the config file** — save the fully substituted config JSON to `sdlc-config.json` in the project root (resolved in Step 1). use Codex editing.
 
 7. **Add to .gitignore** — ensure `sdlc-config.json` and `.codex/sdlc-state.json` are listed in the project's `.gitignore`:
    - Read the `.gitignore` file in the project root. If it does not exist, create it.

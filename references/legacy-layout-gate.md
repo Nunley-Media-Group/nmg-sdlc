@@ -6,7 +6,7 @@ Current Codex releases refuse to Edit/Write under the project-level `.codex/` di
 
 ## Check
 
-Before the first workflow step runs, `Glob` for both of the following:
+Before the first workflow step runs, file discovery for both of the following:
 
 - `.codex/steering/*.md`
 - `.codex/specs/*/requirements.md`

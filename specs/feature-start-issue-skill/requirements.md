@@ -3,7 +3,7 @@
 **Issues**: #10, #89, #127
 **Date**: 2026-04-18
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -121,10 +121,10 @@ Issue #127 extends the skill to be dependency-aware: it reads the sub-issue / "D
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | List open GitHub issues for interactive selection | Must | Via AskUserQuestion |
+| FR1 | List open GitHub issues for interactive selection | Must | Via interactive prompt |
 | FR2 | Feature branch creation linked via `gh issue develop` | Must | Creates and checks out branch |
 | FR3 | Issue status update to "In Progress" in GitHub Projects | Must | Via GraphQL API |
-| FR4 | Automation mode with oldest-first issue selection | Must | `.claude/unattended-mode` check |
+| FR4 | Automation mode with oldest-first issue selection | Must | `.codex/unattended-mode` check |
 | FR5 | Direct issue number argument support | Must | Skips selection steps |
 | FR6 | Query total open issue count (same scope, without label filter) when automatable count is zero in unattended-mode | Must | Second `gh issue list` without `--label` |
 | FR7 | Include total open issue count in zero-result diagnostic output | Must | Enhances the "No automatable issues found" message |

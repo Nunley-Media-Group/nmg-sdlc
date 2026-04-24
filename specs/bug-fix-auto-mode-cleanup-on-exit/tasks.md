@@ -3,7 +3,7 @@
 **Issue**: #17
 **Date**: 2026-02-15
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -25,7 +25,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] `removeAutoMode()` function defined near the `RUNNER_ARTIFACTS` constant (~line 360)
-- [ ] Uses `fs.unlinkSync()` on `path.join(PROJECT_PATH, '.claude', 'unattended-mode')`
+- [ ] Uses `fs.unlinkSync()` on `path.join(PROJECT_PATH, '.codex', 'unattended-mode')`
 - [ ] Wrapped in try-catch — swallows errors silently (best-effort, non-fatal per FR3)
 - [ ] Logs deletion via `log()` on success for observability
 

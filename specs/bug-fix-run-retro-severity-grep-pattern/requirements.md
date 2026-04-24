@@ -3,7 +3,7 @@
 **Issue**: #48
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-run-retro-skill/`
 
@@ -24,7 +24,7 @@
 |--------|-------|
 | **OS / Platform** | Any (cross-platform) |
 | **Version / Commit** | nmg-sdlc v1.22.5 |
-| **Browser / Runtime** | Claude Code CLI |
+| **Browser / Runtime** | Codex CLI |
 | **Configuration** | Default |
 
 ### Frequency

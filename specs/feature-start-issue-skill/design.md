@@ -3,13 +3,13 @@
 **Issues**: #10, #89, #127
 **Date**: 2026-04-18
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
 ## Overview
 
-The `/start-issue` skill provides issue selection and branch setup as the entry point to the development workflow. It follows a 4-step process: fetch milestones and issues, present selection via AskUserQuestion, confirm the selected issue, then create a linked feature branch and update the issue status to "In Progress" via GitHub's GraphQL API.
+The `/start-issue` skill provides issue selection and branch setup as the entry point to the development workflow. It follows a 4-step process: fetch milestones and issues, present selection via interactive prompt, confirm the selected issue, then create a linked feature branch and update the issue status to "In Progress" via GitHub's GraphQL API.
 
 The skill supports milestone-scoped issue listing (falling back to all open issues if no milestones exist), direct issue number arguments for skipping selection, and unattended mode for headless oldest-first selection. The branch is created and linked via `gh issue develop`, which both creates the branch and associates it in GitHub's "Development" sidebar.
 
@@ -37,7 +37,7 @@ Issue #127 adds a **Dependency Resolution** stage between the raw issue fetch an
 │    ├── Filter blocked (any open parent)       │
 │    ├── Topological sort (Kahn's algorithm)    │
 │    └── Cycle fallback → tail in #-order       │
-│  Step 2: Present Selection (AskUserQuestion)  │
+│  Step 2: Present Selection (interactive prompt)  │
 │  Step 3: Confirm Selection (gh issue view)    │
 │  Step 1b: Diagnostics (unattended-mode, zero result) │
 │    ├── gh issue list (no label filter)         │
@@ -144,7 +144,7 @@ If any candidate remains un-emitted after the queue drains, those nodes form a c
 
 ### Session Note
 
-After filtering, emit one line to stdout (before AskUserQuestion in interactive mode, or before auto-selection in unattended-mode):
+After filtering, emit one line to stdout (before interactive prompt in interactive mode, or before auto-selection in unattended-mode):
 
 ```
 Filtered N blocked issues from selection.
@@ -204,7 +204,7 @@ None. The dependency graph is built in-memory per invocation and discarded after
 
 ## UI Components
 
-N/A — `/start-issue` is a CLI skill driven by `AskUserQuestion`.
+N/A — `/start-issue` is a CLI skill driven by `interactive prompt`.
 
 ---
 
@@ -213,7 +213,7 @@ N/A — `/start-issue` is a CLI skill driven by `AskUserQuestion`.
 ### Trigger Condition
 
 The diagnostic runs only when ALL of these are true:
-1. Unattended-mode is active (`.claude/unattended-mode` exists)
+1. Unattended-mode is active (`.codex/unattended-mode` exists)
 2. The `gh issue list` call with `--label automatable` returns zero results
 
 ### Diagnostic Query

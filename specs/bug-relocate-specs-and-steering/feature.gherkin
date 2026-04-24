@@ -5,11 +5,11 @@
 # Type: Defect regression
 
 @regression
-Feature: Relocate specs and steering out of `.claude/` to restore SDLC pipeline
+Feature: Relocate specs and steering out of `.codex/` to restore SDLC pipeline
   The SDLC skills previously authored steering docs and spec artifacts under `steering/` and `specs/`.
-  Recent Claude Code releases protect the `.claude/` directory from Edit/Write, which broke every SDLC skill that writes those files.
+  Recent Codex releases protect the `.codex/` directory from Edit/Write, which broke every SDLC skill that writes those files.
   This was fixed by relocating the canonical locations to `steering/` and `specs/` at the project root,
-  renaming `/migrate-project` to `/upgrade-project`, and renaming `.claude/migration-exclusions.json` to `.claude/upgrade-exclusions.json`.
+  renaming `/migrate-project` to `/upgrade-project`, and renaming `.codex/migration-exclusions.json` to `.codex/upgrade-exclusions.json`.
 
   # --- AC1: New Layout Is Canonical ---
 
@@ -24,15 +24,15 @@ Feature: Relocate specs and steering out of `.claude/` to restore SDLC pipeline
   # --- AC2: Upgrade Migrates Legacy Layout In Place ---
 
   @regression
-  Scenario: /upgrade-project relocates legacy .claude/steering and .claude/specs via git mv
+  Scenario: /upgrade-project relocates legacy .codex/steering and .codex/specs via git mv
     Given a project with existing "steering/product.md" and "specs/feature-example/requirements.md" from an older plugin version
-    And the project also contains ".claude/unattended-mode" and ".claude/sdlc-state.json"
+    And the project also contains ".codex/unattended-mode" and ".codex/sdlc-state.json"
     When the user runs /upgrade-project
     Then "steering/" has been moved to "steering/" using git mv, preserving history
     And "specs/" has been moved to "specs/" using git mv, preserving history
     And every "specs/" and "steering/" string inside the moved files has been rewritten to the new paths
     And the empty "steering/" and "specs/" directories have been removed
-    And ".claude/unattended-mode" and ".claude/sdlc-state.json" are unchanged
+    And ".codex/unattended-mode" and ".codex/sdlc-state.json" are unchanged
 
   # --- AC3: Hard Gate On Legacy Layout ---
 
@@ -59,27 +59,27 @@ Feature: Relocate specs and steering out of `.claude/` to restore SDLC pipeline
   @regression
   Scenario: No skill references the legacy paths outside of upgrade detection logic
     Given the updated nmg-sdlc plugin
-    When the maintainer runs `grep -r "\.claude/specs\|\.claude/steering" plugins/nmg-sdlc/skills/`
+    When the maintainer runs `grep -r "\.codex/specs\|\.codex/steering" plugins/nmg-sdlc/skills/`
     Then the only matches are inside "plugins/nmg-sdlc/skills/upgrade-project/" where the legacy path is named for detection purposes
     And no match appears in any other skill, template, or agent file
 
   # --- AC6: Runtime Artifacts Unchanged (Except Rename) ---
 
   @regression
-  Scenario: Runtime artifacts stay under .claude and migration-exclusions is renamed with auto-migration
-    Given a project that has ".claude/unattended-mode", ".claude/sdlc-state.json", and ".claude/migration-exclusions.json" from the previous plugin version
+  Scenario: Runtime artifacts stay under .codex and migration-exclusions is renamed with auto-migration
+    Given a project that has ".codex/unattended-mode", ".codex/sdlc-state.json", and ".codex/migration-exclusions.json" from the previous plugin version
     When the user runs /upgrade-project for the first time on this project
-    Then ".claude/unattended-mode" remains at the same path with unchanged content
-    And ".claude/sdlc-state.json" remains at the same path with unchanged content
-    And ".claude/migration-exclusions.json" has been renamed to ".claude/upgrade-exclusions.json" with identical content
-    And subsequent runs of /upgrade-project read and write ".claude/upgrade-exclusions.json"
+    Then ".codex/unattended-mode" remains at the same path with unchanged content
+    And ".codex/sdlc-state.json" remains at the same path with unchanged content
+    And ".codex/migration-exclusions.json" has been renamed to ".codex/upgrade-exclusions.json" with identical content
+    And subsequent runs of /upgrade-project read and write ".codex/upgrade-exclusions.json"
 
   # --- AC7: No Regression In Core Pipeline ---
 
   @regression
   Scenario: Full SDLC pipeline succeeds end-to-end without --dangerously-skip-permissions
     Given a freshly upgraded project using the new steering/ and specs/ layout
-    And Claude Code is running WITHOUT the --dangerously-skip-permissions flag
+    And Codex is running WITHOUT the --dangerously-skip-permissions flag
     When the user runs the full SDLC pipeline /draft-issue then /start-issue then /write-spec then /write-code then /verify-code then /open-pr
     Then every step succeeds and produces its expected artifacts
     And no step is blocked by a Write or Edit tool refusal on protected paths

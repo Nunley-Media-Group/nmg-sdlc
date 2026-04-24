@@ -4,13 +4,13 @@ Stack-agnostic BDD spec-driven development toolkit for Codex, by Nunley Media Gr
 
 ## Overview
 
-The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is six commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr` → `/address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. A dedicated architecture reviewer agent scores every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling), while a retrospective system analyzes past defects to continuously improve spec quality. Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
+The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is seven commands: `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/commit-push` → `/open-pr` → `/address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. Architecture review runs inline by default and may use Codex `explorer` delegation when explicitly authorized, scoring every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling). Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`/run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `/write-spec` and `/write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
 
 It provides a GitHub issue-driven workflow. Projects first run `/onboard-project` (once per project lifetime) to bootstrap steering docs and — for existing codebases — reconcile specs from closed issues; afterward the per-feature cycle kicks in:
 
 ```
 Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Optional                 Step 5                    Step 6                Step 7
-/onboard-project  →  /draft-issue  →  /start-issue #42  →  /write-spec #42  →  /write-code #42  →  /simplify  →  /verify-code #42  →  /open-pr #42  →  /address-pr-comments #42
+/onboard-project  →  /draft-issue  →  /start-issue #42  →  /write-spec #42  →  /write-code #42  →  /simplify  →  /verify-code #42  →  /commit-push  →  /open-pr #42  →  /address-pr-comments #42
 Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean & simplify         Verify implementation,    Create PR with        Close the PR review loop:
 or brownfield spec   create groomed       linked branch, set       specs (requirements/    mode, create plan,         changed code             review architecture,      summary referencing   read automated-reviewer
 reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               (optional external)      update issue              specs and issue       threads, fix via
@@ -108,7 +108,7 @@ Reads the specs, enters plan mode to design the implementation approach, then ex
 
 Verifies the implementation against the spec:
 - Checks each acceptance criterion against actual code
-- Runs architecture review via the dedicated `nmg-sdlc:architecture-reviewer` agent, scoring five checklists 1–5:
+- Runs architecture review inline by default, with optional Codex `explorer` delegation only when explicitly authorized, scoring five checklists 1–5:
 
 | Checklist | Focus |
 |-----------|-------|
@@ -196,7 +196,7 @@ To stop an in-flight runner cleanly (signal the live PID and clear both runner a
 - **Issue selection**: picks the first open issue in the milestone, sorted by issue number ascending (oldest first)
 - **Confirmations**: answers yes
 - **Review gates**: auto-approves all phases (requirements, design, tasks)
-- **Plan mode**: skipped — `plan approval` is never called; Codex designs the approach internally from specs
+- **Plan mode**: skipped — interactive plan review is never called; Codex designs the approach internally from specs
 - **Skill output**: all "Next step" suggestions suppressed; skills output `Done. Awaiting orchestrator.` instead
 
 ### Safety net
@@ -216,6 +216,8 @@ The plugin provides the **process**. Your project provides **specifics** via ste
 | Design tokens / branding | `structure.md` | Project's design system |
 | Target users | `product.md` | User personas and constraints |
 | API conventions | `tech.md` | REST, GraphQL, gRPC |
+
+The `agents/*.md` files in this repo are reusable prompt contracts for optional Codex delegation. They are loaded by skills when a workflow explicitly asks for a built-in Codex `worker` or `explorer`; they are not standalone plugin components in `.codex-plugin/plugin.json`.
 
 ### Versioning
 

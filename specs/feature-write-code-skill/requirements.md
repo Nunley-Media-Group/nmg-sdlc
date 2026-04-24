@@ -3,7 +3,7 @@
 **Issues**: #6
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -17,7 +17,7 @@
 
 ## Background
 
-The `/write-code` skill bridges the gap between specification and code. It reads the requirements, design, and tasks specs from `specs/{feature-name}/`, enters plan mode to design the implementation approach (getting user approval before writing code), then executes each task from the tasks spec sequentially. The skill uses Glob to locate spec files when the feature name is ambiguous. In unattended mode, plan mode is skipped and approval gates are bypassed. For bug fixes, the skill follows the fix strategy precisely, minimizes change scope, and requires a regression test.
+The `/write-code` skill bridges the gap between specification and code. It reads the requirements, design, and tasks specs from `specs/{feature-name}/`, enters plan mode to design the implementation approach (getting user approval before writing code), then executes each task from the tasks spec sequentially. The skill uses file discovery to locate spec files when the feature name is ambiguous. In unattended mode, plan mode is skipped and approval gates are bypassed. For bug fixes, the skill follows the fix strategy precisely, minimizes change scope, and requires a regression test.
 
 ---
 
@@ -62,8 +62,8 @@ The `/write-code` skill bridges the gap between specification and code. It reads
 | FR1 | Read specs from `specs/{feature-name}/` directory | Must | requirements, design, tasks, gherkin |
 | FR2 | Enter plan mode with implementation approach for user approval | Must | Via EnterPlanMode tool |
 | FR3 | Sequential task execution following the tasks spec order | Must | One task at a time |
-| FR4 | Glob-based spec file discovery when feature name is ambiguous | Must | Fallback discovery |
-| FR5 | Automation mode support skipping plan mode and approval gates | Must | `.claude/unattended-mode` check |
+| FR4 | file discovery-based spec file discovery when feature name is ambiguous | Must | Fallback discovery |
+| FR5 | Automation mode support skipping plan mode and approval gates | Must | `.codex/unattended-mode` check |
 | FR6 | Bug fix mode with minimal change scope and regression test requirement | Must | Defect spec handling |
 
 ---
@@ -72,7 +72,7 @@ The `/write-code` skill bridges the gap between specification and code. It reads
 
 | Aspect | Requirement |
 |--------|-------------|
-| **Performance** | Each task executes within normal Claude Code session limits |
+| **Performance** | Each task executes within normal Codex session limits |
 | **Security** | Generated code follows security best practices from steering docs |
 | **Reliability** | Partial implementation can be resumed from the last incomplete task |
 
@@ -117,7 +117,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - [x] Writing specs skill (#5) for spec format
 
 ### External Dependencies
-- [x] Claude Code tools (Read, Write, Edit, EnterPlanMode, Glob, Grep)
+- [x] Codex tools (Read, Write, Edit, EnterPlanMode, file discovery, text search)
 - [x] `gh` CLI for issue context
 
 ---

@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-15
 **Issue**: #2
-**Reviewer**: Claude Code (retroactive)
+**Reviewer**: Codex (retroactive)
 **Scope**: Retroactive verification of implemented feature
 
 ---
@@ -28,9 +28,9 @@
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Marketplace index lists available plugins | Pass | `.claude-plugin/marketplace.json` — plugins array with nmg-sdlc entry |
-| AC2 | Plugin manifest declares metadata | Pass | `plugins/nmg-sdlc/.claude-plugin/plugin.json` — name, version, description, author, repository |
-| AC3 | Local installation copies plugin files | Pass | `.claude/skills/installing-locally/SKILL.md` — 7-step workflow with rsync |
+| AC1 | Marketplace index lists available plugins | Pass | `.codex-plugin/marketplace.json` — plugins array with nmg-sdlc entry |
+| AC2 | Plugin manifest declares metadata | Pass | `plugins/nmg-sdlc/.codex-plugin/plugin.json` — name, version, description, author, repository |
+| AC3 | Local installation copies plugin files | Pass | `.codex/skills/installing-locally/SKILL.md` — 7-step workflow with rsync |
 
 ---
 
@@ -38,9 +38,9 @@
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Create Marketplace Index | Complete | `.claude-plugin/marketplace.json` |
-| T002 | Create Plugin Directory Structure | Complete | `plugins/nmg-sdlc/.claude-plugin/plugin.json` |
-| T003 | Create Installation Skill | Complete | `.claude/skills/installing-locally/SKILL.md` |
+| T001 | Create Marketplace Index | Complete | `.codex-plugin/marketplace.json` |
+| T002 | Create Plugin Directory Structure | Complete | `plugins/nmg-sdlc/.codex-plugin/plugin.json` |
+| T003 | Create Installation Skill | Complete | `.codex/skills/installing-locally/SKILL.md` |
 | T004 | Create README Documentation | Complete | `README.md` |
 | T005 | Define Manifest Schemas | Complete | Both manifest files populated |
 | T006 | Verify Plugin Discovery Path | Complete | Skill reads marketplace.json correctly |
@@ -155,9 +155,9 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `.claude-plugin/marketplace.json` | 0 | Clean JSON structure |
-| `plugins/nmg-sdlc/.claude-plugin/plugin.json` | 0 | Complete metadata |
-| `.claude/skills/installing-locally/SKILL.md` | 0 | Comprehensive workflow |
+| `.codex-plugin/marketplace.json` | 0 | Clean JSON structure |
+| `plugins/nmg-sdlc/.codex-plugin/plugin.json` | 0 | Complete metadata |
+| `.codex/skills/installing-locally/SKILL.md` | 0 | Comprehensive workflow |
 | `README.md` | 0 | Good documentation |
 
 ---

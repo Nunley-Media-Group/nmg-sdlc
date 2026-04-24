@@ -3,7 +3,7 @@
 **Issues**: #41, #87, #139
 **Date**: 2026-04-19
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
@@ -145,7 +145,7 @@ The versioning system must be stack-agnostic (a core product principle) — it p
 
 ### AC10: Auto-Mode Compatibility
 
-**Given** `.claude/unattended-mode` exists in the project
+**Given** `.codex/unattended-mode` exists in the project
 **When** `/draft-issue` runs in unattended-mode
 **Then** the milestone defaults to the current major version without prompting, and `/open-pr` auto-determines and applies the version bump without confirmation (patch or minor only; major bumps require manual override)
 
@@ -209,7 +209,7 @@ The versioning system must be stack-agnostic (a core product principle) — it p
 
 **Given** a developer runs `/open-pr #N --major`
 **When** the skill reaches Step 2 (Determine Version Bump)
-**Then** it proposes a major bump in the `AskUserQuestion` bump menu as the pre-selected option (the developer still confirms)
+**Then** it proposes a major bump in the `interactive prompt` bump menu as the pre-selected option (the developer still confirms)
 
 **Example**:
 - Given: Issue #201 has `enhancement` label, current VERSION is `1.49.1`, developer invokes `/open-pr #201 --major`
@@ -218,12 +218,12 @@ The versioning system must be stack-agnostic (a core product principle) — it p
 
 ### AC16: --major in unattended-mode is an escalation, not a silent apply
 
-**Given** `.claude/unattended-mode` is present and the skill is invoked with `--major`
+**Given** `.codex/unattended-mode` is present and the skill is invoked with `--major`
 **When** the skill reaches Step 2
 **Then** it halts with an escalation message: `"ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump"` and exits without bumping or creating a PR
 
 **Example**:
-- Given: `.claude/unattended-mode` exists, runner invokes `/open-pr #202 --major`
+- Given: `.codex/unattended-mode` exists, runner invokes `/open-pr #202 --major`
 - When: Step 2 is reached
 - Then: The skill prints the escalation message and terminates; no VERSION or CHANGELOG changes are written, no PR is created, and the runner receives a non-success signal
 
@@ -244,7 +244,7 @@ The versioning system must be stack-agnostic (a core product principle) — it p
 
 **Given** a developer reads the README to understand versioning
 **When** they look at the version bump table and the `/open-pr` skill description
-**Then** no text claims milestone completion triggers a major bump; the table shows only the label-based rules (bug → patch, enhancement → minor); and the `argument-hint` for `/open-pr` reflects `[#issue-number] [--major]`
+**Then** no text claims milestone completion triggers a major bump; the table shows only the label-based rules (bug → patch, enhancement → minor); and the `usage hint` for `/open-pr` reflects `[#issue-number] [--major]`
 
 **Example**:
 - Given: A developer opens README.md at the version bump and skills sections
@@ -331,7 +331,7 @@ Feature: Integrated Versioning System
     Or falls back to latest git tag or "0.1.0"
 
   Scenario: Unattended-mode skips all prompts
-    Given .claude/unattended-mode exists in the project
+    Given .codex/unattended-mode exists in the project
     When /draft-issue and /open-pr run
     Then milestone defaults without prompting
     And version bump applies without confirmation
@@ -366,11 +366,11 @@ Feature: Integrated Versioning System
   Scenario: --major flag pre-selects major bump in the confirmation menu
     Given a developer runs "/open-pr #N --major"
     When the skill reaches the version bump confirmation step
-    Then the AskUserQuestion bump menu presents Major as the recommended option
+    Then the interactive prompt bump menu presents Major as the recommended option
 
   # Added by issue #139
   Scenario: --major in unattended-mode escalates without bumping
-    Given ".claude/unattended-mode" exists
+    Given ".codex/unattended-mode" exists
     And the skill is invoked with the "--major" flag
     When the skill reaches the version bump step
     Then it prints "ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump"
@@ -389,7 +389,7 @@ Feature: Integrated Versioning System
     Given the README version-bump table
     When a reader inspects it
     Then no row references milestone completion
-    And the /open-pr argument-hint is "[#issue-number] [--major]"
+    And the /open-pr usage hint is "[#issue-number] [--major]"
 ```
 
 ---
@@ -401,7 +401,7 @@ Feature: Integrated Versioning System
 | FR1 | `/draft-issue` adds a milestone interview question with current major version as default; accepts a single number (1, 2, 3) to represent v1, v2, v3 | Must | Reads `VERSION` file to derive default |
 | FR2 | `/draft-issue` auto-creates the GitHub milestone via `gh` CLI if it doesn't exist | Must | Uses `gh api` to create milestone |
 | FR3 | `/open-pr` auto-classifies version impact: `bug` → patch, `enhancement` → minor, default → minor | Must | Label-based classification; major bumps are manual only |
-| FR4 | `/open-pr` allows developer to override the auto-classified version bump type | Must | `AskUserQuestion` with bump options |
+| FR4 | `/open-pr` allows developer to override the auto-classified version bump type | Must | `interactive prompt` with bump options |
 | FR5 | `/open-pr` updates `VERSION` file (plain text semver) and `CHANGELOG.md` (moves `[Unreleased]` to versioned heading) | Must | Keep a Changelog format |
 | FR6 | `/open-pr` allows manual override to major bump via confirmation prompt | Must | Major bumps are a developer decision, not automatic |
 | FR7 | Tech.md steering template adds a "Versioning" section for declaring stack-specific version files | Must | Added to `/setup-steering` template |
@@ -416,12 +416,12 @@ Feature: Integrated Versioning System
 | FR15 | `sdlc-runner.mjs` `performDeterministicVersionBump()` parses `tech.md` Version Bump Classification table instead of using hardcoded if-else logic | Must | Replaces hardcoded logic in script |
 | FR16 | Default classification (minor bump) applies when an issue label does not match any row in the tech.md classification table | Must | Preserves existing behavior for unlabeled issues |
 | FR17 | Remove Step 2.4 (milestone-completion check) from `open-pr/SKILL.md` entirely | Must | Milestone open-count no longer overrides the label matrix |
-| FR18 | Add `--major` argument to `/open-pr`; when passed, pre-select major in the Step 2 bump menu | Must | Opt-in only; developer still confirms via `AskUserQuestion` |
+| FR18 | Add `--major` argument to `/open-pr`; when passed, pre-select major in the Step 2 bump menu | Must | Opt-in only; developer still confirms via `interactive prompt` |
 | FR19 | When `--major` is combined with unattended-mode, emit escalation message and exit without bumping | Must | Exit message: `ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump` |
 | FR20 | Update `steering/tech.md` — remove "Milestone completion override" paragraph; add `**BREAKING CHANGE:**` prefix guidance and recommended `### Migration Notes` sub-section note | Must | Removes double-signal that primes LLMs to infer breaking = major |
 | FR21 | Update `plugins/nmg-sdlc/skills/onboard-project/templates/tech.md` with identical changes so new projects inherit the correct policy | Must | Template must match authoritative steering |
 | FR22 | Update `README.md` — remove `(milestone completion)` row from the version bump table and update `/open-pr` description to remove "major on milestone completion" language | Must | Lines 140, 267, 276 per issue |
-| FR23 | Update `open-pr/SKILL.md` `argument-hint` to `[#issue-number] [--major]` | Must | Surfaces the new opt-in flag in the skill manifest |
+| FR23 | Update `open-pr/SKILL.md` `usage hint` to `[#issue-number] [--major]` | Must | Surfaces the new opt-in flag in the skill manifest |
 
 ---
 

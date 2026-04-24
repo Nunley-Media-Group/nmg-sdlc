@@ -6,7 +6,7 @@
 
 ### 1. Unattended mode
 
-Follow the pre-approved-gate pattern in `../../references/unattended-mode.md`. When the `.codex/unattended-mode` sentinel exists, do not call `request_user_input`; emit the one-line divergence note and proceed:
+Follow the pre-approved-gate pattern in `../../references/unattended-mode.md`. When the `.codex/unattended-mode` sentinel exists, do not call interactive user prompt; emit the one-line divergence note and proceed:
 
 ```
 Unattended mode: skipping gap-detection interview — proceeding from issue body only
@@ -16,7 +16,7 @@ Everything below applies only when the sentinel is absent.
 
 ### 2. Adaptive skip (no gaps detected)
 
-Run gap detection (below). If zero signals fire, skip the interview without calling `request_user_input`. A well-specified issue should not introduce friction — the interview exists to fill gaps, not to ritualize them.
+Run gap detection (below). If zero signals fire, skip the interview without calling interactive user prompt. A well-specified issue should not introduce friction — the interview exists to fill gaps, not to ritualize them.
 
 ## Gap signals
 
@@ -69,7 +69,7 @@ Feature-scope / user-story / success-metric questions never fire for bug-labelle
 
 2. **Apply the per-run cap of 3 questions.** If more than 3 gaps fire, take the first 3 in probe order and defer the rest to the residual-capture step below.
 
-3. **Call `request_user_input` once per gap** (up to the cap). The menu shape depends on the gap type and the issue's classification:
+3. **Call interactive user prompt once per gap** (up to the cap). The menu shape depends on the gap type and the issue's classification:
 
    - **Feature issues with an "Unresolved Open Questions" gap**: offer three options — `[1] Answer — I'll type the resolution` / `[2] Defer to spike — create a spike issue for this question (blocks #N until the spike ships)` / `[3] Skip — leave unresolved`. The Defer-to-Spike procedure is documented below.
    - **All other gaps** (feature AC structure; every bug-issue gap): offer two options — an **Answer** option (free-text via the `Other` affordance) and a **Skip — leave unresolved** option that records the gap in `## Open Questions`. Bug-labelled issues never see the Defer-to-Spike option; repro-step, expected-vs-actual, and root-cause gaps are not spike-shaped questions.
@@ -113,9 +113,9 @@ When Spec Discovery resolved an existing feature spec (amendment mode):
 
 | Condition | Behavior |
 |-----------|----------|
-| `.codex/unattended-mode` exists | Emit bypass note; skip gap detection and every `request_user_input` call |
+| `.codex/unattended-mode` exists | Emit bypass note; skip gap detection and every interactive user prompt call |
 | Sentinel absent, zero gaps detected | Skip interview; proceed directly to draft |
-| Sentinel absent, 1–3 gaps detected | Ask one `request_user_input` per gap; thread answers into the draft |
+| Sentinel absent, 1–3 gaps detected | Ask one interactive user prompt per gap; thread answers into the draft |
 | Sentinel absent, more than 3 gaps | Ask the first 3 in probe order; record the rest in `## Open Questions` |
 | User chooses "Skip" for a gap | Record the gap verbatim in `## Open Questions` |
 | User chooses "Defer to spike" (feature + Unresolved OQ only) | Create spike issue, add `Depends on: #S` to parent body, thread `See spike #S for resolution` into the draft |

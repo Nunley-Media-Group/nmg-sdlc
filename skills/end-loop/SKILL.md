@@ -1,12 +1,11 @@
 ---
 name: end-loop
 description: "Stop unattended mode and clear runner state. Use when user says 'end loop', 'stop loop', 'kill the runner', 'exit unattended mode', 'disable unattended mode', 'cleanup runner artifacts', or 'stop SDLC automation'. Pairs with /run-loop — signals the runner PID (if live) and removes .codex/unattended-mode and .codex/sdlc-state.json."
-argument-hint: ""
-disable-model-invocation: true
-allowed-tools: Read, Bash(test:*), Bash(node:*), Bash(rm:*)
 ---
 
 # End Loop
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Tear down unattended mode and clear SDLC runner state. This is the explicit counterpart to `/run-loop`: one command to stop the loop cleanly, whether the runner is live, crashed, or already gone.
 
@@ -57,7 +56,7 @@ Exit 0. Do not proceed.
 
 If `.codex/sdlc-state.json` exists, attempt to parse it and extract `runnerPid`.
 
-Use the Read tool to load the file contents. Then validate:
+use file inspection to load the file contents. Then validate:
 
 1. The file contents parse as JSON.
 2. The parsed object has a `runnerPid` field.
@@ -142,7 +141,7 @@ Already handled in Step 6 — a deletion failure exits non-zero with a specific-
 
 ## Unattended Mode
 
-This skill always runs non-interactively. It does not call `request_user_input`, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
+This skill always runs non-interactively. It does not call interactive user prompt, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
 
 ## Integration with SDLC Workflow
 

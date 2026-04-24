@@ -3,7 +3,7 @@
 **Issue**: #66
 **Date**: 2026-02-20
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-migrate-project-skill/`
 
@@ -109,8 +109,8 @@ All three sections contain placeholder content ([convention], [example]) that ad
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Add codebase analysis to infer relevance of missing template sections before proposing them — use heuristics (file glob patterns, directory existence, config file detection) to determine whether a section topic has evidence in the codebase | Must |
-| FR2 | Present filtered missing sections individually for user approve/decline via `AskUserQuestion` with `multiSelect: true` | Must |
-| FR3 | Persist declined sections in a project-level config file (`.claude/migration-exclusions.json`) so they are skipped on future runs | Must |
+| FR2 | Present filtered missing sections individually for user approve/decline via `interactive prompt` with `multiSelect: true` | Must |
+| FR3 | Persist declined sections in a project-level config file (`.codex/migration-exclusions.json`) so they are skipped on future runs | Must |
 | FR4 | Distinguish between "user-declined" sections and "genuinely new template sections" so new additions aren't suppressed — store the section heading at time of decline, only suppress exact heading matches | Must |
 | FR5 | When relevance is uncertain, default to proposing the section (conservative heuristic — let the user decide) | Should |
 

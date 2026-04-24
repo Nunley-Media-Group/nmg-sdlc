@@ -3,7 +3,7 @@
 **Issues**: #5, #16
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -110,7 +110,7 @@ The `/write-spec` skill reads a GitHub issue and generates three specification d
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
 | FR1 | 3-phase spec generation: requirements, design, tasks | Must | Sequential with review gates |
-| FR2 | Human review gates between phases (skippable in unattended-mode) | Must | AskUserQuestion at each gate |
+| FR2 | Human review gates between phases (skippable in unattended-mode) | Must | interactive user prompt at each gate |
 | FR3 | Specs written to `specs/{feature-name}/` directory | Must | Consistent naming |
 | FR4 | Feature name algorithm: issue number + kebab-case title slug | Must | Matches branch name format |
 | FR5 | Gherkin feature scenarios in the tasks phase | Must | `feature.gherkin` output |

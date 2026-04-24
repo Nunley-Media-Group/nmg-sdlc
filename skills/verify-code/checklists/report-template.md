@@ -126,7 +126,7 @@ Use this template to generate the final verification report.
 | **Skill Exercised** | [skill name] |
 | **Test Project** | [temp dir path] |
 | **Exercise Method** | `codex exec` |
-| **request_user_input Handling** | Programmatic first-option / Denied / N/A |
+| **interactive user prompt Handling** | Programmatic first-option / Denied / N/A |
 | **Duration** | [seconds] |
 
 ### Captured Output Summary

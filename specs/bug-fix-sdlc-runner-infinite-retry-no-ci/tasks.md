@@ -3,7 +3,7 @@
 **Issue**: #54
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -52,7 +52,7 @@
 - [ ] Step 8 prompt still handles failing checks (diagnose + fix + retry)
 - [ ] Step 8 prompt still handles the 3-attempt limit
 - [ ] Step 9 prompt still refuses to merge when checks are failing
-- [ ] No other prompt strings in `buildClaudeArgs()` were modified
+- [ ] No other prompt strings in `buildCodexArgs()` were modified
 
 ---
 

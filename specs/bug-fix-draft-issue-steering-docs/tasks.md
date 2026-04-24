@@ -3,7 +3,7 @@
 **Issue**: #27
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -31,7 +31,7 @@
 - [ ] Unattended-mode note ("This step is skipped") remains unchanged
 - [ ] No unrelated changes included in the diff
 
-**Notes**: Follow the fix strategy from design.md. The new sub-step should instruct Claude to read both documents (if they exist) and note any constraints relevant to the enhancement/bug area. Use conditional language ("if it exists") since not all projects will have all three steering docs.
+**Notes**: Follow the fix strategy from design.md. The new sub-step should instruct Codex to read both documents (if they exist) and note any constraints relevant to the enhancement/bug area. Use conditional language ("if it exists") since not all projects will have all three steering docs.
 
 ### T002: Add Regression Test
 

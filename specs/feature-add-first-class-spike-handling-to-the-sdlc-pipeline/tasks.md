@@ -41,13 +41,13 @@
 
 ### T002: Document `docs/decisions/` directory convention
 
-**File(s)**: `README.md` (Repository Structure section), `CLAUDE.md` (Repository Structure section)
+**File(s)**: `README.md` (Repository Structure section), `AGENTS.md` (Repository Structure section)
 **Type**: Modify
 **Depends**: None
 **Routing**: Direct `Edit` — root docs are not skill-bundled.
 **Acceptance**:
 - [ ] `README.md` lists `docs/decisions/` as the ADR directory with a one-line description noting it is created on first spike
-- [ ] `CLAUDE.md` Repository Structure section lists `docs/decisions/` with the same description
+- [ ] `AGENTS.md` Repository Structure section lists `docs/decisions/` with the same description
 - [ ] No `docs/decisions/.gitkeep` file is created — the directory is created on demand by `/write-spec` Phase 0
 
 **Notes**: The directory does not need to pre-exist. Phase 0 creates it via the directory-create-on-write pattern (`mkdir -p docs/decisions` before the file write).
@@ -63,7 +63,7 @@
 **Depends**: None
 **Routing**: `/skill-creator` — `agents/*.md` is skill-bundled per `steering/tech.md`.
 **Acceptance**:
-- [ ] YAML frontmatter includes: `name: spike-researcher`, `description` naming the Phase 0 research purpose and auto-invocation by `write-spec`, `tools: Read, Glob, Grep, WebSearch, WebFetch` (no Write/Edit), `model: opus`, `skills: write-spec`
+- [ ] YAML frontmatter includes: `name: spike-researcher`, `description` naming the Phase 0 research purpose and auto-invocation by `write-spec`, `tools: Read, file discovery, text search, Codex web browsing, Codex web browsing` (no direct Codex editing), `model: gpt-5.5`, `skills: write-spec`
 - [ ] "When Auto-Invoked" section points to `/write-spec` Phase 0
 - [ ] "Research Process" section enumerates: read issue body + steering docs, enumerate candidate set, research each option, identify honest gaps, recommend
 - [ ] "Output" section specifies the structured markdown contract with sections: Research Goal, Candidate Set, Findings, Honest Gaps, Recommendation, Decomposition (including `component-count: N`), References
@@ -116,7 +116,7 @@
 **Depends**: None
 **Routing**: `/skill-creator` — per-skill reference.
 **Acceptance**:
-- [ ] Documents `Glob docs/decisions/*.md` + `git log --follow --format=%aI -- {file}` to compute ADR ages
+- [ ] Documents `file discovery docs/decisions/*.md` + `git log --follow --format=%aI -- {file}` to compute ADR ages
 - [ ] Age threshold: 180 days (6 months) — flagged ADRs become re-spike candidates
 - [ ] Output format: a "Re-Spike Candidates" section appended to `steering/retrospective.md` with columns `ADR | Age (days) | Original decision summary`
 - [ ] Section is **omitted** from retrospective output when no ADRs are > 180 days old
@@ -146,7 +146,7 @@
 **Depends**: T004, T006, T010 (needs `/draft-issue` spike path working)
 **Routing**: `/skill-creator` — per-skill reference.
 **Acceptance**:
-- [ ] The two-option `AskUserQuestion` menu for "Unresolved Open Questions" gaps on **feature issues** is expanded to three options: `[1] Answer`, `[2] Defer to spike`, `[3] Skip — leave unresolved`
+- [ ] The two-option `interactive user prompt` menu for "Unresolved Open Questions" gaps on **feature issues** is expanded to three options: `[1] Answer`, `[2] Defer to spike`, `[3] Skip — leave unresolved`
 - [ ] Bug-labelled issues keep the existing two-option menu (defer-to-spike does not apply to bug repro gaps per design.md)
 - [ ] Selecting `[2] Defer to spike` documents the procedure: derive a spike title from the gap question, run `/draft-issue` in spike-template mode (or directly `gh issue create --label spike --body "..."` using the spike template), capture the new issue number, edit the current issue's body to add `Depends on: #{spike-N}`, thread a placeholder into the requirements draft (`See spike #{spike-N} for resolution`)
 - [ ] Unattended mode: the spike-deferral path is not auto-selected (skip is still the unattended default for unresolved questions) — document this explicitly
@@ -158,7 +158,7 @@
 **Depends**: T006
 **Routing**: `/skill-creator` — SKILL.md edit.
 **Acceptance**:
-- [ ] Step 2 classification `AskUserQuestion` adds a fourth option: `"Spike" — A research/evaluation task producing a decision (ADR) not code`
+- [ ] Step 2 classification `interactive user prompt` adds a fourth option: `"Spike" — A research/evaluation task producing a decision (ADR) not code`
 - [ ] `classification` enum extended: `∈ {feature, bug, epic, spike}`
 - [ ] Step 6 template dispatch adds: `Read references/spike-template.md when classification === 'spike'.`
 - [ ] Step 8 label application adds: `Spike → spike` (lazily create with color `0052CC` if absent); `automatable` does NOT apply to spikes

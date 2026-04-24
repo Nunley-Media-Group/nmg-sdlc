@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-15
 **Issue**: #15
-**Reviewer**: Claude Code (retroactive)
+**Reviewer**: Codex (retroactive)
 **Scope**: Retroactive verification of implemented feature
 
 ---
@@ -28,7 +28,7 @@
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | All marketplace plugins installed | Pass | `.claude/skills/installing-locally/SKILL.md` — Steps 2-3 |
+| AC1 | All marketplace plugins installed | Pass | `.codex/skills/installing-locally/SKILL.md` — Steps 2-3 |
 | AC2 | Skills, hooks, agents copied | Pass | `SKILL.md` — Step 3 rsync with --delete |
 
 ---
@@ -138,7 +138,7 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `.claude/skills/installing-locally/SKILL.md` | 0 | 5-step workflow |
+| `.codex/skills/installing-locally/SKILL.md` | 0 | 5-step workflow |
 
 ---
 

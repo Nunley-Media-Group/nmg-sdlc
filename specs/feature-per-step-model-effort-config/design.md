@@ -3,17 +3,17 @@
 **Issues**: #77, #91, #130
 **Date**: 2026-04-18
 **Status**: Draft
-**Author**: Claude (spec-writer)
+**Author**: Codex (spec-writer)
 
 ---
 
 ## Overview
 
-This feature adds per-step model and effort level configuration to three layers of the nmg-sdlc system: the SDLC runner script, individual skill frontmatter, and the config example template.
+This feature adds per-step model and effort level configuration to three layers of the nmg-sdlc system: the SDLC runner script, individual runner config, and the config example template.
 
-At the **runner layer**, `sdlc-runner.mjs` gains per-step `model` and `effort` fields in the step config, resolving via a fallback chain (`step.field → config.field → default`). The `buildClaudeArgs()` function uses the resolved model for `--model` and sets `CLAUDE_CODE_EFFORT_LEVEL` in the subprocess environment. The implement step uses a single `runClaude()` invocation — the same as every other step — with the skill's unattended-mode handling planning internally.
+At the **runner layer**, `sdlc-runner.mjs` gains per-step `model` and `effort` fields in the step config, resolving via a fallback chain (`step.field → config.field → default`). The `buildCodexArgs()` function uses the resolved model for `--model` and sets `model_reasoning_effort` in the subprocess environment. The implement step uses a single `runCodex()` invocation — the same as every other step — with the skill's unattended-mode handling planning internally.
 
-At the **skill layer**, all SKILL.md files gain a `model` frontmatter field so Claude Code enforces the recommended model during manual invocation. The write-code skill's existing unattended-mode support (skips `EnterPlanMode`, designs internally, then executes) is relied upon — no changes to the skill itself.
+At the **skill layer**, all SKILL.md files gain a runner `model` field so Codex enforces the recommended model during manual invocation. The write-code skill's existing unattended-mode support (skips `EnterPlanMode`, designs internally, then executes) is relied upon — no changes to the skill itself.
 
 At the **documentation layer**, `sdlc-config.example.json` is updated with recommended per-step defaults (flat config for implement, no nested plan/code), and the README gains a model/effort recommendations table.
 
@@ -27,10 +27,10 @@ At the **documentation layer**, `sdlc-config.example.json` is updated with recom
 Manual User Path:
 ┌─────────────────────────────────────────────────────────┐
 │  /write-code #N                                 │
-│  SKILL.md frontmatter: model: opus                      │
+│  SKILL.md frontmatter: model: gpt-5.5                      │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  Single session (Opus)                            │   │
+│  │  Single session (GPT-5.5)                            │   │
 │  │  Steps 1-4 of skill (plan + execute internally)   │   │
 │  │  Unattended-mode: skips EnterPlanMode, designs then     │   │
 │  │  executes directly in same session                │   │
@@ -42,8 +42,8 @@ Runner Path (SDLC runner):
 │  sdlc-runner.mjs → implement step                       │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  claude -p (single invocation)                    │   │
-│  │  --model opus                                     │   │
+│  │  codex exec --cd (single invocation)                    │   │
+│  │  --model gpt-5.5                                     │   │
 │  │  EFFORT_LEVEL=medium                              │   │
 │  │  Skill's unattended-mode handles plan + execute         │   │
 │  └──────────────────────────────────────────────────┘   │
@@ -51,13 +51,13 @@ Runner Path (SDLC runner):
 
 All Steps (including implement):
 ┌─────────────────────────────────────────────────────────┐
-│  sdlc-runner.mjs → buildClaudeArgs()                    │
+│  sdlc-runner.mjs → buildCodexArgs()                    │
 │                                                         │
-│  Model:  step.model  ──▶  config.model  ──▶  'opus'     │
+│  Model:  step.model  ──▶  config.model  ──▶  'gpt-5.5'     │
 │  Effort: step.effort ──▶  config.effort ──▶  (unset)    │
 │                                                         │
-│  claude -p --model <resolved>                           │
-│  env: CLAUDE_CODE_EFFORT_LEVEL=<resolved|unset>         │
+│  codex exec --cd --model <resolved>                           │
+│  env: model_reasoning_effort=<resolved|unset>         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -68,9 +68,9 @@ All Steps (including implement):
 2. validateConfig() checks global + per-step model/effort values (fail fast)
    - Legacy plan/code sub-objects under implement are ignored (not validated)
 3. For each step, resolveStepConfig() produces { model, effort } via fallback chain
-4. buildClaudeArgs() uses resolved model for --model flag
-5. runClaude() sets CLAUDE_CODE_EFFORT_LEVEL in subprocess env (if effort resolved)
-6. All steps (including implement) use the standard runStep() → runClaude() path
+4. buildCodexArgs() uses resolved model for --model flag
+5. runCodex() sets model_reasoning_effort in subprocess env (if effort resolved)
+6. All steps (including implement) use the standard runStep() → runCodex() path
 7. Post-step validation gates run as before
 ```
 
@@ -84,7 +84,7 @@ All Steps (including implement):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `model` | `string` | `"opus"` | Global default model (existing, no change) |
+| `model` | `string` | `"gpt-5.5"` | Global default model (existing, no change) |
 | `effort` | `string` | (unset) | Global default effort level: `"low"`, `"medium"`, or `"high"` |
 
 **Per-step level** — two new optional fields on each step object:
@@ -98,7 +98,7 @@ All Steps (including implement):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `model` | `string` | `"opus"` | Model for the single invocation |
+| `model` | `string` | `"gpt-5.5"` | Model for the single invocation |
 | `effort` | `string` | `"medium"` | Effort for the single invocation |
 
 > **Legacy `plan`/`code` sub-objects**: If present in an existing config, they are silently ignored. `validateConfig()` no longer validates them, and `resolveImplementPhaseConfig()` is removed.
@@ -107,18 +107,18 @@ All Steps (including implement):
 
 ```json
 {
-  "model": "opus",
+  "model": "gpt-5.5",
   "effort": "high",
   "steps": {
     "writeSpecs": {
-      "model": "opus",
+      "model": "gpt-5.5",
       "effort": "high",
       "maxTurns": 40,
       "timeoutMin": 15,
       "skill": "write-spec"
     },
     "implement": {
-      "model": "opus",
+      "model": "gpt-5.5",
       "effort": "medium",
       "maxTurns": 100,
       "timeoutMin": 30,
@@ -128,7 +128,7 @@ All Steps (including implement):
       "maxTurns": 30,
       "timeoutMin": 5,
       "skill": "open-pr",
-      "model": "sonnet"
+      "model": "gpt-5.4"
     }
   }
 }
@@ -137,7 +137,7 @@ All Steps (including implement):
 **Fallback chain (all steps, including implement):**
 
 ```
-step.model → config.model → 'opus'
+step.model → config.model → 'gpt-5.5'
 step.effort → config.effort → (unset)
 ```
 
@@ -147,16 +147,16 @@ All SKILL.md files gain a `model` field:
 
 | Skill | Model | Rationale |
 |-------|-------|-----------|
-| `draft-issue` | `sonnet` | Structured interview, moderate reasoning |
-| `open-pr` | `sonnet` | Template-driven PR creation |
-| `init-config` | `sonnet` | Mechanical config generation |
-| `write-code` | `opus` | Planning + execution needs deep reasoning |
-| `migrate-project` | `opus` | Complex project analysis |
-| `run-retro` | `opus` | Pattern analysis across defects |
-| `setup-steering` | `opus` | Understanding project architecture |
-| `start-issue` | `sonnet` | Mechanical branch creation |
-| `verify-code` | `sonnet` | Structured verification (architecture-reviewer agent already runs on opus) |
-| `write-spec` | `opus` | Complex spec writing needs deep reasoning |
+| `draft-issue` | `gpt-5.4` | Structured interview, moderate reasoning |
+| `open-pr` | `gpt-5.4` | Template-driven PR creation |
+| `init-config` | `gpt-5.4` | Mechanical config generation |
+| `write-code` | `gpt-5.5` | Planning + execution needs deep reasoning |
+| `migrate-project` | `gpt-5.5` | Complex project analysis |
+| `run-retro` | `gpt-5.5` | Pattern analysis across defects |
+| `setup-steering` | `gpt-5.5` | Understanding project architecture |
+| `start-issue` | `gpt-5.4` | Mechanical branch creation |
+| `verify-code` | `gpt-5.4` | Structured verification (architecture-reviewer agent already runs on gpt-5.5) |
+| `write-spec` | `gpt-5.5` | Complex spec writing needs deep reasoning |
 
 ---
 
@@ -168,16 +168,16 @@ All SKILL.md files gain a `model` field:
 |------|--------|----------------|
 | `validateConfig()` | Remove `plan`/`code` sub-object validation loop | ~198-207 |
 | `resolveImplementPhaseConfig()` | Remove entire function | ~239-247 |
-| `buildClaudeArgs()` prompt for step 4 | Remove "Do NOT call EnterPlanMode" from prompt | ~910 |
+| `buildCodexArgs()` prompt for step 4 | Remove "Do NOT call EnterPlanMode" from prompt | ~910 |
 | `runImplementStep()` | Remove entire function | ~1640-1725 |
-| `runStep()` | Remove `if (step.number === 4)` special case — step 4 falls through to standard `runClaude()` path | ~1769-1771 |
+| `runStep()` | Remove `if (step.number === 4)` special case — step 4 falls through to standard `runCodex()` path | ~1769-1771 |
 | Named exports | Remove `resolveImplementPhaseConfig` and `runImplementStep` from exports | ~2125, ~2137 |
 
 ### Config Template (`scripts/sdlc-config.example.json`)
 
 | Area | Change |
 |------|--------|
-| `steps.implement` | Remove nested `plan`/`code` sub-objects; set flat `model: "opus"`, `effort: "medium"` |
+| `steps.implement` | Remove nested `plan`/`code` sub-objects; set flat `model: "gpt-5.5"`, `effort: "medium"` |
 | `steps.createPR` | Increase `maxTurns` from 15 to 30 |
 
 ### Test File (`scripts/__tests__/sdlc-runner.test.mjs`)
@@ -187,14 +187,14 @@ All SKILL.md files gain a `model` field:
 | `resolveImplementPhaseConfig` tests | Remove test suite (~2214-2280) |
 | `runImplementStep` tests | Remove test suite (~2422-2560) |
 | `validateConfig` tests | Update to verify `plan`/`code` sub-objects are ignored (no errors raised) |
-| `runStep` tests | Update or add test verifying step 4 goes through standard `runClaude()` path |
+| `runStep` tests | Update or add test verifying step 4 goes through standard `runCodex()` path |
 
 ### Documentation (`README.md`)
 
 Add a "Model & Effort Recommendations" section with:
 - Table of recommended model/effort per skill
 - Instructions for overriding via runner config
-- Note about skill frontmatter vs runner config precedence
+- Note about runner config vs runner config precedence
 
 ---
 
@@ -203,7 +203,7 @@ Add a "Model & Effort Recommendations" section with:
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
 | **A: Keep plan/code split, just change defaults** | Keep the two-subprocess architecture but change default models | Minimal code change | Unnecessary complexity; every other step uses single invocation; skill already handles plan internally | Rejected — unnecessary overhead |
-| **B: Single invocation, skill handles internally** | Remove runner split; rely on skill's unattended-mode to plan then execute in one session | Consistent with all other steps; simpler runner code; fewer functions to maintain | Single model for both planning and coding (opus for both) | **Selected** — consistency and simplicity win; write-code already has unattended-mode support |
+| **B: Single invocation, skill handles internally** | Remove runner split; rely on skill's unattended-mode to plan then execute in one session | Consistent with all other steps; simpler runner code; fewer functions to maintain | Single model for both planning and coding (gpt-5.5 for both) | **Selected** — consistency and simplicity win; write-code already has unattended-mode support |
 | **C: Deprecation warning before removal** | Emit a warning when `plan`/`code` keys are detected, remove in next major version | Gradual migration path | Over-engineering for an internal tool with few users; adds code that will be immediately removed | Rejected — silent ignore is sufficient for an internal tool |
 
 ---
@@ -229,11 +229,11 @@ Add a "Model & Effort Recommendations" section with:
 |-------|------|----------|
 | Config validation | Unit (Jest) | `validateConfig()` accepts valid values, rejects invalid effort/model, ignores legacy plan/code |
 | Config resolution | Unit (Jest) | `resolveStepConfig()` fallback chain: step → global → default |
-| `buildClaudeArgs()` | Unit (Jest) | Per-step model appears in args; step 4 prompt omits EnterPlanMode warning |
-| `runStep()` for step 4 | Unit (Jest) | Step 4 uses standard `runClaude()` path (no special case) |
+| `buildCodexArgs()` | Unit (Jest) | Per-step model appears in args; step 4 prompt omits EnterPlanMode warning |
+| `runStep()` for step 4 | Unit (Jest) | Step 4 uses standard `runCodex()` path (no special case) |
 | Backward compatibility | Unit (Jest) | Config without per-step fields produces same args as before; config with legacy plan/code keys doesn't error |
 | Skill frontmatter | Exercise test | Load plugin, verify model field parsed |
-| Config example | Structural | `createPR.maxTurns` is 30; implement is flat with `model: "opus"`, `effort: "medium"` |
+| Config example | Structural | `createPR.maxTurns` is 30; implement is flat with `model: "gpt-5.5"`, `effort: "medium"` |
 | BDD scenarios | Gherkin feature file | All ACs from requirements (AC1-AC2, AC4-AC14; AC3 superseded) |
 
 ---
@@ -244,7 +244,7 @@ Add a "Model & Effort Recommendations" section with:
 |------|------------|--------|------------|
 | Existing configs with `plan`/`code` keys break on upgrade | Low | Medium | Silent ignore — `validateConfig()` skips unknown sub-objects; `resolveStepConfig()` only reads `step.model` and `step.effort` |
 | Single invocation for implement runs out of turns | Low | Medium | `maxTurns: 100` in example config is generous; write-code skill is designed for single-session execution |
-| Skill frontmatter `model` field silently ignored on older Claude Code versions | Low | Low | Document minimum Claude Code version; frontmatter is additive — no breakage if ignored |
+| Skill frontmatter `model` field silently ignored on older Codex versions | Low | Low | Document minimum Codex version; frontmatter is additive — no breakage if ignored |
 | Removing exported functions breaks downstream consumers | Low | High | Only the test file imports these functions; update tests in the same PR |
 
 ---
@@ -259,27 +259,27 @@ None — all design decisions are straightforward simplifications.
 
 ### Overview
 
-Issue #130 revisits every step's `model` / `effort` / `maxTurns` / `timeoutMin` against the current Claude Code lineup (Opus 4.7, Sonnet 4.6, Haiku 4.5) and Anthropic's published effort-level guidance. Four concrete surface changes follow:
+Issue #130 revisits every step's `model` / `effort` / `maxTurns` / `timeoutMin` against the current Codex lineup (GPT-5.5, GPT-5.4, GPT-5.4 Mini) and OpenAI's published effort-level guidance. Four concrete surface changes follow:
 
-1. **Runner validation expands** — `VALID_EFFORTS` gains `xhigh`; `max` is explicitly rejected; `effort` on Haiku steps is explicitly rejected.
-2. **Runner module defaults flip** — `resolveStepConfig()` falls back to `sonnet` / `medium` instead of `opus` / `undefined`, so omitting model/effort everywhere produces a cost-aware baseline.
-3. **Example config is rewritten** — every step gets an explicit `model`, `maxTurns`, `timeoutMin`, plus `effort` where the model supports it; Opus is hard-capped to `writeSpecs`/`implement`/`verify`; turn budgets are raised to the AC36 floors.
+1. **Runner validation expands** — `VALID_EFFORTS` gains `xhigh`; `max` is explicitly rejected; `effort` on GPT-5.4 Mini steps is explicitly rejected.
+2. **Runner module defaults flip** — `resolveStepConfig()` falls back to `gpt-5.4` / `medium` instead of `gpt-5.5` / `undefined`, so omitting model/effort everywhere produces a cost-aware baseline.
+3. **Example config is rewritten** — every step gets an explicit `model`, `maxTurns`, `timeoutMin`, plus `effort` where the model supports it; GPT-5.5 is hard-capped to `writeSpecs`/`implement`/`verify`; turn budgets are raised to the AC36 floors.
 4. **Skill frontmatter gains `model` and `effort`** — so interactive invocation honors the same defaults the runner uses (subject to the documented precedence chain).
 
 Two supporting documentation surfaces update: README gains a rewritten recommendations table and a precedence subsection; CHANGELOG gains `[Unreleased]` entries; `upgrade-project` grows a curated-defaults diff flow.
 
 ### Source citations
 
-- Anthropic effort-level docs: `https://platform.claude.com/docs/en/build-with-claude/effort`
-- Claude Code model config: `https://code.claude.com/docs/en/model-config`
+- OpenAI effort-level docs: `https://platform.openai.com/docs`
+- Codex model config: `https://developers.openai.com/codex`
 
 Key guidance applied:
 
 | Model | Effort guidance |
 |---|---|
-| Opus 4.7 | `xhigh` is the recommended starting point for coding / agentic workflows; `high` is the "balance sweet spot"; `max` is prone to overthinking — nmg-sdlc policy excludes it |
-| Sonnet 4.6 | `medium` is Anthropic's recommended default for agentic coding; `high` for maximum intelligence |
-| Haiku 4.5 | Does **not** accept an effort parameter — the field must be omitted |
+| GPT-5.5 | `xhigh` is the recommended starting point for coding / agentic workflows; `high` is the "balance sweet spot"; `max` is prone to overthinking — nmg-sdlc policy excludes it |
+| GPT-5.4 | `medium` is OpenAI's recommended default for agentic coding; `high` for maximum intelligence |
+| GPT-5.4 Mini | Does **not** accept an effort parameter — the field must be omitted |
 
 ### Updated config schema
 
@@ -287,24 +287,24 @@ Key guidance applied:
 
 | Field | Type | Default | Note |
 |-------|------|---------|------|
-| `model` | `string` | `"sonnet"` | Was `"opus"` prior to #130 |
+| `model` | `string` | `"gpt-5.4"` | Was `"gpt-5.5"` prior to #130 |
 | `effort` | `string` | `"medium"` | Was `undefined` prior to #130 |
 
-**Per-step level** — two fields, same fallback chain, with one additional constraint: `effort` MUST be omitted when `model` is `"haiku"`.
+**Per-step level** — two fields, same fallback chain, with one additional constraint: `effort` MUST be omitted when `model` is `"gpt-5.4-mini"`.
 
 ### Runner changes (`scripts/sdlc-runner.mjs`)
 
 | Location | Change |
 |---|---|
 | Line 26 — `VALID_EFFORTS` | Expand to `['low', 'medium', 'high', 'xhigh']` |
-| `validateConfig()` (~189-210) | Add explicit rejection for `effort === 'max'` with message citing nmg-sdlc policy; add rejection for `effort` on steps where `model === 'haiku'` |
-| `resolveStepConfig()` (line 225-230) | Change fallback: `step.model \|\| config.model \|\| 'sonnet'`; `step.effort \|\| config.effort \|\| 'medium'` |
+| `validateConfig()` (~189-210) | Add explicit rejection for `effort === 'max'` with message citing nmg-sdlc policy; add rejection for `effort` on steps where `model === 'gpt-5.4-mini'` |
+| `resolveStepConfig()` (line 225-230) | Change fallback: `step.model \|\| config.model \|\| 'gpt-5.4'`; `step.effort \|\| config.effort \|\| 'medium'` |
 | `getConfigObject()` (~216) | Unchanged — still packages module globals for resolution |
-| Module init (line 104-105) | `MODEL = config.model \|\| 'sonnet'`; `EFFORT = config.effort \|\| 'medium'` |
+| Module init (line 104-105) | `MODEL = config.model \|\| 'gpt-5.4'`; `EFFORT = config.effort \|\| 'medium'` |
 
-**`max` rejection rationale** — `max` is not inherently invalid at the Claude Code layer, but nmg-sdlc policy excludes it (Anthropic notes `max` is prone to overthinking on coding workloads). Rejecting it at `validateConfig()` surfaces the policy immediately rather than silently degrading output quality at runtime.
+**`max` rejection rationale** — `max` is not inherently invalid at the Codex layer, but nmg-sdlc policy excludes it (OpenAI notes `max` is prone to overthinking on coding workloads). Rejecting it at `validateConfig()` surfaces the policy immediately rather than silently degrading output quality at runtime.
 
-**Haiku effort rejection rationale** — Claude Code ignores `effort` on Haiku silently; explicit rejection makes config files self-documenting and prevents accidental "configured but unused" effort values that drift out of sync with the model.
+**GPT-5.4 Mini effort rejection rationale** — Codex ignores `effort` on GPT-5.4 Mini silently; explicit rejection makes config files self-documenting and prevents accidental "configured but unused" effort values that drift out of sync with the model.
 
 ### Updated example config (`scripts/sdlc-config.example.json`)
 
@@ -312,18 +312,18 @@ Every step gets an explicit `model`, `maxTurns`, `timeoutMin`, plus `effort` whe
 
 ```json
 {
-  "model": "sonnet",
+  "model": "gpt-5.4",
   "effort": "medium",
   "steps": {
-    "startCycle":  { "model": "haiku",                    "maxTurns": 10,  "timeoutMin": 5  },
-    "startIssue":  { "model": "sonnet", "effort": "low",   "maxTurns": 25,  "timeoutMin": 5,  "skill": "start-issue" },
-    "writeSpecs":  { "model": "opus",   "effort": "xhigh", "maxTurns": 60,  "timeoutMin": 15, "skill": "write-spec" },
-    "implement":   { "model": "opus",   "effort": "xhigh", "maxTurns": 150, "timeoutMin": 30, "skill": "write-code" },
-    "verify":      { "model": "opus",   "effort": "high",  "maxTurns": 100, "timeoutMin": 20, "skill": "verify-code" },
-    "commitPush":  { "model": "haiku",                    "maxTurns": 15,  "timeoutMin": 5  },
-    "createPR":    { "model": "sonnet", "effort": "low",   "maxTurns": 45,  "timeoutMin": 5,  "skill": "open-pr" },
-    "monitorCI":   { "model": "sonnet", "effort": "medium","maxTurns": 60,  "timeoutMin": 20 },
-    "merge":       { "model": "haiku",                    "maxTurns": 10,  "timeoutMin": 5  }
+    "startCycle":  { "model": "gpt-5.4-mini",                    "maxTurns": 10,  "timeoutMin": 5  },
+    "startIssue":  { "model": "gpt-5.4", "effort": "low",   "maxTurns": 25,  "timeoutMin": 5,  "skill": "start-issue" },
+    "writeSpecs":  { "model": "gpt-5.5",   "effort": "xhigh", "maxTurns": 60,  "timeoutMin": 15, "skill": "write-spec" },
+    "implement":   { "model": "gpt-5.5",   "effort": "xhigh", "maxTurns": 150, "timeoutMin": 30, "skill": "write-code" },
+    "verify":      { "model": "gpt-5.5",   "effort": "high",  "maxTurns": 100, "timeoutMin": 20, "skill": "verify-code" },
+    "commitPush":  { "model": "gpt-5.4-mini",                    "maxTurns": 15,  "timeoutMin": 5  },
+    "createPR":    { "model": "gpt-5.4", "effort": "low",   "maxTurns": 45,  "timeoutMin": 5,  "skill": "open-pr" },
+    "monitorCI":   { "model": "gpt-5.4", "effort": "medium","maxTurns": 60,  "timeoutMin": 20 },
+    "merge":       { "model": "gpt-5.4-mini",                    "maxTurns": 10,  "timeoutMin": 5  }
   }
 }
 ```
@@ -352,37 +352,37 @@ All eleven SDLC-pipeline skills gain `model` (and `effort` when the model suppor
 
 | SKILL.md | Runner step | Frontmatter `model` | Frontmatter `effort` |
 |---|---|---|---|
-| `write-spec` | writeSpecs | `opus` | `xhigh` |
-| `write-code` | implement | `opus` | `xhigh` |
-| `verify-code` | verify | `opus` | `high` |
-| `start-issue` | startIssue | `sonnet` | `low` |
-| `open-pr` | createPR | `sonnet` | `low` |
-| `draft-issue` | (interactive-only, not a runner step) | `sonnet` | `medium` |
-| `run-retro` | (invoked on demand) | `opus` | `high` |
-| `setup-steering` | (one-time) | `opus` | `high` |
-| `init-config` | (one-time) | `haiku` | *(omitted)* |
-| `run-loop` | (runner launcher) | `sonnet` | `low` |
-| `upgrade-project` | (one-time) | `opus` | `high` |
+| `write-spec` | writeSpecs | `gpt-5.5` | `xhigh` |
+| `write-code` | implement | `gpt-5.5` | `xhigh` |
+| `verify-code` | verify | `gpt-5.5` | `high` |
+| `start-issue` | startIssue | `gpt-5.4` | `low` |
+| `open-pr` | createPR | `gpt-5.4` | `low` |
+| `draft-issue` | (interactive-only, not a runner step) | `gpt-5.4` | `medium` |
+| `run-retro` | (invoked on demand) | `gpt-5.5` | `high` |
+| `setup-steering` | (one-time) | `gpt-5.5` | `high` |
+| `init-config` | (one-time) | `gpt-5.4-mini` | *(omitted)* |
+| `run-loop` | (runner launcher) | `gpt-5.4` | `low` |
+| `upgrade-project` | (one-time) | `gpt-5.5` | `high` |
 
-Frontmatter values are **declarative**, not enforced by nmg-sdlc code — Claude Code honors them when loading the skill manually. This is explicitly additive: missing frontmatter does not break backward compatibility.
+Frontmatter values are **declarative**, not enforced by nmg-sdlc code — Codex honors them when loading the skill manually. This is explicitly additive: missing frontmatter does not break backward compatibility.
 
 ### Precedence chain (AC34)
 
 Four layers, highest wins:
 
 ```
-CLAUDE_CODE_EFFORT_LEVEL env var (set by runner)
+model_reasoning_effort env var (set by runner)
     ↓
 Skill frontmatter (`model:` and `effort:`)
     ↓
 Session `/model` / `/effort` overrides
     ↓
-Claude Code built-in default
+Codex built-in default
 ```
 
-**Runner-driven runs** — the runner sets `CLAUDE_CODE_EFFORT_LEVEL` via subprocess env, which wins over skill frontmatter. This is intentional: the runner's per-step config is the authoritative automation policy.
+**Runner-driven runs** — the runner sets `model_reasoning_effort` via subprocess env, which wins over runner config. This is intentional: the runner's per-step config is the authoritative automation policy.
 
-**Interactive runs** — no env var is set, so skill frontmatter wins over the session's model/effort choice. This gives manual users the same defaults the runner uses without forcing them to `/model opus` before each skill.
+**Interactive runs** — no env var is set, so runner config wins over the session's model/effort choice. This gives manual users the same defaults the runner uses without forcing them to `/model gpt-5.5` before each skill.
 
 README gains a new subsection under "Model & Effort Configuration" that encodes this chain explicitly.
 
@@ -392,18 +392,18 @@ README gains a new subsection under "Model & Effort Configuration" that encodes 
 
 | Candidate | Model | Effort | Tradeoff |
 |---|---|---|---|
-| Cheapest | `sonnet` | `high` | Adequate for checklist validation but under-provisions fix application — Sonnet 4.6 at high effort still trails Opus on multi-file reasoning required for auto-fixes that touch several layers |
-| Middle | `opus` | `medium` | Keeps Opus's reasoning floor but deprioritizes deep thinking — risks shallow fix proposals on subtle architectural issues |
-| **Selected** | `opus` | `high` | Anthropic's "balance sweet spot" for Opus 4.7; provides fix-application headroom without the `xhigh` cost premium that `implement` warrants |
-| Over-provisioned | `opus` | `xhigh` | Identical output quality to `high` on verification checklists (diminishing returns); cost-disproportionate for a validation-plus-fix workload that already has a 100-turn budget |
+| Cheapest | `gpt-5.4` | `high` | Adequate for checklist validation but under-provisions fix application — GPT-5.4 at high effort still trails GPT-5.5 on multi-file reasoning required for auto-fixes that touch several layers |
+| Middle | `gpt-5.5` | `medium` | Keeps GPT-5.5's reasoning floor but deprioritizes deep thinking — risks shallow fix proposals on subtle architectural issues |
+| **Selected** | `gpt-5.5` | `high` | OpenAI's "balance sweet spot" for GPT-5.5; provides fix-application headroom without the `xhigh` cost premium that `implement` warrants |
+| Over-provisioned | `gpt-5.5` | `xhigh` | Identical output quality to `high` on verification checklists (diminishing returns); cost-disproportionate for a validation-plus-fix workload that already has a 100-turn budget |
 
 ### Guardrails (AC25)
 
-**Opus rate-limit mitigation** — prior spec `specs/bug-opus-rate-limits/` established that concentrating Opus use triggers rate limits mid-cycle. The new default config uses Opus on only three of nine steps (down from a potential nine-of-nine under the old `"opus"` global default). Mechanical steps (`startCycle`, `commitPush`, `merge`) drop to Haiku — Anthropic's recommended model for deterministic tool-driven work — eliminating ~40% of previous Opus-subprocess starts per cycle.
+**GPT-5.5 rate-limit mitigation** — prior spec `specs/bug-model-rate-limits/` established that concentrating GPT-5.5 use triggers rate limits mid-cycle. The new default config uses GPT-5.5 on only three of nine steps (down from a potential nine-of-nine under the old `"gpt-5.5"` global default). Mechanical steps (`startCycle`, `commitPush`, `merge`) drop to GPT-5.4 Mini — OpenAI's recommended model for deterministic tool-driven work — eliminating ~40% of previous GPT-5.5-subprocess starts per cycle.
 
 **`implement` at `xhigh` within 150-turn / 30-min budget** — the current 100-turn `medium` budget is occasionally tight on mid-sized features. Moving to `xhigh` tier increases per-turn thinking time, but the 50% turn increase (100 → 150) absorbs the reduced turn efficiency. Wall-clock remains capped at 30 min. If a step saturates both, escalation correctly signals an issue that is too large for a single cycle rather than a budget problem.
 
-**`monitorCI` at `sonnet`/`medium` headroom** — CI failure diagnosis typically needs 3-5 investigation rounds plus 1-2 fix rounds. The new 60-turn / 20-min budget leaves ~10-turn headroom above the 90th-percentile observed duration in collected logs. `medium` effort matches Anthropic's agentic-coding default and avoids the under-provisioning risk of `low`.
+**`monitorCI` at `gpt-5.4`/`medium` headroom** — CI failure diagnosis typically needs 3-5 investigation rounds plus 1-2 fix rounds. The new 60-turn / 20-min budget leaves ~10-turn headroom above the 90th-percentile observed duration in collected logs. `medium` effort matches OpenAI's agentic-coding default and avoids the under-provisioning risk of `low`.
 
 ### `init-config` and `upgrade-project` interactions
 
@@ -416,7 +416,7 @@ README gains a new subsection under "Model & Effort Configuration" that encodes 
 ```
 Recommended default changes (plugin v1.47.0 → v1.48.0):
 
-  steps.startCycle.model:     (unset — inherited "opus") → "haiku"
+  steps.startCycle.model:     (unset — inherited "gpt-5.5") → "gpt-5.4-mini"
   steps.startCycle.maxTurns:  5 → 10
   steps.implement.effort:     "medium" → "xhigh"
   steps.implement.maxTurns:   100 → 150
@@ -435,12 +435,12 @@ Additions to the file list from the original design:
 | Area | Change |
 |------|--------|
 | `scripts/sdlc-runner.mjs` line 26 | `VALID_EFFORTS` expanded to include `xhigh` |
-| `scripts/sdlc-runner.mjs` `validateConfig()` | Reject `max`; reject effort on Haiku |
-| `scripts/sdlc-runner.mjs` `resolveStepConfig()` | Defaults `sonnet` / `medium` |
+| `scripts/sdlc-runner.mjs` `validateConfig()` | Reject `max`; reject effort on GPT-5.4 Mini |
+| `scripts/sdlc-runner.mjs` `resolveStepConfig()` | Defaults `gpt-5.4` / `medium` |
 | `scripts/sdlc-runner.mjs` module init (104-105) | Same default change at module scope |
 | `scripts/sdlc-config.example.json` | Rewritten per AC30 / AC36 tables |
-| `scripts/__tests__/sdlc-runner.test.mjs` | Add tests: `xhigh` accept, `max` reject, Haiku+effort reject, new defaults |
-| `README.md` (~lines 179-205) | Recommendations table rewritten; precedence subsection added; `max`-exclusion + Haiku-no-effort rules documented |
+| `scripts/__tests__/sdlc-runner.test.mjs` | Add tests: `xhigh` accept, `max` reject, GPT-5.4 Mini+effort reject, new defaults |
+| `README.md` (~lines 179-205) | Recommendations table rewritten; precedence subsection added; `max`-exclusion + GPT-5.4 Mini-no-effort rules documented |
 | `CHANGELOG.md` `[Unreleased]` | Two entries: defaults rework; turn-budget revision citing #181 |
 | `plugins/nmg-sdlc/skills/*/SKILL.md` (all eleven listed above) | Add `model:` and `effort:` frontmatter fields |
 | `plugins/nmg-sdlc/skills/upgrade-project/SKILL.md` | Add curated-defaults diff section |
@@ -449,7 +449,7 @@ Additions to the file list from the original design:
 
 | Option | Description | Decision |
 |---|---|---|
-| **Keep `opus` global default** | Leave the runner's fallback at `opus` and just fix the example config | Rejected — the runner default is the "nothing configured" outcome; leaving it at `opus` means downstream projects that never run `upgrade-project` silently run the most expensive model forever |
+| **Keep `gpt-5.5` global default** | Leave the runner's fallback at `gpt-5.5` and just fix the example config | Rejected — the runner default is the "nothing configured" outcome; leaving it at `gpt-5.5` means downstream projects that never run `upgrade-project` silently run the most expensive model forever |
 | **Allow `max` with a warning** | Accept `max` but log a warning | Rejected — warnings get ignored in automation logs; a hard reject surfaces the policy once at config-load time |
 | **Auto-apply new defaults in `upgrade-project`** | Overwrite user values without confirmation | Rejected — breaks the existing value-drift contract and surprises users who deliberately customized step budgets |
 | **Add a `policyVersion` field to config** | Track which defaults version the config matches so `upgrade-project` knows what "old" means | Deferred — useful but adds schema surface; curated diff works without it for this revision |
@@ -459,9 +459,9 @@ Additions to the file list from the original design:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Downstream project runs old Opus-heavy defaults after plugin upgrade (no `upgrade-project`) | Medium | Medium | `upgrade-project` curated diff makes the bump discoverable; CHANGELOG entry flags the behavior change; runner default flip catches configs that omit fields |
-| Skill frontmatter declarations break older Claude Code versions | Low | Low | Frontmatter fields are ignored if unrecognized; no error, just no-op |
-| `xhigh` on `writeSpecs`/`implement` triggers Opus rate limits in long cycles | Low | Medium | Only three steps use Opus; `verify` at `high` moderates the total Opus footprint; cycle-level retry logic unchanged |
+| Downstream project runs old GPT-5.5-heavy defaults after plugin upgrade (no `upgrade-project`) | Medium | Medium | `upgrade-project` curated diff makes the bump discoverable; CHANGELOG entry flags the behavior change; runner default flip catches configs that omit fields |
+| Skill frontmatter declarations break older Codex versions | Low | Low | Frontmatter fields are ignored if unrecognized; no error, just no-op |
+| `xhigh` on `writeSpecs`/`implement` triggers GPT-5.5 rate limits in long cycles | Low | Medium | Only three steps use GPT-5.5; `verify` at `high` moderates the total GPT-5.5 footprint; cycle-level retry logic unchanged |
 | `upgrade-project` diff overwhelms users with many changed fields | Low | Low | Batch-approve and per-field review both offered; tables are scannable |
 | `max` rejection breaks a hypothetical user who set `"max"` manually | Low | Low | Clear error message identifies the field and the policy; trivial to change to `high` or `xhigh` |
 
@@ -473,7 +473,7 @@ Additions to the file list from the original design:
 |-------|------|---------|
 | #77 | 2026-02-22 | Initial feature spec |
 | #91 | 2026-02-23 | Replace plan/code split with single invocation; simplify architecture diagram, data flow, config schema; remove runImplementStep/resolveImplementPhaseConfig; add createPR maxTurns increase |
-| #130 | 2026-04-18 | Optimize defaults for Opus 4.7 / Sonnet 4.6 / Haiku 4.5; expand `VALID_EFFORTS` to include `xhigh`; reject `max` and Haiku+effort; flip runner default to `sonnet`/`medium`; Opus hard cap on three steps; rewrite example config with AC30/AC36 tables; add `model`/`effort` to skill frontmatter; document precedence chain; `upgrade-project` curated diff |
+| #130 | 2026-04-18 | Optimize defaults for GPT-5.5 / GPT-5.4 / GPT-5.4 Mini; expand `VALID_EFFORTS` to include `xhigh`; reject `max` and GPT-5.4 Mini+effort; flip runner default to `gpt-5.4`/`medium`; GPT-5.5 hard cap on three steps; rewrite example config with AC30/AC36 tables; add `model`/`effort` to runner config; document precedence chain; `upgrade-project` curated diff |
 
 ---
 

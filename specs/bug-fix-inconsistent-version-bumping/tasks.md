@@ -3,7 +3,7 @@
 **Issue**: #60
 **Date**: 2026-02-19
 **Status**: Planning
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
@@ -55,7 +55,7 @@
 - [ ] Scenario 1: Deterministic version bump step fires when LLM skips it
 - [ ] Scenario 2: Reinforced prompt includes version bump mandate
 - [ ] Scenario 3: Postcondition detects missing version bump and triggers recovery
-- [ ] Scenario 4: Manual workflow still uses `AskUserQuestion` for version bump confirmation
+- [ ] Scenario 4: Manual workflow still uses `interactive prompt` for version bump confirmation
 
 ### T003: Verify No Regressions
 

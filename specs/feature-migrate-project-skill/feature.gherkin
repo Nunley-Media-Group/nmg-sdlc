@@ -28,7 +28,7 @@ Feature: Project Migration Skill
 
   Scenario: User content is preserved during migration
     Given a "tech.md" steering doc with a filled-in Technology Stack table listing project-specific technologies
-    And the latest template includes a new "Claude Code Resource Development" section
+    And the latest template includes a new "Codex Resource Development" section
     When the migration adds the new section
     Then the Technology Stack table content is identical before and after migration
     And no existing content is modified or reordered
@@ -238,10 +238,10 @@ Feature: Project Migration Skill
   # --- Auto-Mode ---
 
   Scenario: Unattended-mode skips interactive confirmations in write-spec
-    Given ".claude/unattended-mode" exists in the project directory
+    Given ".codex/unattended-mode" exists in the project directory
     And "/write-spec #71" finds a matching spec "feature-dark-mode"
     When the spec discovery step runs
-    Then amendment is auto-approved without calling AskUserQuestion
+    Then amendment is auto-approved without calling interactive prompt
     And the spec is amended with the new issue's requirements
 
   # Added by issue #95
@@ -281,7 +281,7 @@ Feature: Project Migration Skill
     And JSON formatting is preserved with 2-space indentation
 
   Scenario: Unattended-mode reports drift but does not apply value updates
-    Given ".claude/unattended-mode" exists in the project directory
+    Given ".codex/unattended-mode" exists in the project directory
     And a project's "sdlc-config.json" has "steps.createPR.maxTurns" set to 15
     And the template default is 30
     When I run "/migrate-project"

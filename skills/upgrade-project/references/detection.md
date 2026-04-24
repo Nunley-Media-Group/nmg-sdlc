@@ -20,7 +20,7 @@ Before any move, verify the working tree is clean enough to relocate safely:
 
 ## Proposal (interactive mode only)
 
-If NOT unattended, present the proposed actions via `request_user_input`:
+If NOT unattended, present the proposed actions via interactive user prompt:
 
 ```
 question: "The project uses the legacy `.codex/steering/` and `.codex/specs/` layout. Relocate to `steering/` and `specs/` at the project root?"
@@ -33,8 +33,8 @@ If the user skips, record the relocation as deferred and stop Step 1.5. Downstre
 
 ## Apply (both modes, once approved)
 
-1. **`STEERING_LEGACY`**: run `git mv .codex/steering steering`. After the move, `Grep` across every file under `steering/` for the literal strings `.codex/steering/` and `.codex/specs/`. For each match, use `Edit` to rewrite the reference to the new path (`steering/` and `specs/` respectively). Remove any now-empty `.codex/steering/` directory.
-2. **`SPECS_LEGACY`**: run `git mv .codex/specs specs`. After the move, `Grep` across every file under `specs/` for the literal strings `.codex/steering/` and `.codex/specs/`. For each match, use `Edit` to rewrite the reference. This especially applies to `**Related Spec**` fields in defect-spec `requirements.md` files, which commonly embed the legacy path. Remove any now-empty `.codex/specs/` directory.
+1. **`STEERING_LEGACY`**: run `git mv .codex/steering steering`. After the move, text search across every file under `steering/` for the literal strings `.codex/steering/` and `.codex/specs/`. For each match, use Codex editing to rewrite the reference to the new path (`steering/` and `specs/` respectively). Remove any now-empty `.codex/steering/` directory.
+2. **`SPECS_LEGACY`**: run `git mv .codex/specs specs`. After the move, text search across every file under `specs/` for the literal strings `.codex/steering/` and `.codex/specs/`. For each match, use Codex editing to rewrite the reference. This especially applies to `**Related Spec**` fields in defect-spec `requirements.md` files, which commonly embed the legacy path. Remove any now-empty `.codex/specs/` directory.
 3. **`EXCLUSIONS_LEGACY`**: run `git mv .codex/migration-exclusions.json .codex/upgrade-exclusions.json`. The content schema is unchanged.
 4. Do NOT touch `.codex/unattended-mode` or `.codex/sdlc-state.json`. These runtime artifacts remain under `.codex/` unchanged.
 5. Record every action applied for inclusion in the Step 9 summary.

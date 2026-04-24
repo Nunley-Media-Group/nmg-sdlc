@@ -3,7 +3,7 @@
 **Issue**: #62
 **Date**: 2026-02-20
 **Status**: Complete
-**Author**: Claude (regenerated)
+**Author**: Codex (regenerated)
 
 ---
 
@@ -34,7 +34,7 @@
 
 ### T002: Add working tree cleanup to step 1 prompt
 
-**File(s)**: `scripts/sdlc-runner.mjs` (`buildClaudeArgs`, step 1 prompt)
+**File(s)**: `scripts/sdlc-runner.mjs` (`buildCodexArgs`, step 1 prompt)
 **Type**: Modify
 **Depends**: None
 **Acceptance**:

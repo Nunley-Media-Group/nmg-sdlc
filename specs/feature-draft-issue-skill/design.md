@@ -3,7 +3,7 @@
 **Issues**: #4, #116, #125
 **Date**: 2026-04-18
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -13,7 +13,7 @@ The `/draft-issue` skill implements an adaptive interview workflow that gathers 
 
 Issue #116 extends this skill along three orthogonal axes: **(1)** porting the readability treatment from `/write-spec` (Workflow Overview diagram, per-step `### Input/Process/Output` subsections, and a structured inline review summary with a numbered approve/revise menu at the review gate), **(2)** deepening the interview (NFR/edge-case/related-feature probing, adaptive depth driven by investigation signals, and a "playback and confirm" step that forces understanding alignment before any issue body is drafted), and **(3)** removing unattended-mode support from `/draft-issue` so the skill always runs the full interactive workflow. The runner does not currently invoke `/draft-issue` as a callable step, so AC13 is predominantly a defensive/documentation contract — we assert and harden the non-invocation.
 
-Issue #125 extends the skill along two further axes without changing the per-issue Steps 2–9 contract: **(1)** a **multi-issue pipeline** inserted between Step 1 and Step 2 (Step 1b heuristic detection → split-confirm → Step 1d dependency-graph inference → graph-confirm), which turns one invocation into a planned batch of N issues with a confirmed DAG; Steps 2–9 then loop per planned issue; a post-loop autolinking stage wires the DAG via `gh issue edit --add-sub-issue` (with availability probing and body-cross-ref fallback). **(2)** **Claude Design URL ingestion** — the skill accepts an optional URL, fetches and gzip-decodes the archive (reusing Issue #124's helper), parses the README, and makes the content available as shared session context to every per-issue Step 4/5/6 across the batch. Both axes are designed to be **graceful on the single-issue, no-design path**: Step 1b exits quickly with a trail note, no confirm menus fire, and Step 2 runs unchanged.
+Issue #125 extends the skill along two further axes without changing the per-issue Steps 2–9 contract: **(1)** a **multi-issue pipeline** inserted between Step 1 and Step 2 (Step 1b heuristic detection → split-confirm → Step 1d dependency-graph inference → graph-confirm), which turns one invocation into a planned batch of N issues with a confirmed DAG; Steps 2–9 then loop per planned issue; a post-loop autolinking stage wires the DAG via `gh issue edit --add-sub-issue` (with availability probing and body-cross-ref fallback). **(2)** **design archive URL ingestion** — the skill accepts an optional URL, fetches and gzip-decodes the archive (reusing Issue #124's helper), parses the README, and makes the content available as shared session context to every per-issue Step 4/5/6 across the batch. Both axes are designed to be **graceful on the single-issue, no-design path**: Step 1b exits quickly with a trail note, no confirm menus fire, and Step 2 runs unchanged.
 
 ---
 
@@ -62,7 +62,7 @@ Issue #125 extends the skill along two further axes without changing the per-iss
 ```
 1. User invokes /draft-issue [description]
 2. Step 1: Skill reads steering docs; captures initial description
-3. Step 2: Classify Feature vs Bug via AskUserQuestion
+3. Step 2: Classify Feature vs Bug via interactive prompt
 4. Step 3: Assign milestone (always interactive now)
 5. Step 4: Investigate codebase; emit signals:
       filesFound, componentsInvolved, descriptionVagueness
@@ -81,7 +81,7 @@ Issue #125 extends the skill along two further axes without changing the per-iss
 
 ### Unattended-Mode Exclusion
 
-Per AC12, `/draft-issue` **actively ignores** `.claude/unattended-mode`:
+Per AC12, `/draft-issue` **actively ignores** `.codex/unattended-mode`:
 
 - The top-level "Unattended Mode" section in SKILL.md is **removed**, not just neutralized.
 - Every per-step blockquote of the form `> Unattended-mode: This step is skipped.` is removed.
@@ -90,9 +90,9 @@ Per AC12, `/draft-issue` **actively ignores** `.claude/unattended-mode`:
 
 This implements the retrospective learning on "features that explicitly exclude integration with a system-wide behavior mode": the exclusion must be active (remove all detection code) rather than passive (only documented in Out of Scope).
 
-**Breaking-change treatment** (FR27 / FR28 / AC18, Risk-4 mitigation): because the removal changes observable behavior for any user who previously relied on `.claude/unattended-mode` in `/draft-issue`, the plugin version is bumped **major** (v1.40.0 → v1.41.0) and the CHANGELOG `[Unreleased]` entry sits under a `### Changed (BREAKING)` subsection. In SKILL.md, where the Unattended Mode section used to live, a **single sign-post sentence** remains so users scrolling for the old behavior are explicitly redirected:
+**Breaking-change treatment** (FR27 / FR28 / AC18, Risk-4 mitigation): because the removal changes observable behavior for any user who previously relied on `.codex/unattended-mode` in `/draft-issue`, the plugin version is bumped **major** (v1.40.0 → v1.41.0) and the CHANGELOG `[Unreleased]` entry sits under a `### Changed (BREAKING)` subsection. In SKILL.md, where the Unattended Mode section used to live, a **single sign-post sentence** remains so users scrolling for the old behavior are explicitly redirected:
 
-> As of v1.41.0, `/draft-issue` no longer honors `.claude/unattended-mode`. Issue drafting requires interactive input.
+> As of v1.41.0, `/draft-issue` no longer honors `.codex/unattended-mode`. Issue drafting requires interactive input.
 
 In `scripts/sdlc-runner.mjs`, a comment above `STEP_KEYS` captures the same contract for future contributors:
 
@@ -128,7 +128,7 @@ The borderline bias row (FR23, Risk-1 mitigation) intentionally pushes ambiguous
 
 **User-visible log line** (FR15): one short sentence explaining the decision, e.g. `"This touches 4 components across 2 skills — I'll ask deeper scope questions."` or `"Small scoped change — running a core interview."`
 
-**Override step** (FR22 / AC15, Risk-1 mitigation): immediately after the log line, call `AskUserQuestion` with two options — `[1] Use {heuristic_pick} interview (recommended)` / `[2] Use {the_other_depth} interview`. If the user selects `[2]`, emit a one-line session note before the interview begins — e.g., `"(heuristic chose core, user selected extended)"` (FR29, Risk-5 instrumentation). This visible trail accumulates evidence for future threshold tuning.
+**Override step** (FR22 / AC15, Risk-1 mitigation): immediately after the log line, call `interactive prompt` with two options — `[1] Use {heuristic_pick} interview (recommended)` / `[2] Use {the_other_depth} interview`. If the user selects `[2]`, emit a one-line session note before the interview begins — e.g., `"(heuristic chose core, user selected extended)"` (FR29, Risk-5 instrumentation). This visible trail accumulates evidence for future threshold tuning.
 
 **End-of-interview "Anything I missed?" probe** (FR24, Risk-1 mitigation): the final round — regardless of depth — ends with a single free-text probe: `"Before I play back my understanding, is there anything I haven't asked that matters here?"`. Non-empty answers are folded into the understanding block.
 
@@ -169,7 +169,7 @@ Drafting an issue for {persona} that {outcome}.
   In-scope: {bullets joined by commas}
   Out-of-scope: {bullets joined by commas}
 ```
-Followed by `AskUserQuestion` with `[1] Looks right — draft the issue` / `[2] Something's off — let me clarify`.
+Followed by `interactive prompt` with `[1] Looks right — draft the issue` / `[2] Something's off — let me clarify`.
 
 **Extended-depth playback (full structured block):**
 ```
@@ -180,7 +180,7 @@ Understanding check:
   Scope in:  [bullets]
   Scope out: [bullets]
 ```
-Followed by the same two-option `AskUserQuestion`.
+Followed by the same two-option `interactive prompt`.
 
 On `[2]` (either variant), ask one free-text clarification, revise the playback, and re-render — always at the same depth-proportional length. Loop until the user selects `[1]`.
 
@@ -188,7 +188,7 @@ On `[2]` (either variant), ask one free-text clarification, revise the playback,
 
 ### Step 5b — Automation Eligibility Explanation (FR19 / AC14)
 
-The `AskUserQuestion` body must include a 1–2 line prefix such as:
+The `interactive prompt` body must include a 1–2 line prefix such as:
 
 > The `automatable` label tells the downstream SDLC pipeline (`/write-spec`, `/write-code`, `/verify-code`, `/open-pr`) that it can progress this issue without human judgment at the review gates. It does **not** affect `/draft-issue` itself — issue drafting always requires interactive human input.
 
@@ -213,7 +213,7 @@ The `AskUserQuestion` body must include a 1–2 line prefix such as:
    Out of Scope: [comma-separated list]
    Labels: [applied labels]
    ```
-2. Call `AskUserQuestion` with exactly two options: `[1] Approve — create the issue` / `[2] Revise — I'll describe what to change`.
+2. Call `interactive prompt` with exactly two options: `[1] Approve — create the issue` / `[2] Revise — I'll describe what to change`.
 3. On `[2]`, ask one free-text follow-up; apply the changes to the draft; re-render summary + menu. Loop until `[1]`.
 
 **Soft guard after three consecutive revises** (FR26 / AC17, Risk-3 mitigation): the skill maintains a counter `consecutiveRevises` that increments on each `[2]` and resets to `0` on each `[1]`. When `consecutiveRevises == 3`, the next review round's menu expands to **three** options:
@@ -254,7 +254,7 @@ Add a contrast table near the two template blocks:
 ┌──────────────────────────────────────────────────────────────┐
 │                   /draft-issue Skill                         │
 ├──────────────────────────────────────────────────────────────┤
-│  Step 1:  Gather Context (+ optional Claude Design URL)      │
+│  Step 1:  Gather Context (+ optional design archive URL)      │
 │  Step 1a: Fetch & Decode Design URL  (#125)                  │
 │             → session.designContext | null on failure        │
 │  Step 1b: Detect Multi-Issue Prompt  (#125)                  │
@@ -280,11 +280,11 @@ Add a contrast table near the two template blocks:
 
 Single-issue prompts bypass Steps 1c, 1d, and the batch phases: Step 1b's trail note records `"single-issue detected"` and the flow falls straight into Step 2.
 
-### Step 1a — Claude Design URL Fetch & Decode (FR35 / FR36 / AC24 / AC25)
+### Step 1a — design archive URL Fetch & Decode (FR35 / FR36 / AC24 / AC25)
 
-**Trigger:** Step 1's context gathering detects a Claude Design URL — either supplied as part of the CLI argument (pattern match on the claude.ai design URL shape) or elicited via an early free-text prompt. If no URL is supplied, Step 1a is skipped entirely.
+**Trigger:** Step 1's context gathering detects a design archive URL — either supplied as part of the CLI argument (pattern match on the design archive design URL shape) or elicited via an early free-text prompt. If no URL is supplied, Step 1a is skipped entirely.
 
-**Helper reuse:** Issue #124 introduces the first Claude Design integration in the plugin (for `/onboard-project`). Step 1a **must reuse the same fetch/decode helper** (gzip-aware archive read + README parse) to avoid behavioral drift. If #124 lands a shared module (e.g., `plugins/nmg-sdlc/skills/_shared/claude-design.*` or equivalent), this skill imports and calls it directly; if #124 keeps the helper inline, this issue's implementation extracts the helper into a shared location as a precondition task.
+**Helper reuse:** Issue #124 introduces the first design archive integration in the plugin (for `/onboard-project`). Step 1a **must reuse the same fetch/decode helper** (gzip-aware archive read + README parse) to avoid behavioral drift. If #124 lands a shared module (e.g., `plugins/nmg-sdlc/skills/_shared/design-archive.*` or equivalent), this skill imports and calls it directly; if #124 keeps the helper inline, this issue's implementation extracts the helper into a shared location as a precondition task.
 
 **Process:**
 
@@ -357,7 +357,7 @@ Multi-issue detection proposed a split of N asks:
 Signals: conjunctionHits=2, bulletListCount=3, distinctComponents=4 (confidence: high)
 ```
 
-**Menu (`AskUserQuestion`):**
+**Menu (`interactive prompt`):**
 
 - `[1] Approve the split as proposed` — proceed to Step 1d
 - `[2] Adjust the split (merge or re-divide)` — ask one free-text prompt (`"How should the split be adjusted? (e.g., 'merge A1 and A2', 'split A3 into two')"`), apply edits, re-render, re-menu
@@ -388,7 +388,7 @@ Proposed dependency graph:
 (A1 is the root; A3 and A4 are leaves.)
 ```
 
-**Menu (`AskUserQuestion`):**
+**Menu (`interactive prompt`):**
 
 - `[1] Approve the graph` — proceed to the per-issue loop
 - `[2] Adjust edges` — free-text prompt (`"Describe the edge to add or remove, e.g., 'A2 depends on A4' or 'remove A1 → A3'"`); apply; re-render; re-menu
@@ -496,7 +496,7 @@ The `session.designContext` is **read-only** — iterations cannot mutate it. Th
 
 | Call | Purpose |
 |------|---------|
-| `GET <claude-design-url>` (gzip-aware) | Fetch the design archive. 15s default timeout. Reuses the fetch/decode helper introduced by Issue #124 (shared helper path TBD when #124 lands; if unshared, this issue extracts it first) |
+| `GET <design-archive-url>` (gzip-aware) | Fetch the design archive. 15s default timeout. Reuses the fetch/decode helper introduced by Issue #124 (shared helper path TBD when #124 lands; if unshared, this issue extracts it first) |
 
 ---
 
@@ -508,7 +508,7 @@ None. The skill is prompt-only; there is no persisted state beyond the created G
 
 ## State Management
 
-The skill's state lives in the Claude session. Issue #125 introduces a `SessionState` that wraps **zero-or-more** `DraftState` instances plus batch-level fields:
+The skill's state lives in the Codex session. Issue #125 introduces a `SessionState` that wraps **zero-or-more** `DraftState` instances plus batch-level fields:
 
 ```
 SessionState {                      // #125 — new outer scope
@@ -604,7 +604,7 @@ The Step 5c playback gate blocks progression to Step 6 (draft synthesis) until `
 
 ## UI Components
 
-Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI changes are to the textual review summary and `AskUserQuestion` layouts described in Workflow-Step Contracts above.
+Not applicable — this is a Markdown skill that drives the Codex CLI. UI changes are to the textual review summary and `interactive prompt` layouts described in Workflow-Step Contracts above.
 
 ---
 
@@ -617,8 +617,8 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | `scripts/sdlc-config.example.json` | Verify (no change) | Confirm `steps` object has no `draftIssue` key; add a `_draft_issue_note` comment-style key documenting that `/draft-issue` is interactive-only |
 | `scripts/__tests__/sdlc-runner.test.mjs` | Modify | Add a regression test asserting `STEP_KEYS` does not contain `draftIssue` |
 | `README.md` | Modify | Describe new Step 7 UX (inline summary + approve/revise); note `/draft-issue` is interactive-only; remove any language that implies automation |
-| `plugins/nmg-sdlc/.claude-plugin/plugin.json` | Modify | Bump version |
-| `.claude-plugin/marketplace.json` | Modify | Bump matching plugin entry version |
+| `plugins/nmg-sdlc/.codex-plugin/plugin.json` | Modify | Bump version |
+| `.codex-plugin/marketplace.json` | Modify | Bump matching plugin entry version |
 | `CHANGELOG.md` | Modify | Add `[Unreleased]` entries describing the readability treatment, deeper interview, and unattended-mode removal from `/draft-issue` |
 
 ## File Changes (Issue #125)
@@ -626,13 +626,13 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | File | Type | Purpose |
 |------|------|---------|
 | `plugins/nmg-sdlc/skills/draft-issue/SKILL.md` | Modify | Expand the Workflow Overview diagram with Step 1a/1b/1c/1d + Step 10/11; add Step 1a (design fetch/decode), Step 1b (multi-issue detection heuristic with signals table + trail note format), Step 1c (split-confirm menu), Step 1d (dependency inference rules + graph-confirm menu), per-issue loop section wrapping Steps 2–9 with SessionState + DraftState descriptions, Step 10 (autolink batch: probe → wire → body rewrite), Step 11 (batch summary). Retain all existing Step 2–9 contracts. Introduce the `[Abandon]` review-gate option. |
-| `plugins/nmg-sdlc/skills/draft-issue/SKILL.md` | Modify | Update frontmatter `argument-hint` to mention optional Claude Design URL |
-| `plugins/nmg-sdlc/skills/_shared/claude-design.*` (or similar) | Reference/Extract | Reuse Issue #124's fetch/gzip-decode/README-parse helper. If #124 landed it inline, extract to a shared location as a precondition task for #125; otherwise import directly. Final path coordinated with #124. |
+| `plugins/nmg-sdlc/skills/draft-issue/SKILL.md` | Modify | Update frontmatter `usage hint` to mention optional design archive URL |
+| `plugins/nmg-sdlc/skills/_shared/design-archive.*` (or similar) | Reference/Extract | Reuse Issue #124's fetch/gzip-decode/README-parse helper. If #124 landed it inline, extract to a shared location as a precondition task for #125; otherwise import directly. Final path coordinated with #124. |
 | `specs/feature-draft-issue-skill/feature.gherkin` | Modify | Add #125 scenarios covering AC19–AC28 |
-| `README.md` | Modify | Document multi-issue detection with split/graph confirm gates, autolinking behavior, Claude Design URL ingestion, and partial-batch summary behavior |
-| `CHANGELOG.md` | Modify | Add `[Unreleased]` entry describing the multi-issue, dependency, autolinking, and Claude Design additions under the appropriate subsection |
-| `plugins/nmg-sdlc/.claude-plugin/plugin.json` | Modify | Minor version bump (1.45.0 → 1.46.0) — additive enhancement, no breaking changes |
-| `.claude-plugin/marketplace.json` | Modify | Match version bump in the plugin entry |
+| `README.md` | Modify | Document multi-issue detection with split/graph confirm gates, autolinking behavior, design archive URL ingestion, and partial-batch summary behavior |
+| `CHANGELOG.md` | Modify | Add `[Unreleased]` entry describing the multi-issue, dependency, autolinking, and design archive additions under the appropriate subsection |
+| `plugins/nmg-sdlc/.codex-plugin/plugin.json` | Modify | Minor version bump (1.45.0 → 1.46.0) — additive enhancement, no breaking changes |
+| `.codex-plugin/marketplace.json` | Modify | Match version bump in the plugin entry |
 
 ---
 
@@ -653,7 +653,7 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | Auto-split without user confirm (#125) | Skip Step 1c and drop straight into drafting N issues | **Rejected** — false positives are inevitable for a heuristic; a collapse-back path (Step 1c `[3]`) is cheap insurance against wrong splits silently creating extra issues |
 | Implicit dependency ordering without Step 1d graph-confirm (#125) | Infer a DAG and use it without user visibility | **Rejected** — dependency structure determines topological order, sub-issue wiring, and body cross-refs; surfacing it catches misinference before multiple issues are created in the wrong order |
 | Eagerly write body cross-refs without placeholders (#125) | Wait to draft each issue until all neighbor numbers are known | **Rejected** — would require either pre-creating empty issues or restructuring the Step 6 synthesis contract; placeholder-then-rewrite in Step 10 is simpler and preserves the per-issue Steps 2–9 contract |
-| Abort on design-fetch failure (#125) | Fail fast when the Claude Design URL is unreachable | **Rejected** — design context is supplementary; the batch still has value without it. Graceful degradation preserves the user's work (FR36) |
+| Abort on design-fetch failure (#125) | Fail fast when the design archive URL is unreachable | **Rejected** — design context is supplementary; the batch still has value without it. Graceful degradation preserves the user's work (FR36) |
 | Share `DraftState` fields across the loop (#125) | Reuse classification, milestone, etc. across planned issues | **Rejected** — each planned issue may legitimately differ (one a feature, one a bug; different milestones). Only `productContext` + `designContext` + `dag` cross the iteration boundary (FR33) |
 | Auto-rollback on partial-batch abandonment (#125) | Delete already-created issues when the user abandons mid-loop | **Rejected** — created issues have independent value; deleting them destroys user work. Preservation + accurate summary is the correct default (FR38) |
 | Require `gh --add-sub-issue` as a hard prerequisite (#125) | Block the skill if the flag isn't available in the installed `gh` version | **Rejected** — body cross-refs alone provide readable dependency tracking; hard-blocking penalizes users on older `gh` releases. Probe + graceful fallback (FR39) is the right tradeoff |
@@ -664,9 +664,9 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 
 - [x] Issues created via authenticated `gh` CLI (unchanged)
 - [x] No sensitive data included in issue templates (unchanged)
-- [x] Interview content stays within the Claude session (unchanged)
-- [x] Removal of unattended-mode code paths reduces attack surface: the skill no longer reads or acts on `.claude/unattended-mode`, eliminating any path where environmental state could alter issue-drafting behavior (#116)
-- [x] Claude Design URL is fetched over HTTPS only; the URL pattern is validated against the claude.ai shape before fetch; fetched archive is parsed in-memory and not persisted to disk; decoded content is read-only (#125)
+- [x] Interview content stays within the Codex session (unchanged)
+- [x] Removal of unattended-mode code paths reduces attack surface: the skill no longer reads or acts on `.codex/unattended-mode`, eliminating any path where environmental state could alter issue-drafting behavior (#116)
+- [x] design archive URL is fetched over HTTPS only; the URL pattern is validated against the design archive shape before fetch; fetched archive is parsed in-memory and not persisted to disk; decoded content is read-only (#125)
 - [x] `gh` commands in Step 10 use issue numbers (integers) or explicit file paths — no user-derived strings are interpolated unquoted into shell commands (#125)
 - [x] Placeholder resolution in body cross-refs replaces only tokens of the form `<askId>` with matching integer issue numbers — no arbitrary string substitution (#125)
 
@@ -679,7 +679,7 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 - [x] Revise loop is bounded by user interaction; no auto-retries
 - [x] Playback step adds one additional round trip but saves downstream amendment cost (empirically observed from #116 motivation)
 - [x] Step 1b heuristic runs once over the initial description; signal extraction is O(n) in description length and has no effect on single-issue throughput beyond a brief trail note (#125)
-- [x] Claude Design fetch is bounded by a 15s timeout and runs at most once per session (#125)
+- [x] design archive fetch is bounded by a 15s timeout and runs at most once per session (#125)
 - [x] Sub-issue availability probe runs at most once per batch — result is cached for the Step 10 wire-edges phase (#125)
 - [x] Per-issue loop overhead is O(M) GitHub API calls for creation + O(|edges|) for sub-issue wiring + O(M) for body rewrites — well within interactive-session tolerances (#125)
 
@@ -693,7 +693,7 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | Skill behavior (Feature path, extended depth) | BDD exercise | Scenario for multi-component feature: extended interview runs with NFR/edge/related rounds |
 | Skill behavior (Bug path) | BDD exercise | Scenario for bug: reproduction + edge-case probing + playback + review |
 | Revise loop | BDD exercise | Scenario: user selects [2] Revise, provides change, summary re-renders, [1] Approve completes |
-| Unattended-mode ignored | BDD exercise | Scenario: `.claude/unattended-mode` is present, yet skill still runs the full interactive workflow |
+| Unattended-mode ignored | BDD exercise | Scenario: `.codex/unattended-mode` is present, yet skill still runs the full interactive workflow |
 | Runner non-invocation | Jest unit | `STEP_KEYS` asserts `draftIssue` is absent |
 | Template output | Manual | Verify issue body matches feature vs bug templates unchanged |
 | Multi-issue detection (#125) | BDD exercise | Scenarios: single-issue path exits Step 1b quickly; high-confidence prompt produces a split with signal trail note |
@@ -701,8 +701,8 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | Dependency graph confirm (#125) | BDD exercise | Scenario: DAG is rendered; user selects `[3] Flatten`; autolink step writes only body cross-refs |
 | Per-issue loop + autolinking (#125) | BDD exercise (dry-run) | Scenario: batch of 2 issues with parent/child edge produces two `gh issue create` calls in topological order and one `gh issue edit --add-sub-issue` call; body cross-refs use real issue numbers |
 | `gh --add-sub-issue` unavailable (#125) | BDD exercise | Scenario: probe returns no support; Step 10 skips sub-issue calls; body cross-refs still written; summary notes degradation |
-| Claude Design fetch success (#125) | BDD exercise | Scenario: URL supplied; archive fetched and decoded; `session.designContext` available in per-issue Step 4/5/6 |
-| Claude Design fetch failure (#125) | BDD exercise | Scenario: URL times out; session continues; summary notes design-fetch failure |
+| design archive fetch success (#125) | BDD exercise | Scenario: URL supplied; archive fetched and decoded; `session.designContext` available in per-issue Step 4/5/6 |
+| design archive fetch failure (#125) | BDD exercise | Scenario: URL times out; session continues; summary notes design-fetch failure |
 | Partial-batch abandonment (#125) | BDD exercise | Scenario: after 1 of 3 issues created, user selects `[Abandon]` at Step 7; remaining 2 are skipped; summary reports "Created 1 of 3 planned issues" with URL for the created one |
 
 ---
@@ -711,7 +711,7 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|------------|--------|------------|
-| 1 | Adaptive-depth heuristic misclassifies (runs core when extended needed) | Medium→Low | Med→Low | **(a)** Borderline-signal bias pushes ambiguous cases to extended (FR23). **(b)** Explicit user override via `AskUserQuestion` after the depth log (FR22 / AC15). **(c)** End-of-interview "Anything I missed?" probe catches gaps before playback (FR24). Combined: user has two explicit redirection points plus a conservative default. |
+| 1 | Adaptive-depth heuristic misclassifies (runs core when extended needed) | Medium→Low | Med→Low | **(a)** Borderline-signal bias pushes ambiguous cases to extended (FR23). **(b)** Explicit user override via `interactive prompt` after the depth log (FR22 / AC15). **(c)** End-of-interview "Anything I missed?" probe catches gaps before playback (FR24). Combined: user has two explicit redirection points plus a conservative default. |
 | 2 | Playback step is perceived as friction for trivial issues | Medium→Low | Low | Core-depth playback collapses to a one-line confirm (FR25 / AC16); extended-depth keeps the full 5-line block. Friction scales with stakes. |
 | 3 | Revise loop never terminates (user keeps picking [2]) | Low | Low | Soft guard on the 4th iteration expands the menu to include `Reset and re-interview` / `Accept as-is` (FR26 / AC17). User remains in control; no auto-termination. |
 | 4 | Removing unattended-mode breaks a headless user | Low | Med→Low | **(a)** Classified as BREAKING — major version bump v1.40.0 → v1.41.0 (FR27). **(b)** In-file sign-post sentence in SKILL.md redirects users scrolling for old behavior (FR28 / AC18). **(c)** `STEP_KEYS` comment in sdlc-runner.mjs prevents re-introduction. |
@@ -720,10 +720,10 @@ Not applicable — this is a Markdown skill that drives the Claude Code CLI. UI 
 | 7 | Step 1b misses multi-issue prompts (false negative) | Medium | Medium | User can always re-invoke `/draft-issue` for subsequent asks — existing single-issue behavior is the baseline, not a regression. Signal counts logged even on the single-issue path (FR37) provide feedback for future threshold tuning. |
 | 8 | Dependency graph inference produces cycles or wrong edges | Medium | Medium | **(a)** DAG normalization drops the lowest-priority edge with a visible note on cycle detection. **(b)** Graph-confirm menu (FR32) is the hard gate — user must approve, adjust, or flatten before drafting. **(c)** `[3] Flatten` guarantees a safe fallback for any user who does not trust the inference. |
 | 9 | Autolinking silently fails for some edges | Low | Low | Per-edge failures are logged to `session.autolinkDegradationNotes` and surfaced in Step 11. Body cross-refs (FR34) are always written, so dependency information is never fully lost even if every sub-issue call fails. |
-| 10 | Claude Design fetch stalls the batch | Low | Med | 15s bounded timeout (design.md Step 1a). On timeout, null `designContext` + visible session note + summary entry — the batch continues without design context (FR36 / AC25). |
-| 11 | Claude Design URL leaks sensitive content into issue bodies | Low | Med | Designs are user-supplied and already public on claude.ai; content flows through the LLM synthesis step where issue bodies are already reviewed at the Step 7 gate before `gh issue create` runs. No automatic full-dump of design content into issues. |
+| 10 | design archive fetch stalls the batch | Low | Med | 15s bounded timeout (design.md Step 1a). On timeout, null `designContext` + visible session note + summary entry — the batch continues without design context (FR36 / AC25). |
+| 11 | design archive URL leaks sensitive content into issue bodies | Low | Med | Designs are user-supplied and already public on design archive; content flows through the LLM synthesis step where issue bodies are already reviewed at the Step 7 gate before `gh issue create` runs. No automatic full-dump of design content into issues. |
 | 12 | Partial-batch leaves orphan placeholder body cross-refs (e.g., "Depends on: &lt;A3&gt;" when A3 was never created) | Medium | Low | Step 10 resolves placeholders to `#N` only for created issues; unresolved placeholders are replaced with a plain-text note like `"(planned but not created)"`. Body remains readable and the summary makes the abandonment explicit. |
-| 13 | Helper drift between #124 and #125 Claude Design integrations | Medium | Low | FR35 + File Changes table mandate reuse of the #124 helper. If #124 ships the helper inline, a preconditional extraction task for #125 moves it to a shared location. A regression test asserts both skills import from the same module. |
+| 13 | Helper drift between #124 and #125 design archive integrations | Medium | Low | FR35 + File Changes table mandate reuse of the #124 helper. If #124 ships the helper inline, a preconditional extraction task for #125 moves it to a shared location. A regression test asserts both skills import from the same module. |
 
 ---
 

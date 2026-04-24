@@ -11,22 +11,22 @@ Feature: Per-step model and effort level configuration
   # --- Runner Per-Step Model ---
 
   Scenario: Per-step model override in runner config
-    Given a sdlc-config.json with global model "sonnet"
-    And the writeSpecs step has model "opus"
+    Given a sdlc-config.json with global model "gpt-5.4"
+    And the writeSpecs step has model "gpt-5.5"
     When the runner executes the writeSpecs step
-    Then the claude subprocess is invoked with "--model opus"
+    Then the Codex subprocess is invoked with "--model gpt-5.5"
 
   Scenario: Global model used as fallback when step has no model override
-    Given a sdlc-config.json with global model "sonnet"
+    Given a sdlc-config.json with global model "gpt-5.4"
     And the startIssue step has no model field
     When the runner executes the startIssue step
-    Then the claude subprocess is invoked with "--model sonnet"
+    Then the Codex subprocess is invoked with "--model gpt-5.4"
 
   Scenario: Default model used when neither step nor global specifies model
     Given a sdlc-config.json with no global model field
     And no step has a model field
     When the runner executes any step
-    Then the claude subprocess is invoked with "--model opus"
+    Then the Codex subprocess is invoked with "--model gpt-5.5"
 
   # --- Runner Per-Step Effort ---
 
@@ -34,35 +34,35 @@ Feature: Per-step model and effort level configuration
     Given a sdlc-config.json with global effort "high"
     And the startIssue step has effort "medium"
     When the runner executes the startIssue step
-    Then the subprocess environment includes CLAUDE_CODE_EFFORT_LEVEL set to "medium"
+    Then the subprocess environment includes model_reasoning_effort set to "medium"
 
   Scenario: Global effort used as fallback when step has no effort override
     Given a sdlc-config.json with global effort "high"
     And the writeSpecs step has no effort field
     When the runner executes the writeSpecs step
-    Then the subprocess environment includes CLAUDE_CODE_EFFORT_LEVEL set to "high"
+    Then the subprocess environment includes model_reasoning_effort set to "high"
 
   Scenario: No effort env var set when neither step nor global specifies effort
     Given a sdlc-config.json with no global effort field
     And no step has an effort field
     When the runner executes any step
-    Then the subprocess environment does not include CLAUDE_CODE_EFFORT_LEVEL
+    Then the subprocess environment does not include model_reasoning_effort
 
   # --- Implement Step: Single Invocation (AC10, supersedes old plan/code split) ---
   # Added by issue #91
 
-  Scenario: Implement step uses single runClaude invocation
+  Scenario: Implement step uses single runCodex invocation
     Given a sdlc-config.json with implement step configured
     When the runner executes the implement step
-    Then a single runClaude call is made
+    Then a single runCodex call is made
     And no runImplementStep function is called
     And the subprocess uses the step-level model and effort configuration
 
-  Scenario: Implement step defaults to opus model and medium effort
+  Scenario: Implement step defaults to gpt-5.5 model and medium effort
     Given a sdlc-config.json with no implement-level model or effort overrides
     And no global model or effort overrides
     When the runner resolves the implement step configuration
-    Then the model defaults to "opus"
+    Then the model defaults to "gpt-5.5"
     And the effort defaults to "medium"
 
   Scenario: Implement step prompt omits EnterPlanMode instruction
@@ -74,10 +74,10 @@ Feature: Per-step model and effort level configuration
   # --- Backward Compatibility ---
 
   Scenario: Backward compatibility with config lacking per-step overrides
-    Given a sdlc-config.json with only global model "opus" and no per-step model or effort fields
+    Given a sdlc-config.json with only global model "gpt-5.5" and no per-step model or effort fields
     When the runner executes the writeSpecs step
-    Then the claude subprocess is invoked with "--model opus"
-    And the subprocess environment does not include CLAUDE_CODE_EFFORT_LEVEL
+    Then the Codex subprocess is invoked with "--model gpt-5.5"
+    And the subprocess environment does not include model_reasoning_effort
 
   # Added by issue #91
   Scenario: Legacy plan/code config is silently ignored
@@ -92,7 +92,7 @@ Feature: Per-step model and effort level configuration
   Scenario: Config template shows flat implement config
     Given a user reads sdlc-config.example.json
     When they review the implement step configuration
-    Then the implement step has a flat config with model "opus" and effort "medium"
+    Then the implement step has a flat config with model "gpt-5.5" and effort "medium"
     And there are no nested plan or code sub-objects
 
   # Added by issue #91
@@ -105,7 +105,7 @@ Feature: Per-step model and effort level configuration
 
   Scenario: Skill frontmatter includes model field
     Given any nmg-sdlc SKILL.md file
-    When Claude Code loads it for manual invocation
+    When Codex loads it for manual invocation
     Then the YAML frontmatter contains a model field
     And the model matches the recommended default for that skill
 
@@ -116,16 +116,16 @@ Feature: Per-step model and effort level configuration
 
     Examples:
       | skill                    | model  |
-      | draft-issue          | sonnet |
-      | open-pr             | sonnet |
-      | init-config | sonnet |
-      | write-code       | opus   |
-      | migrate-project       | opus   |
-      | run-retro   | opus   |
-      | setup-steering      | opus   |
-      | start-issue          | sonnet |
-      | verify-code          | sonnet |
-      | write-spec            | opus   |
+      | draft-issue          | gpt-5.4 |
+      | open-pr             | gpt-5.4 |
+      | init-config | gpt-5.4 |
+      | write-code       | gpt-5.5   |
+      | migrate-project       | gpt-5.5   |
+      | run-retro   | gpt-5.5   |
+      | setup-steering      | gpt-5.5   |
+      | start-issue          | gpt-5.4 |
+      | verify-code          | gpt-5.4 |
+      | write-spec            | gpt-5.5   |
 
   # --- Writing-Specs Auto-Mode Fix ---
   # Added by issue #91
@@ -134,7 +134,7 @@ Feature: Per-step model and effort level configuration
     Given unattended-mode is active
     And spec discovery finds a matching existing feature spec
     When the skill decides whether to amend or create
-    Then it proceeds directly in amendment mode without calling AskUserQuestion
+    Then it proceeds directly in amendment mode without calling interactive prompt
 
   # --- README Documentation ---
 
@@ -189,34 +189,34 @@ Feature: Per-step model and effort level configuration
     And the error message states that max is intentionally excluded from nmg-sdlc defaults
     And the runner exits with a non-zero exit code
 
-  Scenario: validateConfig rejects effort on a Haiku step
-    Given a sdlc-config.json with steps.commitPush.model set to "haiku"
+  Scenario: validateConfig rejects effort on a GPT-5.4 Mini step
+    Given a sdlc-config.json with steps.commitPush.model set to "gpt-5.4-mini"
     And steps.commitPush.effort set to "low"
     When the runner starts
     Then validateConfig returns an error identifying steps.commitPush
-    And the error message states that Haiku does not support the effort parameter
+    And the error message states that GPT-5.4 Mini does not support the effort parameter
     And the runner exits with a non-zero exit code
 
-  Scenario: validateConfig rejects effort on a Haiku step via global fallback
+  Scenario: validateConfig rejects effort on a GPT-5.4 Mini step via global fallback
     Given a sdlc-config.json with global effort "medium"
-    And steps.merge.model set to "haiku"
+    And steps.merge.model set to "gpt-5.4-mini"
     And steps.merge has no explicit effort field
     When the runner starts
     Then validateConfig returns an error identifying steps.merge
-    And the error message states that Haiku does not support the effort parameter
+    And the error message states that GPT-5.4 Mini does not support the effort parameter
 
-  Scenario: Effort tier literal names match Anthropic's spec
+  Scenario: Effort tier literal names match OpenAI's spec
     Given a sdlc-config.json with effort value "x-high"
     When the runner starts
     Then validateConfig returns an error identifying the effort value as invalid
     And the error message lists valid options including exactly "xhigh"
     And the error message does not list any hyphenated variants
 
-  Scenario: Runner module default is sonnet/medium
+  Scenario: Runner module default is gpt-5.4/medium
     Given a sdlc-config.json with no global model or effort
     And no per-step model or effort fields
     When resolveStepConfig is called for any step
-    Then the returned model is "sonnet"
+    Then the returned model is "gpt-5.4"
     And the returned effort is "medium"
 
   Scenario: Example config pins an explicit model for every step
@@ -225,11 +225,11 @@ Feature: Per-step model and effort level configuration
     Then each step declares an explicit model field
     And no step relies on inheritance from the global model
 
-  Scenario: Opus is hard-capped to three steps in the example config
+  Scenario: GPT-5.5 is hard-capped to three steps in the example config
     Given a user reads scripts/sdlc-config.example.json
-    When every step with model "opus" is collected
+    When every step with model "gpt-5.5" is collected
     Then only writeSpecs, implement, and verify appear in the result
-    And startCycle, startIssue, commitPush, createPR, monitorCI, and merge use sonnet or haiku
+    And startCycle, startIssue, commitPush, createPR, monitorCI, and merge use gpt-5.4 or gpt-5.4-mini
 
   Scenario Outline: Example config step defaults match the AC30 reference table
     Given a user reads scripts/sdlc-config.example.json
@@ -241,41 +241,41 @@ Feature: Per-step model and effort level configuration
 
     Examples:
       | step        | model  | effort  | turns | time |
-      | startCycle  | haiku  | —       | 10    | 5    |
-      | startIssue  | sonnet | low     | 25    | 5    |
-      | writeSpecs  | opus   | xhigh   | 60    | 15   |
-      | implement   | opus   | xhigh   | 150   | 30   |
-      | verify      | opus   | high    | 100   | 20   |
-      | commitPush  | haiku  | —       | 15    | 5    |
-      | createPR    | sonnet | low     | 45    | 5    |
-      | monitorCI   | sonnet | medium  | 60    | 20   |
-      | merge       | haiku  | —       | 10    | 5    |
+      | startCycle  | gpt-5.4-mini  | —       | 10    | 5    |
+      | startIssue  | gpt-5.4 | low     | 25    | 5    |
+      | writeSpecs  | gpt-5.5   | xhigh   | 60    | 15   |
+      | implement   | gpt-5.5   | xhigh   | 150   | 30   |
+      | verify      | gpt-5.5   | high    | 100   | 20   |
+      | commitPush  | gpt-5.4-mini  | —       | 15    | 5    |
+      | createPR    | gpt-5.4 | low     | 45    | 5    |
+      | monitorCI   | gpt-5.4 | medium  | 60    | 20   |
+      | merge       | gpt-5.4-mini  | —       | 10    | 5    |
 
-  Scenario: Haiku steps in example config omit the effort field
+  Scenario: GPT-5.4 Mini steps in example config omit the effort field
     Given a user reads scripts/sdlc-config.example.json
-    When a step with model "haiku" is inspected
+    When a step with model "gpt-5.4-mini" is inspected
     Then the effort field is not present on that step object
 
-  Scenario Outline: SDLC skill frontmatter declares model matching the runner
+  Scenario Outline: SDLC runner config declares model matching the runner
     Given the SKILL.md for <skill>
     When the YAML frontmatter is parsed
     Then the model field is <model>
 
     Examples:
       | skill           | model  |
-      | write-spec      | opus   |
-      | write-code      | opus   |
-      | verify-code     | opus   |
-      | start-issue     | sonnet |
-      | open-pr         | sonnet |
-      | draft-issue     | sonnet |
-      | run-retro       | opus   |
-      | setup-steering  | opus   |
-      | init-config     | haiku  |
-      | run-loop        | sonnet |
-      | upgrade-project | opus   |
+      | write-spec      | gpt-5.5   |
+      | write-code      | gpt-5.5   |
+      | verify-code     | gpt-5.5   |
+      | start-issue     | gpt-5.4 |
+      | open-pr         | gpt-5.4 |
+      | draft-issue     | gpt-5.4 |
+      | run-retro       | gpt-5.5   |
+      | setup-steering  | gpt-5.5   |
+      | init-config     | gpt-5.4-mini  |
+      | run-loop        | gpt-5.4 |
+      | upgrade-project | gpt-5.5   |
 
-  Scenario Outline: Non-Haiku SDLC skills declare effort matching the runner
+  Scenario Outline: Non-GPT-5.4 Mini SDLC skills declare effort matching the runner
     Given the SKILL.md for <skill>
     When the YAML frontmatter is parsed
     Then the effort field is <effort>
@@ -296,21 +296,21 @@ Feature: Per-step model and effort level configuration
   Scenario: init-config SKILL.md omits effort frontmatter
     Given the SKILL.md for init-config
     When the YAML frontmatter is parsed
-    Then the model field is "haiku"
+    Then the model field is "gpt-5.4-mini"
     And the effort field is not present
 
   Scenario: README documents the precedence chain
     Given a user reads the README Model and Effort Configuration section
     When the precedence subsection is inspected
-    Then it lists four layers in order: CLAUDE_CODE_EFFORT_LEVEL env var, skill frontmatter, session /model or /effort, built-in default
-    And the env var is stated to win over skill frontmatter
-    And the skill frontmatter is stated to win over the session override
+    Then it lists four layers in order: model_reasoning_effort env var, runner config, session /model or /effort, built-in default
+    And the env var is stated to win over runner config
+    And the runner config is stated to win over the session override
 
-  Scenario: README documents max exclusion and Haiku no-effort rules
+  Scenario: README documents max exclusion and GPT-5.4 Mini no-effort rules
     Given a user reads the README Model and Effort Configuration section
     When the reader looks for guardrail rules
     Then a note states that max is intentionally excluded from nmg-sdlc defaults
-    And a note states that Haiku does not accept the effort parameter
+    And a note states that GPT-5.4 Mini does not accept the effort parameter
 
   Scenario: CHANGELOG Unreleased section records the defaults rework
     Given a user reads CHANGELOG.md

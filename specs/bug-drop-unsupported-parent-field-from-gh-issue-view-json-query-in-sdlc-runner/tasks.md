@@ -25,7 +25,7 @@
 **Acceptance**:
 - [ ] The `gh issue view` command string at ~line 1579 is changed from `--json number,state,body,parent,closedByPullRequestsReferences` to `--json number,state,body,closedByPullRequestsReferences`.
 - [ ] No other code is changed — the fallback stub (line 1584) and the parent-link guard (lines 1597–1599) are left intact.
-- [ ] Running `CLAUDECODE="" node scripts/sdlc-runner.mjs --config <config>` against a repo with open milestone issues on `gh` 2.86.0 no longer emits `Unknown JSON field: "parent"`.
+- [ ] Running `node scripts/sdlc-runner.mjs --config <config>` against a repo with open milestone issues on `gh` 2.86.0 no longer emits `Unknown JSON field: "parent"`.
 - [ ] `selectNextReadyIssue` returns a non-null `issue` and the runner proceeds past Step 2 (`startIssue`).
 
 **Notes**: Minimal one-line change per design.md § Fix Strategy. Do not introduce a capability probe, do not touch the parent-link guard, do not rewrite the fallback stub.

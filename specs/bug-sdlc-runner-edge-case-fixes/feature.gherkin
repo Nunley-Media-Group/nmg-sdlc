@@ -15,8 +15,8 @@ Feature: SDLC runner edge case fixes
   # --- F1: currentProcess assigned for signal handling ---
 
   @regression
-  Scenario: SIGTERM kills active Claude subprocess
-    Given the SDLC runner is executing a Claude subprocess via runClaude()
+  Scenario: SIGTERM kills active Codex subprocess
+    Given the SDLC runner is executing a Codex subprocess via runCodex()
     When the runner receives a SIGTERM signal
     Then the active subprocess is killed via SIGTERM
     And currentProcess is set to the spawned process during execution
@@ -64,8 +64,8 @@ Feature: SDLC runner edge case fixes
   # --- F6: Dead AbortController code removed ---
 
   @regression
-  Scenario: No unused AbortController in runClaude
-    Given runClaude() spawns a Claude subprocess
+  Scenario: No unused AbortController in runCodex
+    Given runCodex() spawns a Codex subprocess
     When the subprocess is created via spawn()
     Then no AbortController is instantiated
     And no abort signal is passed to spawn()

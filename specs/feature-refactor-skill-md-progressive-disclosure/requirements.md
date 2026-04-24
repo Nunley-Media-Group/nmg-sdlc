@@ -9,15 +9,15 @@
 
 ## User Story
 
-**As a** nmg-sdlc plugin maintainer and as a Claude Code agent invoking these skills,
-**I want** every SKILL.md body to fit inside Anthropic's progressive-disclosure guidance (≤ 300 lines) with variant- and cross-skill-shared content extracted into `references/` loaded on demand,
+**As a** nmg-sdlc plugin maintainer and as a Codex agent invoking these skills,
+**I want** every SKILL.md body to fit inside OpenAI's progressive-disclosure guidance (≤ 300 lines) with variant- and cross-skill-shared content extracted into `references/` loaded on demand,
 **So that** skills trigger faster and with less context bloat, duplicated content is maintained in one place, and skill bodies stay focused on the trigger + workflow skeleton rather than every edge case and variant.
 
 ---
 
 ## Background
 
-Anthropic's skill-authoring guidance (surfaced via the `skill-creator` skill) targets SKILL.md bodies under 500 lines and pushes variant-specific or conditionally-loaded content into `references/`. Several nmg-sdlc skills have outgrown that target substantially — `draft-issue` is 1087 lines, `upgrade-project` is 572, `write-spec` is 516. `verify-code` already demonstrates the split in-repo with its `checklists/` + `references/` layout; this issue extends the pattern plugin-wide and additionally extracts content that is duplicated across skills into shared references under `plugins/nmg-sdlc/references/`.
+OpenAI's skill-authoring guidance (surfaced via the `skill-creator` skill) targets SKILL.md bodies under 500 lines and pushes variant-specific or conditionally-loaded content into `references/`. Several nmg-sdlc skills have outgrown that target substantially — `draft-issue` is 1087 lines, `upgrade-project` is 572, `write-spec` is 516. `verify-code` already demonstrates the split in-repo with its `checklists/` + `references/` layout; this issue extends the pattern plugin-wide and additionally extracts content that is duplicated across skills into shared references under `plugins/nmg-sdlc/references/`.
 
 Baseline line counts captured at issue authoring time:
 
@@ -88,7 +88,7 @@ Baseline line counts captured at issue authoring time:
 
 **Given** any skill's frontmatter before and after the refactor
 **When** the frontmatter blocks are diffed
-**Then** `description`, `allowed-tools`, `model`, `effort`, and `argument-hint` are byte-identical; only body content below the frontmatter moves.
+**Then** `description`, `workflow instructions`, `model`, `effort`, and `usage hint` are byte-identical; only body content below the frontmatter moves.
 
 ### AC6: Content-Inventory Audit Passes Deterministically
 
@@ -114,18 +114,18 @@ Baseline line counts captured at issue authoring time:
 **When** its content is compared against the pre-refactor SKILL.md passages it consolidates
 **Then** the normative intent of every consuming skill is preserved — no consumer loses a directive, gains an unintended directive, or sees a directive rewritten to change its operational meaning. Wording may be unified across consumers; semantics may not drift.
 
-### AC10: Claude Code GitHub App Review Workflow Is Enabled And Required
+### AC10: Codex GitHub App Review Workflow Is Enabled And Required
 
-**Given** the Claude Code GitHub App is already installed on the Nunley-Media-Group org with access to this repo
+**Given** the Codex GitHub App is already installed on the Nunley-Media-Group org with access to this repo
 **When** PR 1 ships
-**Then** a `.github/workflows/claude-review.yml` workflow runs `anthropics/claude-code-action@v1` on every PR (on `opened` and `synchronize`) and on issue-comment events that contain `@claude`, so every PR — including the subsequent refactor PRs in this effort — receives an automated review that reads the repo's `CLAUDE.md` and steering docs
-**And** the workflow is declared a **required status check** on `main` branch-protection rules, so a failing or missing Claude review blocks merge.
+**Then** a `.github/workflows/codex-review.yml` workflow runs `openai/codex-action@v1` on every PR (on `opened` and `synchronize`) and on issue-comment events that contain `@codex`, so every PR — including the subsequent refactor PRs in this effort — receives an automated review that reads the repo's `AGENTS.md` and steering docs
+**And** the workflow is declared a **required status check** on `main` branch-protection rules, so a failing or missing Codex review blocks merge.
 
-### AC11: Claude Review Must Pass Before Merge
+### AC11: Codex Review Must Pass Before Merge
 
-**Given** the Claude review workflow has posted a review on a PR
-**When** Claude's review verdict is `REQUEST_CHANGES` (or the workflow exits non-zero for any reason)
-**Then** the workflow's check status is `failure` and the PR cannot be merged until a follow-up push triggers a passing Claude review
+**Given** the Codex review workflow has posted a review on a PR
+**When** Codex's review verdict is `REQUEST_CHANGES` (or the workflow exits non-zero for any reason)
+**Then** the workflow's check status is `failure` and the PR cannot be merged until a follow-up push triggers a passing Codex review
 **And** a passing review (`APPROVE` or `COMMENT` without blocking findings) sets the workflow's check status to `success`.
 
 ### Generated Gherkin Preview
@@ -178,14 +178,14 @@ Feature: Refactor SKILL.md via Progressive Disclosure
     When its content is compared against the passages it consolidates
     Then the normative intent of every consuming skill is preserved
 
-  Scenario: Claude Code GitHub App review workflow is enabled and required
-    Given the Claude Code GitHub App is already installed on the org
+  Scenario: Codex GitHub App review workflow is enabled and required
+    Given the Codex GitHub App is already installed on the org
     When PR 1 ships
-    Then `.github/workflows/claude-review.yml` runs on every PR and on @claude comments
-    And the workflow is a required status check that blocks merge when Claude requests changes
+    Then `.github/workflows/codex-review.yml` runs on every PR and on @codex comments
+    And the workflow is a required status check that blocks merge when Codex requests changes
 
-  Scenario: Claude review must pass before merge
-    Given the Claude review workflow posted a REQUEST_CHANGES verdict on a PR
+  Scenario: Codex review must pass before merge
+    Given the Codex review workflow posted a REQUEST_CHANGES verdict on a PR
     When the PR is evaluated for mergeability
     Then the workflow check status is `failure` and merge is blocked
     And a subsequent push that yields an APPROVE verdict flips the check to `success`
@@ -198,19 +198,19 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Create `plugins/nmg-sdlc/references/` with the 6 shared reference files: `legacy-layout-gate.md`, `unattended-mode.md`, `feature-naming.md`, `versioning.md`, `steering-schema.md`, `spec-frontmatter.md`. | Must |
-| FR2 | Refactor `draft-issue` to ≤ 300 lines by extracting multi-issue pipeline, Claude Design URL ingestion, interview depth, feature-vs-bug templates, and examples into per-skill `references/`. | Must |
+| FR2 | Refactor `draft-issue` to ≤ 300 lines by extracting multi-issue pipeline, design archive URL ingestion, interview depth, feature-vs-bug templates, and examples into per-skill `references/`. | Must |
 | FR3 | Refactor `upgrade-project` (≤ 250), `write-spec` (≤ 250), `onboard-project` (≤ 280). | Must |
 | FR4 | Refactor `start-issue` (≤ 220), `verify-code` (≤ 220), `run-retro` (≤ 180), `open-pr` (≤ 180), `write-code` (≤ 180). | Must |
 | FR5 | Soften rigid `ERROR:` / `MUST` / `NEVER` blocks with reasoning-first prose. Applies to the legacy-layout gate wording as well — no downstream parser depends on the current `ERROR:` prefix, so the message may be freely reworded. | Should |
 | FR6 | Collapse redundant "When to Use" / "Prerequisites" / "Next step" boilerplate; frontmatter `description:` already carries triggering. | Should |
 | FR7 | Each pointer from a SKILL.md to a reference file states the triggering condition explicitly and follows the uniform pointer grammar defined in AC7. | Must |
 | FR8 | Per-skill reference-file count ≤ 5; reference files > 300 lines include a TOC in the first 30 lines. | Should |
-| FR9 | Version bump to 1.53.0 (minor) with CHANGELOG entry naming the refactor pattern and line-count reductions per skill. Update both `plugins/nmg-sdlc/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. | Must |
+| FR9 | Version bump to 1.53.0 (minor) with CHANGELOG entry naming the refactor pattern and line-count reductions per skill. Update both `plugins/nmg-sdlc/.codex-plugin/plugin.json` and `.codex-plugin/marketplace.json`. | Must |
 | FR10 | Roll out in 4 PRs: (1) additive shared references, (2) `draft-issue` pilot, (3) `write-spec` + `onboard-project` + `upgrade-project`, (4) remainder. | Could |
 | FR11 | Ship a permanent content-inventory audit script under `scripts/` (supporting AC6) that runs locally and in CI on every PR touching SKILL.md. Commit a baseline inventory file with this refactor; re-baseline only on intentional content removals documented in the PR body. | Must |
 | FR12 | Update `steering/structure.md` to document the new `references/` layer (plugin-shared + per-skill) in the layer-architecture diagram. | Should |
 | FR13 | Update `README.md` only if the refactor changes how users interact with the plugin; if interaction surface is unchanged (per AC4/AC5), no README update is required. | Must |
-| FR14 | Add `.github/workflows/claude-review.yml` invoking `anthropics/claude-code-action@v1` on `pull_request` (`opened`, `synchronize`) and on `issue_comment` events containing `@claude`. The job must exit non-zero when Claude requests changes, and must be configured as a required status check on `main`. Ship in PR 1 so every subsequent refactor PR is gated on a passing Claude review. | Must |
+| FR14 | Add `.github/workflows/codex-review.yml` invoking `openai/codex-action@v1` on `pull_request` (`opened`, `synchronize`) and on `issue_comment` events containing `@codex`. The job must exit non-zero when Codex requests changes, and must be configured as a required status check on `main`. Ship in PR 1 so every subsequent refactor PR is gated on a passing Codex review. | Must |
 
 ---
 
@@ -219,7 +219,7 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | Aspect | Requirement |
 |--------|-------------|
 | **Performance** | Every refactored SKILL.md triggers against `skill-creator`-style descriptions no slower than the pre-refactor baseline; body-size reduction should improve triggering latency but must not regress it. |
-| **Reliability** | The plugin loads without errors on Claude Code versions currently in the plugin's supported range. Missing reference files referenced from a SKILL.md must fail loudly (not silently skip). |
+| **Reliability** | The plugin loads without errors on Codex versions currently in the plugin's supported range. Missing reference files referenced from a SKILL.md must fail loudly (not silently skip). |
 | **Maintainability** | Duplication across SKILL.md bodies is eliminated for the six shared references. Future edits to shared content touch exactly one file. |
 | **Observability** | The content-inventory audit script prints a diff of inventory items → destinations so reviewers can see coverage at a glance. |
 | **Platforms** | No new platform assumptions. Reference files are plain Markdown; audit script follows `tech.md` conventions (Node built-ins or POSIX shell only). |
@@ -244,8 +244,8 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 
 - No new skills.
 - No changes to `scripts/sdlc-runner.mjs` or any runner behavior.
-- No changes to `.claude/unattended-mode` semantics.
-- No changes to skill frontmatter (`model`, `effort`, `allowed-tools`, `description`, `argument-hint`).
+- No changes to `.codex/unattended-mode` semantics.
+- No changes to runner config (`model`, `effort`, `workflow instructions`, `description`, `usage hint`).
 - No slash-command renames, additions, or removals.
 - No changes to retrospective semantics or the `architecture-reviewer` agent.
 - No migration tooling for user projects — this is entirely plugin-internal.
@@ -277,8 +277,8 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | Issue | Date | Summary |
 |-------|------|---------|
 | #138 | 2026-04-19 | Initial feature spec |
-| #145 | 2026-04-19 | Phase 1 child — additive infrastructure (shared `references/`, audit script + CI, Claude review workflow); no SKILL.md edits. Maps to tasks T001–T008 and covers AC3/AC6/AC10 + FR1/FR5/FR11/FR14. |
-| #145 | 2026-04-19 | Promoted the Claude-review workflow from advisory to required-pass gate. Added AC11 and tightened FR14 and AC10 accordingly — the workflow must exit non-zero on REQUEST_CHANGES and be declared a required status check on `main`. |
+| #145 | 2026-04-19 | Phase 1 child — additive infrastructure (shared `references/`, audit script + CI, Codex review workflow); no SKILL.md edits. Maps to tasks T001–T008 and covers AC3/AC6/AC10 + FR1/FR5/FR11/FR14. |
+| #145 | 2026-04-19 | Promoted the Codex-review workflow from advisory to required-pass gate. Added AC11 and tightened FR14 and AC10 accordingly — the workflow must exit non-zero on REQUEST_CHANGES and be declared a required status check on `main`. |
 | #146 | 2026-04-19 | Phase 2 child — scope is the `draft-issue` pilot (AC1 line target for one skill, AC2 exercise-test parity, AC5 frontmatter byte-identity, AC6 audit-clean-after-baseline-regen, AC7 pointer grammar, FR2/FR7/FR8). Maps to tasks T009–T012. No new ACs or FRs — child ACs narrow umbrella ACs to the draft-issue file only. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec` (≤ 250), `onboard-project` (≤ 280), `upgrade-project` (≤ 250). Narrows umbrella AC1/AC2/AC5/AC6/AC7 to these three skills; narrows FR3/FR7/FR8. Maps to tasks T013–T015. No new ACs or FRs. Depends on #146 (pilot pattern) landing first. |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of `start-issue` (≤ 220), `verify-code` (≤ 220), `run-retro` (≤ 180), `open-pr` (≤ 180), `write-code` (≤ 180); update `steering/structure.md` to document `references/` layer; version bump to 1.53.0. Narrows umbrella AC1/AC2/AC5/AC6/AC7/AC8 to these five skills; narrows FR4/FR7/FR8 and incorporates FR9 and FR12. Maps to tasks T016–T022 plus T025 (Phase 5 final verification). No new ACs or FRs. Depends on #83 (Phase 3) landing first. Closes umbrella epic #77. |

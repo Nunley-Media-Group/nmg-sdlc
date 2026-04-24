@@ -3,7 +3,7 @@
 **Issues**: #21
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -11,7 +11,7 @@
 
 This feature modifies the draft-issue skill (`plugins/nmg-sdlc/skills/draft-issue/SKILL.md`) to add upfront type classification and type-specific codebase investigation before the interview phase. The change is entirely within a single Markdown skill definition — no new files, templates, or code are required.
 
-The current 6-step workflow will be restructured to insert a classification step immediately after context gathering, followed by a type-specific investigation step. The existing interview, synthesis, review, and creation steps are then adapted to use the classified type. The skill's `allowed-tools` frontmatter already includes `Read`, `Glob`, and `Grep` (currently unused), so no frontmatter changes are needed for investigation capabilities.
+The current 6-step workflow will be restructured to insert a classification step immediately after context gathering, followed by a type-specific investigation step. The existing interview, synthesis, review, and creation steps are then adapted to use the classified type. The skill's `workflow instructions` frontmatter already includes `Read`, `Glob`, and `Grep` (currently unused), so no frontmatter changes are needed for investigation capabilities.
 
 The two issue body templates (feature/enhancement and bug report) will each gain one new section: "Current State" for enhancements and "Root Cause Analysis" for bugs.
 
@@ -25,7 +25,7 @@ The two issue body templates (feature/enhancement and bug report) will each gain
 draft-issue SKILL.md (single file modification)
 ┌────────────────────────────────────────────────────────────────┐
 │  Step 1: Gather Context          (existing, minor update)      │
-│  Step 2: Classify Issue Type     (NEW — AskUserQuestion)       │
+│  Step 2: Classify Issue Type     (NEW — interactive prompt)       │
 │  Step 3: Investigate Codebase    (NEW — type-specific)         │
 │     ├── Enhancement path: specs + source exploration           │
 │     └── Bug path: search, trace, hypothesize, confirm          │
@@ -42,7 +42,7 @@ draft-issue SKILL.md (single file modification)
 ```
 1. User invokes /draft-issue [optional argument]
 2. Step 1: Read argument + steering docs (existing)
-3. Step 2: AskUserQuestion → "Bug" or "Enhancement/Feature"
+3. Step 2: interactive prompt → "Bug" or "Enhancement/Feature"
 4. Step 3: Based on classification:
    ├── Enhancement: Glob specs/ → Read relevant specs
    │                Glob/Grep source files → Read patterns
@@ -50,7 +50,7 @@ draft-issue SKILL.md (single file modification)
    └── Bug:         Grep codebase for related code
                     Read affected files, trace paths
                     → Produce root cause hypothesis
-                    → AskUserQuestion to confirm hypothesis
+                    → interactive prompt to confirm hypothesis
 5. Step 4: Type-adapted interview (existing questions filtered by type)
 6. Step 5: Synthesize issue body with new section included
 7. Step 6–8: Review, create, output (unchanged)
@@ -172,7 +172,7 @@ FeatureScreen
 
 ### Step 2: Classify Issue Type (NEW)
 
-Insert immediately after Step 1 (Gather Context). Uses `AskUserQuestion` with two options:
+Insert immediately after Step 1 (Gather Context). Uses `interactive prompt` with two options:
 
 | Option | Label | Description |
 |--------|-------|-------------|
@@ -206,7 +206,7 @@ If no relevant code or specs are found, note that explicitly and move on.
    - What code is involved
    - What the incorrect behavior/assumption is
    - Why it manifests as the reported bug
-4. **Confirm with user**: Present the hypothesis via `AskUserQuestion` with options like "Yes, that matches" / "Not quite — let me clarify"
+4. **Confirm with user**: Present the hypothesis via `interactive prompt` with options like "Yes, that matches" / "Not quite — let me clarify"
 5. If the user says "not quite", ask a follow-up clarifying question and revise the hypothesis
 
 If investigation is inconclusive, note that and proceed with the user's description alone.
@@ -272,7 +272,7 @@ Steps 6 (Review), 7 (Create Issue), and 8 (Output) are unchanged. The review ste
 | **A: Infer type from argument** | Use LLM judgment to auto-classify from the user's description | No extra question | Unreliable for ambiguous descriptions; removes user agency | Rejected — classification should be explicit |
 | **B: Three-option classification** | Separate "Feature" and "Enhancement" options | Finer granularity | Issue already groups feature/enhancement; bug vs non-bug is the meaningful distinction for investigation | Rejected — two options is cleaner |
 | **C: Use Task/Explore subagent for investigation** | Delegate codebase exploration to a subagent | Deeper exploration, protects main context | Slower, heavier; investigation scope is bounded enough for direct Glob/Grep/Read | Rejected — direct tool use is sufficient |
-| **D: Explicit question per step** | Ask classification via `AskUserQuestion` | Clear, explicit, user chooses | **Selected** — aligns with human-in-loop principle |
+| **D: Explicit question per step** | Ask classification via `interactive prompt` | Clear, explicit, user chooses | **Selected** — aligns with human-in-loop principle |
 
 ---
 
@@ -301,7 +301,7 @@ Steps 6 (Review), 7 (Create Issue), and 8 (Output) are unchanged. The review ste
 |-------|------|----------|
 | Skill definition | BDD (Gherkin) | All 7 acceptance criteria become scenarios |
 | Skill behavior | Manual testing | Install plugin locally, run `/draft-issue` for both bug and enhancement paths |
-| Unattended-mode | Manual testing | Verify unattended-mode behavior unchanged with `.claude/unattended-mode` present |
+| Unattended-mode | Manual testing | Verify unattended-mode behavior unchanged with `.codex/unattended-mode` present |
 
 Since nmg-plugins is a template/plugin repository (not a runtime application), verification is done through the `/verify-code` skill and manual testing via `/installing-locally`.
 

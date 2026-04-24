@@ -3,7 +3,7 @@
 **Issues**: #25, #72, #95
 **Date**: 2026-02-25
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -86,9 +86,9 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] `feature.gherkin` files explicitly excluded from migration
 - [x] Includes handling for "already up to date" case
 - [x] Includes handling for missing project files (skip, don't create)
-- [x] Allowed tools include `Read`, `Glob`, `Grep`, `Edit`, `Bash(gh:*)`, `AskUserQuestion`
+- [x] Allowed tools include `Read`, `Glob`, `Grep`, `Edit`, `Bash(gh:*)`, `interactive prompt`
 
-**Notes**: This is the core deliverable. The SKILL.md must contain clear, unambiguous instructions for Claude to execute the heading-based section diffing algorithm. Include concrete examples of heading extraction, comparison, and insertion. The skill must be self-updating — all template knowledge comes from reading files at runtime, never hardcoded.
+**Notes**: This is the core deliverable. The SKILL.md must contain clear, unambiguous instructions for Codex to execute the heading-based section diffing algorithm. Include concrete examples of heading extraction, comparison, and insertion. The skill must be self-updating — all template knowledge comes from reading files at runtime, never hardcoded.
 
 ---
 
@@ -116,12 +116,12 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T005: Bump plugin version (1.18.2 → 1.18.3)
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`
 **Type**: Modify
 **Depends**: T002
 **Acceptance**:
-- [x] `plugins/nmg-sdlc/.claude-plugin/plugin.json` → `"version"` updated to `"1.18.3"`
-- [x] `.claude-plugin/marketplace.json` → plugin entry `"version"` updated to `"1.18.3"`
+- [x] `plugins/nmg-sdlc/.codex-plugin/plugin.json` → `"version"` updated to `"1.18.3"`
+- [x] `.codex-plugin/marketplace.json` → plugin entry `"version"` updated to `"1.18.3"`
 - [x] `metadata.version` in `marketplace.json` is NOT changed (it's the collection version)
 
 ---
@@ -205,7 +205,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] Describes keyword extraction: tokenize issue title, filter stop words (listed explicitly)
 - [x] Describes search: `Glob` for `specs/feature-*/requirements.md`
 - [x] Describes scoring: `Grep` each keyword against each candidate, count hits, rank
-- [x] Describes presentation: top match(es) shown to user via `AskUserQuestion` with options "Amend existing" / "Create new spec"
+- [x] Describes presentation: top match(es) shown to user via `interactive prompt` with options "Amend existing" / "Create new spec"
 - [x] Unattended-mode behavior specified: auto-select "Amend existing" when match found
 - [x] No-match behavior specified: proceed directly to create new spec
 
@@ -289,7 +289,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] Step 4c excludes bug specs (identified by `# Defect Report:` heading) from consolidation grouping
 - [x] Step 4c describes proposed feature name derivation: most descriptive slug, prefixed with `feature-`
 - [x] Step 4c handles solo specs: single legacy spec → simple rename to `feature-{slug}` (or `bug-{slug}`)
-- [x] Step 4d "Present Consolidation Candidates" describes user confirmation via `AskUserQuestion` per group
+- [x] Step 4d "Present Consolidation Candidates" describes user confirmation via `interactive prompt` per group
 - [x] Step 4d includes unattended-mode note: **this skill is always interactive — unattended-mode does NOT apply**
 
 ### T019: Add Step 4e — Apply Consolidation
@@ -402,7 +402,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T026
 **Acceptance**:
 - [x] Step 9 migration summary gains a new "Config Value Drift" category showing drifted values with current → template format
-- [x] In interactive mode, a new "Part C" approval step is added after Part B: `AskUserQuestion` with `multiSelect: true` listing each drifted value as a selectable option
+- [x] In interactive mode, a new "Part C" approval step is added after Part B: `interactive prompt` with `multiSelect: true` listing each drifted value as a selectable option
 - [x] Each option label shows the dotted key path and values (e.g., `steps.createPR.maxTurns: 15 → 30`)
 - [x] Each option description provides brief context (e.g., the key's purpose)
 - [x] If no drift is found, Part C is skipped
@@ -414,7 +414,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: T027
 **Acceptance**:
-- [x] Unattended Mode section updated: drift is reported in summary but NOT applied when `.claude/unattended-mode` exists
+- [x] Unattended Mode section updated: drift is reported in summary but NOT applied when `.codex/unattended-mode` exists
 - [x] Drift values are NOT recorded in the "Skipped Operations" block (they are informational, not deferred destructive operations)
 - [x] The "Non-destructive" and "Destructive" classification lists mention config value drift as neither — it is an informational-only category in unattended-mode
 - [x] Step 9 unattended-mode path skips Part C (no approval prompt, no application)

@@ -2,7 +2,7 @@
 Feature: Skills inherit session model to avoid rate limit bucket switches
 
   Background:
-    Given the nmg-sdlc plugin is installed in Claude Code
+    Given the nmg-sdlc plugin is installed in Codex
 
   Scenario: No skill has a model field
     When the SKILL.md frontmatter of all skills is examined
@@ -12,4 +12,4 @@ Feature: Skills inherit session model to avoid rate limit bucket switches
   Scenario: Slash-command-only skills are not auto-triggerable
     Given the skills "run-loop", "init-config", and "run-retro"
     When the plugin is loaded
-    Then each has "disable-model-invocation: true" in its frontmatter
+    Then each has "minimal Codex frontmatter" in its frontmatter

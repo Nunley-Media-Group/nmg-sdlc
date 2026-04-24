@@ -147,7 +147,7 @@ These edits cannot be done mechanically because the surrounding prose or AC stru
 
 ### S1: Remove `installing-openclaw-skill` references
 
-**Affected files**: `feature-per-step-model-effort-config/{design.md,feature.gherkin,tasks.md}`, `feature-migrate-project-skill/{requirements.md,design.md,feature.gherkin}`, `bug-opus-rate-limits/{requirements.md,feature.gherkin,tasks.md}`
+**Affected files**: `feature-per-step-model-effort-config/{design.md,feature.gherkin,tasks.md}`, `feature-migrate-project-skill/{requirements.md,design.md,feature.gherkin}`, `bug-model-rate-limits/{requirements.md,feature.gherkin,tasks.md}`
 
 **Strategy**:
 - The skill was *deleted*, not renamed — there is no target to redirect to
@@ -171,8 +171,8 @@ These edits cannot be done mechanically because the surrounding prose or AC stru
 - For `feature-migrate-project-skill/feature.gherkin:64` which tests `discordChannelId` preservation: delete the scenario (the field no longer exists)
 
 **Nuanced cases**:
-- `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/requirements.md:1` — single Discord mention; review in context and rewrite to describe the status-logging replacement
-- `bug-opus-rate-limits/feature.gherkin` and `feature-run-retro-skill/feature.gherkin`: lightweight mentions — likely one-line fixes
+- `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/requirements.md:1` — single Discord mention; review in context and rewrite to describe the status-logging replacement
+- `bug-model-rate-limits/feature.gherkin` and `feature-run-retro-skill/feature.gherkin`: lightweight mentions — likely one-line fixes
 
 ### S3: Remove `~/.openclaw/` and gateway-restart references
 
@@ -184,15 +184,15 @@ These edits cannot be done mechanically because the surrounding prose or AC stru
 - Remove `~/.openclaw/` from architecture diagrams (e.g., the dual-directory diagram in `design.md:37`)
 - Rewrite `verification.md:33` AC3 to reflect the current 5-step workflow (no OpenClaw sync)
 - Delete gherkin scenarios that test OpenClaw skill sync or gateway restart
-- In `feature-migrate-project-skill/`: AC6/AC7 (check `~/.openclaw/` and `/installing-openclaw-skill`) are deleted entirely; the spec's purpose (migrating Claude Code project conventions) still applies, but those specific ACs referenced removed components
+- In `feature-migrate-project-skill/`: AC6/AC7 (check `~/.openclaw/` and `/installing-openclaw-skill`) are deleted entirely; the spec's purpose (migrating Codex project conventions) still applies, but those specific ACs referenced removed components
 
 ### S4: Redirect `feature-openclaw-runner-operations` references
 
 **Affected files**: `bug-fix-write-spec-defect-related-spec-search/requirements.md` (4 refs), `bug-text-pattern-soft-failure-detection-sdlc-runner/requirements.md` (1 ref)
 
-**Redirect target**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Redirect target**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
-**Justification**: The dangling references treat `feature-openclaw-runner-operations` as the original feature spec for runner internals (`cleanupProcesses()`, etc.). `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code` is the surviving spec that covers SDLC pipeline/runner operations.
+**Justification**: The dangling references treat `feature-openclaw-runner-operations` as the original feature spec for runner internals (`cleanupProcesses()`, etc.). `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex` is the surviving spec that covers SDLC pipeline/runner operations.
 
 **Strategy**:
 - Replace the directory name in each occurrence
@@ -286,7 +286,7 @@ The spec-cleanup portion is documentation-only; the runner change is small and d
 |------|------------|--------|------------|
 | Mechanical replacement breaks a valid reference (e.g., a spec legitimately discussed the pre-v1.35.0 path as historical context) | Low | Low | After Step 2 mechanical pass, do a spot-check diff read before committing; if any replacement turned prose nonsensical, revert that specific edit |
 | Semantic rewrites over-aggressively delete AC content that is still valid | Medium | Medium | For borderline cases (e.g., F2 in `bug-sdlc-runner-edge-case-fixes/`), preserve the historical context and clarify that the fix was applied, rather than deleting the section outright |
-| `feature-openclaw-runner-operations` redirect target is wrong | Low | Low | Per S4, the target (`feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`) is the only surviving spec covering runner internals; verify by reading the target spec's scope |
+| `feature-openclaw-runner-operations` redirect target is wrong | Low | Low | Per S4, the target (`feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`) is the only surviving spec covering runner internals; verify by reading the target spec's scope |
 | Grep sweep misses a drift pattern due to unusual formatting (markdown variants, code fences, etc.) | Low | Low | AC7 includes case-insensitive greps; run them with `-i` and review any remaining hits before declaring done |
 | Scope creep — editor improves unrelated spec content while doing per-file edits | Medium | Low | Keep FR10 in front of mind; commit diff review will catch out-of-scope edits before PR |
 | Missed `postDiscord` call site in runner | Low | Medium | After edits, grep `scripts/sdlc-runner.mjs` for `postDiscord` — must return zero matches; run full Jest suite before declaring done |
@@ -298,7 +298,7 @@ The spec-cleanup portion is documentation-only; the runner change is small and d
 
 - [x] Should `postDiscord()` references in specs become `log()` or stay as status-notification prose? → **Resolved**: rewrite to `log()` where the spec genuinely describes the code function; rewrite to "status notification / orchestration log" where the spec describes behavior abstractly. Per AC3, no mention of `postDiscord` remains in spec bodies regardless.
 - [x] Should `bug-sdlc-runner-edge-case-fixes/` F2 (Atomics.wait in Discord retry) be kept as historical record or deleted? → **Resolved** (S2 strategy): keep the F2 structure but update the description to note the issue was fixed and the surrounding `postDiscord` retry loop is gone; do not mention Discord by name.
-- [x] What about `feature-openclaw-runner-operations` redirect target? → **Resolved**: `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`.
+- [x] What about `feature-openclaw-runner-operations` redirect target? → **Resolved**: `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`.
 
 ---
 

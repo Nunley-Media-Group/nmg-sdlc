@@ -15,7 +15,7 @@
 
 1. Install `gh` 2.86.0 (or any version that does not expose `parent` on `gh issue view --json`).
 2. Configure an `sdlc-config.json` pointing at a repo with open, unblocked issues in the active milestone.
-3. Run `CLAUDECODE="" node scripts/sdlc-runner.mjs --config <config>` (or invoke `/run-loop`).
+3. Run `node scripts/sdlc-runner.mjs --config <config>` (or invoke `/run-loop`).
 
 ### Environment
 
@@ -57,7 +57,7 @@ reactionGroups, state, stateReason, title, updatedAt, url
 
 **Given** `gh` 2.86.0 is installed
 **And** an `sdlc-config.json` targets a repo with open, unblocked issues in the active milestone
-**When** `CLAUDECODE="" node scripts/sdlc-runner.mjs --config <config>` is run
+**When** `node scripts/sdlc-runner.mjs --config <config>` is run
 **Then** no `Unknown JSON field: "parent"` warnings are emitted
 **And** `selectNextReadyIssue` returns a non-null `issue`
 **And** the runner proceeds past Step 2 (`startIssue`) instead of logging `FAILURE LOOP DETECTED: all issues blocked`

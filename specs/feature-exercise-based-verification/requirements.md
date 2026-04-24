@@ -3,23 +3,23 @@
 **Issues**: #44, #50
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude (from issue by rnunley-nmg)
+**Author**: Codex (from issue by rnunley-nmg)
 
 ---
 
 ## User Story
 
 **As a** developer working on the nmg-sdlc plugin
-**I want** `/verify-code` to exercise changed skills in Claude Code against a test project
+**I want** `/verify-code` to exercise changed skills in Codex against a test project
 **So that** skill changes are verified by actual invocation, not just static analysis of Markdown
 
 ---
 
 ## Background
 
-The nmg-sdlc plugin is a Claude Code plugin where skills are Markdown instructions (SKILL.md files), not executable code. Traditional test coverage checks — verifying `.feature` files and step definitions exist — are insufficient for plugin projects. The only way to truly verify a skill change is to load the plugin and invoke the skill against a real project.
+The nmg-sdlc plugin is a Codex plugin where skills are Markdown instructions (SKILL.md files), not executable code. Traditional test coverage checks — verifying `.feature` files and step definitions exist — are insufficient for plugin projects. The only way to truly verify a skill change is to load the plugin and invoke the skill against a real project.
 
-The steering docs (`tech.md`) already define the exercise-based verification strategy, test project scaffolding pattern, and dry-run evaluation approach, but `/verify-code` doesn't yet act on this guidance automatically. Skills that use `AskUserQuestion` require the Claude Agent SDK `canUseTool` callback (or Promptfoo's declarative wrapper) to test interactively; `claude -p` with `--disallowedTools AskUserQuestion` serves as a simpler fallback.
+The steering docs (`tech.md`) already define the exercise-based verification strategy, test project scaffolding pattern, and dry-run evaluation approach, but `/verify-code` doesn't yet act on this guidance automatically. Skills that use `interactive user prompt` require the Codex Agent SDK `canUseTool` callback (or Promptfoo's declarative wrapper) to test interactively; `codex exec` with `` serves as a simpler fallback.
 
 ---
 
@@ -56,27 +56,27 @@ The steering docs (`tech.md`) already define the exercise-based verification str
 
 **Given** a test project has been scaffolded
 **When** the changed skill is exercised
-**Then** the skill is invoked using the Claude Agent SDK with:
+**Then** the skill is invoked using the Codex Agent SDK with:
 - `plugins: [{ type: "local", path: "./plugins/nmg-sdlc" }]`
 - `workingDirectory` set to the test project path
-- A `canUseTool` callback that intercepts `AskUserQuestion` and auto-selects the first option (deterministic)
+- A `canUseTool` callback that intercepts `interactive user prompt` and auto-selects the first option (deterministic)
 - Captured output available for evaluation
 
 **Example**:
 - Given: Test project at `/tmp/nmg-sdlc-test-1234/`
 - When: `write-spec` skill is exercised via Agent SDK
-- Then: All `AskUserQuestion` calls receive the first option; output messages are captured for evaluation
+- Then: All `interactive user prompt` calls receive the first option; output messages are captured for evaluation
 
-### AC4: Fallback to `claude -p` When Agent SDK Unavailable
+### AC4: Fallback to `codex exec` When Agent SDK Unavailable
 
-**Given** the Claude Agent SDK is not available (not installed or import fails)
+**Given** the Codex Agent SDK is not available (not installed or import fails)
 **When** exercise testing attempts to run
-**Then** the skill falls back to `claude -p` with `--disallowedTools AskUserQuestion --append-system-prompt "Make reasonable default choices."` and notes that only the non-interactive path was tested
+**Then** the skill falls back to `codex exec` with ` ` and notes that only the non-interactive path was tested
 
 **Example**:
-- Given: `@anthropic-ai/claude-agent-sdk` cannot be imported
+- Given: `Codex Agent SDK` cannot be imported
 - When: Exercise step runs
-- Then: `claude -p` subprocess is used; verification report notes the fallback method
+- Then: `codex exec` subprocess is used; verification report notes the fallback method
 
 ### AC5: Dry-Run Evaluation for GitHub-Integrated Skills
 
@@ -107,8 +107,8 @@ The steering docs (`tech.md`) already define the exercise-based verification str
 **Then** the report includes an "Exercise Test Results" section documenting:
 - Which skill was exercised
 - Test project configuration
-- Exercise method used (Agent SDK with `canUseTool` / `claude -p` fallback)
-- AskUserQuestion handling (programmatic answers provided / questions denied)
+- Exercise method used (Agent SDK with `canUseTool` / `codex exec` fallback)
+- interactive user prompt handling (programmatic answers provided / questions denied)
 - Captured output summary
 - AC evaluation results (pass/fail per criterion)
 
@@ -125,14 +125,14 @@ The steering docs (`tech.md`) already define the exercise-based verification str
 
 ### AC9: Graceful Degradation
 
-**Given** exercise testing cannot run (e.g., Agent SDK not installed, `claude` CLI not available, timeout, permissions)
+**Given** exercise testing cannot run (e.g., Agent SDK not installed, Codex CLI not available, timeout, permissions)
 **When** the exercise step fails
 **Then** the verification report notes that exercise testing was skipped with the reason, and recommends manual exercise testing as a follow-up
 
 **Example**:
-- Given: `claude` CLI is not on PATH
+- Given: Codex CLI is not on PATH
 - When: Exercise step attempts to spawn a session
-- Then: Report includes "Exercise testing skipped: claude CLI not found. Recommend manual exercise testing."
+- Then: Report includes "Exercise testing skipped: Codex CLI not found. Recommend manual exercise testing."
 
 ### AC10: Non-Plugin Projects Unchanged
 
@@ -142,12 +142,12 @@ The steering docs (`tech.md`) already define the exercise-based verification str
 
 ### AC11: Exercise Script Resolves Agent SDK from Non-Standard Locations
 
-**Given** the Agent SDK (`@anthropic-ai/claude-agent-sdk`) is installed in a non-standard location (e.g., npx cache at `~/.npm/_npx/*/node_modules/`, a global install via a Node version manager, or a path not in the exercise script's `node_modules` hierarchy)
+**Given** the Agent SDK (`Codex Agent SDK`) is installed in a non-standard location (e.g., npx cache at `~/.npm/_npx/*/node_modules/`, a global install via a Node version manager, or a path not in the exercise script's `node_modules` hierarchy)
 **When** the exercise script (sub-step 5c) attempts to import the SDK
 **Then** the SDK is resolved and imported successfully without requiring manual symlinks or `NODE_PATH` environment variable configuration
 
 **Example**:
-- Given: Agent SDK is installed at `~/.npm/_npx/81bbc6515d992ace/node_modules/@anthropic-ai/claude-agent-sdk`
+- Given: Agent SDK is installed at `~/.npm/_npx/81bbc6515d992ace/node_modules/codex-agent-sdk`
 - When: The exercise script runs `import { query } from ...`
 - Then: The SDK is located and imported correctly; the exercise proceeds to invoke the skill
 
@@ -171,7 +171,7 @@ The steering docs (`tech.md`) already define the exercise-based verification str
 **And** a positive availability check guarantees the subsequent exercise import will succeed (no false positives)
 
 **Example**:
-- Given: SDK is at `~/.npm/_npx/.../node_modules/@anthropic-ai/claude-agent-sdk`
+- Given: SDK is at `~/.npm/_npx/.../node_modules/codex-agent-sdk`
 - When: The availability check runs (currently `node -e "require(...)"`)
 - Then: Both the check and the exercise script resolve from the same location; if the check passes, the exercise import will also succeed
 
@@ -198,13 +198,13 @@ Feature: Exercise-Based Verification for Plugin Projects
     Given a test project has been scaffolded
     When the changed skill is exercised
     Then it is invoked via the Agent SDK with canUseTool callback
-    And AskUserQuestion calls receive programmatic first-option answers
+    And interactive user prompt calls receive programmatic first-option answers
     And output is captured for evaluation
 
-  Scenario: Fallback to claude -p when Agent SDK unavailable
+  Scenario: Fallback to codex exec when Agent SDK unavailable
     Given the Agent SDK is not available
     When exercise testing attempts to run
-    Then claude -p is used with --disallowedTools AskUserQuestion
+    Then codex exec is used with 
     And the report notes that only the non-interactive path was tested
 
   Scenario: Dry-run evaluation for GitHub-integrated skills
@@ -266,13 +266,13 @@ Feature: Exercise-Based Verification for Plugin Projects
 |----|-------------|----------|-------|
 | FR1 | Detect SKILL.md and agent `.md` changes in the diff | Must | Pattern: `plugins/*/skills/*/SKILL.md` or `plugins/*/agents/*.md` |
 | FR2 | Scaffold minimal test project per `structure.md` → Test Project Scaffolding | Must | In OS temp dir, deleted after use |
-| FR3 | Invoke changed skill via Agent SDK `canUseTool` callback with programmatic `AskUserQuestion` answers | Must | Auto-select first option for deterministic testing |
+| FR3 | Invoke changed skill via Agent SDK `canUseTool` callback with programmatic `interactive user prompt` answers | Must | Auto-select first option for deterministic testing |
 | FR4 | Dry-run evaluation for GitHub-integrated skills (no real artifact creation) | Must | Generate content that WOULD be created; evaluate against ACs |
 | FR5 | Evaluate exercise output against spec ACs | Must | Pass/Fail/Partial per AC with evidence |
 | FR6 | Add "Exercise Test Results" section to report template | Must | Documents method, output, and AC evaluation |
 | FR7 | Clean up test project on completion | Must | Delete temp dir regardless of pass/fail |
 | FR8 | Existing Step 5 behavior preserved when no plugin changes detected | Must | Non-plugin projects use standard BDD verification |
-| FR9 | Fallback to `claude -p` with `--disallowedTools AskUserQuestion` when Agent SDK unavailable | Should | Note fallback in report |
+| FR9 | Fallback to `codex exec` with `` when Agent SDK unavailable | Should | Note fallback in report |
 | FR10 | Graceful degradation when exercise testing is infeasible | Should | Report skipped with reason + manual follow-up recommendation |
 | FR11 | Unattended-mode support (non-interactive exercise, suppress verbose output) | Should | Consistent with existing unattended-mode pattern |
 | FR12 | Exercise script must dynamically resolve the Agent SDK path before importing, rather than relying on standard ESM bare-specifier resolution | Must | Bare `import "pkg"` only searches `node_modules` hierarchy; SDK may be elsewhere |
@@ -330,11 +330,11 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - [x] Steering docs define exercise-based verification strategy (`tech.md` → Testing Standards)
 - [x] Test project scaffolding layout defined (`structure.md` → Test Project Scaffolding)
 - [x] Existing `/verify-code` skill with Step 5 test coverage verification
-- [x] SDLC runner's `claude -p` subprocess pattern (`sdlc-runner.mjs`) as reference
+- [x] SDLC runner's `codex exec` subprocess pattern (`sdlc-runner.mjs`) as reference
 
 ### External Dependencies
-- [ ] Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) — for full interactive testing (optional; fallback exists)
-- [x] `claude` CLI — for `claude -p` fallback
+- [ ] Codex Agent SDK (`Codex Agent SDK`) — for full interactive testing (optional; fallback exists)
+- [x] Codex CLI — for `codex exec` fallback
 - [x] `gh` CLI — for dry-run evaluation of GitHub-integrated skills
 
 ### Blocked By
@@ -369,7 +369,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 
 ## Open Questions
 
-- [x] Agent SDK vs `claude -p` priority — resolved: Agent SDK is primary, `claude -p` is fallback
+- [x] Agent SDK vs `codex exec` priority — resolved: Agent SDK is primary, `codex exec` is fallback
 - [x] Test project scaffolding location — resolved: OS temp dir per `structure.md`
 - [ ] Budget cap for Agent SDK exercise sessions — should there be a `max_budget_usd` limit?
 - [ ] Timeout for exercise testing — what is a reasonable upper bound before declaring failure?

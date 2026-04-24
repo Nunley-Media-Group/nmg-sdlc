@@ -3,7 +3,7 @@
 **Issue**: #68
 **Date**: 2026-02-20
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-run-retro-skill/` (also affects `feature-write-spec-skill` and `feature-migrate-project-skill`)
 
@@ -45,7 +45,7 @@
 |--------|-------|
 | **OS / Platform** | Any (cross-platform) |
 | **Version / Commit** | nmg-sdlc v1.22.7+ |
-| **Browser / Runtime** | Claude Code CLI |
+| **Browser / Runtime** | Codex CLI |
 | **Configuration** | Default |
 
 ### Frequency

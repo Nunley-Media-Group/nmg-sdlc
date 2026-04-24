@@ -3,7 +3,7 @@
 **Issue**: #32
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -11,9 +11,9 @@
 
 The SDLC runner's `runStep()` function (line 1031 of `sdlc-runner.mjs`) treats any step that exits with code 0 as successful. After a successful exit, it runs post-step validation gates — but only for step 3 (spec validation, lines 1040-1055) and step 8 (CI validation, lines 1066-1081). Step 6 (commitPush) has no post-step validation gate.
 
-When Claude Code reports exit code 0 after running step 6, the runner unconditionally marks the step as complete and advances. If `git push` actually failed within the Claude Code session — but Claude treated the failure as informational rather than fatal — the runner has no way to detect this. Step 7 (createPR) has a proper precondition check (`git log origin/${branch}..HEAD --oneline`) that detects unpushed commits, but its failure triggers `retry-previous`, which sends execution back to step 6. Since step 6 has no preconditions of its own (`case 6: return { ok: true }` at line 517), it re-runs immediately with the same conditions, creating an infinite retry loop bounded only by `MAX_RETRIES`.
+When Codex reports exit code 0 after running step 6, the runner unconditionally marks the step as complete and advances. If `git push` actually failed within the Codex session — but Codex treated the failure as informational rather than fatal — the runner has no way to detect this. Step 7 (createPR) has a proper precondition check (`git log origin/${branch}..HEAD --oneline`) that detects unpushed commits, but its failure triggers `retry-previous`, which sends execution back to step 6. Since step 6 has no preconditions of its own (`case 6: return { ok: true }` at line 517), it re-runs immediately with the same conditions, creating an infinite retry loop bounded only by `MAX_RETRIES`.
 
-A secondary contributing factor is the step 6 prompt (line 585): it asks Claude to "Verify the push succeeded" but does not explicitly instruct it to exit with a non-zero status code if verification fails. This makes it easy for Claude Code to acknowledge a push failure in its output text while still exiting cleanly.
+A secondary contributing factor is the step 6 prompt (line 585): it asks Codex to "Verify the push succeeded" but does not explicitly instruct it to exit with a non-zero status code if verification fails. This makes it easy for Codex to acknowledge a push failure in its output text while still exiting cleanly.
 
 ### Affected Code
 
@@ -27,8 +27,8 @@ A secondary contributing factor is the step 6 prompt (line 585): it asks Claude 
 
 ### Triggering Conditions
 
-- `git push` fails inside the Claude Code session for any reason (auth expiry, branch protection, remote rejection, network failure)
-- Claude Code exits with code 0 despite the push failure (treats it as informational)
+- `git push` fails inside the Codex session for any reason (auth expiry, branch protection, remote rejection, network failure)
+- Codex exits with code 0 despite the push failure (treats it as informational)
 - The runner has no post-step validation to catch the discrepancy
 
 ---
@@ -39,13 +39,13 @@ A secondary contributing factor is the step 6 prompt (line 585): it asks Claude 
 
 Add a post-step push validation gate after step 6, following the identical pattern used for spec validation (step 3) and CI validation (step 8). The gate runs `git log origin/${branch}..HEAD --oneline` — the same check that step 7's precondition uses — and treats any output (unpushed commits) as a validation failure. On failure, it increments `retries[6]`, writes a `[STATUS]` diagnostic line to the orchestration log, and returns `'retry'` to re-run step 6. At `MAX_RETRIES`, it escalates with a message identifying the push failure.
 
-Additionally, update the step 6 prompt to explicitly instruct Claude Code to exit with a non-zero status code if `git push` fails, reducing the likelihood of silent failures at the source.
+Additionally, update the step 6 prompt to explicitly instruct Codex to exit with a non-zero status code if `git push` fails, reducing the likelihood of silent failures at the source.
 
 ### Changes
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `scripts/sdlc-runner.mjs` ~line 585 | Update step 6 prompt to include explicit failure-exit instruction | Reduces silent push failures at the source — Claude Code will be told to exit non-zero on push failure |
+| `scripts/sdlc-runner.mjs` ~line 585 | Update step 6 prompt to include explicit failure-exit instruction | Reduces silent push failures at the source — Codex will be told to exit non-zero on push failure |
 | `scripts/sdlc-runner.mjs` ~lines 1055-1066 (insert between step 3 and step 8 gates) | Add `validatePush()` helper and post-step validation gate for step 6 | Catches push failures even when exit code is 0, following the established spec/CI validation pattern |
 
 ### Blast Radius
@@ -61,7 +61,7 @@ Additionally, update the step 6 prompt to explicitly instruct Claude Code to exi
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
 | False positive: validation gate flags a successful push as failed | Low | The check (`git log origin/${branch}..HEAD --oneline`) is the same one step 7 already uses and is proven reliable. A `git fetch` before the check ensures the remote ref is current. |
-| Prompt change causes Claude to exit non-zero on benign warnings | Low | The prompt instruction is specific: "if `git push` reports an error or rejection, exit with a non-zero status code". Benign git output (e.g., progress messages) would not match this instruction. |
+| Prompt change causes Codex to exit non-zero on benign warnings | Low | The prompt instruction is specific: "if `git push` reports an error or rejection, exit with a non-zero status code". Benign git output (e.g., progress messages) would not match this instruction. |
 | Retry loop on persistent auth failure burns time | Low | Already bounded by `MAX_RETRIES` (default 3). The escalation message now identifies the cause, enabling faster human intervention. |
 
 ---

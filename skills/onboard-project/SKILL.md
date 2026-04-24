@@ -1,14 +1,11 @@
 ---
 name: onboard-project
 description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, VERSION + manifest setup, v1 milestone seeding, and starter issues via /draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Optionally ingests a Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use /write-spec), template upgrades (use /upgrade-project), or issue/PR creation. Delegates to /init-config, /upgrade-project, and /draft-issue where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, WebFetch, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), request_user_input
-argument-hint: "[--dry-run] [--design-url <url>]"
-model: gpt-5.5
-effort: high
 ---
 
 # Onboard Project
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Single entry point for adopting nmg-sdlc on a project that isn't already spec-driven. Detects whether the project is **greenfield** (no code, no specs), **greenfield-enhancement** (steering exists, specs do not — re-run on a previously bootstrapped project), **brownfield** (existing code and closed issues but no specs), or **already-initialized**, then routes work to the matching branch.
 
@@ -35,7 +32,7 @@ Steering bootstrap and steering enhancement run **inside** this skill. Steering 
 
 ## Prerequisites
 
-- `gh`codex exec authenticated (`gh auth status` passes) — required for brownfield reconciliation.
+- `gh` CLI authenticated (`gh auth status` passes) — required for brownfield reconciliation.
 - Git-initialized repository.
 - `nmg-sdlc` plugin installed at current version.
 
@@ -61,7 +58,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 When `.codex/unattended-mode` exists, the unattended-mode contract from `../../references/unattended-mode.md` applies. Skill-specific defaults applied in unattended mode:
 
-- All `request_user_input` prompts skipped — defaults from the priority chain in `references/interview.md` apply.
+- All interactive user prompt prompts skipped — defaults from the priority chain in `references/interview.md` apply.
 - Consolidation groups (brownfield) auto-accepted as proposed.
 - Inferred dependency DAG auto-accepted; the proposed graph is logged for the summary.
 - Starter-issue candidate cut to ≤ 7 applied automatically when interview output exceeds the cap.
@@ -81,8 +78,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Gather four signals:
 
-1. **`steering/` presence** — `Glob` for `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-2. **`specs/` presence** — `Glob` for `specs/*/requirements.md`.
+1. **`steering/` presence** — file discovery for `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
+2. **`specs/` presence** — file discovery for `specs/*/requirements.md`.
 3. **Source-file count beyond scaffold** — list tracked files via `git ls-files`, exclude the scaffold allowlist and hidden/excluded directories, count the remainder.
 4. **Closed-issue presence** — `gh issue list --state closed --limit 1 --json number` (one-item probe, just to detect whether any exist).
 
@@ -103,7 +100,7 @@ After Step 2G's seeding loop completes, the same reference covers Step 3G's prom
 ### Step 2I: Already-Initialized — Route to /upgrade-project
 
 1. List the existing spec directories under `specs/` so the user can audit what is already present.
-2. In interactive mode, `request_user_input`: `[1] Delegate to /upgrade-project now`, `[2] Exit without changes`.
+2. In interactive mode, interactive user prompt: `[1] Delegate to /upgrade-project now`, `[2] Exit without changes`.
 3. In unattended mode, auto-accept option 1. Log the auto-decision.
 4. On accept, invoke `/upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
 5. On decline, exit cleanly — jump to Step 5 summary with no specs modified.
@@ -209,5 +206,5 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   └── initialized → /upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
 ```

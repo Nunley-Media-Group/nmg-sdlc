@@ -3,7 +3,7 @@
 **Issues**: #6
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -185,7 +185,7 @@ FeatureScreen
 ## Security Considerations
 
 - [x] Generated code follows project conventions from steering docs
-- [x] No arbitrary code execution outside Claude Code tools
+- [x] No arbitrary code execution outside Codex tools
 - [x] Spec-driven implementation prevents unauthorized scope expansion
 
 ---

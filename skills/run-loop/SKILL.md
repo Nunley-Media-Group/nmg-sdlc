@@ -1,14 +1,11 @@
 ---
 name: run-loop
-description: "Run the full SDLC pipeline loop from within an active Codex session. Use when user says 'run the SDLC loop', 'run loop', 'run SDLC for #N', 'process issue end-to-end', 'run pipeline', 'how do I run the SDLC loop', or 'kick off automation'. Invokes sdlc-runner.mjs as a subprocess; the runner starts nested `codex exec` sessions for each SDLC step. Orchestrates the full pipeline: /draft-issue → /start-issue → /write-spec → /write-code → /simplify → /verify-code → /open-pr → /address-pr-comments."
-argument-hint: "[#issue-number]"
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(test:*), Bash(git:*), Skill
-model: gpt-5.4
-effort: low
+description: "Run the full SDLC pipeline loop from within an active Codex session. Use when user says 'run the SDLC loop', 'run loop', 'run SDLC for #N', 'process issue end-to-end', 'run pipeline', 'how do I run the SDLC loop', or 'kick off automation'. Invokes sdlc-runner.mjs as a subprocess; the runner starts nested `codex exec` sessions for each SDLC step. Orchestrates the full pipeline: /draft-issue → /start-issue → /write-spec → /write-code → /simplify → /verify-code → /commit-push → /open-pr → /address-pr-comments."
 ---
 
 # Run Loop
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Run the full SDLC pipeline from within an active Codex session. This skill invokes the deterministic `sdlc-runner.mjs` as a subprocess, enabling the entire development cycle (issue selection, spec writing, implementation, verification, PR creation, CI monitoring, and merge) without leaving the current session.
 
@@ -40,14 +37,11 @@ test -f "$(git rev-parse --show-toplevel)/sdlc-config.json"
 
 - **If found** → proceed to Step 3.
 - **If not found** → invoke the config generator:
-  ```
-  Skill("nmg-sdlc:init-config")
-  ```
-  Then verify the config was created before proceeding.
+  ask Codex to use `/init-config` (or let the SDLC runner inject the `init-config` skill instructions), then verify the config was created before proceeding.
 
 ## Step 3: Read Config and Locate Runner
 
-Read the config file and extract `pluginRoot` and `pluginsPath` using the Read tool on `sdlc-config.json`.
+Read the config file and extract `pluginRoot` and `pluginsPath` using file inspection on `sdlc-config.json`.
 
 Derive the runner script path:
 ```

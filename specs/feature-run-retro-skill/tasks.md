@@ -3,7 +3,7 @@
 **Issues**: #1, #67
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -63,11 +63,11 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
-- [x] YAML front matter includes name, description, allowed-tools
+- [x] YAML front matter includes name, description, workflow instructions
 - [x] `name: run-retro` matches directory name
-- [x] `allowed-tools` includes Read, Glob, Grep, Write, Edit, Bash(gh:*)
+- [x] `workflow instructions` includes Read, Glob, Grep, Write, Edit, Bash(gh:*)
 - [x] Includes "When to Use" section
-- [x] Includes "Unattended Mode" section (checks `.claude/unattended-mode`)
+- [x] Includes "Unattended Mode" section (checks `.codex/unattended-mode`)
 - [x] Includes numbered workflow steps matching design.md data flow
 - [x] Step 1: Scan for defect specs via Glob + Grep for `Severity:` field
 - [x] Step 2: Filter to specs with `Related Spec:` field
@@ -81,7 +81,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] Includes graceful handling for zero eligible defect specs
 - [x] Includes "Integration with SDLC Workflow" section
 
-**Notes**: This is the core deliverable. The skill is entirely prompt-based — Claude follows the instructions to perform analysis and generate the output. Ensure the workflow is detailed enough that Claude consistently produces correct output.
+**Notes**: This is the core deliverable. The skill is entirely prompt-based — Codex follows the instructions to perform analysis and generate the output. Ensure the workflow is detailed enough that Codex consistently produces correct output.
 
 ### T003: Define defect spec detection logic in SKILL.md
 
@@ -243,11 +243,11 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T014: Register skill in plugin manifest and update README
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`, `README.md`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`, `CHANGELOG.md`, `README.md`
 **Type**: Modify
 **Depends**: T002
 **Acceptance**:
-- [x] No registration needed — Claude Code auto-discovers skills in the `skills/` directory via `plugin.json`'s existing structure
+- [x] No registration needed — Codex auto-discovers skills in the `skills/` directory via `plugin.json`'s existing structure
 - [x] Verify that the skill directory is at `plugins/nmg-sdlc/skills/run-retro/` (correct path for auto-discovery)
 - [x] Bump plugin version in both `plugin.json` and `marketplace.json`
 - [x] Update CHANGELOG.md with new entries under `[Unreleased]`

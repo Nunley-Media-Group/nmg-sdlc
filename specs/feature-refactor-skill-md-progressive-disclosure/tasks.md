@@ -96,18 +96,18 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 - [ ] No other `tech.md` content changes beyond this row
 - [ ] `verify-code`'s Verification Gates section is re-read unchanged — the gate comes from `tech.md` so verify-code inherits it automatically
 
-### T007: Add Claude Code GitHub App Review Workflow (Required Gate)
+### T007: Add Codex GitHub App Review Workflow (Required Gate)
 
-**File(s)**: `.github/workflows/claude-review.yml`
+**File(s)**: `.github/workflows/codex-review.yml`
 **Type**: Create
 **Depends**: None
 **Acceptance**:
-- [ ] Workflow invokes `anthropics/claude-code-action@v1`
-- [ ] Triggers: `pull_request` on `opened` and `synchronize`, plus `issue_comment` on `created` gated by `contains(github.event.comment.body, '@claude')`
+- [ ] Workflow invokes `openai/codex-action@v1`
+- [ ] Triggers: `pull_request` on `opened` and `synchronize`, plus `issue_comment` on `created` gated by `contains(github.event.comment.body, '@codex')`
 - [ ] Permissions set: `contents: read`, `pull-requests: write`, `issues: write`
-- [ ] Uses org-level `ANTHROPIC_API_KEY` secret (already provisioned — no repo secret to add)
+- [ ] Uses org-level `OPENAI_API_KEY` secret (already provisioned — no repo secret to add)
 - [ ] Concurrency group keyed by PR/issue number with `cancel-in-progress: true`
-- [ ] Checkout step uses `fetch-depth: 0` so Claude can read full git history
+- [ ] Checkout step uses `fetch-depth: 0` so Codex can read full git history
 - [ ] Post-action step enforces the review verdict per design's "Verdict-To-Exit-Code Mapping": reads the latest bot review via `gh api`, exits non-zero on `CHANGES_REQUESTED`, scoped to `pull_request` events only
 - [ ] Workflow is declared a **required status check** on `main` branch-protection rules (documented in PR description for repo admin to enable; gate name matches the job name so branch protection can bind to it deterministically)
 - [ ] On PR 1 itself, the workflow posts an automated review (self-dogfood) — verify a `success` status before requesting human review
@@ -118,10 +118,10 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 **Type**: Verify
 **Depends**: T001, T002, T003, T004, T005, T006, T007
 **Acceptance**:
-- [ ] One skill is loaded via `claude --plugin-dir ./plugins/nmg-sdlc` locally and its existing behavior is unchanged (no SKILL.md edits have shipped yet — this is a pre-refactor sanity check)
+- [ ] One skill is loaded via `codex exec --cd ./plugins/nmg-sdlc` locally and its existing behavior is unchanged (no SKILL.md edits have shipped yet — this is a pre-refactor sanity check)
 - [ ] CI workflow runs green on a trial PR containing only T001–T007
 - [ ] Audit baseline round-trips without drift
-- [ ] Claude Code review posts a comment on PR 1
+- [ ] Codex review posts a comment on PR 1
 
 ---
 
@@ -170,7 +170,7 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 **Acceptance**:
 - [ ] Fixture project scaffolded per `steering/structure.md`'s "Test Project Scaffolding" (steering/, src/, README, .gitignore, git-initialized)
 - [ ] Rubric describes the deterministic and rubric-graded output properties
-- [ ] `scripts/skill-exercise-runner.mjs` spawns `claude -p` with the Agent SDK `canUseTool` callback pattern from `steering/tech.md`
+- [ ] `scripts/skill-exercise-runner.mjs` spawns `codex exec` with the Agent SDK `canUseTool` callback pattern from `steering/tech.md`
 - [ ] Exercise run against refactored draft-issue produces artifacts that pass the rubric compared to a pre-refactor baseline captured on main
 - [ ] Deterministic artifacts (slash-command enumeration, frontmatter, file paths written) are byte-equivalent between pre- and post-refactor runs (AC2)
 
@@ -288,7 +288,7 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 
 ### T022: Version Bump to 1.53.0 and CHANGELOG Entry
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: T016, T017, T018, T019, T020, T021
 **Acceptance**:
@@ -340,7 +340,7 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 - [ ] AC7 met: every pointer matches the regex `^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when `
 - [ ] AC8 met: per-skill `references/` count ≤ 5; TOC present on any file > 300 lines
 - [ ] AC9 met: reviewer sign-off that every shared-reference passage preserves the normative intent of every consumer
-- [ ] AC10 met: `.github/workflows/claude-review.yml` is present; Claude Code review posted on every refactor PR
+- [ ] AC10 met: `.github/workflows/codex-review.yml` is present; Codex review posted on every refactor PR
 
 ---
 
@@ -388,8 +388,8 @@ Phase 5 (threaded)
 | Issue | Date | Summary |
 |-------|------|---------|
 | #138 | 2026-04-19 | Initial feature spec |
-| #145 | 2026-04-19 | Phase 1 child — scope covers T001–T008 (Setup + additive infra): shared `references/` files, `skill-inventory-audit.mjs` + baseline + fixtures + Jest tests, audit CI workflow, and `claude-review.yml`. No SKILL.md edits, no version bump. |
-| #145 | 2026-04-19 | T007 expanded: workflow now enforces Claude's review verdict (exit non-zero on `CHANGES_REQUESTED`) and must be declared a required status check on `main`. Acceptance list gained two bullets covering the enforce-verdict step and the required-check declaration. |
+| #145 | 2026-04-19 | Phase 1 child — scope covers T001–T008 (Setup + additive infra): shared `references/` files, `skill-inventory-audit.mjs` + baseline + fixtures + Jest tests, audit CI workflow, and `codex-review.yml`. No SKILL.md edits, no version bump. |
+| #145 | 2026-04-19 | T007 expanded: workflow now enforces Codex's review verdict (exit non-zero on `CHANGES_REQUESTED`) and must be declared a required status check on `main`. Acceptance list gained two bullets covering the enforce-verdict step and the required-check declaration. |
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. Scope maps to existing tasks T009–T012 (extract variant content, refactor SKILL.md to ≤ 300 lines, regenerate audit baseline with inventory-removal justification, exercise test against fixture). No new tasks added — Phase 2 was pre-planned under #138. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. Scope maps to existing tasks T013 (write-spec ≤ 250), T014 (onboard-project ≤ 280), T015 (upgrade-project ≤ 250). No new tasks added — Phase 3 was pre-planned under #138. Applies the pilot pattern from #146 (T009–T012) and reuses the shared-reference scaffolding from #145 (T001). |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor + release. Scope maps to existing tasks T016 (start-issue ≤ 220), T017 (verify-code ≤ 220 + pointer-grammar migration), T018 (run-retro ≤ 180), T019 (open-pr ≤ 180), T020 (write-code ≤ 180), T021 (structure.md updates), T022 (version bump to 1.53.0 + CHANGELOG), and T025 (final verification pass across all 10 ACs). No new tasks added — Phase 4 was pre-planned under #138. Reuses the shared-reference scaffolding from #145 (T001) and applies the pilot pattern established in #146 (T009–T012). |

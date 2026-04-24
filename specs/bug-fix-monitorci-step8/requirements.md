@@ -3,9 +3,9 @@
 **Issue**: #20
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -15,7 +15,7 @@
 
 1. SDLC runner reaches Step 8 after creating a PR (Step 7)
 2. CI fails (e.g., formatting, lint, or test failure)
-3. Step 8 Claude session runs `gh pr checks`, reports CI is failing, exits with code 0
+3. Step 8 Codex session runs `gh pr checks`, reports CI is failing, exits with code 0
 4. Runner advances to Step 9 (merge)
 5. Step 9 precondition check detects CI failing, returns `{ ok: false }`
 6. `handleFailure` returns `retry-previous`, loops back to Step 8
@@ -64,7 +64,7 @@ Always — deterministic when CI is failing at Step 8.
 
 **Given** a PR with failing CI checks (formatting, lint, or test failures)
 **When** Step 8 (`monitorCI`) runs
-**Then** the Claude session reads CI logs, diagnoses the failure, applies a fix, commits, pushes, and re-polls CI until it passes
+**Then** the Codex session reads CI logs, diagnoses the failure, applies a fix, commits, pushes, and re-polls CI until it passes
 
 ### AC2: Runner validates CI is green before advancing to merge
 
@@ -75,7 +75,7 @@ Always — deterministic when CI is failing at Step 8.
 ### AC3: Spec-deviating fixes trigger escalation
 
 **Given** a CI failure that cannot be fixed without changing specified behavior
-**When** the Claude session determines the fix would deviate from the spec
+**When** the Codex session determines the fix would deviate from the spec
 **Then** it exits with a non-zero code and the runner escalates for manual intervention
 
 ### AC4: Step 8 has sufficient resources for fix cycles
@@ -91,9 +91,9 @@ Always — deterministic when CI is failing at Step 8.
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Add a CI-passing validation gate after Step 8 in `runStep` — pattern matches `validateSpecs` gate after Step 3 (line 964). Check `gh pr checks` output; retry Step 8 if any checks are failing. | Must |
-| FR2 | Enhance Step 8 prompt: require non-zero exit for unresolved CI failures; remove the "report and exit" escape condition; instruct Claude to read CI logs, diagnose, fix, commit, push, and re-poll. | Must |
+| FR2 | Enhance Step 8 prompt: require non-zero exit for unresolved CI failures; remove the "report and exit" escape condition; instruct Codex to read CI logs, diagnose, fix, commit, push, and re-poll. | Must |
 | FR3 | Increase Step 8 default `maxTurns` to >=40 and `timeoutMin` to >=20 in `sdlc-config.example.json` | Must |
-| FR4 | Step 8 prompt must instruct Claude to check specs before applying fixes that could change specified behavior — exit non-zero if fix requires spec deviation | Should |
+| FR4 | Step 8 prompt must instruct Codex to check specs before applying fixes that could change specified behavior — exit non-zero if fix requires spec deviation | Should |
 
 ---
 

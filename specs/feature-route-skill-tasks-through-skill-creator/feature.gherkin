@@ -4,9 +4,9 @@
 # Issue: #141
 
 Feature: Route skill creation and update tasks through /skill-creator
-  As a developer implementing or modifying a Claude Code skill definition through the SDLC pipeline
+  As a developer implementing or modifying a Codex skill definition through the SDLC pipeline
   I want write-code, spec-implementer, and verify-code to route skill-related work through /skill-creator
-  So that all skill definitions meet Anthropic's official best practices regardless of how the task was initiated
+  So that all skill definitions meet OpenAI's official best practices regardless of how the task was initiated
 
   Background:
     Given the nmg-sdlc plugin is loaded
@@ -110,11 +110,11 @@ Feature: Route skill creation and update tasks through /skill-creator
     And /skill-creator is NOT invoked
 
   Scenario: Unattended mode does not introduce interactive prompts
-    Given the file .claude/unattended-mode exists at the project root
+    Given the file .codex/unattended-mode exists at the project root
     And /skill-creator is installed
     And a skill task has been detected
     When the component routes the task through /skill-creator
-    Then no AskUserQuestion prompt is raised by the routing logic
+    Then no interactive prompt prompt is raised by the routing logic
     And the probe remains a filesystem and system-reminder check only
     And execution proceeds without human intervention
 
@@ -141,6 +141,6 @@ Feature: Route skill creation and update tasks through /skill-creator
 
     Examples:
       | probe_source                                                 |
-      | the user-skills directory (~/.claude/skills/skill-creator/)  |
-      | a plugin-skills glob (~/.claude/plugins/**/skills/skill-creator/) |
+      | the user-skills directory (~/.codex/skills/skill-creator/)  |
+      | a plugin-skills glob (~/.codex/plugins/**/skills/skill-creator/) |
       | the available-skills list in the current system reminder     |

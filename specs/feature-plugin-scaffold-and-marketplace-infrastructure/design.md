@@ -3,15 +3,15 @@
 **Issues**: #2
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
 ## Overview
 
-The plugin scaffold establishes the foundational infrastructure for the nmg-plugins marketplace. It defines two JSON manifest formats — a marketplace-level index (`marketplace.json`) and a per-plugin manifest (`plugin.json`) — that together describe available plugins, their versions, and their locations within the repository. A repo-level `/installing-locally` skill reads the marketplace index, discovers plugins, and copies them to the user's local `~/.claude/plugins/` cache using `rsync`.
+The plugin scaffold establishes the foundational infrastructure for the nmg-plugins marketplace. It defines two JSON manifest formats — a marketplace-level index (`marketplace.json`) and a per-plugin manifest (`plugin.json`) — that together describe available plugins, their versions, and their locations within the repository. A repo-level `/installing-locally` skill reads the marketplace index, discovers plugins, and copies them to the user's local `~/.codex/plugins/` cache using `rsync`.
 
-The architecture follows a registry pattern: the marketplace index is the single source of truth for plugin discovery, while each plugin's own manifest carries its metadata. The installation skill bridges the gap between the repository and the local Claude Code runtime by syncing versioned snapshots into a well-known cache directory.
+The architecture follows a registry pattern: the marketplace index is the single source of truth for plugin discovery, while each plugin's own manifest carries its metadata. The installation skill bridges the gap between the repository and the local Codex runtime by syncing versioned snapshots into a well-known cache directory.
 
 ---
 
@@ -23,17 +23,17 @@ The architecture follows a registry pattern: the marketplace index is the single
 ┌─────────────────────────────────────────────────┐
 │              nmg-plugins Repository              │
 ├─────────────────────────────────────────────────┤
-│  .claude-plugin/marketplace.json  (registry)     │
+│  .codex-plugin/marketplace.json  (registry)     │
 │  plugins/nmg-sdlc/                               │
-│    └── .claude-plugin/plugin.json (manifest)     │
-│  .claude/skills/installing-locally/SKILL.md      │
+│    └── .codex-plugin/plugin.json (manifest)     │
+│  .codex/skills/installing-locally/SKILL.md      │
 │  README.md                                       │
 └───────────────────────┬─────────────────────────┘
                         │ /installing-locally
                         ▼
 ┌─────────────────────────────────────────────────┐
 │           Local User Environment                 │
-│  ~/.claude/plugins/                              │
+│  ~/.codex/plugins/                              │
 │    ├── known_marketplaces.json                   │
 │    ├── installed_plugins.json                    │
 │    ├── marketplaces/nmg-plugins/ (git clone)     │
@@ -168,9 +168,9 @@ FeatureScreen
 
 | File | Type | Purpose |
 |------|------|---------|
-| `.claude-plugin/marketplace.json` | Create | Marketplace index with plugins array |
-| `plugins/nmg-sdlc/.claude-plugin/plugin.json` | Create | Plugin manifest with name, version, author |
-| `.claude/skills/installing-locally/SKILL.md` | Create | Repo-level installation skill |
+| `.codex-plugin/marketplace.json` | Create | Marketplace index with plugins array |
+| `plugins/nmg-sdlc/.codex-plugin/plugin.json` | Create | Plugin manifest with name, version, author |
+| `.codex/skills/installing-locally/SKILL.md` | Create | Repo-level installation skill |
 | `README.md` | Create | Documentation with installation instructions |
 
 ---

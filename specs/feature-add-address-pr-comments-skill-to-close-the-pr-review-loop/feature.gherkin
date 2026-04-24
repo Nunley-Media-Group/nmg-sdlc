@@ -4,7 +4,7 @@
 # Issue: #86
 
 Feature: /address-pr-comments skill
-  As a developer using Claude Code or an automated SDLC runner
+  As a developer using Codex or an automated SDLC runner
   I want a local slash-command skill that reads automated-reviewer threads on a PR, applies fixes via /write-code + /verify-code, and loops until review-clean
   So that PR review findings are resolved locally without manual intervention or switching to a cloud tool
 
@@ -74,17 +74,17 @@ Feature: /address-pr-comments skill
 
   Scenario: AC9 — Ambiguous or disagreement thread in interactive mode
     Given a thread classified as ambiguous or disagreement
-    And the sentinel .claude/unattended-mode does not exist
+    And the sentinel .codex/unattended-mode does not exist
     When the skill processes the thread
-    Then AskUserQuestion is invoked with the thread text, classification, rationale, and three options: "Fix it anyway", "Skip — leave unresolved", "Reply without fixing"
+    Then interactive prompt is invoked with the thread text, classification, rationale, and three options: "Fix it anyway", "Skip — leave unresolved", "Reply without fixing"
     And the user's selection routes the thread to the matching outcome
 
   Scenario: AC10 — Ambiguous or disagreement thread in unattended mode
     Given a thread classified as ambiguous or disagreement
-    And the sentinel .claude/unattended-mode exists
+    And the sentinel .codex/unattended-mode exists
     When the skill processes the thread
     Then the skill prints "ESCALATION: address-pr-comments — pr=#N thread={id} classification={class} rationale={one-sentence}"
-    And AskUserQuestion is not invoked
+    And interactive prompt is not invoked
     And the thread joins the skipped-set and is left unresolved
 
   # --- Loop, Push, and Polling ---
@@ -116,7 +116,7 @@ Feature: /address-pr-comments skill
     When the push command is built
     Then only "git push" is used
     And --force, --force-with-lease, and --force-if-includes are never passed
-    And this holds in interactive mode, unattended mode, on push rejection, and regardless of any AskUserQuestion selection
+    And this holds in interactive mode, unattended mode, on push rejection, and regardless of any interactive prompt selection
 
   Scenario: AC15 — Unattended-mode livelock guard
     Given unattended mode is active

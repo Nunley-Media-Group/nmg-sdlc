@@ -13,7 +13,7 @@ This change adds a detection-and-routing layer to three existing pipeline compon
 
 No runtime code is changed — this is entirely a prompt-engineering change across three Markdown files. The agent path (`spec-implementer.md`) and the inline-fallback path (`write-code` Step 5 fallback) receive the same logic so behaviour is consistent regardless of which execution branch fires. The verify-code integration plugs into the existing Step 6a finding-fix loop without changing report structure.
 
-The design intentionally imports zero new patterns: the probe triple (`~/.claude/skills/*/SKILL.md`, `~/.claude/plugins/**/skills/*/SKILL.md`, system-reminder advertisement) is copied verbatim from the simplify probe, and the warning-string convention matches existing precedent. This keeps the change low-risk and easy to verify by comparison.
+The design intentionally imports zero new patterns: the probe triple (`~/.codex/skills/*/SKILL.md`, `~/.codex/plugins/**/skills/*/SKILL.md`, system-reminder advertisement) is copied verbatim from the simplify probe, and the warning-string convention matches existing precedent. This keeps the change low-risk and easy to verify by comparison.
 
 ---
 
@@ -44,8 +44,8 @@ The design intentionally imports zero new patterns: the probe triple (`~/.claude
 │                     ▼                                              │
 │  ┌────────────────────────────────────────────┐                   │
 │  │       SKILL-CREATOR PROBE (shared logic)   │                   │
-│  │  - ~/.claude/skills/skill-creator/SKILL.md │                   │
-│  │  - ~/.claude/plugins/**/skills/            │                   │
+│  │  - ~/.codex/skills/skill-creator/SKILL.md │                   │
+│  │  - ~/.codex/plugins/**/skills/            │                   │
 │  │      skill-creator/SKILL.md                │                   │
 │  │  - system-reminder advertises skill-creator│                   │
 │  └──────────────────┬─────────────────────────┘                   │
@@ -74,7 +74,7 @@ The design intentionally imports zero new patterns: the probe triple (`~/.claude
 3. If NOT a skill task → proceed with existing direct-authoring flow (unchanged)
 4. If a skill task → run the SKILL-CREATOR PROBE
 5. If /skill-creator available → invoke it with task context and any existing file content, then continue
-6. If /skill-creator unavailable → emit verbatim warning and fall back to Write/Edit
+6. If /skill-creator unavailable → emit verbatim warning and fall back to direct Codex editing
 7. Record the routing decision in the component's normal output (task-done note, verification report row)
 ```
 
@@ -104,11 +104,11 @@ The detector is deliberately conservative — any single signal triggers routing
 
 Mirror of the existing simplify probe. `/skill-creator` is considered available if ANY of:
 
-1. `Glob` finds `~/.claude/skills/skill-creator/SKILL.md`
-2. `Glob` finds `~/.claude/plugins/**/skills/skill-creator/SKILL.md`
+1. `file discovery` finds `~/.codex/skills/skill-creator/SKILL.md`
+2. `file discovery` finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
 3. The available-skills list in the current system reminder advertises a skill named `skill-creator` (or matches `*:skill-creator`)
 
-The probe is a filesystem + system-reminder check. It does NOT use `AskUserQuestion`, preserving unattended-mode behaviour (AC8).
+The probe is a filesystem + system-reminder check. It does NOT use `interactive user prompt`, preserving unattended-mode behaviour (AC8).
 
 #### Invocation Contract (when available)
 
@@ -119,7 +119,7 @@ When routing to `/skill-creator`, each component passes:
 - **Existing content (if any)**: For edits and verify-code fixes, the current file contents so `/skill-creator` can update rather than rewrite from scratch
 - **Steering docs pointer**: A reference to `steering/` so `/skill-creator` can consult project conventions
 
-The exact invocation shape matches how the simplify probe invokes `/simplify` today — the component uses the Skill tool or `/skill-creator` invocation syntax exposed by Claude Code at runtime.
+The exact invocation shape matches how the simplify probe invokes `/simplify` today — the component uses the Skill tool or `/skill-creator` invocation syntax exposed by Codex at runtime.
 
 #### Warning String (when unavailable)
 
@@ -146,7 +146,7 @@ No new state is introduced. Two ephemeral per-run values are used:
 | `isSkillTask: boolean` | Per task/finding | Detector output; consumed immediately by routing decision |
 | `skillCreatorAvailable: boolean` | Per component invocation | Probe result; may be cached once per run to avoid re-probing every task |
 
-Caching is optional — the probe is cheap (one or two `Glob` calls). Components SHOULD cache the probe result for the duration of their run so the warning is emitted at most once per run even if multiple skill tasks exist.
+Caching is optional — the probe is cheap (one or two `file discovery` calls). Components SHOULD cache the probe result for the duration of their run so the warning is emitted at most once per run even if multiple skill tasks exist.
 
 ---
 
@@ -161,7 +161,7 @@ Not applicable — no UI.
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
 | **A: Hard-require `/skill-creator`** | Fail the pipeline if `/skill-creator` is not installed when a skill task is detected | Enforces the architectural invariant strictly | Breaks the pipeline for downstream projects that don't install skill-creator; violates the graceful-degradation principle in `steering/product.md` | Rejected — violates stated principle |
-| **B: Detect in a shared include file** | Extract detector and probe into a single shared Markdown include referenced by all three components | DRY; one place to update heuristics | Claude Code Markdown skills don't support includes/transclusion today; would introduce a non-standard convention | Rejected — no native include support |
+| **B: Detect in a shared include file** | Extract detector and probe into a single shared Markdown include referenced by all three components | DRY; one place to update heuristics | Codex Markdown skills don't support includes/transclusion today; would introduce a non-standard convention | Rejected — no native include support |
 | **C: Inline detection + probe per component** | Duplicate the detector and probe blocks in all three files with identical wording | Simple; matches existing precedent (simplify probe is already duplicated across write-code and verify-code) | Three copies to keep in sync | **Selected** — consistent with existing project convention; low maintenance burden given the blocks are small and stable |
 | **D: Route everything through `/skill-creator`** | Drop the detector; invoke `/skill-creator` for every task and let it decide whether skill work is needed | Simplest; zero detection bugs | Excessive overhead for non-skill tasks; `/skill-creator` isn't designed as a general-purpose router | Rejected — wrong tool for non-skill work |
 | **E: Detect but don't route in `spec-implementer`** | Only change `write-code` and `verify-code`; let the agent keep using direct edits | Smaller change surface | Creates an inconsistency — the agent path (default when manual mode delegates via Task) would bypass the invariant | Rejected — violates issue FR3 |
@@ -170,7 +170,7 @@ Not applicable — no UI.
 
 ## Security Considerations
 
-- [x] **Authentication**: No change — routing inherits Claude Code's existing plugin permission model
+- [x] **Authentication**: No change — routing inherits Codex's existing plugin permission model
 - [x] **Authorization**: `/skill-creator` is invoked with the same tool permissions as the calling component
 - [x] **Input Validation**: Detection runs on trusted spec content (task descriptions, issue body) already present in the pipeline; no new external input surface
 - [x] **Data Sanitization**: Task context passed to `/skill-creator` is passed as prompt content, not as shell arguments — no injection risk
@@ -182,7 +182,7 @@ Not applicable — no UI.
 
 - [x] **Caching**: Probe result cached per component run (see State Management)
 - [x] **Detection cost**: O(1) per task — a few string checks
-- [x] **Probe cost**: Two `Glob` calls per component run (cached), plus one system-reminder scan — negligible
+- [x] **Probe cost**: Two `file discovery` calls per component run (cached), plus one system-reminder scan — negligible
 - [x] **Skill-creator invocation cost**: Inherits `/skill-creator`'s own runtime profile; not measured here
 
 No hot paths are affected.
@@ -191,7 +191,7 @@ No hot paths are affected.
 
 ## Testing Strategy
 
-Per `steering/tech.md`, this project uses **exercise-based verification** — skills are Markdown, not executable code. Traditional unit tests don't apply. Testing combines Gherkin specs (acceptance criteria) with Claude Code exercise runs against a disposable test project.
+Per `steering/tech.md`, this project uses **exercise-based verification** — skills are Markdown, not executable code. Traditional unit tests don't apply. Testing combines Gherkin specs (acceptance criteria) with Codex exercise runs against a disposable test project.
 
 | Layer | Type | Coverage |
 |-------|------|----------|
@@ -201,7 +201,7 @@ Per `steering/tech.md`, this project uses **exercise-based verification** — sk
 | spec-implementer integration | Exercise | Invoke write-code in a mode that delegates to spec-implementer (non-unattended), confirm agent routes skill tasks |
 | verify-code integration | Exercise | Seed a finding in a `SKILL.md` file; invoke `/nmg-sdlc:verify-code #N`; confirm the fix is routed through `/skill-creator` |
 | Graceful degradation | Exercise | Remove `/skill-creator`; re-run each of the above; confirm the verbatim warning appears and the fallback authoring produces the file |
-| Unattended mode | Exercise | Create `.claude/unattended-mode` in test project; confirm no new interactive prompts are introduced by routing |
+| Unattended mode | Exercise | Create `.codex/unattended-mode` in test project; confirm no new interactive prompts are introduced by routing |
 
 The `feature.gherkin` file in this spec enumerates the concrete scenarios.
 
@@ -221,7 +221,7 @@ The `feature.gherkin` file in this spec enumerates the concrete scenarios.
 
 ## Open Questions
 
-- [ ] **Resolved**: Q from requirements.md ("does /skill-creator accept a single combined prompt") — the invocation is via the standard Claude Code skill mechanism; the component passes a prompt describing the work and the target path, and `/skill-creator` handles both create and edit cases internally. Matches how `/simplify` is invoked today.
+- [ ] **Resolved**: Q from requirements.md ("does /skill-creator accept a single combined prompt") — the invocation is via the standard Codex skill mechanism; the component passes a prompt describing the work and the target path, and `/skill-creator` handles both create and edit cases internally. Matches how `/simplify` is invoked today.
 
 ---
 

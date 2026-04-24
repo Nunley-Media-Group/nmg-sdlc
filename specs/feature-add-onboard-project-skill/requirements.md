@@ -3,7 +3,7 @@
 **Issues**: #115, #124, #98
 **Date**: 2026-04-23
 **Status**: Amended
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -50,7 +50,7 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 
 **Given** several closed issues touch the same feature area (by shared label or by keyword overlap in title/body)
 **When** the skill reconciles specs
-**Then** it groups related issues, presents the groups to the user via `AskUserQuestion`, and produces one consolidated spec per approved group
+**Then** it groups related issues, presents the groups to the user via `interactive prompt`, and produces one consolidated spec per approved group
 **And** if the user declines consolidation for a group, the skill produces one spec per issue in that group instead
 
 ### AC4: Template Variant Selection by Label
@@ -69,9 +69,9 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 
 ### AC6: Unattended-Mode Support
 
-**Given** `.claude/unattended-mode` exists in the project directory
+**Given** `.codex/unattended-mode` exists in the project directory
 **When** the skill runs
-**Then** all interactive prompts are skipped, consolidation groups are auto-accepted as proposed, and defaults are applied without `AskUserQuestion`
+**Then** all interactive prompts are skipped, consolidation groups are auto-accepted as proposed, and defaults are applied without `interactive prompt`
 **And** any decision the skill would have prompted for (init-config invocation, consolidation confirmations, template variant overrides) is logged in the final summary so the user can audit what the unattended run decided
 
 ### AC7: Idempotency — Already Initialized
@@ -110,14 +110,14 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 
 ---
 
-<!-- ACs added by issue #124: greenfield enhancement (interview, backlog seeding, Claude Design URL, /setup-steering absorption) -->
+<!-- ACs added by issue #124: greenfield enhancement (interview, backlog seeding, design archive URL, /setup-steering absorption) -->
 
 ### AC12: Intent + Tech-Selection Interview Runs in Greenfield Mode
 
 **Given** a project detected as greenfield
 **When** Step 2G begins
-**Then** the skill conducts an interactive interview (via `AskUserQuestion` multi-question rounds, consistent with `/draft-issue`) covering: product vision, target users/personas, success criteria, language, framework, test tooling, and deployment target — *before* any steering file is written
-**And** in unattended mode, the interview is replaced by deterministic defaults sourced from the Claude Design payload (if provided) or from the steering templates' defaults; every applied default is logged in the Step 5 summary so the run can be audited
+**Then** the skill conducts an interactive interview (via `interactive prompt` multi-question rounds, consistent with `/draft-issue`) covering: product vision, target users/personas, success criteria, language, framework, test tooling, and deployment target — *before* any steering file is written
+**And** in unattended mode, the interview is replaced by deterministic defaults sourced from the design archive payload (if provided) or from the steering templates' defaults; every applied default is logged in the Step 5 summary so the run can be audited
 
 ### AC13: v1 and v2 Milestones Are Seeded Idempotently
 
@@ -140,7 +140,7 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 **Given** 3–7 starter issues are about to be seeded
 **When** dependency inference runs
 **Then** the skill proposes a DAG built from: (a) shared component references in the candidate bodies, (b) explicit ordering cues surfaced in the interview, and (c) milestone mapping (`v1` items cannot depend on `v2` items)
-**And** the user approves or adjusts the DAG via `AskUserQuestion` *before* any `/draft-issue` invocation begins (auto-accept in unattended mode, with the proposed DAG logged for the summary)
+**And** the user approves or adjusts the DAG via `interactive prompt` *before* any `/draft-issue` invocation begins (auto-accept in unattended mode, with the proposed DAG logged for the summary)
 **And** if cycles are detected in the inferred DAG, the skill aborts the dependency step, logs the cycle, and proceeds to seed issues without dependency wiring rather than producing an invalid graph
 
 ### AC16: Seeded Starter Issues Are Autolinked
@@ -151,9 +151,9 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 **And** every seeded issue body includes machine-parseable `Depends on: #X, #Y` and/or `Blocks: #Z` lines reflecting its DAG neighbors
 **And** the autolinking primitive landed by Issue #125 is reused — this skill does not duplicate dependency-wiring logic
 
-### AC17: Claude Design URL Is Used as Context
+### AC17: design archive URL Is Used as Context
 
-**Given** the user supplies a Claude Design URL at the start of the greenfield interview
+**Given** the user supplies a design archive URL at the start of the greenfield interview
 **When** the greenfield flow runs
 **Then** the archive is fetched, decoded as gzip-aware (the payload is a gzipped archive of ~119 KB in the example, not raw HTML)
 **And** the README inside the archive is read and summarized to the user
@@ -178,9 +178,9 @@ Pipeline position: runs **before** `/draft-issue`, **once per project lifetime**
 **And** every reference to `/setup-steering` in other skills (notably `/upgrade-project`'s delegation references) is rewritten to point at `/onboard-project` (or to no delegation if the new entry point makes the indirection unnecessary)
 **And** `CHANGELOG.md` records the removal of the standalone `/setup-steering` skill in `[Unreleased]`
 
-### AC20: Claude Design Fetch Failure Degrades Gracefully
+### AC20: design archive Fetch Failure Degrades Gracefully
 
-**Given** the supplied Claude Design URL is unreachable, times out, returns a non-success HTTP status, or returns a payload that cannot be decoded as gzip
+**Given** the supplied design archive URL is unreachable, times out, returns a non-success HTTP status, or returns a payload that cannot be decoded as gzip
 **When** the fetch or decode step fails
 **Then** the failure is logged with the URL, the failure mode (network, HTTP status, decode error), and a single-sentence remediation hint
 **And** the greenfield flow continues without design context — interview proceeds with no design-derived defaults
@@ -298,9 +298,9 @@ Feature: Onboard Project
     Then the skill delegates to /setup-steering before producing any specs
 
   Scenario: Unattended mode
-    Given .claude/unattended-mode exists
+    Given .codex/unattended-mode exists
     When the skill runs
-    Then consolidation groups are auto-accepted and no AskUserQuestion prompts fire
+    Then consolidation groups are auto-accepted and no interactive prompt prompts fire
 
   Scenario: Idempotency
     Given specs/ already contains spec directories
@@ -357,8 +357,8 @@ Feature: Onboard Project
     Then "gh issue edit <child> --add-sub-issue <parent>" wires hierarchical edges
     And every seeded issue body includes "Depends on: #X" and "Blocks: #Y" lines for its DAG neighbors
 
-  Scenario: Claude Design URL is fetched, decoded, and used as context
-    Given the user supplies a Claude Design URL at interview start
+  Scenario: design archive URL is fetched, decoded, and used as context
+    Given the user supplies a design archive URL at interview start
     When the greenfield flow runs
     Then the gzipped archive is fetched and decoded
     And the README is summarized to the user
@@ -378,8 +378,8 @@ Feature: Onboard Project
     And all steering bootstrap/enhancement runs inside /onboard-project
     And /upgrade-project's references to /setup-steering have been rewritten
 
-  Scenario: Claude Design fetch failure degrades gracefully
-    Given the supplied Claude Design URL is unreachable
+  Scenario: design archive fetch failure degrades gracefully
+    Given the supplied design archive URL is unreachable
     When fetch fails
     Then the failure is logged with URL and failure mode
     And the greenfield flow continues without design context
@@ -464,7 +464,7 @@ Feature: Onboard Project
 | FR5 | Cross-check reconciled spec content against current implementation before writing | Must | Read each file named in the reconstructed design and confirm it exists; flag gaps in the summary. |
 | FR6 | Group related issues by shared label and by keyword overlap in title/body; confirm groups interactively | Must | Keyword tokenization + stop-word filter per the `/write-spec` convention. |
 | FR7 | Pick spec template by issue label (`bug` → defect), fall back to content heuristic when label is absent | Must | Content heuristic keywords: `fix`, `bug`, `broken`, `regression`, `crash`, `error`. |
-| FR8 | Honor `.claude/unattended-mode` for headless execution | Must | Every `AskUserQuestion` call must be guarded. |
+| FR8 | Honor `.codex/unattended-mode` for headless execution | Must | Every `interactive prompt` call must be guarded. |
 | FR9 | Detect already-initialized projects (specs exist) and route to `/upgrade-project` | Must | Do not overwrite existing specs. |
 | FR10 | Emit the same spec artifact set as `/write-spec` per reconciled feature: `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` | Must | Use `/write-spec`'s templates verbatim. |
 | FR11 | Emit a final summary: mode detected, specs produced (with contributing issue numbers), delegated skills invoked and their status, and reconciliation gaps | Must | Required so unattended runs can be audited. |
@@ -473,16 +473,16 @@ Feature: Onboard Project
 | FR14 | Verify all four artifact files exist in each produced spec directory before reporting success | Must | Postcondition check — addresses probabilistic agent-produced output. |
 | FR15 | Support a dry-run mode (`--dry-run` or equivalent argument) that previews which specs would be produced without writing files | Should | Previews only; no filesystem writes. |
 | FR16 | Skip issues whose reconciled spec would duplicate an existing spec directory name (idempotent per-issue) | Should | Prevents partial re-runs from overwriting completed work. |
-| FR17 | Conduct a multi-round intent + tech-selection interview inside the greenfield branch (Step 2G) before any steering file is written | Must | `AskUserQuestion` rounds covering vision, personas, success criteria, language, framework, test tooling, deployment target. Unattended mode applies deterministic defaults from design payload or templates and logs them in the summary. (Issue #124) |
+| FR17 | Conduct a multi-round intent + tech-selection interview inside the greenfield branch (Step 2G) before any steering file is written | Must | `interactive prompt` rounds covering vision, personas, success criteria, language, framework, test tooling, deployment target. Unattended mode applies deterministic defaults from design payload or templates and logs them in the summary. (Issue #124) |
 | FR18 | Seed `v1 (MVP)` and `v2` GitHub milestones idempotently via `gh api` | Must | Reuse existing milestones by name match; skip duplicates; record per-milestone failures in the summary without aborting. (Issue #124) |
 | FR19 | Seed 3–7 starter issues by delegating to `/draft-issue` in a loop with shared interview context | Must | Each delegation receives the full interview payload + design payload; per-issue failures are recorded as gaps without aborting the loop. (Issue #124) |
 | FR20 | Infer a dependency DAG between candidate starter issues from shared component references, interview ordering cues, and milestone mapping | Must | `v1` items cannot depend on `v2` items. Detect cycles and abort the dependency step (continue without wiring) rather than emit an invalid graph. (Issue #124) |
-| FR21 | Confirm the inferred DAG via `AskUserQuestion` before any `/draft-issue` invocation begins | Must | Auto-accept in unattended mode; log the proposed DAG for the summary. (Issue #124) |
+| FR21 | Confirm the inferred DAG via `interactive prompt` before any `/draft-issue` invocation begins | Must | Auto-accept in unattended mode; log the proposed DAG for the summary. (Issue #124) |
 | FR22 | Autolink seeded starter issues via `gh issue edit <child> --add-sub-issue <parent>` and embed `Depends on:` / `Blocks:` lines in seeded issue bodies | Must | Reuse the autolinking primitive landed by Issue #125; do not duplicate dependency-wiring logic. (Issue #124) |
 | FR23 | Absorb all `/setup-steering` logic (bootstrap and in-place enhancement) into `/onboard-project`'s greenfield branch (Step 2G) and re-run branch (Step 2I enhancement mode); delete the standalone `/setup-steering` skill directory | Must | Maintains the "one skill = one SDLC step" invariant. (Issue #124) |
 | FR24 | Rewrite all `/setup-steering` references in other skills (notably `/upgrade-project`) to point at `/onboard-project` (or remove the indirection where the new entry point makes it unnecessary) | Must | Grep `plugins/nmg-sdlc/skills/**/SKILL.md` for any remaining `/setup-steering` mention; CHANGELOG records the removal. (Issue #124) |
-| FR25 | Accept an optional Claude Design URL argument at the start of the greenfield interview, fetch the URL, decode the gzipped archive, parse the README, and inject the parsed content as interview defaults + starter-issue seed context | Should | Treat the payload as untrusted: fenced blocks only when embedding into Markdown, no shell interpolation of payload content into commands. (Issue #124) |
-| FR26 | Degrade gracefully on Claude Design fetch or decode failure — log URL + failure mode + remediation hint, continue the greenfield flow without design context, surface the failure as a gap in the Step 5 summary | Should | Fetch failures must not abort the run. (Issue #124) |
+| FR25 | Accept an optional design archive URL argument at the start of the greenfield interview, fetch the URL, decode the gzipped archive, parse the README, and inject the parsed content as interview defaults + starter-issue seed context | Should | Treat the payload as untrusted: fenced blocks only when embedding into Markdown, no shell interpolation of payload content into commands. (Issue #124) |
+| FR26 | Degrade gracefully on design archive fetch or decode failure — log URL + failure mode + remediation hint, continue the greenfield flow without design context, surface the failure as a gap in the Step 5 summary | Should | Fetch failures must not abort the run. (Issue #124) |
 | FR27 | Detect re-run on a project that already has steering docs and switch to **steering-enhancement mode** — edit existing steering content in place, skip already-seeded milestones, skip already-seeded starter issues, preserve existing dependency links | Must | Already-seeded starter issues identified by either a `seeded-by-onboard` GitHub label or by title match against the prior run's summary; existing `--add-sub-issue` relationships are not rewritten or deleted. Distinct from the existing FR9 already-initialized branch (which routes to `/upgrade-project`) — enhancement mode applies when steering exists but specs do not. (Issue #124) |
 | FR28 | Emit progress lines during interview, design fetch/decode, milestone seeding, dependency inference, and the starter-issue loop | Should | Per the existing UI/UX requirement for long operations; one line per phase boundary plus per-issue progress in the seeding loop. (Issue #124) |
 | FR29 | Remove `v2` from Step 2G.4 milestone seeding in `greenfield.md` — seed only `v1` | Must | Supersedes FR18; the v2 creation branch is deleted, not gated. (Issue #98) |
@@ -515,7 +515,7 @@ Feature: Onboard Project
 
 | Element | Requirement |
 |---------|-------------|
-| **Interaction** | Interactive prompts via `AskUserQuestion` only; every prompt guarded by unattended-mode check. |
+| **Interaction** | Interactive prompts via `interactive prompt` only; every prompt guarded by unattended-mode check. |
 | **Mode-detection output** | Before any work begins, the skill prints the detected mode and the evidence used (e.g., "Brownfield detected: 12 closed issues, src/ contains 47 files, no specs/ directory"). |
 | **Consolidation UX** | Groups presented as numbered options with issue numbers, titles, and the grouping signal (shared label name or keyword overlap summary). |
 | **Loading States** | For long operations (reading many closed issues), emit progress every N issues processed. |
@@ -534,7 +534,7 @@ Feature: Onboard Project
 | Closed issues | `gh issue list --state closed` JSON output | Parseable JSON array | Yes (brownfield only) |
 | Merged PR diffs | `gh pr diff <num>` | Valid unified diff | Optional per issue (AC10) |
 | Current working tree | File system at project root | Git-initialized repo | Yes |
-| `.claude/unattended-mode` | File presence flag | N/A | Optional |
+| `.codex/unattended-mode` | File presence flag | N/A | Optional |
 | Dry-run argument | `--dry-run` CLI flag or equivalent | Boolean | Optional |
 
 ### Output Data
@@ -560,7 +560,7 @@ Feature: Onboard Project
 ### External Dependencies
 - [x] `gh` CLI — closed issues, PR bodies, PR diffs, commit messages, milestone seeding (`gh api`), autolinking (`gh issue edit --add-sub-issue`)
 - [x] `git` — working tree status, file presence checks
-- [x] HTTP fetch + gzip decode — **(#124)** Claude Design URL ingestion (FR25); use built-in fetch + decompression (no new npm dependency)
+- [x] HTTP fetch + gzip decode — **(#124)** design archive URL ingestion (FR25); use built-in fetch + decompression (no new npm dependency)
 
 ### Blocked By
 - Issue #125 — must land the dependency-inference + autolinking primitive in `/draft-issue` first; this issue consumes that primitive (FR22, AC16)
@@ -596,7 +596,7 @@ Feature: Onboard Project
 | Greenfield time-to-ready | < 2 minutes from `/onboard-project` to "ready for `/draft-issue`" | Exercise-based timing on a minimal test project |
 | Brownfield reconciliation completeness | ≥ 80% of closed issues produce a non-gap spec (all four files + no missing source references) | Count of complete specs / count of eligible closed issues in exercise test |
 | Idempotency | Re-running `/onboard-project` on an initialized project produces zero file writes | Verify git status is clean after second run |
-| Unattended compatibility | All 11 ACs executable in unattended mode without `AskUserQuestion` prompts firing | Agent SDK exercise test with `ask_user_question.behavior: deny` |
+| Unattended compatibility | All 11 ACs executable in unattended mode without `interactive prompt` prompts firing | Agent SDK exercise test with `ask_user_question.behavior: deny` |
 
 ---
 
@@ -612,7 +612,7 @@ Feature: Onboard Project
 | Issue | Date | Summary |
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
-| #124 | 2026-04-18 | Greenfield enhancement: intent + tech-selection interview, v1/v2 milestone seeding, 3–7 starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking, optional Claude Design URL ingestion (gzip-decoded), steering-enhancement re-run mode, absorption of `/setup-steering` into `/onboard-project` |
+| #124 | 2026-04-18 | Greenfield enhancement: intent + tech-selection interview, v1/v2 milestone seeding, 3–7 starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking, optional design archive URL ingestion (gzip-decoded), steering-enhancement re-run mode, absorption of `/setup-steering` into `/onboard-project` |
 | #98 | 2026-04-23 | Lock onboard-project to v1-only milestone seeding (supersedes AC13 v2 seeding), add VERSION file + stack-native manifest initialization (greenfield and brownfield, idempotent), and make brownfield always backfill specs from tracked source code (supersedes the treat-as-greenfield offer when no closed issues exist) |
 
 ---

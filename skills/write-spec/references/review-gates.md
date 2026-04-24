@@ -1,12 +1,12 @@
 # Phase Review Gates
 
-**Read this when** a phase has finished writing its file and the workflow is presenting findings for human approval. The three phase summaries (Requirements, Design, Tasks) follow the same shape: an inline summary the reviewer can evaluate without opening the file, then a two-option `request_user_input` menu. Loop until the reviewer approves; revise iterations apply user-described changes wholesale rather than preserving prior drafts as diffs.
+**Read this when** a phase has finished writing its file and the workflow is presenting findings for human approval. The three phase summaries (Requirements, Design, Tasks) follow the same shape: an inline summary the reviewer can evaluate without opening the file, then a two-option interactive user prompt menu. Loop until the reviewer approves; revise iterations apply user-described changes wholesale rather than preserving prior drafts as diffs.
 
 The summaries exist because reviewers should not have to switch context to a separate file to evaluate a phase. Inline summaries make the review gate honest — what the user sees here is what they're approving.
 
 ## Unattended-mode behavior
 
-In unattended mode (`.codex/unattended-mode` present), all three gates are **pre-approved**: do NOT call `request_user_input`, do NOT render the inline summary, and proceed directly from each phase to the next. The shared semantics live in `../../references/unattended-mode.md`.
+In unattended mode (`.codex/unattended-mode` present), all three gates are **pre-approved**: do NOT call interactive user prompt, do NOT render the inline summary, and proceed directly from each phase to the next. The shared semantics live in `../../references/unattended-mode.md`.
 
 ## Phase 1 — Requirements Review Gate
 
@@ -32,7 +32,7 @@ Render this exact structure:
 **Open Questions**: [list any, or "None"]
 ```
 
-Then present a numbered menu via `request_user_input`:
+Then present a numbered menu via interactive user prompt:
 
 ```
 Select an option:

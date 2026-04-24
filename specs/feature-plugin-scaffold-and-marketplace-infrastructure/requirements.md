@@ -3,21 +3,21 @@
 **Issues**: #2
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
 ## User Story
 
-**As a** Claude Code user,
+**As a** Codex user,
 **I want** a plugin marketplace that hosts installable plugins with skills, hooks, and agents,
-**So that** I can extend Claude Code with reusable development workflows without copy-pasting configuration.
+**So that** I can extend Codex with reusable development workflows without copy-pasting configuration.
 
 ---
 
 ## Background
 
-The nmg-plugins repository provides the foundational infrastructure for distributing Claude Code plugins. It includes a marketplace index (`marketplace.json`) that acts as a plugin registry, a plugin manifest format (`plugin.json`) for declaring metadata, and a repo-level `/installing-locally` skill that installs plugins for the current user. This scaffold enables all subsequent skills, hooks, and agents to be packaged and versioned as a single installable unit.
+The nmg-plugins repository provides the foundational infrastructure for distributing Codex plugins. It includes a marketplace index (`marketplace.json`) that acts as a plugin registry, a plugin manifest format (`plugin.json`) for declaring metadata, and a repo-level `/installing-locally` skill that installs plugins for the current user. This scaffold enables all subsequent skills, hooks, and agents to be packaged and versioned as a single installable unit.
 
 ---
 
@@ -26,20 +26,20 @@ The nmg-plugins repository provides the foundational infrastructure for distribu
 ### AC1: Marketplace Index Lists Available Plugins
 
 **Given** the marketplace repository is cloned
-**When** I inspect `.claude-plugin/marketplace.json`
+**When** I inspect `.codex-plugin/marketplace.json`
 **Then** I see a `plugins` array with at least one plugin entry containing name, version, description, and path
 
 ### AC2: Plugin Manifest Declares Metadata
 
 **Given** I navigate to a plugin directory (e.g., `plugins/nmg-sdlc/`)
-**When** I inspect `.claude-plugin/plugin.json`
+**When** I inspect `.codex-plugin/plugin.json`
 **Then** I see the plugin's name, version, description, author, and repository fields
 
 ### AC3: Local Installation Copies Plugin Files
 
 **Given** I run the `/installing-locally` skill
 **When** the skill completes
-**Then** all plugin skills, hooks, and agents are installed to `~/.claude/plugins/`
+**Then** all plugin skills, hooks, and agents are installed to `~/.codex/plugins/`
 
 ---
 
@@ -47,9 +47,9 @@ The nmg-plugins repository provides the foundational infrastructure for distribu
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | Marketplace index file at `.claude-plugin/marketplace.json` with plugin registry | Must | Contains plugins array with name, version, description, path |
-| FR2 | Plugin manifest at `plugins/nmg-sdlc/.claude-plugin/plugin.json` with version and metadata | Must | Includes name, version, description, author, repository |
-| FR3 | `/installing-locally` skill that copies plugin files to the user's local Claude config | Must | Repo-level skill in `.claude/skills/` |
+| FR1 | Marketplace index file at `.codex-plugin/marketplace.json` with plugin registry | Must | Contains plugins array with name, version, description, path |
+| FR2 | Plugin manifest at `plugins/nmg-sdlc/.codex-plugin/plugin.json` with version and metadata | Must | Includes name, version, description, author, repository |
+| FR3 | `/installing-locally` skill that copies plugin files to the user's local Codex config | Must | Repo-level skill in `.codex/skills/` |
 | FR4 | README with installation instructions and plugin overview | Must | Documents the marketplace and installation process |
 
 ---
@@ -61,7 +61,7 @@ The nmg-plugins repository provides the foundational infrastructure for distribu
 | **Performance** | Installation completes within seconds (local file copy) |
 | **Security** | No secrets or credentials stored in manifest files |
 | **Reliability** | Installation is idempotent — re-running produces the same result |
-| **Compatibility** | Works with Claude Code's plugin loading system |
+| **Compatibility** | Works with Codex's plugin loading system |
 
 ---
 
@@ -99,7 +99,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 ## Dependencies
 
 ### Internal Dependencies
-- [x] Claude Code plugin system (`.claude-plugin/` convention)
+- [x] Codex plugin system (`.codex-plugin/` convention)
 
 ### External Dependencies
 - [x] `gh` CLI for GitHub integration

@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-26
 **Status**: Complete
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-automation-mode-support/`
 
@@ -12,10 +12,10 @@
 
 ### Steps to Reproduce
 
-1. Have a target project where `.claude/sdlc-state.json` was committed before the gitignore fix (#57) was in place
-2. Run the SDLC runner — it writes/updates `.claude/sdlc-state.json` during cycle execution
-3. The runner's auto-commit logic skips committing `.claude/sdlc-state.json` (correctly treating it as a runner artifact)
-4. `start-issue` skill runs `git status --porcelain` and finds `.claude/sdlc-state.json` modified
+1. Have a target project where `.codex/sdlc-state.json` was committed before the gitignore fix (#57) was in place
+2. Run the SDLC runner — it writes/updates `.codex/sdlc-state.json` during cycle execution
+3. The runner's auto-commit logic skips committing `.codex/sdlc-state.json` (correctly treating it as a runner artifact)
+4. `start-issue` skill runs `git status --porcelain` and finds `.codex/sdlc-state.json` modified
 5. The skill aborts with: `Working tree is not clean. Cannot create feature branch.`
 6. Step 3 (`writeSpecs`) precondition `"feature branch exists"` fails
 7. Runner bounces back to step 2 three times, hits escalation, then a consecutive escalation loop, and exits with code 1
@@ -27,17 +27,17 @@
 | **OS / Platform** | Any (cross-platform) |
 | **Version / Commit** | `sdlc-runner.mjs` v1.33.0 |
 | **Runtime** | Node.js v24+ |
-| **Configuration** | Any SDLC runner config pointing to a target project where `.claude/sdlc-state.json` was previously committed |
+| **Configuration** | Any SDLC runner config pointing to a target project where `.codex/sdlc-state.json` was previously committed |
 
 ### Frequency
 
-Always (when `.claude/sdlc-state.json` is git-tracked in the target project)
+Always (when `.codex/sdlc-state.json` is git-tracked in the target project)
 
 ---
 
 ## Root Cause
 
-`.claude/sdlc-state.json` is both **git-tracked** (committed before gitignore fix #57) and **mutated by the runner at runtime**. Adding it to `.gitignore` does NOT untrack already-tracked files. The runner's own precondition check (`validatePreconditions()` case 2) correctly filters `RUNNER_ARTIFACTS`, but the `start-issue` skill's Step 4 precondition uses raw `git status --porcelain` without filtering.
+`.codex/sdlc-state.json` is both **git-tracked** (committed before gitignore fix #57) and **mutated by the runner at runtime**. Adding it to `.gitignore` does NOT untrack already-tracked files. The runner's own precondition check (`validatePreconditions()` case 2) correctly filters `RUNNER_ARTIFACTS`, but the `start-issue` skill's Step 4 precondition uses raw `git status --porcelain` without filtering.
 
 ---
 
@@ -46,7 +46,7 @@ Always (when `.claude/sdlc-state.json` is git-tracked in the target project)
 | | Description |
 |---|-------------|
 | **Expected** | `start-issue` proceeds with branch creation when the only dirty files are known runner artifacts |
-| **Actual** | `start-issue` aborts because `git status --porcelain` shows modified `.claude/sdlc-state.json` (tracked file) |
+| **Actual** | `start-issue` aborts because `git status --porcelain` shows modified `.codex/sdlc-state.json` (tracked file) |
 
 ---
 
@@ -56,14 +56,14 @@ Always (when `.claude/sdlc-state.json` is git-tracked in the target project)
 
 ### AC1: Runner untracks previously committed runner artifacts
 
-**Given** the SDLC runner starts with a target project where `.claude/sdlc-state.json` is git-tracked
+**Given** the SDLC runner starts with a target project where `.codex/sdlc-state.json` is git-tracked
 **When** the runner initializes
 **Then** the runner runs `git rm --cached` on the tracked runner artifacts
 **And** the artifacts become untracked (gitignore takes effect)
 
 ### AC2: start-issue skill tolerates runner artifacts in working tree
 
-**Given** the working tree contains only modified runner artifacts (`.claude/sdlc-state.json`, `.claude/unattended-mode`)
+**Given** the working tree contains only modified runner artifacts (`.codex/sdlc-state.json`, `.codex/unattended-mode`)
 **When** the `start-issue` skill evaluates the working tree precondition
 **Then** the filtered output is considered clean
 **And** branch creation proceeds normally

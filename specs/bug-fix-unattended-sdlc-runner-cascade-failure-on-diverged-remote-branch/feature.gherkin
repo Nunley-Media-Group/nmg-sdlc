@@ -27,7 +27,7 @@ Feature: Unattended SDLC runner handles diverged remote branches without cascade
 
   @regression
   Scenario: commit-push uses --force-with-lease under unattended mode after rebase
-    Given the runner is in unattended mode with ".claude/unattended-mode" present
+    Given the runner is in unattended mode with ".codex/unattended-mode" present
     And commit-push has rebased local onto origin/main so the remote tip is no longer in local history
     And the remote tip matches the SHA captured in the fetch that preceded the rebase
     When commit-push evaluates the push
@@ -60,7 +60,7 @@ Feature: Unattended SDLC runner handles diverged remote branches without cascade
   Scenario: Bounced step receives structured bounce context in its prompt
     Given step 8 (createPR) fails its precondition check with failedCheck "branch pushed to remote"
     And the runner bounces to step 7 (commitPush)
-    When buildClaudeArgs is called for step 7
+    When buildCodexArgs is called for step 7
     Then the generated prompt begins with a "## Bounce context" block
     And the block contains the keys "from:", "reason:", "failedCheck:", "remoteCommitsSuperseded:"
     And the receiving commit-push subagent does not need to re-investigate the divergence from scratch

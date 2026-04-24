@@ -3,9 +3,9 @@
 **Issue**: #32
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -15,7 +15,7 @@
 
 1. Run `sdlc-runner.mjs` in autonomous mode against a project
 2. Have `git push` fail silently during step 6 (e.g., due to auth expiry, branch protection, or remote rejection)
-3. Claude Code exits with code 0 despite the push failure
+3. Codex exits with code 0 despite the push failure
 4. Runner advances to step 7 (createPR), whose precondition checks `git log origin/${branch}..HEAD` and detects unpushed commits
 5. Step 7 precondition failure triggers `retry-previous`, sending execution back to step 6
 6. Step 6 has no preconditions of its own (`case 6: return { ok: true }`) and re-runs the same failing push
@@ -67,9 +67,9 @@ Step 6 exhausted retries. Escalating.
 
 ### AC2: Step 6 prompt instructs explicit failure exit
 
-**Given** Claude Code is running the commitPush step
+**Given** Codex is running the commitPush step
 **When** `git push` fails for any reason (auth, protection, rejection)
-**Then** the step 6 prompt explicitly instructs Claude to exit with a non-zero status code and report the error
+**Then** the step 6 prompt explicitly instructs Codex to exit with a non-zero status code and report the error
 
 ### AC3: Successful push is not regressed
 
@@ -92,7 +92,7 @@ Step 6 exhausted retries. Escalating.
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Add a post-step push validation gate after step 6 in `sdlc-runner.mjs`, following the existing pattern used for spec validation (step 3) and CI validation (step 8): check `git log origin/${branch}..HEAD --oneline` for unpushed commits | Must |
-| FR2 | Update the step 6 prompt to explicitly instruct Claude Code to exit non-zero if `git push` fails, rather than treating the failure as informational | Must |
+| FR2 | Update the step 6 prompt to explicitly instruct Codex to exit non-zero if `git push` fails, rather than treating the failure as informational | Must |
 | FR3 | Push validation failure must follow the same retry/escalate pattern as the spec and CI validation gates: increment `retries[6]`, return `'retry'` if under `MAX_RETRIES`, escalate if exhausted | Must |
 
 ---
@@ -100,7 +100,7 @@ Step 6 exhausted retries. Escalating.
 ## Out of Scope
 
 - Diagnosing the specific cause of the original push failure (auth, branch protection, etc.)
-- Adding push retry logic inside the Claude Code session itself (the runner handles retries)
+- Adding push retry logic inside the Codex session itself (the runner handles retries)
 - Changes to step 7 precondition logic (it is already correct)
 - Refactoring the validation gate pattern into a shared abstraction
 - Adding validation gates for other steps

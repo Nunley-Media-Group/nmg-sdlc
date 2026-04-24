@@ -19,7 +19,7 @@
 
 The SDLC pipeline currently moves directly from `/write-code` to `/verify-code`. When implementation produces code that could be simplified (redundant logic, unnecessary abstractions, inconsistent patterns), the verifier sees that noise alongside genuine spec deviations — increasing false findings and rework.
 
-The `simplify` skill is a standalone Claude Code marketplace skill that reviews changed code for reuse, quality, and efficiency, then fixes any issues found. It is NOT bundled with `nmg-sdlc` — it may or may not be present in any given project. Inserting a `/simplify` step between implementation and verification ensures verification always operates on already-cleaned code, while graceful-degradation behavior keeps the pipeline functional in projects that have not installed `simplify`.
+The `simplify` skill is a standalone Codex marketplace skill that reviews changed code for reuse, quality, and efficiency, then fixes any issues found. It is NOT bundled with `nmg-sdlc` — it may or may not be present in any given project. Inserting a `/simplify` step between implementation and verification ensures verification always operates on already-cleaned code, while graceful-degradation behavior keeps the pipeline functional in projects that have not installed `simplify`.
 
 The integration affects three surfaces:
 
@@ -42,7 +42,7 @@ Reference: [GitHub issue #140](https://github.com/Nunley-Media-Group/nmg-plugins
 **Then** `/simplify` is invoked on the changed files, any findings are addressed immediately, and only after findings are cleared does the step signal completion
 
 **Example**:
-- Given: All tasks in `tasks.md` finished and the user has `simplify` installed (e.g., from the public Claude Code marketplace)
+- Given: All tasks in `tasks.md` finished and the user has `simplify` installed (e.g., from the public Codex marketplace)
 - When: write-code reaches its completion-signalling step
 - Then: write-code probes for skill availability, invokes `/simplify`, applies any returned fixes, then prints "Implementation complete for issue #N"
 
@@ -134,7 +134,7 @@ Feature: Add /simplify step to SDLC pipeline
 | FR3 | `write-code` logs a warning and continues if simplify is not found | Must | Warning string MUST be: `simplify skill not available — skipping simplification pass` |
 | FR4 | `verify-code` applies the same simplify-then-verify pattern after each fix | Must | Insertion point is between Step 6a (Prioritize and Fix) and Step 6b (Run Tests After Fixes); same probe + warning pattern as write-code |
 | FR5 | SDLC runner `STEP_KEYS` gains a `simplify` step between `implement` and `verify` | Must | Inserted at index 4 (`startCycle, startIssue, writeSpecs, implement, simplify, verify, ...`); `STEP_NUMBER` and `STEPS` derive from `STEP_KEYS` so they update automatically; downstream step numbers shift by one |
-| FR6 | Runner skips the simplify step gracefully (warning, no failure) when skill unavailable | Should | Probe runs in the runner's prompt-builder or precondition; on miss the step logs `[STATUS] simplify skill not available — skipping` and returns success without invoking Claude |
+| FR6 | Runner skips the simplify step gracefully (warning, no failure) when skill unavailable | Should | Probe runs in the runner's prompt-builder or precondition; on miss the step logs `[STATUS] simplify skill not available — skipping` and returns success without invoking Codex |
 | FR7 | README pipeline diagram and all skill integration sections updated | Must | Update `README.md` pipeline diagram, every `## Integration with SDLC Workflow` block in pipeline skills, and `sdlc-config.example.json` to include the simplify step |
 
 ### Derivative Functional Requirements (technical adjustments)
@@ -144,7 +144,7 @@ Feature: Add /simplify step to SDLC pipeline
 | FR8 | `sdlc-config.example.json` adds a `simplify` entry to `steps{}` | Must | Provides config defaults for model/effort/maxTurns/timeout matching the lightweight nature of the step |
 | FR9 | Runner unit tests cover the new step ordering | Must | Update existing `STEP_KEYS and STEPS` test (`scripts/__tests__/sdlc-runner.test.mjs`) to expect 10 steps with `simplify` at index 4 |
 | FR10 | Hard-coded step numbers in runner prompts are still keyed off `STEP_NUMBER` (not literals) where they reference verify/commitPush/createPR/monitorCI/merge | Must | Inserting the new step shifts numbers; any literal usage (e.g., comments mentioning "step 5") should be re-validated |
-| FR11 | CHANGELOG `[Unreleased]` entry added describing the new pipeline step | Must | Per repo conventions in CLAUDE.md |
+| FR11 | CHANGELOG `[Unreleased]` entry added describing the new pipeline step | Must | Per repo conventions in AGENTS.md |
 
 ---
 
@@ -156,7 +156,7 @@ Feature: Add /simplify step to SDLC pipeline
 | **Security** | No new secrets introduced; simplify skill executes under the same `--dangerously-skip-permissions` envelope as other steps |
 | **Reliability** | Probe-and-skip behaviour MUST be tested; an absent simplify skill must never cause the pipeline to fail |
 | **Cross-Platform** | Probe must work on macOS, Windows, and Linux — use `node:path` and the existing skills-discovery pattern; no shell-specific globbing |
-| **Platforms** | Reference `tech.md` — Claude Code CLI on macOS/Windows/Linux; Node.js v24+ for the runner |
+| **Platforms** | Reference `tech.md` — Codex CLI on macOS/Windows/Linux; Node.js v24+ for the runner |
 
 ---
 
@@ -188,7 +188,7 @@ Feature: Add /simplify step to SDLC pipeline
 - [ ] README pipeline diagram (`README.md`)
 
 ### External Dependencies
-- [ ] `simplify` skill from the Claude Code marketplace — NOT bundled, optional at runtime
+- [ ] `simplify` skill from the Codex marketplace — NOT bundled, optional at runtime
 
 ### Blocked By
 - None
@@ -217,7 +217,7 @@ Feature: Add /simplify step to SDLC pipeline
 
 ## Open Questions
 
-- [ ] What is the canonical detection mechanism for an installed marketplace skill? (Design phase will answer — likely a `Glob` over `~/.claude/plugins/**/skills/simplify/SKILL.md` plus the active project's plugin dirs, or a documented "the runner trusts the prompt to detect")
+- [ ] What is the canonical detection mechanism for an installed marketplace skill? (Design phase will answer — likely a `Glob` over `~/.codex/plugins/**/skills/simplify/SKILL.md` plus the active project's plugin dirs, or a documented "the runner trusts the prompt to detect")
 - [ ] Should the runner also consult `sdlc-config.json` for an explicit `simplify.enabled = false` opt-out? (Design phase will decide; default behaviour is "enabled if installed")
 
 ---

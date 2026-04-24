@@ -5,7 +5,7 @@
 **Status**: Draft
 **Author**: Rich Nunley
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -14,7 +14,7 @@
 ### Steps to Reproduce
 
 1. Run the SDLC runner against any issue whose title, spec content, branch name, tool output, or event-stream message happens to contain the literal phrase "permission denied" (case-insensitive).
-2. Observe the Claude subprocess complete with `permission_denials: []` in the stream-json `result` event.
+2. Observe the Codex subprocess complete with `permission_denials: []` in the stream-json `result` event.
 3. `handleFailure()` concatenates `result.stdout + '\n' + result.stderr` (~250KB of stream-json events) and passes it to `matchErrorPattern()`.
 4. `/permission denied/i` in `IMMEDIATE_ESCALATION_PATTERNS` matches the literal phrase somewhere in the event log.
 5. `escalate()` is called immediately.
@@ -59,7 +59,7 @@ Bounce loop / consecutive escalation → haltFailureLoop → exit 1
 
 ### AC1: Bug Is Fixed — No Escalation on Literal Phrase With Empty Denials
 
-**Given** a Claude subprocess run whose stdout/stderr contains the literal text `permission denied` (case-insensitive, anywhere — in a spec, filename, tool-result payload, or nested error message)
+**Given** a Codex subprocess run whose stdout/stderr contains the literal text `permission denied` (case-insensitive, anywhere — in a spec, filename, tool-result payload, or nested error message)
 **And** whose stream-json `result` event reports `permission_denials: []`
 **When** `handleFailure()` processes the subprocess exit
 **Then** the runner does not immediately escalate via `IMMEDIATE_ESCALATION_PATTERNS`

@@ -36,9 +36,9 @@ Feature: Spec directory rename in /migrate-project
   @regression
   Scenario: Interactive rename with user confirmation
     Given a legacy spec directory "42-add-dark-mode/" exists with "# Requirements:" heading
-    And .claude/unattended-mode does NOT exist
+    And .codex/unattended-mode does NOT exist
     When /migrate-project detects the legacy directory
-    Then the skill presents an AskUserQuestion with option "Rename to feature-add-dark-mode/"
+    Then the skill presents an interactive prompt with option "Rename to feature-add-dark-mode/"
     When the user approves the rename
     Then git mv is used to rename "specs/42-add-dark-mode/" to "specs/feature-add-dark-mode/"
     And the frontmatter "**Issue**: #42" is updated to "**Issues**: #42" in requirements.md, design.md, and tasks.md
@@ -48,9 +48,9 @@ Feature: Spec directory rename in /migrate-project
   @regression
   Scenario: Unattended-mode applies solo renames automatically
     Given a legacy spec directory "42-add-dark-mode/" exists with "# Requirements:" heading
-    And .claude/unattended-mode exists
+    And .codex/unattended-mode exists
     When /migrate-project is invoked
-    Then the solo rename is applied automatically without AskUserQuestion
+    Then the solo rename is applied automatically without interactive prompt
     And git mv renames "specs/42-add-dark-mode/" to "specs/feature-add-dark-mode/"
     And the rename does NOT appear in the "Skipped Operations (Auto-Mode)" output
 
@@ -60,7 +60,7 @@ Feature: Spec directory rename in /migrate-project
   Scenario: Multi-spec consolidation is still skipped in unattended-mode
     Given legacy spec directories "42-add-dark-mode/" and "71-dark-mode-toggle/" exist
     And both have "# Requirements:" headings with >50% keyword overlap
-    And .claude/unattended-mode exists
+    And .codex/unattended-mode exists
     When /migrate-project is invoked
     Then the consolidation is recorded as a skipped operation
     And the "Skipped Operations (Auto-Mode)" output includes the consolidation group

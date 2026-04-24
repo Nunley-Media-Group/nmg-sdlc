@@ -3,7 +3,7 @@
 **Issues**: #1, #67
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -211,7 +211,7 @@ FeatureScreen
 ---
 name: run-retro
 description: "Analyze defect specs to identify spec-writing gaps and produce actionable learnings."
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*)
+workflow instructions: Read, Glob, Grep, Write, Edit, Bash(gh:*)
 ---
 ```
 
@@ -388,7 +388,7 @@ The retrospective doc is optional because:
 
 ### Hash Computation
 
-The skill instructs Claude to compute SHA-256 using the Bash tool:
+The skill instructs Codex to compute SHA-256 using the Bash tool:
 
 ```bash
 shasum -a 256 specs/{defect}/requirements.md

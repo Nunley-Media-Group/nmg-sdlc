@@ -4,7 +4,7 @@
 
 ## Rounds (in order)
 
-Conduct via `request_user_input`, one question per round:
+Conduct via interactive user prompt, one question per round:
 
 1. **Vision** — what is the product? *(open-ended)*
 2. **Target users / personas** — who is it for? *(open-ended)*

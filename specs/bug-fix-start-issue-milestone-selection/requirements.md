@@ -3,7 +3,7 @@
 **Issue**: #65
 **Date**: 2026-02-19
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-start-issue-skill/`
 

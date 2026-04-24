@@ -1,13 +1,11 @@
 ---
 name: upgrade-project
 description: "Upgrade a project to the latest nmg-sdlc contract — relocate legacy `.codex/steering/` and `.codex/specs/` to the project root, update specs, steering docs, and configs to current template standards. Use when user says 'upgrade project', 'update templates', 'check for outdated docs', 'sync with latest plugin', 'relocate specs', 'how do I update my project', or 'bring my project up to date'. Detects the legacy `.codex/{steering,specs}` directory layout and migrates it in place via `git mv`, then diffs headings against current templates and merges missing sections while preserving all user content. Utility skill — run after plugin updates, outside the main SDLC pipeline."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(gh:*), Bash(git:*), request_user_input
-model: gpt-5.5
-effort: high
 ---
 
 # Upgrade Project
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Bring an existing project forward to the current nmg-sdlc contract. The skill covers two related jobs:
 
@@ -34,7 +32,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 | Destructive | Spec directory consolidation, legacy spec-directory deletes (Steps 4b–4e) | Skipped; recorded under "Skipped Operations (Unattended-Mode)" |
 | Informational only | Config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval |
 
-When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via `request_user_input` per Step 8.
+When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via interactive user prompt per Step 8.
 
 ## What Gets Analyzed
 
@@ -71,7 +69,7 @@ Locate the template directories from the installed plugin. Use this skill's own 
 - **Spec templates**: `../write-spec/templates/*.md` — `requirements.md`, `design.md`, `tasks.md`.
 - **Config template**: `scripts/sdlc-config.example.json` (resolved from the plugin root).
 
-Use `Glob` to find the skill's own `SKILL.md` path, then resolve `../..` to get the plugin root. Read all template files. If a template file cannot be found, skip that category and note it in the summary.
+Use file discovery to find the skill's own `SKILL.md` path, then resolve `../..` to get the plugin root. Read all template files. If a template file cannot be found, skip that category and note it in the summary.
 
 ### Step 1.5: Detect And Relocate Legacy Layout
 
@@ -79,7 +77,7 @@ Read `references/detection.md` when this step runs — the detection signals, pr
 
 ### Step 2: Scan Project Files
 
-`Glob` for existing project files using the new canonical paths:
+file discovery for existing project files using the new canonical paths:
 
 ```
 steering/*.md
@@ -99,7 +97,7 @@ For each existing steering doc (e.g., `steering/product.md`):
 2. **Extract template content** — steering templates from `onboard-project/templates/` wrap their content in a ` ```markdown ... ``` ` code block; parse only the content between the opening ` ```markdown ` and the closing ` ```. The retrospective template (`run-retro/templates/retrospective.md`) is direct markdown — use the file content as-is.
 3. **Parse headings** — extract all `## ` headings from both the template content and the existing project file.
 4. **Diff headings** — identify headings present in the template but absent from the project file.
-5. **Filter by relevance** — for each missing heading, check whether it matches a keyword in the **Relevance Heuristic Table** in `references/upgrade-procedures.md`. If it matches, use `Glob` to check the project codebase for the associated evidence patterns. If **no evidence is found**, exclude the section from the proposal. If the heading does **not match any keyword** (unknown section), **conservatively include it** — let the user decide.
+5. **Filter by relevance** — for each missing heading, check whether it matches a keyword in the **Relevance Heuristic Table** in `references/upgrade-procedures.md`. If it matches, use file discovery to check the project codebase for the associated evidence patterns. If **no evidence is found**, exclude the section from the proposal. If the heading does **not match any keyword** (unknown section), **conservatively include it** — let the user decide.
 6. **Filter by exclusions** — read `.codex/upgrade-exclusions.json` from the project root (if it exists). If the file exists but contains invalid JSON, treat it as empty (log a warning and proceed). If the current file's name (e.g., `tech.md`) appears in `excludedSections` and the missing heading text appears in that array, skip the section — it was previously declined by the user.
 7. **Extract missing sections** — for each remaining missing heading, extract the full section content from the template (from the `## ` heading to the next `## ` heading or end of content).
 8. **Determine insertion point** — insert after the predecessor heading in template order. If the template order is `## A`, `## B`, `## C` and `## B` is missing, insert it after the `## A` section's content.
@@ -161,26 +159,26 @@ The approval flow has four parts:
 
 #### Part A: Steering doc sections (per-section approval)
 
-If there are proposed steering doc sections, present them via `request_user_input` with `multiSelect: true`. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
+If there are proposed steering doc sections, present them via interactive user prompt with `multiSelect: true`. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group `request_user_input` for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
+Per-group interactive user prompt for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
-If Step 5 found drifted scalars, present them via `request_user_input` with `multiSelect: true`. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
+If Step 5 found drifted scalars, present them via interactive user prompt with `multiSelect: true`. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
 
 #### Part D: Recommended runner defaults diff (batch approve)
 
 This flow is additive — Parts A/B/C are unchanged. Part D specifically surfaces changes to the per-step `model` / `effort` / `maxTurns` / `timeoutMin` defaults so users upgrading across plugin versions can adopt the shipped recommendations without clicking through each field individually.
 
 1. **Build the diff** for each step in `steps.*` against `scripts/sdlc-config.example.json`. Include only fields where the user's value differs from (or inherits a value different than) the shipped example. Present unset/inherited values as `(unset — inherited "<global>")` so the source of each value is visible.
-2. **Present the diff** in a single `request_user_input` with three options:
+2. **Present the diff** in a single interactive user prompt with three options:
    - `Apply all recommended defaults`.
    - `Review each field individually (falls back to Part C behavior)`.
    - `Decline — keep my current values`.
-3. **Apply on approval** updates each listed field via `Edit`, preserving JSON formatting. "Review individually" falls through to Part C. "Decline" leaves values unchanged.
+3. **Apply on approval** updates each listed field via Codex editing, preserving JSON formatting. "Review individually" falls through to Part C. "Decline" leaves values unchanged.
 4. **Unattended mode**: Part D is **not** applied — the diff is recorded in the upgrade summary under "Recommended defaults (not applied)". Automatic runs never overwrite user-configured values.
 
 ### Step 9: Apply Changes
@@ -190,10 +188,10 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 1. **Legacy layout relocation** — already applied in Step 1.5 (directory moves via `git mv`, cross-reference rewrites, exclusions-file rename). Note in summary for visibility.
 2. **Spec directory consolidation** — apply merges from Step 4e (create directories, merge files, update cross-references, remove legacy directories).
 3. **Spec frontmatter migration** — apply updates from Step 4f (replace `**Issue**:` → `**Issues**:`, insert Change History sections).
-4. **Markdown files** — insert missing sections after their predecessor heading using `Edit`. Add `---` separator matching file style. Re-read to verify.
+4. **Markdown files** — insert missing sections after their predecessor heading using Codex editing. Add `---` separator matching file style. Re-read to verify.
 5. **Related Spec corrections** — replace `**Related Spec**:` lines with resolved feature spec paths.
 6. **JSON config** — add missing keys only; never overwrite existing values.
-7. **Config value drift updates** — for each user-selected drifted value from Part C (interactive only; skipped in unattended): read, `Edit` to replace the old value with the template default, re-read to verify. Preserve all unselected values.
+7. **Config value drift updates** — for each user-selected drifted value from Part C (interactive only; skipped in unattended): read, Codex editing to replace the old value with the template default, re-read to verify. Preserve all unselected values.
 8. **Persist declined sections** — if interactive, save unselected steering doc sections to `.codex/upgrade-exclusions.json`. Skip in unattended mode.
 9. **Output summary** — report changes applied (including drift updates and the legacy layout relocation), declined, skipped, and filtered sections with recommendations.
 10. **Skipped Operations (Unattended-Mode)** — if running unattended and any destructive operations were skipped, emit a machine-readable block:
@@ -237,7 +235,7 @@ Run this skill periodically after plugin updates to keep project files current:
          ↓
 /upgrade-project (after plugin updates)
          ↓
-/draft-issue  →  /start-issue  →  /write-spec  →  /write-code  →  /simplify  →  /verify-code  →  /open-pr  →  /address-pr-comments
+/draft-issue  →  /start-issue  →  /write-spec  →  /write-code  →  /simplify  →  /verify-code  →  /commit-push  →  /open-pr  →  /address-pr-comments
 ```
 
 Next step: Once the upgrade completes, resume your normal SDLC workflow — run `/draft-issue` for new work or `/start-issue` to pick up an existing issue.

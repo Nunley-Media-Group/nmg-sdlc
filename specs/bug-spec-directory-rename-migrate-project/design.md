@@ -3,15 +3,15 @@
 **Issue**: #83
 **Date**: 2026-02-24
 **Status**: Draft
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 
 ---
 
 ## Root Cause
 
-The `/migrate-project` SKILL.md already contains Steps 4b–4e (added by #72) which describe the rename/consolidation flow. However, the instructions fail when Claude attempts to execute them for three distinct reasons:
+The `/migrate-project` SKILL.md already contains Steps 4b–4e (added by #72) which describe the rename/consolidation flow. However, the instructions fail when Codex attempts to execute them for three distinct reasons:
 
-**1. Vague tool usage in solo rename instructions (Step 4e, lines 207–215).** The solo feature rename says "Rename the directory from `{issue#}-{slug}/` to `feature-{slug}/`" without specifying which tool to use. The skill's allowed tools include `Bash(git:*)` (which permits `git mv`), but the instruction doesn't say to use it. Compare this with the consolidation path (Step 4e, line 204) which explicitly mentions `Grep` for cross-reference discovery. Claude either attempts a bare `mv` command (blocked by tool permissions) or skips the operation entirely due to ambiguity.
+**1. Vague tool usage in solo rename instructions (Step 4e, lines 207–215).** The solo feature rename says "Rename the directory from `{issue#}-{slug}/` to `feature-{slug}/`" without specifying which tool to use. The skill's allowed tools include `Bash(git:*)` (which permits `git mv`), but the instruction doesn't say to use it. Compare this with the consolidation path (Step 4e, line 204) which explicitly mentions `Grep` for cross-reference discovery. Codex either attempts a bare `mv` command (blocked by tool permissions) or skips the operation entirely due to ambiguity.
 
 **2. Solo rename cross-reference updates lack tool specificity (Step 4e, lines 210, 215).** The solo rename paths say "Update defect spec cross-references that pointed to the old directory name" — a single sentence without specifying `Grep` to discover affected files or `Edit` to update them. The consolidation path (line 204) does specify `Grep` and chain resolution explicitly, creating an asymmetry where consolidation cross-reference logic is detailed but solo rename cross-reference logic is a one-liner.
 
@@ -29,7 +29,7 @@ The `/migrate-project` SKILL.md already contains Steps 4b–4e (added by #72) wh
 
 - Legacy `{issue#}-{slug}/` spec directories exist in `specs/`
 - The skill reaches Steps 4b–4e (legacy directories are detected)
-- Claude attempts to execute the rename but fails due to ambiguous instructions (no explicit `git mv`)
+- Codex attempts to execute the rename but fails due to ambiguous instructions (no explicit `git mv`)
 - In unattended-mode, the operation is skipped entirely before execution is even attempted
 
 ---
@@ -46,7 +46,7 @@ Make three targeted changes to the SKILL.md, all within the existing Steps 4b–
 
 3. **Expand solo rename cross-reference update instructions in Step 4e.** Replace the one-liner "Update defect spec cross-references" with the same level of detail as the consolidation path: use `Grep` to discover `**Related Spec**` fields pointing to the old path, filter to defect specs, use `Edit` to update, and follow chain resolution with cycle detection.
 
-4. **Update Step 4d unattended-mode logic.** Instead of recording ALL operations as skipped, differentiate: solo renames proceed automatically (no `AskUserQuestion`, no skipped operation record), consolidation is recorded as skipped.
+4. **Update Step 4d unattended-mode logic.** Instead of recording ALL operations as skipped, differentiate: solo renames proceed automatically (no `interactive prompt`, no skipped operation record), consolidation is recorded as skipped.
 
 ### Changes
 
@@ -73,7 +73,7 @@ Make three targeted changes to the SKILL.md, all within the existing Steps 4b–
 | Multi-spec consolidation accidentally treated as non-destructive | Low | The fix explicitly keeps consolidation in the destructive list; only solo renames move to non-destructive |
 | Solo rename applied in unattended-mode corrupts spec directory | Low | `git mv` is atomic and versioned; the operation is reversible via `git checkout` |
 | Cross-reference updates miss indirect references | Low | Expanded instructions include chain resolution with cycle detection, matching the consolidation path's logic |
-| Existing interactive behavior changes for manual mode users | Low | Interactive mode still uses `AskUserQuestion` for all operations (both renames and consolidation) — only unattended-mode behavior changes |
+| Existing interactive behavior changes for manual mode users | Low | Interactive mode still uses `interactive prompt` for all operations (both renames and consolidation) — only unattended-mode behavior changes |
 
 ---
 

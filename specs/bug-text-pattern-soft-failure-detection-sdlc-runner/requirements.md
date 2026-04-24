@@ -3,9 +3,9 @@
 **Issues**: #86
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -14,8 +14,8 @@
 ### Steps to Reproduce
 
 1. Configure the SDLC runner (`sdlc-runner.mjs`) for a project with open issues
-2. Run a step where a skill outputs a text-based failure (e.g., "EnterPlanMode called in headless session" or "AskUserQuestion called in unattended-mode")
-3. The Claude Code session exits with code 0
+2. Run a step where a skill outputs a text-based failure (e.g., "EnterPlanMode called in headless session" or "interactive prompt called in unattended-mode")
+3. The Codex session exits with code 0
 4. The JSON output contains `subtype: "success"` or no structured failure indicators
 5. The runner's `detectSoftFailure()` checks only JSON fields (`subtype`, `permission_denials`) and finds nothing
 6. The step is treated as successful despite the text-based failure
@@ -40,7 +40,7 @@ Always — any step that produces a text-based failure message on stdout/stderr 
 
 | | Description |
 |---|-------------|
-| **Expected** | The runner scans stdout/stderr for known text failure patterns (e.g., `EnterPlanMode`, `AskUserQuestion.*unattended-mode`, `permission denied`) and treats matches as soft failures with the same retry/escalation behavior as JSON-detected failures |
+| **Expected** | The runner scans stdout/stderr for known text failure patterns (e.g., `EnterPlanMode`, `interactive prompt.*unattended-mode`, `permission denied`) and treats matches as soft failures with the same retry/escalation behavior as JSON-detected failures |
 | **Actual** | `detectSoftFailure()` only inspects parsed JSON fields (`subtype`, `permission_denials`). Text-based failures are invisible to it. The step is marked as successful and the runner advances to the next step. |
 
 ### Error Output
@@ -52,7 +52,7 @@ Always — any step that produces a text-based failure message on stdout/stderr 
 
 # But stdout contained undetected failure text:
 # "EnterPlanMode called in headless session — cannot enter plan mode without a TTY"
-# or "AskUserQuestion called in unattended-mode — this skill does not support unattended-mode"
+# or "interactive prompt called in unattended-mode — this skill does not support unattended-mode"
 ```
 
 ---
@@ -65,7 +65,7 @@ Always — any step that produces a text-based failure message on stdout/stderr 
 
 **Given** a step exits with code 0
 **When** the runner evaluates the step result via `detectSoftFailure()`
-**Then** the raw stdout and stderr are scanned against a configurable list of regex patterns for known text-based failures (e.g., `EnterPlanMode`, `AskUserQuestion.*unattended-mode`)
+**Then** the raw stdout and stderr are scanned against a configurable list of regex patterns for known text-based failures (e.g., `EnterPlanMode`, `interactive prompt.*unattended-mode`)
 
 **Example**:
 - Given: Step output contains "EnterPlanMode called in headless session"
@@ -129,7 +129,7 @@ Always — any step that produces a text-based failure message on stdout/stderr 
 ## Out of Scope
 
 - Changing how skills output errors (addressed per-skill, not in the runner)
-- Adding new JSON-structured failure types to Claude Code itself
+- Adding new JSON-structured failure types to Codex itself
 - Modifying `matchErrorPattern()` (which handles non-zero exit codes — a different code path)
 - Making the pattern list configurable via `sdlc-config.json` (future enhancement)
 - Changes to retry/escalation logic itself (already working correctly)

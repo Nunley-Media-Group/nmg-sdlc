@@ -3,9 +3,9 @@
 **Issue**: #51
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: Mixed (Critical x1, High x1, Medium x3, Low x1)
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -34,7 +34,7 @@ Each finding has distinct reproduction steps documented in the individual sectio
 - F3 (shell escaping): Conditional — only with adversarial commit messages (defense-in-depth)
 - F4 (merged PR checkout): Conditional — only when working tree is dirty at merged-PR detection
 - F5 (silent retry reset): Conditional — only when `--resume` is passed but state file is missing
-- F6 (unused AbortController): Always — dead code present on every `runClaude()` invocation
+- F6 (unused AbortController): Always — dead code present on every `runCodex()` invocation
 
 ---
 
@@ -44,8 +44,8 @@ Each finding has distinct reproduction steps documented in the individual sectio
 
 | | Description |
 |---|-------------|
-| **Expected** | SIGTERM handler kills the active Claude subprocess, preventing orphaned processes |
-| **Actual** | `currentProcess` is declared at line 1161 but never assigned in `runClaude()` (line 747); SIGTERM handler at line 1170 always sees `null`, so orphaned `claude` processes continue consuming API quota |
+| **Expected** | SIGTERM handler kills the active Codex subprocess, preventing orphaned processes |
+| **Actual** | `currentProcess` is declared at line 1161 but never assigned in `runCodex()` (line 747); SIGTERM handler at line 1170 always sees `null`, so orphaned Codex processes continue consuming API quota |
 
 ### F2 — High: `Atomics.wait()` blocks event loop in status-notification retry
 
@@ -75,7 +75,7 @@ Each finding has distinct reproduction steps documented in the individual sectio
 | **Expected** | When `--resume` is passed but the state file has been deleted, the operator is warned that retry history was lost |
 | **Actual** | The `else` branch at line 1368 silently resets retry counters to `{}`; no warning is logged |
 
-### F6 — Low: Unused `AbortController` dead code in `runClaude`
+### F6 — Low: Unused `AbortController` dead code in `runCodex`
 
 | | Description |
 |---|-------------|
@@ -90,7 +90,7 @@ Each finding has distinct reproduction steps documented in the individual sectio
 
 ### AC1: SIGTERM handler kills active subprocess (F1)
 
-**Given** the SDLC runner is executing a Claude subprocess via `runClaude()`
+**Given** the SDLC runner is executing a Codex subprocess via `runCodex()`
 **When** the runner receives a SIGTERM signal
 **Then** the active subprocess is killed via SIGTERM
 **And** `currentProcess` is set to the spawned process during execution and cleared on close
@@ -127,7 +127,7 @@ Each finding has distinct reproduction steps documented in the individual sectio
 
 ### AC6: AbortController dead code removed (F6)
 
-**Given** `runClaude()` spawns a Claude subprocess
+**Given** `runCodex()` spawns a Codex subprocess
 **When** the subprocess is created
 **Then** no `AbortController` is instantiated
 **And** timeout handling uses only the existing `setTimeout`/`proc.kill()` mechanism
@@ -145,12 +145,12 @@ Each finding has distinct reproduction steps documented in the individual sectio
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Assign `currentProcess = proc` in `runClaude()` after spawning; clear on process close | Must |
+| FR1 | Assign `currentProcess = proc` in `runCodex()` after spawning; clear on process close | Must |
 | FR2 | Replace `Atomics.wait()` in the status-notification retry with `await sleep(backoff)` | Must |
 | FR3 | Use `shellEscape()` or `execFileSync` argument array for commit messages in `autoCommitIfDirty` | Must |
 | FR4 | Wrap `git checkout main` / `git pull` in `detectAndHydrateState` merged-PR path with try-catch | Must |
 | FR5 | Log a warning when `--resume` is passed but state file is missing | Must |
-| FR6 | Remove unused `AbortController` from `runClaude()` | Should |
+| FR6 | Remove unused `AbortController` from `runCodex()` | Should |
 
 ---
 

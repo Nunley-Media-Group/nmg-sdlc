@@ -56,9 +56,9 @@ Feature: Add /simplify step to SDLC pipeline
 
   Scenario: SDLC runner skips the simplify step gracefully when the skill is unavailable
     Given the runner has just completed step 4 (implement)
-    And the simplify skill is NOT installed in the project Claude Code session
+    And the simplify skill is NOT installed in the project Codex session
     When the runner runs step 5 (simplify)
-    Then the step's Claude subprocess prints "simplify skill not available — skipping simplification pass" and exits with code 0
+    Then the step's Codex subprocess prints "simplify skill not available — skipping simplification pass" and exits with code 0
     And the runner records the simplify step as successfully completed
     And the runner advances to step 6 (verify) without escalating or retrying
 

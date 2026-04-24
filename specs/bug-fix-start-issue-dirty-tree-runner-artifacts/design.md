@@ -2,13 +2,13 @@
 
 **Date**: 2026-02-26
 **Status**: Complete
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The original gitignore fix (#57) added `ensureRunnerArtifactsGitignored()` to prevent runner artifacts from being committed. However, `.gitignore` only affects **untracked** files. If `.claude/sdlc-state.json` was committed to the target project before the fix, it remains tracked. Every time the runner writes to it, `git status --porcelain` shows it as modified (`M .claude/sdlc-state.json`).
+The original gitignore fix (#57) added `ensureRunnerArtifactsGitignored()` to prevent runner artifacts from being committed. However, `.gitignore` only affects **untracked** files. If `.codex/sdlc-state.json` was committed to the target project before the fix, it remains tracked. Every time the runner writes to it, `git status --porcelain` shows it as modified (`M .codex/sdlc-state.json`).
 
 The runner's own `validatePreconditions()` case 2 correctly filters `RUNNER_ARTIFACTS` from its dirty-tree check. But the `start-issue` skill's Step 4 precondition uses raw `git status --porcelain` without any filtering — creating an asymmetry that causes the failure loop.
 
@@ -48,7 +48,7 @@ Two complementary fixes:
 |------|--------|-----------|
 | `scripts/sdlc-runner.mjs` | Add `untrackRunnerArtifactsIfTracked()` function after `ensureRunnerArtifactsGitignored()` | Self-heals projects where artifacts were committed before gitignore fix |
 | `scripts/sdlc-runner.mjs` | Call `untrackRunnerArtifactsIfTracked()` in `main()` after `ensureRunnerArtifactsGitignored()` | Must run after gitignore is set up so untracked files stay out |
-| `plugins/nmg-sdlc/skills/start-issue/SKILL.md` | Update Step 4 to filter `.claude/sdlc-state.json` and `.claude/unattended-mode` from `git status` output | Prevents skill from aborting on runner artifacts even if runner fix hasn't run yet |
+| `plugins/nmg-sdlc/skills/start-issue/SKILL.md` | Update Step 4 to filter `.codex/sdlc-state.json` and `.codex/unattended-mode` from `git status` output | Prevents skill from aborting on runner artifacts even if runner fix hasn't run yet |
 
 ### Blast Radius
 

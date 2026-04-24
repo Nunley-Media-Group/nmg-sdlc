@@ -3,7 +3,7 @@
 **Issues**: #21
 **Date**: 2026-02-15
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -65,7 +65,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Acceptance**:
 - [ ] New "### Step 2: Classify Issue Type" section inserted after Step 1
-- [ ] Uses `AskUserQuestion` with two options: "Bug" and "Enhancement / Feature"
+- [ ] Uses `interactive prompt` with two options: "Bug" and "Enhancement / Feature"
 - [ ] Includes descriptions for each option ("Something is broken or behaving incorrectly" / "New capability or improvement to existing behavior")
 - [ ] Notes that unattended-mode skips this step
 
@@ -77,7 +77,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Acceptance**:
 - [ ] New "### Step 3: Investigate Codebase" section inserted after Step 2
 - [ ] Enhancement sub-path: Glob for `specs/*/requirements.md`, Grep/Read relevant source code, produce "Current State" summary
-- [ ] Bug sub-path: Grep for related code, Read and trace paths, form root cause hypothesis, confirm with user via `AskUserQuestion`
+- [ ] Bug sub-path: Grep for related code, Read and trace paths, form root cause hypothesis, confirm with user via `interactive prompt`
 - [ ] Graceful fallback if investigation finds nothing relevant
 - [ ] Notes that unattended-mode skips this step
 

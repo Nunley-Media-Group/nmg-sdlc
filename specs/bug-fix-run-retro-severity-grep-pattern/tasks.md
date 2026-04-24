@@ -3,7 +3,7 @@
 **Issue**: #48
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -24,7 +24,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Line 34 updated to instruct a grep pattern that matches both `**Severity**:` and `Severity:` formats
-- [ ] The instruction is unambiguous — Claude will use a pattern that handles optional bold markdown markers
+- [ ] The instruction is unambiguous — Codex will use a pattern that handles optional bold markdown markers
 - [ ] No other lines in the skill are modified
 - [ ] The rest of the workflow (Steps 2–9) is unaffected
 

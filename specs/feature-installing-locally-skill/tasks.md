@@ -3,7 +3,7 @@
 **Issues**: #15
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -44,12 +44,12 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T001: Create Skill Directory
 
-**File(s)**: `.claude/skills/installing-locally/`
+**File(s)**: `.codex/skills/installing-locally/`
 **Type**: Create
 **Depends**: None
 **Status**: Complete
 **Acceptance**:
-- [x] Directory exists at repo-level `.claude/skills/` (not inside a plugin)
+- [x] Directory exists at repo-level `.codex/skills/` (not inside a plugin)
 
 ---
 
@@ -57,7 +57,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T002: Create Skill Definition
 
-**File(s)**: `.claude/skills/installing-locally/SKILL.md`
+**File(s)**: `.codex/skills/installing-locally/SKILL.md`
 **Type**: Create
 **Depends**: T001
 **Status**: Complete
@@ -74,7 +74,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T003: Configure Allowed Tools
 
-**File(s)**: `.claude/skills/installing-locally/SKILL.md`
+**File(s)**: `.codex/skills/installing-locally/SKILL.md`
 **Type**: Modify
 **Depends**: T002
 **Status**: Complete

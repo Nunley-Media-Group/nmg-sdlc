@@ -3,7 +3,7 @@
 **Issue**: #84
 **Date**: 2026-02-24
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-start-issue-skill/`
 
@@ -26,7 +26,7 @@
 |--------|-------|
 | **OS / Platform** | Any (macOS, Linux, Windows) |
 | **Version / Commit** | nmg-sdlc plugin v1.27.1 |
-| **Browser / Runtime** | Claude Code CLI (any version) |
+| **Browser / Runtime** | Codex CLI (any version) |
 | **Configuration** | Any project using `/start-issue` |
 
 ### Frequency
@@ -65,7 +65,7 @@ which is the core problem.
 ### AC2: Auto-Mode Escalation for Dirty Tree
 
 **Given** the working tree has uncommitted changes
-**And** `.claude/unattended-mode` exists
+**And** `.codex/unattended-mode` exists
 **When** `/start-issue` is invoked
 **Then** the dirty working tree is reported as an escalation reason (not a silent abort)
 **And** no branch is created

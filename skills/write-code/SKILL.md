@@ -1,19 +1,17 @@
 ---
 name: write-code
 description: "Read specs for current branch, enter plan mode, then execute implementation tasks sequentially. Use when user says 'implement the spec', 'start coding', 'build the feature', 'implement issue #N', 'resume implementation', 'how do I implement this', 'how to start coding', 'write the code', or 'build it'. Do NOT use for writing specs, verifying implementations, or creating PRs. Reads requirements, design, and tasks from specs/ and executes them in order. Fourth step in the SDLC pipeline — follows /write-spec and precedes /verify-code."
-argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Task, Write, Edit, WebFetch, WebSearch, plan approval, Bash(gh:*), Bash(git:*)
-model: gpt-5.5
-effort: xhigh
 ---
 
 # Write Code
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Read the specifications for the current branch's issue, enter plan mode to design the implementation approach, then execute tasks sequentially.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Implementing against a mixed layout silently writes against the wrong paths.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 delegation gate AND forces Step 4 to skip `plan approval` (plan mode fails headless). The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 execution gate and forces Step 4 to skip the interactive plan review. The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
 
 ## Prerequisites
 
@@ -49,7 +47,7 @@ If any label is `spike`, print exactly:
 Spikes don't produce code — run /open-pr to merge the research spec
 ```
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to `spec-implementer`, do NOT touch any file. The abort fires in both interactive and unattended modes.
+Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to a worker, do NOT touch any file. The abort fires in both interactive and unattended modes.
 
 ### Step 2: Read Specs
 
@@ -74,7 +72,7 @@ If specs do not exist:
 
   Done. Awaiting orchestrator.
   ```
-- **Interactive mode**: use `request_user_input` to prompt `"No specs found. Run /write-spec #N first."`
+- **Interactive mode**: use interactive user prompt to prompt `"No specs found. Run /write-spec #N first."`
 
 ### Step 3: Read Steering Documents
 
@@ -88,7 +86,7 @@ steering/
 
 ### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
 
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (`plan approval` in interactive, internal design in unattended), Step 5 (`spec-implementer` delegation with the skill-routing contract baked into the prompt, plus the inline fallback and bug-fix variant), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`/simplify` probe-and-skip).
+Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`/simplify` probe-and-skip).
 
 ### Resuming Partial Implementation
 
@@ -114,7 +112,7 @@ Files modified: [list]
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
                                                                          ▲ You are here
 ```
 

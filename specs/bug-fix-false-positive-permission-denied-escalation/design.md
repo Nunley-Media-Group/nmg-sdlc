@@ -11,10 +11,10 @@
 
 The SDLC runner has two parallel mechanisms for detecting permission denials, and they disagree on semantics:
 
-1. **Legacy text-pattern matcher** (`IMMEDIATE_ESCALATION_PATTERNS`, `scripts/sdlc-runner.mjs:1077-1082`) — a regex list that is substring-matched against the concatenated raw stdout+stderr of the Claude subprocess (`~250KB` of stream-json events). Any hit triggers immediate hard escalation via `escalate()`.
+1. **Legacy text-pattern matcher** (`IMMEDIATE_ESCALATION_PATTERNS`, `scripts/sdlc-runner.mjs:1077-1082`) — a regex list that is substring-matched against the concatenated raw stdout+stderr of the Codex subprocess (`~250KB` of stream-json events). Any hit triggers immediate hard escalation via `escalate()`.
 2. **Structured denial inspector** (`detectSoftFailure`, `scripts/sdlc-runner.mjs:1135-1166`) — reads the `permission_denials` array from the stream-json `result` event, filters out benign/ephemeral entries (`BENIGN_DENIED_TOOLS`, `isEphemeralScaffoldDenial`), and returns a soft-failure signal for real denials.
 
-The structured inspector was added after the legacy pattern matcher and is the authoritative signal. The regex `/permission denied/i` remains in `IMMEDIATE_ESCALATION_PATTERNS` as a duplicate, pre-JSON-parsing era artifact. Because the Claude subprocess emits stream-json events that include quoted tool-result payloads, nested assistant text, spec filenames, and branch names, any literal occurrence of the phrase "permission denied" anywhere in the event stream — even when `permission_denials: []` — is enough to hard-escalate. This bypasses `detectSoftFailure()`'s filtering and halts otherwise-successful runs after two consecutive bounces.
+The structured inspector was added after the legacy pattern matcher and is the authoritative signal. The regex `/permission denied/i` remains in `IMMEDIATE_ESCALATION_PATTERNS` as a duplicate, pre-JSON-parsing era artifact. Because the Codex subprocess emits stream-json events that include quoted tool-result payloads, nested assistant text, spec filenames, and branch names, any literal occurrence of the phrase "permission denied" anywhere in the event stream — even when `permission_denials: []` — is enough to hard-escalate. This bypasses `detectSoftFailure()`'s filtering and halts otherwise-successful runs after two consecutive bounces.
 
 The fix is to remove the duplicate regex. The remaining `IMMEDIATE_ESCALATION_PATTERNS` entries (`context_window_exceeded`, `signal: 9`, `signal: SIGKILL`) describe subprocess-level failures that have no structured equivalent and must remain.
 
@@ -29,7 +29,7 @@ The fix is to remove the duplicate regex. The remaining `IMMEDIATE_ESCALATION_PA
 
 ### Triggering Conditions
 
-- Claude subprocess produces stream-json events containing the literal substring "permission denied" (case-insensitive) — e.g., quoted tool-result payloads, nested error messages, spec filenames, branch names.
+- Codex subprocess produces stream-json events containing the literal substring "permission denied" (case-insensitive) — e.g., quoted tool-result payloads, nested error messages, spec filenames, branch names.
 - `permission_denials` array in the `result` event is empty (or contains only benign/ephemeral entries).
 - `handleFailure()` is invoked because the subprocess exited non-zero (or the caller routed through failure handling for any reason).
 - Two consecutive such escalations on the same issue trip `haltFailureLoop`, causing the runner to exit 1.
@@ -68,7 +68,7 @@ No new abstractions are introduced. The fix is a single-line deletion plus a reg
 
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
-| A real permission denial emits the phrase in text only and not in structured `permission_denials` | Very Low | The Claude subprocess stream-json protocol emits denials in the structured `result.permission_denials` array. No known path produces a text-only denial. AC2 test confirms the structured path still escalates. |
+| A real permission denial emits the phrase in text only and not in structured `permission_denials` | Very Low | The Codex subprocess stream-json protocol emits denials in the structured `result.permission_denials` array. No known path produces a text-only denial. AC2 test confirms the structured path still escalates. |
 | Other `IMMEDIATE_ESCALATION_PATTERNS` entries are accidentally removed or reordered | Very Low | Fix is a single-line deletion; the test pins the remaining patterns by asserting they still match. |
 | Downstream soft-failure handling is slower than immediate escalation for real denials | Low | Soft-failure escalation is the documented policy for permission denials today (`permission_denials` path already exists). No observable latency difference — both paths call `escalate()`. |
 

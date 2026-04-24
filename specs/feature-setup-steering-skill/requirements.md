@@ -3,7 +3,7 @@
 **Issues**: #3, #26
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -120,7 +120,7 @@ The `/setup-steering` skill performs a one-time codebase analysis to bootstrap t
 | FR5 | Templates provided for each steering document type | Must | In `skills/setup-steering/templates/` |
 | FR6 | Detect existence of `product.md`, `tech.md`, `structure.md` in `steering/` at skill start | Must | Check at the beginning of the workflow, before scanning |
 | FR7 | Branch to enhancement flow when at least one existing steering file is found | Must | The presence of any one of the three files triggers enhancement mode |
-| FR8 | Ask user an open-ended question about what they want to enhance | Must | Use `AskUserQuestion` or direct prompt; no predefined menu |
+| FR8 | Ask user an open-ended question about what they want to enhance | Must | Use `interactive prompt` or direct prompt; no predefined menu |
 | FR9 | Read existing steering file(s) relevant to the user's request, apply changes, write updated files | Must | Use `Read` then `Edit` to preserve existing content |
 | FR10 | Preserve all existing content not related to the requested change | Must | Never overwrite or regenerate unchanged sections |
 | FR11 | Maintain the existing bootstrap flow for projects without steering files | Must | When no steering files found, execute current Steps 1-4 unchanged |
@@ -136,7 +136,7 @@ The `/setup-steering` skill performs a one-time codebase analysis to bootstrap t
 | **Performance** | Codebase scan completes within a single skill invocation |
 | **Security** | No secrets or credentials captured in steering documents |
 | **Reliability** | Works on any codebase regardless of language or framework |
-| **Compatibility** | Must work with Claude Code's plugin system; no new tool permissions needed beyond existing `allowed-tools` |
+| **Compatibility** | Must work with Codex's plugin system; no new tool permissions needed beyond existing `workflow instructions` |
 | **Idempotency** | Running the enhancement flow multiple times should be safe; each run applies only the requested change |
 | **Cross-platform** | No platform-specific assumptions; the skill is Markdown-based so this is inherently satisfied |
 
@@ -184,7 +184,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - [x] Steering document templates (`plugins/nmg-sdlc/skills/setup-steering/templates/`)
 
 ### External Dependencies
-- [x] Claude Code tool access (Read, Glob, Grep, Write)
+- [x] Codex tool access (Read, Glob, Grep, Write)
 
 ---
 

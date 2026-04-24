@@ -3,9 +3,9 @@
 **Issue**: #55
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -14,7 +14,7 @@
 ### Steps to Reproduce
 
 1. Configure an SDLC runner with `cleanup.processPatterns: ["--remote-debugging-port"]`
-2. Run the SDLC runner against a project where `claude -p` steps spawn headless Chrome (e.g., for browser testing or web scraping)
+2. Run the SDLC runner against a project where `codex exec --cd` steps spawn headless Chrome (e.g., for browser testing or web scraping)
 3. After the run completes, check for orphaned processes: `pgrep -af "chrome|chromium"`
 4. Observe orphaned child processes (PPID=1) that survived cleanup
 
@@ -37,7 +37,7 @@ Always — every cleanup invocation has the three bugs described below.
 
 | | Description |
 |---|-------------|
-| **Expected** | All processes spawned by `claude -p` subprocesses (and their entire process trees) are terminated when cleanup runs. Cleanup logs are always emitted. Only runner-spawned processes are affected. |
+| **Expected** | All processes spawned by `codex exec --cd` subprocesses (and their entire process trees) are terminated when cleanup runs. Cleanup logs are always emitted. Only runner-spawned processes are affected. |
 | **Actual** | (1) The filtered PID list is discarded — `pkill -f` re-matches independently and doesn't apply the filtering. (2) Only parent processes matching the pattern are killed; child processes (e.g., Chrome GPU, renderer) survive because they don't inherit the command-line flag. (3) The broad pattern `--remote-debugging-port` matches any process with that flag, including the user's normal Chrome browser. (4) No `[CLEANUP]` log entries appear in some cases, suggesting silent failures. |
 
 ### Error Output
@@ -75,13 +75,13 @@ All have PPID=1 (reparented to init after parent was killed).
 ### AC3: Cleanup scopes to runner-spawned processes only
 
 **Given** the user has a normal Chrome browser running with `--remote-debugging-port`
-**And** the SDLC runner has spawned headless Chrome instances via `claude -p`
+**And** the SDLC runner has spawned headless Chrome instances via `codex exec --cd`
 **When** `cleanupProcesses()` runs
-**Then** it only kills processes that are descendants of `claude -p` subprocesses spawned by the runner, not unrelated user processes matching the same pattern
+**Then** it only kills processes that are descendants of `codex exec --cd` subprocesses spawned by the runner, not unrelated user processes matching the same pattern
 
 ### AC4: Cleanup handles orphaned processes (PPID=1)
 
-**Given** a `claude -p` subprocess has exited and its Chrome children have been reparented to PID 1
+**Given** a `codex exec --cd` subprocess has exited and its Chrome children have been reparented to PID 1
 **When** `cleanupProcesses()` runs
 **Then** it still identifies and terminates those orphaned processes using the configured patterns as a fallback, scoped as narrowly as possible
 
@@ -99,7 +99,7 @@ All have PPID=1 (reparented to init after parent was killed).
 |----|-------------|----------|
 | FR1 | Replace `pkill -f` with PID-targeted killing using the filtered PID list directly (e.g., `kill` on each PID) | Must |
 | FR2 | For each matched PID, discover and kill all descendant processes (walk the process tree via recursive `pgrep -P`) before killing the parent | Must |
-| FR3 | Track `claude -p` subprocess PIDs via the existing `currentProcess` variable and use them to scope cleanup to runner-spawned process trees | Must |
+| FR3 | Track `codex exec --cd` subprocess PIDs via the existing `currentProcess` variable and use them to scope cleanup to runner-spawned process trees | Must |
 | FR4 | Fall back to pattern-based `pgrep -f` for orphaned processes (PPID=1) that can no longer be traced to a runner subprocess | Should |
 | FR5 | Emit `[CLEANUP]` log entries for every cleanup invocation: list PIDs killed, or log "no matching processes found" | Should |
 | FR6 | Update `sdlc-config.example.json` if the cleanup config schema changes (e.g., documenting that `processPatterns` is now a fallback for orphans) | Should |
@@ -108,7 +108,7 @@ All have PPID=1 (reparented to init after parent was killed).
 
 ## Out of Scope
 
-- Changing how `claude -p` subprocesses themselves manage Chrome lifecycle (that's Claude Code's responsibility)
+- Changing how `codex exec --cd` subprocesses themselves manage Chrome lifecycle (that's Codex's responsibility)
 - Adding a process supervisor or daemon for long-running cleanup
 - Cross-platform process supervisor/daemon — platform-specific process discovery commands are acceptable behind a `process.platform` check
 - Deprecating `cleanup.processPatterns` config — it remains as a fallback for orphaned processes

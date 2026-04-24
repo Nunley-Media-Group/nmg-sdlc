@@ -48,7 +48,7 @@ Feature: /migrate-project relevance filtering for steering doc sections
   @regression
   Scenario: Declined sections are not re-proposed on future runs
     Given the user previously declined "Brand Voice" for product.md
-    And the decline is stored in .claude/migration-exclusions.json
+    And the decline is stored in .codex/migration-exclusions.json
     When /migrate-project runs again
     Then "Brand Voice" is not included in the migration proposal for product.md
 

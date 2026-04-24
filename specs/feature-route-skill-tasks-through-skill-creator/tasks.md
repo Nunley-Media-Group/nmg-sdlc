@@ -30,7 +30,7 @@
 **Type**: Research
 **Depends**: None
 **Acceptance**:
-- [ ] Read `/skill-creator` skill definition (wherever installed — `~/.claude/plugins/**/skills/skill-creator/SKILL.md` or similar)
+- [ ] Read `/skill-creator` skill definition (wherever installed — `~/.codex/plugins/**/skills/skill-creator/SKILL.md` or similar)
 - [ ] Document the expected invocation shape (argument format, whether it handles create vs. edit, what context it accepts)
 - [ ] Capture the contract in a short note in this tasks file under Notes, so downstream tasks can reference it consistently
 
@@ -51,7 +51,7 @@
 - [ ] Routing logic is wired into both Step 5 (delegated path via Task tool to spec-implementer) and the inline-fallback sub-section under Step 5
 - [ ] When available, `/skill-creator` is invoked for detected tasks with task context + target path + existing content (when editing)
 - [ ] When unavailable, the verbatim warning `skill-creator not available — implementing skill directly` is emitted in a fenced code block
-- [ ] Unattended-mode behaviour is preserved — no new `AskUserQuestion` calls added
+- [ ] Unattended-mode behaviour is preserved — no new `interactive user prompt` calls added
 - [ ] Probe result is cached per run (single emission of warning when multiple skill tasks exist)
 
 **Notes**: Place the detector+probe blocks near the existing simplify probe for visual consistency. Keep wording parallel to the simplify block so a diff review can confirm structural equivalence.
@@ -67,7 +67,7 @@
 - [ ] The SKILL-CREATOR PROBE uses the same three checks as T002
 - [ ] Routing logic invokes `/skill-creator` when available; falls back to `Write`/`Edit` with the verbatim warning when unavailable
 - [ ] The `Implementation Rules` section is updated so the "Do NOT call EnterPlanMode" rule is joined by a new rule: "Skill tasks must be routed through `/skill-creator` when available"
-- [ ] The agent's `tools` frontmatter does not need changes (Skill invocation is inherent to skills running inside Claude Code sessions)
+- [ ] The agent's `tools` frontmatter does not need changes (Skill invocation is inherent to skills running inside Codex sessions)
 
 **Notes**: The agent runs in a headless subagent context. Confirm the Skill tool (or equivalent `/skill-creator` invocation mechanism) is reachable from subagent context; if not, document the constraint and have the agent fall back to direct authoring with the warning — this is still better than hand-authored skills from the inline path.
 
@@ -108,7 +108,7 @@
 - [ ] The warning is always presented in a fenced code block (matching simplify-probe precedent)
 - [ ] A grep for the warning string returns exactly three hits (one per file)
 
-**Notes**: This is a final polish pass to ensure the three copies stay in sync. Use `Grep` with `output_mode: content` to diff wording. Alternative C in design.md (inline copies) is explicit about this maintenance cost; this task formalizes the sync check.
+**Notes**: This is a final polish pass to ensure the three copies stay in sync. Use `text search` with `output_mode: content` to diff wording. Alternative C in design.md (inline copies) is explicit about this maintenance cost; this task formalizes the sync check.
 
 ### T006: Update CHANGELOG
 
@@ -156,7 +156,7 @@
 - [ ] Repeat via the agent path (non-unattended mode, which delegates to spec-implementer)
 - [ ] Confirm non-skill tasks still use direct `Write`/`Edit` (AC7)
 
-**Notes**: Use the Agent SDK approach from `steering/tech.md` if `AskUserQuestion` gates interfere with automated exercise. Otherwise `claude -p` with `--disallowedTools AskUserQuestion` is sufficient for smoke coverage.
+**Notes**: Use the Agent SDK approach from `steering/tech.md` if `interactive user prompt` gates interfere with automated exercise. Otherwise `codex exec` with `` is sufficient for smoke coverage.
 
 ### T009: Exercise-Test Graceful Degradation Without /skill-creator
 

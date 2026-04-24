@@ -3,7 +3,7 @@
 **Issues**: #3, #26
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -28,7 +28,7 @@ The three output documents — `product.md`, `tech.md`, and `structure.md` — a
 │    ├── Source directories                     │
 │    ├── Test frameworks                        │
 │    ├── CI configuration                       │
-│    └── Existing docs (README, CLAUDE.md)      │
+│    └── Existing docs (README, AGENTS.md)      │
 │                                               │
 │  Step 2: Generate from templates              │
 │    ├── templates/product.md → product.md      │
@@ -231,7 +231,7 @@ This feature modifies the `/setup-steering` skill to detect existing steering do
 
 The skill currently has a linear 4-step workflow (scan → generate → write → prompt). This design introduces a detection step at the top that checks for existing steering files and conditionally routes to either the existing bootstrap flow or a new enhancement flow. The enhancement flow reads existing files, asks the user what they want to change, applies the requested modifications, and confirms the result.
 
-Since nmg-sdlc skills are prompt-based Markdown (not executable code), the "branching" is implemented as conditional instructions to Claude — similar to how the `write-spec` skill branches between feature and defect variants based on issue labels.
+Since nmg-sdlc skills are prompt-based Markdown (not executable code), the "branching" is implemented as conditional instructions to Codex — similar to how the `write-spec` skill branches between feature and defect variants based on issue labels.
 
 ### From Issue #26
 
@@ -266,7 +266,7 @@ Since nmg-sdlc skills are prompt-based Markdown (not executable code), the "bran
 
 ```
 1. User invokes /setup-steering
-2. Claude checks for steering/{product,tech,structure}.md via Glob
+2. Codex checks for steering/{product,tech,structure}.md via Glob
 3a. IF files exist → Enhancement flow:
     3a.1. Report which files were found
     3a.2. Ask user what enhancement they want (open-ended question)
@@ -309,7 +309,7 @@ These documents contain your project-specific customizations.
 
 #### Step E2: Ask What to Enhance
 
-Ask an open-ended question using `AskUserQuestion` or direct prompting:
+Ask an open-ended question using `interactive prompt` or direct prompting:
 
 > "What would you like to update or improve in your steering documents?"
 
@@ -347,7 +347,7 @@ All other content preserved unchanged.
 
 - The three template files (`templates/product.md`, `templates/tech.md`, `templates/structure.md`)
 - The bootstrap flow logic (Steps 1-4)
-- The `allowed-tools` in frontmatter (Read, Glob, Grep, Task, Write, Edit, Bash already include everything needed)
+- The `workflow instructions` in frontmatter (Read, Glob, Grep, Task, Write, Edit, Bash already include everything needed)
 - The output file locations (`steering/`)
 
 ### From Issue #26

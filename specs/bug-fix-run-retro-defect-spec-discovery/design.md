@@ -3,7 +3,7 @@
 **Issue**: #68
 **Date**: 2026-02-20
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 

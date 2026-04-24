@@ -1,12 +1,12 @@
-# File: specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/feature.gherkin
+# File: specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/feature.gherkin
 #
-# Generated from: specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/requirements.md
+# Generated from: specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/requirements.md
 # Issue: #107
 
 Feature: Running SDLC Loop
-  As a developer using Claude Code
+  As a developer using Codex
   I want a single skill that orchestrates the full SDLC pipeline
-  So that I can drive the same continuous loop natively from within Claude Code
+  So that I can drive the same continuous loop natively from within Codex
 
   # --- Happy Path ---
 
@@ -14,7 +14,7 @@ Feature: Running SDLC Loop
     Given open issues labelled "automatable" exist in the current milestone
     And a valid sdlc-config.json exists at the project root
     When I invoke "/nmg-sdlc:run-loop" with no arguments
-    Then the skill invokes sdlc-runner.mjs with CLAUDECODE="" and no --issue flag
+    Then the skill invokes sdlc-runner.mjs with ="" and no --issue flag
     And the runner processes each automatable issue through the full pipeline sequentially
     And the runner exits with code 0 when no more automatable issues remain
 
@@ -22,7 +22,7 @@ Feature: Running SDLC Loop
     Given issue #107 exists and is open
     And a valid sdlc-config.json exists at the project root
     When I invoke "/nmg-sdlc:run-loop #107"
-    Then the skill invokes sdlc-runner.mjs with CLAUDECODE="" and --issue 107
+    Then the skill invokes sdlc-runner.mjs with ="" and --issue 107
     And the runner processes only issue #107 through the full pipeline
     And the runner exits with code 0 after the PR is merged
 
@@ -54,7 +54,7 @@ Feature: Running SDLC Loop
     Given the SKILL.md for run-loop has been written
     When "/doing-skills-right" is run against it
     Then all structural elements pass validation
-    And frontmatter includes name, description, argument-hint, and allowed-tools
+    And frontmatter includes name, description, usage hint, and workflow instructions
     And an "Integration with SDLC Workflow" section is present
 
   Scenario: State isolation between loop iterations
@@ -67,7 +67,7 @@ Feature: Running SDLC Loop
   Scenario: Unattended-mode propagation
     Given the runner is launched by the skill
     When the runner starts
-    Then it creates ".claude/unattended-mode" automatically
-    And each phase skill running in claude -p subprocesses detects unattended-mode
+    Then it creates ".codex/unattended-mode" automatically
+    And each phase skill running in codex exec --cd subprocesses detects unattended-mode
     And all interactive prompts are suppressed throughout the pipeline
     And unattended-mode is removed when the runner exits

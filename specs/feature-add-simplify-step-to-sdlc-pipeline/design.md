@@ -12,10 +12,10 @@
 This change inserts a `/simplify` pass between implementation and verification at every layer of the SDLC pipeline:
 
 1. **Skill layer** — `write-code` calls `/simplify` after Step 5 (Execute Tasks) and before Step 6 (Signal Completion); `verify-code` calls `/simplify` after Step 6a (Prioritize and Fix) and before Step 6b (Run Tests After Fixes).
-2. **Runner layer** — `scripts/sdlc-runner.mjs` adds a new `simplify` step to `STEP_KEYS` between `implement` and `verify`. The runner builds a step-specific prompt that probes for the `simplify` skill before invoking Claude, and skips gracefully if the skill is absent.
+2. **Runner layer** — `scripts/sdlc-runner.mjs` adds a new `simplify` step to `STEP_KEYS` between `implement` and `verify`. The runner builds a step-specific prompt that probes for the `simplify` skill before invoking Codex, and skips gracefully if the skill is absent.
 3. **Documentation layer** — The README pipeline diagram, every skill's `## Integration with SDLC Workflow` block, and `sdlc-config.example.json` are updated to show the new step.
 
-The feature is opt-in by presence: if a project does not have `simplify` installed, the integration logs a warning and falls through. The marketplace `simplify` skill is never bundled with `nmg-sdlc` — Anthropic's marketplace remains the source of truth for the skill itself.
+The feature is opt-in by presence: if a project does not have `simplify` installed, the integration logs a warning and falls through. The marketplace `simplify` skill is never bundled with `nmg-sdlc` — OpenAI's marketplace remains the source of truth for the skill itself.
 
 The probe-and-skip pattern is the central design decision. Without it, the runner would hard-fail on every project that hasn't installed `simplify`, defeating the "stack-agnostic" product principle. With it, the integration is a no-op for projects that don't want simplification and a value-add for those that do.
 
@@ -27,7 +27,7 @@ The probe-and-skip pattern is the central design decision. Without it, the runne
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                         Claude Code Session                            │
+│                         Codex Session                            │
 │                                                                        │
 │   /write-code  ──▶  [tasks loop]  ──▶  /simplify (probe+invoke)       │
 │                                              │                         │
@@ -47,7 +47,7 @@ The probe-and-skip pattern is the central design decision. Without it, the runne
 │                simplify,  ◀── NEW                                     │
 │                verify, commitPush, createPR, monitorCI, merge]        │
 │                                                                        │
-│   buildClaudeArgs(simplify) ─▶ probe for skill ─▶ skip OR invoke      │
+│   buildCodexArgs(simplify) ─▶ probe for skill ─▶ skip OR invoke      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -59,11 +59,11 @@ The probe-and-skip pattern is the central design decision. Without it, the runne
 3. Runner builds prompt:
    "Probe for the simplify skill. If absent, log the skip warning and exit 0.
     If present, invoke /simplify on files changed in this branch and apply fixes."
-4. Claude subprocess executes the prompt
+4. Codex subprocess executes the prompt
 5. On exit:
    a. Skill found + simplify ran → state.lastStep = 5, advance to verify
    b. Skill not found → log "[STATUS] simplify skill not available — skipping",
-                        mark step success without invoking Claude (or via Claude exiting 0
+                        mark step success without invoking Codex (or via Codex exiting 0
                         after logging the skip — design choice below)
    c. Failure → standard retry/escalation path
 6. Step 6 (verify) runs as before
@@ -93,17 +93,17 @@ The probe-and-skip pattern is the central design decision. Without it, the runne
 
 | Field | Type | Location | Default |
 |-------|------|----------|---------|
-| `steps.simplify` | object | `scripts/sdlc-config.example.json` | `{ "model": "sonnet", "effort": "medium", "maxTurns": 60, "timeoutMin": 15 }` |
+| `steps.simplify` | object | `scripts/sdlc-config.example.json` | `{ "model": "gpt-5.4", "effort": "medium", "maxTurns": 60, "timeoutMin": 15 }` |
 
 ### Probe Contract (used by skills and runner alike)
 
-A "skill availability probe" answers a single question: is a Claude Code skill named `simplify` discoverable from the current session?
+A "skill availability probe" answers a single question: is a Codex skill named `simplify` discoverable from the current session?
 
-**Approach (selected — option B in Alternatives):** the probe is a **prompt-level instruction**, not a JS function. The skill / runner prompt asks Claude to:
+**Approach (selected — option B in Alternatives):** the probe is a **prompt-level instruction**, not a JS function. The skill / runner prompt asks Codex to:
 
 1. Run the deterministic check: `Glob` for `simplify/SKILL.md` under both:
-   - the active project's `.claude/skills/`
-   - any plugin directories (Claude Code surfaces these via the `Skill` tool's available-skills list in the system reminder)
+   - the active project's `.codex/skills/`
+   - any plugin directories (Codex surfaces these via the `Skill` tool's available-skills list in the system reminder)
 2. Treat the skill as available if either lookup returns a match.
 3. If unavailable, emit the warning string verbatim and continue.
 
@@ -114,8 +114,8 @@ This keeps the runner stack-agnostic — no JavaScript needs to model the market
 ```
 Run the simplify pass over files changed on the current feature branch.
 
-1. Probe for the simplify skill: Glob `~/.claude/skills/simplify/SKILL.md` and
-   `~/.claude/plugins/**/skills/simplify/SKILL.md`. Also consult the
+1. Probe for the simplify skill: Glob `~/.codex/skills/simplify/SKILL.md` and
+   `~/.codex/plugins/**/skills/simplify/SKILL.md`. Also consult the
    available-skills list in your system reminder.
 2. If no `simplify` skill is registered, print:
    "simplify skill not available — skipping simplification pass"
@@ -129,7 +129,7 @@ Run the simplify pass over files changed on the current feature branch.
 
 ## Database / Storage Changes
 
-None. State persistence in `.claude/sdlc-state.json` continues to track `lastStep` numerically; because `STEP_NUMBER` is derived from `STEP_KEYS`, the renumbering is automatic. **Migration concern:** existing in-flight `sdlc-state.json` files written by older runner versions will reference step numbers that no longer match the new ordering. Mitigation: the runner re-derives step numbers from `STEP_KEYS` on read, but a state file mid-cycle (e.g., `lastStep: 5` written by old runner) would be misinterpreted as `simplify` complete instead of `verify` complete. See **Risks & Mitigations** for the resolution strategy.
+None. State persistence in `.codex/sdlc-state.json` continues to track `lastStep` numerically; because `STEP_NUMBER` is derived from `STEP_KEYS`, the renumbering is automatic. **Migration concern:** existing in-flight `sdlc-state.json` files written by older runner versions will reference step numbers that no longer match the new ordering. Mitigation: the runner re-derives step numbers from `STEP_KEYS` on read, but a state file mid-cycle (e.g., `lastStep: 5` written by old runner) would be misinterpreted as `simplify` complete instead of `verify` complete. See **Risks & Mitigations** for the resolution strategy.
 
 ---
 
@@ -164,8 +164,8 @@ N/A (CLI-only project).
 
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
-| **A: JS-side probe in runner** | Runner JavaScript inspects the filesystem for the `simplify` skill before spawning Claude; skips Claude entirely if absent | Faster (no Claude turn for the no-op case); deterministic | Runner must encode marketplace skill-discovery rules; brittle if Claude Code changes how it locates skills; couples runner to filesystem layout | Rejected — violates the runner's "no SDLC logic in scripts" invariant from `structure.md` |
-| **B: Prompt-level probe** | Runner prompts Claude to probe and skip; same pattern in skill files | Stack-agnostic; centralizes skill-discovery rules in prompts (where they belong); zero new JS required for probe logic | One Claude turn is consumed even for the no-op case (~5s + small cost) | **Selected** |
+| **A: JS-side probe in runner** | Runner JavaScript inspects the filesystem for the `simplify` skill before spawning Codex; skips Codex entirely if absent | Faster (no Codex turn for the no-op case); deterministic | Runner must encode marketplace skill-discovery rules; brittle if Codex changes how it locates skills; couples runner to filesystem layout | Rejected — violates the runner's "no SDLC logic in scripts" invariant from `structure.md` |
+| **B: Prompt-level probe** | Runner prompts Codex to probe and skip; same pattern in skill files | Stack-agnostic; centralizes skill-discovery rules in prompts (where they belong); zero new JS required for probe logic | One Codex turn is consumed even for the no-op case (~5s + small cost) | **Selected** |
 | **C: Bundle simplify with nmg-sdlc** | Vendor the simplify skill into the plugin | Always available; no probe needed | Drifts from upstream `simplify`; adds licensing/attribution surface; out-of-scope per issue | Rejected — explicit Out of Scope in requirements |
 | **D: Runner config opt-in** | Require `sdlc-config.json` to set `simplify.enabled = true` | Explicit | Adds friction; surprises users who installed simplify but forgot to enable | Rejected — "enabled if installed" is the lowest-friction default |
 
@@ -173,7 +173,7 @@ N/A (CLI-only project).
 
 ## Security Considerations
 
-- [x] **Authentication**: N/A — runs under existing Claude Code session auth
+- [x] **Authentication**: N/A — runs under existing Codex session auth
 - [x] **Authorization**: Inherits the runner's `--dangerously-skip-permissions` envelope; no new tools requested
 - [x] **Input Validation**: The probe is a `Glob` against fixed patterns; no user-supplied input flows into shell commands
 - [x] **Data Sanitization**: Files passed to simplify come from `git diff` output — already trusted in the existing pipeline
@@ -187,7 +187,7 @@ N/A (CLI-only project).
 - [x] **Pagination**: N/A
 - [x] **Lazy Loading**: Probe is the only work for projects that haven't installed simplify — effectively free
 - [x] **Indexing**: N/A
-- [x] **Step duration**: New step adds at most one Claude turn for the probe + simplify-skill execution time. Default config allots 15 min — should be sufficient based on the simplify skill's design (changed-files-only review)
+- [x] **Step duration**: New step adds at most one Codex turn for the probe + simplify-skill execution time. Default config allots 15 min — should be sufficient based on the simplify skill's design (changed-files-only review)
 
 ---
 
@@ -209,7 +209,7 @@ N/A (CLI-only project).
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Step renumbering breaks in-flight state files mid-cycle (an old `sdlc-state.json` with `lastStep: 5` would mean "verify" under the old scheme but "simplify" under the new) | Medium | Medium | The runner already validates preconditions for each step on resume — a stale `lastStep: 5` will be re-validated and fail the simplify precondition harmlessly (or re-execute the simplify step idempotently). Add a release-notes / CHANGELOG warning recommending that in-flight cycles complete before upgrading |
-| Probe instruction misses Claude Code's actual skill-discovery path on some platforms | Low | Medium | Probe instructs Claude to consult both filesystem locations AND the available-skills system reminder; the dual check tolerates platform variation |
+| Probe instruction misses Codex's actual skill-discovery path on some platforms | Low | Medium | Probe instructs Codex to consult both filesystem locations AND the available-skills system reminder; the dual check tolerates platform variation |
 | Simplify pass introduces changes that contradict the spec | Medium | Low | verify-code re-runs after simplify in the runner; any spec deviations introduced will be caught by the next verify pass and rolled back per existing fix-rules |
 | Hardcoded literal step numbers in runner code or comments | Low | Low | Implementation includes a grep audit (`grep -nE "step ?5|step ?6|step ?7|step ?8|step ?9" sdlc-runner.mjs`) and replaces literals with `STEP_NUMBER.<key>` references where they reference shifted steps |
 | Adding a new step lengthens the average cycle by simplify's runtime even when no findings exist | High | Low | Acceptable cost — issue motivation explicitly trades pipeline time for verification quality; the warning-and-skip path keeps the cost zero for projects without simplify |
@@ -218,7 +218,7 @@ N/A (CLI-only project).
 
 ## Open Questions
 
-- [ ] Should the runner step config default to `model: "sonnet"` or `model: "haiku"`? (Design proposes `sonnet medium` as a balance; can be tuned post-merge based on observed simplify behavior)
+- [ ] Should the runner step config default to `model: "gpt-5.4"` or `model: "gpt-5.4-mini"`? (Design proposes `gpt-5.4 medium` as a balance; can be tuned post-merge based on observed simplify behavior)
 - [ ] Should the warning string be a soft-failure pattern that the runner counts toward escalation? (Design says no — it's an expected skip, not a soft failure; verify by absence of the string from `TEXT_FAILURE_PATTERNS` in the runner)
 
 ---

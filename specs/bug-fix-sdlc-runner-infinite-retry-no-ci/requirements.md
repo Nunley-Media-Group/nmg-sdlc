@@ -3,9 +3,9 @@
 **Issue**: #54
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 

@@ -3,7 +3,7 @@
 **Issues**: #11, #71, #118
 **Date**: 2026-04-16
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -17,7 +17,7 @@
 
 ## Background
 
-Automation mode enables external agents (like the SDLC runner) to drive the entire SDLC cycle without human input. When `.claude/unattended-mode` exists, skills skip all interactive prompts: `AskUserQuestion` calls, `EnterPlanMode` requests, and human review gates. This was developed iteratively — initial attempts used hook-level blocks (PermissionRequest auto-allow, PreToolUse blocks on AskUserQuestion and EnterPlanMode, Stop hook continuation), but these caused infinite retry loops because Claude interprets a blocked tool as "I need this but couldn't get it" and retries endlessly. The final solution moved automation awareness into the skills themselves, where each skill checks for `.claude/unattended-mode` and conditionally skips interactive steps.
+Automation mode enables external agents (like the SDLC runner) to drive the entire SDLC cycle without human input. When `.codex/unattended-mode` exists, skills skip all interactive prompts: `interactive prompt` calls, `EnterPlanMode` requests, and human review gates. This was developed iteratively — initial attempts used hook-level blocks (PermissionRequest auto-allow, PreToolUse blocks on interactive prompt and EnterPlanMode, Stop hook continuation), but these caused infinite retry loops because Codex interprets a blocked tool as "I need this but couldn't get it" and retries endlessly. The final solution moved automation awareness into the skills themselves, where each skill checks for `.codex/unattended-mode` and conditionally skips interactive steps.
 
 ---
 
@@ -25,7 +25,7 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 
 ### AC1: Auto-Mode Flag Enables Headless Operation
 
-**Given** `.claude/unattended-mode` exists in the project
+**Given** `.codex/unattended-mode` exists in the project
 **When** any SDLC skill is invoked
 **Then** it operates without interactive prompts or human review gates
 
@@ -61,7 +61,7 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 
 ### AC7: Creating-Issues — Interactive Automatable Question
 
-**Given** a user is running `/draft-issue` in interactive mode (no `.claude/unattended-mode`)
+**Given** a user is running `/draft-issue` in interactive mode (no `.codex/unattended-mode`)
 **When** the issue draft is being prepared (during the interview phase)
 **Then** the user is asked "Is this issue suitable for automation?" with Yes/No options
 
@@ -79,7 +79,7 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 
 ### AC10: Creating-Issues — Auto-Mode Defaults to Automatable
 
-**Given** `/draft-issue` is running in unattended-mode (`.claude/unattended-mode` exists)
+**Given** `/draft-issue` is running in unattended-mode (`.codex/unattended-mode` exists)
 **When** the issue is created
 **Then** the `automatable` label is added automatically without prompting
 
@@ -120,65 +120,65 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 **When** the issue creation completes
 **Then** the skill verifies the label is present on the created issue (postcondition check via `gh issue view` confirming the label exists, not just that the create command succeeded)
 
-### AC17: Flag File Renamed to `.claude/unattended-mode`
+### AC17: Flag File Renamed to `.codex/unattended-mode`
 
 **Given** the SDLC runner starts a cycle
 **When** it creates the headless-execution flag
-**Then** the file created is `.claude/unattended-mode` (not `.claude/unattended-mode`), and the runner's cleanup step on exit removes `.claude/unattended-mode`
+**Then** the file created is `.codex/unattended-mode` (not `.codex/unattended-mode`), and the runner's cleanup step on exit removes `.codex/unattended-mode`
 
 ### AC18: Skills Gate on the New Flag Name
 
 **Given** a user invokes any SDLC skill (`draft-issue`, `start-issue`, `write-spec`, `write-code`, `verify-code`, `open-pr`, `run-loop`, `migrate-project`, `run-retro`)
-**When** the skill reaches a point that previously checked `.claude/unattended-mode`
-**Then** it checks `.claude/unattended-mode` instead, and its documented behavior is unchanged when the flag is present vs. absent
+**When** the skill reaches a point that previously checked `.codex/unattended-mode`
+**Then** it checks `.codex/unattended-mode` instead, and its documented behavior is unchanged when the flag is present vs. absent
 
-### AC19: Disambiguation from Claude Code's Native Auto Mode
+### AC19: Disambiguation from Codex's Native Auto Mode
 
-**Given** Claude Code's native "Auto Mode" is active (system-reminder "Unattended mode is active" is present) and `.claude/unattended-mode` does **not** exist
+**Given** Codex's native "Auto Mode" is active (system-reminder "Unattended mode is active" is present) and `.codex/unattended-mode` does **not** exist
 **When** a user invokes a plugin skill with interactive gates (e.g., `/draft-issue`, `/write-spec`)
-**Then** the skill runs its interactive gates normally (calls `AskUserQuestion`, enters plan mode, shows review prompts) and does not treat Claude Code's Auto Mode as a substitute for the plugin's unattended-mode flag
+**Then** the skill runs its interactive gates normally (calls `interactive prompt`, enters plan mode, shows review prompts) and does not treat Codex's Auto Mode as a substitute for the plugin's unattended-mode flag
 
 ### AC20: Documentation Updated with Rename and Disambiguation Note
 
 **Given** a user reads `README.md` or `steering/product.md`
 **When** they look for automation-mode documentation
-**Then** all references use "unattended-mode" / `.claude/unattended-mode`, and a short note explains the rename was made to disambiguate from Claude Code's native Auto Mode
+**Then** all references use "unattended-mode" / `.codex/unattended-mode`, and a short note explains the rename was made to disambiguate from Codex's native Auto Mode
 
 ### AC21: Historical Spec Bodies Rewritten
 
 **Given** historical spec directories reference the old flag (e.g., `feature-automation-mode-support/`, `bug-fix-auto-mode-cleanup-on-exit/`, `bug-fix-sdlc-runner-auto-mode-gitignore/`, `bug-add-auto-mode-support-to-migrate-project-skill/`, `bug-fix-migrate-project-auto-mode/`)
 **When** the rename is applied
-**Then** the spec bodies reference `unattended-mode` / `.claude/unattended-mode`; directory names may be kept as-is (historical identifiers); git history preserves the original wording
+**Then** the spec bodies reference `unattended-mode` / `.codex/unattended-mode`; directory names may be kept as-is (historical identifiers); git history preserves the original wording
 
 ### AC22: CHANGELOG Entry for the Rename
 
 **Given** the change is merged
 **When** a user reads `CHANGELOG.md`
-**Then** an `[Unreleased]` entry documents the rename, its motivation (collision with Claude Code's native Auto Mode), and migration guidance for users who manually `touch .claude/unattended-mode`
+**Then** an `[Unreleased]` entry documents the rename, its motivation (collision with Codex's native Auto Mode), and migration guidance for users who manually `touch .codex/unattended-mode`
 
 ### AC23: Runner Tests Updated
 
 **Given** `scripts/__tests__/sdlc-runner.test.mjs` runs
 **When** the suite references the flag path or related strings
-**Then** all test expectations use `.claude/unattended-mode` and the suite passes
+**Then** all test expectations use `.codex/unattended-mode` and the suite passes
 
 ### AC24: No Regression for Existing Headless Flow
 
-**Given** a user manually creates `.claude/unattended-mode` in a project
+**Given** a user manually creates `.codex/unattended-mode` in a project
 **When** they invoke `/write-spec #N` or `/write-code #N`
-**Then** the skills behave identically to the pre-rename `.claude/unattended-mode` behavior — headless gates are suppressed, specs/code are generated without interactive prompts
+**Then** the skills behave identically to the pre-rename `.codex/unattended-mode` behavior — headless gates are suppressed, specs/code are generated without interactive prompts
 
-### AC25: Claude Code Auto Mode Alone Does Not Suppress Plugin Gates
+### AC25: Codex Auto Mode Alone Does Not Suppress Plugin Gates
 
-**Given** Claude Code's native "Auto Mode" is active (harness has injected its "Auto Mode Active" system-reminder) **and** `.claude/unattended-mode` does **not** exist
+**Given** Codex's native "Auto Mode" is active (harness has injected its "Auto Mode Active" system-reminder) **and** `.codex/unattended-mode` does **not** exist
 **When** a user invokes `/write-spec #N`, `/draft-issue`, `/verify-code #N`, or any other skill with documented human-review gates
-**Then** the skill calls `AskUserQuestion` at every gate the spec requires, enters plan mode where specified, and does not suppress interactive review; the only condition that suppresses plugin gates is the presence of `.claude/unattended-mode`
+**Then** the skill calls `interactive prompt` at every gate the spec requires, enters plan mode where specified, and does not suppress interactive review; the only condition that suppresses plugin gates is the presence of `.codex/unattended-mode`
 
 ### AC26: Old Flag Name Has No Effect
 
-**Given** a user manually creates `.claude/unattended-mode` in a project after this rename is merged
+**Given** a user manually creates `.codex/unattended-mode` in a project after this rename is merged
 **When** any SDLC skill or the runner executes
-**Then** the old flag is ignored (no gate suppression, no runner recognition); only `.claude/unattended-mode` triggers headless behavior
+**Then** the old flag is ignored (no gate suppression, no runner recognition); only `.codex/unattended-mode` triggers headless behavior
 
 ---
 
@@ -186,8 +186,8 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | `.claude/unattended-mode` flag file detection in all SDLC skills | Must | Simple file existence check |
-| FR2 | Skip `AskUserQuestion` calls in unattended-mode | Must | Prevents interactive prompts |
+| FR1 | `.codex/unattended-mode` flag file detection in all SDLC skills | Must | Simple file existence check |
+| FR2 | Skip `interactive prompt` calls in unattended-mode | Must | Prevents interactive prompts |
 | FR3 | Skip `EnterPlanMode` calls in unattended-mode | Must | Prevents plan approval gates |
 | FR4 | Skip human review gates in `/write-spec` | Must | All 3 phase gates |
 | FR5 | Auto-select issue in `/start-issue` | Must | Oldest-first |
@@ -200,18 +200,18 @@ Automation mode enables external agents (like the SDLC runner) to drive the enti
 | FR12 | The `automatable` label is auto-created via `gh label create` if it doesn't exist in the repo | Must | Color `0E8A16` (green) |
 | FR13 | `/start-issue` in unattended-mode exits gracefully when no automatable issues exist | Must | Reports empty set, no fallback to unlabeled issues |
 | FR14 | `sdlc-runner.mjs` does not need changes — filtering happens at the `/start-issue` skill level | Must | Runner script unchanged |
-| FR15 | Rename the flag file path from `.claude/unattended-mode` to `.claude/unattended-mode` everywhere in the codebase | Must | Mechanical rename; no behavior change |
+| FR15 | Rename the flag file path from `.codex/unattended-mode` to `.codex/unattended-mode` everywhere in the codebase | Must | Mechanical rename; no behavior change |
 | FR16 | Replace all user-facing and internal prose references to "unattended-mode" / "Unattended-mode" with "unattended-mode" / "Unattended-mode", preserving case conventions | Must | Includes skills, README, steering, CHANGELOG |
 | FR17 | Update `scripts/sdlc-runner.mjs`: `RUNNER_ARTIFACTS`, flag creation, flag cleanup, soft-failure patterns, cross-cycle state-reset preservation logic | Must | All literal references — no dynamic strings |
 | FR18 | Update all skill files under `plugins/nmg-sdlc/skills/*/SKILL.md` that reference unattended-mode (`draft-issue`, `start-issue`, `write-spec`, `write-code`, `verify-code`, `open-pr`, `run-loop`, `migrate-project`, `run-retro`) | Must | Conditional-logic blocks and prose |
 | FR19 | Update `README.md` headless-flag section and `steering/product.md` references | Must | User-facing docs |
 | FR20 | Update `scripts/__tests__/sdlc-runner.test.mjs` and any test fixtures that reference the flag path | Must | Tests must pass after rename |
-| FR21 | Update `.gitignore`: replace `.claude/unattended-mode` with `.claude/unattended-mode` | Must | Line 11 today |
+| FR21 | Update `.gitignore`: replace `.codex/unattended-mode` with `.codex/unattended-mode` | Must | Line 11 today |
 | FR22 | Rewrite historical `specs/` spec bodies to use the new terminology; directories may retain old names | Must | Git history preserves original wording |
-| FR23 | Add `CHANGELOG.md` `[Unreleased]` entry documenting the rename and its motivation (disambiguation from Claude Code's native Auto Mode) | Must | User-facing release notes |
-| FR24 | Add a short disambiguation note in `README.md` contrasting the plugin's `unattended-mode` with Claude Code's native Auto Mode | Must | Prevents future conflation |
-| FR25 | Bump the plugin version in **both** `plugins/nmg-sdlc/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` | Should | Minor bump recommended (user-facing contract change) |
-| FR26 | Include a one-time migration note in the CHANGELOG for users who manually `touch .claude/unattended-mode`: the plugin no longer reads the old name | Should | Migration guidance |
+| FR23 | Add `CHANGELOG.md` `[Unreleased]` entry documenting the rename and its motivation (disambiguation from Codex's native Auto Mode) | Must | User-facing release notes |
+| FR24 | Add a short disambiguation note in `README.md` contrasting the plugin's `unattended-mode` with Codex's native Auto Mode | Must | Prevents future conflation |
+| FR25 | Bump the plugin version in **both** `plugins/nmg-sdlc/.codex-plugin/plugin.json` and `.codex-plugin/marketplace.json` | Should | Minor bump recommended (user-facing contract change) |
+| FR26 | Include a one-time migration note in the CHANGELOG for users who manually `touch .codex/unattended-mode`: the plugin no longer reads the old name | Should | Migration guidance |
 
 ---
 
@@ -262,7 +262,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - [x] All SDLC skills (#3-#8, #10) for unattended-mode integration
 
 ### External Dependencies
-- [x] Claude Code file system access for `.claude/unattended-mode` check
+- [x] Codex file system access for `.codex/unattended-mode` check
 
 ---
 
@@ -278,8 +278,8 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - (Issue #118) Changing the behavior of the unattended-mode flag itself — only the name changes
 - (Issue #118) Supporting both old and new flag names simultaneously — clean cut; old name is dropped
 - (Issue #118) Refactoring which skills check the flag, or how they check it
-- (Issue #118) Changes to Claude Code's native Auto Mode behavior (out of this plugin's control)
-- (Issue #118) Detecting Claude Code's Auto Mode from within a skill to adjust behavior based on it (the rename alone resolves the confusion)
+- (Issue #118) Changes to Codex's native Auto Mode behavior (out of this plugin's control)
+- (Issue #118) Detecting Codex's Auto Mode from within a skill to adjust behavior based on it (the rename alone resolves the confusion)
 
 ---
 
@@ -305,7 +305,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 |-------|------|---------|
 | #11 | 2026-02-15 | Initial feature spec |
 | #71 | 2026-02-22 | Add automatable label gate: question in `/draft-issue`, label filtering in `/start-issue` unattended-mode, label auto-creation, empty-set handling |
-| #118 | 2026-04-16 | Rename `.claude/unattended-mode` → `.claude/unattended-mode` plugin-wide to disambiguate from Claude Code's native Auto Mode; clean cut (no dual-name support); no behavior change |
+| #118 | 2026-04-16 | Rename `.codex/unattended-mode` → `.codex/unattended-mode` plugin-wide to disambiguate from Codex's native Auto Mode; clean cut (no dual-name support); no behavior change |
 
 ## Validation Checklist
 

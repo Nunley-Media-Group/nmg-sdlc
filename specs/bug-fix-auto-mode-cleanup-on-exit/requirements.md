@@ -3,7 +3,7 @@
 **Issue**: #17
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-automation-mode-support/`
 
@@ -14,9 +14,9 @@
 ### Steps to Reproduce
 
 1. Configure the SDLC runner with a valid `sdlc-config.json`
-2. Start the runner: the runner creates `.claude/unattended-mode` in the target project
+2. Start the runner: the runner creates `.codex/unattended-mode` in the target project
 3. Let it process at least one cycle, or stop it via SIGTERM/SIGINT
-4. Observe that `.claude/unattended-mode` still exists in the target project directory
+4. Observe that `.codex/unattended-mode` still exists in the target project directory
 5. Run any SDLC skill manually (e.g., `/write-spec`, `/draft-issue`)
 6. Interactive prompts (interviews, review gates, plan mode) are silently skipped
 
@@ -27,7 +27,7 @@
 | **Component** | `scripts/sdlc-runner.mjs` |
 | **Version** | Current (`main` branch) |
 | **Runtime** | Node.js v24+ (ESM) |
-| **Configuration** | Any valid SDLC runner config targeting a project with `.claude/` directory |
+| **Configuration** | Any valid SDLC runner config targeting a project with `.codex/` directory |
 
 ### Frequency
 
@@ -39,8 +39,8 @@ Always — 100% reproducible on every exit path.
 
 | | Description |
 |---|-------------|
-| **Expected** | When the SDLC runner stops for any reason, `.claude/unattended-mode` is deleted so subsequent manual skill usage works interactively |
-| **Actual** | `.claude/unattended-mode` persists after runner exit on all five exit paths: graceful shutdown (SIGTERM/SIGINT), escalation, no-more-issues completion, fatal crash, and single-step mode exit |
+| **Expected** | When the SDLC runner stops for any reason, `.codex/unattended-mode` is deleted so subsequent manual skill usage works interactively |
+| **Actual** | `.codex/unattended-mode` persists after runner exit on all five exit paths: graceful shutdown (SIGTERM/SIGINT), escalation, no-more-issues completion, fatal crash, and single-step mode exit |
 
 ### Error Output
 
@@ -54,39 +54,39 @@ No error output — the bug is a silent omission. The symptom is that SDLC skill
 
 ### AC1: Unattended-mode cleaned up on graceful shutdown
 
-**Given** the SDLC runner is running with `.claude/unattended-mode` present in the target project
+**Given** the SDLC runner is running with `.codex/unattended-mode` present in the target project
 **When** the runner receives SIGTERM or SIGINT
-**Then** the `.claude/unattended-mode` file is deleted before the process exits
+**Then** the `.codex/unattended-mode` file is deleted before the process exits
 
 ### AC2: Unattended-mode cleaned up on escalation
 
 **Given** the SDLC runner escalates due to exhausted retries or an unrecoverable error
 **When** the escalation handler completes
-**Then** the `.claude/unattended-mode` file is deleted in the target project
+**Then** the `.codex/unattended-mode` file is deleted in the target project
 
 ### AC3: Unattended-mode cleaned up when no issues remain
 
 **Given** the SDLC runner finds no more open issues in the project
 **When** the runner exits the main loop
-**Then** the `.claude/unattended-mode` file is deleted
+**Then** the `.codex/unattended-mode` file is deleted
 
 ### AC4: Unattended-mode cleaned up on fatal crash
 
 **Given** the SDLC runner encounters an unhandled exception
 **When** the fatal error handler runs
-**Then** the `.claude/unattended-mode` file is deleted (best effort)
+**Then** the `.codex/unattended-mode` file is deleted (best effort)
 
 ### AC5: Unattended-mode cleaned up on single-step exit
 
 **Given** the SDLC runner is invoked in single-step mode
 **When** the single step completes (success or failure)
-**Then** the `.claude/unattended-mode` file is deleted before the process exits
+**Then** the `.codex/unattended-mode` file is deleted before the process exits
 
 ### AC6: No regression — unattended-mode still active during execution
 
 **Given** the SDLC runner is actively processing steps
-**When** a skill is invoked via `claude -p` subprocess
-**Then** `.claude/unattended-mode` still exists and the skill operates in headless mode
+**When** a skill is invoked via `codex exec --cd` subprocess
+**Then** `.codex/unattended-mode` still exists and the skill operates in headless mode
 
 ---
 
@@ -94,7 +94,7 @@ No error output — the bug is a silent omission. The symptom is that SDLC skill
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Delete `.claude/unattended-mode` on all runner exit paths (graceful shutdown, escalation, completion, crash, single-step) | Must |
+| FR1 | Delete `.codex/unattended-mode` on all runner exit paths (graceful shutdown, escalation, completion, crash, single-step) | Must |
 | FR2 | Centralize cleanup in a single helper function to avoid missing future exit paths | Should |
 | FR3 | Cleanup must be best-effort and non-fatal — never mask the original exit reason | Must |
 

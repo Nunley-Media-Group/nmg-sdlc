@@ -7,8 +7,8 @@
 @regression
 Feature: sdlc-runner resolves skill files under the CC plugin cache layout
   The runner previously hardcoded `{pluginsPath}/plugins/nmg-sdlc/skills/<name>/SKILL.md`,
-  which is satisfied by neither the Claude Code plugin cache
-  (`~/.claude/plugins/cache/nmg-plugins/nmg-sdlc/<version>/`) nor the marketplace checkout —
+  which is satisfied by neither the Codex plugin cache
+  (`~/.codex/plugins/cache/nmg-plugins/nmg-sdlc/<version>/`) nor the marketplace checkout —
   every `readSkill()` call threw `Skill file not found` and the process exited immediately.
   This was fixed by introducing a `pluginRoot` config field and a shared `resolveSkillsBase()`
   resolver that composes paths as `{pluginRoot}/skills/<name>/SKILL.md`, with the legacy
@@ -18,11 +18,11 @@ Feature: sdlc-runner resolves skill files under the CC plugin cache layout
 
   @regression
   Scenario: Skill resolves under plugin-root layout via pluginRoot
-    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
+    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
     And pluginsPath is not set
     When the runner starts and readSkill("write-spec") is called
-    Then the composed path is "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec/SKILL.md"
-    And buildClaudeArgs emits a skillRoot of "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec"
+    Then the composed path is "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec/SKILL.md"
+    And buildCodexArgs emits a skillRoot of "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/skills/write-spec"
     And the runner does not throw "Skill file not found"
 
   # --- Related Behavior Still Works ---
@@ -60,7 +60,7 @@ Feature: sdlc-runner resolves skill files under the CC plugin cache layout
 
   @regression
   Scenario: pluginRoot wins when both fields are set
-    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
+    Given an sdlc-config.json sets pluginRoot to "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3"
     And pluginsPath to "/Users/dev/repos/nmg-plugins"
     When the runner resolves any skill path
     Then the composition uses pluginRoot, not pluginsPath

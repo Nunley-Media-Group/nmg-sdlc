@@ -1,13 +1,11 @@
 ---
 name: write-spec
 description: "Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Do NOT use for creating issues, implementing code, or verifying implementations. Produces requirements.md, design.md, tasks.md, and feature.gherkin with human review gates. Third step in the SDLC pipeline — follows /start-issue and precedes /write-code."
-argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Task, Write, Edit, WebFetch, WebSearch, Bash(gh:*)
-model: gpt-5.5
-effort: xhigh
 ---
 
 # Write Spec
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Create BDD specifications from a GitHub issue through three phases — Requirements, Design, Tasks — each ending with a human review gate. Each phase reads at most one variant-specific reference (defect, amendment, discovery) so the typical run only loads the workflow skeleton plus the gates it actually fires.
 
@@ -40,7 +38,7 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
 
-Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no `request_user_input`, no inline summary) when the `.codex/unattended-mode` sentinel exists.
+Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no interactive user prompt, no inline summary) when the `.codex/unattended-mode` sentinel exists.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose, read-timing, or discovery rules.
 
@@ -123,8 +121,8 @@ Read `references/review-gates.md` when this gate fires — § Phase 1 contains t
 
 1. Read steering docs for project architecture and conventions.
 2. Explore the codebase to understand existing patterns:
-   - Use `Glob` and `Grep` to find related code.
-   - Use `Task` with `subagent_type='Explore'` for deeper investigation.
+   - Use file search and text search to find related code.
+   - Do deeper investigation inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded read-only question.
 3. **In amendment mode**: follow `references/amendment-mode.md` § Phase 2.
 4. **In creation mode**:
    1. Create `design.md` from [templates/design.md](templates/design.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
@@ -192,7 +190,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.1 Offer Seal (interactive) or Auto-Execute (unattended)
 
-- **Interactive mode.** `request_user_input`: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
+- **Interactive mode.** interactive user prompt: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
 - **Unattended mode.** Auto-execute the seal per 3b.2 (deterministic-default gate per `../../references/unattended-mode.md`).
 
 #### 3b.2 Idempotency Check and Seal Commit
@@ -212,7 +210,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.3 Offer Child-Issue Creation
 
-- **Interactive mode.** After a successful seal, `request_user_input` whether to create child issues now via `/draft-issue` batch mode using the design's Delivery Phases table as input.
+- **Interactive mode.** After a successful seal, interactive user prompt whether to create child issues now via `/draft-issue` batch mode using the design's Delivery Phases table as input.
 - **Unattended mode.** Auto-execute child creation (no prompt).
 
 #### 3b.4 After-Seal Next-Step Hint
@@ -246,7 +244,7 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
                                                   ▲ You are here
 ```
 

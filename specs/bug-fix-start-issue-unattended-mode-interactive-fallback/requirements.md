@@ -3,7 +3,7 @@
 **Issue**: (tracked with #122 commit)
 **Date**: 2026-04-18
 **Status**: Fixed
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: High
 **Related**: `specs/bug-fix-runner-detectandhydratestate-skips-verify/`
 
@@ -36,7 +36,7 @@ From the subprocess result JSON:
 "result": "The interactive picker isn't capturing selections in this context. Here are the open issues — please reply with the issue number you'd like to start:\n\n| # | Title | Milestone |\n|---|-------|-----------|\n| **#124** | ... |"
 ```
 
-The subprocess tried `AskUserQuestion`, got denied (`AskUserQuestion` is in `BENIGN_DENIED_TOOLS`), then emitted markdown asking the user to reply — in a context where there is no user to reply.
+The subprocess tried `interactive prompt`, got denied (`interactive prompt` is in `BENIGN_DENIED_TOOLS`), then emitted markdown asking the user to reply — in a context where there is no user to reply.
 
 ---
 
@@ -45,7 +45,7 @@ The subprocess tried `AskUserQuestion`, got denied (`AskUserQuestion` is in `BEN
 | | Description |
 |---|-------------|
 | **Expected** | In unattended mode, Step 2 must deterministically select an issue (first `automatable` issue from the first viable milestone alphabetically), run `gh issue develop <N> --checkout`, and exit with HEAD on the new `<number>-<slug>` branch. |
-| **Actual** | The model follows the interactive path, calls `AskUserQuestion`, gets denied, then emits a markdown prompt addressed to a non-existent user. The subprocess exits 0 but HEAD stays on `main`. |
+| **Actual** | The model follows the interactive path, calls `interactive prompt`, gets denied, then emits a markdown prompt addressed to a non-existent user. The subprocess exits 0 but HEAD stays on `main`. |
 
 ---
 
@@ -53,9 +53,9 @@ The subprocess tried `AskUserQuestion`, got denied (`AskUserQuestion` is in `BEN
 
 Two reinforcing failures:
 
-1. **Skill-level**: `SKILL.md` includes the unattended-mode directive at the top ("NEVER call AskUserQuestion") and a dedicated section at lines 20–25, but the model does not reliably follow these instructions — especially when the model's default path is the interactive picker. When `AskUserQuestion` is denied, the model falls back to text-based user prompting rather than to the skill's documented deterministic selection path.
+1. **Skill-level**: `SKILL.md` includes the unattended-mode directive at the top ("NEVER call interactive prompt") and a dedicated section at lines 20–25, but the model does not reliably follow these instructions — especially when the model's default path is the interactive picker. When `interactive prompt` is denied, the model falls back to text-based user prompting rather than to the skill's documented deterministic selection path.
 
-2. **Runner-level**: The Step 2 prompt (`buildClaudeArgs`) contains only a short "Select and start the next GitHub issue from the current milestone" directive — it doesn't reinforce the unattended-mode path or spell out the deterministic formula. It also lacks a postcondition check: if Step 2 exits 0 without producing a feature branch, the runner logs a warning but advances to Step 3 anyway, causing a bounce loop instead of a direct failure.
+2. **Runner-level**: The Step 2 prompt (`buildCodexArgs`) contains only a short "Select and start the next GitHub issue from the current milestone" directive — it doesn't reinforce the unattended-mode path or spell out the deterministic formula. It also lacks a postcondition check: if Step 2 exits 0 without producing a feature branch, the runner logs a warning but advances to Step 3 anyway, causing a bounce loop instead of a direct failure.
 
 ---
 
@@ -63,7 +63,7 @@ Two reinforcing failures:
 
 **FR1.** The runner's Step 2 prompt MUST, in unattended mode (no `SINGLE_ISSUE_NUMBER`), spell out the deterministic selection formula inline: fetch milestones → sort alphabetically → pick the first with open issues → list `--label automatable` issues → pick the lowest-numbered → `gh issue develop <N> --checkout`.
 
-**FR2.** The runner's Step 2 prompt MUST explicitly forbid `AskUserQuestion` and forbid emitting text that asks the user to reply.
+**FR2.** The runner's Step 2 prompt MUST explicitly forbid `interactive prompt` and forbid emitting text that asks the user to reply.
 
 **FR3.** After Step 2 exits with code 0, the runner MUST check whether a feature branch is checked out. If HEAD is still on `main` (or `state.currentIssue` is null), the runner MUST treat the step as a soft failure and enter the retry/escalation path.
 
@@ -73,12 +73,12 @@ Two reinforcing failures:
 
 ## Acceptance Criteria
 
-- **AC1.** A fresh unattended cycle picks the lowest-numbered `automatable` issue from the first viable milestone without any `AskUserQuestion` attempt.
+- **AC1.** A fresh unattended cycle picks the lowest-numbered `automatable` issue from the first viable milestone without any `interactive prompt` attempt.
 - **AC2.** If no `automatable` issues exist, Step 2 emits the documented diagnostic message and exits without creating a branch — runner then halts cleanly.
 - **AC3.** A Step 2 that exits 0 but fails to create a branch is treated as a failure, not silently advanced.
 - **AC4.** The retry path for Step 2 does not amplify into a bounce loop — the postcondition check short-circuits before Step 3 runs.
 
 ## Fix Summary
 
-1. Expand the Step 2 unattended prompt in `scripts/sdlc-runner.mjs` → `buildClaudeArgs` to include a step-by-step deterministic selection formula and an explicit "Do NOT call AskUserQuestion" instruction.
+1. Expand the Step 2 unattended prompt in `scripts/sdlc-runner.mjs` → `buildCodexArgs` to include a step-by-step deterministic selection formula and an explicit "Do NOT call interactive prompt" instruction.
 2. Add a postcondition gate in `runStep` after Step 2 success: when `state.currentBranch === 'main'` or `state.currentIssue` is missing, route through `handleFailure` instead of advancing.

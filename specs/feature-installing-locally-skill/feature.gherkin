@@ -11,7 +11,7 @@ Feature: Installing Locally Skill
   Scenario: All marketplace plugins are installed
     Given I invoke "/installing-locally" in the nmg-plugins repo
     When the skill completes
-    Then all plugins listed in marketplace.json are installed to "~/.claude/plugins/"
+    Then all plugins listed in marketplace.json are installed to "~/.codex/plugins/"
 
   Scenario: Skills, hooks, and agents are copied
     Given a plugin has skills, hooks, and agents

@@ -3,7 +3,7 @@
 **Issue**: #57
 **Date**: 2026-02-19
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -34,7 +34,7 @@
 - [ ] Uses `node:fs` and `node:path` (zero external dependencies)
 - [ ] Uses `path.join()` for cross-platform path construction
 
-**Notes**: Reference `RUNNER_ARTIFACTS` constant for the list of patterns to add. The patterns in `.gitignore` should match the values in `RUNNER_ARTIFACTS` (e.g., `.claude/unattended-mode`, `.claude/sdlc-state.json`). Add a log message when entries are appended.
+**Notes**: Reference `RUNNER_ARTIFACTS` constant for the list of patterns to add. The patterns in `.gitignore` should match the values in `RUNNER_ARTIFACTS` (e.g., `.codex/unattended-mode`, `.codex/sdlc-state.json`). Add a log message when entries are appended.
 
 ### T002: Add Regression Test
 

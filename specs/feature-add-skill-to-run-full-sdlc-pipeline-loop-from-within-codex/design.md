@@ -3,15 +3,15 @@
 **Issues**: #107
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
 ## Overview
 
-This feature adds a new Claude Code skill (`run-loop`) to the nmg-sdlc plugin that orchestrates the full SDLC pipeline from within an active Claude Code session. Instead of reimplementing orchestration logic, the skill invokes the existing `sdlc-runner.mjs` script — the deterministic SDLC orchestrator — by unsetting the `CLAUDECODE` environment variable so it can spawn `claude -p` subprocesses.
+This feature adds a new Codex skill (`run-loop`) to the nmg-sdlc plugin that orchestrates the full SDLC pipeline from within an active Codex session. Instead of reimplementing orchestration logic, the skill invokes the existing `sdlc-runner.mjs` script — the deterministic SDLC orchestrator — by unsetting the `` environment variable so it can spawn `codex exec` subprocesses.
 
-The skill is a thin wrapper: it locates or generates a config file, then runs `CLAUDECODE="" node sdlc-runner.mjs --config <path>`. The runner already handles issue selection, phase sequencing, precondition/postcondition validation, retry logic, failure detection, and state management. This reuse avoids duplicating proven orchestration logic.
+The skill is a thin wrapper: it locates or generates a config file, then runs `node sdlc-runner.mjs --config <path>`. The runner already handles issue selection, phase sequencing, precondition/postcondition validation, retry logic, failure detection, and state management. This reuse avoids duplicating proven orchestration logic.
 
 To support single-issue mode, the runner gains a new `--issue N` CLI flag that restricts processing to a single specified issue number and exits after one cycle (no loop).
 
@@ -27,11 +27,11 @@ To support single-issue mode, the runner gains a new `--issue N` CLI flag that r
 │                                                             │
 │  Step 1: Locate/generate sdlc-config.json                  │
 │  Step 2: Resolve runner path from config.pluginsPath        │
-│  Step 3: Invoke runner with CLAUDECODE=""                   │
+│  Step 3: Invoke runner with =""                   │
 │  Step 4: Report results                                     │
 └──────────────┬──────────────────────────────────────────────┘
                │
-               │ Bash: CLAUDECODE="" node sdlc-runner.mjs
+               │ Bash: node sdlc-runner.mjs
                │       --config <path> [--issue N]
                ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -54,10 +54,10 @@ To support single-issue mode, the runner gains a new `--issue N` CLI flag that r
 │  soft failure detection, escalation, state management       │
 └──────────────┬──────────────────────────────────────────────┘
                │
-               │ Spawns claude -p subprocesses
+               │ Spawns codex exec subprocesses
                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Claude Code sessions (one per step)                        │
+│  Codex sessions (one per step)                        │
 │  Each session loads nmg-sdlc plugin and invokes the         │
 │  appropriate skill (start-issue, write-spec, etc.)   │
 └─────────────────────────────────────────────────────────────┘
@@ -72,8 +72,8 @@ To support single-issue mode, the runner gains a new `--issue N` CLI flag that r
 4. Reads config to resolve pluginsPath
 5. Derives runner path: <pluginsPath>/scripts/sdlc-runner.mjs
 6. Builds command:
-   - Loop mode:    CLAUDECODE="" node <runner> --config <config>
-   - Single issue: CLAUDECODE="" node <runner> --config <config> --issue N
+   - Loop mode:    node <runner> --config <config>
+   - Single issue: node <runner> --config <config> --issue N
 7. Executes runner via Bash tool (long-running, may take hours)
 8. Reports runner exit status and any failure diagnostics
 ```
@@ -88,8 +88,8 @@ To support single-issue mode, the runner gains a new `--issue N` CLI flag that r
 ---
 name: run-loop
 description: "Run the full SDLC pipeline loop for automatable issues. Use when user says 'run SDLC loop', 'run the pipeline', 'process all issues', 'run SDLC for #N', or 'automate the milestone'. Do NOT use for individual phases (write-spec, write-code, etc.)."
-argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(test:*), Bash(cat:*), Skill
+usage hint: "[#issue-number]"
+workflow instructions: Read, file discovery, text search, Bash(node:*), Bash(test:*), Bash(cat:*), Skill
 ---
 ```
 
@@ -98,14 +98,14 @@ allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(test:*), Bash(cat:*), Skill
 | Tool | Purpose |
 |------|---------|
 | `Read` | Read config file, check unattended-mode |
-| `Glob` | Find config files |
-| `Grep` | Search config for paths |
-| `Bash(node:*)` | Invoke the runner: `CLAUDECODE="" node sdlc-runner.mjs ...` |
+| `file discovery` | Find config files |
+| `text search` | Search config for paths |
+| `Bash(node:*)` | Invoke the runner: `node sdlc-runner.mjs ...` |
 | `Bash(test:*)` | File existence checks (`test -f sdlc-config.json`) |
 | `Bash(cat:*)` | Read runner output / logs if needed |
 | `Skill` | Invoke `/init-config` if config is missing |
 
-**Note**: The skill's own logic is lightweight (config resolution + runner invocation). The runner spawns its own Claude sessions with their own model settings from the config file.
+**Note**: The skill's own logic is lightweight (config resolution + runner invocation). The runner spawns its own Codex sessions with their own model settings from the config file.
 
 ### Arguments
 
@@ -136,7 +136,7 @@ let SINGLE_ISSUE_NUMBER = args.issue ? parseInt(args.issue, 10) : null;
 
 | Aspect | Default (no flag) | With `--issue N` |
 |--------|-------------------|------------------|
-| Issue selection (Step 2) | Prompt Claude to select next automatable issue | Prompt Claude to start issue #N specifically |
+| Issue selection (Step 2) | Prompt Codex to select next automatable issue | Prompt Codex to start issue #N specifically |
 | Loop behavior | After step 9, loop back to step 1 for next issue | After step 9, exit with code 0 (single cycle) |
 | Escalation | Escalate + move to next issue | Escalate + exit with non-zero code |
 | `hasOpenIssues` check | Controls loop continuation | Skipped — single issue doesn't need it |
@@ -196,7 +196,7 @@ From the config file:
 
 ```json
 {
-  "pluginsPath": "/Users/user/.claude/plugins/marketplaces/nmg-plugins",
+  "pluginsPath": "/Users/user/.codex/plugins/marketplaces/nmg-plugins",
   ...
 }
 ```
@@ -213,12 +213,12 @@ If missing, report error: "Runner script not found. Ensure nmg-plugins marketpla
 
 ---
 
-## CLAUDECODE Unset Pattern
+## Codex runner invocation pattern
 
-Claude Code sets the `CLAUDECODE` environment variable in all child processes. The `claude` CLI refuses to start inside another Claude Code session when this is set. Unsetting it allows the runner to spawn `claude -p` subprocesses:
+Codex sets the `` environment variable in all child processes. The Codex CLI refuses to start inside another Codex session when this is set. Unsetting it allows the runner to spawn `codex exec` subprocesses:
 
 ```bash
-CLAUDECODE="" node <runner-path> --config <config-path>
+node <runner-path> --config <config-path>
 ```
 
 This is a known and documented pattern (see memory: "Exercise Testing Skills" section).
@@ -227,11 +227,11 @@ This is a known and documented pattern (see memory: "Exercise Testing Skills" se
 
 ## Auto-Mode Behavior
 
-The runner **automatically creates `.claude/unattended-mode`** on startup (line 1917-1923 of `sdlc-runner.mjs`). This means:
+The runner **automatically creates `.codex/unattended-mode`** on startup (line 1917-1923 of `sdlc-runner.mjs`). This means:
 
 - The skill does NOT need to manage unattended-mode — the runner handles it
 - The runner removes unattended-mode on exit (`removeAutoMode()`)
-- Phase skills inside the runner's `claude -p` subprocesses will detect unattended-mode and skip interactive prompts
+- Phase skills inside the runner's `codex exec` subprocesses will detect unattended-mode and skip interactive prompts
 
 ---
 
@@ -240,7 +240,7 @@ The runner **automatically creates `.claude/unattended-mode`** on startup (line 
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
 | **A: Use Skill tool for in-session invocation** | Invoke each phase skill directly via Skill tool within the same session | Shared context; no subprocess spawning | Reimplements orchestration logic (preconditions, retries, state, soft failures); context window exhaustion over multiple issues; no CI monitoring or merge steps | Rejected — duplicates proven logic |
-| **B: Invoke sdlc-runner.mjs with CLAUDECODE=""** | Run the existing runner script, unsetting CLAUDECODE to enable subprocess spawning | Reuses all existing orchestration; battle-tested retry/escalation/state logic; includes CI monitoring and merge; isolated contexts per step prevent exhaustion | Requires long Bash timeout; adds `--issue` flag to runner | **Selected** — maximizes reuse, minimizes risk |
+| **B: Invoke sdlc-runner.mjs with =""** | Run the existing runner script, unsetting  to enable subprocess spawning | Reuses all existing orchestration; battle-tested retry/escalation/state logic; includes CI monitoring and merge; isolated contexts per step prevent exhaustion | Requires long Bash timeout; adds `--issue` flag to runner | **Selected** — maximizes reuse, minimizes risk |
 | **C: Use Task tool to spawn runner in background** | Run the runner via Task tool's background mode | Doesn't block the session | Task tool results are limited; harder to stream progress | Rejected — Bash with long timeout is simpler |
 
 ---
@@ -252,7 +252,7 @@ The runner **automatically creates `.claude/unattended-mode`** on startup (line 
 | Bash timeout for long-running runner | Medium | High — runner killed mid-cycle | Use `run_in_background: true` or set timeout to maximum (600000ms) with clear documentation |
 | Config file missing or incorrect | Low | Medium — runner fails to start | Skill checks for config first and generates via `/init-config` if missing |
 | Runner path resolution fails | Low | High — skill can't invoke runner | Verify path exists before invocation; provide clear error message |
-| `CLAUDECODE=""` pattern breaks in future Claude Code versions | Low | High — subprocess spawning fails | Pattern is documented and used by exercise testing; would affect all testing too |
+| `=""` pattern breaks in future Codex versions | Low | High — subprocess spawning fails | Pattern is documented and used by exercise testing; would affect all testing too |
 | `--issue` flag introduces regressions in runner | Low | Medium | Runner has existing test suite in `scripts/__tests__/`; add tests for new flag |
 
 ---
@@ -262,7 +262,7 @@ The runner **automatically creates `.claude/unattended-mode`** on startup (line 
 | Layer | Type | Coverage |
 |-------|------|----------|
 | SKILL.md | Prompt quality review | Unambiguous instructions, correct tool refs, complete workflow paths |
-| SKILL.md | `/doing-skills-right` validation | Frontmatter, allowed-tools, unattended-mode, integration section (AC5) |
+| SKILL.md | `/doing-skills-right` validation | Frontmatter, workflow instructions, unattended-mode, integration section (AC5) |
 | `sdlc-runner.mjs` | Unit tests (Jest) | New `--issue` flag behavior: single-cycle exit, prompt modification, escalation exit |
 | Feature | Exercise testing | Load plugin, invoke skill against a test project; verify runner starts and processes issue |
 | Integration | End-to-end | Process 1 issue in single-issue mode, verify PR created; process 2+ in loop mode |

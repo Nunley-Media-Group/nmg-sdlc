@@ -3,7 +3,7 @@
 **Issues**: #122
 **Date**: 2026-04-18
 **Status**: Planning
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -57,13 +57,13 @@ This feature has no backend services or frontend components — it is a prompt-b
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
-- [ ] Frontmatter matches design spec (name, description, argument-hint, disable-model-invocation, allowed-tools per `design.md` §API)
+- [ ] Frontmatter matches design spec (name, description, usage hint, minimal Codex frontmatter, workflow instructions per `design.md` §API)
 - [ ] Allowed tools include `Read`, `Glob`, `Bash(test:*)`, `Bash(node:*)`, `Bash(rm:*)`, `Bash(ls:*)` — no more
 - [ ] Step-by-step instructions cover the full workflow from `design.md` §Data Flow: directory check, artifact check, state parse, PID validation (must be positive integer), liveness probe via `node -e "process.kill(<pid>, 0)"`, SIGTERM via `node -e "process.kill(<pid>, 'SIGTERM')"`, file deletion, summary output
 - [ ] Each AC in `requirements.md` maps to an explicit instruction path in the skill (no orphaned ACs)
 - [ ] Cross-platform constraints respected — all file paths use forward slashes; no Bash-only syntax (`[[ ]]`, `<<<`, associative arrays)
 - [ ] Skill references `scripts/sdlc-runner.mjs:552` (`RUNNER_ARTIFACTS`) and `scripts/sdlc-runner.mjs:600` (`removeUnattendedMode`) so future changes to those locations prompt a skill review
-- [ ] Unattended-mode behaviour: the skill always runs non-interactively — no `AskUserQuestion` calls, no gates
+- [ ] Unattended-mode behaviour: the skill always runs non-interactively — no `interactive prompt` calls, no gates
 - [ ] Includes an "Integration with SDLC Workflow" section per project convention
 - [ ] Output format for each exit path matches the contract in `design.md` §API Output Contract
 
@@ -71,7 +71,7 @@ This feature has no backend services or frontend components — it is a prompt-b
 
 ### T003: Register skill in plugin manifest (if required)
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`
 **Type**: Verify / Modify
 **Depends**: T002
 **Acceptance**:
@@ -88,11 +88,11 @@ This feature has no backend services or frontend components — it is a prompt-b
 **Depends**: T002
 **Acceptance**:
 - [ ] `/end-loop` is listed alongside `/run-loop` in the skills reference section
-- [ ] Description matches the skill frontmatter's description field
+- [ ] Description matches the runner config's description field
 - [ ] A short usage example is present (e.g., "Run `/end-loop` to stop an active SDLC loop and clean up runner artifacts")
 - [ ] `CHANGELOG.md` `[Unreleased]` section gains an entry: `### Added — /end-loop skill to cleanly disable unattended mode (#122)`
 
-**Notes**: Per `CLAUDE.md`, any change that affects how users interact with the plugin must update README.md.
+**Notes**: Per `AGENTS.md`, any change that affects how users interact with the plugin must update README.md.
 
 ---
 
@@ -118,16 +118,16 @@ This feature has no backend services or frontend components — it is a prompt-b
 **Depends**: T002, T005
 **Acceptance**:
 - [ ] Scaffold a disposable test project in `/tmp/` per `steering/tech.md` §Test Project Pattern
-- [ ] Load the modified plugin: `claude --plugin-dir ./plugins/nmg-sdlc --project-dir /tmp/<test-project>`
+- [ ] Load the modified plugin: `codex exec --cd /tmp/<test-project>`
 - [ ] Exercise each AC:
   - AC1: create both artifacts, spawn a live benign background process, point `runnerPid` at it, run `/end-loop`, assert files removed and process signalled (confirm via `ps`)
   - AC2: no artifacts present, run `/end-loop`, assert "already disabled" output
   - AC3: create `sdlc-state.json` with a `runnerPid` of a known-dead PID (e.g., `99999`), run `/end-loop`, assert no SIGTERM error and files removed
-  - AC4: remove `.claude/` entirely, run `/end-loop`, assert "not a runner project" output
+  - AC4: remove `.codex/` entirely, run `/end-loop`, assert "not a runner project" output
   - AC5: simulate SIGTERM failure (document the approach — may require root-owned process or OS-specific trick; if infeasible in the test environment, mark as manually verified and document)
   - AC6: write invalid JSON to `sdlc-state.json`, run `/end-loop`, assert file still removed and no parse error raised
   - AC7: run `/end-loop` twice in sequence, assert second run reports "already disabled"
-  - AC8: `chmod 000` on the `.claude/` directory (or equivalent), run `/end-loop`, assert non-zero exit and specific-file error message; restore permissions afterwards
+  - AC8: `chmod 000` on the `.codex/` directory (or equivalent), run `/end-loop`, assert non-zero exit and specific-file error message; restore permissions afterwards
 - [ ] Clean up the test project after verification
 
 **Notes**: Per `steering/tech.md`, exercise-based verification is the primary validation method for this project. Unit tests do not apply — the skill is a prompt.
@@ -139,7 +139,7 @@ This feature has no backend services or frontend components — it is a prompt-b
 **Depends**: T002
 **Acceptance**:
 - [ ] `sdlc-runner.mjs` `removeUnattendedMode()` still functions unchanged (the skill is a parallel cleanup path, not a replacement)
-- [ ] `/run-loop` still creates and removes `.claude/unattended-mode` via the runner — no interaction between the two skills
+- [ ] `/run-loop` still creates and removes `.codex/unattended-mode` via the runner — no interaction between the two skills
 - [ ] Runner unit tests in `scripts/__tests__/` pass: `cd scripts && npm test`
 - [ ] `RUNNER_ARTIFACTS` array in `sdlc-runner.mjs:552` is unchanged (the skill reads it as a reference, does not modify it)
 

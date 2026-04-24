@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-15
 **Issue**: #7
-**Reviewer**: Claude Code (retroactive)
+**Reviewer**: Codex (retroactive)
 **Scope**: Retroactive verification of implemented feature
 
 ---

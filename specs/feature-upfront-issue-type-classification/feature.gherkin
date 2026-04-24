@@ -14,7 +14,7 @@ Feature: Upfront Issue Type Classification
     Given the user invokes "/draft-issue" with or without an argument
     When the interview begins after gathering context
     Then the very first question asks whether this is a "Bug" or "Enhancement / Feature"
-    And the question is presented via AskUserQuestion with descriptive options
+    And the question is presented via interactive prompt with descriptive options
 
   # --- Enhancement Path ---
 
@@ -40,7 +40,7 @@ Feature: Upfront Issue Type Classification
     Then it searches the codebase for related code using Grep
     And traces code paths by reading affected files
     And forms a root cause hypothesis
-    And presents the hypothesis to the user for confirmation via AskUserQuestion
+    And presents the hypothesis to the user for confirmation via interactive prompt
 
   Scenario: Root Cause Section in Bug Issues
     Given the bug investigation has completed and the user confirmed the hypothesis
@@ -52,7 +52,7 @@ Feature: Upfront Issue Type Classification
   # --- Unattended-mode ---
 
   Scenario: Unattended Mode Unchanged
-    Given the ".claude/unattended-mode" file exists in the project directory
+    Given the ".codex/unattended-mode" file exists in the project directory
     When the draft-issue skill is invoked
     Then the classification step is skipped
     And the investigation step is skipped

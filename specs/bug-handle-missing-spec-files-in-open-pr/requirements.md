@@ -3,7 +3,7 @@
 **Issue**: #82
 **Date**: 2026-02-23
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-open-pr-skill/`
 
@@ -24,7 +24,7 @@
 |--------|-------|
 | **OS / Platform** | Any (macOS, Linux, Windows) |
 | **Version / Commit** | nmg-sdlc plugin v1.25.0 |
-| **Runtime** | Claude Code CLI |
+| **Runtime** | Codex CLI |
 | **Configuration** | Standard SDLC workflow; specs skipped for simple changes |
 
 ### Frequency

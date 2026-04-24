@@ -1,19 +1,17 @@
 ---
 name: run-retro
 description: "Analyze defect specs to identify spec-writing gaps and produce actionable learnings. Use when user says 'run retrospective', 'analyze defects', 'review past bugs', 'what can we learn from bugs', 'update retrospective', 'how do I run a retrospective', or 'learn from our bugs'. Produces steering/retrospective.md that /write-spec reads to avoid repeating past failures. Utility skill — run periodically, outside the main SDLC pipeline."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(shasum:*), Bash(sha256sum:*)
-model: gpt-5.5
-effort: high
 ---
 
 # Run Retro
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Batch-analyze defect specs to identify recurring spec-writing gaps and produce `steering/retrospective.md` — a steering document that `/write-spec` reads during Phase 1 to avoid repeating past spec failures.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` call site so the runner can drive a retro without stopping for user input.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site so the runner can drive a retro without stopping for user input.
 
 Read `../../references/spec-frontmatter.md` when you need the defect-spec schema or the `**Related Spec**` field conventions — Step 2's chain resolution depends on `**Related Spec**` pointing at either a feature spec (terminating) or another defect spec (recursive).
 
@@ -25,13 +23,13 @@ Read `references/edge-cases.md` when any input file is missing, malformed, or un
 
 ### Step 1: Scan for Defect Specs
 
-Use `Glob` to find all spec files:
+Use file discovery to find all spec files:
 
 ```
 specs/*/requirements.md
 ```
 
-Then `Read` the **first line** of each file and collect those whose heading starts with `# Defect Report:`. This reliably distinguishes defect specs from feature specs (which start with `# Requirements:`) without depending on `Grep` glob parameter interpretation.
+Then `Read` the **first line** of each file and collect those whose heading starts with `# Defect Report:`. This reliably distinguishes defect specs from feature specs (which start with `# Requirements:`) without depending on text search glob parameter interpretation.
 
 ### Step 1.5: Load State and Compute Hashes
 
@@ -172,7 +170,7 @@ State saved to steering/retrospective-state.json
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
                                                    ▲                                                                         │
                                                    │                                                                         ▼
                                                    └──── reads retrospective.md ◄──── /run-retro ◄──── defect specs

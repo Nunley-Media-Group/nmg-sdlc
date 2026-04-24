@@ -3,9 +3,9 @@
 **Issue**: #62
 **Date**: 2026-02-20
 **Status**: Approved
-**Author**: Claude (regenerated)
+**Author**: Codex (regenerated)
 **Severity**: Critical
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -27,7 +27,7 @@
 |--------|-------|
 | **OS / Platform** | macOS (Darwin 25.3.0) |
 | **Version / Commit** | nmg-plugins v1.22.5 |
-| **Browser / Runtime** | Node.js, Claude Code CLI |
+| **Browser / Runtime** | Node.js, Codex CLI |
 | **Configuration** | Continuous SDLC runner with multiple sequential issues |
 
 ### Frequency
@@ -68,7 +68,7 @@ Two issues in `scripts/sdlc-runner.mjs` combine to produce this defect:
 
 ### AC1: Issue number is extracted reliably from step 2 output
 
-**Given** the SDLC runner completes step 2 (startIssue) and the Claude session selected issue #122
+**Given** the SDLC runner completes step 2 (startIssue) and the Codex session selected issue #122
 **When** `extractStateFromStep` parses the step 2 output
 **Then** `state.currentIssue` is set to `122`, not any previously-referenced issue number
 

@@ -3,7 +3,7 @@
 **Issues**: #7, #109
 **Date**: 2026-03-03
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -86,7 +86,7 @@ Gate data flow:
    1a. Load steering docs (steering/)
    1b. Parse ## Verification Gates table from tech.md → extract named gates
 2. Read GitHub issue via gh issue view
-3. For each AC: find implementing code via Glob/Grep → mark Pass/Fail
+3. For each AC: find implementing code via file discovery and text search → mark Pass/Fail
 4. Spawn architecture-reviewer agent with Task tool
 5. Check BDD scenario coverage against ACs
    5f. Execute each applicable verification gate:
@@ -131,7 +131,7 @@ The `## Verification Gates` section in a project's `tech.md` declares mandatory 
 **Condition evaluation rules:**
 - `Always` — gate always applies
 - `{path} directory exists` — check via `test -d {path}`
-- `{glob} files exist in {path}` — check via `ls {path}/{glob}` or Glob tool
+- `{glob} files exist in {path}` — check via `ls {path}/{glob}` or file discovery tool
 - If no `## Verification Gates` section exists in tech.md → no gates are enforced (backward-compatible)
 
 **Pass criteria evaluation rules:**
@@ -350,7 +350,7 @@ FeatureScreen
 
 - [x] Verification reports contain file paths and findings, no secrets
 - [x] GitHub issue comments are posted via authenticated `gh` CLI
-- [x] Architecture reviewer has read-only access (Read, Glob, Grep)
+- [x] Architecture reviewer has read-only access (Read, file discovery, text search)
 
 ---
 

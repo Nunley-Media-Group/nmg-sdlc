@@ -3,7 +3,7 @@
 **Issues**: #115, #124, #98
 **Date**: 2026-04-23
 **Status**: Amended
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -15,7 +15,7 @@ The novel capability this skill introduces is **brownfield reconciliation**: rea
 
 Key architectural commitment: **this skill delegates rather than duplicates**. Steering-doc logic lives in `/setup-steering`; config logic lives in `/init-config`; template drift logic lives in `/upgrade-project`. `/onboard-project` owns only mode detection, issue-to-spec reconciliation, and summary reporting.
 
-> **Issue #124 amendment** — `/setup-steering` is **absorbed** into `/onboard-project`. The "delegates rather than duplicates" commitment is preserved for `/init-config` and `/upgrade-project`; for steering, the bootstrap and in-place enhancement logic now lives directly in Step 2G (greenfield) and the new Step 2I-Enhancement (re-run with steering present but specs absent). Issue #124 also expands greenfield's responsibilities: intent + tech-selection interview, `v1`/`v2` milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking (reusing Issue #125's primitive), and optional Claude Design URL ingestion. Brownfield (Step 2B/3B) is unchanged.
+> **Issue #124 amendment** — `/setup-steering` is **absorbed** into `/onboard-project`. The "delegates rather than duplicates" commitment is preserved for `/init-config` and `/upgrade-project`; for steering, the bootstrap and in-place enhancement logic now lives directly in Step 2G (greenfield) and the new Step 2I-Enhancement (re-run with steering present but specs absent). Issue #124 also expands greenfield's responsibilities: intent + tech-selection interview, `v1`/`v2` milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking (reusing Issue #125's primitive), and optional design archive URL ingestion. Brownfield (Step 2B/3B) is unchanged.
 
 > **Issue #98 amendment** — The skill narrows milestone seeding to **v1 only** (superseding #124's v1+v2 contract), adds **version-file initialization** (`VERSION` + stack-native manifest synced to `0.1.0`, idempotent) to both greenfield and brownfield paths, and makes **brownfield always backfill from tracked source code** — even when zero closed issues exist (superseding the "treat as greenfield" offer). The skill's orchestration model is unchanged; this amendment modifies step contents and adds one new step to each mode.
 
@@ -34,7 +34,7 @@ Key architectural commitment: **this skill delegates rather than duplicates**. S
 │                                                                    │
 │  ┌──────────────────┐                                              │
 │  │ Step 0:          │                                              │
-│  │ Legacy layout    │─── abort if .claude/steering/ exists         │
+│  │ Legacy layout    │─── abort if .codex/steering/ exists         │
 │  │ precondition     │                                              │
 │  └────────┬─────────┘                                              │
 │           ▼                                                        │
@@ -108,8 +108,8 @@ The greenfield branch is no longer a thin delegation to `/setup-steering` + `/in
 Step 2G — Greenfield (or Greenfield-Enhancement on re-run):
 
   ┌──────────────────────────────────────────────────────────────────┐
-  │ 2G.1  Optional Claude Design URL ingestion                       │
-  │       - AskUserQuestion: "Provide a Claude Design URL?"          │
+  │ 2G.1  Optional design archive URL ingestion                       │
+  │       - interactive prompt: "Provide a design archive URL?"          │
   │       - fetch via built-in fetch (no curl, no shell interpolation)│
   │       - decode gzip via node:zlib gunzipSync                     │
   │       - read README from extracted archive                       │
@@ -118,7 +118,7 @@ Step 2G — Greenfield (or Greenfield-Enhancement on re-run):
                                ▼
   ┌──────────────────────────────────────────────────────────────────┐
   │ 2G.2  Intent + Tech-Selection Interview                          │
-  │       - AskUserQuestion multi-question rounds                    │
+  │       - interactive prompt multi-question rounds                    │
   │       - Rounds: vision, personas, success criteria, language,    │
   │         framework, test tooling, deployment target               │
   │       - Defaults sourced from design payload (if any) and from   │
@@ -162,7 +162,7 @@ Step 2G — Greenfield (or Greenfield-Enhancement on re-run):
   │           c) milestone mapping (v2 cannot block v1)               │
   │       - Cycle detection (DFS): if cycle → log + skip wiring step │
   │       - Render DAG as ASCII for the user                         │
-  │       - AskUserQuestion: approve / adjust / proceed without DAG  │
+  │       - interactive prompt: approve / adjust / proceed without DAG  │
   │       - Unattended: auto-accept; log proposed DAG for summary    │
   └────────────────────────────┬─────────────────────────────────────┘
                                ▼
@@ -336,7 +336,7 @@ The existing Step 2B bullet 3 offered to "treat as greenfield" when no closed is
 
 ```
 Before (#124):
-  3. If zero closed issues: offer (via AskUserQuestion) to treat as
+  3. If zero closed issues: offer (via interactive prompt) to treat as
      greenfield-plus-existing-code. On accept → Step 3G. On decline →
      jump to Step 5 with no reconciliation performed.
 
@@ -345,7 +345,7 @@ After (#98):
      (enumerate tracked source via `git ls-files` filtered by the
      scaffold allowlist, synthesize specs from source-tree evidence
      only). Emit 'brownfield-no-issues: backfilling from source tree'.
-     No AskUserQuestion gate — deterministic routing.
+     No interactive prompt gate — deterministic routing.
 ```
 
 This is a behavior change, not an addition. AC29 explicitly supersedes the prior UX; the design.md amendment records the supersession rather than preserving the old path as a fallback.
@@ -369,7 +369,7 @@ When reconciling, `design.md`'s Evidence Sources table gains a new `current sour
 
 #### 4. Scaffold Allowlist Reused
 
-The scaffold allowlist used for mode detection (`{README.md, .gitignore, package.json, pyproject.toml, Cargo.toml, go.mod, LICENSE, ...}`) is reused verbatim for source enumeration. Files in the allowlist are excluded from source evidence to avoid polluting reconciled specs with scaffold-only content. Hidden directories (`.git/`, `.github/`, `.claude/`) and `node_modules/` are excluded as they already are for mode detection.
+The scaffold allowlist used for mode detection (`{README.md, .gitignore, package.json, pyproject.toml, Cargo.toml, go.mod, LICENSE, ...}`) is reused verbatim for source enumeration. Files in the allowlist are excluded from source evidence to avoid polluting reconciled specs with scaffold-only content. Hidden directories (`.git/`, `.github/`, `.codex/`) and `node_modules/` are excluded as they already are for mode detection.
 
 ### Data Flow — Brownfield Reconciliation (Step 3B)
 
@@ -384,7 +384,7 @@ The scaffold allowlist used for mode detection (`{README.md, .gitignore, package
      e. Classify template:   bug label OR keyword heuristic → defect template
                              else → feature template
 3. Group issues:             by shared label AND by keyword overlap (Jaccard ≥ 0.3 on title tokens)
-4. Confirm groups:           AskUserQuestion (unless unattended → auto-accept)
+4. Confirm groups:           interactive prompt (unless unattended → auto-accept)
 5. For each group (or single issue):
      a. Slugify name:        feature-{slug} or bug-{slug}
      b. Skip if spec dir already exists (FR16)
@@ -415,9 +415,9 @@ The scaffold allowlist used for mode detection (`{README.md, .gitignore, package
 ---
 name: onboard-project
 description: "Initialize a project for the SDLC — bootstrap greenfield projects or reconcile specs for brownfield projects from closed GitHub issues and merged PR diffs. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /setup-steering, /init-config, and /upgrade-project where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), AskUserQuestion
-argument-hint: "[--dry-run]"
+minimal Codex frontmatter
+workflow instructions: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), interactive prompt
+usage hint: "[--dry-run]"
 ---
 ```
 
@@ -426,10 +426,10 @@ argument-hint: "[--dry-run]"
 ```yaml
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, v1/v2 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues and merged PR diffs. Optionally ingests a Claude Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, WebFetch, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), AskUserQuestion
-argument-hint: "[--dry-run] [--design-url <url>]"
+description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, v1/v2 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues and merged PR diffs. Optionally ingests a design archive URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
+minimal Codex frontmatter
+workflow instructions: Read, Glob, Grep, Write, Edit, Codex web browsing, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), interactive prompt
+usage hint: "[--dry-run] [--design-url <url>]"
 ---
 ```
 
@@ -437,9 +437,9 @@ Changes vs the original frontmatter:
 
 | Field | Change | Rationale |
 |-------|--------|-----------|
-| `description` | Add intent interview, milestone seeding, starter-issue seeding, autolinking, Claude Design ingestion to capability list. Drop `/setup-steering` from "Delegates to" list (it no longer exists). Add `/draft-issue` to delegation list. | AC8 (absorption), AC1/AC3/AC6 (new capabilities) |
-| `allowed-tools` | Add `WebFetch` (Claude Design URL ingestion); add `Bash(node:*)` (gzip decode via `node -e "require('node:zlib').gunzipSync(...)"` if WebFetch alone proves insufficient for binary payloads — fallback path) | FR25 |
-| `argument-hint` | Add `[--design-url <url>]` | AC17 |
+| `description` | Add intent interview, milestone seeding, starter-issue seeding, autolinking, design archive ingestion to capability list. Drop `/setup-steering` from "Delegates to" list (it no longer exists). Add `/draft-issue` to delegation list. | AC8 (absorption), AC1/AC3/AC6 (new capabilities) |
+| `workflow instructions` | Add `Codex web browsing` (design archive URL ingestion); add `Bash(node:*)` (gzip decode via `node -e "require('node:zlib').gunzipSync(...)"` if Codex web browsing alone proves insufficient for binary payloads — fallback path) | FR25 |
+| `usage hint` | Add `[--design-url <url>]` | AC17 |
 
 ### Delegation Contracts
 
@@ -461,12 +461,12 @@ The Step 2G.3 sub-step replaces the prior `/setup-steering` delegation with inli
 3. **Enhancement mode** (steering exists): for each section that has a corresponding interview answer that differs from the existing value, surface the diff to the user (auto-accept in unattended mode), then `Edit` the section in place
 4. Verify all three files exist before proceeding
 
-#### Claude Design URL Fetch Contract (#124, FR25)
+#### design archive URL Fetch Contract (#124, FR25)
 
 | Step | Implementation |
 |------|----------------|
-| Fetch | `WebFetch` tool with the user-supplied URL; timeout 30s |
-| Decode | If response content-type indicates gzip OR magic bytes `1f 8b` are present, decode via `node -e` invoking `node:zlib.gunzipSync` (Bash tool, allowed-tools includes `Bash(node:*)`); else treat as plain text |
+| Fetch | `Codex web browsing` tool with the user-supplied URL; timeout 30s |
+| Decode | If response content-type indicates gzip OR magic bytes `1f 8b` are present, decode via `node -e` invoking `node:zlib.gunzipSync` (Bash tool, workflow instructions includes `Bash(node:*)`); else treat as plain text |
 | Parse | Look for `README.md` or `README` at archive root; read and summarize via the model |
 | Surface | List archive entries (filename, size, MIME-guess) to the user; propose design-derived starter-issue candidates |
 | Failure modes | Network/timeout/HTTP error → log and continue (AC20); decode error → log and continue (AC20); empty README → continue with whatever else was extracted |
@@ -559,7 +559,7 @@ None. The skill reads from git, the working tree, and GitHub via `gh` CLI; write
 | `plugins/nmg-sdlc/skills/onboard-project/templates/structure.md` | **Move** from `setup-steering/templates/structure.md` | Steering bootstrap reads this template |
 | `plugins/nmg-sdlc/skills/upgrade-project/SKILL.md` | **Edit** — rewrite all `/setup-steering` references | FR24 |
 | `plugins/nmg-sdlc/skills/onboard-project/SKILL.md` | **Edit** — frontmatter, Step 2G expansion, new sub-steps 2G.1–2G.7, Step 2I-Enhancement branch | All #124 ACs |
-| `.claude-plugin/marketplace.json` + `plugins/nmg-sdlc/.claude-plugin/plugin.json` | **Edit** — minor version bump | Per CLAUDE.md and tech.md version-bump policy (`enhancement` label → minor) |
+| `.codex-plugin/marketplace.json` + `plugins/nmg-sdlc/.codex-plugin/plugin.json` | **Edit** — minor version bump | Per AGENTS.md and tech.md version-bump policy (`enhancement` label → minor) |
 | `CHANGELOG.md` | **Edit** — `[Unreleased]` adds Added/Changed/Removed entries | Removal of `/setup-steering` is significant; record it explicitly |
 | `README.md` | **Edit** — drop `/setup-steering` from skill list, expand `/onboard-project` description, update workflow diagram | Public docs must stay in sync |
 
@@ -594,7 +594,7 @@ The skill is stateless between invocations. All state lives in:
 |-------|-------|----------|
 | Mode detection evidence | In-memory during a single invocation | Per-invocation |
 | Reconciliation progress | In-memory (per-issue evidence set, per-group decisions) | Per-invocation |
-| Unattended flag | `.claude/unattended-mode` file presence | External |
+| Unattended flag | `.codex/unattended-mode` file presence | External |
 | Dry-run flag | `--dry-run` argument | Per-invocation |
 
 No lock files or flag files are created by this skill (applying retrospective learning: avoid artifact lifecycle gaps).
@@ -603,7 +603,7 @@ No lock files or flag files are created by this skill (applying retrospective le
 
 ## UI Components
 
-N/A — this is a prompt-based skill; no UI components. User interaction is via `AskUserQuestion` for consolidation confirmation and optional `/init-config` invocation, both guarded by the unattended-mode check.
+N/A — this is a prompt-based skill; no UI components. User interaction is via `interactive prompt` for consolidation confirmation and optional `/init-config` invocation, both guarded by the unattended-mode check.
 
 ### Interaction Surfaces
 
@@ -635,7 +635,7 @@ N/A — this is a prompt-based skill; no UI components. User interaction is via 
 | **I: Delegate to `/draft-issue` per candidate** | Loop calls `/draft-issue` with shared interview context per candidate | Reuses the AC/FR-synthesis logic; consistent issue quality between seeded and user-drafted issues | N invocations of `/draft-issue` add token cost (mitigated: 3–7 candidates max) | **Selected** — matches AC3/FR19 |
 | **J: Re-implement dependency inference + autolinking inline** | Build the DAG and call `gh issue edit --add-sub-issue` directly | No coupling to Issue #125 | Duplicates the primitive #125 establishes; two implementations to keep in sync | Rejected — wait for #125 (Blocked By) and consume its primitive (FR22, AC16) |
 | **K: Run interview after steering bootstrap (preserve current ordering)** | Bootstrap from defaults first, then interview to refine | Smaller diff to the existing flow | The whole point of the interview is to drive steering content — bootstrapping first means rewriting steering after the interview, doubling the writes | Rejected — interview before bootstrap is the entire reason for AC1/AC12 |
-| **L: Treat the Claude Design URL as raw HTML / web content** | `WebFetch` and parse the response as text | Simpler — no decode step | The example URL returns a gzipped archive (~119 KB); raw-text parsing produces garbage | Rejected — payload is not HTML; gzip decode is required (AC17) |
+| **L: Treat the design archive URL as raw HTML / web content** | `Codex web browsing` and parse the response as text | Simpler — no decode step | The example URL returns a gzipped archive (~119 KB); raw-text parsing produces garbage | Rejected — payload is not HTML; gzip decode is required (AC17) |
 
 ### Alternatives Considered (#98 amendments)
 
@@ -664,7 +664,7 @@ N/A — this is a prompt-based skill; no UI components. User interaction is via 
 
 ### Security Considerations Added by #124
 
-- [x] **Untrusted Claude Design payload**: The fetched archive is treated as untrusted input throughout. (a) The URL is validated to be HTTPS before fetch; (b) the decoded payload is never passed to a shell command via interpolation — content surfaces to the user via fenced code blocks only; (c) archive entry filenames are validated against `[A-Za-z0-9._/-]` and any `..` path component aborts the parse; (d) no extracted file is written to disk by `/onboard-project` itself (the user can later create files via `/draft-issue` follow-up).
+- [x] **Untrusted design archive payload**: The fetched archive is treated as untrusted input throughout. (a) The URL is validated to be HTTPS before fetch; (b) the decoded payload is never passed to a shell command via interpolation — content surfaces to the user via fenced code blocks only; (c) archive entry filenames are validated against `[A-Za-z0-9._/-]` and any `..` path component aborts the parse; (d) no extracted file is written to disk by `/onboard-project` itself (the user can later create files via `/draft-issue` follow-up).
 - [x] **Interview answers passed to `/draft-issue`**: Free-text interview answers (vision, persona descriptions) are embedded into starter-issue bodies. These are passed as structured data, not interpolated into shell commands. `/draft-issue` is responsible for its own input validation per its existing security stance.
 - [x] **Milestone seeding scope**: `gh api --method POST` to `/milestones` requires the user's gh-auth scope to include `repo` write. The skill assumes this is already granted; failure surfaces as an HTTP 403 captured by the milestone-failure path (AC13).
 - [x] **Autolinking scope**: `gh issue edit --add-sub-issue` requires `repo` write scope; same handling as above.
@@ -684,7 +684,7 @@ N/A — this is a prompt-based skill; no UI components. User interaction is via 
 
 ## Testing Strategy
 
-This project uses **exercise-based verification** (per `tech.md` → Testing Standards). Skills are Markdown, not executable code — they are tested by running them in Claude Code against a test project.
+This project uses **exercise-based verification** (per `tech.md` → Testing Standards). Skills are Markdown, not executable code — they are tested by running them in Codex against a test project.
 
 | Layer | Type | Coverage |
 |-------|------|----------|
@@ -709,7 +709,7 @@ This project uses **exercise-based verification** (per `tech.md` → Testing Sta
 | Shell injection via issue title/body | Low | High | All `gh` calls use `--json`; issue content embedded in paths uses strict slugify allowlist; issue content embedded in Markdown goes inside fenced code blocks |
 | `gh` CLI not authenticated | Low | High | Step 1 precondition check runs `gh auth status` before brownfield reconciliation; aborts with clear message |
 | **(#124)** Issue #125 lands a different autolinking interface than this spec assumes | Medium | Medium | Spec lists Issue #125 in **Blocked By**; implementation pulls the actual interface from #125's design.md before coding; if interface diverges, this spec is amended via `/write-spec` re-run before implementation begins |
-| **(#124)** Claude Design URL format changes (e.g., uncompressed payloads, different archive layout) | Medium | Low | Decode step probes content-type AND magic bytes; falls back to plain-text parse; failure surfaces as gap (AC20) rather than silent corruption |
+| **(#124)** design archive URL format changes (e.g., uncompressed payloads, different archive layout) | Medium | Low | Decode step probes content-type AND magic bytes; falls back to plain-text parse; failure surfaces as gap (AC20) rather than silent corruption |
 | **(#124)** Steering enhancement mode overwrites user customizations | Medium | High | Enhancement mode uses `Edit` (not `Write`); each modified section is diff-surfaced to the user before apply (auto-accept in unattended mode but logged for audit); preserves unrelated sections by tool semantics |
 | **(#124)** Dependency DAG inferred wrong; user accepts blindly in unattended mode | Medium | Medium | Cycle detection prevents the worst case; non-cycle wrong edges surface in the seeded issue bodies as `Depends on:` lines that the user can audit and edit post-hoc; summary lists the full DAG so the audit is one-glance |
 | **(#124)** `/draft-issue` invocation explosion (3–7 nested skill calls) blows token budget | Low | Medium | Hard cap at 7 candidates per FR19; sequential invocation (no parallelism); progress emitted per issue so the user can interrupt |
@@ -735,7 +735,7 @@ This project uses **exercise-based verification** (per `tech.md` → Testing Sta
 | Issue | Date | Summary |
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
-| #124 | 2026-04-18 | Greenfield enhancement: Step 2G expanded into seven sub-steps (design URL ingest, interview, steering bootstrap absorbed from `/setup-steering`, milestone seeding, candidate generation, DAG inference, starter-issue seeding loop). Greenfield-Enhancement re-run mode added. `/setup-steering` standalone skill deleted; templates relocated to `onboard-project/templates/`. `/draft-issue` added to delegation contracts; `/setup-steering` removed. New tools: `WebFetch`, `Bash(node:*)`. New argument: `--design-url`. New risks tracked for autolinking dependency on Issue #125, design-payload format, and steering-enhancement overwrite. |
+| #124 | 2026-04-18 | Greenfield enhancement: Step 2G expanded into seven sub-steps (design URL ingest, interview, steering bootstrap absorbed from `/setup-steering`, milestone seeding, candidate generation, DAG inference, starter-issue seeding loop). Greenfield-Enhancement re-run mode added. `/setup-steering` standalone skill deleted; templates relocated to `onboard-project/templates/`. `/draft-issue` added to delegation contracts; `/setup-steering` removed. New tools: `Codex web browsing`, `Bash(node:*)`. New argument: `--design-url`. New risks tracked for autolinking dependency on Issue #125, design-payload format, and steering-enhancement overwrite. |
 | #98 | 2026-04-23 | Narrow milestone seeding to v1 only (supersedes #124's v1+v2 contract; `v1 (MVP)` → `v1`; candidate schema drops the milestone field). Add version-file initialization: new sub-step 2G.3a (greenfield) and 2B.0a (brownfield) seed `VERSION` at `0.1.0` + sync stack-native manifest (`package.json`/`pyproject.toml`/`Cargo.toml`/etc.) — both paths idempotent; brownfield mirrors existing manifest version into VERSION. Brownfield-no-issues UX: replace "treat as greenfield" offer with deterministic source-tree backfill; Step 3B evidence set always includes `current_source_tree`. Step 5 Summary adds a Versioning section. New risks tracked for legacy milestone name collision, manifest-parse failures, polyglot stack detection, and empty `git ls-files` edge cases. |
 
 ---
@@ -745,7 +745,7 @@ This project uses **exercise-based verification** (per `tech.md` → Testing Sta
 Before moving to TASKS phase:
 
 - [x] Architecture follows existing project patterns (per `structure.md`) — skill + delegation model
-- [x] All API/interface changes documented — new skill frontmatter, delegation contracts
+- [x] All API/interface changes documented — new runner config, delegation contracts
 - [x] Database/storage changes planned — N/A (no database)
 - [x] State management approach is clear — stateless per invocation
 - [x] UI components and hierarchy defined — N/A (prompt-based)

@@ -31,7 +31,7 @@ Feature: Creating PRs Skill
   # Added by issue #128
   Scenario: User opts in to CI monitor — happy path
     Given "/open-pr" has created a PR in interactive mode
-    And the ".claude/unattended-mode" sentinel does not exist
+    And the ".codex/unattended-mode" sentinel does not exist
     When the skill prompts the user and the user selects "Yes, monitor CI and auto-merge"
     And all required checks eventually conclude successfully
     Then the skill squash-merges the PR via "gh pr merge --squash --delete-branch"
@@ -75,15 +75,15 @@ Feature: Creating PRs Skill
 
   # Added by issue #128
   Scenario: Unattended mode suppresses interactive CI prompt
-    Given the ".claude/unattended-mode" sentinel file exists
+    Given the ".codex/unattended-mode" sentinel file exists
     When "/open-pr" completes Step 6
     Then no CI-monitor prompt is shown
     And the skill outputs "Done. Awaiting orchestrator."
 
   # Added by issue #128
   Scenario: Unattended mode actively suppresses polling and merge invocations
-    Given the ".claude/unattended-mode" sentinel file exists
+    Given the ".codex/unattended-mode" sentinel file exists
     When "/open-pr" completes Step 6
-    Then the skill MUST NOT call "AskUserQuestion" for CI monitoring
+    Then the skill MUST NOT call "interactive prompt" for CI monitoring
     And the skill MUST NOT poll "gh pr checks"
     And the skill MUST NOT invoke "gh pr merge"

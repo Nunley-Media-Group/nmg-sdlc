@@ -9,7 +9,7 @@ Implementations rarely complete in a single sitting — the developer reruns `/w
 1. **Read `tasks.md`** to enumerate every task and its declared acceptance criteria.
 2. **Inspect git history** — `git log main..HEAD --oneline` reveals commits made on this branch so far. Match commit messages and touched files against task IDs and file paths in `tasks.md` to identify which tasks are already complete.
 3. **Resume from the first incomplete task** — skip everything earlier than that task in the phase ordering from `tasks.md`. Do NOT re-apply completed tasks; re-application produces spurious diffs and risks undoing subsequent edits.
-4. **Continue the workflow from Step 5** using the normal execution path (`spec-implementer` delegation in interactive mode, inline in unattended mode, or inline fallback when the Task tool is unavailable). Re-run Step 4 only if the plan needs revision based on what's already been built.
+4. **Continue the workflow from Step 5** using the normal execution path (inline by default, optional Codex `worker` delegation only when explicitly authorized, and always inline in unattended mode). Re-run Step 4 only if the plan needs revision based on what's already been built.
 
 ## Edge cases
 

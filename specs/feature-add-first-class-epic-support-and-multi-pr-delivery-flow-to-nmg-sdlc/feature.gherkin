@@ -27,10 +27,10 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
     And it contains no User Story, no Acceptance Criteria, no Functional Requirements
 
   Scenario: Unattended mode never auto-selects Epic without explicit signal
-    Given .claude/unattended-mode exists
+    Given .codex/unattended-mode exists
     And the description contains multi-phase signals but no "Type: epic" line
     When /draft-issue reaches Step 2 classification
-    Then the classifier defaults to Feature and does not invoke AskUserQuestion
+    Then the classifier defaults to Feature and does not invoke interactive prompt
 
   Scenario: Epic label is lazily created and applied
     Given an Epic issue is being created
@@ -93,10 +93,10 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
     And no new commit is created
 
   Scenario: Seal-spec auto-executes in unattended mode when trigger fires
-    Given .claude/unattended-mode exists
+    Given .codex/unattended-mode exists
     And design.md contains a Multi-PR Rollout trigger
     When /write-spec approves Phase 3
-    Then the seal commit and push happen without invoking AskUserQuestion
+    Then the seal commit and push happen without invoking interactive prompt
     And the child-issue batch creation runs without prompting
 
   # --- /open-pr: sibling-aware bumping ---
@@ -180,8 +180,8 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
 
   # --- Unattended-mode determinism for all new gates ---
 
-  Scenario: No new AskUserQuestion call fires without an unattended-mode check
-    Given .claude/unattended-mode exists
+  Scenario: No new interactive prompt call fires without an unattended-mode check
+    Given .codex/unattended-mode exists
     When /draft-issue, /write-spec, or /open-pr reach any new gate added by this feature
     Then each gate's documented deterministic default fires
-    And AskUserQuestion is not invoked at any new site
+    And interactive prompt is not invoked at any new site

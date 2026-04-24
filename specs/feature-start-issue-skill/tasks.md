@@ -3,7 +3,7 @@
 **Issues**: #10, #89, #127
 **Date**: 2026-04-18
 **Status**: In Progress
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -64,7 +64,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md has valid frontmatter with name, description, argument-hint, allowed-tools
+- [x] SKILL.md has valid frontmatter with name, description, usage hint, workflow instructions
 - [x] Documents 4-step workflow (identify, select, confirm, branch/status)
 - [x] Milestone-scoped issue listing with fallback
 - [x] Automation mode behavior documented
@@ -194,7 +194,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [ ] Run `/start-issue` in interactive mode and confirm the child is NOT listed while parent and sibling are, with parent appearing before sibling (issue-number tie-break)
 - [ ] Close parent; re-run and confirm child appears, ordered after sibling (by # asc)
 - [ ] Introduce a cycle (two issues each declaring `Depends on` the other); re-run and confirm the warning is emitted and the run does not abort
-- [ ] Toggle `.claude/unattended-mode` and confirm the unattended auto-pick honors the same filter and order
+- [ ] Toggle `.codex/unattended-mode` and confirm the unattended auto-pick honors the same filter and order
 - [ ] Confirm the session note line is emitted in all four runs
 
 **Notes**: Exercise testing is required for SKILL.md changes per the verify-code skill's conventions. Capture terminal output in the PR for review.

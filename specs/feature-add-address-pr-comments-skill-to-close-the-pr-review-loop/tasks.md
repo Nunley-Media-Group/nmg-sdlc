@@ -9,7 +9,7 @@
 
 ## Summary
 
-This skill is a Claude Code plugin resource, not a stack-layered application. "Backend" is reinterpreted as skill-bundle authoring (`SKILL.md` + `references/`), and "Frontend" is omitted — the skill has no GUI, only a slash-command invocation. The phasing below matches the actual shape of the work. Every skill-bundled file (anything under `skills/address-pr-comments/`) MUST be authored through `/skill-creator` per the architectural invariant in `steering/tech.md` and `steering/structure.md` — the `/skill-creator` calls are explicit in each task.
+This skill is a Codex plugin resource, not a stack-layered application. "Backend" is reinterpreted as skill-bundle authoring (`SKILL.md` + `references/`), and "Frontend" is omitted — the skill has no GUI, only a slash-command invocation. The phasing below matches the actual shape of the work. Every skill-bundled file (anything under `skills/address-pr-comments/`) MUST be authored through `/skill-creator` per the architectural invariant in `steering/tech.md` and `steering/structure.md` — the `/skill-creator` calls are explicit in each task.
 
 | Phase | Tasks | Status |
 |-------|-------|--------|
@@ -30,7 +30,7 @@ This skill is a Claude Code plugin resource, not a stack-layered application. "B
 **Depends**: None
 **Acceptance**:
 - [ ] `steering/tech.md` contains a new subsection (under **External Services** or a new **Automated Review** heading) that declares the reviewer-identity allow-list using the same shape as the existing **Version Bump Classification** table (a markdown-readable config block that the skill reads as data)
-- [ ] The default value includes `bots: true` and `logins: ["claude[bot]"]`
+- [ ] The default value includes `bots: true` and `logins: ["codex[bot]"]`
 - [ ] Editing the allow-list does NOT require a skill edit — the skill will read this section at runtime (per FR10 and Design § Configuration Surface)
 - [ ] The section links back to `/address-pr-comments` so future maintainers see who consumes the config
 
@@ -49,7 +49,7 @@ All files in this phase live under `skills/address-pr-comments/` and MUST be cre
 **Depends**: T001
 **Acceptance**:
 - [ ] Authored via `/skill-creator` (no hand-authoring)
-- [ ] YAML frontmatter: `name: address-pr-comments`, `description` matching the trigger-phrase pattern used by sibling SDLC skills, `argument-hint: [#issue-or-pr-number] [--max-rounds=N]`, `allowed-tools: Read, Glob, Grep, Task, Write, Edit, AskUserQuestion, Bash(gh:*), Bash(git:*), Bash(sleep:*)`, `model: opus`, `effort: high`
+- [ ] Codex frontmatter only includes `name` and `description`; usage and workflow details live in the skill body
 - [ ] Contains pointers (in the skill-creator reference-pointer grammar) to `../../references/legacy-layout-gate.md` and `../../references/unattended-mode.md` at workflow start
 - [ ] Contains per-skill reference pointers to `references/fetch-threads.md`, `references/classification.md`, `references/fix-loop.md`, `references/escalation.md`, `references/polling.md` — each with its `when` triggering condition
 - [ ] Numbered Workflow section lists Steps 1–5 matching Design § Component Diagram (preconditions → fetch → classify → fix/escalate → push → poll/loop)
@@ -104,7 +104,7 @@ All files in this phase live under `skills/address-pr-comments/` and MUST be cre
 **Depends**: T002
 **Acceptance**:
 - [ ] Authored via `/skill-creator`
-- [ ] Interactive branch: describes the `AskUserQuestion` shape with three options (`Fix it anyway`, `Skip — leave unresolved`, `Reply without fixing`) and routes each choice back to the appropriate flow (AC9)
+- [ ] Interactive branch: describes the `interactive prompt` shape with three options (`Fix it anyway`, `Skip — leave unresolved`, `Reply without fixing`) and routes each choice back to the appropriate flow (AC9)
 - [ ] Unattended branch: specifies the exact escalation sentinel format `ESCALATION: address-pr-comments — pr=#{N} thread={node_id} classification={class} rationale={one-sentence}` (AC10, FR11)
 - [ ] Both branches add the thread to the in-process skipped-set and continue to the next thread
 - [ ] Mode detection follows `../../references/unattended-mode.md` (cached once at workflow start)
@@ -181,7 +181,7 @@ All files in this phase live under `skills/address-pr-comments/` and MUST be cre
 **Type**: Verify
 **Depends**: T002, T003, T004, T005, T006, T007, T008, T009, T010, T011
 **Acceptance**:
-- [ ] Plugin loaded via `claude --plugin-dir ./` (per `steering/tech.md` → Plugin Exercise Testing)
+- [ ] Plugin loaded via `codex exec --cd ./` (per `steering/tech.md` → Plugin Exercise Testing)
 - [ ] `/address-pr-comments` invoked on a test PR (either a disposable test repo with a real automated reviewer, or a dry-run evaluation where the skill's GraphQL + REST commands and slash-command invocations are captured and evaluated for correctness without firing)
 - [ ] Evaluation confirms: preconditions check fires (AC1); short-circuit exits distinguish AC3 vs AC4 messages; classification produces rationale for each thread; `clear-fix` flow invokes `/write-code` and `/verify-code` in order; interactive and unattended branches diverge correctly; no `--force` token appears anywhere in the captured command stream
 - [ ] Exercise outcome is recorded in `/verify-code`'s report so reviewers can audit it

@@ -3,7 +3,7 @@
 **Issue**: #38
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
@@ -45,7 +45,7 @@
 **Acceptance**:
 - [ ] CLI bootstrap code (argument parsing, config loading, `main()` call) is guarded behind an `isMainModule` check
 - [ ] All internal functions are exported via a named export block at the bottom of the file
-- [ ] Exported functions include at minimum: `detectSoftFailure`, `detectAndHydrateState`, `validatePreconditions`, `extractStateFromStep`, `matchErrorPattern`, `incrementBounceCount`, `defaultState`, `validateSpecs`, `validateCI`, `validatePush`, `autoCommitIfDirty`, `buildClaudeArgs`, `readSkill`, `handleFailure`, `escalate`, `haltFailureLoop`, `runStep`
+- [ ] Exported functions include at minimum: `detectSoftFailure`, `detectAndHydrateState`, `validatePreconditions`, `extractStateFromStep`, `matchErrorPattern`, `incrementBounceCount`, `defaultState`, `validateSpecs`, `validateCI`, `validatePush`, `autoCommitIfDirty`, `buildCodexArgs`, `readSkill`, `handleFailure`, `escalate`, `haltFailureLoop`, `runStep`
 - [ ] The script still runs correctly as a CLI tool (`node sdlc-runner.mjs --config ...`)
 - [ ] Module-level mutable state (e.g., `bounceCount`, `consecutiveEscalations`, `escalatedIssues`) is accessible for test setup/reset
 
@@ -72,13 +72,13 @@
   - `validateSpecs()` — all files present, missing files, missing directory
   - `validateCI()` — passing, failing, error
   - `validatePush()` — pushed, unpushed, error
-  - `buildClaudeArgs()` — verifies correct argument construction per step
+  - `buildCodexArgs()` — verifies correct argument construction per step
   - Soft failure integration — `runStep()` routes soft failures to handleFailure
 - [ ] Tests use mocks for `node:child_process` (`execSync`, `spawn`), `node:fs`, and external commands (`git`, `gh`)
 - [ ] All tests pass with `npm test` (or `npx jest`)
 - [ ] Tests tagged/organized by functional area
 
-**Notes**: Use `jest.unstable_mockModule()` for ESM module mocking. Structure tests with `describe` blocks per functional area. Use `beforeEach` to reset module-level state via the exported reset helper. For `spawn`-based functions (e.g., `runClaude`), mock the spawn return value with event emitters.
+**Notes**: Use `jest.unstable_mockModule()` for ESM module mocking. Structure tests with `describe` blocks per functional area. Use `beforeEach` to reset module-level state via the exported reset helper. For `spawn`-based functions (e.g., `runCodex`), mock the spawn return value with event emitters.
 
 ---
 
@@ -88,12 +88,12 @@
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] A bold critical callout is added immediately after the frontmatter, before the skill title or "When to Use" section, stating: in headless/unattended-mode, NEVER call `AskUserQuestion`
+- [ ] A bold critical callout is added immediately after the frontmatter, before the skill title or "When to Use" section, stating: in headless/unattended-mode, NEVER call `interactive prompt`
 - [ ] The existing "Unattended Mode" section content is preserved but reformatted for emphasis (bold key directives)
-- [ ] Step 2 (Present Issue Selection) includes a reminder: "If `.claude/unattended-mode` exists, skip this step entirely — do NOT call `AskUserQuestion`"
+- [ ] Step 2 (Present Issue Selection) includes a reminder: "If `.codex/unattended-mode` exists, skip this step entirely — do NOT call `interactive prompt`"
 - [ ] No changes to manual-mode workflow behavior
 
-**Notes**: The goal is to make the instruction impossible to miss. Position the critical directive at the top of the file where Claude reads it first, and repeat it at the point of action (Step 2). Use bold markdown and explicit tool name references.
+**Notes**: The goal is to make the instruction impossible to miss. Position the critical directive at the top of the file where Codex reads it first, and repeat it at the point of action (Step 2). Use bold markdown and explicit tool name references.
 
 ---
 

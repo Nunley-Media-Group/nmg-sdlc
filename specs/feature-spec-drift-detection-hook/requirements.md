@@ -3,7 +3,7 @@
 **Issues**: #9
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -109,7 +109,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - [x] Writing specs skill (#5) for spec files to check against
 
 ### External Dependencies
-- [x] Claude Code PostToolUse hook system
+- [x] Codex PostToolUse hook system
 
 ---
 

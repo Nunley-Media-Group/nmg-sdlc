@@ -72,7 +72,7 @@ Feature: Fix Stale Spec References
   Scenario: feature-openclaw-runner-operations references are redirected
     When I grep for "feature-openclaw-runner-operations" under specs/
     Then zero matches are returned
-    And each former reference now points to "feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code"
+    And each former reference now points to "feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex"
 
   # --- AC6: Automatic major-version bump language ---
 

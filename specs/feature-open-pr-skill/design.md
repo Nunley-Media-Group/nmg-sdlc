@@ -3,7 +3,7 @@
 **Issues**: #8, #128
 **Date**: 2026-04-18
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -11,9 +11,9 @@
 
 The `/open-pr` skill is the final step of the interactive SDLC workflow. It gathers context from the GitHub issue, spec files, git state, and verification results, then generates a structured PR body and creates the pull request via `gh pr create`. The skill uses conventional commit prefixes for PR titles and includes acceptance criteria as a checklist for reviewers.
 
-The skill has `disable-model-invocation: true` in its frontmatter, meaning it follows the SKILL.md instructions deterministically without model-driven behavior. This makes PR creation predictable and reproducible.
+The skill has `minimal Codex frontmatter` in its frontmatter, meaning it follows the SKILL.md instructions deterministically without model-driven behavior. This makes PR creation predictable and reproducible.
 
-**Issue #128 extension:** After PR creation completes in interactive mode, the skill now offers an optional CI-monitor + auto-merge step that mirrors the unattended runner's semantics (`gh pr checks` polling → `gh pr merge --squash --delete-branch` → local branch cleanup). The unattended branch of the skill remains untouched — when `.claude/unattended-mode` exists, the runner retains full ownership of monitoring and merging.
+**Issue #128 extension:** After PR creation completes in interactive mode, the skill now offers an optional CI-monitor + auto-merge step that mirrors the unattended runner's semantics (`gh pr checks` polling → `gh pr merge --squash --delete-branch` → local branch cleanup). The unattended branch of the skill remains untouched — when `.codex/unattended-mode` exists, the runner retains full ownership of monitoring and merging.
 
 ---
 
@@ -41,7 +41,7 @@ The skill has `disable-model-invocation: true` in its frontmatter, meaning it fo
 │  Step 6: Output (base case)                 │
 │                                             │
 │  Step 7 (Issue #128, interactive only):     │
-│    ├── AskUserQuestion: monitor or skip?    │
+│    ├── interactive prompt: monitor or skip?    │
 │    ├── If monitor:                          │
 │    │    ├── Poll gh pr checks (30s cadence) │
 │    │    ├── On all-success:                 │
@@ -54,7 +54,7 @@ The skill has `disable-model-invocation: true` in its frontmatter, meaning it fo
 │    └── If skip: fall through to Step 6 out  │
 └────────────────────────────────────────────┘
 
-Unattended branch (.claude/unattended-mode present):
+Unattended branch (.codex/unattended-mode present):
   Step 6 output: "Done. Awaiting orchestrator."
   Step 7 actively suppressed (no prompt, no poll, no merge)
   sdlc-runner.mjs continues to own CI + merge.
@@ -85,7 +85,7 @@ Unattended branch (.claude/unattended-mode present):
 | File | Type | Purpose |
 |------|------|---------|
 | `plugins/nmg-sdlc/skills/open-pr/SKILL.md` | Create | Original (Issue #8): 4-step workflow |
-| `plugins/nmg-sdlc/skills/open-pr/SKILL.md` | Modify | Issue #128: Add Step 7 (interactive CI monitor + auto-merge); update `allowed-tools` to add `Bash(sleep:*)` (required for 30-second poll interval — not covered by `Bash(gh:*)` or `Bash(git:*)`); restructure Step 6 output so the existing "Next step..." message becomes the opt-out fallback |
+| `plugins/nmg-sdlc/skills/open-pr/SKILL.md` | Modify | Issue #128: Add Step 7 (interactive CI monitor + auto-merge); update `workflow instructions` to add `Bash(sleep:*)` (required for 30-second poll interval — not covered by `Bash(gh:*)` or `Bash(git:*)`); restructure Step 6 output so the existing "Next step..." message becomes the opt-out fallback |
 | `specs/feature-open-pr-skill/feature.gherkin` | Modify | Add scenarios for AC5–AC9 |
 
 ---
@@ -138,7 +138,7 @@ None. Skill state is implicit in shell invocations; no persistent state files ar
 ## UI Components
 
 No UI components. The new interactions are text-mode:
-- `AskUserQuestion` with two options (monitor vs skip)
+- `interactive prompt` with two options (monitor vs skip)
 - Periodic status output during polling (e.g., `Polling checks... 3/5 complete`)
 - Final status line (merged / failed / skipped)
 
@@ -149,9 +149,9 @@ No UI components. The new interactions are text-mode:
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
 | **A: Always monitor unless user declines** | Default to monitoring post-PR-create | Faster ship cycle | Surprising; changes default behavior for existing users | Rejected — keep opt-in explicit |
-| **B: Prompt with opt-in option (selected)** | Two-choice AskUserQuestion, user explicitly opts in | Preserves existing behavior for skeptics; clear intent | One extra prompt | **Selected** |
+| **B: Prompt with opt-in option (selected)** | Two-choice interactive prompt, user explicitly opts in | Preserves existing behavior for skeptics; clear intent | One extra prompt | **Selected** |
 | **C: Separate `/ship` skill** | New skill that wraps `/open-pr` + monitor + merge | Keeps `/open-pr` surface untouched | Duplicates skill surface; two similar skills is confusing | Rejected — the enhancement belongs in `/open-pr` |
-| **D: Reuse runner's gh pr checks loop verbatim** | Mirror the exact runner prompt for polling | Zero behavioral drift | Runner's prompt is for a `claude -p` subprocess; in-skill we execute directly | Partially adopted — reuse the 30s cadence and "no checks reported" handling, but express as deterministic skill steps rather than an AI-driven retry loop |
+| **D: Reuse runner's gh pr checks loop verbatim** | Mirror the exact runner prompt for polling | Zero behavioral drift | Runner's prompt is for a `codex exec --cd` subprocess; in-skill we execute directly | Partially adopted — reuse the 30s cadence and "no checks reported" handling, but express as deterministic skill steps rather than an AI-driven retry loop |
 
 ---
 
@@ -170,7 +170,7 @@ No UI components. The new interactions are text-mode:
 - [x] Single `gh pr create` API call
 - [x] 30-second poll cadence avoids rate-limit churn (matches runner)
 - [x] 30-minute total polling timeout prevents indefinite hangs
-- [x] `disable-model-invocation: true` — deterministic execution, no model cost during polling loop
+- [x] `minimal Codex frontmatter` — deterministic execution, no model cost during polling loop
 - [x] Local file reads for specs and git state
 
 ---
@@ -202,7 +202,7 @@ No UI components. The new interactions are text-mode:
 
 - [x] Polling cadence? *(30s — matches runner.)*
 - [x] Merge strategy? *(Squash, hardcoded for this iteration — see Out of Scope.)*
-- [ ] Should a future iteration surface merge strategy via `AskUserQuestion`? *(Deferred — out of scope for #128.)*
+- [ ] Should a future iteration surface merge strategy via `interactive prompt`? *(Deferred — out of scope for #128.)*
 
 ---
 

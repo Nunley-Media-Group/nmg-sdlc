@@ -3,7 +3,7 @@
 **Issue**: #66
 **Date**: 2026-02-20
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -25,9 +25,9 @@
 **Acceptance**:
 - [ ] Step 3 includes a relevance heuristic table mapping section heading keywords to glob patterns for codebase evidence
 - [ ] After the heading-diff in Step 3, a new filtering step checks each missing heading against the heuristic table and excludes sections with no codebase evidence
-- [ ] A new Step 3b loads `.claude/migration-exclusions.json` (if it exists) and removes previously-declined sections from the proposal list
-- [ ] Step 9 uses `AskUserQuestion` with `multiSelect: true` listing each proposed section individually, allowing per-section approve/decline
-- [ ] Step 10 persists newly-declined sections to `.claude/migration-exclusions.json` after applying approved changes
+- [ ] A new Step 3b loads `.codex/migration-exclusions.json` (if it exists) and removes previously-declined sections from the proposal list
+- [ ] Step 9 uses `interactive prompt` with `multiSelect: true` listing each proposed section individually, allowing per-section approve/decline
+- [ ] Step 10 persists newly-declined sections to `.codex/migration-exclusions.json` after applying approved changes
 - [ ] Unknown sections (no keyword match in heuristic table) are conservatively included in proposals
 - [ ] The exclusion file uses the schema: `{ "excludedSections": { "filename.md": ["Heading Text", ...] } }`
 - [ ] The skill's "Key Rules" section is updated to reflect the new filtering and persistence behavior

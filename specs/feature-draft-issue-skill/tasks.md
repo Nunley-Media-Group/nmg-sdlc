@@ -3,7 +3,7 @@
 **Issues**: #4, #116, #125
 **Date**: 2026-04-18
 **Status**: Complete
-**Author**: Claude Code (retroactive + #116 amendment + #125 amendment)
+**Author**: Codex (retroactive + #116 amendment + #125 amendment)
 
 ---
 
@@ -20,7 +20,7 @@
 | **Phase 7: Unattended-Mode Removal + Breaking Change Plumbing (#116)** | 5 | [x] |
 | **Phase 8: Docs + Testing (#116)** | 3 | [x] |
 | **Phase 9: Multi-Issue Pipeline (#125)** | 4 | [x] |
-| **Phase 10: Claude Design + Autolinking (#125)** | 3 | [x] |
+| **Phase 10: design archive + Autolinking (#125)** | 3 | [x] |
 | **Phase 11: Batch Summary + Docs + Testing (#125)** | 4 | [x] |
 | **Total** | **32** | |
 
@@ -61,7 +61,7 @@
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md has valid frontmatter with name, description, argument-hint, allowed-tools
+- [x] SKILL.md has valid frontmatter with name, description, usage hint, workflow instructions
 - [x] Documents 6-step workflow (gather context, interview, synthesize, review, create, output)
 - [x] Includes feature/enhancement template with BDD acceptance criteria
 - [x] Includes bug report template variant
@@ -76,8 +76,8 @@
 **Depends**: T002
 **Status**: Complete
 **Acceptance**:
-- [x] Allowed tools include Read, Glob, Grep, Bash(gh:*), WebSearch, WebFetch
-- [x] Skill is discoverable via Claude Code plugin system
+- [x] Allowed tools include Read, Glob, Grep, Bash(gh:*), Codex web browsing, Codex web browsing
+- [x] Skill is discoverable via Codex plugin system
 
 ---
 
@@ -136,7 +136,7 @@
 **Issue**: #116
 **Acceptance**:
 - [ ] Step 7 Process section describes rendering an inline structured summary with fields: Title, User Story one-liner, numbered AC list with one-line G/W/T, FRs with MoSCoW priorities, Out of Scope, Labels
-- [ ] Step 7 Process section specifies an `AskUserQuestion` with exactly two options: `[1] Approve — create the issue` and `[2] Revise — I'll describe what to change`
+- [ ] Step 7 Process section specifies an `interactive prompt` with exactly two options: `[1] Approve — create the issue` and `[2] Revise — I'll describe what to change`
 - [ ] Step 7 tracks `consecutiveRevises`; on the 4th iteration the menu expands to three options: `[1] Keep revising`, `[2] Reset and re-interview`, `[3] Accept as-is`
 - [ ] `[2] Reset` returns the skill to Step 5 (re-interview with classification and milestone preserved)
 - [ ] `[3] Accept as-is` proceeds to Step 8 as if Approve was selected
@@ -165,7 +165,7 @@
 **Status**: Pending
 **Issue**: #116
 **Acceptance**:
-- [ ] Immediately after the depth log line, Step 5 presents an `AskUserQuestion` with two options: `[1] Use {heuristic_pick} interview (recommended)` and `[2] Use {other_depth} interview`
+- [ ] Immediately after the depth log line, Step 5 presents an `interactive prompt` with two options: `[1] Use {heuristic_pick} interview (recommended)` and `[2] Use {other_depth} interview`
 - [ ] When the user overrides (selects `[2]`), the skill emits a one-line session note (e.g., `"(heuristic chose core, user selected extended)"`) before the interview begins
 - [ ] Covers AC15, FR22, FR29
 
@@ -218,8 +218,8 @@
 **Acceptance**:
 - [ ] Top-level `## Unattended Mode` section is removed
 - [ ] All per-step `> Unattended-mode: This step is skipped.` (or equivalent) blockquotes are removed
-- [ ] Where the Unattended Mode section used to be, a single sign-post sentence remains: `"As of v1.41.0, /draft-issue no longer honors .claude/unattended-mode. Issue drafting requires interactive input."`
-- [ ] Step 9 Output no longer has an `[If .claude/unattended-mode exists]:` branch
+- [ ] Where the Unattended Mode section used to be, a single sign-post sentence remains: `"As of v1.41.0, /draft-issue no longer honors .codex/unattended-mode. Issue drafting requires interactive input."`
+- [ ] Step 9 Output no longer has an `[If .codex/unattended-mode exists]:` branch
 - [ ] `grep -i "unattended" plugins/nmg-sdlc/skills/draft-issue/SKILL.md` returns only the sign-post sentence
 - [ ] Covers AC12, AC18, FR16, FR17, FR28
 
@@ -230,7 +230,7 @@
 **Status**: Pending
 **Issue**: #116
 **Acceptance**:
-- [ ] Step 5b `AskUserQuestion` body includes a 1–2 line prefix explaining the `automatable` label's effect on downstream skills (`/write-spec`, `/write-code`, `/verify-code`, `/open-pr`) and that it does NOT affect `/draft-issue` itself
+- [ ] Step 5b `interactive prompt` body includes a 1–2 line prefix explaining the `automatable` label's effect on downstream skills (`/write-spec`, `/write-code`, `/verify-code`, `/open-pr`) and that it does NOT affect `/draft-issue` itself
 - [ ] Covers AC14, FR19
 
 ### T016: Add STEP_KEYS sentinel comment to sdlc-runner.mjs
@@ -257,14 +257,14 @@
 - [ ] Covers AC13, FR18
 
 ### T018: Bump plugin version to v1.41.0 (BREAKING) and update CHANGELOG
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017
 **Status**: Pending
 **Issue**: #116
 **Acceptance**:
-- [ ] `plugins/nmg-sdlc/.claude-plugin/plugin.json` `"version"` is `"1.41.0"`
-- [ ] `.claude-plugin/marketplace.json` plugin entry `"version"` is `"1.41.0"` (matching plugin.json)
+- [ ] `plugins/nmg-sdlc/.codex-plugin/plugin.json` `"version"` is `"1.41.0"`
+- [ ] `.codex-plugin/marketplace.json` plugin entry `"version"` is `"1.41.0"` (matching plugin.json)
 - [ ] `CHANGELOG.md` has `[Unreleased]` entries describing readability treatment, deeper interview, and — under a `### Changed (BREAKING)` subsection — the removal of unattended-mode support from `/draft-issue`
 - [ ] Covers AC18, FR21, FR27
 
@@ -335,7 +335,7 @@
 **Issue**: #125
 **Acceptance**:
 - [ ] Step 1c section added with Input/Process/Output/Human Review Gate subsections
-- [ ] `AskUserQuestion` menu documented with exactly three options: `[1] Approve the split as proposed`, `[2] Adjust the split (merge or re-divide)`, `[3] Collapse back to a single issue`
+- [ ] `interactive prompt` menu documented with exactly three options: `[1] Approve the split as proposed`, `[2] Adjust the split (merge or re-divide)`, `[3] Collapse back to a single issue`
 - [ ] `[2]` path loops with a free-text prompt until the user selects `[1]` or `[3]`
 - [ ] `[3]` collapse path returns flow to Step 2 with the original description and `session.proposedSplit = null`
 - [ ] `[1]` approve path proceeds to Step 1d
@@ -353,7 +353,7 @@
 - [ ] Edge inference rules documented in order: (1) explicit cues, (2) shared-component precursor, (3) AC/FR overlap
 - [ ] DAG normalization (cycle detection + drop-lowest-priority) is documented
 - [ ] Graph rendering format (arrow notation) is specified
-- [ ] `AskUserQuestion` menu documented with three options: `[1] Approve the graph`, `[2] Adjust edges`, `[3] Flatten — no dependencies`
+- [ ] `interactive prompt` menu documented with three options: `[1] Approve the graph`, `[2] Adjust edges`, `[3] Flatten — no dependencies`
 - [ ] `[2]` path loops with a free-text prompt until approve/flatten
 - [ ] `[3]` flatten path clears all edges (`session.dag = []`) and proceeds
 - [ ] Workflow Overview diagram updated
@@ -376,21 +376,21 @@
 
 ---
 
-## Phase 10: Claude Design + Autolinking (#125)
+## Phase 10: design archive + Autolinking (#125)
 
-### T026: Add Step 1a Claude Design URL fetch + gzip decode with graceful degradation
-**File(s)**: `plugins/nmg-sdlc/skills/draft-issue/SKILL.md`, possibly `plugins/nmg-sdlc/skills/_shared/claude-design.*` (path determined at implementation time, coordinated with issue #124)
+### T026: Add Step 1a design archive URL fetch + gzip decode with graceful degradation
+**File(s)**: `plugins/nmg-sdlc/skills/draft-issue/SKILL.md`, possibly `plugins/nmg-sdlc/skills/_shared/design-archive.*` (path determined at implementation time, coordinated with issue #124)
 **Type**: Modify (SKILL.md); Reference/Extract (shared helper)
 **Depends**: None
 **Status**: Pending
 **Issue**: #125
 **Acceptance**:
 - [ ] Step 1a section added with Input/Process/Output subsections
-- [ ] URL detection (claude.ai design URL pattern) documented in Step 1 for either CLI argument or early prompt elicitation
+- [ ] URL detection (design archive design URL pattern) documented in Step 1 for either CLI argument or early prompt elicitation
 - [ ] Fetch/gzip-decode/README-parse is delegated to the shared helper from issue #124; if #124 landed the helper inline, this task documents the precondition to extract it to a shared location
 - [ ] 15s default timeout documented
 - [ ] Failure modes table documented: HTTP error, timeout, decode failure, missing README — each logs a visible session note and sets `session.designContext = null` + `session.designFailureNote`
-- [ ] Frontmatter `argument-hint` updated to mention the optional design URL
+- [ ] Frontmatter `usage hint` updated to mention the optional design URL
 - [ ] Workflow Overview diagram updated
 - [ ] Covers AC24, AC25, FR35, FR36
 
@@ -441,28 +441,28 @@
 - [ ] Workflow Overview diagram updated
 - [ ] Covers AC27, FR38
 
-### T030: Update README.md with multi-issue detection, autolinking, and Claude Design behavior
+### T030: Update README.md with multi-issue detection, autolinking, and design archive behavior
 **File(s)**: `README.md`
 **Type**: Modify
 **Depends**: T022, T023, T024, T025, T026, T028, T029
 **Status**: Pending
 **Issue**: #125
 **Acceptance**:
-- [ ] `/draft-issue` section documents the split-confirm, graph-confirm, autolinking, and Claude Design URL capabilities
+- [ ] `/draft-issue` section documents the split-confirm, graph-confirm, autolinking, and design archive URL capabilities
 - [ ] Mentions the partial-batch preservation semantics
-- [ ] Notes that the skill reuses the Claude Design helper from #124
+- [ ] Notes that the skill reuses the design archive helper from #124
 - [ ] Covers all #125 user-facing changes
 
 ### T031: Bump plugin version to 1.46.0 and update CHANGELOG
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: T022, T023, T024, T025, T026, T027, T028, T029, T030
 **Status**: Pending
 **Issue**: #125
 **Acceptance**:
-- [ ] `plugins/nmg-sdlc/.claude-plugin/plugin.json` `"version"` is `"1.46.0"`
-- [ ] `.claude-plugin/marketplace.json` plugin entry `"version"` is `"1.46.0"` (matching plugin.json)
-- [ ] `CHANGELOG.md` has `[Unreleased]` entries describing multi-issue detection, dependency inference, autolinking, and Claude Design ingestion
+- [ ] `plugins/nmg-sdlc/.codex-plugin/plugin.json` `"version"` is `"1.46.0"`
+- [ ] `.codex-plugin/marketplace.json` plugin entry `"version"` is `"1.46.0"` (matching plugin.json)
+- [ ] `CHANGELOG.md` has `[Unreleased]` entries describing multi-issue detection, dependency inference, autolinking, and design archive ingestion
 - [ ] Bump is minor (additive, enhancement label)
 
 ### T032: Update feature.gherkin with #125 scenarios
@@ -508,7 +508,7 @@ Critical path: T005 → T006 → T009 → T012 → T013 → T018 → T019/T020/T
 Phase 9 (Multi-Issue Pipeline):
   T022 ──▶ T023 ──▶ T024 ──▶ T025
 
-Phase 10 (Claude Design + Autolinking):
+Phase 10 (design archive + Autolinking):
   T026 (parallel with Phase 9) ──▶ T027 (after T025)
   T025 ──▶ T028
 
@@ -528,7 +528,7 @@ Phase 11 (Summary + Docs + Testing):
 |-------|------|---------|
 | #4 | 2026-02-15 | Initial feature spec (T001–T004 complete) |
 | #116 | 2026-04-17 | Added Phase 5 (Readability: T005–T008), Phase 6 (Deeper Interview: T009–T013), Phase 7 (Unattended-Mode Removal + Breaking Change: T014–T018), Phase 8 (Docs + Testing: T019–T021). Major version bump v1.40.0 → v1.41.0. |
-| #125 | 2026-04-18 | Added Phase 9 (Multi-Issue Pipeline: T022–T025), Phase 10 (Claude Design + Autolinking: T026–T028), Phase 11 (Batch Summary + Docs + Testing: T029–T032). Minor version bump v1.45.0 → v1.46.0. |
+| #125 | 2026-04-18 | Added Phase 9 (Multi-Issue Pipeline: T022–T025), Phase 10 (design archive + Autolinking: T026–T028), Phase 11 (Batch Summary + Docs + Testing: T029–T032). Minor version bump v1.45.0 → v1.46.0. |
 
 ---
 

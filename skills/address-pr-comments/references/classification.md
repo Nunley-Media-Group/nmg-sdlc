@@ -90,7 +90,7 @@ Soft "consider" suggestion without a concrete target; multiple valid refactors w
 > Reviewer comment on `src/config/index.ts:22`:
 > `This export is unused and should be removed.`
 
-Grep shows `src/app/bootstrap.ts` imports `SETTINGS` from this module. Reviewer's premise is false.
+text search shows `src/app/bootstrap.ts` imports `SETTINGS` from this module. Reviewer's premise is false.
 
 - **Classification**: `disagreement`
 - **Rationale**: `Reviewer says the export is unused, but src/app/bootstrap.ts imports SETTINGS from this module.`

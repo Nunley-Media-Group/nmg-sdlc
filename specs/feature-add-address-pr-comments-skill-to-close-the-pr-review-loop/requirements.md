@@ -9,7 +9,7 @@
 
 ## User Story
 
-**As a** developer using Claude Code or an automated SDLC runner
+**As a** developer using Codex or an automated SDLC runner
 **I want** a local slash-command skill that reads the automated reviewer's unresolved threads on a PR, applies fixes via `/write-code` + `/verify-code`, and loops until the PR is review-clean
 **So that** PR review findings are addressed without manually switching tools or copying comments into a new session
 
@@ -17,7 +17,7 @@
 
 ## Background
 
-The SDLC pipeline currently ends at `/open-pr`. Step 7 of `/open-pr` optionally monitors CI and auto-merges, but it explicitly stops before any reviewer comments are posted — see `skills/open-pr/references/ci-monitoring.md`. The GitHub Claude Code app posts an automated review on every PR with actionable findings (e.g., `reply:` suggestions, bug reports, nit comments). Today those are addressed manually: read the review, open the changed files, apply each fix, push, wait for the re-review, repeat.
+The SDLC pipeline currently ends at `/open-pr`. Step 7 of `/open-pr` optionally monitors CI and auto-merges, but it explicitly stops before any reviewer comments are posted — see `skills/open-pr/references/ci-monitoring.md`. The GitHub Codex app posts an automated review on every PR with actionable findings (e.g., `reply:` suggestions, bug reports, nit comments). Today those are addressed manually: read the review, open the changed files, apply each fix, push, wait for the re-review, repeat.
 
 This skill closes the loop locally. It reads unresolved review threads from the automated reviewer via the GitHub GraphQL API, classifies each one, composes fixes through the existing `/write-code` and `/verify-code` sub-skills, replies to the thread, resolves the thread, and re-polls until the PR shows no `CHANGES_REQUESTED` reviews and no unresolved threads. It sits one position after `/open-pr` in the pipeline.
 
@@ -60,9 +60,9 @@ This skill closes the loop locally. It reads unresolved review threads from the 
 **Given** one or more unresolved reviewer threads
 **When** each thread is evaluated
 **Then** each is classified as exactly one of:
-- `clear-fix` — the comment text names a specific file/line, the requested change is unambiguous, and Claude can execute it without further clarification
+- `clear-fix` — the comment text names a specific file/line, the requested change is unambiguous, and Codex can execute it without further clarification
 - `ambiguous` — the intent is unclear, multiple valid approaches exist, or the comment requests a decision the spec has not made
-- `disagreement` — after reading the current code, Claude assesses the comment as incorrect (false positive, based on a misreading, or already addressed)
+- `disagreement` — after reading the current code, Codex assesses the comment as incorrect (false positive, based on a misreading, or already addressed)
 
 **And** the classification rationale (one sentence) is retained in memory so it can be surfaced in the reply body (AC8) and in the escalation sentinel (AC10)
 
@@ -91,18 +91,18 @@ This skill closes the loop locally. It reads unresolved review threads from the 
 ### AC9: Ambiguous or Disagreement in Interactive Mode
 
 **Given** a thread classified as `ambiguous` or `disagreement`
-**And** `.claude/unattended-mode` does NOT exist
+**And** `.codex/unattended-mode` does NOT exist
 **When** the skill processes the thread
-**Then** `AskUserQuestion` is called with the thread text, the classification, Claude's rationale, and three options: `Fix it anyway` / `Skip — leave unresolved` / `Reply without fixing`
+**Then** `interactive prompt` is called with the thread text, the classification, Codex's rationale, and three options: `Fix it anyway` / `Skip — leave unresolved` / `Reply without fixing`
 **And** the user's selection drives the outcome: `Fix it anyway` re-runs the clear-fix flow (AC6–AC8), `Skip` leaves the thread unresolved and records it in the skipped-set (see AC12), `Reply without fixing` posts a reply explaining why no change is being made and leaves the thread unresolved (the human reviewer decides whether to resolve)
 
 ### AC10: Ambiguous or Disagreement in Unattended Mode
 
 **Given** a thread classified as `ambiguous` or `disagreement`
-**And** `.claude/unattended-mode` exists
+**And** `.codex/unattended-mode` exists
 **When** the skill processes the thread
 **Then** the skill prints an escalation sentinel line matching `^ESCALATION: address-pr-comments — ` followed by the PR number, thread node ID, classification, and one-sentence rationale
-**And** `AskUserQuestion` is NOT called
+**And** `interactive prompt` is NOT called
 **And** the thread is added to the skipped-set (AC12) and left unresolved; the loop continues to the next thread
 
 ### AC11: Push After Each Round
@@ -132,7 +132,7 @@ This skill closes the loop locally. It reads unresolved review threads from the 
 
 **Given** any push invocation inside the skill (per-round push, retry, or final push)
 **When** the push command is built
-**Then** only `git push` is used — `--force`, `--force-with-lease`, and `--force-if-includes` are never passed, regardless of interactive vs unattended mode, regardless of push-rejection reason, and regardless of any user selection in `AskUserQuestion`
+**Then** only `git push` is used — `--force`, `--force-with-lease`, and `--force-if-includes` are never passed, regardless of interactive vs unattended mode, regardless of push-rejection reason, and regardless of any user selection in `interactive prompt`
 
 ### AC15: Unattended-Mode Livelock Guard
 
@@ -175,7 +175,7 @@ Feature: /address-pr-comments skill
   Scenario: Ambiguous thread in interactive mode prompts user
     Given an ambiguous thread and no unattended sentinel
     When the skill processes it
-    Then AskUserQuestion is called with Fix / Skip / Reply-without-fixing options
+    Then interactive prompt is called with Fix / Skip / Reply-without-fixing options
 
   Scenario: Disagreement thread in unattended mode escalates
     Given a disagreement thread and the unattended sentinel present
@@ -277,7 +277,7 @@ Feature: /address-pr-comments skill
 
 ## Open Questions
 
-- [ ] Which automated-reviewer logins should be in the default allow-list (FR10)? The issue mentions the GitHub Claude Code app — does it post as `claude[bot]`, `github-actions[bot]`, or a custom login? The skill must be authored to read this from a per-project config (e.g., a value in `steering/tech.md`), not hardcode it.
+- [ ] Which automated-reviewer logins should be in the default allow-list (FR10)? The issue mentions the GitHub Codex app — does it post as `codex[bot]`, `github-actions[bot]`, or a custom login? The skill must be authored to read this from a per-project config (e.g., a value in `steering/tech.md`), not hardcode it.
 - [ ] When `/write-code` or `/verify-code` themselves escalate (e.g., unattended-mode spec-missing escalation), does this skill treat that as "postcondition failed → escalate this thread" (AC7 path) or a hard exit? Current draft treats it as per-thread escalation, not a hard exit, because the PR may have other threads that remain fixable.
 - [ ] Should the skill leave a final summary comment on the PR (outside any thread) enumerating resolved vs. skipped threads, or is thread-level replies sufficient? Current draft: thread-level only.
 

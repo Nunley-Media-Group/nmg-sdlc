@@ -1,9 +1,9 @@
-# Defect Report: AskUserQuestion called instead of escalation when specs missing in unattended-mode
+# Defect Report: interactive prompt called instead of escalation when specs missing in unattended-mode
 
 **Issues**: #85
 **Date**: 2026-02-24
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-write-code-skill/`
 
@@ -13,12 +13,12 @@
 
 ### Steps to Reproduce
 
-1. Set up `.claude/unattended-mode` in the project directory
+1. Set up `.codex/unattended-mode` in the project directory
 2. Start work on an issue without running `/write-spec` first
 3. SDLC runner invokes `/write-code #N` (step 4 — code)
 4. The skill reaches Step 2 ("Read Specs"), finds no spec files
-5. The skill calls `AskUserQuestion` to suggest running `/write-spec #N` first
-6. In headless mode, the `AskUserQuestion` prompt goes nowhere and the session hangs
+5. The skill calls `interactive prompt` to suggest running `/write-spec #N` first
+6. In headless mode, the `interactive prompt` prompt goes nowhere and the session hangs
 
 ### Environment
 
@@ -26,8 +26,8 @@
 |--------|-------|
 | **OS / Platform** | Any (cross-platform) |
 | **Version / Commit** | nmg-sdlc v1.27.2 |
-| **Browser / Runtime** | Claude Code CLI (headless via `claude -p`) |
-| **Configuration** | `.claude/unattended-mode` present; no spec files at `specs/` |
+| **Browser / Runtime** | Codex CLI (headless via `codex exec --cd`) |
+| **Configuration** | `.codex/unattended-mode` present; no spec files at `specs/` |
 
 ### Frequency
 
@@ -39,13 +39,13 @@ Always — 100% reproducible when specs are missing and unattended-mode is activ
 
 | | Description |
 |---|-------------|
-| **Expected** | When specs are missing and `.claude/unattended-mode` exists, the skill outputs an escalation message (e.g., "No specs found... Done. Awaiting orchestrator.") and exits cleanly, allowing the runner's bounce-back mechanism to retry the previous step (write-spec) |
-| **Actual** | The skill calls `AskUserQuestion` regardless of unattended-mode, causing the headless session to hang on a prompt that will never be answered |
+| **Expected** | When specs are missing and `.codex/unattended-mode` exists, the skill outputs an escalation message (e.g., "No specs found... Done. Awaiting orchestrator.") and exits cleanly, allowing the runner's bounce-back mechanism to retry the previous step (write-spec) |
+| **Actual** | The skill calls `interactive prompt` regardless of unattended-mode, causing the headless session to hang on a prompt that will never be answered |
 
 ### Error Output
 
 ```
-No error output — the session hangs indefinitely waiting for AskUserQuestion input.
+No error output — the session hangs indefinitely waiting for interactive prompt input.
 Eventually the runner's per-step timeout fires and kills the session.
 ```
 
@@ -58,17 +58,17 @@ Eventually the runner's per-step timeout fires and kills the session.
 ### AC1: Escalation message in unattended-mode when specs are missing
 
 **Given** specs are missing for the target issue (no spec directory or missing files)
-**And** `.claude/unattended-mode` exists in the project directory
+**And** `.codex/unattended-mode` exists in the project directory
 **When** `/write-code` is invoked
 **Then** the skill outputs an escalation message ending with "Done. Awaiting orchestrator."
-**And** the skill does NOT call `AskUserQuestion`
+**And** the skill does NOT call `interactive prompt`
 
 ### AC2: Interactive prompt preserved when unattended-mode is absent
 
 **Given** specs are missing for the target issue
-**And** `.claude/unattended-mode` does NOT exist in the project directory
+**And** `.codex/unattended-mode` does NOT exist in the project directory
 **When** `/write-code` is invoked
-**Then** the skill calls `AskUserQuestion` to prompt the user to run `/write-spec #N` first
+**Then** the skill calls `interactive prompt` to prompt the user to run `/write-spec #N` first
 **And** no escalation message is output
 
 ### AC3: Escalation message contains actionable context
@@ -85,16 +85,16 @@ Eventually the runner's per-step timeout fires and kills the session.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Check for `.claude/unattended-mode` before calling `AskUserQuestion` on the missing-specs error path | Must |
+| FR1 | Check for `.codex/unattended-mode` before calling `interactive prompt` on the missing-specs error path | Must |
 | FR2 | Output escalation message in runner-compatible format (ending with "Done. Awaiting orchestrator.") when unattended-mode is active and specs are missing | Must |
-| FR3 | Preserve existing interactive `AskUserQuestion` behavior when unattended-mode is absent | Must |
+| FR3 | Preserve existing interactive `interactive prompt` behavior when unattended-mode is absent | Must |
 
 ---
 
 ## Out of Scope
 
 - Automatically running `/write-spec` as a recovery step within the skill
-- Adding unattended-mode checks to other `AskUserQuestion` calls in the skill (the skill's Unattended Mode section already documents the global unattended-mode contract; only this specific missing-specs error path is affected)
+- Adding unattended-mode checks to other `interactive prompt` calls in the skill (the skill's Unattended Mode section already documents the global unattended-mode contract; only this specific missing-specs error path is affected)
 - Changes to the runner's precondition validation or bounce-back logic
 
 ---

@@ -3,7 +3,7 @@
 **Issues**: #9
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -80,7 +80,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T002
 **Status**: Complete
 **Acceptance**:
-- [x] Hook is loaded by Claude Code when plugin is installed
+- [x] Hook is loaded by Codex when plugin is installed
 - [x] Hook fires on Write and Edit tool calls
 - [x] Command gate correctly short-circuits when no specs exist
 

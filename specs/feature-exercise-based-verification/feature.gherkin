@@ -39,20 +39,20 @@ Feature: Exercise-Based Verification for Plugin Projects
 
   Scenario: Exercise changed skill via Agent SDK
     Given a test project has been scaffolded
-    And the Claude Agent SDK is available
+    And the Codex Agent SDK is available
     When the changed skill is exercised
     Then it is invoked via the Agent SDK with canUseTool callback
     And the plugin is loaded from the local plugins directory
     And the working directory is set to the test project path
-    And AskUserQuestion calls receive programmatic first-option answers
+    And interactive prompt calls receive programmatic first-option answers
     And output is captured for evaluation
 
-  Scenario: Fallback to claude -p when Agent SDK unavailable
+  Scenario: Fallback to codex exec --cd when Agent SDK unavailable
     Given a test project has been scaffolded
-    And the Claude Agent SDK is not available
+    And the Codex Agent SDK is not available
     When exercise testing attempts to run
-    Then claude -p is used with --disallowedTools AskUserQuestion
-    And --append-system-prompt instructs reasonable default choices
+    Then codex exec --cd is used with 
+    And prompt suffix instructs reasonable default choices
     And the verification report notes that only the non-interactive path was tested
 
   # --- Dry-Run for GitHub Skills ---
@@ -81,7 +81,7 @@ Feature: Exercise-Based Verification for Plugin Projects
     Then it includes an Exercise Test Results section
     And the section documents which skill was exercised
     And the section documents the exercise method used
-    And the section documents AskUserQuestion handling
+    And the section documents interactive prompt handling
     And the section includes captured output summary
     And the section includes AC evaluation results with verdicts
 
@@ -95,8 +95,8 @@ Feature: Exercise-Based Verification for Plugin Projects
 
   # --- Error Handling ---
 
-  Scenario: Graceful degradation when claude CLI not available
-    Given neither the Agent SDK nor the claude CLI is available
+  Scenario: Graceful degradation when Codex CLI not available
+    Given neither the Agent SDK nor the Codex CLI is available
     When the exercise step attempts to run
     Then exercise testing is skipped
     And the verification report notes the skip reason

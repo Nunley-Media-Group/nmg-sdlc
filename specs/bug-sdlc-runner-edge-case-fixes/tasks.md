@@ -3,7 +3,7 @@
 **Issue**: #51
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -11,18 +11,18 @@
 
 | Task | Description | Status |
 |------|-------------|--------|
-| T001 | Fix F1: Assign `currentProcess` in `runClaude()` | [ ] |
+| T001 | Fix F1: Assign `currentProcess` in `runCodex()` | [ ] |
 | T002 | Fix F2: Replace `Atomics.wait()` with `await sleep()` | [ ] |
 | T003 | Fix F3: Use `shellEscape()` in `autoCommitIfDirty` | [ ] |
 | T004 | Fix F4: Wrap merged-PR checkout in try-catch | [ ] |
 | T005 | Fix F5: Log warning on `--resume` with missing state file | [ ] |
-| T006 | Fix F6: Remove unused `AbortController` from `runClaude()` | [ ] |
+| T006 | Fix F6: Remove unused `AbortController` from `runCodex()` | [ ] |
 | T007 | Add regression tests for all fixes | [ ] |
 | T008 | Verify no regressions in existing tests | [ ] |
 
 ---
 
-### T001: Fix F1 — Assign `currentProcess` in `runClaude()`
+### T001: Fix F1 — Assign `currentProcess` in `runCodex()`
 
 **File(s)**: `scripts/sdlc-runner.mjs`
 **Type**: Modify
@@ -85,7 +85,7 @@
 
 **Notes**: This is the branch where `RESUME` is true but no state file exists on disk. The `detected` object comes from git/filesystem probing, not the state file.
 
-### T006: Fix F6 — Remove unused `AbortController` from `runClaude()`
+### T006: Fix F6 — Remove unused `AbortController` from `runCodex()`
 
 **File(s)**: `scripts/sdlc-runner.mjs`
 **Type**: Modify
@@ -105,12 +105,12 @@
 **Depends**: T001, T002, T003, T004, T005, T006
 **Acceptance**:
 - [ ] New `describe('Edge case fixes (issue #51)')` block added to existing test file
-- [ ] Test for F1: Mock `spawn` to return a process object; call `runClaude()`; assert `currentProcess` is set during execution and cleared after close event fires
+- [ ] Test for F1: Mock `spawn` to return a process object; call `runCodex()`; assert `currentProcess` is set during execution and cleared after close event fires
 - [ ] Test for F2: Read source of the status-notification retry path; assert no `Atomics.wait` usage (source grep or behavioral: verify event loop is not blocked during retry)
 - [ ] Test for F3: Call `autoCommitIfDirty` with a message containing `$(dangerous)`; assert the `git commit` command uses single-quote escaping via `shellEscape()` (inspect `mockExecSync` call args)
 - [ ] Test for F4: Mock `git checkout main` to throw (simulating dirty worktree); call `detectAndHydrateState()` when PR is merged; assert it returns `null` instead of throwing, and a warning is logged
 - [ ] Test for F5: Set `RESUME=true` via `__test__.setConfig`; ensure state file doesn't exist; run the resume path; assert `log()` was called with a warning about missing state file
-- [ ] Test for F6: Mock `spawn`; call `runClaude()`; assert `spawn` was called without a `signal` option in its third argument
+- [ ] Test for F6: Mock `spawn`; call `runCodex()`; assert `spawn` was called without a `signal` option in its third argument
 - [ ] All new tests pass: `npm test` in `scripts/`
 
 **Notes**: Uses the existing Jest ESM mock infrastructure (`mockExecSync`, `mockSpawn`, `mockFs`, `__test__` helpers). Each Gherkin scenario from `feature.gherkin` maps to one or more Jest `it()` blocks.

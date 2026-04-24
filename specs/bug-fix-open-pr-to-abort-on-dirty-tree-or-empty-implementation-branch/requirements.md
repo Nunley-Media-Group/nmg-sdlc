@@ -25,7 +25,7 @@
 |--------|-------|
 | **OS / Platform** | macOS / Linux / Windows (platform-independent — the bug is in prompt logic) |
 | **Version / Commit** | nmg-sdlc 1.55.0 and prior |
-| **Runtime** | Claude Code (interactive) + SDLC runner (unattended) |
+| **Runtime** | Codex (interactive) + SDLC runner (unattended) |
 | **Configuration** | Any project with `VERSION` present; both modes affected |
 
 ### Frequency
@@ -68,7 +68,7 @@ None — the bug manifests as silent success. The PR for issue #86 landed with 3
 
 ### AC3: SDLC Runtime Artifacts Are Filtered Before Cleanliness Evaluation
 
-**Given** the only dirty files in `git status --porcelain` output are `.claude/sdlc-state.json` and/or `.claude/unattended-mode`
+**Given** the only dirty files in `git status --porcelain` output are `.codex/sdlc-state.json` and/or `.codex/unattended-mode`
 **When** the dirty-tree check runs in Step 1
 **Then** those lines are filtered out before the cleanliness predicate is evaluated (mirroring the filter in `skills/start-issue/references/dirty-tree.md`)
 **And** the dirty-tree check passes
@@ -76,11 +76,11 @@ None — the bug manifests as silent success. The PR for issue #86 landed with 3
 
 ### AC4: Unattended-Mode Escalation for Both Preflight Failures
 
-**Given** `.claude/unattended-mode` exists
+**Given** `.codex/unattended-mode` exists
 **And** either the AC1 (dirty tree) or AC2 (empty branch) condition fires
 **When** the Step 1 preflight gate triggers
 **Then** the skill prints `ESCALATION: open-pr — {diagnostic}` (where `{diagnostic}` is the condition-specific message) and exits non-zero
-**And** does NOT call `AskUserQuestion`
+**And** does NOT call `interactive prompt`
 **And** does NOT read or modify `VERSION`, `CHANGELOG.md`, or any stack-specific version file
 
 ---
@@ -89,10 +89,10 @@ None — the bug manifests as silent success. The PR for issue #86 landed with 3
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Add a dirty-tree preflight check to `/open-pr` Step 1 that mirrors the filter in `skills/start-issue/references/dirty-tree.md` (filter `.claude/sdlc-state.json` and `.claude/unattended-mode`, then fail on non-empty output). | Must |
+| FR1 | Add a dirty-tree preflight check to `/open-pr` Step 1 that mirrors the filter in `skills/start-issue/references/dirty-tree.md` (filter `.codex/sdlc-state.json` and `.codex/unattended-mode`, then fail on non-empty output). | Must |
 | FR2 | Add an empty-branch check to `/open-pr` Step 1 that aborts when `git log main..HEAD --oneline` contains no commits whose subject does not match `^chore: bump version`. | Must |
 | FR3 | Both checks must run and fail fast **before** any read or write of `VERSION`, `CHANGELOG.md`, or stack-specific version files (i.e., before Step 2). | Must |
-| FR4 | Unattended mode escalates both failures via a single-line `ESCALATION: open-pr — {diagnostic}` sentinel and exits non-zero without calling `AskUserQuestion`. | Must |
+| FR4 | Unattended mode escalates both failures via a single-line `ESCALATION: open-pr — {diagnostic}` sentinel and exits non-zero without calling `interactive prompt`. | Must |
 | FR5 | The dirty-tree filter is implemented by reusing `skills/start-issue/references/dirty-tree.md` (via a shared reference or by extracting the filter into a plugin-shared reference), rather than duplicating the runtime-artifact list inline in `open-pr`. | Should |
 
 ---

@@ -26,10 +26,10 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
 2. **Collect research context**:
    - The full issue body (Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol).
    - `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-3. **Idempotency check**: `Glob` for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
+3. **Idempotency check**: file discovery for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
    - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `/write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
    - No match → proceed to step 4.
-4. **Invoke the researcher**: spawn `agents/spike-researcher.md` via the `Task` tool with:
+4. **Run the research pass**: perform the research inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
    - Output contract: the structured markdown block defined in `agents/spike-researcher.md` § Output.
 5. **Receive the research output**.
@@ -46,7 +46,7 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
 
 ## Human Review Gate menu (interactive)
 
-Call `request_user_input` with three options — the HRG decides how the research output flows into GitHub:
+Call interactive user prompt with three options — the HRG decides how the research output flows into GitHub:
 
 ```
 question: "Phase 0 research complete. Choose a scope shape:"
@@ -76,7 +76,7 @@ options:
 
 ## Unattended deterministic default
 
-Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call `request_user_input` — apply the default below and emit a one-line divergence note.
+Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call interactive user prompt — apply the default below and emit a one-line divergence note.
 
 | `component-count` (from researcher output) | Default scope shape |
 |---|---|
@@ -107,6 +107,6 @@ The ADR is the sole deliverable of `/write-spec` on a spike issue. Any child iss
 
 - `references/umbrella-mode.md` — umbrella and child issue conventions (triggered by HRG option [2]).
 - `../../references/unattended-mode.md` — deterministic-default gate semantics (governs the HRG in headless runs).
-- `agents/spike-researcher.md` — the Phase 0 research subagent, including the structured output contract this file consumes.
+- `agents/spike-researcher.md` — the Phase 0 research prompt contract, including the structured output contract this file consumes.
 - `skills/open-pr/references/version-bump.md` § Spike handling — the label-driven version-bump skip that matches this variant.
 - `steering/tech.md` § Version Bump Classification — the `spike → skip` row that declares the version policy.

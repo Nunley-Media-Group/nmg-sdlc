@@ -10,7 +10,7 @@ This reference documents how the skill fetches a design archive, decodes its pay
 Reuses the same flow as `/onboard-project` §2G.1 to avoid drift.
 
 1. **Validate URL is HTTPS.** If not, log `"Design URL rejected (non-HTTPS)"`, set `session.designContext = null`, set `session.designFailureNote = "non-HTTPS URL"`, and continue to Step 1b.
-2. **Fetch** via `WebFetch` with a 15s default timeout.
+2. **Fetch** via Codex web browsing with a 15s default timeout.
 3. **Decode**: if the response indicates gzip (content-type `application/gzip` / `application/x-gzip` OR magic bytes `1f 8b` at offset 0), decode via:
    ```
    Bash(node -e "process.stdout.write(require('node:zlib').gunzipSync(Buffer.from(process.argv[1],'base64')).toString())" "<base64>")

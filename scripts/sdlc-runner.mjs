@@ -519,7 +519,7 @@ function extractResultFromStream(streamOutput) {
       if (parsed.type === 'result') return parsed;
     } catch { /* skip non-JSON lines */ }
   }
-  // Fallback: try parsing as single JSON (legacy --output-format json)
+  // Fallback: try parsing as a single JSON object.
   try {
     return JSON.parse(streamOutput);
   } catch { /* not valid JSON */ }
@@ -967,8 +967,8 @@ function buildCodexArgs(step, state, overrides = {}) {
       `Run the simplify pass over files changed on branch ${branch} for issue #${issue}.`,
       ``,
       `1. Probe for the simplify skill. Treat it as available if ANY of these is true:`,
-      `   - Glob finds ~/.codex/skills/simplify/SKILL.md`,
-      `   - Glob finds ~/.codex/plugins/**/skills/simplify/SKILL.md`,
+      `   - file discovery finds ~/.codex/skills/simplify/SKILL.md`,
+      `   - file discovery finds ~/.codex/plugins/**/skills/simplify/SKILL.md`,
       `   - The available-skills list in your system reminder advertises a skill named "simplify" (or "*:simplify")`,
       `2. If NOT available, print the following line verbatim and exit with code 0:`,
       `   simplify skill not available — skipping simplification pass`,
@@ -1042,8 +1042,7 @@ function buildCodexArgs(step, state, overrides = {}) {
     'exec',
     '--model', overrides.model || MODEL,
     '--cd', PROJECT_PATH,
-    '--sandbox', 'workspace-write',
-    '--ask-for-approval', 'never',
+    '--full-auto',
     '--json',
   ];
 
@@ -1187,8 +1186,9 @@ function matchErrorPattern(output) {
 // Soft failure detection (exit code 0 but step did not succeed)
 // ---------------------------------------------------------------------------
 
-// Tools that are benign when denied — the model attempted them but recovered.
-// These should NOT trigger soft failure escalation.
+// Legacy tool names that are benign when denied — older cached plugin
+// versions may still attempt them but recover. These should NOT trigger soft
+// failure escalation.
 const BENIGN_DENIED_TOOLS = new Set(['request_user_input', 'plan approval']);
 
 // OS temp directory — resolved once at startup. Permission denials targeting

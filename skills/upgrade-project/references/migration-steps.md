@@ -8,7 +8,7 @@ Read `../../references/unattended-mode.md` when applying solo renames automatica
 
 Identify spec directories that use the legacy `{issue#}-{slug}` naming convention and need migration to `feature-{slug}` or `bug-{slug}`.
 
-1. Run `Glob` for `specs/*/requirements.md` to list all spec directories.
+1. Run file discovery for `specs/*/requirements.md` to list all spec directories.
 2. For each spec directory, classify by naming pattern:
    - **Legacy**: directory name matches `{digits}-{slug}` pattern (e.g., `42-add-dark-mode`, `71-dark-mode-toggle`).
    - **New**: directory name starts with `feature-` or `bug-` prefix.
@@ -42,12 +42,12 @@ For each group (and solo migration candidates):
 
 **If `.codex/unattended-mode` exists:**
 
-- **Solo renames** (type `"rename"` or `"rename-bug"` — single directory → `feature-{slug}/` or `bug-{slug}/`): non-destructive. Execute the rename automatically — proceed to Step 4e to apply `git mv`, frontmatter updates, and cross-reference updates without `request_user_input`. Do NOT record solo renames as skipped operations.
-- **Consolidation groups** (type `"consolidation"` — multiple directories merged into one): destructive. Skip `request_user_input` and record each group as a skipped operation (affected paths: source directories, reason: `"Destructive operation requires interactive approval"`).
+- **Solo renames** (type `"rename"` or `"rename-bug"` — single directory → `feature-{slug}/` or `bug-{slug}/`): non-destructive. Execute the rename automatically — proceed to Step 4e to apply `git mv`, frontmatter updates, and cross-reference updates without interactive user prompt. Do NOT record solo renames as skipped operations.
+- **Consolidation groups** (type `"consolidation"` — multiple directories merged into one): destructive. Skip interactive user prompt and record each group as a skipped operation (affected paths: source directories, reason: `"Destructive operation requires interactive approval"`).
 
 After processing all groups, proceed to Step 4f.
 
-**If `.codex/unattended-mode` does NOT exist:** Use `request_user_input` for each group:
+**If `.codex/unattended-mode` does NOT exist:** Use interactive user prompt for each group:
 
 - Option 1: `"Consolidate into feature-{slug}/"` (or `"Rename to feature-{slug}/"` / `"Rename to bug-{slug}/"` for solo specs).
 - Option 2: `"Skip — leave as-is"`.
@@ -63,14 +63,14 @@ For each approved group or solo rename:
 3. **Merge `design.md`**: Start with the oldest spec's design as base. Append unique sections from other specs. Update `**Issues**` frontmatter.
 4. **Merge `tasks.md`**: Start with the oldest spec's tasks as base. Append tasks from other specs with renumbered IDs. Mark tasks from already-implemented specs as completed. Update Summary table.
 5. **Merge `feature.gherkin`**: Concatenate all scenarios. Tag appended scenarios with `# From issue #N` comments.
-6. **Update defect spec cross-references**: Run `Grep` across all spec directories (both already-renamed `bug-*/` and not-yet-renamed `{issue#}-*/`) for `**Related Spec**` fields pointing to any consolidated or renamed legacy directory. Filter to defect specs by checking for `# Defect Report:` heading. Update those fields to point to the new `feature-{slug}/` directory. Follow chain resolution through intermediate defect specs (maintaining a visited set for cycle detection).
+6. **Update defect spec cross-references**: Run text search across all spec directories (both already-renamed `bug-*/` and not-yet-renamed `{issue#}-*/`) for `**Related Spec**` fields pointing to any consolidated or renamed legacy directory. Filter to defect specs by checking for `# Defect Report:` heading. Update those fields to point to the new `feature-{slug}/` directory. Follow chain resolution through intermediate defect specs (maintaining a visited set for cycle detection).
 7. **Remove legacy directories** after successful merge.
 
 ### Solo feature rename (single legacy spec → `feature-{slug}`)
 
 1. Rename the directory using `git mv`: `git mv specs/{issue#}-{slug}/ specs/feature-{slug}/`.
 2. Update frontmatter in `requirements.md`, `design.md`, and `tasks.md`: replace `**Issue**: #N` with `**Issues**: #N`.
-3. Update defect spec cross-references: Run `Grep` across all `specs/*/requirements.md` files for `**Related Spec**` fields containing the old path. For each match, verify it is a defect spec (check for `# Defect Report:` first heading) and `Edit` the field to point to `specs/feature-{slug}/`. Then follow chain resolution: for each updated defect spec, check whether other defect specs have `**Related Spec**` fields pointing to IT, and update those as well. Maintain a visited set to prevent circular traversal.
+3. Update defect spec cross-references: Run text search across all `specs/*/requirements.md` files for `**Related Spec**` fields containing the old path. For each match, verify it is a defect spec (check for `# Defect Report:` first heading) and Codex editing the field to point to `specs/feature-{slug}/`. Then follow chain resolution: for each updated defect spec, check whether other defect specs have `**Related Spec**` fields pointing to IT, and update those as well. Maintain a visited set to prevent circular traversal.
 
 ### Solo bug rename (single legacy bug spec → `bug-{slug}`)
 
@@ -82,7 +82,7 @@ For each approved group or solo rename:
 
 After consolidation (or independently, for feature specs that already use `feature-` naming but retain old frontmatter):
 
-1. Run `Glob` for `specs/feature-*/requirements.md`, `specs/feature-*/design.md`, `specs/feature-*/tasks.md`.
+1. Run file discovery for `specs/feature-*/requirements.md`, `specs/feature-*/design.md`, `specs/feature-*/tasks.md`.
 2. For each file, read the first 15 lines and check:
    - Is the first `# ` heading a **feature variant** (`# Requirements:`, `# Design:`, `# Tasks:`)? If `# Defect Report:` or `# Root Cause Analysis:`, skip — defect specs keep singular `**Issue**`.
    - Does the file contain `**Issue**: #` (singular) instead of `**Issues**: #` (plural)?
@@ -90,7 +90,7 @@ After consolidation (or independently, for feature specs that already use `featu
 3. For files with singular `**Issue**`: propose replacing `**Issue**: #N` with `**Issues**: #N`.
 4. For files missing `## Change History`: propose adding the section before `## Validation Checklist` with a single entry: `| #N | [original date from **Date** field] | Initial feature spec |`.
 5. Present findings alongside other migration proposals in Step 8.
-6. Apply on user confirmation using `Edit`.
+6. Apply on user confirmation using Codex editing.
 
 This step runs on ALL feature-variant specs in `feature-*/` directories, catching specs that were created by newer `/write-spec` but somehow have stale frontmatter, renamed from legacy directories but not yet updated, or already in the new naming convention from a prior partial migration.
 

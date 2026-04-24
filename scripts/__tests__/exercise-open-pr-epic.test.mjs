@@ -46,8 +46,7 @@ async function runSkill({ cwd, prompt }) {
   const proc = spawnSync('codex', [
     'exec',
     '--cd', cwd,
-    '--sandbox', 'workspace-write',
-    '--ask-for-approval', 'never',
+    '--full-auto',
     prompt,
   ], { encoding: 'utf8' });
 

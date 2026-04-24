@@ -3,15 +3,15 @@
 **Issue**: #49
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The exercise testing reference document (`exercise-testing.md`) instructs the verifying agent to **prepend** dry-run instructions before the skill invocation in the exercise prompt. For skills with `disable-model-invocation: true` in their frontmatter, Claude Code relies on seeing `/{skill-name}` at the very start of the prompt to recognize it as a direct skill invocation. When arbitrary text precedes the `/`, the model treats the entire prompt as a conversational request and improvises rather than loading the skill.
+The exercise testing reference document (`exercise-testing.md`) instructs the verifying agent to **prepend** dry-run instructions before the skill invocation in the exercise prompt. For skills with `minimal Codex frontmatter` in their frontmatter, Codex relies on seeing `/{skill-name}` at the very start of the prompt to recognize it as a direct skill invocation. When arbitrary text precedes the `/`, the model treats the entire prompt as a conversational request and improvises rather than loading the skill.
 
-Skills without `disable-model-invocation: true` are unaffected because the model proactively recognizes skill names anywhere in the prompt and calls the Skill tool. But when model invocation is disabled, only the leading `/{skill-name}` pattern triggers skill loading — the `disable-model-invocation` setting explicitly prevents the model from proactively calling the Skill tool based on context alone.
+Skills without `minimal Codex frontmatter` are unaffected because the model proactively recognizes skill names anywhere in the prompt and calls the Skill tool. But when model invocation is disabled, only the leading `/{skill-name}` pattern triggers skill loading — the `minimal Codex frontmatter` setting explicitly prevents the model from proactively calling the Skill tool based on context alone.
 
 The bug is in the prompt construction instructions, not in any executable code. The document tells the agent to "prepend the dry-run instructions below to the exercise prompt" (line 36), which produces: `"{dry-run-prefix}\n\n/{skill-name} {args}"`. The fix is to reverse the order: skill invocation first, dry-run instructions appended after.
 
@@ -25,9 +25,9 @@ The bug is in the prompt construction instructions, not in any executable code. 
 
 ### Triggering Conditions
 
-- The changed skill has `disable-model-invocation: true` in its SKILL.md frontmatter
+- The changed skill has `minimal Codex frontmatter` in its SKILL.md frontmatter
 - The skill is also GitHub-integrated (open-pr, draft-issue, start-issue), requiring dry-run mode
-- The intersection of these two conditions: currently only `open-pr` (which has both `disable-model-invocation: true` AND is GitHub-integrated)
+- The intersection of these two conditions: currently only `open-pr` (which has both `minimal Codex frontmatter` AND is GitHub-integrated)
 - The verifying agent follows the "prepend" instruction, placing dry-run text before `/{skill-name}`
 
 ---
@@ -43,7 +43,7 @@ Restructure the exercise prompt instructions in `exercise-testing.md` so that:
 3. The "Dry-run prefix" label is changed to "Dry-run suffix" (or similar) to reflect the new position
 4. The `{exercise-prompt}` definition on line 96 is updated to be a composite: `"/{skill-name} {args}\n\nIMPORTANT: {dry-run-instructions}"`
 
-This is a Markdown instruction change — no executable code is modified. The fix ensures Claude Code sees the `/{skill-name}` pattern at the prompt start, triggering skill loading regardless of `disable-model-invocation` settings.
+This is a Markdown instruction change — no executable code is modified. The fix ensures Codex sees the `/{skill-name}` pattern at the prompt start, triggering skill loading regardless of `minimal Codex frontmatter` settings.
 
 ### Changes
 
@@ -57,7 +57,7 @@ This is a Markdown instruction change — no executable code is modified. The fi
 
 - **Direct impact**: `plugins/nmg-sdlc/skills/verify-code/references/exercise-testing.md` — the single file being modified
 - **Indirect impact**: Any verification run that exercises a GitHub-integrated skill will use the new prompt structure. This affects the behavior of step 5c in `/verify-code` for `open-pr`, `draft-issue`, and `start-issue`.
-- **Risk level**: Low — the change only reorders text within the exercise prompt. Skills without `disable-model-invocation` will continue to work because they recognize skill invocations anywhere in the prompt. Skills with `disable-model-invocation` will now also work because the invocation is at the start.
+- **Risk level**: Low — the change only reorders text within the exercise prompt. Skills without `minimal Codex frontmatter` will continue to work because they recognize skill invocations anywhere in the prompt. Skills with `minimal Codex frontmatter` will now also work because the invocation is at the start.
 
 ---
 
@@ -65,9 +65,9 @@ This is a Markdown instruction change — no executable code is modified. The fi
 
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
-| Non-disable-model-invocation skills stop recognizing skill invocation after reorder | Very Low | These skills recognize `/{skill-name}` anywhere in the prompt — position doesn't matter. AC3 explicitly covers this. |
+| Non-minimal Codex frontmatter skills stop recognizing skill invocation after reorder | Very Low | These skills recognize `/{skill-name}` anywhere in the prompt — position doesn't matter. AC3 explicitly covers this. |
 | Dry-run instructions are ignored when appended after the skill invocation | Low | Prefixing with "IMPORTANT:" and placing on a separate paragraph ensures the model processes them as constraints. AC2 explicitly covers this. |
-| The `IMPORTANT:` prefix causes the model to prioritize dry-run over skill execution | Very Low | The skill invocation is processed first by Claude Code's skill loading mechanism (before the model sees the rest). The model only sees the dry-run text after the skill is already loaded. |
+| The `IMPORTANT:` prefix causes the model to prioritize dry-run over skill execution | Very Low | The skill invocation is processed first by Codex's skill loading mechanism (before the model sees the rest). The model only sees the dry-run text after the skill is already loaded. |
 
 ---
 
@@ -75,8 +75,8 @@ This is a Markdown instruction change — no executable code is modified. The fi
 
 | Option | Description | Why Not Selected |
 |--------|-------------|------------------|
-| Use `--append-system-prompt` for dry-run instructions | Put dry-run text in a system prompt instead of the user prompt | Would require different handling for Agent SDK vs `claude -p` paths; more complex with no additional benefit |
-| Remove dry-run mode entirely for disable-model-invocation skills | Skip dry-run and exercise without GitHub safety | Unacceptable — would create real GitHub resources during exercise testing |
+| Use `prompt suffix` for dry-run instructions | Put dry-run text in a system prompt instead of the user prompt | Would require different handling for Agent SDK vs `codex exec --cd` paths; more complex with no additional benefit |
+| Remove dry-run mode entirely for minimal Codex frontmatter skills | Skip dry-run and exercise without GitHub safety | Unacceptable — would create real GitHub resources during exercise testing |
 
 ---
 

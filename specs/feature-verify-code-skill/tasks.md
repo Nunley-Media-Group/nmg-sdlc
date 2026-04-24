@@ -3,7 +3,7 @@
 **Issues**: #7, #109
 **Date**: 2026-03-03
 **Status**: In Progress
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -77,7 +77,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: None
 **Status**: Complete
 **Acceptance**:
-- [x] Agent frontmatter with name, description, tools (Read, Glob, Grep)
+- [x] Agent frontmatter with name, description, tools (Read, file discovery, text search)
 - [x] Review process documented (map architecture, trace deps, evaluate checklists)
 - [x] Output format documented (category scores, issues, observations)
 
@@ -153,7 +153,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T002, T003
 **Status**: Complete
 **Acceptance**:
-- [x] Skill references architecture-reviewer via Task tool with correct subagent_type
+- [x] Skill references architecture-reviewer via Task tool with correct subagent role
 - [x] Agent's skills field references verify-code
 
 ---

@@ -3,7 +3,7 @@
 **Issues**: #41, #87, #139
 **Date**: 2026-04-19
 **Status**: Planning
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
@@ -67,7 +67,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: None
 **Acceptance**:
 - [ ] `VERSION` file exists at project root
-- [ ] Contains the current nmg-sdlc plugin version (read from `plugins/nmg-sdlc/.claude-plugin/plugin.json`)
+- [ ] Contains the current nmg-sdlc plugin version (read from `plugins/nmg-sdlc/.codex-plugin/plugin.json`)
 - [ ] File is plain text, single line, no trailing newline beyond what's standard
 - [ ] Version string is valid semver (X.Y.Z)
 
@@ -86,7 +86,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [ ] New Step 2b "Assign Milestone" exists after type classification (Step 2), before investigation (Step 3)
 - [ ] Step reads `VERSION` file to derive current major version as milestone default
 - [ ] Handles missing `VERSION` file gracefully (defaults to "v0" or skips milestone)
-- [ ] Manual mode: uses `AskUserQuestion` to present milestone options (default + custom number)
+- [ ] Manual mode: uses `interactive prompt` to present milestone options (default + custom number)
 - [ ] Accepts a single number input (e.g., "3") and normalizes to "v2"
 - [ ] Checks for existing milestone via `gh api repos/{owner}/{repo}/milestones`
 - [ ] Creates milestone via `gh api --method POST` if it doesn't exist
@@ -110,7 +110,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [ ] Applies classification matrix: `bug` → patch, `enhancement` → minor, default → minor
 - [ ] Calculates new version string (patch: x.y.Z+1, minor: x.Y+1.0)
 - [ ] Major bumps are available only via manual override in the confirmation prompt
-- [ ] Manual mode: presents classification to developer via `AskUserQuestion` with override options (Accept / Patch / Minor / Major)
+- [ ] Manual mode: presents classification to developer via `interactive prompt` with override options (Accept / Patch / Minor / Major)
 - [ ] Unattended-mode: applies classified bump without confirmation
 
 **Notes**: See design.md §2 Step 1b. Major bumps are manual-only — the developer overrides via the confirmation prompt.
@@ -195,8 +195,8 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Acceptance**:
 - [ ] `## Versioning` section added to this project's `tech.md`
 - [ ] Table declares stack-specific version files for this repo:
-  - `plugins/nmg-sdlc/.claude-plugin/plugin.json` → `version`
-  - `.claude-plugin/marketplace.json` → `plugins[0].version`
+  - `plugins/nmg-sdlc/.codex-plugin/plugin.json` → `version`
+  - `.codex-plugin/marketplace.json` → `plugins[0].version`
 - [ ] Section follows the same format as the template from T001
 - [ ] Existing `tech.md` content is unchanged
 
@@ -288,7 +288,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T012
 **Acceptance**:
 - [ ] Step 2 item 3 ("Apply the classification matrix") no longer contains an inline table
-- [ ] Instead, Step 2 item 3 instructs Claude to read `steering/tech.md`, find the `## Versioning` section, then the `### Version Bump Classification` subsection, and parse the table
+- [ ] Instead, Step 2 item 3 instructs Codex to read `steering/tech.md`, find the `## Versioning` section, then the `### Version Bump Classification` subsection, and parse the table
 - [ ] The instruction specifies: match issue labels against the Label column, use the corresponding Bump Type
 - [ ] Documents the fallback: if the subsection is missing, default to `bug` → patch, everything else → minor
 - [ ] The milestone completion override (Step 2 item 4) remains unchanged
@@ -338,12 +338,12 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: T014
 **Acceptance**:
-- [ ] Frontmatter `argument-hint` is `[#issue-number] [--major]`
+- [ ] Frontmatter `usage hint` is `[#issue-number] [--major]`
 - [ ] A new argument-parsing sub-step before Step 2 inspects invocation args and sets a `major_requested` flag when `--major` is present
-- [ ] If `.claude/unattended-mode` exists AND `major_requested` is true, the skill prints exactly `ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump` and exits immediately (no VERSION/CHANGELOG/stack-file writes, no PR)
+- [ ] If `.codex/unattended-mode` exists AND `major_requested` is true, the skill prints exactly `ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump` and exits immediately (no VERSION/CHANGELOG/stack-file writes, no PR)
 - [ ] Step 2.4 ("Check milestone completion") is deleted entirely — no `gh api ... open_issues` query, no major override
 - [ ] Step 2 "Calculate new version" honors `major_requested` (bumps major instead of the classified type) when set
-- [ ] Step 2 confirmation menu (`AskUserQuestion`) pre-selects Major as the recommended option when `major_requested` is set; still offers Patch / Minor / Major alternatives
+- [ ] Step 2 confirmation menu (`interactive prompt`) pre-selects Major as the recommended option when `major_requested` is set; still offers Patch / Minor / Major alternatives
 - [ ] Step 2 confirmation menu behavior is unchanged when `--major` is not supplied (classified type remains recommended)
 - [ ] Unattended-mode path without `--major` is unchanged — still applies classified bump silently
 - [ ] Subsequent step numbering remains consistent; any internal references to the deleted milestone step are removed
@@ -386,7 +386,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [ ] If the README is already clean (commit `ac7bab1` removed most of this language), the task closes with a note confirming no further change is required
 - [ ] No unrelated README edits
 
-**Notes**: Commit `ac7bab1` already dropped the milestone-completion row from the bump-type table and rewrote the `/open-pr` description. This task is an explicit audit to guarantee no stragglers remain (e.g., argument-hint language in skill overview sections).
+**Notes**: Commit `ac7bab1` already dropped the milestone-completion row from the bump-type table and rewrote the `/open-pr` description. This task is an explicit audit to guarantee no stragglers remain (e.g., usage hint language in skill overview sections).
 
 ### T021: Append Issue #139 Scenarios to BDD Feature File
 

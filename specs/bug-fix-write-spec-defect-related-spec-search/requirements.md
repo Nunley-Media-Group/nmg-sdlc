@@ -3,7 +3,7 @@
 **Issue**: #58
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-write-spec-skill/`
 
@@ -13,7 +13,7 @@
 
 ### Steps to Reproduce
 
-1. Have a bug issue for a component that was originally built from a feature spec (e.g., `cleanupProcesses()` from spec `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code`)
+1. Have a bug issue for a component that was originally built from a feature spec (e.g., `cleanupProcesses()` from spec `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex`)
 2. Run `/write-spec #N` on the bug issue
 3. Observe the **Related Spec** field in the generated `requirements.md`
 
@@ -54,7 +54,7 @@ Always — the agent has no search step, so it consistently defaults to N/A when
 **Example**:
 - Given: Issue #55 describes bugs in `cleanupProcesses()` and references `sdlc-runner.mjs`
 - When: The agent globs `specs/*/requirements.md` and greps for "cleanup" or "process" keywords
-- Then: It finds `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/requirements.md` as a match
+- Then: It finds `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/requirements.md` as a match
 
 ### AC2: Related Spec field is populated when a match is found
 
@@ -63,9 +63,9 @@ Always — the agent has no search step, so it consistently defaults to N/A when
 **Then** it populates the **Related Spec** field with the path to the matching spec directory
 
 **Example**:
-- Given: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/` exists and matches the bug's keywords
+- Given: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/` exists and matches the bug's keywords
 - When: The search finds this spec
-- Then: The **Related Spec** field is set to `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+- Then: The **Related Spec** field is set to `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ### AC3: No false linkage when no related spec exists
 

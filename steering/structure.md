@@ -47,7 +47,7 @@ nmg-sdlc/
 │       ├── references/           # discovery, amendment-mode, defect-variant, review-gates
 │       └── templates/            # Spec document templates
 ├── agents/
-│   └── architecture-reviewer.md  # Subagent for verification
+│   └── architecture-reviewer.md  # Prompt contract for optional verification delegation
 ├── scripts/                      # SDLC runner and tests
 │   ├── sdlc-runner.mjs           # Deterministic SDLC orchestrator
 │   ├── sdlc-config.example.json  # Config template
@@ -88,7 +88,7 @@ Plugin Package (repo root)
 └────────┬────────────────────────┘
          ↓ (used by)
 ┌─────────────────────────────────┐
-│  Agents (*.md)                  │ ← Specialized subagents (architecture review)
+│  Agents (*.md)                  │ ← Prompt contracts for optional Codex delegation
 └─────────────────────────────────┘
 
 SDLC Runner (scripts/) — automation layer
@@ -105,7 +105,7 @@ Codex sessions via `codex exec`
 | Plugin-shared references | Consolidate rules repeated across ≥ 2 skills (legacy-layout-gate, unattended-mode, feature-naming, versioning, steering-schema, spec-frontmatter); loaded on demand via pointer | Hold skill-specific workflow steps |
 | Per-skill references | Hold variant branches, extended examples, rarely-fired paths for a single skill; loaded on demand via pointer | Hold content other skills consume (that lives in plugin-shared references) |
 | Templates | Provide output structure for generated documents | Contain logic or conditionals |
-| Agents | Perform specialized analysis (architecture review) | Spawn subagents or use Task tool |
+| Agents | Provide reusable prompt contracts for optional built-in Codex subagent delegation | Act as installable plugin components or require delegation for normal skill execution |
 | Runner scripts | Orchestrate `codex exec` sessions deterministically | Contain SDLC logic (that lives in skills) |
 
 ---
@@ -236,19 +236,19 @@ These are hard contracts that must never be violated. `/verify-code` should flag
 
 | Invariant | Rationale | How to Verify |
 |-----------|-----------|---------------|
-| Skill-bundled files must be authored via `/skill-creator` | Codex plugin best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skill-bundled files drift. The bundle includes `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and per-skill subagent definitions under `agents/*.md` | Any new/modified file in the skill bundle must be produced through `/skill-creator` — flag direct edits in PR review. There is no hand-edit fallback when `/skill-creator` is unavailable; the workflow escalates and exits instead |
-| Skills must be stack-agnostic | Skills work across any project; project specifics live in steering docs | Grep skill content for hardcoded language/framework/tool names that aren't Codex tools |
+| Skill-bundled files must be authored via `/skill-creator` | Codex plugin best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skill-bundled files drift. The bundle includes `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and prompt contracts under `agents/*.md` | Any new/modified file in the skill bundle must be produced through `/skill-creator` — flag direct edits in PR review. There is no hand-edit fallback when `/skill-creator` is unavailable; the workflow escalates and exits instead |
+| Skills must be stack-agnostic | Skills work across any project; project specifics live in steering docs | text search skill content for hardcoded language/framework/tool names that aren't Codex tools |
 | One skill = one SDLC step | Each skill has a single, well-defined purpose in the pipeline | A skill's postconditions must be the preconditions of exactly one downstream skill |
 | Skills must reference steering docs for project context | Decouples workflow logic from project specifics | Skills say "reference `tech.md` for..." rather than embedding conventions directly |
-| Unattended-mode must be opt-in | Manual mode is the default; automation requires `.codex/unattended-mode` | Every `request_user_input` call must be guarded by unattended-mode check |
+| Unattended-mode must be opt-in | Manual mode is the default; automation requires `.codex/unattended-mode` | Every interactive user prompt call must be guarded by unattended-mode check |
 | Skill output feeds the next skill | The pipeline is a chain; each skill's output format is a contract | Verify output templates match the input expectations of downstream skills |
 
 ### Agent Contracts
 
 | Invariant | Rationale | How to Verify |
 |-----------|-----------|---------------|
-| Agents must not spawn subagents | `Task` tool is not available to agents | Agent `.md` files must not instruct use of `Task` tool |
-| Agents use only declared tools | Least-privilege access | `tools` frontmatter lists only what's needed (Read, Glob, Grep) |
+| Agents must not spawn subagents | Codex subagents should not recursively delegate unless explicitly designed for it | Agent `.md` files must not instruct nested subagent spawning |
+| Agents are prompt contracts | Codex plugins do not currently declare custom agents as plugin components; these Markdown files are reusable prompts consumed by skills when they spawn built-in Codex subagents | Agent `.md` files must not contain Codex-only frontmatter such as `tools` |
 | Agent output is structured | Parent skill must be able to parse agent results | Output section defines a predictable format |
 
 ### Version and Release Contracts
@@ -304,7 +304,7 @@ For skills that need GitHub resources (issues, PRs), either use a dedicated test
 |--------------|---------|----------|
 | Updating only stack-specific versions | Codex manifest becomes stale | Always update `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, and any declared stack-specific files |
 | Adding npm dependencies to scripts | Breaks zero-dependency portability | Use only Node.js built-in modules |
-| Nesting subagents in architecture-reviewer | Task tool not available to agents | Use Read/Glob/Grep directly |
+| Nesting subagents in architecture-reviewer | Recursive delegation increases cost and unpredictability | Use local file inspection and search directly |
 | Skipping [Unreleased] in CHANGELOG | Version history becomes inconsistent | Always add entries under [Unreleased] first |
 | Hardcoding project-specific details in skills | Breaks stack-agnostic principle | Put specifics in steering docs, not skill definitions |
 | Using platform-specific paths or commands | Breaks cross-platform compatibility | Use `node:path` for paths, POSIX-compatible shell syntax |

@@ -3,7 +3,7 @@
 **Issue**: #88
 **Date**: 2026-04-20
 **Status**: Planning
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -29,7 +29,7 @@
 - [ ] New private `resolveSkillsBase()` helper returns `PLUGIN_ROOT` when set, else `path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc')`, and throws a config error with a message naming both supported fields when neither is set.
 - [ ] The helper records the chosen source (`'pluginRoot'` vs `'pluginsPath'`) in a module-level `SKILL_ROOT_SOURCE` string so error messages and the startup log can read it.
 - [ ] `readSkill()` (lines 892–898) calls `resolveSkillsBase()` and, on missing file, throws an error that includes (a) the chosen field name, (b) its configured value, and (c) the full composed skill-file path.
-- [ ] `buildClaudeArgs()` `skillRoot` composition (lines 903–905) calls `resolveSkillsBase()` — no `plugins/nmg-sdlc/` literal remains in this function.
+- [ ] `buildCodexArgs()` `skillRoot` composition (lines 903–905) calls `resolveSkillsBase()` — no `plugins/nmg-sdlc/` literal remains in this function.
 - [ ] When both `pluginRoot` and `pluginsPath` are set, `resolveSkillsBase()` deterministically picks `pluginRoot` and sets `SKILL_ROOT_SOURCE = 'pluginRoot'`.
 
 **Notes**: This is the core fix — the rest of the tasks depend on the resolver existing. Keep the two call sites routed through the helper so they cannot drift.
@@ -56,8 +56,8 @@
 - [ ] AC2 test: with only `pluginsPath` set, `readSkill('write-spec')` resolves to `{pluginsPath}/plugins/nmg-sdlc/skills/write-spec/SKILL.md` — identical to today's behavior.
 - [ ] AC3 test: when `fs.existsSync` returns false, `readSkill()` throws an error whose message includes the chosen field name (e.g., `pluginRoot`), its configured value, and the full composed path.
 - [ ] AC4 test: `validateConfig({ projectPath: '/p' })` returns an error whose message names both `pluginRoot` and `pluginsPath` and indicates at least one is required.
-- [ ] AC5 test: with both fields set, `resolveSkillsBase()` (or its observable effect via `readSkill()`/`buildClaudeArgs()`) composes against `pluginRoot`, and the same assertion confirms `SKILL_ROOT_SOURCE` reports `pluginRoot`.
-- [ ] A shared-prefix regression assertion confirms that for the same step/skill, `readSkill()` and `buildClaudeArgs()` produce paths with the same `…/skills/<name>` prefix.
+- [ ] AC5 test: with both fields set, `resolveSkillsBase()` (or its observable effect via `readSkill()`/`buildCodexArgs()`) composes against `pluginRoot`, and the same assertion confirms `SKILL_ROOT_SOURCE` reports `pluginRoot`.
+- [ ] A shared-prefix regression assertion confirms that for the same step/skill, `readSkill()` and `buildCodexArgs()` produce paths with the same `…/skills/<name>` prefix.
 
 **Notes**: Follow the existing `validateConfig (#77)` test style — the new block can reuse `setupTestConfig()` with targeted overrides per test. Do not reach for real filesystem calls; `mockFs.existsSync` is already wired in `beforeEach`.
 

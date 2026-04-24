@@ -4,7 +4,7 @@
 # Issues: #138, #145, #146, #83, #84
 
 Feature: Refactor SKILL.md via Progressive Disclosure
-  As a nmg-sdlc plugin maintainer and Claude Code agent invoking these skills
+  As a nmg-sdlc plugin maintainer and Codex agent invoking these skills
   I want every SKILL.md body under 300 lines with shared and variant content in references/
   So that skills trigger faster with less context bloat and duplicated content lives in one place
 
@@ -62,10 +62,10 @@ Feature: Refactor SKILL.md via Progressive Disclosure
     Given any skill's frontmatter before the refactor
     When the pre- and post-refactor frontmatter blocks are diffed
     Then `description` is byte-identical
-    And `allowed-tools` is byte-identical
+    And `workflow instructions` is byte-identical
     And `model` is byte-identical
     And `effort` is byte-identical
-    And `argument-hint` is byte-identical
+    And `usage hint` is byte-identical
     And only body content below the frontmatter has moved
 
   # --- AC6: Inventory audit passes deterministically ---
@@ -115,18 +115,18 @@ Feature: Refactor SKILL.md via Progressive Disclosure
     And no directive has been rewritten to change its operational meaning
     And wording unifications across consumers preserve semantics
 
-  # --- AC10: Claude Code GitHub App review workflow ---
+  # --- AC10: Codex GitHub App review workflow ---
 
-  Scenario: Claude Code GitHub App review runs on every PR
-    Given the Claude Code GitHub App is installed on the Nunley-Media-Group org with access to this repo
-    And `.github/workflows/claude-review.yml` has shipped in PR 1
+  Scenario: Codex GitHub App review runs on every PR
+    Given the Codex GitHub App is installed on the Nunley-Media-Group org with access to this repo
+    And `.github/workflows/codex-review.yml` has shipped in PR 1
     When a pull request is opened or updated
-    Then the workflow invokes `anthropics/claude-code-action@v1`
-    And Claude posts an automated review comment on the PR
-    And the review reads the repo's `CLAUDE.md` and steering docs for context
+    Then the workflow invokes `openai/codex-action@v1`
+    And Codex posts an automated review comment on the PR
+    And the review reads the repo's `AGENTS.md` and steering docs for context
 
-  Scenario: Claude Code responds to @claude mentions in PR comments
-    Given `.github/workflows/claude-review.yml` is active
-    When a comment containing `@claude` is posted on a PR or issue
+  Scenario: Codex responds to @codex mentions in PR comments
+    Given `.github/workflows/codex-review.yml` is active
+    When a comment containing `@codex` is posted on a PR or issue
     Then the workflow fires
-    And Claude responds to the comment thread
+    And Codex responds to the comment thread

@@ -9,9 +9,9 @@
 
 ## User Story
 
-**As a** developer implementing or modifying a Claude Code skill definition through the SDLC pipeline
+**As a** developer implementing or modifying a Codex skill definition through the SDLC pipeline
 **I want** `write-code`, `spec-implementer`, and `verify-code` to automatically route skill-related work through `/skill-creator`
-**So that** all skill definitions — whether created new, updated, or fixed during verification — meet Anthropic's official best practices regardless of how the task was initiated
+**So that** all skill definitions — whether created new, updated, or fixed during verification — meet OpenAI's official best practices regardless of how the task was initiated
 
 ---
 
@@ -89,18 +89,18 @@ Precedent for the probe-and-skip pattern exists in the codebase: `write-code` St
 
 ### AC8: Unattended Mode Compatibility
 
-**Given** `.claude/unattended-mode` exists at the project root
+**Given** `.codex/unattended-mode` exists at the project root
 **When** any of the three components detects a skill task and invokes `/skill-creator`
 **Then** no interactive prompts are introduced by the routing logic
-**And** the probe-and-skip pattern behaves identically to manual mode (the probe is a filesystem/system-reminder check, not an `AskUserQuestion` gate)
+**And** the probe-and-skip pattern behaves identically to manual mode (the probe is a filesystem/system-reminder check, not an `interactive user prompt` gate)
 
 ### Generated Gherkin Preview
 
 ```gherkin
 Feature: Route skill tasks through /skill-creator
-  As a developer implementing or modifying a Claude Code skill definition
+  As a developer implementing or modifying a Codex skill definition
   I want write-code, spec-implementer, and verify-code to route skill work through /skill-creator
-  So that all skill definitions meet Anthropic's official best practices
+  So that all skill definitions meet OpenAI's official best practices
 
   Scenario: Skill task detected from SKILL.md path
     Given a task targets a file path ending in "SKILL.md"
@@ -127,7 +127,7 @@ Feature: Route skill tasks through /skill-creator
 | FR4 | `verify-code` Step 6a routes SKILL.md fixes through `/skill-creator` when available | Must | Integrates with existing finding-fix loop; does not change report structure |
 | FR5 | All three components probe for `/skill-creator` availability and emit the exact warning string `skill-creator not available — implementing skill directly` when unavailable, then proceed with direct authoring | Must | Verbatim warning enables log-scraping and user recognition |
 | FR6 | Detection favours false positives — ambiguous tasks are routed to `/skill-creator` when it is available | Should | Per issue's explicit guidance: "skill-creator can always be asked to simply review and improve an existing file" |
-| FR7 | The probe is a filesystem/system-reminder check, not an `AskUserQuestion` prompt, so unattended mode is preserved | Must | Matches existing simplify-probe convention |
+| FR7 | The probe is a filesystem/system-reminder check, not an `interactive user prompt` prompt, so unattended mode is preserved | Must | Matches existing simplify-probe convention |
 
 ---
 
@@ -136,7 +136,7 @@ Feature: Route skill tasks through /skill-creator
 | Aspect | Requirement |
 |--------|-------------|
 | **Performance** | The detection heuristic adds negligible overhead — it is a string/path check per task, no network or filesystem calls beyond the existing probe |
-| **Security** | No new credential or token requirements; routing uses the same Claude Code plugin permission model |
+| **Security** | No new credential or token requirements; routing uses the same Codex plugin permission model |
 | **Accessibility** | N/A (skill-side behaviour; no UI) |
 | **Reliability** | Graceful degradation is mandatory — a missing `/skill-creator` must never block the pipeline |
 | **Platforms** | macOS, Windows, Linux — detection uses path-suffix matching on `SKILL.md` (case-sensitive — matches the project's cross-platform guidance in `steering/tech.md`) |
@@ -205,7 +205,7 @@ The only user-visible artifact is the warning string in AC5, which must appear v
 |--------|--------|-------------|
 | Skill-task detection accuracy | 100% of tasks with `SKILL.md` in the path are detected | Manual exercise: seed tasks with each signal type, confirm classification |
 | Graceful degradation | 0 pipeline failures in projects without `/skill-creator` | Manual exercise on a test project that lacks the skill |
-| Warning string fidelity | Warning appears verbatim when `/skill-creator` missing | Grep transcript for the exact string |
+| Warning string fidelity | Warning appears verbatim when `/skill-creator` missing | text search transcript for the exact string |
 | Architectural invariant compliance | `steering/tech.md` invariant "skills authored via `/skill-creator`" is enforced by the pipeline, not just documented | `/verify-code` on a subsequent skill-change PR should show zero direct-edit findings for SKILL.md authoring |
 
 ---

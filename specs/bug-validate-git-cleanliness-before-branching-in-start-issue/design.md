@@ -3,7 +3,7 @@
 **Issue**: #84
 **Date**: 2026-02-24
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -38,7 +38,7 @@ Add a precondition check at the very beginning of Step 4 (before the existing `g
 
 For unattended-mode, the error output follows the escalation pattern used elsewhere in the skill (e.g., the "No automatable issues found" exit): a structured message that the `sdlc-runner.mjs` can parse as a reason for escalation.
 
-This is a Markdown-only change — the SKILL.md file is a prompt, not executable code. The fix adds a new subsection to Step 4 with clear instructions for Claude to follow.
+This is a Markdown-only change — the SKILL.md file is a prompt, not executable code. The fix adds a new subsection to Step 4 with clear instructions for Codex to follow.
 
 ### Changes
 

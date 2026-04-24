@@ -1,4 +1,4 @@
-# Tasks: Relocate specs and steering out of `.claude/`
+# Tasks: Relocate specs and steering out of `.codex/`
 
 **Issues**: #121
 **Date**: 2026-04-18
@@ -38,10 +38,10 @@ Although this is a defect, the fix touches 20+ files across skills, templates, m
 - [ ] Every occurrence of `specs/` in the listed files is replaced with `specs/`
 - [ ] Every occurrence of `steering/` in the listed files is replaced with `steering/`
 - [ ] Exceptions: references inside `upgrade-project` that intentionally name the legacy path for detection purposes (T002) are preserved with a clear comment
-- [ ] `grep -r "\.claude/specs\|\.claude/steering" plugins/nmg-sdlc/skills/` returns only references inside `upgrade-project` detection logic
+- [ ] `grep -r "\.codex/specs\|\.codex/steering" plugins/nmg-sdlc/skills/` returns only references inside `upgrade-project` detection logic
 - [ ] Skill content is otherwise unchanged — no behavior edits in this task
 
-**Notes**: Start from the file list produced by `grep -rn "\.claude/\(specs\|steering\)" plugins/nmg-sdlc/`. This is a mechanical find-and-replace. Do not touch runtime-artifact references (`.claude/unattended-mode`, `.claude/sdlc-state.json`, `.claude/migration-exclusions.json`) — those move in T002 only for the exclusions file.
+**Notes**: Start from the file list produced by `grep -rn "\.codex/\(specs\|steering\)" plugins/nmg-sdlc/`. This is a mechanical find-and-replace. Do not touch runtime-artifact references (`.codex/unattended-mode`, `.codex/sdlc-state.json`, `.codex/migration-exclusions.json`) — those move in T002 only for the exclusions file.
 
 ---
 
@@ -63,8 +63,8 @@ Although this is a defect, the fix touches 20+ files across skills, templates, m
   - Uses `git mv` to move them to `steering/` and `specs/` at project root
   - Rewrites every `specs/` and `steering/` reference inside the moved files to the new paths
   - Removes the now-empty `steering/` and `specs/` directories
-  - Does NOT touch `.claude/unattended-mode` or `.claude/sdlc-state.json`
-- [ ] `.claude/migration-exclusions.json` read path is renamed to `.claude/upgrade-exclusions.json`
+  - Does NOT touch `.codex/unattended-mode` or `.codex/sdlc-state.json`
+- [ ] `.codex/migration-exclusions.json` read path is renamed to `.codex/upgrade-exclusions.json`
 - [ ] On first run, the skill detects an existing `migration-exclusions.json` and migrates it to `upgrade-exclusions.json` (single `git mv` + commit)
 - [ ] Every other skill's references to `migrate-project` / `/migrate-project` point to `upgrade-project` / `/upgrade-project`
 - [ ] (FR12, Could) A deprecation stub at `plugins/nmg-sdlc/skills/migrate-project/SKILL.md` prints "renamed to /upgrade-project — run that instead" and exits; marked for removal in the next minor release
@@ -97,22 +97,22 @@ Although this is a defect, the fix touches 20+ files across skills, templates, m
 ### T004: Bump Version to 1.42.0 + Update README + CHANGELOG + In-Repo Steering
 
 **File(s)**:
-- `plugins/nmg-sdlc/.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json`
+- `plugins/nmg-sdlc/.codex-plugin/plugin.json`
+- `.codex-plugin/marketplace.json`
 - `README.md`
 - `CHANGELOG.md`
-- `steering/{product,tech,structure}.md` (this repo — still under `.claude/` until this repo is self-upgraded in T006)
+- `steering/{product,tech,structure}.md` (this repo — still under `.codex/` until this repo is self-upgraded in T006)
 - `scripts/sdlc-runner.mjs`, `scripts/__tests__/sdlc-runner.test.mjs` (audit for path refs)
 
 **Type**: Modify
 **Depends**: T001, T002, T003
 **Acceptance**:
-- [ ] `plugins/nmg-sdlc/.claude-plugin/plugin.json` version = `1.42.0`
-- [ ] `.claude-plugin/marketplace.json` plugin entry version = `1.42.0` (marketplace `metadata.version` unchanged)
-- [ ] `README.md`: all three `.claude/specs` / `.claude/steering` references updated; every `/migrate-project` mention replaced with `/upgrade-project`; "Installation" and "Workflow" sections describe the new paths
+- [ ] `plugins/nmg-sdlc/.codex-plugin/plugin.json` version = `1.42.0`
+- [ ] `.codex-plugin/marketplace.json` plugin entry version = `1.42.0` (marketplace `metadata.version` unchanged)
+- [ ] `README.md`: all three `.codex/specs` / `.codex/steering` references updated; every `/migrate-project` mention replaced with `/upgrade-project`; "Installation" and "Workflow" sections describe the new paths
 - [ ] `CHANGELOG.md` has an `## [Unreleased]` entry documenting: (a) breaking directory convention change with migration command, (b) `/migrate-project` → `/upgrade-project` rename, (c) `migration-exclusions.json` → `upgrade-exclusions.json` rename
 - [ ] In-repo steering docs (`steering/{product,tech,structure}.md`) updated to describe the NEW canonical locations (`steering/`, `specs/`) — even though these files themselves still live at `steering/` until T006 runs the upgrade on this repo
-- [ ] `scripts/sdlc-runner.mjs` and its tests: any path ref to `.claude/specs` or `.claude/steering` updated; any reference to `migration-exclusions.json` updated to `upgrade-exclusions.json` (if present)
+- [ ] `scripts/sdlc-runner.mjs` and its tests: any path ref to `.codex/specs` or `.codex/steering` updated; any reference to `migration-exclusions.json` updated to `upgrade-exclusions.json` (if present)
 - [ ] All runner tests still pass (`npm test` in `scripts/`)
 
 **Notes**: Keep the version bump to this single commit so revert is clean. Follow conventional commit style — this commit will be marked `feat!:` when committed.
@@ -142,12 +142,12 @@ Although this is a defect, the fix touches 20+ files across skills, templates, m
 **Type**: Verify
 **Depends**: T001, T002, T003, T004, T005
 **Acceptance**:
-- [ ] `grep -r "\.claude/specs\|\.claude/steering" plugins/nmg-sdlc/skills/` returns only references inside `upgrade-project` detection logic (AC5)
+- [ ] `grep -r "\.codex/specs\|\.codex/steering" plugins/nmg-sdlc/skills/` returns only references inside `upgrade-project` detection logic (AC5)
 - [ ] Exercise the upgrade in a disposable test project seeded with `steering/` + `specs/`: all files move to project root via `git mv`, cross-references updated, directories removed, runtime artifacts untouched (AC2)
 - [ ] Exercise `/start-issue` on the same test project BEFORE upgrade: skill refuses with the instructive `/upgrade-project` message (AC3)
-- [ ] Exercise `/setup-steering` in a fresh project: all files written to `steering/` + `specs/` at project root, nothing under `.claude/` (AC1)
+- [ ] Exercise `/setup-steering` in a fresh project: all files written to `steering/` + `specs/` at project root, nothing under `.codex/` (AC1)
 - [ ] Exercise the full SDLC pipeline (`/draft-issue` → `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr`) on a fresh project without `--dangerously-skip-permissions` — all steps succeed (AC7)
-- [ ] Run `/upgrade-project` on THIS repo (dogfooding per FR11) — `steering/` → `steering/`, `specs/` → `specs/`, `.claude/migration-exclusions.json` → `.claude/upgrade-exclusions.json` (if present)
+- [ ] Run `/upgrade-project` on THIS repo (dogfooding per FR11) — `steering/` → `steering/`, `specs/` → `specs/`, `.codex/migration-exclusions.json` → `.codex/upgrade-exclusions.json` (if present)
 - [ ] All existing runner tests pass (`npm test` in `scripts/`)
 
 **Notes**: T006 dogfoods the change on this repo as the final step. Do NOT run the self-upgrade until the disposable test-project exercises pass, to avoid getting stuck in an inconsistent state on the repo that contains the fix.

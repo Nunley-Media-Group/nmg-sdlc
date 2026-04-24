@@ -62,7 +62,7 @@ The audit already identified the exact drift patterns and scoped the affected fi
 **When** the cleanup is complete
 **Then** no references to `~/.openclaw/` remain in `specs/`
 **And** no references to OpenClaw gateway restart or gateway-sync operations remain in `specs/`
-**And** ACs that depended on those behaviors are either deleted or rewritten to describe the current Claude Code plugin installation flow
+**And** ACs that depended on those behaviors are either deleted or rewritten to describe the current Codex plugin installation flow
 
 ### AC5: References to non-existent `feature-openclaw-runner-operations` spec resolved
 
@@ -183,7 +183,7 @@ Feature: Fix Stale Spec References
 ## Open Questions
 
 - [ ] For `bug-text-pattern-soft-failure-detection-sdlc-runner` (heavy Discord content): should the Discord-specific scenarios be deleted, or rewritten to apply to the current status-logging pattern? → **Resolved during PLAN**: per FR4, rewrite if the underlying pattern (text-based soft-failure detection) still applies; delete if the scenario was purely Discord-specific.
-- [ ] For references to `feature-openclaw-runner-operations`: which existing spec should they redirect to? → **Resolved during PLAN**: most likely `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/` (the surviving runner-operations spec); confirm per file.
+- [ ] For references to `feature-openclaw-runner-operations`: which existing spec should they redirect to? → **Resolved during PLAN**: most likely `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/` (the surviving runner-operations spec); confirm per file.
 
 ---
 

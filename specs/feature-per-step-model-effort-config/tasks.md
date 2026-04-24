@@ -3,7 +3,7 @@
 **Issues**: #77, #91, #130
 **Date**: 2026-04-18
 **Status**: Planning
-**Author**: Claude (spec-writer)
+**Author**: Codex (spec-writer)
 
 ---
 
@@ -45,7 +45,7 @@
 **Depends**: None
 **Acceptance**:
 - [x] New `resolveStepConfig(step, config)` function returns `{ model, effort }` for a given step
-- [x] Fallback chain for model: `step.model → config.model → 'opus'`
+- [x] Fallback chain for model: `step.model → config.model → 'gpt-5.5'`
 - [x] Fallback chain for effort: `step.effort → config.effort → undefined`
 - [x] When effort resolves to `undefined`, it signals "do not set env var"
 - [x] Exported for testability
@@ -78,17 +78,17 @@
 - [x] `main()` logs effort alongside model at startup
 - [x] `__test__.setConfig()` updated to accept and set `effort`
 
-### T005: Update `buildClaudeArgs()` and `runClaude()` for per-step model and effort
+### T005: Update `buildCodexArgs()` and `runCodex()` for per-step model and effort
 
 **File(s)**: `scripts/sdlc-runner.mjs`
 **Type**: Modify
 **Depends**: T002, T004
 **Acceptance**:
-- [x] `buildClaudeArgs()` uses `resolveStepConfig(step, config)` for `--model` instead of the global `MODEL` variable
-- [x] `runClaude()` accepts an optional `effort` parameter
-- [x] When `effort` is defined, `runClaude()` sets `CLAUDE_CODE_EFFORT_LEVEL` in the subprocess environment via `spawn()` options
+- [x] `buildCodexArgs()` uses `resolveStepConfig(step, config)` for `--model` instead of the global `MODEL` variable
+- [x] `runCodex()` accepts an optional `effort` parameter
+- [x] When `effort` is defined, `runCodex()` sets `model_reasoning_effort` in the subprocess environment via `spawn()` options
 - [x] When `effort` is `undefined`, the env var is not set (preserving current behavior)
-- [x] The caller (`runStep()`) passes the resolved effort to `runClaude()`
+- [x] The caller (`runStep()`) passes the resolved effort to `runCodex()`
 
 ### T006: Implement `runImplementStep()` for plan/code split
 
@@ -96,11 +96,11 @@
 **Type**: Modify
 **Depends**: T003, T005
 **Acceptance**:
-- [x] New `runImplementStep(step, state)` function that always runs two sequential `runClaude()` calls
+- [x] New `runImplementStep(step, state)` function that always runs two sequential `runCodex()` calls
 - [x] Plan phase: uses `resolveImplementPhaseConfig(step, config, 'plan')` for model/effort/maxTurns/timeoutMin
 - [x] Code phase: uses `resolveImplementPhaseConfig(step, config, 'code')` for model/effort/maxTurns/timeoutMin
-- [x] Plan phase prompt instructs Claude to design the approach (read specs, create plan) — similar to current Step 4 prompt but scoped to planning only
-- [x] Code phase prompt instructs Claude to execute the plan (implement tasks sequentially) — similar to current Step 5 but without planning
+- [x] Plan phase prompt instructs Codex to design the approach (read specs, create plan) — similar to current Step 4 prompt but scoped to planning only
+- [x] Code phase prompt instructs Codex to execute the plan (implement tasks sequentially) — similar to current Step 5 but without planning
 - [x] Plan phase must complete with exit code 0 before code phase starts
 - [x] If plan phase fails, return the failure result directly (no code phase)
 - [x] Both phases get separate step log entries (`implement-plan` and `implement-code`)
@@ -114,7 +114,7 @@
 **Type**: Modify
 **Depends**: T006
 **Acceptance**:
-- [x] `runStep()` delegates step 4 (implement) to `runImplementStep()` instead of calling `runClaude()` directly
+- [x] `runStep()` delegates step 4 (implement) to `runImplementStep()` instead of calling `runCodex()` directly
 - [x] All post-step logic (soft failure detection, state extraction, auto-commit, validation gates) still runs after the code phase completes
 - [x] Step log for the implement step captures both phases
 - [x] Status notifications to the orchestration log reflect the two-phase execution (e.g., "Starting Step 4: implement (plan phase)...")
@@ -125,7 +125,7 @@
 
 ## Phase 3: Skills & Agents
 
-### T008: Add `model` frontmatter to all SKILL.md files
+### T008: Add runner `model` config to all SKILL.md files
 
 **File(s)**:
 - `plugins/nmg-sdlc/skills/draft-issue/SKILL.md`
@@ -152,8 +152,8 @@
 **Type**: Create
 **Depends**: None
 **Acceptance**:
-- [x] Agent frontmatter includes `name: spec-implementer`, `model: sonnet`, appropriate `tools` list, and `description`
-- [x] `tools` list includes: Read, Glob, Grep, Write, Edit, Bash, WebFetch, WebSearch
+- [x] Agent frontmatter includes `name: spec-implementer`, `model: gpt-5.4`, appropriate `tools` list, and `description`
+- [x] `tools` list includes: Read, Glob, Grep, Write, Edit, Bash, Codex web browsing, Codex web browsing
 - [x] `tools` list does NOT include Task (agents cannot spawn subagents)
 - [x] Agent instructions cover: reading specs and steering docs, executing tasks sequentially from `tasks.md`, following implementation rules, handling bug fix patterns, handling deviations, reporting completion summary
 - [x] Agent instructions are self-contained (no references to SKILL.md steps — the agent must work independently)
@@ -164,7 +164,7 @@
 **Type**: Modify
 **Depends**: T008, T009
 **Acceptance**:
-- [x] Frontmatter includes `model: opus` (plan phase runs on opus)
+- [x] Frontmatter includes `model: gpt-5.5` (plan phase runs on gpt-5.5)
 - [x] Steps 1-4 remain unchanged (identify context, read specs, read steering, design approach)
 - [x] Step 5 is restructured: instead of executing tasks inline, it delegates to the `spec-implementer` agent via the Task tool
 - [x] The Task tool prompt includes: the implementation plan, task list contents, spec file paths, steering doc paths, and working directory context
@@ -199,7 +199,7 @@
 - [x] New "Model & Effort Recommendations" section added
 - [x] Table lists all skills/steps with recommended model and effort
 - [x] Documents the implement plan/code split
-- [x] Explains skill frontmatter `model` (manual users) vs runner config `model`/`effort` (SDLC runner)
+- [x] Explains runner config `model` (manual users) vs runner config `model`/`effort` (SDLC runner)
 - [x] Instructions for overriding defaults via runner config
 
 ### T013: Update CHANGELOG.md with feature entries
@@ -209,7 +209,7 @@
 **Depends**: T007, T010, T011
 **Acceptance**:
 - [x] Entries added under `[Unreleased]` section
-- [x] Covers: per-step model/effort in runner, write-code plan/code split, skill frontmatter model, new spec-implementer agent, config template updates
+- [x] Covers: per-step model/effort in runner, write-code plan/code split, runner config model, new spec-implementer agent, config template updates
 
 ---
 
@@ -224,9 +224,9 @@
 - [x] `validateConfig()` tests: valid config passes; invalid effort rejected; invalid model rejected; missing fields allowed; nested implement.plan/code validated
 - [x] `resolveStepConfig()` tests: step override used; falls back to global; falls back to default; effort undefined when unset
 - [x] `resolveImplementPhaseConfig()` tests: sub-step override used; falls back to step; falls back to global; falls back to default
-- [x] `buildClaudeArgs()` tests: per-step model in `--model` flag; global fallback used when no step override
-- [x] `runClaude()` tests: `CLAUDE_CODE_EFFORT_LEVEL` set in subprocess env when effort defined; not set when undefined
-- [x] `runImplementStep()` tests: two `runClaude()` calls made; plan failure prevents code phase; correct config resolution per phase
+- [x] `buildCodexArgs()` tests: per-step model in `--model` flag; global fallback used when no step override
+- [x] `runCodex()` tests: `model_reasoning_effort` set in subprocess env when effort defined; not set when undefined
+- [x] `runImplementStep()` tests: two `runCodex()` calls made; plan failure prevents code phase; correct config resolution per phase
 - [x] Tests follow existing patterns in the test file (ESM mocking, `__test__` helpers)
 
 ### T015: Create BDD feature file
@@ -264,8 +264,8 @@
 **Acceptance**:
 - [x] `runImplementStep()` function is deleted
 - [x] `runImplementStep` is removed from the named exports block
-- [x] In `runStep()`, the `if (step.number === 4)` special case is removed — step 4 falls through to the standard `result = await runClaude(step, state)` path, same as all other steps
-- [x] Step 4 prompt in `buildClaudeArgs()` is simplified: remove "Do NOT call EnterPlanMode — this is a headless session with no user to approve plans. Design your approach internally, then implement directly." Replace with a clean prompt: "Implement the specifications for issue #${issue} on branch ${branch}. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/."
+- [x] In `runStep()`, the `if (step.number === 4)` special case is removed — step 4 falls through to the standard `result = await runCodex(step, state)` path, same as all other steps
+- [x] Step 4 prompt in `buildCodexArgs()` is simplified: remove "Do NOT call EnterPlanMode — this is a headless session with no user to approve plans. Design your approach internally, then implement directly." Replace with a clean prompt: "Implement the specifications for issue #${issue} on branch ${branch}. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/."
 - [x] The step 4 prompt no longer references EnterPlanMode in any form
 
 ### T018: Update `sdlc-config.example.json`
@@ -289,8 +289,8 @@
 - [x] `runImplementStep` test suite is removed
 - [x] `resolveImplementPhaseConfig` and `runImplementStep` are removed from the import block
 - [x] `validateConfig` tests are updated: add a test case verifying that a config with `plan`/`code` sub-objects under `steps.implement` passes validation (keys are ignored, no errors)
-- [x] A new test case verifies that step 4 in `runStep()` uses the standard `runClaude()` path (no special-case delegation)
-- [x] Existing `resolveStepConfig` and `buildClaudeArgs` tests still pass (no changes needed)
+- [x] A new test case verifies that step 4 in `runStep()` uses the standard `runCodex()` path (no special-case delegation)
+- [x] Existing `resolveStepConfig` and `buildCodexArgs` tests still pass (no changes needed)
 
 ### T020: Update CHANGELOG and documentation
 
@@ -307,9 +307,9 @@
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [x] In the Spec Discovery section, step 6's unattended-mode instruction skips `AskUserQuestion` entirely and proceeds directly in amendment mode (amend the top-scored existing spec)
-- [x] The instruction makes clear that in unattended-mode, no `AskUserQuestion` call is made at all — the skill goes straight to amendment mode
-- [x] The non-unattended-mode path (presenting the `AskUserQuestion` with amend vs create options) is unchanged
+- [x] In the Spec Discovery section, step 6's unattended-mode instruction skips `interactive prompt` entirely and proceeds directly in amendment mode (amend the top-scored existing spec)
+- [x] The instruction makes clear that in unattended-mode, no `interactive prompt` call is made at all — the skill goes straight to amendment mode
+- [x] The non-unattended-mode path (presenting the `interactive prompt` with amend vs create options) is unchanged
 
 ---
 
@@ -326,16 +326,16 @@
 - [ ] The generic "must be one of" error message still fires for other invalid values (e.g., `"maximum"`, `"xtra-high"`)
 - [ ] The `max` rejection message is distinct enough to be greppable in logs
 
-### T023: Reject effort on Haiku steps in `validateConfig()`
+### T023: Reject effort on GPT-5.4 Mini steps in `validateConfig()`
 
 **File(s)**: `scripts/sdlc-runner.mjs`
 **Type**: Modify
 **Depends**: T022
 **Acceptance**:
-- [ ] `validateConfig()` iterates steps and rejects any step config where `model === 'haiku'` and `effort` is defined (any value)
-- [ ] Error message identifies the step key and explains that Haiku does not support the effort parameter
-- [ ] Same rule applies if the resolved (global fallback) effort would land on a Haiku step — the rule is enforced at the final resolved level, not just at the step-defined level (i.e., a Haiku step with no step-level effort but a global `effort` present is flagged)
-- [ ] A step without a model (falling back to global) that happens to be Haiku is also flagged if effort is defined
+- [ ] `validateConfig()` iterates steps and rejects any step config where `model === 'gpt-5.4-mini'` and `effort` is defined (any value)
+- [ ] Error message identifies the step key and explains that GPT-5.4 Mini does not support the effort parameter
+- [ ] Same rule applies if the resolved (global fallback) effort would land on a GPT-5.4 Mini step — the rule is enforced at the final resolved level, not just at the step-defined level (i.e., a GPT-5.4 Mini step with no step-level effort but a global `effort` present is flagged)
+- [ ] A step without a model (falling back to global) that happens to be GPT-5.4 Mini is also flagged if effort is defined
 - [ ] Test coverage added in T029
 
 ### T024: Update `resolveStepConfig()` and module defaults
@@ -344,10 +344,10 @@
 **Type**: Modify
 **Depends**: T022
 **Acceptance**:
-- [ ] `resolveStepConfig()` (lines 225-230) returns `model: step.model || config.model || 'sonnet'` (was `'opus'`)
+- [ ] `resolveStepConfig()` (lines 225-230) returns `model: step.model || config.model || 'gpt-5.4'` (was `'gpt-5.5'`)
 - [ ] `resolveStepConfig()` returns `effort: step.effort || config.effort || 'medium'` (was `undefined`)
-- [ ] Module-level init (lines 104-105) updated: `MODEL = config.model || 'sonnet'`; `EFFORT = config.effort || 'medium'`
-- [ ] Existing tests that assert the old `'opus'` default are updated in T029
+- [ ] Module-level init (lines 104-105) updated: `MODEL = config.model || 'gpt-5.4'`; `EFFORT = config.effort || 'medium'`
+- [ ] Existing tests that assert the old `'gpt-5.5'` default are updated in T029
 
 ### T025: Rewrite `sdlc-config.example.json` per AC30 / AC36 tables
 
@@ -355,16 +355,16 @@
 **Type**: Modify
 **Depends**: T024
 **Acceptance**:
-- [ ] Global `model` changed to `"sonnet"` and `effort` to `"medium"`
+- [ ] Global `model` changed to `"gpt-5.4"` and `effort` to `"medium"`
 - [ ] Every step object explicitly declares `model`, `maxTurns`, `timeoutMin` (in that order of precedence for consistency with existing style)
-- [ ] Every step with a non-Haiku model also declares `effort`; steps with `model: "haiku"` omit `effort`
+- [ ] Every step with a non-GPT-5.4 Mini model also declares `effort`; steps with `model: "gpt-5.4-mini"` omit `effort`
 - [ ] Per-step values match the AC30 reference table exactly (model, effort) and AC36 floors exactly (maxTurns)
 - [ ] `timeoutMin` values are preserved from the prior config (no time-axis changes this round)
-- [ ] `startCycle` is no longer the only step that inherits the global model — it gets an explicit `"model": "haiku"`
-- [ ] Opus hard cap verified: `writeSpecs`, `implement`, `verify` are the only steps with `"model": "opus"`
+- [ ] `startCycle` is no longer the only step that inherits the global model — it gets an explicit `"model": "gpt-5.4-mini"`
+- [ ] GPT-5.5 hard cap verified: `writeSpecs`, `implement`, `verify` are the only steps with `"model": "gpt-5.5"`
 - [ ] JSON is valid, 2-space indented
 
-### T026: Add `model` and `effort` frontmatter to SDLC skills
+### T026: Add runner `model` and `effort` config to SDLC skills
 
 **File(s)**:
 - `plugins/nmg-sdlc/skills/draft-issue/SKILL.md`
@@ -382,11 +382,11 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Each SKILL.md has a `model:` field in its YAML frontmatter matching the AC33 mapping
-- [ ] Opus/Sonnet skills also declare `effort:` per the mapping
-- [ ] `init-config/SKILL.md` declares `model: haiku` and omits `effort:` entirely
+- [ ] GPT-5.5/GPT-5.4 skills also declare `effort:` per the mapping
+- [ ] `init-config/SKILL.md` declares `model: gpt-5.4-mini` and omits `effort:` entirely
 - [ ] All authoring goes through `/skill-creator` per project rule (`steering/tech.md` line 110) — do not hand-edit SKILL.md frontmatter; use `skill-creator` to apply the frontmatter changes
 - [ ] Frontmatter remains valid YAML; no other frontmatter fields altered
-- [ ] A grep verification confirms the pairs exist: e.g., `plugins/nmg-sdlc/skills/write-code/SKILL.md` contains both `model: opus` and `effort: xhigh`
+- [ ] A grep verification confirms the pairs exist: e.g., `plugins/nmg-sdlc/skills/write-code/SKILL.md` contains both `model: gpt-5.5` and `effort: xhigh`
 
 ### T027: Rewrite README recommendations table + add precedence subsection
 
@@ -394,12 +394,12 @@
 **Type**: Modify
 **Depends**: T025, T026
 **Acceptance**:
-- [ ] "Recommended model assignments" table (~lines 183-195) rewritten per AC30 table, including a rationale column citing Anthropic's published effort guidance
-- [ ] Table rows reflect the hard cap on Opus (only `writeSpecs`/`implement`/`verify`)
-- [ ] The Haiku entries clearly show effort as `—` (omitted), not blank
-- [ ] A new subsection documents the precedence chain per AC34: `env var > skill frontmatter > session /model / /effort > built-in default`
-- [ ] A short note documents that `max` is intentionally excluded from nmg-sdlc defaults, and that Haiku does not accept `effort`
-- [ ] Links to Anthropic's effort-level docs (`https://platform.claude.com/docs/en/build-with-claude/effort`) and model config docs (`https://code.claude.com/docs/en/model-config`) are present
+- [ ] "Recommended model assignments" table (~lines 183-195) rewritten per AC30 table, including a rationale column citing OpenAI's published effort guidance
+- [ ] Table rows reflect the hard cap on GPT-5.5 (only `writeSpecs`/`implement`/`verify`)
+- [ ] The GPT-5.4 Mini entries clearly show effort as `—` (omitted), not blank
+- [ ] A new subsection documents the precedence chain per AC34: `env var > runner config > session /model / /effort > built-in default`
+- [ ] A short note documents that `max` is intentionally excluded from nmg-sdlc defaults, and that GPT-5.4 Mini does not accept `effort`
+- [ ] Links to OpenAI's effort-level docs (`https://platform.openai.com/docs`) and model config docs (`https://developers.openai.com/codex`) are present
 
 ### T028: Add `[Unreleased]` CHANGELOG entries
 
@@ -407,7 +407,7 @@
 **Type**: Modify
 **Depends**: T024, T025, T026
 **Acceptance**:
-- [ ] One `[Unreleased]` bullet summarizes the defaults rework: new `xhigh` tier accepted; `max` rejected; Haiku+effort rejected; global default flipped to `sonnet`/`medium`; Opus hard-capped to `writeSpecs`/`implement`/`verify`
+- [ ] One `[Unreleased]` bullet summarizes the defaults rework: new `xhigh` tier accepted; `max` rejected; GPT-5.4 Mini+effort rejected; global default flipped to `gpt-5.4`/`medium`; GPT-5.5 hard-capped to `writeSpecs`/`implement`/`verify`
 - [ ] A second bullet documents the `maxTurns` floor bump across steps and cites #181 as the motivating incident (per Issue #130 addendum FR17/FR35)
 - [ ] A migration note points users to `/upgrade-project` for applying the new defaults to existing configs
 - [ ] Style matches existing CHANGELOG entries (conventional-commit-flavored bullets)
@@ -420,10 +420,10 @@
 **Acceptance**:
 - [ ] New test: `validateConfig()` accepts `effort: 'xhigh'` at both global and per-step levels
 - [ ] New test: `validateConfig()` rejects `effort: 'max'` with the policy-specific message
-- [ ] New test: `validateConfig()` rejects a step config with `model: 'haiku'` + `effort: <any>`
-- [ ] New test: `validateConfig()` rejects a Haiku step whose global-fallback effort is defined (covers the "resolved level" case)
-- [ ] New test: `resolveStepConfig()` returns `{ model: 'sonnet', effort: 'medium' }` when step and global are empty
-- [ ] Existing tests asserting the old `opus`/`undefined` default are updated to the new defaults
+- [ ] New test: `validateConfig()` rejects a step config with `model: 'gpt-5.4-mini'` + `effort: <any>`
+- [ ] New test: `validateConfig()` rejects a GPT-5.4 Mini step whose global-fallback effort is defined (covers the "resolved level" case)
+- [ ] New test: `resolveStepConfig()` returns `{ model: 'gpt-5.4', effort: 'medium' }` when step and global are empty
+- [ ] Existing tests asserting the old `gpt-5.5`/`undefined` default are updated to the new defaults
 - [ ] All tests pass (`cd scripts && npm test`)
 
 ### T030: Extend `upgrade-project` with curated defaults diff
@@ -446,7 +446,7 @@
 **Acceptance**:
 - [ ] Exercise test: running `/nmg-sdlc:init-config` on a fresh test project produces a `sdlc-config.json` whose step defaults match the example JSON verbatim
 - [ ] No template placeholders are left for per-step `model` / `effort` / `maxTurns` / `timeoutMin`
-- [ ] The Opus hard cap holds in the generated file
+- [ ] The GPT-5.5 hard cap holds in the generated file
 - [ ] If substitution logic needs updating to preserve the new fields, the change goes through `/skill-creator`
 - [ ] Finding is recorded in the verification report (pass or specific remediation)
 
@@ -489,7 +489,7 @@ T024, T025, T026 ──▶ T028
 |-------|------|---------|
 | #77 | 2026-02-22 | Initial feature spec: T001–T015 across 5 phases |
 | #91 | 2026-02-23 | Phase 6 (T016–T021): remove plan/code split, simplify implement step, increase createPR maxTurns, fix write-spec unattended-mode spec discovery |
-| #130 | 2026-04-18 | Phase 7 (T022–T031): expand VALID_EFFORTS with `xhigh`; reject `max` + Haiku+effort; flip runner default to sonnet/medium; rewrite example config per AC30/AC36; add `model`/`effort` frontmatter to SDLC skills; rewrite README table + add precedence subsection; CHANGELOG entries; tests; curated `upgrade-project` diff; verify `init-config` substitution |
+| #130 | 2026-04-18 | Phase 7 (T022–T031): expand VALID_EFFORTS with `xhigh`; reject `max` + GPT-5.4 Mini+effort; flip runner default to gpt-5.4/medium; rewrite example config per AC30/AC36; add runner `model`/`effort` config to SDLC skills; rewrite README table + add precedence subsection; CHANGELOG entries; tests; curated `upgrade-project` diff; verify `init-config` substitution |
 
 ---
 

@@ -29,7 +29,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Probe pattern documented identically in both skills
-- [ ] Probe instruction lists both filesystem lookups (`~/.claude/skills/simplify/SKILL.md`, `~/.claude/plugins/**/skills/simplify/SKILL.md`) and the system-reminder available-skills list
+- [ ] Probe instruction lists both filesystem lookups (`~/.codex/skills/simplify/SKILL.md`, `~/.codex/plugins/**/skills/simplify/SKILL.md`) and the system-reminder available-skills list
 - [ ] Warning string `simplify skill not available — skipping simplification pass` defined verbatim and reused at every call site
 
 **Notes**: This is a documentation-only setup task — the probe is a prompt instruction, not new code. Defining it once in each skill avoids drift.
@@ -48,7 +48,7 @@
 - [ ] Sub-step includes the probe-and-skip instruction from T001
 - [ ] Existing Step 6 output text moves AFTER the simplify pass and only emits when simplify either ran successfully or was gracefully skipped
 - [ ] `## Integration with SDLC Workflow` diagram updated to show `/write-code → /simplify → /verify-code`
-- [ ] Unattended-mode behaviour explicitly preserved (no `AskUserQuestion` introduced)
+- [ ] Unattended-mode behaviour explicitly preserved (no `interactive prompt` introduced)
 
 ### T003: Update verify-code SKILL.md to re-run /simplify after fix application
 
@@ -58,7 +58,7 @@
 **Acceptance**:
 - [ ] New sub-step "6a-bis: Simplify After Fix" inserted between Step 6a (Prioritize and Fix) and Step 6b (Run Tests After Fixes)
 - [ ] Sub-step uses the probe-and-skip pattern from T001
-- [ ] Sub-step runs only when at least one fix was actually applied in 6a (no-op otherwise to avoid an unnecessary Claude turn)
+- [ ] Sub-step runs only when at least one fix was actually applied in 6a (no-op otherwise to avoid an unnecessary Codex turn)
 - [ ] `## Integration with SDLC Workflow` diagram updated to show `/write-code → /simplify → /verify-code`
 - [ ] Unattended-mode behaviour preserved
 
@@ -74,7 +74,7 @@
 **Acceptance**:
 - [ ] `STEP_KEYS` array contains `'simplify'` at index 4 (between `'implement'` and `'verify'`)
 - [ ] `STEPS` and `STEP_NUMBER` derive correctly (already auto-derived — no manual change needed)
-- [ ] `prompts` object in `buildClaudeArgs` adds entry for the new step number 5 with the probe-and-skip prompt from design.md
+- [ ] `prompts` object in `buildCodexArgs` adds entry for the new step number 5 with the probe-and-skip prompt from design.md
 - [ ] All previously-existing prompt entries renumber: verify=6, commitPush=7, createPR=8, monitorCI=9, merge=10
 - [ ] Switch statements in precondition checks (`case 5:` etc.) renumber alongside; verify case is now `case 6`, etc.
 - [ ] Audit comments mentioning "Step N" — update where the referenced step has shifted; this includes the comment block around `case 5: { // Verify ...`, the `Step 4` comment in the auto-commit path (line ~1972), and any others surfaced by `grep -nE "[Ss]tep ?[5-9]"` in the file
@@ -91,19 +91,19 @@
 **Acceptance**:
 - [ ] New `simplify` entry placed between `implement` and `verify`:
   ```json
-  "simplify":     { "model": "sonnet", "effort": "medium", "maxTurns": 60,  "timeoutMin": 15 }
+  "simplify":     { "model": "gpt-5.4", "effort": "medium", "maxTurns": 60,  "timeoutMin": 15 }
   ```
-- [ ] No `skill` field set — runner uses the prompt-only path (no `--append-system-prompt`) since simplify is an external skill, not part of nmg-sdlc
+- [ ] No `skill` field set — runner uses the prompt-only path (no `prompt suffix`) since simplify is an external skill, not part of nmg-sdlc
 - [ ] JSON remains valid (no trailing commas; 2-space indent matches existing entries)
 
 ### T006: Update runner step prompt for simplify (probe-and-skip)
 
-**File(s)**: `scripts/sdlc-runner.mjs` (within `buildClaudeArgs.prompts`)
+**File(s)**: `scripts/sdlc-runner.mjs` (within `buildCodexArgs.prompts`)
 **Type**: Modify (subset of T004 if combined; tracked separately for clarity)
 **Depends**: T004
 **Acceptance**:
 - [ ] `prompts[5]` returns the probe-and-skip prompt template from design.md (Probe Contract → "New Runner Prompt")
-- [ ] Prompt explicitly tells Claude to exit 0 on the skip path (so the runner treats it as success)
+- [ ] Prompt explicitly tells Codex to exit 0 on the skip path (so the runner treats it as success)
 - [ ] Prompt references `git diff main...HEAD --name-only` for the changed-files list
 - [ ] Warning string in the prompt matches FR3 verbatim
 

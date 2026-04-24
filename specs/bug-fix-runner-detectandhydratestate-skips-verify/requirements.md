@@ -3,7 +3,7 @@
 **Issue**: (tracked with #122 commit)
 **Date**: 2026-04-18
 **Status**: Fixed
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: Critical (correctness)
 **Related**: `specs/bug-fix-verify-step-false-escalation-on-temp-dir-denials/`
 
@@ -63,7 +63,7 @@ Detected in-progress work: issue #122, branch "122-add-end-loop-skill", lastComp
 - Step 7 → a PR exists
 - Step 8 → CI is passing or no checks are configured
 
-Step 5 (`verify`) produces no artifact the runner can probe from git — verification happens inside a Claude subprocess. Jumping from probed step 4 → probed step 6 based solely on "pushed" implicitly asserts verify passed. It did not.
+Step 5 (`verify`) produces no artifact the runner can probe from git — verification happens inside a Codex subprocess. Jumping from probed step 4 → probed step 6 based solely on "pushed" implicitly asserts verify passed. It did not.
 
 A guardrail at the bottom of the function caps the probed value to `savedState.lastCompletedStep` only when `savedState.signalShutdown === true`. A crash mid-verify (or a manual state reset, or any shutdown path that doesn't set the flag) bypasses the cap entirely.
 

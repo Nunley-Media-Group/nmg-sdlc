@@ -3,17 +3,17 @@
 **Issue**: #38
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
 ## Root Cause
 
-The SDLC runner's success check (`sdlc-runner.mjs` line 1201) evaluates only `result.exitCode === 0` and never inspects the JSON output produced by `claude -p --output-format json`. When Claude hits its maximum turn limit without completing the goal, it exits with code 0 but sets `subtype: "error_max_turns"` in its JSON output. Similarly, when tool calls are denied (e.g., `AskUserQuestion` in pipe mode), Claude records them in `permission_denials` but still exits 0.
+The SDLC runner's success check (`sdlc-runner.mjs` line 1201) evaluates only `result.exitCode === 0` and never inspects the JSON output produced by `codex exec --cd --json`. When Codex hits its maximum turn limit without completing the goal, it exits with code 0 but sets `subtype: "error_max_turns"` in its JSON output. Similarly, when tool calls are denied (e.g., `interactive prompt` in pipe mode), Codex records them in `permission_denials` but still exits 0.
 
-The runner now uses `--output-format stream-json` (newline-delimited JSON events) and parses the final result via `extractResultFromStream()`, which `extractSessionId()` also uses to extract the `session_id` field. The `detectSoftFailure()` function uses `extractResultFromStream()` to check the `subtype` and `permission_denials` fields that indicate the step did not actually succeed.
+The runner now uses `--json` (newline-delimited JSON events) and parses the final result via `extractResultFromStream()`, which `extractSessionId()` also uses to extract the `session_id` field. The `detectSoftFailure()` function uses `extractResultFromStream()` to check the `subtype` and `permission_denials` fields that indicate the step did not actually succeed.
 
-A contributing factor is that the `start-issue` SKILL.md positions the Unattended Mode instruction (lines 18–22) as a mid-page section. While the instruction is correct ("skip `AskUserQuestion` when `.claude/unattended-mode` exists"), it's not prominent enough for reliable model compliance in headless pipe mode. Claude ignored the instruction and called `AskUserQuestion` repeatedly, each call denied, consuming all turns.
+A contributing factor is that the `start-issue` SKILL.md positions the Unattended Mode instruction (lines 18–22) as a mid-page section. While the instruction is correct ("skip `interactive prompt` when `.codex/unattended-mode` exists"), it's not prominent enough for reliable model compliance in headless pipe mode. Codex ignored the instruction and called `interactive prompt` repeatedly, each call denied, consuming all turns.
 
 ### Affected Code
 
@@ -26,9 +26,9 @@ A contributing factor is that the `start-issue` SKILL.md positions the Unattende
 
 ### Triggering Conditions
 
-- A step runs in headless mode (`claude -p`) with `--output-format json`
-- The step calls a tool that is denied in pipe mode (e.g., `AskUserQuestion`)
-- Claude retries the denied tool until it hits `maxTurns`, then exits with code 0
+- A step runs in headless mode (`codex exec --cd`) with `--json`
+- The step calls a tool that is denied in pipe mode (e.g., `interactive prompt`)
+- Codex retries the denied tool until it hits `maxTurns`, then exits with code 0
 - The JSON output contains `subtype: "error_max_turns"` and non-empty `permission_denials`
 - The runner checks only `exitCode === 0` and advances to the next step
 
@@ -42,7 +42,7 @@ Add a `detectSoftFailure(stdout)` function that uses `extractResultFromStream()`
 
 To make the runner testable, refactor the module to guard the CLI bootstrap behind an `isMainModule` check and export all internal functions. Create a comprehensive Jest test suite under `scripts/__tests__/` with mocked `node:child_process` and `node:fs` dependencies.
 
-For the `start-issue` SKILL.md, add a bold critical callout at the top of the file (below frontmatter) and reinforce the directive inside Step 2 where `AskUserQuestion` is used.
+For the `start-issue` SKILL.md, add a bold critical callout at the top of the file (below frontmatter) and reinforce the directive inside Step 2 where `interactive prompt` is used.
 
 ### Changes
 
@@ -70,7 +70,7 @@ For the `start-issue` SKILL.md, add a bold critical callout at the top of the fi
 | Normal exit-code-0 success treated as failure | Low | `detectSoftFailure()` checks specific fields (`subtype`, `permission_denials`); `subtype: "success"` with no denials passes through unchanged. AC3 regression test validates this. |
 | JSON parse failure on non-JSON output | Low | Wrap parsing in try/catch — if stdout isn't valid JSON, treat as non-soft-failure (preserve current behavior). Steps that don't produce JSON still work. |
 | Refactoring for exports breaks CLI execution | Low | Guard is `isMainModule` at the end of the file; all function definitions remain unchanged. Test verifies CLI still launches correctly. |
-| Starting-issues unattended-mode change affects manual mode | None | The added callout only applies when `.claude/unattended-mode` exists; manual-mode workflow is unchanged. |
+| Starting-issues unattended-mode change affects manual mode | None | The added callout only applies when `.codex/unattended-mode` exists; manual-mode workflow is unchanged. |
 
 ---
 

@@ -7,7 +7,7 @@
 @regression
 Feature: Soft failure detection in SDLC runner
   The SDLC runner previously treated exit code 0 as unconditional success,
-  even when Claude's JSON output indicated the step failed (error_max_turns,
+  even when Codex's JSON output indicated the step failed (error_max_turns,
   permission_denials). This was fixed by adding a detectSoftFailure() check
   after exit code evaluation, routing soft failures to the retry/escalation path.
 
@@ -52,7 +52,7 @@ Feature: Soft failure detection in SDLC runner
   @regression
   Scenario: Starting-issues skill respects unattended-mode in headless execution
     Given the start-issue SKILL.md is loaded
-    And the file .claude/unattended-mode exists in the project directory
-    When Claude reads the skill instructions
-    Then the automation directive to skip AskUserQuestion is prominently visible
+    And the file .codex/unattended-mode exists in the project directory
+    When Codex reads the skill instructions
+    Then the automation directive to skip interactive prompt is prominently visible
     And the directive appears before the interactive workflow steps

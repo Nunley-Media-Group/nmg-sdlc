@@ -1,11 +1,11 @@
 ---
 name: migrate-project
 description: "[DEPRECATED — use /upgrade-project instead] This skill was renamed in nmg-sdlc 1.42.0. Invoking /migrate-project prints a deprecation notice pointing to /upgrade-project and exits. Will be removed in the next minor release."
-disable-model-invocation: true
-allowed-tools: Read
 ---
 
 # Migrate Project (DEPRECATED)
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 > **This skill has been renamed to `/upgrade-project` as of nmg-sdlc 1.42.0.**
 >

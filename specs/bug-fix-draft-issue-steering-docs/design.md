@@ -3,7 +3,7 @@
 **Issue**: #27
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -11,7 +11,7 @@
 
 The `/draft-issue` skill's Step 3 (Investigate Codebase) defines two investigation sub-flows — one for Enhancement/Feature and one for Bug — but neither reads `steering/tech.md` or `steering/structure.md`.
 
-Step 1 reads only `product.md` for product context (vision, users, priorities), which is correct for its purpose. The assumption was that Step 3's codebase exploration (specs + source code) would surface all relevant constraints. However, technical constraints (e.g., "review Claude Code docs before modifying CC resources" in `tech.md`) and architectural patterns (e.g., layer responsibilities in `structure.md`) are only captured in steering documents, not in specs or source code. Without reading these documents, the investigation summary is incomplete and the resulting issue misses constraint-derived acceptance criteria.
+Step 1 reads only `product.md` for product context (vision, users, priorities), which is correct for its purpose. The assumption was that Step 3's codebase exploration (specs + source code) would surface all relevant constraints. However, technical constraints (e.g., "review Codex docs before modifying CC resources" in `tech.md`) and architectural patterns (e.g., layer responsibilities in `structure.md`) are only captured in steering documents, not in specs or source code. Without reading these documents, the investigation summary is incomplete and the resulting issue misses constraint-derived acceptance criteria.
 
 ### Affected Code
 
@@ -47,7 +47,7 @@ The new sub-step should be inserted early in each flow (after initial exploratio
 ### Blast Radius
 
 - **Direct impact**: `plugins/nmg-sdlc/skills/draft-issue/SKILL.md` — only file modified
-- **Indirect impact**: None. Skills are prompt-based Markdown files; there are no callers or imports. The change affects Claude's behavior when executing `/draft-issue`, but does not touch any other skill, hook, or agent.
+- **Indirect impact**: None. Skills are prompt-based Markdown files; there are no callers or imports. The change affects Codex's behavior when executing `/draft-issue`, but does not touch any other skill, hook, or agent.
 - **Risk level**: Low — adding more information to the investigation step cannot break existing behavior; Step 1's `product.md` reading is untouched.
 
 ---

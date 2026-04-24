@@ -3,15 +3,15 @@
 **Issues**: #86
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
 ## Root Cause
 
-The `detectSoftFailure()` function in `sdlc-runner.mjs` was designed to catch failures where Claude Code exits with code 0 but did not actually succeed. It does this by parsing the stream-json output for two JSON-level indicators: `subtype: "error_max_turns"` and non-empty `permission_denials`. This was the correct initial implementation (issue #38) because those were the known soft failure modes at the time.
+The `detectSoftFailure()` function in `sdlc-runner.mjs` was designed to catch failures where Codex exits with code 0 but did not actually succeed. It does this by parsing the stream-json output for two JSON-level indicators: `subtype: "error_max_turns"` and non-empty `permission_denials`. This was the correct initial implementation (issue #38) because those were the known soft failure modes at the time.
 
-However, some failure modes produce text-only output that never appears in the structured JSON result. For example, when a skill calls `EnterPlanMode` in a headless/pipe session, Claude Code prints a text error message to stdout (not as a JSON-structured event) and continues or exits cleanly. Similarly, `AskUserQuestion` called when unattended-mode is active may produce text warnings. The `detectSoftFailure()` function calls `extractResultFromStream()` to get the JSON result object and inspects only its fields — it never scans the raw stdout/stderr text for failure indicators.
+However, some failure modes produce text-only output that never appears in the structured JSON result. For example, when a skill calls `EnterPlanMode` in a headless/pipe session, Codex prints a text error message to stdout (not as a JSON-structured event) and continues or exits cleanly. Similarly, `interactive prompt` called when unattended-mode is active may produce text warnings. The `detectSoftFailure()` function calls `extractResultFromStream()` to get the JSON result object and inspects only its fields — it never scans the raw stdout/stderr text for failure indicators.
 
 The existing `matchErrorPattern()` function _does_ scan raw text output, but it only runs inside `handleFailure()` — which is the non-zero exit code path or the path after a soft failure has already been detected. There is no text scanning in the exit-code-0 success path before `detectSoftFailure()` returns its verdict.
 
@@ -26,7 +26,7 @@ The existing `matchErrorPattern()` function _does_ scan raw text output, but it 
 ### Triggering Conditions
 
 - A skill produces a text-based failure message on stdout or stderr (e.g., "EnterPlanMode called in headless session")
-- The Claude Code process exits with code 0
+- The Codex process exits with code 0
 - The JSON result object does not contain `error_max_turns` subtype or `permission_denials`
 - The runner's exit-code-0 path calls `detectSoftFailure()` which finds no JSON failure indicators
 - The step is classified as successful
@@ -75,7 +75,7 @@ The function signature and return type remain unchanged — callers already hand
 | Option | Description | Why Not Selected |
 |--------|-------------|------------------|
 | Extend `matchErrorPattern()` and call it from the exit-code-0 path | Reuse existing text scanning infrastructure | `matchErrorPattern()` returns `{ action: 'escalate' | 'wait' }` which is semantically different from soft failure detection. Conflating the two would complicate both paths. Better to keep them separate. |
-| Make patterns configurable via `sdlc-config.json` | Allow per-project customization of failure patterns | Over-engineering for the current need. The patterns are universal to Claude Code behavior, not project-specific. Can be added later if needed. |
+| Make patterns configurable via `sdlc-config.json` | Allow per-project customization of failure patterns | Over-engineering for the current need. The patterns are universal to Codex behavior, not project-specific. Can be added later if needed. |
 
 ---
 

@@ -11,7 +11,7 @@
 
 The `/write-spec` skill's Phase 1 (SPECIFY) workflow has no step between *reading the issue* and *writing `requirements.md`* that inspects the issue body for unresolved gaps. Phase 1 Process steps 1–6 in `skills/write-spec/SKILL.md` proceed directly from `gh issue view` (steps 1–3) into amendment-mode-or-creation-mode drafting (steps 4–5). The amendment and creation branches both trust that whatever the issue body contains is sufficient to bootstrap a spec.
 
-The `**Open Questions**` field that appears in the Phase 1 review gate template is purely a render of pre-existing content (`references/review-gates.md` § Phase 1 — "`Open Questions: [list any, or 'None']`"). It is never consumed by logic — no detection, no branching, no `AskUserQuestion`. The gate reports the field for a human reviewer to notice, but by then the draft is already written.
+The `**Open Questions**` field that appears in the Phase 1 review gate template is purely a render of pre-existing content (`references/review-gates.md` § Phase 1 — "`Open Questions: [list any, or 'None']`"). It is never consumed by logic — no detection, no branching, no `interactive prompt`. The gate reports the field for a human reviewer to notice, but by then the draft is already written.
 
 By contrast, `/draft-issue` runs a full adaptive-depth interview (Steps 4–5 of its SKILL.md) *before* producing output. `/write-spec` was specified as a transform that assumes a well-groomed input, and no equivalent gap-detection/interview pattern was ported in — hence the asymmetry.
 
@@ -25,7 +25,7 @@ By contrast, `/draft-issue` runs a full adaptive-depth interview (Steps 4–5 of
 ### Triggering Conditions
 
 - A GitHub issue contains an `## Open Questions` section with at least one unresolved item, **or** its Acceptance Criteria are missing / structurally malformed (no Given/When/Then).
-- `/write-spec` runs in interactive mode (i.e., `.claude/unattended-mode` is absent).
+- `/write-spec` runs in interactive mode (i.e., `.codex/unattended-mode` is absent).
 - The workflow reaches Phase 1 — which is unconditional on every `/write-spec` run.
 
 These conditions weren't caught before because the Phase 1 contract was framed as "bootstrap ACs from the issue body" rather than "reach a confident spec before drafting," and review gates were assumed to be the corrective mechanism. In practice, reviewers see the issues too late — after a speculative draft is on disk.
@@ -36,7 +36,7 @@ These conditions weren't caught before because the Phase 1 contract was framed a
 
 ### Approach
 
-Introduce a new Phase 1 *Gap Detection & Interview* step that fires after reading the issue + steering docs and **before** the amendment/creation branches, in both branches. The step is gated on interactive mode (skipped when `.claude/unattended-mode` exists, per `references/unattended-mode.md` pre-approved pattern). The detection rules and question caps are consolidated in a new per-skill reference (`skills/write-spec/references/interview.md`), and `SKILL.md` gets a single pointer to it plus a numbered workflow step. This keeps the main skill file close to the structure.md "trigger + workflow skeleton" shape while isolating the interview logic where it can be maintained independently.
+Introduce a new Phase 1 *Gap Detection & Interview* step that fires after reading the issue + steering docs and **before** the amendment/creation branches, in both branches. The step is gated on interactive mode (skipped when `.codex/unattended-mode` exists, per `references/unattended-mode.md` pre-approved pattern). The detection rules and question caps are consolidated in a new per-skill reference (`skills/write-spec/references/interview.md`), and `SKILL.md` gets a single pointer to it plus a numbered workflow step. This keeps the main skill file close to the structure.md "trigger + workflow skeleton" shape while isolating the interview logic where it can be maintained independently.
 
 The review gate's `**Open Questions**` display field is left untouched — the new interview runs pre-write, not at the gate.
 
@@ -47,7 +47,7 @@ The implementation must be driven through `/skill-creator` per the `steering/tec
 | File | Change | Rationale |
 |------|--------|-----------|
 | `skills/write-spec/SKILL.md` | Add a new Phase 1 Process step (inserted as step 4, shifting current 4–6 to 5–7) that fires `Gap Detection & Interview` with a pointer of the form `` Read `references/interview.md` when Phase 1 has read the issue and steering docs and is about to enter amendment or creation mode. `` | Keeps SKILL.md focused on workflow skeleton; pointer grammar complies with `steering/structure.md` § "Reference pointer grammar". |
-| `skills/write-spec/references/interview.md` | New per-skill reference describing: (a) gap signals (non-empty Open Questions, missing/malformed ACs, defect-specific missing fields for bug-labelled issues); (b) how to run the interview in interactive mode (`AskUserQuestion` one question per gap, bounded cap, free-text via "Other"); (c) the unattended-mode bypass with the required one-line divergence note; (d) amendment-mode rules (new-issue gaps only); (e) classification-tailored probes (feature vs. defect); (f) how to thread answers into the draft and how to capture any residual unresolved items in the spec's `## Open Questions` section. | Places the detailed procedure where per-skill rarely-fired variant content belongs (per `steering/structure.md` layer table); keeps SKILL.md short; centralizes the detection rules so future enhancements touch one file. |
+| `skills/write-spec/references/interview.md` | New per-skill reference describing: (a) gap signals (non-empty Open Questions, missing/malformed ACs, defect-specific missing fields for bug-labelled issues); (b) how to run the interview in interactive mode (`interactive prompt` one question per gap, bounded cap, free-text via "Other"); (c) the unattended-mode bypass with the required one-line divergence note; (d) amendment-mode rules (new-issue gaps only); (e) classification-tailored probes (feature vs. defect); (f) how to thread answers into the draft and how to capture any residual unresolved items in the spec's `## Open Questions` section. | Places the detailed procedure where per-skill rarely-fired variant content belongs (per `steering/structure.md` layer table); keeps SKILL.md short; centralizes the detection rules so future enhancements touch one file. |
 
 No other files change. Templates (`templates/requirements.md`, etc.), existing references (`discovery.md`, `amendment-mode.md`, `defect-variant.md`, `review-gates.md`), steering docs, and the SDLC runner are all unaffected.
 
@@ -66,8 +66,8 @@ No other files change. Templates (`templates/requirements.md`, etc.), existing r
 
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
-| Interview fires on a well-specified issue and creates unnecessary friction. | Medium | AC3 explicitly requires the no-gap path to skip without `AskUserQuestion`. The regression test loads a well-specified issue and asserts zero `AskUserQuestion` calls from the interview step. |
-| Unattended runs accidentally call `AskUserQuestion` and hang the SDLC runner. | Low | Gap-detection logic in `interview.md` mandates a `Glob('.claude/unattended-mode')` check at the top of the step, following the pre-approved-gate pattern in `references/unattended-mode.md`. A regression scenario exercises the skill with the sentinel present. |
+| Interview fires on a well-specified issue and creates unnecessary friction. | Medium | AC3 explicitly requires the no-gap path to skip without `interactive prompt`. The regression test loads a well-specified issue and asserts zero `interactive prompt` calls from the interview step. |
+| Unattended runs accidentally call `interactive prompt` and hang the SDLC runner. | Low | Gap-detection logic in `interview.md` mandates a `Glob('.codex/unattended-mode')` check at the top of the step, following the pre-approved-gate pattern in `references/unattended-mode.md`. A regression scenario exercises the skill with the sentinel present. |
 | Amendment mode re-interviews about already-approved spec content. | Low-Medium | `interview.md` restricts amendment-mode gap detection to the *new issue's* body only — it never re-reads the existing `requirements.md` for gaps. AC5 covers this. |
 | Bug-labelled issues get feature-scope questions (noise, not signal). | Medium | Classification-tailored probes (FR7) — the reference explicitly branches on `bug` label detection already present in Phase 1, reusing the same signal to select the question set. |
 | The bounded question cap is set too low, producing shallow specs. | Low | The cap is documented in `interview.md` with a rationale; AC7 permits the skill to record residual unresolved items in the spec's `## Open Questions` section so reviewers still see them. The cap is a soft limit, not a silent truncation. |
@@ -80,7 +80,7 @@ No other files change. Templates (`templates/requirements.md`, etc.), existing r
 | Option | Description | Why Not Selected |
 |--------|-------------|------------------|
 | Inline the interview prose directly in `SKILL.md` Phase 1 | Add the detection rules, question mechanics, and classification branching as numbered sub-steps inside Phase 1 Process. | Bloats SKILL.md beyond its "workflow skeleton" responsibility per `steering/structure.md`. Future enhancements (e.g., a new gap type) would thicken the main skill file instead of being confined to a variant reference. |
-| Turn the review gate's Open Questions field into an interactive step at gate time (post-draft) | Extend `review-gates.md` Phase 1 so unresolved items trigger `AskUserQuestion` *after* the draft lands, then revise the draft. | Out of scope per the issue ("Changing the Phase 1 review gate UI or the `**Open Questions**` display field" is excluded). Also less useful — a reviewer still sees speculative content shaped by the gap, whereas pre-write interviewing shapes the draft correctly the first time. |
+| Turn the review gate's Open Questions field into an interactive step at gate time (post-draft) | Extend `review-gates.md` Phase 1 so unresolved items trigger `interactive prompt` *after* the draft lands, then revise the draft. | Out of scope per the issue ("Changing the Phase 1 review gate UI or the `**Open Questions**` display field" is excluded). Also less useful — a reviewer still sees speculative content shaped by the gap, whereas pre-write interviewing shapes the draft correctly the first time. |
 | Port `/draft-issue`'s full adaptive-depth interview (`interview-depth.md`) | Reuse the three-signal heuristic (`filesFound`, `componentsInvolved`, `descriptionVagueness`) and the depth-override prompt. | Explicitly out of scope per the issue — "a lighter, gap-detection-driven approach is sufficient." Adaptive depth is justified for issue creation where the input is free-form; `/write-spec` operates on a curated issue and only needs to plug specific gaps. |
 
 ---

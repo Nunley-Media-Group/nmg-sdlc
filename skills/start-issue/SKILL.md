@@ -1,26 +1,24 @@
 ---
 name: start-issue
 description: "Select a GitHub issue, create a linked feature branch, and set the issue to In Progress. Use when user says 'start issue', 'pick up issue', 'begin working on #N', 'start #N', 'what should I work on', 'how do I start an issue', 'how to begin work on an issue', or 'kick off issue #N'. Do NOT use for creating issues, writing specs, or implementing code. Fetches milestones, presents issue selection, creates branch via gh issue develop, and updates project board status. Second step in the SDLC pipeline — follows /draft-issue and precedes /write-spec."
-argument-hint: "[#issue-number]"
-allowed-tools: Read, Glob, Grep, Bash(gh:*), Bash(git:*)
-model: gpt-5.4
-effort: low
 ---
 
 # Start Issue
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Select a GitHub issue to work on, create a linked feature branch, and set the issue to "In Progress" in any associated GitHub Project.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
 
 ## Unattended-Mode Behaviour Specific to This Skill
 
 The shared reference covers sentinel semantics; these skill-specific branches apply when `.codex/unattended-mode` exists:
 
 - **Argument supplied** (`/start-issue #N`): skip Steps 2–3 (selection and confirmation) and go directly to Step 4.
-- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. `request_user_input` is never called.
+- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. interactive user prompt is never called.
 - Only issues with the `automatable` label are eligible. Every `gh issue list` command gains `--label automatable`. If no automatable issues exist, run the diagnostic per `references/milestone-selection.md` and exit without creating a branch.
 
 ## Workflow Overview
@@ -30,7 +28,7 @@ The shared reference covers sentinel semantics; these skill-specific branches ap
     │
     ├─ 1.  Fetch milestones & issues
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
-    ├─ 2.  Present issue selection (request_user_input)
+    ├─ 2.  Present issue selection (interactive user prompt)
     ├─ 3.  Confirm selected issue
     ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
@@ -137,7 +135,7 @@ The topologically-ordered, blocked-filtered list is what Step 2 and the unattend
 
 In unattended mode, skip this step entirely — the auto-pick rule in the Unattended-Mode Behaviour section replaces it.
 
-Interactive mode uses `request_user_input` to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
+Interactive mode uses interactive user prompt to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none. If the issue has the `automatable` label, append `(automatable)` to the description.
@@ -207,6 +205,6 @@ This summary is the handoff contract for downstream skills like `/write-spec` an
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
                           ▲ You are here
 ```

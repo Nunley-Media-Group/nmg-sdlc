@@ -1,9 +1,9 @@
-# Defect Report: sdlc-runner skill path resolution broken under Claude Code plugin cache layout
+# Defect Report: sdlc-runner skill path resolution broken under Codex plugin cache layout
 
 **Issue**: #88
 **Date**: 2026-04-20
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 **Severity**: High
 **Related Spec**: `specs/feature-automation-mode-support/`
 
@@ -13,22 +13,22 @@
 
 ### Steps to Reproduce
 
-1. Install `nmg-sdlc` via the Claude Code plugin system (`/plugin install nmg-sdlc@nmg-plugins`). Claude Code materializes the plugin at `~/.claude/plugins/cache/nmg-plugins/nmg-sdlc/<version>/` with `skills/` at the plugin root.
-2. Create an `sdlc-config.json` containing `pluginsPath` pointing at the Claude Code marketplace checkout, e.g. `~/.claude/plugins/marketplaces/nmg-plugins/`.
+1. Install `nmg-sdlc` via the Codex plugin system (`/plugin install nmg-sdlc@nmg-plugins`). Codex materializes the plugin at `~/.codex/plugins/cache/nmg-plugins/nmg-sdlc/<version>/` with `skills/` at the plugin root.
+2. Create an `sdlc-config.json` containing `pluginsPath` pointing at the Codex marketplace checkout, e.g. `~/.codex/plugins/marketplaces/nmg-plugins/`.
 3. Run `node scripts/sdlc-runner.mjs --config sdlc-config.json`.
 
 ### Environment
 
 | Factor | Value |
 |--------|-------|
-| **OS / Platform** | macOS (reported); behavior is path-layout dependent so it reproduces on Linux/Windows with the same Claude Code plugin installs |
+| **OS / Platform** | macOS (reported); behavior is path-layout dependent so it reproduces on Linux/Windows with the same Codex plugin installs |
 | **Version / Commit** | nmg-sdlc 1.53.3 |
 | **Runtime** | Node.js (`scripts/sdlc-runner.mjs`) |
 | **Configuration** | `pluginsPath` pointed at the CC marketplace checkout or the CC plugin cache root |
 
 ### Frequency
 
-Always — the runner crashes on the first `readSkill()` call at startup. Every invocation against a Claude Code plugin install is affected.
+Always — the runner crashes on the first `readSkill()` call at startup. Every invocation against a Codex plugin install is affected.
 
 ---
 
@@ -37,12 +37,12 @@ Always — the runner crashes on the first `readSkill()` call at startup. Every 
 | | Description |
 |---|-------------|
 | **Expected** | The runner resolves `SKILL.md` files against whichever layout the user's config points at (plugin-root layout under the CC plugin cache, or the legacy nested monorepo layout) and begins executing the configured SDLC steps without a fatal file-not-found error. |
-| **Actual** | `readSkill()` and `buildClaudeArgs()` unconditionally join `{pluginsPath}/plugins/nmg-sdlc/skills/{name}/SKILL.md`. Under the CC plugin cache (`~/.claude/plugins/cache/nmg-plugins/nmg-sdlc/<version>/`) `skills/` sits at the plugin root — there is no `plugins/nmg-sdlc/` subtree — so every skill read throws `Error: Skill file not found` and the process exits. |
+| **Actual** | `readSkill()` and `buildCodexArgs()` unconditionally join `{pluginsPath}/plugins/nmg-sdlc/skills/{name}/SKILL.md`. Under the CC plugin cache (`~/.codex/plugins/cache/nmg-plugins/nmg-sdlc/<version>/`) `skills/` sits at the plugin root — there is no `plugins/nmg-sdlc/` subtree — so every skill read throws `Error: Skill file not found` and the process exits. |
 
 ### Error Output
 
 ```
-Error: Skill file not found: ~/.claude/plugins/marketplaces/nmg-plugins/plugins/nmg-sdlc/skills/<name>/SKILL.md
+Error: Skill file not found: ~/.codex/plugins/marketplaces/nmg-plugins/plugins/nmg-sdlc/skills/<name>/SKILL.md
 ```
 
 The message reports only the composed path; it does not disclose which config field produced the root, so users cannot tell whether they mis-set `pluginsPath` or the composition rule itself is wrong for their layout.
@@ -55,10 +55,10 @@ The message reports only the composed path; it does not disclose which config fi
 
 ### AC1: Bug Is Fixed — Skills Resolve Under Plugin-Root Layout via `pluginRoot`
 
-**Given** `sdlc-config.json` contains a `pluginRoot` field pointing directly at the plugin root (e.g., `~/.claude/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/`)
+**Given** `sdlc-config.json` contains a `pluginRoot` field pointing directly at the plugin root (e.g., `~/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.53.3/`)
 **When** the runner starts and calls `readSkill('write-spec')` (or any other step-associated skill)
 **Then** it composes the path as `{pluginRoot}/skills/write-spec/SKILL.md`, finds the file, and proceeds past startup without a `Skill file not found` error
-**And** `buildClaudeArgs()` uses the same `{pluginRoot}/skills/{name}/` location when emitting `skillRoot` references in the generated prompts
+**And** `buildCodexArgs()` uses the same `{pluginRoot}/skills/{name}/` location when emitting `skillRoot` references in the generated prompts
 
 ### AC2: No Regression — Legacy `pluginsPath` Nested Layout Still Works
 
@@ -92,19 +92,19 @@ The message reports only the composed path; it does not disclose which config fi
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Add a `pluginRoot` field to the runner's config schema; when present, `readSkill()` and `buildClaudeArgs()` compose skill paths as `{pluginRoot}/skills/{name}/SKILL.md` | Must |
+| FR1 | Add a `pluginRoot` field to the runner's config schema; when present, `readSkill()` and `buildCodexArgs()` compose skill paths as `{pluginRoot}/skills/{name}/SKILL.md` | Must |
 | FR2 | Preserve backward compatibility: when `pluginRoot` is absent and `pluginsPath` is present, retain the existing `{pluginsPath}/plugins/nmg-sdlc/skills/{name}/SKILL.md` composition | Must |
 | FR3 | Enhance the `readSkill()` error message to include (a) which config field produced the root, (b) that field's value, and (c) the full path attempted | Should |
 | FR4 | Update the runner's startup config validation so the `projectPath`-and-`pluginsPath`-required check accepts `pluginRoot` as a substitute for `pluginsPath`, and names both options in the error when neither is set | Must |
 | FR5 | When both `pluginRoot` and `pluginsPath` are set, select `pluginRoot` deterministically and log which field was used at startup | Should |
-| FR6 | Update `scripts/sdlc-config.example.json` to document `pluginRoot` as the recommended field for Claude Code plugin-cache installs, keeping `pluginsPath` as the compatibility path | Should |
+| FR6 | Update `scripts/sdlc-config.example.json` to document `pluginRoot` as the recommended field for Codex plugin-cache installs, keeping `pluginsPath` as the compatibility path | Should |
 
 ---
 
 ## Out of Scope
 
-- Changing the Claude Code plugin installation or cache directory structure itself.
-- Runtime auto-detection of the plugin cache location (e.g., probing `~/.claude/plugins/cache/**/nmg-sdlc/**`).
+- Changing the Codex plugin installation or cache directory structure itself.
+- Runtime auto-detection of the plugin cache location (e.g., probing `~/.codex/plugins/cache/**/nmg-sdlc/**`).
 - Symlink-based workarounds as the primary fix.
 - Multi-plugin configurations or resolving skills across more than one nmg-* plugin in a single runner invocation.
 - Refactoring the broader configuration schema (effort matrix, step overrides, cleanup patterns, etc.) — only the two path-composition call sites and the related validation/log/example-config lines change.

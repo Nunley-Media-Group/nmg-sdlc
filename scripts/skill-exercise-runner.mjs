@@ -250,8 +250,7 @@ async function attemptCodexExercise(skillName, fixtureDir) {
   const proc = spawnSync('codex', [
     'exec',
     '--cd', fixtureDir,
-    '--sandbox', 'workspace-write',
-    '--ask-for-approval', 'never',
+    '--full-auto',
     prompt,
   ], {
     encoding: 'utf8',

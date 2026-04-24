@@ -37,8 +37,8 @@ Omit: NFRs table, UI/UX table, data requirements, success metrics. They're not l
 **Populate `**Related Spec**`** by actively searching for the related feature spec:
 
 1. Extract keywords from the issue — file paths, function/method names, component names, module names.
-2. Run `Glob` for `specs/feature-*/requirements.md` and `specs/*/requirements.md` (covers both new `feature-` naming and legacy `{issue#}-` naming).
-3. Run `Grep` over those spec files using the extracted keywords.
+2. Run file discovery for `specs/feature-*/requirements.md` and `specs/*/requirements.md` (covers both new `feature-` naming and legacy `{issue#}-` naming).
+3. Run text search over those spec files using the extracted keywords.
 4. Read the **first heading** of each matching file to determine its type:
    - `# Requirements:` → feature spec
    - `# Defect Report:` → defect spec

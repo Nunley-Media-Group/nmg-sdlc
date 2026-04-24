@@ -15,7 +15,7 @@ Steering documents live at the project root under `steering/` and carry project-
 
 ## Discovery
 
-Consuming skills `Glob` for `steering/*.md` before reading. A missing steering doc is acceptable in most paths — consumers degrade gracefully (e.g., `write-spec` omits retrospective-driven AC amendments when `retrospective.md` is absent). The one hard requirement: `/write-spec` expects `product.md`, `tech.md`, and `structure.md` to exist. If any is missing, suggest `/onboard-project` and do not attempt to substitute.
+Consuming skills file discovery for `steering/*.md` before reading. A missing steering doc is acceptable in most paths — consumers degrade gracefully (e.g., `write-spec` omits retrospective-driven AC amendments when `retrospective.md` is absent). The one hard requirement: `/write-spec` expects `product.md`, `tech.md`, and `structure.md` to exist. If any is missing, suggest `/onboard-project` and do not attempt to substitute.
 
 ## Read timing
 

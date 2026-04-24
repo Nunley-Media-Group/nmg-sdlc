@@ -1,4 +1,4 @@
-# Defect Report: Relocate specs and steering out of `.claude/` to restore SDLC pipeline under new Claude Code directory protection
+# Defect Report: Relocate specs and steering out of `.codex/` to restore SDLC pipeline under new Codex directory protection
 
 **Issues**: #121
 **Date**: 2026-04-18
@@ -13,9 +13,9 @@
 
 ### Steps to Reproduce
 
-1. Install `nmg-sdlc` 1.40.0 under a current Claude Code release that enforces `.claude/` directory write protection.
+1. Install `nmg-sdlc` 1.40.0 under a current Codex release that enforces `.codex/` directory write protection.
 2. In a project with existing `steering/` and `specs/` directories, run any SDLC skill that writes to those paths — for example `/setup-steering` (enhancement flow), `/write-spec #N`, or `/verify-code #N` (when it needs to update `tasks.md`).
-3. Observe the Write/Edit tool being refused because the target path is under the protected `.claude/` directory — even when Claude was launched with `--dangerously-skip-permissions`.
+3. Observe the Write/Edit tool being refused because the target path is under the protected `.codex/` directory — even when Codex was launched with `--dangerously-skip-permissions`.
 4. The skill cannot complete; unattended runs bail out; the pipeline halts.
 
 ### Environment
@@ -23,13 +23,13 @@
 | Factor | Value |
 |--------|-------|
 | **OS / Platform** | macOS, Windows, Linux (all affected) |
-| **Version / Commit** | `nmg-sdlc` 1.40.0; any current Claude Code release enforcing `.claude/` protection |
-| **Browser / Runtime** | Claude Code CLI, with or without `--dangerously-skip-permissions` |
+| **Version / Commit** | `nmg-sdlc` 1.40.0; any current Codex release enforcing `.codex/` protection |
+| **Browser / Runtime** | Codex CLI, with or without `--dangerously-skip-permissions` |
 | **Configuration** | Any project with prior nmg-sdlc state under `steering/` or `specs/` |
 
 ### Frequency
 
-Always — the block is structural and applies to every SDLC skill that authors files under `.claude/`.
+Always — the block is structural and applies to every SDLC skill that authors files under `.codex/`.
 
 ---
 
@@ -37,13 +37,13 @@ Always — the block is structural and applies to every SDLC skill that authors 
 
 | | Description |
 |---|-------------|
-| **Expected** | SDLC skills author steering docs and spec artifacts at project-root paths that Claude Code is willing to write to. Runtime artifacts remain under `.claude/`. Legacy projects can be brought forward with a single command. |
-| **Actual** | Writes to `steering/**` and `specs/**` are refused by Claude Code regardless of `--dangerously-skip-permissions`. The SDLC pipeline halts mid-run with a generic tool refusal and no instructive upgrade path. |
+| **Expected** | SDLC skills author steering docs and spec artifacts at project-root paths that Codex is willing to write to. Runtime artifacts remain under `.codex/`. Legacy projects can be brought forward with a single command. |
+| **Actual** | Writes to `steering/**` and `specs/**` are refused by Codex regardless of `--dangerously-skip-permissions`. The SDLC pipeline halts mid-run with a generic tool refusal and no instructive upgrade path. |
 
 ### Error Output
 
 ```
-[Claude Code refuses Write/Edit on paths under the project .claude/ directory]
+[Codex refuses Write/Edit on paths under the project .codex/ directory]
 Tool use blocked: target path is inside protected project configuration directory.
 ```
 
@@ -67,7 +67,7 @@ Tool use blocked: target path is inside protected project configuration director
 **Then** the skill moves `steering/` → `steering/` and `specs/` → `specs/` via `git mv` (preserving history)
 **And** every cross-reference in the moved files is rewritten to the new paths
 **And** the now-empty `steering/` and `specs/` directories are removed
-**And** `.claude/unattended-mode` and `.claude/sdlc-state.json` are left untouched.
+**And** `.codex/unattended-mode` and `.codex/sdlc-state.json` are left untouched.
 
 ### AC3: Hard Gate On Legacy Layout
 
@@ -89,21 +89,21 @@ Tool use blocked: target path is inside protected project configuration director
 **Given** the updated plugin is installed
 **When** any SDLC skill (`draft-issue`, `start-issue`, `write-spec`, `write-code`, `verify-code`, `open-pr`, `run-retro`, `upgrade-project`, `setup-steering`) reads or writes steering or spec files
 **Then** every path referenced in the skill points to the new root-level `steering/` or `specs/` directories
-**And** `grep -r "\.claude/specs\|\.claude/steering" plugins/nmg-sdlc/skills/` returns only references in upgrade logic that intentionally name the legacy location for detection purposes.
+**And** `grep -r "\.codex/specs\|\.codex/steering" plugins/nmg-sdlc/skills/` returns only references in upgrade logic that intentionally name the legacy location for detection purposes.
 
 ### AC6: Runtime Artifacts Unchanged (Except Rename)
 
 **Given** the relocation and rename ship
 **When** a user runs the SDLC runner or toggles unattended mode
-**Then** `.claude/unattended-mode` and `.claude/sdlc-state.json` continue to live under `.claude/` unchanged
-**And** `.claude/migration-exclusions.json` is renamed to `.claude/upgrade-exclusions.json`
+**Then** `.codex/unattended-mode` and `.codex/sdlc-state.json` continue to live under `.codex/` unchanged
+**And** `.codex/migration-exclusions.json` is renamed to `.codex/upgrade-exclusions.json`
 **And** `/upgrade-project` reads and writes the new filename, and migrates any existing `migration-exclusions.json` to the new name on first run.
 
 ### AC7: No Regression In Core Pipeline
 
 **Given** a freshly-upgraded project
 **When** the user runs the full SDLC pipeline (`/draft-issue` → `/start-issue` → `/write-spec` → `/write-code` → `/verify-code` → `/open-pr`)
-**Then** every step succeeds end-to-end on current Claude Code without any `--dangerously-skip-permissions` override
+**Then** every step succeeds end-to-end on current Codex without any `--dangerously-skip-permissions` override
 **And** produces the same artifacts it produced before under the old layout.
 
 ---
@@ -119,9 +119,9 @@ Tool use blocked: target path is inside protected project configuration director
 | FR5 | `/upgrade-project` must detect the legacy `steering/` and `specs/` layout and migrate it via `git mv`, preserving git history and updating cross-references in moved files | Must |
 | FR6 | `/start-issue` must hard-gate on the legacy layout and instruct the user to run `/upgrade-project` before proceeding | Must |
 | FR7 | All other pipeline skills that read steering or specs must either hard-gate with the same message or document that `/start-issue` is the canonical gate | Must |
-| FR8 | Runtime artifacts under `.claude/` (`unattended-mode`, `sdlc-state.json`) remain in place; `migration-exclusions.json` is renamed to `upgrade-exclusions.json` with automatic migration on first `/upgrade-project` run | Must |
+| FR8 | Runtime artifacts under `.codex/` (`unattended-mode`, `sdlc-state.json`) remain in place; `migration-exclusions.json` is renamed to `upgrade-exclusions.json` with automatic migration on first `/upgrade-project` run | Must |
 | FR9 | Update README, CHANGELOG (`[Unreleased]`), and in-repo steering docs to reflect the new layout and the `upgrade-project` name | Must |
-| FR10 | Bump plugin version in both `plugins/nmg-sdlc/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (MAJOR — breaking directory convention change) | Must |
+| FR10 | Bump plugin version in both `plugins/nmg-sdlc/.codex-plugin/plugin.json` and `.codex-plugin/marketplace.json` (MAJOR — breaking directory convention change) | Must |
 | FR11 | Exercise the upgrade on this very repo (it currently uses `specs/` and `steering/`) as part of verification | Should |
 | FR12 | Emit a deprecation stub for `/migrate-project` pointing to `/upgrade-project` for one release | Could |
 
@@ -129,7 +129,7 @@ Tool use blocked: target path is inside protected project configuration director
 
 ## Out of Scope
 
-- Moving runtime artifacts (`unattended-mode`, `sdlc-state.json`, `upgrade-exclusions.json`) out of `.claude/` — they stay because they are not authored by Edit/Write and are not affected by the protection.
+- Moving runtime artifacts (`unattended-mode`, `sdlc-state.json`, `upgrade-exclusions.json`) out of `.codex/` — they stay because they are not authored by Edit/Write and are not affected by the protection.
 - A dual-read compatibility window (the gate is hard; legacy projects must run `/upgrade-project` before continuing).
 - Changes to `/run-loop` or the SDLC runner beyond any path references it may carry.
 - Renaming or restructuring any other skill besides `migrate-project` → `upgrade-project`.
@@ -141,7 +141,7 @@ Tool use blocked: target path is inside protected project configuration director
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #121 | 2026-04-18 | Initial defect spec for relocating steering/specs out of `.claude/` and renaming `migrate-project` → `upgrade-project` |
+| #121 | 2026-04-18 | Initial defect spec for relocating steering/specs out of `.codex/` and renaming `migrate-project` → `upgrade-project` |
 
 ---
 

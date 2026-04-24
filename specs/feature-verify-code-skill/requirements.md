@@ -3,7 +3,7 @@
 **Issues**: #7, #109
 **Date**: 2026-03-03
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 

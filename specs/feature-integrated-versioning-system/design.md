@@ -3,13 +3,13 @@
 **Issues**: #41, #87, #139
 **Date**: 2026-04-19
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
 ## Overview
 
-This feature weaves versioning into three existing skills (`/draft-issue`, `/open-pr`, `/setup-steering`) and one existing skill (`/migrate-project`), plus adds a new tech.md template section. The design follows the existing pattern: skills are Markdown prompts that instruct Claude to use `gh` CLI, file I/O, and `AskUserQuestion` at decision points.
+This feature weaves versioning into three existing skills (`/draft-issue`, `/open-pr`, `/setup-steering`) and one existing skill (`/migrate-project`), plus adds a new tech.md template section. The design follows the existing pattern: skills are Markdown prompts that instruct Codex to use `gh` CLI, file I/O, and `interactive prompt` at decision points.
 
 The core data flow is: a plain-text `VERSION` file is the single source of truth for the current version. `/draft-issue` reads it for milestone defaults. `/open-pr` reads it, applies the semver classification matrix, writes the new version back, and updates `CHANGELOG.md` and any stack-specific files declared in `tech.md`. `/migrate-project` bootstraps or reconciles both `VERSION` and `CHANGELOG.md` from git history. The steering doc bridge (`tech.md` Versioning section) maps the universal `VERSION` to project-specific manifests.
 
@@ -197,7 +197,7 @@ Step 2b: Assign Milestone
    - If yes: read it, extract major version (e.g., "1.5.1" → "2")
    - If no: default major version is "0"
 
-2. [Manual mode] Ask developer via AskUserQuestion:
+2. [Manual mode] Ask developer via interactive prompt:
    - Question: "Which milestone should this issue be assigned to?"
    - Options: "v{major} (current)" as default, with text input for a different number
    - Accept a single number (e.g., "3") → normalize to "v2"
@@ -246,7 +246,7 @@ Step 2b: Assign Milestone
    - MINOR: increment Y, reset Z (1.5.1 → 1.6.0)
    - MAJOR: increment X, reset Y and Z (1.5.1 → 2.0.0)
 
-6. [Manual mode] Present classification to developer via AskUserQuestion:
+6. [Manual mode] Present classification to developer via interactive prompt:
    - "Version bump: {current} → {new} ({bump_type}). Override?"
    - Options: "Accept {bump_type}", "Patch", "Minor", "Major"
 
@@ -510,15 +510,15 @@ The original design (issue #41) included a "milestone completion override" — i
 Three coordinated edits align the skill, the runner (already correct), and the steering context:
 
 1. **Remove Step 2.4 from `/open-pr`** — delete the milestone open-count query and the major bump override. Bump type is determined solely by Step 2.3 (the tech.md classification matrix).
-2. **Add a `--major` argument to `/open-pr`** — developers who genuinely want a major bump opt in explicitly. When present, the `AskUserQuestion` bump menu pre-selects Major; the developer still confirms.
-3. **Escalate `--major` in unattended mode** — combining `.claude/unattended-mode` with `--major` emits a deterministic escalation message and exits without writing artifacts. This keeps major bumps human-gated.
+2. **Add a `--major` argument to `/open-pr`** — developers who genuinely want a major bump opt in explicitly. When present, the `interactive prompt` bump menu pre-selects Major; the developer still confirms.
+3. **Escalate `--major` in unattended mode** — combining `.codex/unattended-mode` with `--major` emits a deterministic escalation message and exits without writing artifacts. This keeps major bumps human-gated.
 4. **Rewrite the breaking-change guidance in `tech.md` and the template** — remove the "Milestone completion override" paragraph; add explicit text that `### Changed (BREAKING)` sections are minor bumps communicated via a `**BREAKING CHANGE:**` bullet prefix, with a recommended `### Migration Notes` sub-section.
 
 ### Affected Files
 
 | File | Change |
 |------|--------|
-| `plugins/nmg-sdlc/skills/open-pr/SKILL.md` | Delete Step 2.4; add `--major` argument parsing before Step 2; add unattended-mode escalation branch; update `argument-hint` frontmatter |
+| `plugins/nmg-sdlc/skills/open-pr/SKILL.md` | Delete Step 2.4; add `--major` argument parsing before Step 2; add unattended-mode escalation branch; update `usage hint` frontmatter |
 | `steering/tech.md` | Remove `**Milestone completion override**` paragraph from the `### Version Bump Classification` subsection; add breaking-change guidance describing the `**BREAKING CHANGE:**` bullet prefix and optional `### Migration Notes` sub-section |
 | `plugins/nmg-sdlc/skills/onboard-project/templates/tech.md` | Identical changes to the template so new projects inherit the corrected policy |
 | `README.md` | Already updated in `ac7bab1` to drop the milestone-completion row from the bump-type table and rewrite the `/open-pr` description — re-audit during implementation to confirm no stale references remain |
@@ -529,14 +529,14 @@ Three coordinated edits align the skill, the runner (already correct), and the s
 **Frontmatter**:
 
 ```diff
-- argument-hint: "[#issue-number]"
-+ argument-hint: "[#issue-number] [--major]"
+- usage hint: "[#issue-number]"
++ usage hint: "[#issue-number] [--major]"
 ```
 
 **Argument parsing (new sub-step before Step 2)**: Early in the workflow, before Step 2 begins, inspect the invocation arguments:
 
 - If `--major` is present in the arguments, set a `major_requested` flag.
-- If `.claude/unattended-mode` exists AND `major_requested` is true, print the escalation message:
+- If `.codex/unattended-mode` exists AND `major_requested` is true, print the escalation message:
   ```
   ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
   ```
@@ -548,7 +548,7 @@ Three coordinated edits align the skill, the runner (already correct), and the s
 3. Read the classification matrix from `steering/tech.md` (unchanged)
 4. ~~Check milestone completion~~ **DELETED**
 5. Calculate the new version string based on the classification from step 3 (and bump to major instead if `major_requested` is set).
-6. Present to user via `AskUserQuestion`.
+6. Present to user via `interactive prompt`.
 
 **Step 2.6 menu presentation**: When `major_requested` is true (and not in unattended mode), the menu pre-selects Major as the recommended option. The menu still offers Patch / Minor / Major alternatives so the developer can back out. Without `--major`, the menu behaves exactly as today with the classified type recommended.
 
@@ -595,7 +595,7 @@ The onboard-project template gets the same replacement with the same wording.
     │     ├── 2.3 Classification matrix (tech.md) → bump_type
     │     ├── [2.4 DELETED — no milestone query]
     │     ├── 2.5 Calculate new version (from bump_type, or major if major_requested)
-    │     └── 2.6 AskUserQuestion (Major pre-selected if major_requested)
+    │     └── 2.6 interactive prompt (Major pre-selected if major_requested)
     ├── Step 3 Update Version Artifacts (unchanged)
     └── Step 4+ Generate PR (unchanged)
 ```
@@ -606,7 +606,7 @@ The onboard-project template gets the same replacement with the same wording.
 |------|------------|--------|------------|
 | Developer muscle memory expects milestone completion to auto-bump major | Medium | Low | Release notes explicitly call out the policy change; README already updated; `--major` provides the new opt-in path |
 | LLMs in future sessions still infer "breaking = major" from cached older tech.md | Low | Medium | Steering rewrite is authoritative on disk; `/migrate-project` can rewrite older steering docs to current template language |
-| `--major` flag passed via programmatic invocation (e.g., runner config) | Low | High | Escalation branch specifically guards unattended-mode; manual runs still require `AskUserQuestion` confirmation |
+| `--major` flag passed via programmatic invocation (e.g., runner config) | Low | High | Escalation branch specifically guards unattended-mode; manual runs still require `interactive prompt` confirmation |
 
 ---
 
@@ -618,7 +618,7 @@ The onboard-project template gets the same replacement with the same wording.
 | **B: Integrate into existing skills** | Weave versioning into `/draft-issue`, `/open-pr`, `/migrate-project` | Zero new skills; versioning is invisible; happens as part of existing workflow | More complex skill modifications | **Selected** — matches "versioning for free" goal |
 | **C: VERSION derived from CHANGELOG only** | No separate VERSION file; parse CHANGELOG for current version | One fewer file to manage | Fragile parsing; CHANGELOG could be malformed; harder for build tools to read | Rejected — plain text VERSION is maximally portable |
 | **D: Milestone auto-assigned by label** | Skip milestone interview; assign based on label type | Less interactive | Loses user control; can't plan future milestones | Rejected — milestones are planning decisions |
-| **E: Shared JSON config file for classification** | Separate `.claude/versioning.json` file defining label→bump mappings | Machine-parseable without Markdown table parsing | Adds a new file type; diverges from steering doc pattern; the runner already parses tech.md tables | Rejected — steering doc table is consistent with existing patterns |
+| **E: Shared JSON config file for classification** | Separate `.codex/versioning.json` file defining label→bump mappings | Machine-parseable without Markdown table parsing | Adds a new file type; diverges from steering doc pattern; the runner already parses tech.md tables | Rejected — steering doc table is consistent with existing patterns |
 | **F: Extract classification into a shared JS module** | Node.js module imported by runner, referenced by skill via dynamic context | DRY in the traditional sense; type-safe | Skills are Markdown prompts, not code — they can't import JS modules; adds a build/dependency concern | Rejected — breaks the prompt-based architecture principle |
 | **G: Steering doc table in tech.md (selected)** | Add `### Version Bump Classification` subsection under `## Versioning` in tech.md | Follows existing pattern (runner already parses tech.md); single file to update; both consumers can read it; no new file types | Markdown table parsing is simple but not schema-validated | **Selected** — consistent with architecture, minimal change |
 | **H: Keep milestone override but gate it on a steering-doc flag (issue #139)** | Retain the override, add a `versioning.auto_major_on_milestone_complete = false` setting in tech.md | Backwards-compatible for projects that want the old behavior | Two rules coexist; steering inference that "breaking = major" persists; flag sprawl | Rejected — the policy is universal, not opt-out |

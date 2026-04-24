@@ -3,7 +3,7 @@
 **Issues**: #2
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -45,24 +45,24 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T001: Create Marketplace Index
 
-**File(s)**: `.claude-plugin/marketplace.json`
+**File(s)**: `.codex-plugin/marketplace.json`
 **Type**: Create
 **Depends**: None
 **Status**: Complete
 **Acceptance**:
-- [x] JSON file exists at `.claude-plugin/marketplace.json`
+- [x] JSON file exists at `.codex-plugin/marketplace.json`
 - [x] Contains `name`, `owner`, `metadata`, and `plugins` array
 - [x] At least one plugin entry with name, version, description, source path
 
 ### T002: Create Plugin Directory Structure
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`
 **Type**: Create
 **Depends**: None
 **Status**: Complete
 **Acceptance**:
 - [x] Plugin directory exists at `plugins/nmg-sdlc/`
-- [x] Plugin manifest exists at `plugins/nmg-sdlc/.claude-plugin/plugin.json`
+- [x] Plugin manifest exists at `plugins/nmg-sdlc/.codex-plugin/plugin.json`
 - [x] Manifest contains name, version, description, author, repository
 
 ---
@@ -71,12 +71,12 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T003: Create Installation Skill
 
-**File(s)**: `.claude/skills/installing-locally/SKILL.md`
+**File(s)**: `.codex/skills/installing-locally/SKILL.md`
 **Type**: Create
 **Depends**: T001, T002
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md exists with valid frontmatter (name, description, allowed-tools)
+- [x] SKILL.md exists with valid frontmatter (name, description, workflow instructions)
 - [x] Documents complete 5-step workflow (pull, discover, sync, update, report)
 - [x] Handles marketplace index reading and plugin discovery
 - [x] Uses `rsync` for idempotent file sync
@@ -98,7 +98,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T005: Define Manifest Schemas
 
-**File(s)**: `.claude-plugin/marketplace.json`, `plugins/nmg-sdlc/.claude-plugin/plugin.json`
+**File(s)**: `.codex-plugin/marketplace.json`, `plugins/nmg-sdlc/.codex-plugin/plugin.json`
 **Type**: Modify
 **Depends**: T001, T002
 **Status**: Complete
@@ -113,7 +113,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T006: Verify Plugin Discovery Path
 
-**File(s)**: `.claude/skills/installing-locally/SKILL.md`
+**File(s)**: `.codex/skills/installing-locally/SKILL.md`
 **Type**: Modify
 **Depends**: T003
 **Status**: Complete

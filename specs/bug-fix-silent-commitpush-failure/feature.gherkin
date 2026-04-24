@@ -25,10 +25,10 @@ Feature: Silent commitPush failure causing retry loop
 
   @regression
   Scenario: Step 6 prompt instructs explicit failure exit
-    Given Claude Code is running the commitPush step
+    Given Codex is running the commitPush step
     When git push fails for any reason
-    Then the step 6 prompt instructs Claude to verify push success via git log
-    And the prompt instructs Claude to exit with a non-zero status code on failure
+    Then the step 6 prompt instructs Codex to verify push success via git log
+    And the prompt instructs Codex to exit with a non-zero status code on failure
 
   # --- Related Behavior Still Works ---
 

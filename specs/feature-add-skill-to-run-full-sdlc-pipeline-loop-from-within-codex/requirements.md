@@ -3,21 +3,21 @@
 **Issues**: #107
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
 ## User Story
 
-**As a** developer using Claude Code
+**As a** developer using Codex
 **I want** a single skill that orchestrates the full SDLC pipeline across all automatable issues
-**So that** I can drive a continuous SDLC loop natively from within a Claude Code session
+**So that** I can drive a continuous SDLC loop natively from within a Codex session
 
 ---
 
 ## Background
 
-The nmg-sdlc toolkit provides individual skills for each SDLC phase (`/draft-issue`, `/start-issue`, `/write-spec`, `/write-code`, `/verify-code`, `/open-pr`). Today, chaining these into a continuous loop requires running each skill manually in sequence. This skill fills that gap by orchestrating the full pipeline natively — invoking `sdlc-runner.mjs` which picks automatable issues, runs each phase in sequence via `claude -p` subprocesses, and loops until the milestone is clear.
+The nmg-sdlc toolkit provides individual skills for each SDLC phase (`/draft-issue`, `/start-issue`, `/write-spec`, `/write-code`, `/verify-code`, `/open-pr`). Today, chaining these into a continuous loop requires running each skill manually in sequence. This skill fills that gap by orchestrating the full pipeline natively — invoking `sdlc-runner.mjs` which picks automatable issues, runs each phase in sequence via `codex exec` subprocesses, and loops until the milestone is clear.
 
 ---
 
@@ -77,7 +77,7 @@ The nmg-sdlc toolkit provides individual skills for each SDLC phase (`/draft-iss
 
 **Given** the SKILL.md for this new skill has been written
 **When** the implementer runs `/doing-skills-right` against it
-**Then** all required structural elements (frontmatter, allowed-tools, unattended-mode section, integration section) are present and the skill passes the best-practice review
+**Then** all required structural elements (frontmatter, workflow instructions, unattended-mode section, integration section) are present and the skill passes the best-practice review
 
 ### AC6: State Isolation Between Loop Iterations
 
@@ -109,17 +109,17 @@ The nmg-sdlc toolkit provides individual skills for each SDLC phase (`/draft-iss
 
 **Given** the runner is launched by the skill
 **When** the runner starts
-**Then** it creates `.claude/unattended-mode` automatically (if not already present)
-**And** each `claude -p` subprocess detects `.claude/unattended-mode` and suppresses interactive prompts
-**And** `.claude/unattended-mode` is removed when the runner exits
+**Then** it creates `.codex/unattended-mode` automatically (if not already present)
+**And** each `codex exec` subprocess detects `.codex/unattended-mode` and suppresses interactive prompts
+**And** `.codex/unattended-mode` is removed when the runner exits
 
 ### Generated Gherkin Preview
 
 ```gherkin
 Feature: Running SDLC Loop
-  As a developer using Claude Code
+  As a developer using Codex
   I want a single skill that orchestrates the full SDLC pipeline
-  So that I can drive the same continuous loop natively from within Claude Code
+  So that I can drive the same continuous loop natively from within Codex
 
   Scenario: Loop mode processes all automatable issues
     Given open issues labelled "automatable" exist in the current milestone
@@ -162,10 +162,10 @@ Feature: Running SDLC Loop
     Then it verifies the phase's expected postcondition artifact or state change
 
   Scenario: Unattended-mode propagation
-    Given ".claude/unattended-mode" exists
+    Given ".codex/unattended-mode" exists
     When the loop invokes phase skills
     Then each phase skill suppresses interactive prompts independently
-    And the loop skill itself never calls AskUserQuestion
+    And the loop skill itself never calls interactive user prompt
 ```
 
 ---
@@ -175,12 +175,12 @@ Feature: Running SDLC Loop
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
 | FR1 | Skill accepts optional issue number argument; when omitted, runner loops all automatable issues | Must | Argument via `$ARGUMENTS`; maps to `--issue N` runner flag |
-| FR2 | Runner creates `.claude/unattended-mode` on startup and removes it on exit; phase skills detect it independently | Must | Runner already does this; no skill-level unattended-mode management needed |
-| FR3 | Runner selects issues via `gh issue list` (sorted oldest first) in `claude -p` subprocesses | Must | Existing runner behavior; `/start-issue` unattended-mode pattern |
-| FR4 | Skill invokes `sdlc-runner.mjs` with `CLAUDECODE=""` to enable subprocess spawning | Must | Phase sequence handled by runner: startCycle -> startIssue -> writeSpecs -> implement -> verify -> commitPush -> createPR -> monitorCI -> merge |
+| FR2 | Runner creates `.codex/unattended-mode` on startup and removes it on exit; phase skills detect it independently | Must | Runner already does this; no skill-level unattended-mode management needed |
+| FR3 | Runner selects issues via `gh issue list` (sorted oldest first) in `codex exec` subprocesses | Must | Existing runner behavior; `/start-issue` unattended-mode pattern |
+| FR4 | Skill invokes `sdlc-runner.mjs` with `=""` to enable subprocess spawning | Must | Phase sequence handled by runner: startCycle -> startIssue -> writeSpecs -> implement -> verify -> commitPush -> createPR -> monitorCI -> merge |
 | FR5 | Runner manages state via `sdlc-state.json` with per-step tracking, retry counts, and cycle detection | Must | Existing runner behavior; no duplicate state management in skill |
 | FR6 | On pipeline failure, runner escalates with issue number, failed step, and retry history; in single-issue mode (`--issue`), exits with code 1 | Must | Existing escalation for loop mode; new exit behavior for `--issue` mode |
-| FR7 | SKILL.md frontmatter declares all required tools (`allowed-tools`) | Must | Must include Read, Glob, Grep, Bash(node:*), Bash(test:*), Bash(cat:*), Skill |
+| FR7 | SKILL.md frontmatter declares all required tools (`workflow instructions`) | Must | Must include Read, file discovery, text search, Bash(node:*), Bash(test:*), Bash(cat:*), Skill |
 | FR8 | SKILL.md includes "Integration with SDLC Workflow" section | Must | Shows where the loop skill fits relative to individual phase skills |
 | FR9 | Skill is validated with `/doing-skills-right` during implementation | Must | Structural compliance gate |
 | FR10 | Runner resets cycle state after step 9 and re-selects issues fresh each cycle (state isolation) | Must | Existing runner behavior via `extractStateFromStep` step 9 reset |

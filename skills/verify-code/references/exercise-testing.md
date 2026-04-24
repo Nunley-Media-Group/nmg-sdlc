@@ -14,7 +14,7 @@ Create a minimal test project for exercising the changed skill:
    ```
    Record the output path — this is `{test-project-path}`.
 
-2. **Write scaffold files** using the `Write` tool:
+2. **Write scaffold files** using the Codex editing tool:
 
    - `{test-project-path}/steering/product.md` — `"Test Project. One persona: Developer."`
    - `{test-project-path}/steering/tech.md` — `"Stack: Node.js. Test: manual verification."`
@@ -48,22 +48,21 @@ which codex
 If unavailable, skip exercise testing and record `codex CLI not found`.
 
 The `{exercise-prompt}` is:
-- **Non-GitHub-integrated skills**: `"/{skill-name} [appropriate args based on the skill's argument-hint]"`
+- **Non-GitHub-integrated skills**: `"/{skill-name} [appropriate args based on the skill's documented argument shape]"`
 - **GitHub-integrated skills (dry-run)**: `"/{skill-name} [args]\n\nIMPORTANT: {dry-run-instructions}"` — skill invocation first, dry-run instructions appended after
 The `{output-file}` is `{test-project-path}/exercise-output.txt`.
 
-Run via `Bash` with a 5-minute timeout (set the `timeout` parameter to `300000`):
+Run with a shell command and a 5-minute timeout:
 ```bash
-codex exec "{exercise-prompt}" \
+codex exec \
   --cd {test-project-path} \
-  --sandbox workspace-write \
-  --ask-for-approval never \
-  > {output-file} 2>&1
+  --full-auto \
+  "{exercise-prompt}" > {output-file} 2>&1
 ```
 
 This exercises the non-interactive path. Record this limitation for the report when the changed skill normally asks for user input.
 
-**Timeout**: Set the Bash tool's `timeout` parameter to `300000` (5 minutes). If a timeout occurs, capture whatever output was produced before the timeout and report it as a graceful degradation in the Exercise Test Results section.
+**Timeout**: Use a 5-minute command timeout. If a timeout occurs, capture whatever output was produced before the timeout and report it as a graceful degradation in the Exercise Test Results section.
 
 **Exercise errors**: If the exercise subprocess exits with a non-zero status, capture the error output. Report it as a finding and continue with evaluation of whatever output was captured.
 
@@ -73,7 +72,7 @@ Read the captured output file (`{output-file}`) and the test project filesystem:
 
 1. **Load acceptance criteria** from `requirements.md`
 2. **For each AC**, search the captured output and test project filesystem for evidence:
-   - **File-creating skills**: Check if expected files were created in the test project (use `Glob`)
+   - **File-creating skills**: Check if expected files were created in the test project (use file discovery)
    - **GitHub-integrated skills** (dry-run): Check if the generated `gh` commands and content match what the AC expects
    - **General**: Look for output messages that indicate the AC's expected behavior occurred
 3. **Assign verdict** for each AC:

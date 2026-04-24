@@ -3,7 +3,7 @@
 **Issues**: #8, #128
 **Date**: 2026-04-18
 **Status**: In Progress
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -63,7 +63,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md has valid frontmatter with disable-model-invocation: true
+- [x] SKILL.md has valid frontmatter with minimal Codex frontmatter
 - [x] Documents 4-step workflow (read context, generate content, push/create, output)
 - [x] PR body template with summary, ACs, test plan, spec links, Closes #N
 - [x] Conventional commit prefix for PR titles
@@ -107,8 +107,8 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T002
 **Status**: Complete
 **Acceptance**:
-- [x] New Step 7 section documents the `AskUserQuestion` prompt with two options: "Yes, monitor CI and auto-merge" and "No, I'll handle it"
-- [x] Step 7 is explicitly gated by `.claude/unattended-mode` absence — the entire block is skipped when the sentinel is present (no prompt, no polling, no merge invocation) per AC8 and AC9
+- [x] New Step 7 section documents the `interactive prompt` prompt with two options: "Yes, monitor CI and auto-merge" and "No, I'll handle it"
+- [x] Step 7 is explicitly gated by `.codex/unattended-mode` absence — the entire block is skipped when the sentinel is present (no prompt, no polling, no merge invocation) per AC8 and AC9
 - [x] Opt-out path ends with the existing Step 6 "Next step: Wait for CI to pass..." output unchanged (AC6)
 - [x] Opt-in path transitions to T006 polling logic
 - [x] Section cross-references `steering/retrospective.md` for the active-suppression pattern

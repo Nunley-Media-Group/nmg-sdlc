@@ -2,7 +2,7 @@
 
 **Issues**: #4, #116
 **Date**: 2026-04-18
-**Reviewer**: Claude Code (`/verify-code`)
+**Reviewer**: Codex (`/verify-code`)
 **Scope**: Issue #116 — readability treatment, deeper interview, unattended-mode removal
 
 ---
@@ -88,7 +88,7 @@ Per `tech.md` checklist applicability for skills (markdown), SOLID is reinterpre
 ### Testability
 - Linear, deterministic step shape — each step has explicit Input/Process/Output.
 - Regression test covers STEP_KEYS invariant.
-- Skill is exercise-testable via Agent SDK (`canUseTool` callback for AskUserQuestion).
+- Skill is exercise-testable via Agent SDK (`canUseTool` callback for interactive prompt).
 
 ### Error Handling
 - Skill handles inconclusive investigation, missing VERSION file, milestone creation failures.
@@ -96,7 +96,7 @@ Per `tech.md` checklist applicability for skills (markdown), SOLID is reinterpre
 
 ### Prompt Quality
 - Instructions are unambiguous (after the fix described below).
-- All gates have `AskUserQuestion`: classification, milestone, bug-hypothesis confirm, depth override, automatable, playback confirm, review menu, expanded guard menu (8 total).
+- All gates have `interactive prompt`: classification, milestone, bug-hypothesis confirm, depth override, automatable, playback confirm, review menu, expanded guard menu (8 total).
 - Tool references correct throughout.
 - Cross-references resolve (steering docs, templates, downstream skills).
 - No skill-level auto-termination; soft guard correctly expands menu rather than exiting loop.
@@ -115,13 +115,13 @@ Per `tech.md` checklist applicability for skills (markdown), SOLID is reinterpre
 
 ## Exercise Testing
 
-**Not feasible in this verification session** — the skill is heavily interactive with 8 `AskUserQuestion` gates. Exercise testing requires either the Claude Agent SDK with `canUseTool` handler or `claude -p` with AskUserQuestion denied (which only exercises the deny path). Per `tech.md` Testing Standards → "If exercise testing is not feasible during automated verification, `/verify-code` should explicitly note this in the verification report and recommend manual exercise testing as a follow-up."
+**Not feasible in this verification session** — the skill is heavily interactive with 8 `interactive prompt` gates. Exercise testing requires either the Codex Agent SDK with `canUseTool` handler or `codex exec --cd` with interactive prompt denied (which only exercises the deny path). Per `tech.md` Testing Standards → "If exercise testing is not feasible during automated verification, `/verify-code` should explicitly note this in the verification report and recommend manual exercise testing as a follow-up."
 
 **Recommended manual dogfooding** after merge:
 1. Invoke `/draft-issue` interactively against a test project with low file count and low vagueness → verify core-depth heuristic picks and one-line playback renders.
 2. Invoke `/draft-issue` against a complex area → verify extended-depth heuristic picks and full 5-line playback renders.
 3. Select `[2] Revise` three times → verify expanded menu appears on the fourth round with `[1] Keep revising / [2] Reset / [3] Accept as-is`.
-4. Create a `.claude/unattended-mode` file and invoke `/draft-issue` → verify the skill still runs the full interactive workflow.
+4. Create a `.codex/unattended-mode` file and invoke `/draft-issue` → verify the skill still runs the full interactive workflow.
 
 ---
 

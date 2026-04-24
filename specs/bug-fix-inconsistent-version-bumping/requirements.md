@@ -3,7 +3,7 @@
 **Issue**: #60
 **Date**: 2026-02-19
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 **Severity**: High
 **Related Spec**: `specs/feature-integrated-versioning-system/`
 
@@ -38,7 +38,7 @@ Intermittent (~50% of the time). In a batch of 6 consecutive issues (#114–#119
 | | Description |
 |---|-------------|
 | **Expected** | Every PR created by the SDLC runner includes a version bump commit that updates the `VERSION` file, `CHANGELOG.md`, and stack-specific version files (e.g., `Cargo.toml`) |
-| **Actual** | Approximately 50% of PRs are missing the version bump. The version bump is skipped non-deterministically depending on whether the `claude -p` subprocess follows the full `/open-pr` skill workflow |
+| **Actual** | Approximately 50% of PRs are missing the version bump. The version bump is skipped non-deterministically depending on whether the `codex exec --cd` subprocess follows the full `/open-pr` skill workflow |
 
 ### Error Output
 
@@ -74,7 +74,7 @@ Under turn/time pressure, the LLM sometimes skips the version bumping steps and 
 **Then** both the skill text and the runner's Step 7 prompt explicitly state that version bumping is mandatory
 
 **Example**:
-- Given: Runner constructs the Step 7 prompt for `claude -p`
+- Given: Runner constructs the Step 7 prompt for `codex exec --cd`
 - When: The prompt is assembled
 - Then: It includes explicit text like "You MUST bump the version before creating the PR" in addition to the skill's own Steps 2–3
 
@@ -93,7 +93,7 @@ Under turn/time pressure, the LLM sometimes skips the version bumping steps and 
 
 **Given** a developer runs `/open-pr` interactively (no unattended-mode)
 **When** the skill reaches Step 2 (version bump)
-**Then** the existing interactive confirmation flow (`AskUserQuestion`) still works as before — the developer is prompted to confirm the version bump type and can override
+**Then** the existing interactive confirmation flow (`interactive prompt`) still works as before — the developer is prompted to confirm the version bump type and can override
 
 ---
 

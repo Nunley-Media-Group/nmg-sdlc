@@ -3,17 +3,17 @@
 **Issue**: #48
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The `/run-retro` skill's Step 1 instructs Claude to use Grep to identify defect specs by scanning for the `Severity:` field. The instruction text on line 34 of the SKILL.md reads:
+The `/run-retro` skill's Step 1 instructs Codex to use Grep to identify defect specs by scanning for the `Severity:` field. The instruction text on line 34 of the SKILL.md reads:
 
 > Then use Grep to identify defect specs by scanning for the `Severity:` field
 
-When Claude executes this instruction, it uses a grep pattern like `Severity:` (literal colon immediately after the word). However, the defect requirements template (`write-spec/templates/requirements.md`, line 213) formats this field with bold markdown:
+When Codex executes this instruction, it uses a grep pattern like `Severity:` (literal colon immediately after the word). However, the defect requirements template (`write-spec/templates/requirements.md`, line 213) formats this field with bold markdown:
 
 ```
 **Severity**: Critical | High | Medium | Low
@@ -21,7 +21,7 @@ When Claude executes this instruction, it uses a grep pattern like `Severity:` (
 
 In the raw markdown, the characters are `**Severity**:` — the `**` bold markers appear between the word "Severity" and the colon. The literal pattern `Severity:` requires the colon to immediately follow the `y`, so it fails to match `**Severity**:` where `**` intervenes.
 
-The skill recovers via broader fallback searches (Claude adapts by trying alternative patterns), but the initial detection is fragile and relies on Claude's improvisation rather than a correct instruction.
+The skill recovers via broader fallback searches (Codex adapts by trying alternative patterns), but the initial detection is fragile and relies on Codex's improvisation rather than a correct instruction.
 
 ### Affected Code
 
@@ -33,7 +33,7 @@ The skill recovers via broader fallback searches (Claude adapts by trying altern
 
 - A defect spec exists with the bold-formatted `**Severity**:` field (which is ALL defect specs, since this is the template format)
 - The run-retro skill executes Step 1
-- Claude follows the instruction literally and greps for `Severity:`
+- Codex follows the instruction literally and greps for `Severity:`
 
 ---
 
@@ -43,7 +43,7 @@ The skill recovers via broader fallback searches (Claude adapts by trying altern
 
 Update the instruction text in Step 1 to specify a grep pattern that matches both the bold-formatted `**Severity**:` and a hypothetical plain `Severity:` variant. The pattern `Severity` (the word alone, without requiring an adjacent colon) is sufficient — the Severity field is unique to defect specs and does not appear in feature specs. However, to reduce false-positive risk, a more targeted pattern like `\*{0,2}Severity\*{0,2}:` (allowing optional `**` markers around the word) is more precise.
 
-The simplest and most robust approach: change the instruction to tell Claude to grep for `Severity` (without the colon), since this word only appears in defect spec headers and validation checklists. Even the checklist line (`Severity is assessed`) would correctly identify the file as a defect spec.
+The simplest and most robust approach: change the instruction to tell Codex to grep for `Severity` (without the colon), since this word only appears in defect spec headers and validation checklists. Even the checklist line (`Severity is assessed`) would correctly identify the file as a defect spec.
 
 ### Changes
 

@@ -27,7 +27,7 @@ For each extracted gate:
 |-----------|-----------|
 | `Always` | Proceed to execution. |
 | `{path} directory exists` | Check via `test -d {path}`. If the directory does not exist, **skip** this gate silently (do not report as Incomplete). |
-| `{glob} files exist in {path}` | Check via `Glob` or `ls {path}/{glob}`. If no matching files exist, **skip** this gate silently. |
+| `{glob} files exist in {path}` | Check via file discovery or `ls {path}/{glob}`. If no matching files exist, **skip** this gate silently. |
 | Uninterpretable | Record as **Incomplete** with reason `"Cannot evaluate condition: {reason}"`. |
 
 ### 2. Execute Action

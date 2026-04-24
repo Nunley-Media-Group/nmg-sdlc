@@ -3,7 +3,7 @@
 **Issues**: #11, #71, #118
 **Date**: 2026-04-16
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -74,7 +74,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Acceptance**:
 - [x] Unattended Mode section added
 - [x] All 3 review gates pre-approved
-- [x] Do not call AskUserQuestion at any gate
+- [x] Do not call interactive prompt at any gate
 
 ### T004: Add Auto-Mode to Implementing-Specs
 
@@ -117,7 +117,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001-T006
 **Status**: Complete
 **Acceptance**:
-- [x] All skills check `.claude/unattended-mode` consistently
+- [x] All skills check `.codex/unattended-mode` consistently
 - [x] All skills suppress next-step suggestions in unattended-mode
 - [x] Completion signal is consistent across all skills
 
@@ -145,11 +145,11 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] New step added after Step 5 (Interview) and before Step 6 (Synthesize) asking "Is this issue suitable for automation?" via `AskUserQuestion` with Yes/No options
+- [x] New step added after Step 5 (Interview) and before Step 6 (Synthesize) asking "Is this issue suitable for automation?" via `interactive prompt` with Yes/No options
 - [x] The step is clearly marked as skipped in unattended-mode (with a `> **Unattended-mode**:` note)
 - [x] The user's answer is recorded for use in Step 8
 
-**Notes**: Insert as Step 5b or renumber subsequent steps. The question uses `AskUserQuestion` with two options: "Yes — suitable for hands-off automation" and "No — requires human judgment". Keep the step concise — one question, not an explanation of automation.
+**Notes**: Insert as Step 5b or renumber subsequent steps. The question uses `interactive prompt` with two options: "Yes — suitable for hands-off automation" and "No — requires human judgment". Keep the step concise — one question, not an explanation of automation.
 
 ### T010: Update Creating-Issues Auto-Mode to Default Automatable
 
@@ -159,7 +159,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Status**: Complete
 **Acceptance**:
 - [x] Unattended Mode section updated to state that the `automatable` label is applied by default in unattended-mode
-- [x] No `AskUserQuestion` call for the automatable question in unattended-mode
+- [x] No `interactive prompt` call for the automatable question in unattended-mode
 - [x] The unattended-mode documentation bullet clearly states the default behavior
 
 **Notes**: Add to the existing Unattended Mode section at the top of the workflow. One additional bullet: "Apply the `automatable` label automatically (skip the automatable question)."
@@ -218,7 +218,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] The `--json` output in Step 1 already includes `labels`, so no additional API call is needed
 - [x] No filtering is applied in interactive mode — all issues are shown
 
-**Notes**: The `gh issue list --json number,title,labels` already returns label data. When constructing the `AskUserQuestion` options in Step 2, check if `automatable` is in the labels array and append the indicator to the description string.
+**Notes**: The `gh issue list --json number,title,labels` already returns label data. When constructing the `interactive prompt` options in Step 2, check if `automatable` is in the labels array and append the indicator to the description string.
 
 ### T015: Verify Cross-Skill Consistency for Automatable Label
 
@@ -253,12 +253,12 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] Line 549: `RUNNER_ARTIFACTS` uses `.claude/unattended-mode` (not `.claude/unattended-mode`)
-- [ ] Line 599: `fs.unlinkSync(path.join(PROJECT_PATH, '.claude', 'unattended-mode'))`
-- [ ] Line 600: log message says `Removed .claude/unattended-mode flag`
+- [ ] Line 549: `RUNNER_ARTIFACTS` uses `.codex/unattended-mode` (not `.codex/unattended-mode`)
+- [ ] Line 599: `fs.unlinkSync(path.join(PROJECT_PATH, '.codex', 'unattended-mode'))`
+- [ ] Line 600: log message says `Removed .codex/unattended-mode flag`
 - [ ] Line 1062: soft-failure regex pattern and label updated to `unattended-mode` (both the `/…/i` regex body and the string label)
 - [ ] Line 1220 comment: updated to reference `unattended-mode`
-- [ ] Lines 1869–1875: variable renamed `autoModePath` → `unattendedModePath`; path literal updated; log message says `Created .claude/unattended-mode flag`
+- [ ] Lines 1869–1875: variable renamed `autoModePath` → `unattendedModePath`; path literal updated; log message says `Created .codex/unattended-mode flag`
 - [ ] `grep -n "unattended-mode\|autoMode" scripts/sdlc-runner.mjs` returns zero matches
 
 **Notes**: Exactly 8 occurrences to update per the Phase 2 audit. Keep everything else (cross-cycle state preservation logic, BENIGN_DENIED_TOOLS set) unchanged.
@@ -281,7 +281,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] Line 11: `.claude/unattended-mode` replaced with `.claude/unattended-mode`
+- [ ] Line 11: `.codex/unattended-mode` replaced with `.codex/unattended-mode`
 - [ ] Only one change on the line — no duplicates, no stale entry
 
 ### T020: Rename flag in all plugin skills
@@ -301,7 +301,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] All occurrences of `.claude/unattended-mode` → `.claude/unattended-mode` in each file
+- [ ] All occurrences of `.codex/unattended-mode` → `.codex/unattended-mode` in each file
 - [ ] All occurrences of "unattended-mode" / "Unattended-mode" / "unattended mode" → "unattended-mode" / "Unattended-mode" / "unattended mode" preserving case
 - [ ] "Unattended Mode" section headings renamed to "Unattended Mode" in all skills
 - [ ] `migrate-project` skill's active-ignore behavior preserved (still defensively ignores the flag per its original intent; only the name changes)
@@ -317,10 +317,10 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Acceptance**:
 - [ ] All 6 `unattended-mode` references replaced with `unattended-mode` (preserving case)
 - [ ] Section heading "Unattended-mode flag" renamed to "Unattended-mode flag"
-- [ ] Added a disambiguation callout near the section (per design): short paragraph contrasting this plugin's `unattended-mode` with Claude Code's native Auto Mode
-- [ ] `grep -n "unattended-mode\|Unattended-mode" README.md` returns zero matches outside the disambiguation callout (where "Claude Code's Auto Mode" appears as proper-noun reference to CC's feature — this is allowed and intentional)
+- [ ] Added a disambiguation callout near the section (per design): short paragraph contrasting this plugin's `unattended-mode` with Codex's native Auto Mode
+- [ ] `grep -n "unattended-mode\|Unattended-mode" README.md` returns zero matches outside the disambiguation callout (where "Codex's Auto Mode" appears as proper-noun reference to CC's feature — this is allowed and intentional)
 
-**Notes**: AC19 and AC25 hinge on this callout being clear. Use the exact callout text from the design's "Disambiguation Note (for README)" subsection. "Claude Code's Auto Mode" as a proper noun referring to CC's feature is preserved — only the plugin's own concept is renamed.
+**Notes**: AC19 and AC25 hinge on this callout being clear. Use the exact callout text from the design's "Disambiguation Note (for README)" subsection. "Codex's Auto Mode" as a proper noun referring to CC's feature is preserved — only the plugin's own concept is renamed.
 
 ### T022: Update steering docs
 
@@ -340,11 +340,11 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] All body occurrences of `.claude/unattended-mode` → `.claude/unattended-mode` across all historical specs
+- [ ] All body occurrences of `.codex/unattended-mode` → `.codex/unattended-mode` across all historical specs
 - [ ] All body occurrences of "unattended-mode" / "Unattended-mode" / "unattended mode" → "unattended-mode" / "Unattended-mode" / "unattended mode"
 - [ ] **Directory names preserved** (e.g., `bug-fix-auto-mode-cleanup-on-exit/` remains; body rewrites only)
 - [ ] `feature-automation-mode-support/feature.gherkin` scenario names that reference old term are updated (T028 handles the new scenarios; this task updates the existing AC1–AC16 scenario wording for terminology consistency)
-- [ ] `grep -rn "\.claude/unattended-mode" specs/` returns zero matches
+- [ ] `grep -rn "\.codex/unattended-mode" specs/` returns zero matches
 - [ ] `grep -rn "unattended-mode\|Unattended-mode" specs/` returns only matches that are inside the directory-name portion of a file path in the body of a spec (e.g., `bug-fix-auto-mode-cleanup-on-exit/` referenced as a path — these are historical identifiers and intentionally kept)
 
 **Notes**: Use a combination of `Grep -l` to list files with matches, then `Edit` with `replace_all=true` on each. The exception list is narrow: (1) directory names in file paths, (2) the CHANGELOG.md historical entries (covered separately in T024). Use care with `feature.gherkin` files — their scenario "Given" lines use the flag path as a literal test input; that literal must also be updated to `unattended-mode`. For `verification.md` files that reference runner output, update them to reflect the new log messages.
@@ -355,8 +355,8 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] New `[Unreleased]` entry under a `### Changed` (or similar) heading documents: the rename, the motivation (disambiguation from Claude Code's native Auto Mode), and migration guidance
-- [ ] Migration note explicitly states: "If you previously created `.claude/unattended-mode` manually to enable headless mode, rename or recreate it as `.claude/unattended-mode`. The runner creates the flag automatically, so users who run only via `/run-loop` do not need to take action."
+- [ ] New `[Unreleased]` entry under a `### Changed` (or similar) heading documents: the rename, the motivation (disambiguation from Codex's native Auto Mode), and migration guidance
+- [ ] Migration note explicitly states: "If you previously created `.codex/unattended-mode` manually to enable headless mode, rename or recreate it as `.codex/unattended-mode`. The runner creates the flag automatically, so users who run only via `/run-loop` do not need to take action."
 - [ ] **Historical entries are NOT rewritten** — the existing 31 occurrences of `unattended-mode` in prior release sections remain verbatim as release-log history
 - [ ] Entry also references issue #118 for traceability
 
@@ -364,16 +364,16 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T025: Bump plugin version
 
-**File(s)**: `plugins/nmg-sdlc/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`
+**File(s)**: `plugins/nmg-sdlc/.codex-plugin/plugin.json`, `.codex-plugin/marketplace.json`
 **Type**: Modify
 **Depends**: T017, T018, T019, T020, T021, T022, T023, T024
 **Acceptance**:
-- [ ] `plugins/nmg-sdlc/.claude-plugin/plugin.json` `"version"` field bumped (minor recommended per design; confirm target at release time)
-- [ ] `.claude-plugin/marketplace.json` plugin entry `"version"` bumped to match
-- [ ] `metadata.version` in marketplace.json **unchanged** (collection version, not plugin version — per CLAUDE.md)
+- [ ] `plugins/nmg-sdlc/.codex-plugin/plugin.json` `"version"` field bumped (minor recommended per design; confirm target at release time)
+- [ ] `.codex-plugin/marketplace.json` plugin entry `"version"` bumped to match
+- [ ] `metadata.version` in marketplace.json **unchanged** (collection version, not plugin version — per AGENTS.md)
 - [ ] Both files still parse as valid JSON
 
-**Notes**: Do this at the end so the version reflects all the rename work together. Per memory: CLAUDE.md specifies both files must be bumped in lockstep.
+**Notes**: Do this at the end so the version reflects all the rename work together. Per memory: AGENTS.md specifies both files must be bumped in lockstep.
 
 ### T026: Run runner test suite and verify pass
 
@@ -393,10 +393,10 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Type**: Verify
 **Depends**: T017, T018, T019, T020, T021, T022, T023, T024, T025
 **Acceptance**:
-- [ ] `grep -rn "\.claude/unattended-mode" . --exclude-dir=.git --exclude-dir=node_modules --exclude=CHANGELOG.md` returns zero matches
-- [ ] `grep -rn "unattended-mode\|Unattended-mode" . --exclude-dir=.git --exclude-dir=node_modules --exclude=CHANGELOG.md` returns only: (a) directory names under `specs/` (historical identifiers), (b) proper-noun references to Claude Code's "Auto Mode" feature in README disambiguation callout
+- [ ] `grep -rn "\.codex/unattended-mode" . --exclude-dir=.git --exclude-dir=node_modules --exclude=CHANGELOG.md` returns zero matches
+- [ ] `grep -rn "unattended-mode\|Unattended-mode" . --exclude-dir=.git --exclude-dir=node_modules --exclude=CHANGELOG.md` returns only: (a) directory names under `specs/` (historical identifiers), (b) proper-noun references to Codex's "Auto Mode" feature in README disambiguation callout
 - [ ] Manually spot-check the non-zero matches to confirm they are expected exceptions
-- [ ] `ls .claude/unattended-mode .claude/unattended-mode 2>&1` shows neither exists locally at end of audit (both absent or only `.claude/unattended-mode` absent; no stale `.claude/unattended-mode` from dev environment)
+- [ ] `ls .codex/unattended-mode .codex/unattended-mode 2>&1` shows neither exists locally at end of audit (both absent or only `.codex/unattended-mode` absent; no stale `.codex/unattended-mode` from dev environment)
 
 **Notes**: This is the safety net. Any unexpected match indicates a missed file from T017–T024. The CHANGELOG is intentionally excluded because T024 preserves historical entries.
 
@@ -408,7 +408,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Acceptance**:
 - [ ] New scenarios added covering AC17–AC26 (10 new scenarios)
 - [ ] Each new scenario tagged with `# Added by issue #118`
-- [ ] Existing AC1–AC16 scenarios rewritten to reference `.claude/unattended-mode` instead of `.claude/unattended-mode` (part of T023, but re-verified here)
+- [ ] Existing AC1–AC16 scenarios rewritten to reference `.codex/unattended-mode` instead of `.codex/unattended-mode` (part of T023, but re-verified here)
 - [ ] Scenarios cover: flag rename (AC17), skill gate rename (AC18), CC Auto Mode disambiguation (AC19, AC25), docs updated (AC20), historical specs rewritten (AC21), CHANGELOG entry (AC22), runner tests (AC23), no regression (AC24), old name ignored (AC26)
 
 **Notes**: The file's top comment `# File: specs/11-automation-mode-support/…` references a legacy directory name and may be updated for accuracy, but is optional (historical identifier).
@@ -455,7 +455,7 @@ Critical path: T017 ──▶ T018 ──▶ T026/T025 ──▶ T027 ──▶ 
 |-------|------|---------|
 | #11 | 2026-02-15 | Initial feature spec |
 | #71 | 2026-02-22 | Add Phase 4: automatable label gate — 8 tasks across draft-issue and start-issue skills |
-| #118 | 2026-04-16 | Add Phase 5: rename `.claude/unattended-mode` → `.claude/unattended-mode` — 12 tasks (runner, tests, gitignore, 9 skills, README + disambiguation callout, 4 steering docs, ~60 historical specs, CHANGELOG [Unreleased], version bump, test + grep verification, BDD scenarios for AC17–AC26) |
+| #118 | 2026-04-16 | Add Phase 5: rename `.codex/unattended-mode` → `.codex/unattended-mode` — 12 tasks (runner, tests, gitignore, 9 skills, README + disambiguation callout, 4 steering docs, ~60 historical specs, CHANGELOG [Unreleased], version bump, test + grep verification, BDD scenarios for AC17–AC26) |
 
 ## Validation Checklist
 

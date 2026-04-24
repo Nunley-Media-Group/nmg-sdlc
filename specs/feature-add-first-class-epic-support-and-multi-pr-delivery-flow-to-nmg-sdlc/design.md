@@ -216,12 +216,12 @@ Graph is rebuilt on every call to `selectNextIssue()`. No persistence. The exist
 
 | Surface | Change |
 |---------|--------|
-| `AskUserQuestion` in `/draft-issue` Step 2 | Add third option "Epic" with description |
-| `AskUserQuestion` at `/write-spec` Phase 3 gate | Add "Seal and transition" option when multi-PR trigger fires |
+| `interactive prompt` in `/draft-issue` Step 2 | Add third option "Epic" with description |
+| `interactive prompt` at `/write-spec` Phase 3 gate | Add "Seal and transition" option when multi-PR trigger fires |
 | Runner stdout log lines | New `[runner] skipping #N — blocked by unmerged dependencies: #A` format |
 | PR body footer | New `**Bump:** patch (epic child: intermediate)` classification line |
 
-All four surfaces respect `.claude/unattended-mode` per FR8.
+All four surfaces respect `.codex/unattended-mode` per FR8.
 
 ---
 
@@ -248,7 +248,7 @@ All four surfaces respect `.claude/unattended-mode` per FR8.
 All edits below go through `skill-creator` per the "Skills must be authored via `/skill-creator`" invariant.
 
 **Step 2 extension (around lines 383–401):**
-- Add "Epic" as a third option alongside Feature and Bug in the `AskUserQuestion` call
+- Add "Epic" as a third option alongside Feature and Bug in the `interactive prompt` call
 - Description: "A coordinated set of child issues delivering one logical feature across multiple PRs"
 - Auto-detection: when Step 1b's signals fire (`distinctComponents ≥ 4`, multi-phase language, explicit `multiple PRs` keyword), mark Epic as "(Recommended)"
 - Unattended-mode rule: never auto-select Epic; default to Feature unless the user description contains `Type: epic` on its own line
@@ -279,7 +279,7 @@ All edits below go through `skill-creator` per the "Skills must be authored via 
 - After the user approves the tasks summary, check `design.md` for multi-PR trigger:
   - Presence of `## Multi-PR Rollout` section, OR
   - FR row whose Requirement text references "multiple PRs" or "multi-PR"
-- If trigger fires (and not unattended mode): present seal option via `AskUserQuestion`
+- If trigger fires (and not unattended mode): present seal option via `interactive prompt`
   - Option 1: "Seal and transition — commit specs, push, create child issues"
   - Option 2: "Don't seal — I'll handle child-issue creation manually"
 - Seal action:
@@ -288,7 +288,7 @@ All edits below go through `skill-creator` per the "Skills must be authored via 
   3. Else: `git add specs/{feature-name}/ && git commit -m "docs: seal umbrella spec for #{N}"`
   4. `git push origin HEAD`
   5. Prompt for child-issue creation; if approved, re-invoke `/draft-issue` batch mechanism with the epic's delivery phases as the batch input
-- Unattended-mode rule: auto-execute seal and auto-create children when trigger fires; suppress the two `AskUserQuestion` calls
+- Unattended-mode rule: auto-execute seal and auto-create children when trigger fires; suppress the two `interactive prompt` calls
 
 ### 3. `plugins/nmg-sdlc/skills/open-pr/SKILL.md`
 
@@ -409,7 +409,7 @@ Per `steering/tech.md` "Exercise-Based Verification": skills are Markdown, so te
 - [x] All API/interface changes documented with schemas — Epic Body Contract, Child Body Contract, PR body line format
 - [x] Database/storage changes planned — deliberate non-change (no graph caching in `sdlc-state.json`)
 - [x] State management approach is clear — per-skill state transitions diagrammed
-- [x] UI components — N/A; surfaces limited to AskUserQuestion options, stdout log lines, PR body line
+- [x] UI components — N/A; surfaces limited to interactive prompt options, stdout log lines, PR body line
 - [x] Security considerations addressed — input validation, shell safety, no force-push
 - [x] Performance impact analyzed — bounded N, sub-10s tick cost
 - [x] Testing strategy defined — exercise testing via Agent SDK per `tech.md`

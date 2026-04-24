@@ -107,7 +107,7 @@
 
 ### T007: Remove `installing-openclaw-skill` references
 
-**File(s)**: `feature-per-step-model-effort-config/{design.md,feature.gherkin,tasks.md}`, `feature-migrate-project-skill/{requirements.md,design.md,feature.gherkin}`, `bug-opus-rate-limits/{requirements.md,feature.gherkin,tasks.md}`
+**File(s)**: `feature-per-step-model-effort-config/{design.md,feature.gherkin,tasks.md}`, `feature-migrate-project-skill/{requirements.md,design.md,feature.gherkin}`, `bug-model-rate-limits/{requirements.md,feature.gherkin,tasks.md}`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
@@ -117,7 +117,7 @@
 
 ### T008: Remove Discord references and rewrite dependent ACs
 
-**File(s)**: `bug-sdlc-runner-edge-case-fixes/`, `bug-text-pattern-soft-failure-detection-sdlc-runner/`, `feature-migrate-project-skill/feature.gherkin`, `bug-fix-silent-commitpush-failure/`, `bug-add-auto-mode-support-to-migrate-project-skill/`, `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/requirements.md`, `feature-run-retro-skill/feature.gherkin`, `bug-detect-soft-failures-runner-tests/`, `bug-opus-rate-limits/`, and any other spec with a Discord mention per T001 inventory
+**File(s)**: `bug-sdlc-runner-edge-case-fixes/`, `bug-text-pattern-soft-failure-detection-sdlc-runner/`, `feature-migrate-project-skill/feature.gherkin`, `bug-fix-silent-commitpush-failure/`, `bug-add-auto-mode-support-to-migrate-project-skill/`, `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/requirements.md`, `feature-run-retro-skill/feature.gherkin`, `bug-detect-soft-failures-runner-tests/`, `bug-model-rate-limits/`, and any other spec with a Discord mention per T001 inventory
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
@@ -148,8 +148,8 @@
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] Replace each occurrence of `feature-openclaw-runner-operations` with `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code`
-- [ ] Confirm the redirect target exists: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/requirements.md` is present
+- [ ] Replace each occurrence of `feature-openclaw-runner-operations` with `feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex`
+- [ ] Confirm the redirect target exists: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/requirements.md` is present
 - [ ] Read each rewritten sentence and confirm the surrounding prose still reads correctly
 - [ ] After this task: `grep -r 'feature-openclaw-runner-operations' specs/` returns zero matches
 

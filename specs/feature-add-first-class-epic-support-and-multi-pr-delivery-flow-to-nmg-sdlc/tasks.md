@@ -66,7 +66,7 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 **Acceptance**:
 - [ ] New JS function `selectNextIssueFromMilestone(milestone, config)` defined
 - [ ] Function signature matches design: returns `{ issue, blockedIssues }` where `issue` is the chosen issue number (or null) and `blockedIssues` is an array of `{ issue, blockers }` for diagnostic logging
-- [ ] Existing inline selection logic from `buildClaudeArgs` (~lines 900–921) delegates to the new function
+- [ ] Existing inline selection logic from `buildCodexArgs` (~lines 900–921) delegates to the new function
 - [ ] No behavior change yet when no dependencies are present (ordering stays lowest-number-first for ready issues)
 - [ ] Function is unit-testable (no hidden global state; accepts milestone via argument)
 
@@ -103,11 +103,11 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 **Type**: Modify (authored via `/skill-creator`)
 **Depends**: None
 **Acceptance**:
-- [ ] Step 2 `AskUserQuestion` includes "Epic" as a third option with the description "A coordinated set of child issues delivering one logical feature across multiple PRs"
+- [ ] Step 2 `interactive prompt` includes "Epic" as a third option with the description "A coordinated set of child issues delivering one logical feature across multiple PRs"
 - [ ] When Step 1b–1d multi-phase signals fire (`distinctComponents ≥ 4`, phase-language match, explicit "multiple PRs" keyword), Epic is labeled "(Recommended)"
 - [ ] Unattended-mode branch: Epic is NEVER auto-selected; classifier defaults to Feature unless user description contains an exact `Type: epic` line (case-insensitive)
 - [ ] Existing Feature and Bug flows are unchanged
-- [ ] Skill still passes all existing `skill-creator` validation checks (frontmatter, structure, `allowed-tools`)
+- [ ] Skill still passes all existing `skill-creator` validation checks (frontmatter, structure, `workflow instructions`)
 
 ### T007: Add Epic issue body template to `/draft-issue` Step 6
 
@@ -156,7 +156,7 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 **Depends**: None
 **Acceptance**:
 - [ ] After the Phase 3 approval gate, skill detects multi-PR trigger: EITHER `design.md` contains a `## Multi-PR Rollout` heading OR an FR row whose Requirement text contains "multiple PRs" or "multi-PR" (case-insensitive)
-- [ ] Interactive mode: when trigger fires, prompt via `AskUserQuestion` with two options — "Seal and transition" and "Don't seal (I'll handle child creation manually)"
+- [ ] Interactive mode: when trigger fires, prompt via `interactive prompt` with two options — "Seal and transition" and "Don't seal (I'll handle child creation manually)"
 - [ ] Unattended mode: when trigger fires, auto-execute seal without prompting
 - [ ] Seal action idempotency: check `git log --format=%H --grep='^docs: seal umbrella spec for #{N}$' HEAD` first; if matched, print `Spec already sealed at commit {sha}` and skip the commit+push
 - [ ] Fresh seal: `git add specs/{feature-name}/` (explicit path, NEVER `git add -A`), `git commit -m "docs: seal umbrella spec for #{N}"`, `git push origin HEAD`
@@ -203,8 +203,8 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 **Type**: Verify
 **Depends**: T006, T010, T011
 **Acceptance**:
-- [ ] Every new `AskUserQuestion` call site added by T006, T010, T011 is preceded by an `.claude/unattended-mode` check
-- [ ] Grep pattern `AskUserQuestion` across the three SKILL.md files shows zero unguarded new call sites (baseline set from pre-change blame)
+- [ ] Every new `interactive prompt` call site added by T006, T010, T011 is preceded by an `.codex/unattended-mode` check
+- [ ] Grep pattern `interactive prompt` across the three SKILL.md files shows zero unguarded new call sites (baseline set from pre-change blame)
 - [ ] Each unattended-mode branch has a documented deterministic default matching AC8 (Epic classification → Feature; seal-spec trigger → auto-seal; epic-closure warning → escalate)
 
 ---
@@ -233,10 +233,10 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 **Acceptance**:
 - [ ] Test scaffolds a disposable test project per `steering/tech.md` Test Project Pattern
 - [ ] Test invokes `/nmg-sdlc:draft-issue` via Agent SDK with a multi-phase description
-- [ ] `canUseTool` callback intercepts `AskUserQuestion` at Step 2 and selects "Epic"
+- [ ] `canUseTool` callback intercepts `interactive prompt` at Step 2 and selects "Epic"
 - [ ] Dry-run evaluation: captured issue body matches Epic Issue Body Contract (all four sections present, correct column headers in Delivery Phases)
 - [ ] Child-creation dry-run: captured child issue bodies each contain `Depends on: #{epic-placeholder}`
-- [ ] Unattended mode variant: with `.claude/unattended-mode` present and no `Type: epic` signal in description, classifier picks Feature (not Epic)
+- [ ] Unattended mode variant: with `.codex/unattended-mode` present and no `Type: epic` signal in description, classifier picks Feature (not Epic)
 
 ### T016: Implement Agent SDK exercise test for `/write-spec` parent-link + seal-spec
 

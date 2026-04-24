@@ -122,19 +122,19 @@ Each scenario below must fail loudly with a specific, actionable message — no 
 - **Then** it aborts with message `Parent spec for #N not found — run '/write-spec #N' and seal the spec before starting child work`, and does not create any spec files for the child
 
 **AC7d: Two child PRs race to bump plugin.json**
-- **Given** two child PRs are simultaneously open, both bumping `plugins/nmg-sdlc/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
+- **Given** two child PRs are simultaneously open, both bumping `plugins/nmg-sdlc/.codex-plugin/plugin.json` and `.codex-plugin/marketplace.json`
 - **When** the second PR attempts to push after the first merges
 - **Then** `/open-pr` detects the stale base via `git fetch origin && git merge-base --is-ancestor HEAD origin/main` returning non-zero after bump-and-commit, automatically rebases, re-computes the bump against the now-current version in `plugin.json`, and re-pushes; if rebase has conflicts in either version file, it escalates with a conflict message and does not force-push
 
 ### AC8: Unattended-Mode Determinism for New Gates
 
-**Given** `.claude/unattended-mode` exists in the project directory
+**Given** `.codex/unattended-mode` exists in the project directory
 **When** any new interactive gate introduced by this feature is reached (Epic classification in `/draft-issue`, seal-spec flow in `/write-spec`, Epic-closure warning in `/open-pr`)
 **Then** each gate has a documented deterministic default:
 - Epic classification: never auto-selected — defaults to Feature unless explicit `Type: epic` signal
 - Seal-spec flow: auto-executes when trigger conditions are met
 - Epic-closure warning (AC7a): escalates via runner escalation sentinel and exits non-zero rather than auto-confirming
-**And** no new gate calls `AskUserQuestion` without first checking for `.claude/unattended-mode`
+**And** no new gate calls `interactive prompt` without first checking for `.codex/unattended-mode`
 
 ---
 
@@ -199,9 +199,9 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
     Then parent resolution terminates with a cycle-detected error naming both issues
 
   Scenario: Unattended-mode defaults are deterministic
-    Given .claude/unattended-mode exists
+    Given .codex/unattended-mode exists
     When any new gate is reached (Epic classification, seal-spec, epic-closure warning)
-    Then the documented default fires without invoking AskUserQuestion
+    Then the documented default fires without invoking interactive prompt
 ```
 
 ---
@@ -217,7 +217,7 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
 | FR5 | Modify `/open-pr` to check sibling issue states and apply patch vs minor bump accordingly; add partial-delivery CHANGELOG note; record classification in PR body | Should | Reuses existing version-bump logic |
 | FR6 | Modify `sdlc-runner.mjs` to build a topological queue from child-issue dependency links and skip blocked issues; derive graph fresh each tick | Could | Must not cache graph in `sdlc-state.json` |
 | FR7 | Add explicit error handling for all four AC7 edge cases with specific, actionable messages | Must | No silent failures, no partial writes |
-| FR8 | Every new gate (Epic classification, seal-spec flow, epic-closure warning) has a documented deterministic unattended-mode default | Must | Guards every `AskUserQuestion` with `.claude/unattended-mode` check |
+| FR8 | Every new gate (Epic classification, seal-spec flow, epic-closure warning) has a documented deterministic unattended-mode default | Must | Guards every `interactive prompt` with `.codex/unattended-mode` check |
 
 ---
 
@@ -255,7 +255,7 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
 - UI dashboard for epic progress visualization
 - Multi-repo or cross-organization epics
 - Changes to `retrospective`, `onboard-project`, `upgrade-project`, `run-retro` skills
-- Changes to unattended-mode semantics (existing `.claude/unattended-mode` file contract is unchanged)
+- Changes to unattended-mode semantics (existing `.codex/unattended-mode` file contract is unchanged)
 - New slash commands beyond what FR3 requires (seal-spec is implemented inline in `/write-spec`; may be extracted to `/seal-spec` during design if warranted, but the default is inline)
 - Automatic rollback of an already-sealed umbrella spec (once committed, sealing is one-way)
 - Migration of existing multi-PR features that pre-date this change (issue #138 stays in its current shape)
@@ -268,7 +268,7 @@ Feature: First-Class Epic Support and Multi-PR Delivery Flow
 |--------|--------|-------------|
 | Epic pipeline completeness | All four pipeline steps (`/draft-issue`, `/write-spec`, `/open-pr`, runner) handle epics natively | Exercise against a synthetic 2-child epic; no manual coordination required |
 | Parent-spec resolution accuracy | 100% of child issues with valid `Depends on:` links resolve to the correct parent spec | Exercise with 3 test scenarios: single parent, multiple candidates, no parent |
-| Unattended-mode determinism | Zero `AskUserQuestion` prompts fire during unattended runs of the new gates | Exercise each new gate with `.claude/unattended-mode` present; grep logs for `AskUserQuestion` |
+| Unattended-mode determinism | Zero `interactive prompt` prompts fire during unattended runs of the new gates | Exercise each new gate with `.codex/unattended-mode` present; grep logs for `interactive prompt` |
 | CHANGELOG correctness | Intermediate PRs carry the partial-delivery note; final PR closes the epic cleanly | Manual review of the first real epic shipped with this feature |
 
 ---

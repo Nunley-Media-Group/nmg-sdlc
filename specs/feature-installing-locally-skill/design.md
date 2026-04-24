@@ -3,7 +3,7 @@
 **Issues**: #15
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -11,7 +11,7 @@
 
 The `/installing-locally` skill is a 5-step installation workflow that serves as the primary deployment mechanism for the nmg-plugins marketplace. It pulls the latest marketplace repo, discovers plugins from `marketplace.json`, syncs each plugin to a versioned cache directory via `rsync`, updates `installed_plugins.json` with version and SHA tracking, and reports results.
 
-This is a repo-level skill (in `.claude/skills/`, not inside any plugin) because its purpose is to install the plugins themselves — it wouldn't make sense for it to be part of a plugin that needs to be installed. It handles version tracking (preserving `installedAt`, updating `lastUpdated`) and version mismatch warnings (marketplace.json vs plugin.json).
+This is a repo-level skill (in `.codex/skills/`, not inside any plugin) because its purpose is to install the plugins themselves — it wouldn't make sense for it to be part of a plugin that needs to be installed. It handles version tracking (preserving `installedAt`, updating `lastUpdated`) and version mismatch warnings (marketplace.json vs plugin.json).
 
 ---
 
@@ -32,7 +32,7 @@ This is a repo-level skill (in `.claude/skills/`, not inside any plugin) because
          │
          ▼
 ┌─────────────────┐
-│ ~/.claude/       │
+│ ~/.codex/       │
 │ plugins/         │
 │  ├── cache/      │
 │  └── installed_  │
@@ -45,7 +45,7 @@ This is a repo-level skill (in `.claude/skills/`, not inside any plugin) because
 ```
 1. Pull latest from marketplace git repo
 2. Read marketplace.json plugins array
-3. For each plugin: rsync source → ~/.claude/plugins/cache/{plugin}/{version}/
+3. For each plugin: rsync source → ~/.codex/plugins/cache/{plugin}/{version}/
 4. chmod +x hook scripts
 5. Update installed_plugins.json with version, path, SHA, timestamps
 6. Report summary with versions and paths
@@ -167,7 +167,7 @@ FeatureScreen
 
 | File | Type | Purpose |
 |------|------|---------|
-| `.claude/skills/installing-locally/SKILL.md` | Create | Repo-level skill with 5-step workflow |
+| `.codex/skills/installing-locally/SKILL.md` | Create | Repo-level skill with 5-step workflow |
 
 ---
 

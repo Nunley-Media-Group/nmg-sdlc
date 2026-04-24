@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-15
 **Issue**: #11
-**Reviewer**: Claude Code (retroactive)
+**Reviewer**: Codex (retroactive)
 **Scope**: Retroactive verification of implemented feature
 
 ---
@@ -28,7 +28,7 @@
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Unattended-mode flag enables headless operation | Pass | All SKILL.md files check `.claude/unattended-mode` |
+| AC1 | Unattended-mode flag enables headless operation | Pass | All SKILL.md files check `.codex/unattended-mode` |
 | AC2 | Writing-specs skips review gates | Pass | `write-spec/SKILL.md:29` — Unattended Mode section |
 | AC3 | Implementing-specs skips plan mode | Pass | `write-code/SKILL.md:20-22` — Skip EnterPlanMode |
 | AC4 | Creating-issues infers criteria | Pass | `draft-issue/SKILL.md:20-22` — Skip interview |

@@ -3,13 +3,13 @@
 **Issue**: #60
 **Date**: 2026-02-19
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 
 ---
 
 ## Root Cause
 
-Version bumping in automated SDLC runs is non-deterministic because the version bump logic lives exclusively in the `/open-pr` skill (Steps 2–3), which is delivered as appended system prompt text to a `claude -p` subprocess. The runner's Step 7 prompt (line 810 of `sdlc-runner.mjs`) is generic:
+Version bumping in automated SDLC runs is non-deterministic because the version bump logic lives exclusively in the `/open-pr` skill (Steps 2–3), which is delivered as appended system prompt text to a `codex exec --cd` subprocess. The runner's Step 7 prompt (line 810 of `sdlc-runner.mjs`) is generic:
 
 ```
 "Create a pull request for branch ${branch} targeting main for issue #${issue}."
@@ -77,7 +77,7 @@ This approach was chosen over making the version bump a separate runner step (e.
 | Double version bump (LLM bumps in skill + runner bumps in postcondition) | Low | `validateVersionBump()` checks `git diff main -- VERSION` — if the LLM already bumped, the diff will show changes and the postcondition passes. No double bump. |
 | Deterministic bump uses wrong bump type | Low | Uses the same classification matrix as `/open-pr` Step 2: `bug` → patch, `enhancement`/other → minor. Major bumps are manual only — the runner never applies them automatically (per v1.37.0). |
 | Runner crashes if `VERSION` file has invalid content | Low | Guard: if `VERSION` doesn't contain valid semver, skip version bumping (same guard as `/open-pr` Step 2) |
-| Manual workflow regression (AC4) | Very Low | No changes to `/open-pr` SKILL.md — the skill's interactive flow via `AskUserQuestion` is untouched |
+| Manual workflow regression (AC4) | Very Low | No changes to `/open-pr` SKILL.md — the skill's interactive flow via `interactive prompt` is untouched |
 | Runner step config changes break existing configs | Very Low | No changes to step numbering or config schema — only prompt text and postcondition logic change |
 
 ---
@@ -87,7 +87,7 @@ This approach was chosen over making the version bump a separate runner step (e.
 | Option | Description | Why Not Selected |
 |--------|-------------|------------------|
 | Separate runner step (Step 6.5) for version bumping | Add a dedicated step between commit/push and PR creation | Changes step numbering, breaks existing configs, requires step key additions. The postcondition pattern is more consistent with existing architecture. |
-| Pre-step hook in Step 7 | Run version bump before launching `claude -p` for Step 7 | Would require a new "pre-step" concept in the runner. The postcondition pattern already exists and is well-tested. |
+| Pre-step hook in Step 7 | Run version bump before launching `codex exec --cd` for Step 7 | Would require a new "pre-step" concept in the runner. The postcondition pattern already exists and is well-tested. |
 | Only reinforce the prompt (no postcondition) | Just make the Step 7 prompt more explicit about version bumping | Insufficient — the issue evidence shows 50% failure even with the skill's explicit Steps 2–3. Prompt reinforcement alone is not deterministic. |
 
 ---

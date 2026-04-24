@@ -95,7 +95,7 @@ Feature: Integrated Versioning System
   # --- Auto-Mode ---
 
   Scenario: AC10 - Unattended-mode compatibility
-    Given .claude/unattended-mode exists in the project
+    Given .codex/unattended-mode exists in the project
     And the VERSION file contains "1.5.1"
     When /draft-issue runs in unattended-mode
     Then the milestone defaults to "v1" without prompting
@@ -173,13 +173,13 @@ Feature: Integrated Versioning System
     Given a developer runs "/open-pr #N --major"
     And the current VERSION is "1.49.1"
     When the skill reaches the version bump confirmation step
-    Then the AskUserQuestion bump menu pre-selects Major as the recommended option
+    Then the interactive prompt bump menu pre-selects Major as the recommended option
     And the proposed version is "2.0.0"
     And the developer can still choose Patch or Minor as alternatives
 
   # Added by issue #139
   Scenario: AC16 - --major in unattended-mode is an escalation, not a silent apply
-    Given ".claude/unattended-mode" exists in the project
+    Given ".codex/unattended-mode" exists in the project
     And the skill is invoked with the "--major" flag
     When the skill reaches the version bump step
     Then the skill prints "ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump"
@@ -203,4 +203,4 @@ Feature: Integrated Versioning System
     When they inspect the documentation
     Then no row references milestone completion triggering a major bump
     And the table shows only "bug" -> patch and "enhancement" -> minor
-    And the /open-pr argument-hint is "[#issue-number] [--major]"
+    And the /open-pr usage hint is "[#issue-number] [--major]"

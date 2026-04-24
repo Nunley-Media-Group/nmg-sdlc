@@ -3,7 +3,7 @@
 **Issue**: #55
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 
 ---
 
@@ -12,7 +12,7 @@
 | Task | Description | Status |
 |------|-------------|--------|
 | T001 | Implement platform-aware process tree helpers and rewrite `cleanupProcesses()` | [ ] |
-| T002 | Add `lastClaudePid` tracking in `runClaude()` | [ ] |
+| T002 | Add `lastCodexPid` tracking in `runCodex()` | [ ] |
 | T003 | Add regression test (Gherkin feature file) | [ ] |
 | T004 | Verify no regressions | [ ] |
 
@@ -37,7 +37,7 @@
   - POSIX: `pgrep -f -- <pattern>` (using existing `shellEscape`; `--` prevents patterns starting with dashes being interpreted as flags on macOS)
   - Windows: `wmic process where "CommandLine like '%<pattern>%'" get ProcessId` — parse output to extract integer PIDs
 - [ ] Rewritten `cleanupProcesses()` implements two-phase strategy:
-  - Phase 1 (tree-based): if `lastClaudePid` is set, call `killProcessTree(lastClaudePid)`, then clear `lastClaudePid`
+  - Phase 1 (tree-based): if `lastCodexPid` is set, call `killProcessTree(lastCodexPid)`, then clear `lastCodexPid`
   - Phase 2 (pattern fallback): for each pattern in `CLEANUP_PATTERNS`, call `findProcessesByPattern(pattern)`, filter out `process.pid`, kill each filtered PID directly with `process.kill(pid, 'SIGTERM')` (not `pkill -f`)
 - [ ] All code paths emit `[CLEANUP]` log entries: tree kill results, fallback results, "no matching processes found"
 - [ ] All `process.kill()` and `execSync` calls wrapped in try/catch — ESRCH / "not found" is non-fatal, other errors logged as warnings
@@ -54,20 +54,20 @@
 
 ---
 
-### T002: Add `lastClaudePid` tracking in `runClaude()`
+### T002: Add `lastCodexPid` tracking in `runCodex()`
 
 **File(s)**: `scripts/sdlc-runner.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] New module-level variable `let lastClaudePid = null;` declared near `currentProcess` (line ~1178)
-- [ ] In `runClaude()`, after `const proc = spawn(...)`, set `lastClaudePid = proc.pid`
-- [ ] `lastClaudePid` is NOT cleared on process close/error (it persists for cleanup after subprocess exit)
-- [ ] `lastClaudePid` IS cleared inside `cleanupProcesses()` after tree-based cleanup completes (to prevent stale PID reuse)
-- [ ] `lastClaudePid` exported via the existing test-exports object (line ~1551) for testability
+- [ ] New module-level variable `let lastCodexPid = null;` declared near `currentProcess` (line ~1178)
+- [ ] In `runCodex()`, after `const proc = spawn(...)`, set `lastCodexPid = proc.pid`
+- [ ] `lastCodexPid` is NOT cleared on process close/error (it persists for cleanup after subprocess exit)
+- [ ] `lastCodexPid` IS cleared inside `cleanupProcesses()` after tree-based cleanup completes (to prevent stale PID reuse)
+- [ ] `lastCodexPid` exported via the existing test-exports object (line ~1551) for testability
 
 **Notes**:
-- The key difference from `currentProcess`: `currentProcess` is cleared on close, but `lastClaudePid` persists so `cleanupProcesses()` can walk the tree even after the subprocess exits
+- The key difference from `currentProcess`: `currentProcess` is cleared on close, but `lastCodexPid` persists so `cleanupProcesses()` can walk the tree even after the subprocess exits
 - `cleanupProcesses()` clears it after use to prevent accumulating stale PIDs across steps
 
 ---
@@ -104,9 +104,9 @@
 - [ ] `handleSignal()` still kills `currentProcess` before calling `cleanupProcesses()` (existing behavior preserved)
 - [ ] DRY_RUN mode: `cleanupProcesses()` still runs (it's independent of dry-run)
 - [ ] No processes matched: function logs "no matching processes" and returns without error
-- [ ] `CLEANUP_PATTERNS` empty and `lastClaudePid` null: function returns immediately with log entry
+- [ ] `CLEANUP_PATTERNS` empty and `lastCodexPid` null: function returns immediately with log entry
 - [ ] Config hot-reload (line ~1539) still updates `CLEANUP_PATTERNS`
-- [ ] Test exports object (line ~1551) still exposes `cleanupProcesses` and `currentProcess`, plus new `lastClaudePid`
+- [ ] Test exports object (line ~1551) still exposes `cleanupProcesses` and `currentProcess`, plus new `lastCodexPid`
 - [ ] Platform helpers degrade gracefully: if `pgrep`/`wmic` is unavailable, cleanup logs a warning and continues without crashing
 
 ---

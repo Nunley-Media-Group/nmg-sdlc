@@ -3,7 +3,7 @@
 **Issues**: #3, #26
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -65,7 +65,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md has valid frontmatter with name, description, allowed-tools
+- [x] SKILL.md has valid frontmatter with name, description, workflow instructions
 - [x] Documents 4-step workflow (scan, generate, write, prompt)
 - [x] Lists all file types scanned during codebase analysis
 - [x] Includes customization guidance table
@@ -116,7 +116,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T002
 **Status**: Complete
 **Acceptance**:
-- [x] Skill is discoverable by Claude Code's plugin system
+- [x] Skill is discoverable by Codex's plugin system
 - [x] Allowed tools are correctly scoped (Read, Glob, Grep, Task, Write, Edit, Bash)
 
 ### T007: Add detection step and enhancement flow to SKILL.md
@@ -127,7 +127,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Status**: Complete
 **Acceptance**:
 - [x] A new "Step 0: Detect Existing Steering Files" is added before the current Step 1
-- [x] Step 0 instructs Claude to use `Glob` to check for `steering/product.md`, `steering/tech.md`, `steering/structure.md`
+- [x] Step 0 instructs Codex to use `Glob` to check for `steering/product.md`, `steering/tech.md`, `steering/structure.md`
 - [x] When at least one file is found, the workflow branches to the Enhancement Flow
 - [x] When no files are found, the workflow continues to the existing Bootstrap Flow (Steps 1-4)
 - [x] Enhancement Flow contains 4 steps: Report Findings (E1), Ask What to Enhance (E2), Read/Modify/Write (E3), Confirm Changes (E4)
@@ -150,10 +150,10 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 - [x] "When to Use" section adds a bullet for enhancing existing steering documents
 - [x] "What Gets Created" section is renamed to "What Gets Created / Modified" and notes that enhancement modifies existing files
 - [x] "Integration with SDLC Workflow" section updates "one-time setup step" language to "setup and maintenance"
-- [x] No changes to `allowed-tools` in frontmatter
+- [x] No changes to `workflow instructions` in frontmatter
 - [x] No changes to template files
 
-**Notes**: Keep the language concise. The skill description is read by Claude Code to decide when to suggest the skill.
+**Notes**: Keep the language concise. The skill description is read by Codex to decide when to suggest the skill.
 
 ---
 
@@ -189,17 +189,17 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 ### T011: Bump plugin version
 
 **File(s)**:
-- `plugins/nmg-sdlc/.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json`
+- `plugins/nmg-sdlc/.codex-plugin/plugin.json`
+- `.codex-plugin/marketplace.json`
 **Type**: Modify
 **Depends**: T007, T008
 **Status**: Complete
 **Acceptance**:
-- [x] `plugins/nmg-sdlc/.claude-plugin/plugin.json` → `"version"` updated
-- [x] `.claude-plugin/marketplace.json` → plugin entry `"version"` in the `"plugins"` array updated
+- [x] `plugins/nmg-sdlc/.codex-plugin/plugin.json` → `"version"` updated
+- [x] `.codex-plugin/marketplace.json` → plugin entry `"version"` in the `"plugins"` array updated
 - [x] `metadata.version` in `marketplace.json` is NOT changed (that's the collection version)
 
-**Notes**: Per CLAUDE.md — both files must be updated together.
+**Notes**: Per AGENTS.md — both files must be updated together.
 
 ### T012: Update CHANGELOG.md
 

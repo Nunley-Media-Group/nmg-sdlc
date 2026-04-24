@@ -34,7 +34,7 @@ Feature: Creating Issues Skill
   # Retained for provenance; behavior is removed as of v1.41.0.
 
   Scenario: [SUPERSEDED] Automation mode skips interview
-    Given unattended mode is active with ".claude/unattended-mode" file present
+    Given unattended mode is active with ".codex/unattended-mode" file present
     And plugin version is prior to v1.41.0
     When I invoke "/draft-issue" with a feature description argument
     Then the skill skips the interview
@@ -50,7 +50,7 @@ Feature: Creating Issues Skill
     Given I have completed the interview and the skill has drafted an issue body
     When the skill reaches the Present Draft for Review step
     Then the skill renders an inline structured summary containing Title, User Story one-liner, numbered ACs with Given/When/Then, FRs with MoSCoW priorities, Out of Scope, and Labels
-    And it presents an AskUserQuestion with exactly two options: "[1] Approve — create the issue" and "[2] Revise — I'll describe what to change"
+    And it presents an interactive prompt with exactly two options: "[1] Approve — create the issue" and "[2] Revise — I'll describe what to change"
 
   Scenario: Revise path loops until approval  # AC6
     Given the review summary is shown
@@ -104,7 +104,7 @@ Feature: Creating Issues Skill
 
   Scenario: User overrides the heuristic's depth decision  # AC15
     Given the skill logged a depth decision of "core"
-    When the skill presents the depth-override AskUserQuestion
+    When the skill presents the depth-override interactive prompt
     And I select "Use extended interview"
     Then the skill emits a one-line session note "(heuristic chose core, user selected extended)"
     And the skill proceeds with the extended interview
@@ -121,7 +121,7 @@ Feature: Creating Issues Skill
     Given I have answered the interview questions
     When the skill transitions toward the Synthesize Issue Body step
     Then the skill first plays back its understanding
-    And asks me to confirm or correct via AskUserQuestion
+    And asks me to confirm or correct via interactive prompt
     And the skill does not draft the issue body until I confirm
 
   Scenario: Core-depth playback is a one-line confirm  # AC16
@@ -142,7 +142,7 @@ Feature: Creating Issues Skill
     Given I am at the Step 7 review summary
     And I have selected "[2] Revise" three consecutive times without approving
     When the next review round is presented
-    Then the AskUserQuestion menu expands to three options: "[1] Keep revising", "[2] Reset and re-interview", "[3] Accept as-is"
+    Then the interactive prompt menu expands to three options: "[1] Keep revising", "[2] Reset and re-interview", "[3] Accept as-is"
     And the skill does not auto-terminate the loop
 
   Scenario: Reset option returns to the interview step  # AC17
@@ -159,7 +159,7 @@ Feature: Creating Issues Skill
   # --- Unattended-mode removal + breaking change plumbing (AC12, AC13, AC18) ---
 
   Scenario: Skill ignores unattended-mode flag  # AC12
-    Given ".claude/unattended-mode" exists in the project directory
+    Given ".codex/unattended-mode" exists in the project directory
     When I invoke "/draft-issue"
     Then the skill runs the full interactive workflow
     And the skill does not check for or act on the flag file
@@ -174,7 +174,7 @@ Feature: Creating Issues Skill
   Scenario: Breaking-change sign-post is present in SKILL.md  # AC18
     Given I am reading SKILL.md after the v1.41.0 release
     When I search for "unattended-mode"
-    Then I find exactly one reference: the sign-post sentence "As of v1.41.0, /draft-issue no longer honors .claude/unattended-mode. Issue drafting requires interactive input."
+    Then I find exactly one reference: the sign-post sentence "As of v1.41.0, /draft-issue no longer honors .codex/unattended-mode. Issue drafting requires interactive input."
 
   Scenario: Plugin version is a major bump reflecting the breaking change  # AC18
     Given plugin version was v1.40.0
@@ -187,13 +187,13 @@ Feature: Creating Issues Skill
 
   Scenario: Automatable-label question explains downstream impact  # AC14
     Given I reach Step 5b
-    When the skill presents the automatable-label AskUserQuestion
+    When the skill presents the automatable-label interactive prompt
     Then the question body includes a 1–2 line explanation that references "/write-spec", "/write-code", "/verify-code", and "/open-pr"
     And clarifies that "automatable" controls downstream automation — not drafting itself
 
   # ============================================================
   # Added by issue #125 — multi-issue detection, dependency inference,
-  # autolinking, and Claude Design URL ingestion
+  # autolinking, and design archive URL ingestion
   # ============================================================
 
   # --- Multi-issue detection (AC19, AC26) ---
@@ -240,7 +240,7 @@ Feature: Creating Issues Skill
     Given the user approved a multi-issue split of 4 asks
     When Step 1d infers the dependency DAG
     Then the skill renders the graph with arrow notation showing edges
-    And presents an AskUserQuestion with options "[1] Approve the graph", "[2] Adjust edges", "[3] Flatten — no dependencies"
+    And presents an interactive prompt with options "[1] Approve the graph", "[2] Adjust edges", "[3] Flatten — no dependencies"
     And when I select "[1] Approve the graph" the per-issue loop begins
 
   Scenario: User flattens the dependency graph  # AC21
@@ -275,16 +275,16 @@ Feature: Creating Issues Skill
     And body cross-refs are still written to every affected issue body
     And the final summary notes "Sub-issue linking unavailable in this gh version — body cross-refs only"
 
-  # --- Claude Design URL (AC24, AC25) ---
+  # --- design archive URL (AC24, AC25) ---
 
-  Scenario: Claude Design URL is fetched and shared across iterations  # AC24
-    Given I supply a Claude Design URL at the start of the run
+  Scenario: design archive URL is fetched and shared across iterations  # AC24
+    Given I supply a design archive URL at the start of the run
     When Step 1a fetches and decodes the archive successfully
     Then "session.designContext" contains the parsed README
     And every per-issue Step 4 investigation, Step 5 interview, and Step 6 synthesis has read-only access to "session.designContext"
 
   Scenario: Design fetch failure degrades gracefully  # AC25
-    Given I supply a Claude Design URL that times out
+    Given I supply a design archive URL that times out
     When Step 1a attempts the fetch
     Then the failure is logged as a visible session note
     And "session.designContext" is set to null

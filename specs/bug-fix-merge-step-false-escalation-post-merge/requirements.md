@@ -3,7 +3,7 @@
 **Issue**: (tracked with #122 commit)
 **Date**: 2026-04-18
 **Status**: Fixed
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: High
 **Related**: observed during SDLC cycle on issue #115 (PR #126)
 
@@ -14,8 +14,8 @@
 ### Steps to Reproduce
 
 1. Run the SDLC pipeline through to Step 9 (`merge`) for an issue that has a ready-to-merge PR.
-2. The `merge` skill's Claude session runs `gh pr merge …`. The merge succeeds — GitHub squash-merges and auto-deletes the remote feature branch. The local HEAD usually auto-switches to `main`.
-3. Afterward, the same Claude session encounters rate-limit noise, runs a redundant `gh pr checks` on the now-missing branch, or otherwise exits with a non-zero code.
+2. The `merge` skill's Codex session runs `gh pr merge …`. The merge succeeds — GitHub squash-merges and auto-deletes the remote feature branch. The local HEAD usually auto-switches to `main`.
+3. Afterward, the same Codex session encounters rate-limit noise, runs a redundant `gh pr checks` on the now-missing branch, or otherwise exits with a non-zero code.
 4. Runner enters `handleFailure`. It sleeps for the rate-limit wait, then probes preconditions for Step 9.
 5. Precondition probe calls `gh pr checks` on the current branch (`main`), which responds "no pull requests found for branch 'main'". The probe returns `failedCheck: 'PR status check'`.
 6. Runner bounces to Step 8 (`monitorCI`) → Step 7 (`createPR`), each failing their own preconditions on the missing branch.
@@ -27,7 +27,7 @@
 |--------|-------|
 | **Component** | `handleFailure()` and `validatePreconditions()` for Step 9 in `scripts/sdlc-runner.mjs` |
 | **Applicable to** | All projects using `nmg-sdlc` |
-| **Trigger** | Any Step-9 run where `gh pr merge` succeeds but the Claude process exits non-zero afterward |
+| **Trigger** | Any Step-9 run where `gh pr merge` succeeds but the Codex process exits non-zero afterward |
 
 ### Frequency
 
@@ -62,7 +62,7 @@ Meanwhile, PR #126 was already merged successfully.
 
 ## Root Cause
 
-Step 9 is the only step whose inner action produces irreversible side-effects on shared GitHub state (squash-merge + branch delete) before the Claude session can exit. When the session exits non-zero *after* the merge has landed, the runner's generic failure-handling path (`handleFailure` → precondition probe → bounce) treats the deleted branch and missing PR as failure signals. It has no idempotency check.
+Step 9 is the only step whose inner action produces irreversible side-effects on shared GitHub state (squash-merge + branch delete) before the Codex session can exit. When the session exits non-zero *after* the merge has landed, the runner's generic failure-handling path (`handleFailure` → precondition probe → bounce) treats the deleted branch and missing PR as failure signals. It has no idempotency check.
 
 `validatePreconditions` for Step 9 runs `gh pr checks` on the current branch, which can now be `main` (no PR exists for `main`) — a state that's indistinguishable from "user never merged" to that check.
 

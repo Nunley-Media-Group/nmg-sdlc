@@ -3,7 +3,7 @@
 **Issue**: #20
 **Date**: 2026-02-15
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 

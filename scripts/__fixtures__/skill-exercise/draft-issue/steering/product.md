@@ -7,7 +7,7 @@
 
 | Persona | Goal |
 |---------|------|
-| Plugin maintainer | Add features and fix bugs in a small JavaScriptcodex exec without leaving pending work undocumented in GitHub |
+| Plugin maintainer | Add features and fix bugs in a small JavaScript project without leaving pending work undocumented in GitHub |
 
 ## Feature Prioritization (MoSCoW)
 

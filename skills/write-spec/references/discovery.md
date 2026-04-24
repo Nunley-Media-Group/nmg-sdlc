@@ -9,7 +9,7 @@ Discovery has two stages run in strict order: parent-link resolution first (dete
 Run before keyword discovery. Only fall through to Step 1 when this stage produces no candidates.
 
 1. **Extract body cross-refs.** Run `gh issue view #N --json body` and parse the body for all `Depends on: #NNN` and `Blocks: #NNN` lines using the case-insensitive regex `/(?:Depends on|Blocks):\s*#(\d+)\b/gi`. Collect each match as a candidate parent issue number.
-2. **Query the GitHub sub-issue parent field.** Run `gh issue view #N --json parent`. If the `parent` object is non-null and has a numeric `number`, add that number to the candidate set. If `gh` does not support `--json parent` (oldercodex exec), treat the field as null and log a single-line warning: `parent-link resolution: gh version does not expose sub-issue parent field — falling back to body cross-refs only`.
+2. **Query the GitHub sub-issue parent field.** Run `gh issue view #N --json parent`. If the `parent` object is non-null and has a numeric `number`, add that number to the candidate set. If `gh` does not support `--json parent` (older `gh` versions), treat the field as null and log a single-line warning: `parent-link resolution: gh version does not expose sub-issue parent field — falling back to body cross-refs only`.
 3. **Deduplicate** the candidate set; preserve insertion order for determinism.
 4. **Cycle detection.** Maintain a visited-set of issue numbers seeded with the current issue. When resolving transitively (a candidate parent that itself has a parent), abort with a cycle-detected error if the same issue number reappears. If `#A` lists `Depends on: #B` and `#B` lists `Depends on: #A`, writing the spec for either issue aborts with:
 
@@ -18,7 +18,7 @@ Run before keyword discovery. Only fall through to Step 1 when this stage produc
    ```
 
 5. **Match candidates to spec directories.** For each candidate `#P`:
-   - `Glob` `specs/*/requirements.md` to enumerate spec directories.
+   - file discovery `specs/*/requirements.md` to enumerate spec directories.
    - For each match, read the file's `**Issues**` frontmatter field (format: `**Issues**: #A, #B, #C`).
    - If `#P` appears in the Issues list, record that spec directory as the resolved parent spec.
 
@@ -38,16 +38,16 @@ Step 0 is stateless — it derives everything fresh from `gh` state on each invo
 ## Step 1: Keyword-Based Discovery (fallback)
 
 1. **Extract keywords** from the issue title: tokenize by spaces, then filter out stop words: `a`, `an`, `the`, `to`, `for`, `in`, `on`, `of`, `and`, `or`, `is`, `it`, `as`, `at`, `by`, `with`, `from`, `this`, `that`, `add`, `fix`, `update`, `implement`, `create`.
-2. **Search for existing feature specs**: Run `Glob` for `specs/feature-*/requirements.md` to list candidates.
+2. **Search for existing feature specs**: Run file discovery for `specs/feature-*/requirements.md` to list candidates.
 3. **If no feature specs exist**, skip to the create-new-spec flow in the main workflow.
-4. **Score candidates**: For each candidate spec file, run `Grep` using each extracted keyword against the file content. Count total keyword hits per candidate.
+4. **Score candidates**: For each candidate spec file, run text search using each extracted keyword against the file content. Count total keyword hits per candidate.
 5. **Rank and filter**: Sort candidates by total keyword hits. Filter to candidates with at least 2 keyword hits.
 6. **If one or more candidates found**:
    - Read the top candidate's first `# ` heading and user story for context.
-   - Present to the user via `request_user_input`:
+   - Present to the user via interactive user prompt:
      - Option 1: "Amend existing spec: `feature-{slug}`" (with brief description from heading/user story).
      - Option 2: "Create new spec" (derives a new `feature-{slug}` from the current issue title).
-   - **If unattended mode** (`.codex/unattended-mode` exists): skip `request_user_input` entirely and proceed in amendment mode against the top-scored existing spec.
+   - **If unattended mode** (`.codex/unattended-mode` exists): skip interactive user prompt entirely and proceed in amendment mode against the top-scored existing spec.
 7. **If no candidates found**: proceed to create a new spec without prompting.
 
 The result determines whether subsequent phases operate in **amendment mode** (modifying an existing spec) or **creation mode** (writing a new spec from scratch).

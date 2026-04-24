@@ -85,7 +85,7 @@ After a rebase the commit SHAs on local diverge from what the remote still holds
 
 ### Interactive fallback
 
-When `.codex/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Use `request_user_input` with two options:
+When `.codex/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Use interactive user prompt with two options:
 
 - `[1] Force-push with lease — overwrite the remote feature branch`
 - `[2] Abort — investigate the divergence manually`

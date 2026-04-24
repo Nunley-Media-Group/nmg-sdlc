@@ -1,24 +1,21 @@
 ---
 name: architecture-reviewer
-description: "Evaluates architecture quality: SOLID principles, layer separation, security, performance, testability. Auto-invoked by verify-code."
-tools: Read, Glob, Grep
-model: gpt-5.5
-skills: verify-code
+description: "Prompt contract for optional verify-code explorer delegation. Evaluates architecture quality: SOLID principles, layer separation, security, performance, and testability."
 ---
 
-# Architecture Reviewer Agent
+# Architecture Reviewer Prompt Contract
 
-Systematically evaluates code architecture quality using the verification checklists from the `verify-code` skill.
+Systematically evaluates code architecture quality using the verification checklists from the `verify-code` skill when `/verify-code` includes this prompt in a Codex `explorer` delegation. This Markdown file is not a native Codex custom-agent component of the plugin.
 
-## When Auto-Invoked
+## When Used
 
-This agent is automatically invoked by `/verify-code` during Step 4 (Architecture Review). It can also be invoked manually for ad-hoc architecture reviews.
+This is a reusable prompt contract for `/verify-code` architecture review. `/verify-code` reviews inline by default and only spawns a Codex `explorer` when the user or runner explicitly authorizes subagents.
 
 ## Review Process
 
-Use `Read`, `Glob`, and `Grep` directly to explore the codebase — do not use `Task` to spawn subagents.
+Use local file inspection and search directly to explore the codebase — do not spawn nested subagents.
 
-1. **Map the architecture**: Use `Glob` to discover source directories and `Grep` to trace imports/dependencies across layers
+1. **Map the architecture**: use file discovery to list source directories and text search to trace imports/dependencies across layers
 2. **Trace dependencies**: Verify unidirectional dependency flow by grepping for import/require statements
 3. **Evaluate SOLID**: Check each principle using `checklists/solid-principles.md`
 4. **Check security**: Review using `checklists/security.md`

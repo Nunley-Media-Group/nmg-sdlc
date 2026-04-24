@@ -3,13 +3,13 @@
 **Issue**: #54
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Root Cause
 
-The Step 8 (`monitorCI`) prompt in `sdlc-runner.mjs` instructs Claude to run `gh pr checks` and poll every 30 seconds until no checks are "pending", then exit with code 0 if all checks pass, or attempt to fix failures. The prompt does not account for a third possible outcome: **zero checks exist**.
+The Step 8 (`monitorCI`) prompt in `sdlc-runner.mjs` instructs Codex to run `gh pr checks` and poll every 30 seconds until no checks are "pending", then exit with code 0 if all checks pass, or attempt to fix failures. The prompt does not account for a third possible outcome: **zero checks exist**.
 
 When a repository has no CI checks configured, `gh pr checks` exits with code 1 and outputs `no checks reported on the '{branch}' branch`. The prompt's instructions create an impossible loop:
 - Step 1 says "poll until no checks are pending" — there are no checks, so no pending state to resolve
@@ -17,9 +17,9 @@ When a repository has no CI checks configured, `gh pr checks` exits with code 1 
 - Step 3 says "if any check fails" — there are no checks failing either
 - Step 5 says "only exit with code 0 when ALL CI checks show as passing"
 
-Claude interprets the exit code 1 from `gh pr checks` as a failure and retries indefinitely, because none of the prompt's branches match the "no checks" scenario.
+Codex interprets the exit code 1 from `gh pr checks` as a failure and retries indefinitely, because none of the prompt's branches match the "no checks" scenario.
 
-Step 9 (`merge`) has an identical vulnerability: it instructs Claude to "verify CI is passing with `gh pr checks`" and refuse to merge if "any check is failing". When there are no checks, the exit code 1 from `gh pr checks` causes Claude to interpret this as a failure, blocking the merge.
+Step 9 (`merge`) has an identical vulnerability: it instructs Codex to "verify CI is passing with `gh pr checks`" and refuse to merge if "any check is failing". When there are no checks, the exit code 1 from `gh pr checks` causes Codex to interpret this as a failure, blocking the merge.
 
 ### Affected Code
 
@@ -41,7 +41,7 @@ Step 9 (`merge`) has an identical vulnerability: it instructs Claude to "verify 
 
 ### Approach
 
-Add explicit "no checks" handling to both Step 8 and Step 9 prompts. The prompts are plain-text instructions to Claude, so the fix is a prompt modification — no JavaScript logic changes needed.
+Add explicit "no checks" handling to both Step 8 and Step 9 prompts. The prompts are plain-text instructions to Codex, so the fix is a prompt modification — no JavaScript logic changes needed.
 
 For Step 8: Add a new step (before the polling loop) that checks for "no checks reported" output and treats it as success. This short-circuits the entire polling loop.
 
@@ -56,8 +56,8 @@ For Step 9: Add a clause that recognizes "no checks reported" as equivalent to "
 
 ### Blast Radius
 
-- **Direct impact**: Only the Step 8 and Step 9 prompt strings in `buildClaudeArgs()` are modified
-- **Indirect impact**: None — prompt strings are self-contained text passed to `claude -p`. No other code references or depends on the specific wording of these prompts
+- **Direct impact**: Only the Step 8 and Step 9 prompt strings in `buildCodexArgs()` are modified
+- **Indirect impact**: None — prompt strings are self-contained text passed to `codex exec --cd`. No other code references or depends on the specific wording of these prompts
 - **Risk level**: Low — the change only adds a new conditional branch to the prompts. Existing behavior for repos with CI checks is not touched
 
 ---

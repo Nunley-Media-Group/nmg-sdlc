@@ -6,9 +6,9 @@ Detailed reference material for the upgrade-project skill.
 
 ## Relevance Heuristic Table
 
-Use this table to determine whether a missing template section is relevant to the project. For each missing heading, check if it matches a keyword (case-insensitive substring match against the heading text). If it matches, run `Glob` with the associated patterns **one at a time, stopping at the first match** — if any pattern returns results, the section is relevant (include it) and skip remaining patterns. If **none** return results, the section is irrelevant — exclude it.
+Use this table to determine whether a missing template section is relevant to the project. For each missing heading, check if it matches a keyword (case-insensitive substring match against the heading text). If it matches, run file discovery with the associated patterns **one at a time, stopping at the first match** — if any pattern returns results, the section is relevant (include it) and skip remaining patterns. If **none** return results, the section is irrelevant — exclude it.
 
-| Heading Keyword | Codebase Evidence (Glob Patterns) |
+| Heading Keyword | Codebase Evidence (File discovery patterns) |
 |----------------|----------------------------------|
 | `Database` | `**/migrations/**`, `**/schema.*`, `**/*database*`, `**/*prisma*`, `**/*knexfile*`, `**/sequelize*`, `**/typeorm*`, `**/drizzle*`, `**/*.sql`, `**/models/**` |
 | `API / Interface Standards` | `**/routes/**`, `**/controllers/**`, `**/api/**`, `**/endpoints/**`, `**/*router*`, `**/swagger*`, `**/openapi*` |
@@ -50,7 +50,7 @@ For each file with missing sections:
 2. For each missing section (in template order):
    - Find the predecessor section's heading in the file
    - Locate the end of the predecessor section (the line before the next `## ` heading, or end of file)
-   - Use `Edit` to insert the missing section content (including `---` separator and `## ` heading) after the predecessor section
+   - Use Codex editing to insert the missing section content (including `---` separator and `## ` heading) after the predecessor section
 3. After all insertions, re-read the file to verify the new headings are present
 
 **Insertion format:** Insert a blank line, then `---`, then a blank line, then the full section content from the template (heading + body). Match the separator style used in the rest of the file.
@@ -60,7 +60,7 @@ For each file with missing sections:
 For each defect spec with an approved Related Spec correction (from Step 4a findings):
 
 1. Read the defect spec's `requirements.md`
-2. Use `Edit` to replace the `**Related Spec**:` line with the corrected value (the resolved feature spec path, or `N/A`)
+2. Use Codex editing to replace the `**Related Spec**:` line with the corrected value (the resolved feature spec path, or `N/A`)
 
 ### JSON config
 
@@ -71,14 +71,14 @@ For the `sdlc-config.json`:
 3. For each missing step entry, add it with the template default values
 4. For each existing step with missing sub-keys, add the missing sub-keys
 5. Write the updated JSON (preserve existing values, only add missing keys)
-6. Use `Edit` to add the missing keys — do not overwrite the entire file
+6. Use Codex editing to add the missing keys — do not overwrite the entire file
 
 ### Config value drift updates
 
 For each user-selected drifted value from Step 9 Part C (interactive mode only; this section is skipped entirely in unattended mode):
 
 1. Read the current `sdlc-config.json`
-2. For each selected drifted value, locate the key in the JSON and use `Edit` to replace the old value with the template default value
+2. For each selected drifted value, locate the key in the JSON and use Codex editing to replace the old value with the template default value
 3. Preserve JSON formatting — use 2-space indentation per project JSON standards
 4. After each individual value update, re-read the file to verify the update was applied correctly
 5. If a value cannot be found in the file (e.g., the key path changed), skip it and note the failure in the output summary
@@ -101,7 +101,7 @@ After applying approved changes, persist any newly declined steering doc section
 
 1. Read `.codex/upgrade-exclusions.json` from the project root (or start with `{ "excludedSections": {} }` if it doesn't exist)
 2. For each steering doc section that was **proposed but not selected** by the user in Step 9 Part A, add the heading text to the `excludedSections` array for that file
-3. Write the updated JSON to `.codex/upgrade-exclusions.json` using `Write`
+3. Write the updated JSON to `.codex/upgrade-exclusions.json` using Codex editing
 
 **Important:** Only add newly declined sections. Do not remove existing entries — they represent prior user decisions.
 

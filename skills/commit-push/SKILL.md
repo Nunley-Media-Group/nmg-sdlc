@@ -1,12 +1,11 @@
 ---
 name: commit-push
-description: "Stage, bump version, commit with conventional-commit message, fetch, rebase if diverged, and push the feature branch. Use when user says 'commit and push', 'push my changes', 'push to remote', 'commit the work', 'ship the commit', or when the SDLC runner invokes the commitPush step. Do NOT use for creating PRs, merging, or verifying code. Handles force-with-lease safely under unattended mode after a rebase. Seventh step in the SDLC pipeline — follows /verify-code and precedes /open-pr."
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(git:*), Bash(gh:*), request_user_input
-model: gpt-5.4-mini
+description: "Stage, bump version, commit with conventional-commit message, fetch, rebase if diverged, and push the feature branch. Use when user says 'commit and push', 'push my changes', 'push to remote', 'commit the work', 'ship the commit', or when the SDLC runner invokes the commitPush step. Do NOT use for creating PRs, merging, or verifying code. Handles force-with-lease safely under unattended mode after a rebase. Sixth step in the SDLC pipeline — follows /verify-code and precedes /open-pr."
 ---
 
 # Commit and Push
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Stage implementation work, bump the project version, write a conventional-commit message, reconcile with the remote base branch if necessary, and push the feature branch. Owns history reconciliation for the pipeline so `/open-pr` can stay scoped to PR creation.
 
@@ -92,7 +91,7 @@ The push branches on four signals: remote tracking state, whether Step 5 rebased
    ```
    Where `$EXPECTED_SHA` is the `origin/{branch}` SHA recorded **before** the rebase (the `git fetch` output). The safe-lease check fails if the remote advanced between the fetch and the push — this is the safety envelope.
 4. **Tracking exists, `rebased === true`, sentinel absent** (interactive mode):
-   Use `request_user_input` with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
+   Use interactive user prompt with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
 
 Read `references/rebase-and-push.md` § "Safe lease" for the exact `--force-with-lease` invocation and the recovery path when the lease check rejects the push.
 

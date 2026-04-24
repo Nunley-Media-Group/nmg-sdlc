@@ -97,7 +97,7 @@ nmg-sdlc/
 3. Read skills/write-spec/references/spike-variant.md
 4. Skip Spec Discovery entirely
 5. Collect context: issue body + steering/{product,tech,structure}.md
-6. Check idempotency: Glob docs/decisions/*-#N-gap-analysis.md
+6. Check idempotency: file discovery docs/decisions/*-#N-gap-analysis.md
      ├─ exists → load and skip to HRG
      └─ absent → proceed to step 7
 7. Invoke agents/spike-researcher.md via Task tool with:
@@ -120,7 +120,7 @@ nmg-sdlc/
 ```
 1. /write-spec #N enters Phase 1 interview (from issue #94)
 2. Gap detected: unresolved Open Questions or missing AC
-3. AskUserQuestion now offers THREE options instead of two:
+3. interactive user prompt now offers THREE options instead of two:
      [1] Answer — I'll type the resolution
      [2] Defer to spike — create a spike issue for this question
      [3] Skip — leave unresolved (existing behavior)
@@ -166,13 +166,13 @@ nmg-sdlc/
 ---
 name: spike-researcher
 description: "Execute Phase 0 research for spike-labelled issues: survey candidate set, identify gaps, produce a gap-analysis ADR. Auto-invoked by write-spec when the issue carries the spike label."
-tools: Read, Glob, Grep, WebSearch, WebFetch
-model: opus
+tools: Read, file discovery, text search, Codex web browsing, Codex web browsing
+model: gpt-5.5
 skills: write-spec
 ---
 ```
 
-**Tool access rationale**: Read/Glob/Grep for codebase context; WebSearch/WebFetch for external research (API docs, library comparisons, benchmarks). Deliberately **omits Write and Edit** — the parent `/write-spec` skill owns the ADR file write because the commit must happen at a specific workflow step (before the HRG). Agents cannot coordinate commit ordering across a parent workflow.
+**Tool access rationale**: Read/file discovery and text search for codebase context; Codex web browsing/Codex web browsing for external research (API docs, library comparisons, benchmarks). Deliberately **omits Write and Edit** — the parent `/write-spec` skill owns the ADR file write because the commit must happen at a specific workflow step (before the HRG). Agents cannot coordinate commit ordering across a parent workflow.
 
 **Input prompt shape** (built by `/write-spec` Phase 0):
 - Issue number and body (with the spike template sections already filled in)
@@ -282,7 +282,7 @@ under "Honest Gaps" and propose a follow-up spike.
 
 ### `skills/draft-issue/SKILL.md` — Step 2 modification
 
-Extend the classification `AskUserQuestion` from three options to four:
+Extend the classification `interactive user prompt` from three options to four:
 
 ```
 question: "What type of issue is this?"
@@ -455,7 +455,7 @@ If `docs/decisions/` does not exist, skip this step.
 
 ## Scan procedure
 
-1. `Glob` for `docs/decisions/*.md`.
+1. `file discovery` for `docs/decisions/*.md`.
 2. For each ADR, run `git log --follow --format=%aI -- {file}` and take the last line (the commit authorship date of the file's addition).
 3. Compute age in days: `(today - commit_date)`. ADRs older than 180 days (6 months) are re-spike candidates.
 
@@ -493,14 +493,14 @@ Omit the section entirely when no ADRs are older than 180 days.
 - [x] **Authorization**: `gh issue create` / `gh issue edit` permissions already granted in existing pipelines
 - [x] **Input Validation**: Spike template placeholders are user-authored markdown; no code execution path. The only machine-parsed field is `component-count` from the spike-researcher output — parse as integer, default to 1 on parse failure
 - [x] **Sensitive Data**: ADRs are committed to the repo under `docs/decisions/` — reviewers must treat this like any spec file (no secrets, no credentials). Document in `spike-variant.md`
-- [x] **Supply chain**: `spike-researcher` uses `WebFetch` / `WebSearch` — same risk surface as existing agents that use these tools
+- [x] **Supply chain**: `spike-researcher` uses `Codex web browsing` / `Codex web browsing` — same risk surface as existing agents that use these tools
 
 ---
 
 ## Performance Considerations
 
 - **Phase 0 runtime**: spike research typically runs longer than standard spec writing (the agent surveys candidates, often with web fetches). The runner step timeout for `/write-spec` must accommodate this. Existing `sdlc-config.example.json` uses per-step timeouts (5–30 min); spike-labelled issues should target the upper end (30 min)
-- **Idempotent re-run**: checking for an existing ADR (`Glob docs/decisions/*-#N-gap-analysis.md`) is O(1) and runs before re-invoking the agent — a re-run after a successful ADR commit skips straight to the HRG in seconds
+- **Idempotent re-run**: checking for an existing ADR (`file discovery docs/decisions/*-#N-gap-analysis.md`) is O(1) and runs before re-invoking the agent — a re-run after a successful ADR commit skips straight to the HRG in seconds
 - **Token budget for spike-researcher**: the agent is invoked with full steering docs + issue body. For most issues, this is < 20K tokens — comfortably inside the model's input window
 
 ---
@@ -512,7 +512,7 @@ Omit the section entirely when no ADRs are older than 180 days.
 | Draft-issue Step 2 classification | Exercise testing | Create a spike-classified issue in a test repo; confirm `spike` label and spike-template body applied |
 | Write-spec Phase 0 idempotency | Exercise testing | Run `/write-spec #N` twice on a spike issue; confirm the second run detects the existing ADR and skips to HRG |
 | Write-spec Phase 0 HRG (interactive) | Exercise testing | Run in interactive mode; confirm all three options (single-PR, umbrella+children, re-scope+redraft) produce the expected GitHub artefacts |
-| Write-spec Phase 0 HRG (unattended) | Exercise testing | Run with `.claude/unattended-mode` set; confirm deterministic default based on component-count |
+| Write-spec Phase 0 HRG (unattended) | Exercise testing | Run with `.codex/unattended-mode` set; confirm deterministic default based on component-count |
 | Defer-to-spike option | Exercise testing | Run `/write-spec` on a feature issue with an unresolved Open Question; confirm spike issue is created and the parent issue body is updated with `Depends on: #S` |
 | /write-code abort | Exercise testing | Run on a spike-labelled issue; confirm exit 0 with the fixed message and no spec or code files read |
 | /verify-code abort | Exercise testing | Same as above |
@@ -559,7 +559,7 @@ Per `steering/tech.md`'s testing standards, skill-bundled file edits must be dri
 - [x] Database/storage changes planned — not applicable (no database)
 - [x] State management approach is clear — no new state; session-scoped flags flow through existing skill workflows
 - [x] UI components and hierarchy defined — not applicable (CLI plugin)
-- [x] Security considerations addressed — no new auth surface; `WebFetch`/`WebSearch` risk surface matches existing agents
+- [x] Security considerations addressed — no new auth surface; `Codex web browsing`/`Codex web browsing` risk surface matches existing agents
 - [x] Performance impact analysed — Phase 0 runtime bounded by runner step timeout; re-run idempotency is O(1)
 - [x] Testing strategy defined — exercise tests per skill change; `/skill-creator` routing enforced per `verify-code` Step 5a
 - [x] Alternatives were considered and documented — four alternatives with selection rationale

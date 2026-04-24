@@ -3,7 +3,7 @@
 **Issues**: #1, #67
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -223,7 +223,7 @@ A new `/run-retro` skill will batch-analyze all defect specs, correlate them wit
 | FR5 | Skill creates or updates `steering/retrospective.md` with structured, actionable learnings | Must | Structured format for machine readability |
 | FR6 | Learnings are filtered to only those that improve spec-writing effectiveness | Must | Exclude implementation, tooling, infra issues |
 | FR7 | `/write-spec` Phase 1 (SPECIFY) reads `retrospective.md` when it exists | Must | Minimal change to write-spec SKILL.md |
-| FR8 | Skill supports unattended mode (skip user prompts when `.claude/unattended-mode` exists) | Should | Consistent with other skills |
+| FR8 | Skill supports unattended mode (skip user prompts when `.codex/unattended-mode` exists) | Should | Consistent with other skills |
 | FR9 | Retrospective doc uses a structured, parseable format with headings per pattern type | Should | Enables write-spec to extract relevant sections |
 | FR10 | Skill gracefully handles zero defect specs (no file created, informational message) | Must | |
 | FR11 | Incremental updates preserve still-relevant learnings and remove outdated ones | Must | Full re-analysis on each run, not append-only |
@@ -248,7 +248,7 @@ A new `/run-retro` skill will batch-analyze all defect specs, correlate them wit
 | **Reliability** | Graceful degradation when defect specs have incomplete fields (missing Related Spec, missing severity). Malformed state file must not prevent the skill from running; fallback to full re-analysis |
 | **Maintainability** | Retrospective doc is human-readable and editable — teams may curate auto-generated learnings |
 | **Consistency** | Follows existing skill conventions: SKILL.md format, unattended-mode support, SDLC integration section. State file and `retrospective.md` must remain in sync |
-| **Portability** | SHA-256 hashing must use a cross-platform method available in Claude Code's tool set (e.g., Bash `shasum -a 256` or equivalent) |
+| **Portability** | SHA-256 hashing must use a cross-platform method available in Codex's tool set (e.g., Bash `shasum -a 256` or equivalent) |
 
 ---
 

@@ -3,7 +3,7 @@
 **Issue**: #46
 **Date**: 2026-02-16
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -24,8 +24,8 @@
 **Depends**: None
 **Acceptance**:
 - [ ] A `## Unattended Mode` section exists after `## When to Use` and before `## What Gets Analyzed`
-- [ ] The section explicitly states that `.claude/unattended-mode` does NOT apply to this skill
-- [ ] The section instructs Claude to ALWAYS use `AskUserQuestion` for the review gate
+- [ ] The section explicitly states that `.codex/unattended-mode` does NOT apply to this skill
+- [ ] The section instructs Codex to ALWAYS use `interactive prompt` for the review gate
 - [ ] Existing unattended-mode notes at Step 9 (line ~222) and Key Rules (line ~279) are preserved
 - [ ] No other content in the SKILL.md is changed
 

@@ -9,16 +9,16 @@
 
 | Task | Description | Status |
 |------|-------------|--------|
-| T001 | Remove `model:` field from all 12 skills, add `disable-model-invocation` to 4 | Complete |
+| T001 | Remove `model:` field from all 12 skills, add `minimal Codex frontmatter` to 4 | Complete |
 | T002 | Update specs and CHANGELOG | Complete |
 
 ---
 
-## T001: Remove model field and add disable-model-invocation
+## T001: Remove model field and add minimal Codex frontmatter
 
 **Status**: Complete
 
-Removed `model:` field from all SKILL.md files. Added `disable-model-invocation: true` to: `run-loop`, `init-config`, `run-retro`.
+Removed `model:` field from all SKILL.md files. Added `minimal Codex frontmatter` to: `run-loop`, `init-config`, `run-retro`.
 
 ---
 

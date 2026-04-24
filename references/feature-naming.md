@@ -36,7 +36,7 @@ Branches follow GitHub's default `gh issue develop` format: `{issue#}-{slug}` (e
 
 When a consuming skill needs to locate the spec directory for an issue but cannot derive it from context (e.g., resuming work, ambiguous branch name), use this fallback chain in order:
 
-1. `Glob` `specs/*/requirements.md` to enumerate candidates.
+1. file discovery `specs/*/requirements.md` to enumerate candidates.
 2. For each match, read the `**Issues**` frontmatter field (plural, comma-separated list). If the current issue number appears, that directory is the match.
 3. If no `**Issues**` hit, fall back to the legacy singular `**Issue**` field on older specs.
 4. If still no frontmatter match, try matching the issue number or branch-name keywords against the directory name itself (legacy `{issue#}-{slug}/` directories carry the number directly).

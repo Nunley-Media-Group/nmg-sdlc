@@ -17,7 +17,7 @@ Feature: Step 8 (monitorCI) resolves CI failures before advancing
   Scenario: CI failures are automatically diagnosed and fixed
     Given a PR with failing CI checks on the current branch
     When Step 8 (monitorCI) runs
-    Then the Claude session reads CI logs and diagnoses the failure
+    Then the Codex session reads CI logs and diagnoses the failure
     And applies a minimal fix that does not deviate from the spec
     And commits, pushes, and re-polls CI until checks pass
 
@@ -36,7 +36,7 @@ Feature: Step 8 (monitorCI) resolves CI failures before advancing
   @regression
   Scenario: Spec-deviating fixes trigger escalation
     Given a CI failure that cannot be fixed without changing specified behavior
-    When the Claude session determines the fix would deviate from the spec
+    When the Codex session determines the fix would deviate from the spec
     Then it exits with a non-zero status code
     And the runner escalates for manual intervention
 

@@ -109,10 +109,10 @@ Codifying spike handling as a first-class variant — parallel to the existing `
 
 ### AC11: Unattended Mode Auto-Approves Phase 0 HRG
 
-**Given** `.claude/unattended-mode` exists when `/write-spec #N` runs on a spike-labelled issue
+**Given** `.codex/unattended-mode` exists when `/write-spec #N` runs on a spike-labelled issue
 **When** Phase 0 completes
 **Then** the Phase 0 HRG applies the deterministic default: umbrella+children when the research finds ≥ 2 independent implementation components, else single-PR
-**And** no `AskUserQuestion` is called
+**And** no `interactive user prompt` is called
 **And** a one-line divergence note is emitted (e.g., `Unattended mode: Phase 0 HRG applied deterministic default (umbrella+children)`)
 
 ### Generated Gherkin Preview
@@ -172,7 +172,7 @@ Feature: First-Class Spike Handling
 |--------|-------------|
 | **Stack-agnostic** | Spike variant must not hardcode a research domain, language, or tool — steering docs provide specifics; the spike-researcher agent only consumes issue body + steering |
 | **OS-agnostic** | ADR file creation and commit must use cross-platform paths (forward slashes, `node:path` if any script involved); date slug format `YYYY-MM-DD` works on all platforms |
-| **Unattended-mode safe** | Phase 0 HRG and Defer-to-Spike interview option both honor `.claude/unattended-mode` per the deterministic-default pattern — no blocking prompts under automation |
+| **Unattended-mode safe** | Phase 0 HRG and Defer-to-Spike interview option both honor `.codex/unattended-mode` per the deterministic-default pattern — no blocking prompts under automation |
 | **Idempotency** | Re-running `/write-spec #N` on a spike-labelled issue detects an existing ADR in `docs/decisions/` and does not create a duplicate |
 | **Traceability** | The committed ADR filename includes the spike issue number (or slug) so downstream tooling (run-retro ADR-aging scan) can link ADR → originating issue |
 
@@ -232,7 +232,7 @@ Feature: First-Class Spike Handling
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | Spike-labelled issues reach a PR without scope pivots | 100% of spikes after the variant lands | Manual review of the next 3 spike issues after merge |
-| Phase 0 produces a committed ADR before the HRG | 100% of spike runs | Grep `docs/decisions/` for matching ADR before HRG output in session log |
+| Phase 0 produces a committed ADR before the HRG | 100% of spike runs | text search `docs/decisions/` for matching ADR before HRG output in session log |
 | Unattended-mode spike runs complete without escalation | ≥ 1 end-to-end automation cycle | SDLC runner logs show no escalation for a spike-labelled issue |
 
 ---

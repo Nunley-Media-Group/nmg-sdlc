@@ -3,7 +3,7 @@
 **Issues**: #21
 **Date**: 2026-02-15
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -39,7 +39,7 @@ By adding upfront classification and type-specific investigation steps, issues w
 **Example**:
 - Given: User runs `/draft-issue "improve search performance"`
 - When: The skill begins the interview
-- Then: The first question presented is "Is this a bug or an enhancement/feature?" (via `AskUserQuestion`)
+- Then: The first question presented is "Is this a bug or an enhancement/feature?" (via `interactive prompt`)
 
 ### AC2: Enhancement Path — Codebase Exploration
 
@@ -56,7 +56,7 @@ By adding upfront classification and type-specific investigation steps, issues w
 
 **Given** the user selects "bug" as the issue type
 **When** the skill gathers context for the bug
-**Then** it actively searches the codebase using Glob/Grep, traces code paths, forms a root cause hypothesis, confirms findings with the user via `AskUserQuestion`, and includes the analysis in the issue body
+**Then** it actively searches the codebase using Glob/Grep, traces code paths, forms a root cause hypothesis, confirms findings with the user via `interactive prompt`, and includes the analysis in the issue body
 
 **Example**:
 - Given: User classifies issue as "bug" about spec drift hook missing files
@@ -65,12 +65,12 @@ By adding upfront classification and type-specific investigation steps, issues w
 
 ### AC4: Unattended Mode Unchanged
 
-**Given** the `.claude/unattended-mode` file exists
+**Given** the `.codex/unattended-mode` file exists
 **When** the draft-issue skill is invoked
 **Then** behavior is unchanged — unattended mode does not add type-classification or investigation steps (unattended-mode skips the interview entirely, so there is no classification step to add)
 
 **Example**:
-- Given: `.claude/unattended-mode` exists and user runs `/draft-issue "add logging"`
+- Given: `.codex/unattended-mode` exists and user runs `/draft-issue "add logging"`
 - When: The skill executes in unattended-mode
 - Then: It follows the existing unattended-mode path (skip interview, generate ACs from argument) with no changes
 
@@ -135,7 +135,7 @@ Feature: Upfront Issue Type Classification
     And includes the analysis in the issue body
 
   Scenario: Unattended Mode Unchanged
-    Given the ".claude/unattended-mode" file exists
+    Given the ".codex/unattended-mode" file exists
     When the draft-issue skill is invoked
     Then behavior is unchanged from the current unattended-mode path
 
@@ -161,9 +161,9 @@ Feature: Upfront Issue Type Classification
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | Add upfront bug/enhancement/feature classification as the first interview question using `AskUserQuestion` | Must | Before any other interview questions |
+| FR1 | Add upfront bug/enhancement/feature classification as the first interview question using `interactive prompt` | Must | Before any other interview questions |
 | FR2 | Enhancement path: explore existing specs in `specs/` and relevant source code; include "Current State" summary in issue body | Must | Uses Glob, Grep, Read tools |
-| FR3 | Bug path: search codebase, trace code paths, form root cause hypothesis, confirm with user via `AskUserQuestion` | Must | Present findings as hypothesis for user confirmation |
+| FR3 | Bug path: search codebase, trace code paths, form root cause hypothesis, confirm with user via `interactive prompt` | Must | Present findings as hypothesis for user confirmation |
 | FR4 | Preserve existing unattended mode behavior unchanged | Must | Unattended-mode skips interview; no classification needed |
 | FR5 | Adapt remaining interview questions based on classified type | Should | Bug → reproduction-focused; Enhancement → improvement-focused |
 | FR6 | Include "Current State" section in enhancement issue body template | Must | Placed between Background and Acceptance Criteria |
@@ -177,7 +177,7 @@ Feature: Upfront Issue Type Classification
 |--------|-------------|
 | **Performance** | Investigation step should complete within a reasonable time; use targeted Glob/Grep rather than exhaustive codebase scans |
 | **Reliability** | If investigation finds no relevant code or specs, gracefully skip the investigation section and note that no existing code was found |
-| **Usability** | Classification question should use `AskUserQuestion` with clear options (Bug, Enhancement/Feature) |
+| **Usability** | Classification question should use `interactive prompt` with clear options (Bug, Enhancement/Feature) |
 
 ---
 
@@ -220,7 +220,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 
 ### External Dependencies
 - [x] `gh` CLI for issue creation
-- [x] Claude Code `AskUserQuestion` tool for classification prompt
+- [x] Codex `interactive prompt` tool for classification prompt
 
 ### Blocked By
 - None
@@ -250,7 +250,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 ## Open Questions
 
 - [x] Should the classification offer two options (Bug, Enhancement) or three (Bug, Feature, Enhancement)? — Per issue, two options: Bug vs Enhancement/Feature (combined)
-- [ ] Should the investigation step use `Task` with `subagent_type='Explore'` for deeper codebase exploration, or direct Glob/Grep calls? — To be decided in design phase
+- [ ] Should the investigation step use `Task` with `subagent role='Explore'` for deeper codebase exploration, or direct Glob/Grep calls? — To be decided in design phase
 
 ---
 

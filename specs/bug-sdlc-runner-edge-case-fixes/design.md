@@ -3,7 +3,7 @@
 **Issue**: #51
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -12,7 +12,7 @@
 Six independent bugs were identified through a code-level edge case analysis of `scripts/sdlc-runner.mjs`. Each bug stems from a different root cause — they share no common underlying defect. The bugs range from a critical process lifecycle issue (orphaned subprocesses) to a low-priority dead code cleanup.
 
 The findings fall into three categories:
-1. **Process lifecycle** (F1, F6): The subprocess spawned by `runClaude()` is not tracked in the module-level `currentProcess` variable, and an unused `AbortController` adds confusion to the timeout path.
+1. **Process lifecycle** (F1, F6): The subprocess spawned by `runCodex()` is not tracked in the module-level `currentProcess` variable, and an unused `AbortController` adds confusion to the timeout path.
 2. **Event loop blocking** (F2): A synchronous `Atomics.wait()` call in a status-notification retry path freezes the event loop, preventing signal handlers from firing during the backoff window. (Historical note: the retry loop itself was removed with the v1.35.0 external-notification rewrite; F2 remains as a record of the blocking-sleep defect that motivated the non-blocking `sleep()` helper still in use today.)
 3. **Defensive coding gaps** (F3, F4, F5): Shell escaping is incomplete for commit messages, a `git checkout` in the merged-PR path lacks error handling, and a `--resume` with missing state file produces no warning.
 
@@ -20,16 +20,16 @@ The findings fall into three categories:
 
 | File | Lines | Role |
 |------|-------|------|
-| `scripts/sdlc-runner.mjs` | 1161, 747, 1170 | F1: `currentProcess` declared but never assigned from `runClaude()` |
+| `scripts/sdlc-runner.mjs` | 1161, 747, 1170 | F1: `currentProcess` declared but never assigned from `runCodex()` |
 | `scripts/sdlc-runner.mjs` | 384 | F2: `Atomics.wait()` synchronous blocking sleep in the (since-removed) status-notification retry loop |
 | `scripts/sdlc-runner.mjs` | 502, 512 | F3: `autoCommitIfDirty` escapes `"` only; `shellEscape()` exists but unused |
 | `scripts/sdlc-runner.mjs` | 232–239 | F4: Merged-PR `git checkout main` outside try-catch |
 | `scripts/sdlc-runner.mjs` | 1364–1368 | F5: Silent retry counter reset when `--resume` + missing state file |
-| `scripts/sdlc-runner.mjs` | 745 | F6: Unused `AbortController` in `runClaude()` |
+| `scripts/sdlc-runner.mjs` | 745 | F6: Unused `AbortController` in `runCodex()` |
 
 ### Triggering Conditions
 
-**F1**: Any SIGTERM/SIGINT signal while a Claude subprocess is running. The signal handler checks `currentProcess` which is always `null`.
+**F1**: Any SIGTERM/SIGINT signal while a Codex subprocess is running. The signal handler checks `currentProcess` which is always `null`.
 
 **F2**: Any status-notification post failure that triggered the retry loop at the time (network error, timeout). The `Atomics.wait()` call blocked for 2–4 seconds per retry. The retry loop no longer exists after v1.35.0, but the non-blocking `sleep()` helper selected here is the same one the runner still uses today.
 
@@ -39,7 +39,7 @@ The findings fall into three categories:
 
 **F5**: `--resume` flag passed when the state file has been manually deleted or never existed.
 
-**F6**: Every invocation of `runClaude()` — the `AbortController` is always created and never used.
+**F6**: Every invocation of `runCodex()` — the `AbortController` is always created and never used.
 
 ---
 
@@ -53,7 +53,7 @@ All six fixes are independent, minimal changes within `sdlc-runner.mjs`. No arch
 
 | Finding | File | Change | Rationale |
 |---------|------|--------|-----------|
-| F1 | `sdlc-runner.mjs` | Assign `currentProcess = proc` after `spawn()` in `runClaude()`; clear to `null` in `proc.on('close')` and `proc.on('error')` | Enables SIGTERM handler to kill active subprocess |
+| F1 | `sdlc-runner.mjs` | Assign `currentProcess = proc` after `spawn()` in `runCodex()`; clear to `null` in `proc.on('close')` and `proc.on('error')` | Enables SIGTERM handler to kill active subprocess |
 | F2 | `sdlc-runner.mjs` | Replace `Atomics.wait(...)` on line 384 with `await sleep(backoff)` | Non-blocking sleep keeps event loop responsive; `sleep()` helper already exists at line 1153 |
 | F3 | `sdlc-runner.mjs` | Replace the `git commit -m "${message.replace(...)}"` pattern with `git commit -m ${shellEscape(message)}` | Uses the existing `shellEscape()` function (line 512) for proper single-quote escaping |
 | F4 | `sdlc-runner.mjs` | Wrap lines 236–239 (`git checkout main` / `git pull`) in a try-catch; log a warning on failure and return `null` to fall through to normal startup | Prevents crash on dirty working tree during merged-PR detection |

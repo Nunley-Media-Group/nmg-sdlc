@@ -3,7 +3,7 @@
 **Issues**: #6
 **Date**: 2026-02-15
 **Status**: Complete
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -62,7 +62,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T001
 **Status**: Complete
 **Acceptance**:
-- [x] SKILL.md has valid frontmatter with name, description, argument-hint, allowed-tools
+- [x] SKILL.md has valid frontmatter with name, description, usage hint, workflow instructions
 - [x] Documents 6-step workflow (identify, read specs, read steering, plan, execute, signal)
 - [x] Automation mode behavior documented (skip EnterPlanMode)
 - [x] Bug fix implementation rules documented
@@ -80,7 +80,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **Depends**: T002
 **Status**: Complete
 **Acceptance**:
-- [x] Allowed tools include Read, Glob, Grep, Task, Write, Edit, EnterPlanMode, Bash(gh:*), Bash(git:*)
+- [x] Allowed tools include Read, file discovery, text search, Task, Write, Edit, EnterPlanMode, Bash(gh:*), Bash(git:*)
 - [x] EnterPlanMode included for plan mode step
 
 ---

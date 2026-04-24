@@ -21,7 +21,7 @@ Feature: sdlc-runner `gh issue view` query drops unsupported `parent` field
   Scenario: Runner proceeds past Step 2 on `gh` 2.86.0
     Given `gh` 2.86.0 is installed and rejects `--json` queries containing "parent"
     And an `sdlc-config.json` targets a repo with open, unblocked milestone issues
-    When `CLAUDECODE="" node scripts/sdlc-runner.mjs --config <config>` is run
+    When `node scripts/sdlc-runner.mjs --config <config>` is run
     Then no `Unknown JSON field: "parent"` warnings are emitted
     And `selectNextReadyIssue` returns a non-null `issue`
     And the runner proceeds past Step 2 (`startIssue`) instead of logging `FAILURE LOOP DETECTED: all issues blocked`

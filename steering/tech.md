@@ -12,7 +12,7 @@ Codex CLI
     ↓ (plugin system)
 nmg-sdlc Plugin
     ├── Skills (SKILL.md files — prompt-based workflows)
-    ├── Agents (architecture-reviewer — subagent for verification)
+    ├── Agents (Markdown prompt contracts for optional Codex delegation)
     └── Templates (spec, steering, checklist files)
 
 SDLC Runner (automation layer)
@@ -37,7 +37,7 @@ SDLC Runner (automation layer)
 
 | Service | Purpose | Notes |
 |---------|---------|-------|
-| GitHub API | Issue/PR management, branch creation | Via `gh`codex exec; requires `GITHUB_TOKEN`. Sub-issue parent queries (`gh issue view --json parent`) require `gh` >= 2.62.0. If an older `gh` is installed, parent-link resolution in `/write-spec` and `/open-pr` degrades gracefully — the `parent` field is absent from the JSON response, so resolution falls back to body-cross-ref parsing (`Depends on: #N`, `Blocks: #N`) with a logged warning. |
+| GitHub API | Issue/PR management, branch creation | Via `gh` CLI; requires `GITHUB_TOKEN`. Sub-issue parent queries (`gh issue view --json parent`) require `gh` >= 2.62.0. If an older `gh` is installed, parent-link resolution in `/write-spec` and `/open-pr` degrades gracefully — the `parent` field is absent from the JSON response, so resolution falls back to body-cross-ref parsing (`Depends on: #N`, `Blocks: #N`) with a logged warning. |
 | Console/Log | Status updates from SDLC runner | Via log files in `<tmpdir>/sdlc-logs/` |
 | OpenAI API | Powers Codex sessions | Underlying LLM for all skills |
 
@@ -134,14 +134,14 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 
 ### Skills (SKILL.md and the rest of the skill bundle)
 
-**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`/skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every per-skill subagent definition under `agents/*.md`. `skill-creator` enforces Codex plugin best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
+**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`/skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every prompt contract under `agents/*.md`. `skill-creator` enforces Codex plugin best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
 
-**No hand-edit fallback.** If `/skill-creator` is unavailable, do not silently fall back to direct `Write`/`Edit`. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `/skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
+**No hand-edit fallback.** If `/skill-creator` is unavailable, do not silently fall back to direct Codex editing. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `/skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
 
 | Aspect | Best Practice |
 |--------|---------------|
 | Authoring tool | **Always use `/skill-creator` for creation and edits** — never hand-edit SKILL.md |
-| Frontmatter | Use YAML frontmatter for `name`, `description`, `allowed-tools`, `model`, `context`, `user-invocable`, `disable-model-invocation`, `argument-hint` |
+| Frontmatter | Use YAML frontmatter for `name` and `description` only; put UI metadata in `agents/openai.yaml` when needed |
 | Size | Keep under 500 lines — move detailed reference material to separate files |
 | Arguments | Use `$ARGUMENTS` placeholder to capture user input |
 | Supporting files | Place templates, examples, and scripts alongside SKILL.md in the skill directory |
@@ -334,22 +334,22 @@ This avoids polluting real repositories during verification while still validati
 Use `codex exec` for non-interactive smoke tests. Skills that normally request user input must be given enough context up front and instructed to choose deterministic defaults:
 
 ```bash
-codex exec "Exercise the skill: /nmg-sdlc:skill-name args" \
+codex exec \
   --cd /path/to/test-project \
-  --sandbox workspace-write \
-  --ask-for-approval never
+  --full-auto \
+  "Exercise the skill: /nmg-sdlc:skill-name args"
 ```
 
 This tests the non-interactive execution path. For full interactive paths, run the skill manually in Codex and record the transcript as verification evidence.
 
 ### Validation Approach Summary
 
-| Type | Method | Applies To | request_user_input |
+| Type | Method | Applies To | interactive user prompt |
 |------|--------|------------|-----------------|
 | Codex exec smoke test | `codex exec --cd <test-project>` | Quick verification | Provide deterministic context up front |
 | Manual Codex exercise | Interactive Codex session | Skills with interactive gates | Full support |
 | Spec verification | `/verify-code` skill — behavioral contract checking | All changes | N/A |
-| Architecture review | `architecture-reviewer` agent — 5 checklists scored 1–5 | Code structure, scripts | N/A |
+| Architecture review | Inline review by default; optional Codex `explorer` delegation when explicitly authorized — 5 checklists scored 1–5 | Code structure, scripts | N/A |
 | Runner unit tests | Jest (`npm test` in `scripts/`) | `sdlc-runner.mjs` | N/A |
 | Structural validation | Verify `.codex-plugin/plugin.json` schema and file existence | Plugin manifest | N/A |
 | Prompt quality review | Unambiguous instructions, complete workflow paths, correct tool references | SKILL.md files | N/A |
@@ -409,7 +409,7 @@ Every skill has implicit contracts. When verifying a skill change, check:
 
 #### Preconditions (Step 0 / Prerequisites)
 - Required files exist (specs, steering docs, issues)
-- Required tools are available (`gh`codex exec, git)
+- Required tools are available (`gh` CLI, git)
 - Correct branch / working directory state
 
 #### Postconditions (Step N / Output)
@@ -437,7 +437,7 @@ The architecture-reviewer checklists were designed for runtime codebases. Apply 
 | Checklist | Applies To | Skip For | Reinterpretation |
 |-----------|-----------|----------|-----------------|
 | SOLID | Scripts (sdlc-runner.mjs) | Markdown skills | For skills: SRP = one skill does one workflow step; DIP = skills reference steering docs, not hardcoded details |
-| Security | Scripts | Markdown templates | Focus: no secrets in committed files, safe `gh`codex exec patterns, no shell injection in skill commands |
+| Security | Scripts | Markdown templates | Focus: no secrets in committed files, safe `gh` CLI patterns, no shell injection in skill commands |
 | Performance | Runner script | Skills, templates | Focus: runner timeouts configured, no blocking operations |
 | Testability | All — reinterpret | N/A | For skills: steps can be followed manually with predictable results; scenarios are independent; templates produce valid output |
 | Error Handling | Scripts | Markdown skills | Focus: runner exit codes, graceful failures with meaningful stderr |
@@ -450,9 +450,9 @@ For Markdown skills, the "code quality" equivalent is prompt quality. The Prompt
 |-----------|---------------|
 | **Unambiguous instructions** | Each step has one clear interpretation; no room for Codex to guess |
 | **Complete workflow paths** | Happy path, error/edge cases, and unattended mode all covered |
-| **Correct tool references** | Skills name the right tools (`Read`, `Glob`, `Grep` — not `cat`, `find`, `grep`) |
+| **Correct tool references** | Skills use Codex-native language from `references/codex-tooling.md` and do not name legacy-only tools |
 | **Logical step ordering** | Dependencies flow forward; no step references information from a later step |
-| **Gate integrity** | Decision points have `request_user_input` (or unattended-mode bypass) |
+| **Gate integrity** | Decision points have interactive user prompt (or unattended-mode bypass) |
 | **Template-output chain** | Output format matches what downstream skills expect as input |
 | **Cross-reference validity** | Links to templates, checklists, and other skills resolve correctly |
 

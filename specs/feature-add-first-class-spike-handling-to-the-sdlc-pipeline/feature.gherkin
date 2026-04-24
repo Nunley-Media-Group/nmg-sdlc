@@ -9,7 +9,7 @@ Feature: First-Class Spike Handling for the SDLC Pipeline
   So that spike issues produce a committed ADR + implementation issue(s) via a PR to main — never code — without requiring mid-flight scope pivots
 
   Background:
-    Given the nmg-sdlc plugin is installed in Claude Code
+    Given the nmg-sdlc plugin is installed in Codex
     And the `spike` label exists in the target GitHub repository
     And steering documents exist at `steering/`
 
@@ -97,7 +97,7 @@ Feature: First-Class Spike Handling for the SDLC Pipeline
     And issue #50's body contains an `## Open Questions` section with an unresolved item
     When I run `/write-spec #50`
     And Phase 1 gap detection fires on the unresolved question
-    Then the `AskUserQuestion` menu offers three options: Answer, Defer to spike, Skip
+    Then the `interactive prompt` menu offers three options: Answer, Defer to spike, Skip
 
   Scenario: Selecting "Defer to spike" creates a spike issue and marks the parent blocked
     Given issue #50's Phase 1 interview is showing a "Defer to spike" option
@@ -150,17 +150,17 @@ Feature: First-Class Spike Handling for the SDLC Pipeline
   # --- AC11: Unattended Mode Auto-Approves Phase 0 HRG ---
 
   Scenario: Unattended mode applies umbrella+children default when research returns ≥ 2 components
-    Given the file `.claude/unattended-mode` exists
+    Given the file `.codex/unattended-mode` exists
     And GitHub issue #42 has the `spike` label
     And the spike-researcher output contains `component-count: 3`
     When I run `/write-spec #42`
     And Phase 0 research completes
-    Then the Phase 0 HRG is not presented via AskUserQuestion
+    Then the Phase 0 HRG is not presented via interactive prompt
     And the umbrella+children scope shape is applied automatically
     And a divergence note is emitted: "Unattended mode: Phase 0 HRG applied deterministic default (umbrella+children)"
 
   Scenario: Unattended mode applies single-PR default when research returns < 2 components
-    Given the file `.claude/unattended-mode` exists
+    Given the file `.codex/unattended-mode` exists
     And GitHub issue #42 has the `spike` label
     And the spike-researcher output contains `component-count: 1`
     When I run `/write-spec #42`

@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-15
 **Issue**: #8
-**Reviewer**: Claude Code (retroactive)
+**Reviewer**: Codex (retroactive)
 **Scope**: Retroactive verification of implemented feature
 
 ---
@@ -78,7 +78,7 @@ Unidirectional: specs + git state → PR body → `gh pr create`.
 ## Performance Assessment
 
 - [x] Single API call for PR creation
-- [x] `disable-model-invocation: true` — deterministic, fast
+- [x] `minimal Codex frontmatter` — deterministic, fast
 
 ---
 
@@ -119,7 +119,7 @@ None.
 
 ## Positive Observations
 
-- `disable-model-invocation: true` makes PR creation deterministic and reproducible
+- `minimal Codex frontmatter` makes PR creation deterministic and reproducible
 - Conventional commit prefix for PR titles ensures consistency
 - `Closes #N` auto-closes the issue on merge
 

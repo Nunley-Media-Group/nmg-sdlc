@@ -5,7 +5,7 @@
 **Status**: Draft
 **Author**: Rich Nunley
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/`
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/`
 
 ---
 
@@ -29,7 +29,7 @@
 |--------|-------|
 | **OS / Platform** | macOS (Darwin 25.3.0) |
 | **Version / Commit** | nmg-sdlc plugin 1.58.0; runner log timestamped 2026-04-22 02:51–02:58 |
-| **Runtime** | SDLC runner (`scripts/sdlc-runner.mjs`), Claude Code unattended mode |
+| **Runtime** | SDLC runner (`scripts/sdlc-runner.mjs`), Codex unattended mode |
 
 ### Frequency
 

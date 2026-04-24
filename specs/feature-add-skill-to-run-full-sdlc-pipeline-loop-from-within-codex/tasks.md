@@ -3,7 +3,7 @@
 **Issues**: #107
 **Date**: 2026-02-25
 **Status**: Planning
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -46,7 +46,7 @@
 - [ ] When `SINGLE_ISSUE_NUMBER` is null, step 2 prompt is unchanged from current behavior
 - [ ] The escalated issues exclusion list is NOT appended to the prompt when `SINGLE_ISSUE_NUMBER` is set (not applicable for single-issue mode)
 
-**Notes**: Modify the `prompts` object in `buildClaudeArgs()`. The step 2 prompt is at `prompts[2]`.
+**Notes**: Modify the `prompts` object in `buildCodexArgs()`. The step 2 prompt is at `prompts[2]`.
 
 ### T003: Add Single-Cycle Exit and Escalation Behavior
 
@@ -71,18 +71,18 @@
 **Type**: Create
 **Depends**: T001, T002, T003
 **Acceptance**:
-- [ ] SKILL.md has correct YAML frontmatter: `name`, `description`, `argument-hint`, `allowed-tools`
+- [ ] SKILL.md has correct YAML frontmatter: `name`, `description`, `usage hint`, `workflow instructions`
 - [ ] Skill handles argument parsing: no argument = loop mode, `#N` or `N` = single-issue mode
 - [ ] Step 1: Checks for `sdlc-config.json` at project root; if missing, invokes `Skill("nmg-sdlc:init-config")` to create it
 - [ ] Step 2: Reads config to extract `pluginsPath`; derives runner path as `<pluginsPath>/scripts/sdlc-runner.mjs`; verifies runner exists
-- [ ] Step 3: Builds and executes command: `CLAUDECODE="" node <runner-path> --config <config-path>` (loop mode) or `CLAUDECODE="" node <runner-path> --config <config-path> --issue N` (single-issue mode)
+- [ ] Step 3: Builds and executes command: `node <runner-path> --config <config-path>` (loop mode) or `node <runner-path> --config <config-path> --issue N` (single-issue mode)
 - [ ] Step 4: Reports runner output, exit code, and log path
-- [ ] Includes unattended-mode section noting the runner creates/removes `.claude/unattended-mode` automatically
+- [ ] Includes unattended-mode section noting the runner creates/removes `.codex/unattended-mode` automatically
 - [ ] Includes "Integration with SDLC Workflow" section
 - [ ] Cross-platform: uses POSIX-compatible commands only
 - [ ] References the existing log tailing patterns
 
-**Notes**: Follow structure patterns from existing skills (e.g., `start-issue/SKILL.md`). Key design choices: (1) `CLAUDECODE=""` prefix to enable subprocess spawning, (2) `--issue N` flag support for single-issue mode, (3) runs in foreground, blocking until complete or Bash timeout.
+**Notes**: Follow structure patterns from existing skills (e.g., `start-issue/SKILL.md`). Key design choices: (1) `=""` prefix to enable subprocess spawning, (2) `--issue N` flag support for single-issue mode, (3) runs in foreground, blocking until complete or Bash timeout.
 
 ### T005: Validate SKILL.md with `/doing-skills-right`
 
@@ -91,7 +91,7 @@
 **Depends**: T004
 **Acceptance**:
 - [ ] `/doing-skills-right` run against the SKILL.md produces no critical findings
-- [ ] All required structural elements present: frontmatter, allowed-tools, unattended-mode section, integration section
+- [ ] All required structural elements present: frontmatter, workflow instructions, unattended-mode section, integration section
 - [ ] Any findings from the review are addressed by editing SKILL.md
 
 **Notes**: This is AC5 from requirements.md. The implementer MUST run `/doing-skills-right` and fix any issues before proceeding.
@@ -107,7 +107,7 @@
 **Depends**: T004
 **Acceptance**:
 - [ ] New skill listed in the Skills Reference section
-- [ ] Description matches the skill's purpose (run full SDLC pipeline from within Claude Code)
+- [ ] Description matches the skill's purpose (run full SDLC pipeline from within Codex)
 - [ ] Usage examples for both loop mode and single-issue mode
 - [ ] Usage examples for both loop mode and single-issue mode documented
 
@@ -138,11 +138,11 @@
 - [ ] Test: Escalated issue exclusion is NOT included in step 2 prompt when `SINGLE_ISSUE_NUMBER` is set
 - [ ] All existing tests continue to pass (no regressions)
 
-**Notes**: Follow existing test patterns in the test file. Use `__test__.setConfig()` to configure state. Mock `buildClaudeArgs` calls to verify prompt content.
+**Notes**: Follow existing test patterns in the test file. Use `__test__.setConfig()` to configure state. Mock `buildCodexArgs` calls to verify prompt content.
 
 ### T009: Create BDD Feature File
 
-**File(s)**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/feature.gherkin`
+**File(s)**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/feature.gherkin`
 **Type**: Create
 **Depends**: T004
 **Acceptance**:

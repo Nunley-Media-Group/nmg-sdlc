@@ -3,7 +3,7 @@
 **Issues**: #44, #50
 **Date**: 2026-02-25
 **Status**: Planning
-**Author**: Claude (from issue by rnunley-nmg)
+**Author**: Codex (from issue by rnunley-nmg)
 
 ---
 
@@ -59,7 +59,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Depends**: None
 **Acceptance**:
 - [ ] Step 5 begins with a plugin change detection sub-step (5a)
-- [ ] Instructions tell Claude to run `git diff main...HEAD --name-only` and check for patterns: `plugins/*/skills/*/SKILL.md`, `plugins/*/agents/*.md`
+- [ ] Instructions tell Codex to run `git diff main...HEAD --name-only` and check for patterns: `plugins/*/skills/*/SKILL.md`, `plugins/*/agents/*.md`
 - [ ] If plugin changes detected, skill branches to exercise-based verification (sub-steps 5b–5e)
 - [ ] If no plugin changes detected, existing BDD test coverage verification runs unchanged
 - [ ] Detection logic is clearly documented with the file patterns it matches
@@ -72,7 +72,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] Sub-step 5b instructs Claude to create a temp directory using cross-platform approach
+- [ ] Sub-step 5b instructs Codex to create a temp directory using cross-platform approach
 - [ ] Scaffold includes: `steering/` with minimal `product.md`, `tech.md`, `structure.md`
 - [ ] Scaffold includes: `src/index.js`, `README.md`, `.gitignore`, `package.json`
 - [ ] Instructions include `git init && git add -A && git commit -m "initial"`
@@ -89,16 +89,16 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Acceptance**:
 - [ ] Sub-step 5c describes the Agent SDK invocation method (primary)
 - [ ] Includes inline Node.js snippet template for Agent SDK with `canUseTool` callback
-- [ ] `canUseTool` intercepts `AskUserQuestion` and auto-selects first option
+- [ ] `canUseTool` intercepts `interactive user prompt` and auto-selects first option
 - [ ] Plugin loaded via `plugins: [{ type: "local", path: ... }]`
 - [ ] `workingDirectory` set to test project path
 - [ ] Output captured to temp file for evaluation
-- [ ] Fallback to `claude -p` with `--disallowedTools AskUserQuestion` clearly described
+- [ ] Fallback to `codex exec` with `` clearly described
 - [ ] Fallback notes in report that only non-interactive path was tested
 - [ ] 5-minute timeout described for exercise subprocess
 - [ ] For GitHub-integrated skills: dry-run prompt prepended to prevent real artifact creation
 
-**Notes**: The Agent SDK check is done by attempting to import the module. The `claude -p` pattern follows `sdlc-runner.mjs` subprocess invocation style. Dry-run instructions prepend context to the exercise prompt telling Claude not to execute `gh` commands that create/modify/delete resources.
+**Notes**: The Agent SDK check is done by attempting to import the module. The `codex exec` pattern follows `sdlc-runner.mjs` subprocess invocation style. Dry-run instructions prepend context to the exercise prompt telling Codex not to execute `gh` commands that create/modify/delete resources.
 
 ### T004: Add Output Evaluation and Cleanup Instructions
 
@@ -106,7 +106,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] Sub-step 5d instructs Claude to read the captured output and evaluate against each AC from `requirements.md`
+- [ ] Sub-step 5d instructs Codex to read the captured output and evaluate against each AC from `requirements.md`
 - [ ] Each AC gets a verdict: Pass / Fail / Partial with evidence
 - [ ] For file-creating skills: check the test project filesystem for expected artifacts
 - [ ] For GitHub-integrated skills: evaluate generated `gh` command content against ACs
@@ -114,7 +114,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 - [ ] Cleanup runs regardless of exercise success or failure
 - [ ] Exercise findings are fed into Step 6 (Fix Findings) like any other finding
 
-**Notes**: Claude performs the evaluation by reasoning about AC satisfaction from the captured output. This is consistent with how Step 3 (Verify Implementation) already works.
+**Notes**: Codex performs the evaluation by reasoning about AC satisfaction from the captured output. This is consistent with how Step 3 (Verify Implementation) already works.
 
 ### T005: Add Graceful Degradation Handling
 
@@ -122,7 +122,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] If Agent SDK import fails AND `claude` CLI not found: skip exercise testing entirely
+- [ ] If Agent SDK import fails AND Codex CLI not found: skip exercise testing entirely
 - [ ] If exercise subprocess times out (5 min): kill process and report skip
 - [ ] If exercise produces an error: capture error, report as finding, continue
 - [ ] All skip/failure scenarios produce a clear entry in the verification report
@@ -142,7 +142,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 **Depends**: None
 **Acceptance**:
 - [ ] New "Exercise Test Results" section added after the existing "Test Coverage" section
-- [ ] Section includes: skill exercised, test project path, exercise method, AskUserQuestion handling, duration
+- [ ] Section includes: skill exercised, test project path, exercise method, interactive user prompt handling, duration
 - [ ] Section includes: captured output summary, AC evaluation table (AC / Description / Verdict / Evidence)
 - [ ] Section includes: notes field for observations (fallback method, dry-run mode, etc.)
 - [ ] Skipped variant included: reason and manual follow-up recommendation
@@ -163,7 +163,7 @@ These tasks modify `plugins/nmg-sdlc/skills/verify-code/SKILL.md` to add exercis
 - [ ] Step 7 (Generate Verification Report) references the new Exercise Test Results section
 - [ ] All data captured during sub-steps 5a–5e has a corresponding field in the report template
 - [ ] The existing report sections (Test Coverage, Fixes Applied, Remaining Issues) still work with exercise findings
-- [ ] Unattended-mode behavior is consistent: no `AskUserQuestion` calls in the exercise path when `.claude/unattended-mode` exists
+- [ ] Unattended-mode behavior is consistent: no `interactive user prompt` calls in the exercise path when `.codex/unattended-mode` exists
 - [ ] Cross-reference between Step 5 exercise output and Step 7 report generation is clear
 
 **Notes**: This is a review task to ensure the skill and template are consistent. Make minor edits if gaps are found.
@@ -198,10 +198,10 @@ These tasks modify the exercise testing reference file to fix ESM module resolut
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] The `require('@anthropic-ai/claude-agent-sdk')` availability check is replaced with `require.resolve('@anthropic-ai/claude-agent-sdk')` that outputs the resolved absolute path
+- [ ] The `require('Codex Agent SDK')` availability check is replaced with `require.resolve('Codex Agent SDK')` that outputs the resolved absolute path
 - [ ] A fallback search is added that checks known SDK locations (npx cache on macOS/Linux/Windows) if `require.resolve` fails
 - [ ] The resolution step outputs the SDK entry point absolute path on success (exit code 0) or exits with code 1 if not found
-- [ ] The resolved path is used as the decision gateway: path found → Agent SDK method, not found → `claude -p` fallback
+- [ ] The resolved path is used as the decision gateway: path found → Agent SDK method, not found → `codex exec` fallback
 - [ ] No symlinks are created during resolution
 
 **Notes**: The resolution uses CJS `require.resolve()` which respects `NODE_PATH` and searches more locations than ESM bare-specifier resolution. The fallback search uses `node:fs` and `node:path` for cross-platform path construction. See design.md section 5c-i for the full resolution strategy.
@@ -212,7 +212,7 @@ These tasks modify the exercise testing reference file to fix ESM module resolut
 **Type**: Modify
 **Depends**: T009
 **Acceptance**:
-- [ ] The static ESM import `import { query } from "@anthropic-ai/claude-agent-sdk"` is replaced with a dynamic import using the resolved path
+- [ ] The static ESM import `import { query } from "Codex Agent SDK"` is replaced with a dynamic import using the resolved path
 - [ ] The script uses `import { pathToFileURL } from "node:url"` and `await import(pathToFileURL("{sdk-entry-point}").href)` for cross-platform file URL conversion
 - [ ] The `{sdk-entry-point}` placeholder is documented as being populated from the resolution step (T009)
 - [ ] The rest of the exercise script (query invocation, output capture) remains unchanged

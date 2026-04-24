@@ -1,14 +1,11 @@
 ---
 name: open-pr
-description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in /commit-push. Links specs and acceptance criteria into the PR body. Eighth step in the SDLC pipeline — follows /commit-push and precedes /address-pr-comments."
-argument-hint: "[#issue-number] [--major]"
-disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(sleep:*), request_user_input
-model: gpt-5.4
-effort: low
+description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in /commit-push. Links specs and acceptance criteria into the PR body. Seventh step in the SDLC pipeline — follows /commit-push and precedes /address-pr-comments."
 ---
 
 # Open PR
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
 Create a pull request with a spec-driven summary that links to the GitHub issue and references specification documents.
 
@@ -54,7 +51,7 @@ Read `references/preflight.md` when Step 1 begins — the gate aborts before PR 
 Gather all information needed for the PR:
 
 1. **Read the issue** — `gh issue view #N` for title, description, acceptance criteria.
-2. **Check for spec files** — `Glob` for `specs/*/requirements.md` and match against the current issue number or branch name (see the feature-naming pointer above for the fallback chain). Found match → set a **specs-found** flag. No match → set **specs-not-found** flag.
+2. **Check for spec files** — file discovery for `specs/*/requirements.md` and match against the current issue number or branch name (see the feature-naming pointer above for the fallback chain). Found match → set a **specs-found** flag. No match → set **specs-not-found** flag.
 3. **Read spec files (specs-found only)**:
    - `specs/{feature-name}/requirements.md` for acceptance criteria.
    - `specs/{feature-name}/tasks.md` for the testing phase.

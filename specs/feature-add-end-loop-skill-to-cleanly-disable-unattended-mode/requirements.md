@@ -3,7 +3,7 @@
 **Issues**: #122
 **Date**: 2026-04-18
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 
 ---
 
@@ -17,7 +17,7 @@
 
 ## Background
 
-The SDLC runner is enabled by the presence of `.claude/unattended-mode` and tracks progress via `.claude/sdlc-state.json` (see `scripts/sdlc-runner.mjs`). When a developer wants to exit the loop mid-cycle, or when the runner crashes and leaves stale artifacts behind, there is no first-class way to clean up. Today it is a manual `rm` of two files and (if unlucky) a `kill <pid>` against whatever the last `runnerPid` was.
+The SDLC runner is enabled by the presence of `.codex/unattended-mode` and tracks progress via `.codex/sdlc-state.json` (see `scripts/sdlc-runner.mjs`). When a developer wants to exit the loop mid-cycle, or when the runner crashes and leaves stale artifacts behind, there is no first-class way to clean up. Today it is a manual `rm` of two files and (if unlucky) a `kill <pid>` against whatever the last `runnerPid` was.
 
 This spec adds `/end-loop` as the explicit counterpart to `/run-loop` — one command that tears down unattended mode safely and reports what it did. The skill mirrors the existing `removeUnattendedMode()` helper semantics in `scripts/sdlc-runner.mjs` and extends it to the state file and the running process.
 
@@ -29,32 +29,32 @@ This spec adds `/end-loop` as the explicit counterpart to `/run-loop` — one co
 
 ### AC1: Happy Path — both artifacts exist, runner is live
 
-**Given** `.claude/unattended-mode` and `.claude/sdlc-state.json` both exist, and `sdlc-state.json` contains a `runnerPid` pointing at a live process
+**Given** `.codex/unattended-mode` and `.codex/sdlc-state.json` both exist, and `sdlc-state.json` contains a `runnerPid` pointing at a live process
 **When** the user runs `/end-loop`
 **Then** the skill sends SIGTERM to the runner PID, deletes both files, and reports a summary listing the removed files and the signalled PID
 
 **Example**:
-- Given: `.claude/unattended-mode` exists; `.claude/sdlc-state.json` contains `{"runnerPid": 12345, ...}` and PID 12345 is alive
+- Given: `.codex/unattended-mode` exists; `.codex/sdlc-state.json` contains `{"runnerPid": 12345, ...}` and PID 12345 is alive
 - When: `/end-loop` is invoked
-- Then: SIGTERM is sent to 12345; both files are removed; output reads `Signalled runner PID 12345; removed .claude/unattended-mode, .claude/sdlc-state.json`
+- Then: SIGTERM is sent to 12345; both files are removed; output reads `Signalled runner PID 12345; removed .codex/unattended-mode, .codex/sdlc-state.json`
 
 ### AC2: Already Disabled — no artifacts present
 
-**Given** neither `.claude/unattended-mode` nor `.claude/sdlc-state.json` exists
+**Given** neither `.codex/unattended-mode` nor `.codex/sdlc-state.json` exists
 **When** the user runs `/end-loop`
 **Then** the skill reports "unattended mode already disabled — nothing to do" and exits 0
 
 ### AC3: Dead Runner PID
 
-**Given** `.claude/sdlc-state.json` contains a `runnerPid` for a process that no longer exists
+**Given** `.codex/sdlc-state.json` contains a `runnerPid` for a process that no longer exists
 **When** the user runs `/end-loop`
 **Then** the SIGTERM attempt is skipped silently (dead-PID detection must not raise an error), and both files are still deleted
 
-### AC4: No `.claude` Directory
+### AC4: No `.codex` Directory
 
-**Given** the project has no `.claude/` directory at all
+**Given** the project has no `.codex/` directory at all
 **When** the user runs `/end-loop`
-**Then** the skill reports "not a runner project — no .claude directory found" and exits 0
+**Then** the skill reports "not a runner project — no .codex directory found" and exits 0
 
 ### AC5: SIGTERM Failure on Live PID
 
@@ -64,7 +64,7 @@ This spec adds `/end-loop` as the explicit counterpart to `/run-loop` — one co
 
 ### AC6: Malformed state file
 
-**Given** `.claude/sdlc-state.json` exists but contains invalid JSON (or is missing `runnerPid`)
+**Given** `.codex/sdlc-state.json` exists but contains invalid JSON (or is missing `runnerPid`)
 **When** the user runs `/end-loop`
 **Then** the skill treats the file as opaque, skips PID extraction without raising an error, and deletes both files
 
@@ -76,7 +76,7 @@ This spec adds `/end-loop` as the explicit counterpart to `/run-loop` — one co
 
 ### AC8: Permission-denied on file deletion
 
-**Given** `.claude/unattended-mode` exists but the current user lacks permission to delete it
+**Given** `.codex/unattended-mode` exists but the current user lacks permission to delete it
 **When** the user runs `/end-loop`
 **Then** the skill surfaces a clear error identifying the specific file that failed and exits non-zero, so the developer can resolve the permission issue manually
 
@@ -111,7 +111,7 @@ Feature: /end-loop Skill
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | Delete `.claude/unattended-mode` and `.claude/sdlc-state.json` when present | Must | Matches `RUNNER_ARTIFACTS` in `scripts/sdlc-runner.mjs` |
+| FR1 | Delete `.codex/unattended-mode` and `.codex/sdlc-state.json` when present | Must | Matches `RUNNER_ARTIFACTS` in `scripts/sdlc-runner.mjs` |
 | FR2 | Read `runnerPid` from `sdlc-state.json` and SIGTERM it before deletion if the process is live | Must | Dead-PID detection must be silent |
 | FR3 | Operate idempotently — safe to run multiple times with no error | Must | Second run should report "already disabled" |
 | FR4 | Use OS-agnostic path joins; no hardcoded platform separators | Must | Skill runs on macOS, Windows, Linux |
@@ -156,8 +156,8 @@ Command-line output only. Output must pair with `/run-loop` in tone and structur
 
 | Field | Type | Validation | Required |
 |-------|------|------------|----------|
-| `.claude/unattended-mode` (file presence) | file | Existence check | No — absence is a valid state |
-| `.claude/sdlc-state.json` (file contents) | JSON object | Attempt to parse; fall back to opaque deletion | No — absence is a valid state |
+| `.codex/unattended-mode` (file presence) | file | Existence check | No — absence is a valid state |
+| `.codex/sdlc-state.json` (file contents) | JSON object | Attempt to parse; fall back to opaque deletion | No — absence is a valid state |
 | `runnerPid` (field within state file) | integer | Must be a positive integer to attempt SIGTERM | No — missing or malformed means skip SIGTERM |
 
 ### Output Data

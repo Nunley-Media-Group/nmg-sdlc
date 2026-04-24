@@ -1,9 +1,9 @@
-# Tasks: Replace AskUserQuestion with escalation when specs missing in unattended-mode
+# Tasks: Replace interactive prompt with escalation when specs missing in unattended-mode
 
 **Issues**: #85
 **Date**: 2026-02-24
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -23,9 +23,9 @@
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] Step 2 ("Read Specs") missing-specs error path checks for `.claude/unattended-mode` before prompting
-- [ ] When `.claude/unattended-mode` exists: outputs escalation message identifying missing specs, naming `/write-spec` as the prerequisite, ending with "Done. Awaiting orchestrator." — does NOT call `AskUserQuestion`
-- [ ] When `.claude/unattended-mode` does NOT exist: calls `AskUserQuestion` to prompt user (preserves existing interactive behavior)
+- [ ] Step 2 ("Read Specs") missing-specs error path checks for `.codex/unattended-mode` before prompting
+- [ ] When `.codex/unattended-mode` exists: outputs escalation message identifying missing specs, naming `/write-spec` as the prerequisite, ending with "Done. Awaiting orchestrator." — does NOT call `interactive prompt`
+- [ ] When `.codex/unattended-mode` does NOT exist: calls `interactive prompt` to prompt user (preserves existing interactive behavior)
 - [ ] The unattended-mode conditional follows the same pattern used in `/start-issue` SKILL.md (lines 145–156)
 - [ ] No changes to any other part of the skill
 
@@ -34,7 +34,7 @@
 ```
 If specs don't exist:
 
-**If `.claude/unattended-mode` exists:** Output:
+**If `.codex/unattended-mode` exists:** Output:
 \```
 No specs found for issue #N. The `/write-spec` step must run first.
 
@@ -44,7 +44,7 @@ Done. Awaiting orchestrator.
 \```
 Then stop — do not proceed to subsequent steps.
 
-**If `.claude/unattended-mode` does NOT exist:** Use `AskUserQuestion` to prompt: "No specs found. Run `/write-spec #N` first."
+**If `.codex/unattended-mode` does NOT exist:** Use `interactive prompt` to prompt: "No specs found. Run `/write-spec #N` first."
 ```
 
 ### T002: Add regression test scenarios

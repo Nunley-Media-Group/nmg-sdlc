@@ -7,7 +7,7 @@
 ### 1. Discover ADR files
 
 ```bash
-Glob: docs/decisions/*.md
+file discovery: docs/decisions/*.md
 ```
 
 Collect all `.md` files found. If the directory exists but is empty, emit nothing — the "Re-Spike Candidates" section is omitted when no candidates exist (see Output section below).

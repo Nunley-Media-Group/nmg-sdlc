@@ -3,7 +3,7 @@
 **Issues**: #25, #72, #95
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -57,7 +57,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 **Example**:
 - Given: A `tech.md` with a filled-in `## Technology Stack` table listing React, PostgreSQL, etc.
-- When: Migration adds a missing `## Claude Code Resource Development` section
+- When: Migration adds a missing `## Codex Resource Development` section
 - Then: The Technology Stack table content is byte-for-byte identical before and after migration
 
 ### AC4: Interactive Review Before Apply
@@ -231,11 +231,11 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 ### AC24: Auto-Mode Compatibility
 
-**Given** `.claude/unattended-mode` exists in the project directory
+**Given** `.codex/unattended-mode` exists in the project directory
 **When** `/write-spec` finds a matching existing spec
-**Then** the skill auto-approves the amendment (no `AskUserQuestion` prompt for spec match confirmation)
+**Then** the skill auto-approves the amendment (no `interactive prompt` prompt for spec match confirmation)
 
-> **Note**: `/migrate-project` is intentionally excluded from unattended-mode for consolidation steps. Migration is a destructive, irreversible operation (it deletes legacy directories and merges content), so it always requires human confirmation regardless of `.claude/unattended-mode`. The existing unattended mode section in `/migrate-project` pre-dates this feature and correctly enforces this safety constraint.
+> **Note**: `/migrate-project` is intentionally excluded from unattended-mode for consolidation steps. Migration is a destructive, irreversible operation (it deletes legacy directories and merges content), so it always requires human confirmation regardless of `.codex/unattended-mode`. The existing unattended mode section in `/migrate-project` pre-dates this feature and correctly enforces this safety constraint.
 
 <!-- From issue #95 -->
 
@@ -260,7 +260,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 **Given** the migration summary shows config value drift findings
 **When** the user proceeds with migration in interactive mode
-**Then** they are asked via `AskUserQuestion` with `multiSelect: true` to select which drifted values to update to the template default (unselected values are left unchanged)
+**Then** they are asked via `interactive prompt` with `multiSelect: true` to select which drifted values to update to the template default (unselected values are left unchanged)
 
 ### AC28: Approved Updates Are Written, Declined Values Preserved
 
@@ -270,7 +270,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 ### AC29: Auto-Mode Reports Drift but Does Not Apply Updates
 
-**Given** `.claude/unattended-mode` exists
+**Given** `.codex/unattended-mode` exists
 **When** `/migrate-project` runs and finds config value drift
 **Then** the drift is included in the summary output but no values are automatically changed (value updates require explicit user approval even in unattended-mode, as they may represent intentional customizations)
 
@@ -307,7 +307,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 | FR26 | `/migrate-project` must detect feature-variant specs with legacy singular `**Issue**` frontmatter and propose updating to plural `**Issues**` with Change History | Must | Part of heading-diff + frontmatter analysis |
 | FR27 | Compare scalar values of all keys present in both project config and template during Step 5 config analysis | Must | Extends existing key-level diffing with value-level comparison |
 | FR28 | Report drifted values with current vs template default in migration summary under a "Config Value Drift" section | Must | Side-by-side display: `key: current → template` |
-| FR29 | Present per-value `AskUserQuestion multiSelect` for drift update approval in interactive mode | Must | Each drifted value is an individually selectable option |
+| FR29 | Present per-value `interactive prompt multiSelect` for drift update approval in interactive mode | Must | Each drifted value is an individually selectable option |
 | FR30 | Apply approved drift updates using `Edit` tool, preserving JSON formatting | Must | Only selected values are updated; declined values untouched |
 | FR31 | Unattended-mode: report drift in summary only, skip approval and application of value updates | Must | Value updates may represent intentional customizations |
 | FR32 | Skip comparison for keys present in project config but absent from template (user additions) | Should | Custom keys are user extensions, not drift candidates |
@@ -344,7 +344,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 | Field | Type | Validation | Required |
 |-------|------|------------|----------|
-| Project directory | Path | Must contain `.claude/` directory | Yes |
+| Project directory | Path | Must contain `.codex/` directory | Yes |
 | Template directories | Paths | Must exist within installed plugin | Yes (resolved at runtime) |
 | sdlc-config.json | JSON file | Valid JSON | No (skipped if absent) |
 | Issue number | Integer | Must correspond to an existing GitHub issue | Yes (for write-spec) |
@@ -393,7 +393,7 @@ The migration skill should be **self-updating by design**: it reads the latest t
 
 - **Unattended-mode support** — this skill is always interactive; migration is sensitive enough to require human review
 - **Version tracking / incremental migrations** — always migrates to current standards in one shot
-- **Migrating CLAUDE.md or hook configurations** — those are project-owned, not template-driven
+- **Migrating AGENTS.md or hook configurations** — those are project-owned, not template-driven
 - **Creating missing files** — the skill updates existing files, not bootstrapping new ones (use `/setup-steering` or `/write-spec` for that)
 - **Modifying user-written content** — only adds missing sections; never rewrites existing content
 - **Regenerating `sdlc-config.json` from scratch** — the skill merges new keys, not replaces the file

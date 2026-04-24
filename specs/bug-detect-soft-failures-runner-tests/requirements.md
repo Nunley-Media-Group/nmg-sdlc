@@ -3,9 +3,9 @@
 **Issue**: #38
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude (nmg-sdlc)
+**Author**: Codex (nmg-sdlc)
 **Severity**: High
-**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-claude-code/` (defective spec — success check only examines exit code)
+**Related Spec**: `specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/` (defective spec — success check only examines exit code)
 
 ---
 
@@ -15,7 +15,7 @@
 
 1. Configure the SDLC runner for a project with open issues (e.g., `chrome-cli` with issue #103)
 2. Run `/running-sdlc start --config <project-path>`
-3. `startIssue` step runs — Claude calls `AskUserQuestion` (denied in pipe mode) repeatedly until max turns
+3. `startIssue` step runs — Codex calls `interactive prompt` (denied in pipe mode) repeatedly until max turns
 4. Step exits code 0 with `subtype: "error_max_turns"` and `permission_denials` in JSON output
 5. Runner treats exit code 0 as success, advances to `writeSpecs`
 6. `writeSpecs` preconditions fail (no issue set, no branch created)
@@ -27,7 +27,7 @@
 |--------|-------|
 | **OS / Platform** | macOS (Darwin 25.3.0) |
 | **Runner version** | sdlc-runner.mjs (~1450 lines, no version tracking) |
-| **Model** | opus |
+| **Model** | gpt-5.5 |
 | **Configuration** | maxTurns: 15 for startIssue, maxRetriesPerStep: 3 |
 
 ### Frequency
@@ -79,7 +79,7 @@ Always — any step that burns all turns without completing its goal will be mis
 ### AC4: Auto-Mode Instruction Is More Prominent
 
 **Given** the `start-issue` SKILL.md
-**When** Claude reads the skill in headless mode
+**When** Codex reads the skill in headless mode
 **Then** the Unattended Mode instruction is positioned and formatted to maximize model compliance (e.g., moved above workflow, bolded critical directive, repeated in Step 2)
 
 ### AC5: Comprehensive Jest BDD Test Suite Covers All Runner Functionality
@@ -103,7 +103,7 @@ Always — any step that burns all turns without completing its goal will be mis
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Parse JSON output from `claude -p --output-format stream-json` for `subtype` and `permission_denials` after each step (using `extractResultFromStream()` to extract the final result event) | Must |
+| FR1 | Parse JSON output from `codex exec --cd --json` for `subtype` and `permission_denials` after each step (using `extractResultFromStream()` to extract the final result event) | Must |
 | FR2 | Treat `error_max_turns` subtype as step failure regardless of exit code | Must |
 | FR3 | Treat non-empty `permission_denials` as step failure regardless of exit code | Must |
 | FR4 | Comprehensive Jest BDD test suite for all runner functionality | Must |
@@ -113,7 +113,7 @@ Always — any step that burns all turns without completing its goal will be mis
 
 ## Out of Scope
 
-- Changes to Claude Code's exit code behavior (that's upstream)
+- Changes to Codex's exit code behavior (that's upstream)
 - Changes to failure loop detection logic (#33, working correctly)
 - Runner-level auto-selection of issues (bypassing the skill entirely)
 - Configurable soft failure patterns

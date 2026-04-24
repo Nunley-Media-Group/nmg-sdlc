@@ -3,7 +3,7 @@
 **Issue**: #84
 **Date**: 2026-02-24
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -24,9 +24,9 @@
 **Depends**: None
 **Acceptance**:
 - [ ] A new "Precondition: Working Tree Check" subsection is added at the beginning of Step 4, before the existing `git branch --show-current` check
-- [ ] Instructions tell Claude to run `git status --porcelain` and check if output is non-empty
+- [ ] Instructions tell Codex to run `git status --porcelain` and check if output is non-empty
 - [ ] If dirty: skill aborts with an error message listing the dirty files (the `git status --porcelain` output)
-- [ ] If dirty in unattended-mode (`.claude/unattended-mode` exists): the error is formatted as an escalation reason for the runner
+- [ ] If dirty in unattended-mode (`.codex/unattended-mode` exists): the error is formatted as an escalation reason for the runner
 - [ ] If clean: skill proceeds to the existing branch check and `gh issue develop` flow unchanged
 - [ ] The check uses POSIX-compatible `git status --porcelain` (cross-platform safe)
 - [ ] No changes to Steps 1–3 or the rest of Step 4
@@ -55,7 +55,7 @@
 - [ ] Steps 1–3 (issue selection, presentation, confirmation) are unchanged
 - [ ] Step 4 branch creation logic (after the new guard) is unchanged
 - [ ] Unattended-mode behavior for issue selection is unchanged
-- [ ] The skill's `allowed-tools` frontmatter still includes `Bash(git:*)` (required for `git status --porcelain`)
+- [ ] The skill's `workflow instructions` frontmatter still includes `Bash(git:*)` (required for `git status --porcelain`)
 - [ ] No side effects on downstream skills (`/write-spec`, `/write-code`)
 
 ---

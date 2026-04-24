@@ -3,7 +3,7 @@
 **Issue**: #49
 **Date**: 2026-02-25
 **Status**: Planning
-**Author**: Claude
+**Author**: Codex
 
 ---
 
@@ -26,10 +26,10 @@
 - [ ] Line 36: "prepend" is changed to "append" and the instruction restructured so dry-run text follows the skill invocation
 - [ ] Lines 38–39: "Dry-run prefix" label is renamed to "Dry-run instructions" and the text is prefixed with "IMPORTANT:"
 - [ ] Line 96: `{exercise-prompt}` definition is updated to show the composite format: `"/{skill-name} {args}\n\nIMPORTANT: {dry-run-instructions}"` for GitHub-integrated skills
-- [ ] The fallback `claude -p` prompt on lines 111–117 also reflects the new ordering (skill invocation first, dry-run appended)
+- [ ] The fallback `codex exec --cd` prompt on lines 111–117 also reflects the new ordering (skill invocation first, dry-run appended)
 - [ ] No unrelated changes included in the diff
 
-**Notes**: Follow the fix strategy from design.md. The key change is reversing the order: skill invocation first, then dry-run instructions appended with "IMPORTANT:" marker. Update both the Agent SDK and `claude -p` code paths.
+**Notes**: Follow the fix strategy from design.md. The key change is reversing the order: skill invocation first, then dry-run instructions appended with "IMPORTANT:" marker. Update both the Agent SDK and `codex exec --cd` code paths.
 
 ### T002: Add Regression Test
 
@@ -37,7 +37,7 @@
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
-- [ ] Gherkin scenarios cover AC1 (disable-model-invocation skill recognized), AC2 (dry-run instructions respected), and AC3 (non-disable-model-invocation skills unaffected)
+- [ ] Gherkin scenarios cover AC1 (minimal Codex frontmatter skill recognized), AC2 (dry-run instructions respected), and AC3 (non-minimal Codex frontmatter skills unaffected)
 - [ ] All scenarios tagged `@regression`
 - [ ] Scenarios use concrete data from the reproduction steps (e.g., `open-pr` as the affected skill)
 
@@ -49,7 +49,7 @@
 **Acceptance**:
 - [ ] The SKILL.md references to exercise-testing.md still resolve correctly (step 5b–5e reference is intact)
 - [ ] The Agent SDK exercise script template still has valid JavaScript syntax after prompt restructuring
-- [ ] The `claude -p` fallback command is still syntactically valid
+- [ ] The `codex exec --cd` fallback command is still syntactically valid
 - [ ] No other files in the verify-code skill reference the old "Dry-run prefix" label
 
 ---

@@ -3,7 +3,7 @@
 **Issues**: #9
 **Date**: 2026-02-15
 **Status**: Approved
-**Author**: Claude Code (retroactive)
+**Author**: Codex (retroactive)
 
 ---
 
@@ -11,7 +11,7 @@
 
 The spec drift detection hook is a PostToolUse hook that fires on every `Write` and `Edit` tool call. It uses a two-layer architecture: a `command`-type gate that short-circuits when no spec files exist, followed by an `agent`-type hook that reads all spec files and evaluates whether the file modification is consistent with the specifications.
 
-The hook is defined in `plugins/nmg-sdlc/hooks/hooks.json` using Claude Code's hook configuration format. The command gate runs `ls specs/*/requirements.md` — if this fails (no specs exist), the hook chain stops immediately, avoiding expensive agent spawns. If specs exist, the agent hook reads them via Glob and evaluates alignment, returning a JSON response indicating OK or drift with an explanation.
+The hook is defined in `plugins/nmg-sdlc/hooks/hooks.json` using Codex's hook configuration format. The command gate runs `ls specs/*/requirements.md` — if this fails (no specs exist), the hook chain stops immediately, avoiding expensive agent spawns. If specs exist, the agent hook reads them via Glob and evaluates alignment, returning a JSON response indicating OK or drift with an explanation.
 
 ---
 
@@ -233,7 +233,7 @@ FeatureScreen
 
 ## Validation Checklist
 
-- [x] Architecture follows Claude Code hook conventions
+- [x] Architecture follows Codex hook conventions
 - [x] File changes documented
 - [x] Security considerations addressed
 - [x] Performance impact analyzed

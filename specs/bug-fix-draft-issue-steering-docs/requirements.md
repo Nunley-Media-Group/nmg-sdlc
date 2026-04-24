@@ -3,7 +3,7 @@
 **Issue**: #27
 **Date**: 2026-02-16
 **Status**: Draft
-**Author**: Claude Code
+**Author**: Codex
 **Severity**: Medium
 **Related Spec**: `specs/feature-draft-issue-skill/`
 
@@ -13,9 +13,9 @@
 
 ### Steps to Reproduce
 
-1. Ensure `steering/tech.md` exists with constraints relevant to an enhancement area (e.g., the "Claude Code Resource Development" directive on line 85)
+1. Ensure `steering/tech.md` exists with constraints relevant to an enhancement area (e.g., the "Codex Resource Development" directive on line 85)
 2. Ensure `steering/structure.md` exists with architectural patterns
-3. Run `/draft-issue` and describe an enhancement to a Claude Code resource (e.g., modifying a SKILL.md)
+3. Run `/draft-issue` and describe an enhancement to a Codex resource (e.g., modifying a SKILL.md)
 4. Observe Step 3 (Investigate Codebase) — it explores existing specs and source code but never reads `tech.md` or `structure.md`
 5. The resulting issue is missing acceptance criteria derived from steering document constraints
 
@@ -25,7 +25,7 @@
 |--------|-------|
 | **OS / Platform** | macOS (Darwin 25.3.0) |
 | **Version / Commit** | nmg-sdlc 1.18.2 |
-| **Browser / Runtime** | Claude Code CLI (latest) |
+| **Browser / Runtime** | Codex CLI (latest) |
 | **Configuration** | Standard plugin installation with all three steering docs present |
 
 ### Frequency
@@ -39,7 +39,7 @@ Always — the skill never reads `tech.md` or `structure.md` in any code path du
 | | Description |
 |---|-------------|
 | **Expected** | Step 3 reads `tech.md` and `structure.md` during investigation, surfacing any constraints relevant to the enhancement area — which are then incorporated into the issue's acceptance criteria or notes |
-| **Actual** | Step 3 only explores existing specs and source code. `tech.md` and `structure.md` are never consulted, so constraints like "review Claude Code docs before modifying CC resources" are invisible and absent from the created issue |
+| **Actual** | Step 3 only explores existing specs and source code. `tech.md` and `structure.md` are never consulted, so constraints like "review Codex docs before modifying CC resources" are invisible and absent from the created issue |
 
 ---
 
@@ -61,7 +61,7 @@ Always — the skill never reads `tech.md` or `structure.md` in any code path du
 
 ### AC3: Constraints Surface in Issue Output
 
-**Given** `tech.md` contains a constraint relevant to the enhancement area (e.g., "review Claude Code docs before modifying CC resources")
+**Given** `tech.md` contains a constraint relevant to the enhancement area (e.g., "review Codex docs before modifying CC resources")
 **When** the issue is synthesized in Step 5
 **Then** the relevant constraint is reflected in the issue's acceptance criteria or notes section
 

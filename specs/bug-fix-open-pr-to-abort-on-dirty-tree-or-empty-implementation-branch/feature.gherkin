@@ -21,7 +21,7 @@ Feature: /open-pr preflight gate rejects dirty trees and empty implementation br
       | path                                |
       |  M skills/open-pr/SKILL.md          |
       | ?? skills/open-pr/references/preflight.md |
-    And `.claude/unattended-mode` does NOT exist
+    And `.codex/unattended-mode` does NOT exist
     When the user runs "/open-pr #95"
     Then the skill aborts with a non-zero exit code
     And the diagnostic output names both "skills/open-pr/SKILL.md" and "skills/open-pr/references/preflight.md"
@@ -38,7 +38,7 @@ Feature: /open-pr preflight gate rejects dirty trees and empty implementation br
       deadbee chore: bump version to 1.55.0
       """
     And the working tree is clean
-    And `.claude/unattended-mode` does NOT exist
+    And `.codex/unattended-mode` does NOT exist
     When the user runs "/open-pr #95"
     Then the skill aborts with a non-zero exit code
     And stdout contains the exact string "No implementation commits found on this branch — run /write-code before opening a PR."
@@ -52,9 +52,9 @@ Feature: /open-pr preflight gate rejects dirty trees and empty implementation br
     Given the current branch has at least one non-version-bump commit ahead of main
     And "git status --porcelain" reports exactly these dirty paths:
       | path                          |
-      | ?? .claude/sdlc-state.json    |
-      | ?? .claude/unattended-mode    |
-    And `.claude/unattended-mode` exists
+      | ?? .codex/sdlc-state.json    |
+      | ?? .codex/unattended-mode    |
+    And `.codex/unattended-mode` exists
     When the preflight gate runs in Step 1 of "/open-pr"
     Then the filtered dirty-path list is empty
     And the dirty-tree check passes
@@ -66,13 +66,13 @@ Feature: /open-pr preflight gate rejects dirty trees and empty implementation br
 
   @regression
   Scenario Outline: Unattended mode escalates preflight failures via ESCALATION sentinel
-    Given `.claude/unattended-mode` exists
+    Given `.codex/unattended-mode` exists
     And the branch state matches "<failure_condition>"
     When the user runs "/open-pr #95" via the SDLC runner
     Then stdout contains a line beginning with "ESCALATION: open-pr — "
     And the escalation line includes "<diagnostic_substring>"
     And the skill exits with a non-zero exit code
-    And no call to "AskUserQuestion" is made
+    And no call to "interactive prompt" is made
     And no read or write of "VERSION", "CHANGELOG.md", or "plugin.json" occurs
 
     Examples:

@@ -3,7 +3,7 @@
 **Issue**: #83
 **Date**: 2026-02-24
 **Status**: Draft
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: Medium
 **Related Spec**: `specs/feature-migrate-project-skill/`
 
@@ -24,12 +24,12 @@
 |--------|-------|
 | **OS / Platform** | Any (macOS, Linux, Windows) |
 | **Version / Commit** | nmg-sdlc v1.27.0 |
-| **Browser / Runtime** | Claude Code CLI |
+| **Browser / Runtime** | Codex CLI |
 | **Configuration** | Any project with legacy-named spec directories |
 
 ### Frequency
 
-Always — the rename instructions in Steps 4b–4e exist in the SKILL.md (added by #72) but are insufficiently explicit for Claude to execute reliably, and unattended-mode incorrectly classifies simple renames as destructive operations.
+Always — the rename instructions in Steps 4b–4e exist in the SKILL.md (added by #72) but are insufficiently explicit for Codex to execute reliably, and unattended-mode incorrectly classifies simple renames as destructive operations.
 
 ---
 
@@ -61,9 +61,9 @@ No error — the skill either silently skips the rename step or fails to execute
 ### AC2: Interactive Rename Confirmation
 
 **Given** legacy spec directories are detected
-**And** `.claude/unattended-mode` does NOT exist
+**And** `.codex/unattended-mode` does NOT exist
 **When** the skill presents rename proposals
-**Then** each rename is presented to the user via `AskUserQuestion` with options to approve or skip
+**Then** each rename is presented to the user via `interactive prompt` with options to approve or skip
 **And** approved renames execute using `git mv` to rename the directory
 **And** frontmatter in feature spec files is updated (`**Issue**: #N` → `**Issues**: #N`)
 **And** bug spec frontmatter retains the singular `**Issue**: #N` field
@@ -71,7 +71,7 @@ No error — the skill either silently skips the rename step or fails to execute
 ### AC3: Auto-Mode Applies Non-Destructive Renames
 
 **Given** legacy spec directories are detected
-**And** `.claude/unattended-mode` exists
+**And** `.codex/unattended-mode` exists
 **When** `/migrate-project` is invoked
 **Then** solo directory renames (single directory → `feature-{slug}/` or `bug-{slug}/`) are applied automatically as non-destructive operations
 **And** multi-spec consolidation (merging multiple directories) remains classified as destructive and is skipped with a "Skipped Operations" entry

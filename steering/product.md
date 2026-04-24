@@ -142,10 +142,10 @@ Each product principle translates to a verifiable behavioral contract. `/verify-
 
 | Product Principle | Behavioral Contract | Verification Check |
 |-------------------|--------------------|--------------------|
-| **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | Grep changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
-| **OS-agnostic** | No platform-specific paths, commands, or assumptions | Grep for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
+| **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | text search changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
+| **OS-agnostic** | No platform-specific paths, commands, or assumptions | text search for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
 | **Spec as source of truth** | Every implementation change traces to a requirement in the spec | Each modified file must map to a task in `tasks.md` or an AC in `requirements.md` |
-| **Human gates by default** | Interactive approval exists at every decision point | Skills contain `request_user_input` at gates, guarded by unattended-mode check |
+| **Human gates by default** | Interactive approval exists at every decision point | Skills contain interactive user prompt at gates, guarded by unattended-mode check |
 | **Process over tooling** | Skills define workflow structure; project details live in steering docs | Skills reference steering docs for conventions, not hardcode them |
 | **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `codex exec --cd` and invoked against a test project |
 

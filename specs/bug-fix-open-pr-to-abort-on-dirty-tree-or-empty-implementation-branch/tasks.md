@@ -28,7 +28,7 @@
 **Type**: Create + Delete + Modify
 **Depends**: None
 **Acceptance**:
-- [ ] `references/dirty-tree.md` exists at the plugin-shared-references tier and contains the `git status --porcelain` filter with the `.claude/sdlc-state.json` and `.claude/unattended-mode` allowlist.
+- [ ] `references/dirty-tree.md` exists at the plugin-shared-references tier and contains the `git status --porcelain` filter with the `.codex/sdlc-state.json` and `.codex/unattended-mode` allowlist.
 - [ ] The file's `Consumed by:` header lists both `start-issue` Step 4 and `open-pr` Step 1.
 - [ ] Skill-specific prose ("Cannot create feature branch", `gh issue develop`, etc.) is generalized to skill-neutral language (e.g., "Cannot proceed with the workflow" or a placeholder the consumer substitutes); the interactive and unattended abort-message *shapes* are preserved so consuming skills can render their own context.
 - [ ] `skills/start-issue/references/dirty-tree.md` is removed from the working tree.
@@ -69,7 +69,7 @@
 - [ ] Four `@regression` scenarios — one per AC (AC1 dirty-tree abort, AC2 empty-branch abort, AC3 runtime-artifact filter, AC4 unattended escalation).
 - [ ] Each scenario uses concrete example data from the reproduction steps (e.g., real file names in dirty `git status` output; real `chore: bump version to 1.55.0` commit subjects).
 - [ ] AC1 and AC2 scenarios assert the skill aborts *before* `VERSION`/`CHANGELOG.md`/stack-specific files are read or written (not just before the PR is created).
-- [ ] AC4 scenario asserts both the `ESCALATION: open-pr — ...` prefix and that `AskUserQuestion` is NOT invoked.
+- [ ] AC4 scenario asserts both the `ESCALATION: open-pr — ...` prefix and that `interactive prompt` is NOT invoked.
 
 **Notes**: Exercise-based verification (per `steering/tech.md` Testing Standards) — the Gherkin file is the design artifact; `/verify-code` exercises the skill against a test project with each precondition and evaluates the output against these scenarios.
 

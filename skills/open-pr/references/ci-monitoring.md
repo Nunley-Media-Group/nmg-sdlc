@@ -4,11 +4,11 @@
 
 ## Entry gate
 
-If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT call `request_user_input` for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
+If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT call interactive user prompt for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
 
 Otherwise:
 
-1. **Prompt the user** via `request_user_input`:
+1. **Prompt the user** via interactive user prompt:
 
    ```
    question: "Monitor CI and auto-merge this PR once all required checks pass?"

@@ -3,13 +3,13 @@
 **Issues**: #25, #72, #95
 **Date**: 2026-02-25
 **Status**: Draft
-**Author**: Claude
+**Author**: Codex
 
 ---
 
 ## Overview
 
-The migration skill (`/migrate-project`) is a prompt-based SKILL.md workflow that brings existing project files up to current plugin standards. Like all nmg-sdlc skills, it is a Markdown document that guides Claude through a structured process — no runtime code is required.
+The migration skill (`/migrate-project`) is a prompt-based SKILL.md workflow that brings existing project files up to current plugin standards. Like all nmg-sdlc skills, it is a Markdown document that guides Codex through a structured process — no runtime code is required.
 
 The skill follows a **scan → analyze → present → approve → apply** pattern. It reads the latest templates at runtime from the plugin's template directories, compares their heading structure against existing project files, identifies missing sections, and presents proposed additions for user review before modifying any files.
 
@@ -51,11 +51,11 @@ The core algorithm is **heading-based section diffing for Markdown files** and *
 1. Skill resolves template directory paths from the installed plugin
 2. Glob finds existing project files (steering docs, specs, config)
 3. Read loads each template and its corresponding project file
-4. Claude parses ## headings from both and identifies missing sections
-5. For each missing section, Claude extracts the template content between headings
+4. Codex parses ## headings from both and identifies missing sections
+5. For each missing section, Codex extracts the template content between headings
 6. Proposed changes are presented as a per-file summary
 7. User approves or rejects
-8. If approved, Claude uses Edit to insert missing sections at correct positions
+8. If approved, Codex uses Edit to insert missing sections at correct positions
 9. Summary report is output
 ```
 
@@ -194,7 +194,7 @@ Drifted values are reported in a new "Config Value Drift" section of the migrati
 
 **Interactive approval (Step 9, Part C — new):**
 
-In interactive mode, drifted values are presented via `AskUserQuestion` with `multiSelect: true`:
+In interactive mode, drifted values are presented via `interactive prompt` with `multiSelect: true`:
 
 ```
 question: "The following config values differ from the current template defaults. Select which values to update (unselected values will be kept as-is):"
@@ -209,7 +209,7 @@ options:
 
 **Unattended-mode behavior:**
 
-When `.claude/unattended-mode` exists, config value drift is:
+When `.codex/unattended-mode` exists, config value drift is:
 - **Reported** in the summary output (so the orchestrator/user can see it)
 - **NOT applied** — value updates are skipped without recording as "skipped operations" (they are informational, not deferred destructive operations)
 - Rationale: drifted values may be intentional customizations (e.g., a project deliberately set lower `maxTurns` for cost control). Automatic updates could break working configurations.
@@ -236,7 +236,7 @@ plugins/nmg-sdlc/skills/write-spec/templates/*.md         → spec templates
 scripts/sdlc-config.example.json                    → config template
 ```
 
-The skill uses `${CLAUDE_PLUGIN_ROOT}` or resolves paths relative to the skill's own location within the plugin directory tree.
+The skill uses `the plugin root` or resolves paths relative to the skill's own location within the plugin directory tree.
 
 ---
 
@@ -354,7 +354,7 @@ This section is added between "Defect Detection" and "Phase 1: SPECIFY". It runs
 5. Rank candidates by total keyword hits; filter to candidates with at least 2 keyword hits
 6. If one or more candidates found:
    - Read the top candidate's first heading and user story for context
-   - Present to user via `AskUserQuestion`:
+   - Present to user via `interactive prompt`:
      - Option 1: "Amend existing spec: `feature-{slug}`" (with brief description)
      - Option 2: "Create new spec" (derives new `feature-{slug}` from current issue title)
    - If unattended-mode: select Option 1 (amend) automatically
@@ -468,7 +468,7 @@ For each group (and solo migration candidates):
 
 1. Show the source directories and proposed target name
 2. Show a brief summary of each source spec's content (first heading, issue number, status)
-3. Use `AskUserQuestion` for each group:
+3. Use `interactive prompt` for each group:
    - Option 1: "Consolidate into `feature-{slug}/`"
    - Option 2: "Skip — leave as-is"
    - **Unattended-mode does NOT apply** — migration is always interactive (destructive operation: directories are deleted; requires human confirmation)

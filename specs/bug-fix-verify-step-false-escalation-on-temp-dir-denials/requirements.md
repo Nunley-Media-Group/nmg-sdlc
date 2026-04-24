@@ -3,7 +3,7 @@
 **Issue**: (tracked with #122 commit)
 **Date**: 2026-04-18
 **Status**: Fixed
-**Author**: Claude (spec agent)
+**Author**: Codex (spec agent)
 **Severity**: High
 **Related Spec**: `specs/bug-detect-soft-failures-runner-tests/`
 
@@ -59,9 +59,9 @@ Reason: Matched unrecoverable pattern: permission denied
 ## Root Cause
 
 1. `verify-code` creates an ephemeral test project at `os.tmpdir()/nmg-sdlc-test-{timestamp}/` to exercise skill changes in isolation — this is the documented test-scaffold pattern in `steering/structure.md`.
-2. The `claude -p` subprocess runs with `--dangerously-skip-permissions`, which suppresses Claude Code's permission prompts, but does not override the sandbox constraint that writes must stay inside the project root.
-3. When the subprocess Writes to files under the scaffold directory (e.g., `.claude/unattended-mode`, `.claude/sdlc-state.json`), the sandbox records permission denials in the result JSON's `permission_denials` array.
-4. `detectSoftFailure()` only filters `BENIGN_DENIED_TOOLS` (`EnterPlanMode`, `ExitPlanMode`, `AskUserQuestion`). It does not consider the denial's target path, so any scaffold-write denial escalates.
+2. The `codex exec --cd` subprocess runs with `--dangerously-skip-permissions`, which suppresses Codex's permission prompts, but does not override the sandbox constraint that writes must stay inside the project root.
+3. When the subprocess Writes to files under the scaffold directory (e.g., `.codex/unattended-mode`, `.codex/sdlc-state.json`), the sandbox records permission denials in the result JSON's `permission_denials` array.
+4. `detectSoftFailure()` only filters `BENIGN_DENIED_TOOLS` (`EnterPlanMode`, `ExitPlanMode`, `interactive prompt`). It does not consider the denial's target path, so any scaffold-write denial escalates.
 5. Once the escalation fires, `IMMEDIATE_ESCALATION_PATTERNS` matches `/permission denied/i` against the reason string, and two such escalations (across cycles or issues) trip the failure-loop guard.
 
 ## Fix Requirements
