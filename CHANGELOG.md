@@ -10,6 +10,8 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.60.1] - 2026-04-24
+
 ### Changed
 
 - Added a shared Codex interactive-gate contract and wired every skill to it, so manual gates render numbered conversational prompts and wait for the user's next reply instead of assuming a legacy prompt widget exists.
