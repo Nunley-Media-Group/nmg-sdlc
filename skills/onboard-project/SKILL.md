@@ -121,13 +121,13 @@ Both live in `references/brownfield.md` as covered above (Step 3B is the per-iss
 
 Emit a structured summary with these sections:
 
-1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized. For brownfield-no-issues runs, include the routing decision on this line: `brownfield-no-issues → source-backfill`.
+1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized.
 2. **Delegated skills invoked** — each of `/init-config`, `/upgrade-project`, and every `/draft-issue` invocation that ran, with success/failure status.
 3. **Greenfield only — Design URL fetch result** — `success (N bytes, M entries)`, `skipped (no URL provided)`, or `failed (<reason>)`.
 4. **Greenfield only — Interview defaults applied** — for each round, the value applied and its source (`from existing steering`, `from design context`, `from template default`, or `user input`).
-5. **Versioning** (greenfield and brownfield) — two-line outcome block emitted before milestones:
-   - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>` | `seeded @ 0.1.0 (no manifest version to mirror)`
-   - Manifest: `<path> set @ 0.1.0` | `<path> preserved @ <X>` | `no-manifest`
+5. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.3a or 2B.0a ran) — two-line outcome block emitted before milestones:
+   - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>`
+   - Manifest: `<path> set @ 0.1.0` (greenfield only) | `<path> preserved @ <X>` | `no-manifest`
 6. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
 7. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
 8. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
