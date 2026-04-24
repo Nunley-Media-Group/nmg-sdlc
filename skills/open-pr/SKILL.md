@@ -49,6 +49,8 @@ Do NOT continue to Step 1, do NOT read/write `VERSION`, `CHANGELOG.md`, or any s
 
 ### Step 1: Read Context
 
+Read `references/preflight.md` when Step 1 begins — the gate aborts before any version-artifact read/write if the working tree is dirty or the branch has no non-bump commits.
+
 Gather all information needed for the PR:
 
 1. **Read the issue** — `gh issue view #N` for title, description, acceptance criteria.
