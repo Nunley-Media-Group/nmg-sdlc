@@ -35,6 +35,22 @@ Determine the issue and feature being implemented:
 
 If no issue can be identified, ask the user.
 
+### Step 1.5: Spike Abort
+
+Check the issue's labels:
+
+```bash
+gh issue view #N --json labels --jq '.labels[].name'
+```
+
+If any label is `spike`, print exactly:
+
+```
+Spikes don't produce code — run /open-pr to merge the research spec
+```
+
+Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to `spec-implementer`, do NOT touch any file. The abort fires in both interactive and unattended modes (it is not a user-preference question).
+
 ### Step 2: Read Specs
 
 Load all specification documents:

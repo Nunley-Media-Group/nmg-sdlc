@@ -79,6 +79,14 @@ Report the partition counts:
 Found [N] defect specs: [new] new, [modified] modified, [unchanged] unchanged, [deleted] removed
 ```
 
+### Step 1.6: Scan ADRs for Aging
+
+Read `references/adr-aging.md` when `docs/decisions/` exists — the reference covers scanning ADR files, reading commit dates via `git log --follow --format=%aI -- {file}`, flagging ADRs older than 6 months, and emitting re-spike candidate rows in the retrospective output.
+
+If `docs/decisions/` does not exist, skip this step entirely (no error, no warning — ADRs are optional, created on first spike via `/write-spec` Phase 0).
+
+Record the re-spike candidate list in session state for Step 7 to append to the retrospective output.
+
 ### Step 2: Filter to Eligible Defect Specs and Resolve Feature Spec Links
 
 Apply eligibility filtering and chain resolution only to **new and modified** specs from Step 1.5. Unchanged specs are already known-eligible from their prior successful analysis; deleted specs are removed from consideration entirely.
@@ -126,6 +134,8 @@ Fill in:
 - **Table rows** — one row per learning in the appropriate pattern-type section, with columns **Learning** (transferable spec-writing pattern), **Recommendation** (actionable guidance), and **Evidence (defect specs)** (comma-separated paths to contributing defect spec directories).
 
 Remove placeholder rows from sections with no learnings — leave only the table header.
+
+**Re-Spike Candidates section**: when Step 1.6 produced re-spike candidates (ADRs older than 180 days), append the `## Re-Spike Candidates` section defined in `references/adr-aging.md` § Output Section after the main retrospective content. Omit the section entirely when no candidates were found (see `references/adr-aging.md` for the omission rule).
 
 ### Step 8: Write State File
 
