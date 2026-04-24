@@ -32,6 +32,7 @@ The shared reference covers sentinel semantics; these skill-specific branches ap
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
     ├─ 2.  Present issue selection (AskUserQuestion)
     ├─ 3.  Confirm selected issue
+    ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
          ├─ Precondition: working tree must be clean
          └─ Create branch, update status
@@ -150,6 +151,10 @@ If the user selects "Enter issue number manually", they type their issue number 
 Read the full issue details via `gh issue view #N` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, and milestone.
 
 Ask: "Ready to start working on this issue?" If the user says no, return to Step 2.
+
+## Step 3.5: Reconcile Stale Remote Branch
+
+Read `references/stale-remote-branch.md` when the selected issue number is known and before `gh issue develop --checkout` runs — the reference covers branch-name derivation, remote existence probe, ancestor-of-main check, and the deletion path (auto-delete under unattended mode, interactive confirm otherwise). The probe is skipped when no remote branch exists.
 
 ## Step 4: Create Feature Branch & Link to Issue
 

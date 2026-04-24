@@ -16,9 +16,11 @@ import { jest } from '@jest/globals';
 
 // Mock node:child_process
 const mockExecSync = jest.fn();
+const mockExecFileSync = jest.fn();
 const mockSpawn = jest.fn();
 jest.unstable_mockModule('node:child_process', () => ({
   execSync: mockExecSync,
+  execFileSync: mockExecFileSync,
   spawn: mockSpawn,
 }));
 
@@ -744,6 +746,41 @@ describe('Error pattern matching', () => {
   it('returns null for empty string', () => {
     const result = matchErrorPattern('');
     expect(result).toBeNull();
+  });
+
+  // Issue #102 AC3: error_max_turns must match BEFORE the rate-limit regex so
+  // a max-turns exit never triggers the 60s "Rate limited" sleep.
+  describe('error_max_turns branch (issue #102 AC3, FR3)', () => {
+    it('matches {"subtype":"error_max_turns"} in stream-json → max_turns action', () => {
+      const streamOutput = [
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}',
+        '{"type":"result","subtype":"error_max_turns","session_id":"abc"}',
+      ].join('\n');
+      const result = matchErrorPattern(streamOutput);
+      expect(result).not.toBeNull();
+      expect(result.action).toBe('max_turns');
+      expect(result.pattern).toBe('error_max_turns');
+    });
+
+    it('error_max_turns wins over a co-occurring rate-limit substring', () => {
+      const streamOutput = [
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"hit rate_limit once, retried"}]}}',
+        '{"type":"result","subtype":"error_max_turns","session_id":"abc"}',
+      ].join('\n');
+      const result = matchErrorPattern(streamOutput);
+      expect(result.action).toBe('max_turns');
+    });
+
+    it('returns max_turns from legacy single-JSON output', () => {
+      const single = JSON.stringify({ subtype: 'error_max_turns', session_id: 'x' });
+      const result = matchErrorPattern(single);
+      expect(result?.action).toBe('max_turns');
+    });
+
+    it('still returns wait for rate_limit without error_max_turns', () => {
+      const result = matchErrorPattern('rate_limit reached');
+      expect(result?.action).toBe('wait');
+    });
   });
 });
 
@@ -2688,8 +2725,8 @@ describe('performDeterministicVersionBump (#60)', () => {
   });
 });
 
-describe('createPR prompt includes version bump mandate (#60)', () => {
-  it('createPR prompt text mentions mandatory version bumping', () => {
+describe('createPR prompt contract post-FR1 (issue #102 AC4)', () => {
+  it('createPR prompt delegates the version bump to /commit-push and names the DIVERGED sentinel', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockReturnValue('skill content');
 
@@ -2699,8 +2736,9 @@ describe('createPR prompt includes version bump mandate (#60)', () => {
 
     const promptIdx = args.indexOf('-p') + 1;
     const prompt = args[promptIdx];
-    expect(prompt).toContain('MUST bump the version');
-    expect(prompt).toContain('mandatory');
+    expect(prompt).toContain('already been applied by /commit-push');
+    expect(prompt).toContain('DIVERGED: re-run commit-push to reconcile');
+    expect(prompt).not.toContain('MUST bump the version');
   });
 });
 
@@ -3346,3 +3384,141 @@ describe('skill path resolution (#88)', () => {
     });
   });
 });
+
+// ===========================================================================
+// Issue #102 — error_max_turns handleFailure branch + bounceContext injection
+// ===========================================================================
+
+describe('handleFailure: error_max_turns does not sleep (issue #102 AC3, FR3)', () => {
+  beforeEach(() => {
+    mockFs.existsSync.mockImplementation((p) => p === TEST_STATE_PATH);
+    mockFs.readFileSync.mockImplementation((p) => (
+      p === TEST_STATE_PATH
+        ? JSON.stringify({ ...defaultState(), currentIssue: 42, retries: {} })
+        : '{}'
+    ));
+    // git status clean, branch detection returns feature branch
+    mockExecSync.mockReturnValue('42-fix-divergence');
+  });
+
+  it('handleFailure with error_max_turns routes to bounce without a 60s rate-limit sleep', async () => {
+    const step = STEPS[7]; // createPR (step 8)
+    const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-fix-divergence', retries: {} };
+    const stdout = '{"type":"result","subtype":"error_max_turns","session_id":"x"}';
+    const result = { exitCode: 1, stdout, stderr: '', duration: 10 };
+
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const start = Date.now();
+    const outcome = await handleFailure(step, result, state);
+    const elapsed = Date.now() - start;
+
+    // The rate-limit branch sleeps 60_000 ms. If error_max_turns was routed correctly, elapsed ≪ 60s.
+    expect(elapsed).toBeLessThan(2_000);
+    expect(outcome).toBe('retry-previous');
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).not.toMatch(/Rate limited\. Waiting 60s/);
+    expect(logged).toMatch(/Turn budget exhausted/);
+
+    logSpy.mockRestore();
+    mockExit.mockRestore();
+  });
+
+  it('handleFailure with error_max_turns populates bounceContext with reason=error_max_turns', async () => {
+    const step = STEPS[7];
+    const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-fix-divergence', retries: {} };
+    const stdout = '{"type":"result","subtype":"error_max_turns","session_id":"x"}';
+    const result = { exitCode: 1, stdout, stderr: '', duration: 10 };
+
+    __test__.bounceContext = null;
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+    await handleFailure(step, result, state);
+    mockExit.mockRestore();
+
+    const ctx = __test__.bounceContext;
+    expect(ctx).not.toBeNull();
+    expect(ctx.reason).toBe('error_max_turns');
+    expect(ctx.fromStepNumber).toBe(step.number);
+    expect(ctx.from).toBe(step.key);
+  });
+});
+
+describe('bounceContext injection into buildClaudeArgs (issue #102 AC5, FR4)', () => {
+  beforeEach(() => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockReturnValue('skill content');
+  });
+
+  it('prepends "## Bounce context" block when receiving step matches fromStepNumber - 1', () => {
+    __test__.bounceContext = {
+      from: 'createPR',
+      fromStepNumber: STEPS[7].number, // createPR = step 8
+      reason: 'error_max_turns',
+      failedCheck: 'turn budget exhausted',
+      divergenceHints: { remoteCommitsSuperseded: true, localCommitsAhead: true },
+    };
+
+    // Receiving step: commitPush (step 7) — skill-backed so the prompt is the
+    // default commit-push prompt.
+    const receivingStep = { ...STEPS[6], skill: 'commit-push' };
+    const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
+    const args = buildClaudeArgs(receivingStep, state);
+    const promptIdx = args.indexOf('-p') + 1;
+    const prompt = args[promptIdx];
+
+    expect(prompt).toContain('## Bounce context');
+    expect(prompt).toContain('from: createPR');
+    expect(prompt).toContain('reason: error_max_turns');
+    expect(prompt).toContain('failedCheck: turn budget exhausted');
+    expect(prompt).toContain('remoteCommitsSuperseded: true');
+
+    __test__.bounceContext = null;
+  });
+
+  it('does NOT inject the block when bounceContext is null (green path)', () => {
+    __test__.bounceContext = null;
+    const step = STEPS[0];
+    const args = buildClaudeArgs(step, defaultState());
+    const promptIdx = args.indexOf('-p') + 1;
+    expect(args[promptIdx]).not.toContain('## Bounce context');
+  });
+
+  it('does NOT inject when the receiving step does not match fromStepNumber - 1', () => {
+    __test__.bounceContext = {
+      from: 'createPR',
+      fromStepNumber: 8,
+      reason: 'precondition_failed',
+      failedCheck: 'branch pushed to remote',
+      divergenceHints: {},
+    };
+
+    // Unrelated step (not N-1): writeSpecs (step 3) — fromStepNumber + 1 = 9, not 3
+    const unrelatedStep = { ...STEPS[2], skill: 'write-spec' };
+    const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
+    const args = buildClaudeArgs(unrelatedStep, state);
+    const promptIdx = args.indexOf('-p') + 1;
+    expect(args[promptIdx]).not.toContain('## Bounce context');
+
+    __test__.bounceContext = null;
+  });
+
+  it('does NOT inject when an override prompt is supplied', () => {
+    __test__.bounceContext = {
+      from: 'createPR',
+      fromStepNumber: 8,
+      reason: 'precondition_failed',
+      failedCheck: 'foo',
+      divergenceHints: {},
+    };
+
+    const receivingStep = { ...STEPS[6], skill: 'commit-push' };
+    const args = buildClaudeArgs(receivingStep, defaultState(), { prompt: 'OVERRIDE' });
+    const promptIdx = args.indexOf('-p') + 1;
+    expect(args[promptIdx]).toBe('OVERRIDE');
+
+    __test__.bounceContext = null;
+  });
+});
+

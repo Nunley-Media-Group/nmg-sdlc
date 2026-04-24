@@ -14,7 +14,7 @@
  *   node sdlc-runner.mjs --config <path> --resume
  */
 
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -146,6 +146,13 @@ const MAX_CONSECUTIVE_ESCALATIONS = 2;
 let consecutiveEscalations = 0;
 const escalatedIssues = new Set();
 let bounceCount = 0;
+
+// Structured context carried from a failed step to the step it bounces to.
+// Set at both bounce sites (runStep precondition fail, handleFailure
+// precondition fail), consumed by buildClaudeArgs exactly once, cleared after
+// the receiving step completes or a new cycle starts. Keeps the receiving
+// subagent from re-investigating divergence from scratch on every bounce.
+let bounceContext = null;
 
 // ---------------------------------------------------------------------------
 // Step definitions
@@ -976,9 +983,9 @@ function buildClaudeArgs(step, state, overrides = {}) {
 
     [STEP_NUMBER.verify]: `Verify the implementation for issue #${issue} on branch ${branch}. Fix any findings. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.commitPush]: `Stage all changes, commit with a meaningful conventional-commit message summarizing the work for issue #${issue}, and push to the remote branch ${branch}. After pushing, verify the push succeeded by running git log origin/${branch}..HEAD --oneline — if any unpushed commits remain, or if git push reported an error, exit with a non-zero status code.`,
+    [STEP_NUMBER.commitPush]: `Commit and push the work for issue #${issue} on branch ${branch}. Stage changes, apply the version bump per the skill's procedure, write a conventional-commit message, fetch + reconcile with origin/main (rebase + --force-with-lease under unattended mode when local was rebased and the lease check is safe), and push. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. You MUST bump the version (Steps 2-3 of the skill) before creating the PR — this is mandatory and must not be skipped. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. The version bump has already been applied by /commit-push; your responsibility is preconditions + ancestry check + gh pr create + labels. If local is behind origin/main, exit non-zero with the sentinel "DIVERGED: re-run commit-push to reconcile before creating PR" on stdout — the runner will bounce control back to /commit-push. Skill instructions are appended to your system prompt. Resolve relative file references from ${skillRoot}/.`,
 
     [STEP_NUMBER.monitorCI]: [
       `Monitor CI for the PR on branch ${branch}. Follow these steps exactly:`,
@@ -1000,9 +1007,32 @@ function buildClaudeArgs(step, state, overrides = {}) {
     [STEP_NUMBER.merge]: `First verify CI is passing with gh pr checks. If the output contains "no checks reported", treat this as passing (the repository has no CI configured). If any check is failing, do NOT merge — report the failure and exit with a non-zero status. If all checks pass, merge the current PR to main and delete the remote branch ${branch}.`,
   };
 
+  let basePrompt = overrides.prompt || prompts[step.number];
+
+  // Prepend a structured bounce-context block when the current step is the
+  // one being bounced TO (i.e. the previous step failed and the runner
+  // re-entered step N-1). Keeps the receiving subagent from re-investigating
+  // the divergence from scratch — it can read `reason` / `failedCheck` /
+  // `remoteCommitsSuperseded` directly.
+  if (bounceContext && bounceContext.fromStepNumber === step.number + 1 && !overrides.prompt) {
+    const hints = bounceContext.divergenceHints || {};
+    const ctxBlock = [
+      '## Bounce context',
+      `from: ${bounceContext.from}`,
+      `reason: ${bounceContext.reason}`,
+      `failedCheck: ${bounceContext.failedCheck || '(none)'}`,
+      `remoteCommitsSuperseded: ${Boolean(hints.remoteCommitsSuperseded)}`,
+      hints.localCommitsAhead !== undefined ? `localCommitsAhead: ${Boolean(hints.localCommitsAhead)}` : null,
+      '',
+      'The previous step bounced to you. Use this context to act directly — do not re-investigate the divergence from scratch.',
+      '',
+    ].filter(l => l !== null).join('\n');
+    basePrompt = `${ctxBlock}\n${basePrompt}`;
+  }
+
   const claudeArgs = [
     '--model', overrides.model || MODEL,
-    '-p', overrides.prompt || prompts[step.number],
+    '-p', basePrompt,
     '--dangerously-skip-permissions',
     '--verbose',
     '--output-format', 'stream-json',
@@ -1135,6 +1165,14 @@ function matchErrorPattern(output) {
   for (const pattern of IMMEDIATE_ESCALATION_PATTERNS) {
     if (pattern.test(output)) return { action: 'escalate', pattern: pattern.source };
   }
+  // error_max_turns is semantically distinct from rate-limiting: the session
+  // exhausted its turn budget, not a rate cap. Detect via parsed JSON (stream
+  // result) before the rate-limit regex so the "Rate limited. Waiting 60s..."
+  // branch never fires for a max-turns exit.
+  const parsed = extractResultFromStream(output);
+  if (parsed?.subtype === 'error_max_turns') {
+    return { action: 'max_turns', pattern: 'error_max_turns' };
+  }
   if (RATE_LIMIT_PATTERN.test(output)) return { action: 'wait', pattern: 'rate_limit' };
   return null;
 }
@@ -1230,6 +1268,55 @@ function incrementBounceCount() {
   return false;
 }
 
+/**
+ * Cheap probe for remote-vs-local divergence hints. Returns an object with
+ * hints the receiving step can use to act without re-investigating. Purpose
+ * is a hint, not a full diagnosis — one git call, no loops.
+ */
+function probeDivergenceHints(branch) {
+  const hints = { remoteCommitsSuperseded: false };
+  if (!branch || branch === 'main' || branch === 'master') return hints;
+  // Pass the branch as an argv element (no shell) so a hostile ref name cannot
+  // smuggle metacharacters into the command. Git's own ref-format rules already
+  // forbid most shell metacharacters, but execFileSync removes the class of
+  // risk entirely.
+  const runGit = (args) => execFileSync('git', args, {
+    cwd: PROJECT_PATH, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  try {
+    const remoteRef = `origin/${branch}`;
+    // Commits reachable from origin/<branch> but not from HEAD — i.e. remote
+    // has commits that are no longer in local history (typically after a
+    // rebase). If the remote branch does not exist this throws and we fall
+    // back to the default "false" hint.
+    const localAhead = runGit(['log', `${remoteRef}..HEAD`, '--oneline']);
+    const remoteAhead = runGit(['log', `HEAD..${remoteRef}`, '--oneline']);
+    hints.remoteCommitsSuperseded = remoteAhead.length > 0;
+    hints.localCommitsAhead = localAhead.length > 0;
+  } catch {
+    // Remote branch doesn't exist or git call failed — leave defaults.
+  }
+  return hints;
+}
+
+/**
+ * Capture the current bounce state so the receiving step sees it once via
+ * buildClaudeArgs. `reason` is one of 'precondition_failed' | 'error_max_turns'.
+ */
+function setBounceContext({ fromStep, reason, failedCheck, branch }) {
+  bounceContext = {
+    from: fromStep.key,
+    fromStepNumber: fromStep.number,
+    reason,
+    failedCheck: failedCheck || null,
+    divergenceHints: probeDivergenceHints(branch),
+  };
+}
+
+function clearBounceContext() {
+  bounceContext = null;
+}
+
 // ---------------------------------------------------------------------------
 // Step outcome idempotency detection
 // ---------------------------------------------------------------------------
@@ -1296,7 +1383,13 @@ async function handleFailure(step, result, state) {
     return 'escalated';
   }
 
-  if (patternMatch?.action === 'wait') {
+  if (patternMatch?.action === 'max_turns') {
+    // error_max_turns is a turn-budget exhaustion, not rate-limiting. Skip the
+    // 60s sleep and fall through to the bounce path so the previous step can
+    // re-establish a clean starting state (with structured bounce context).
+    log(`Turn budget exhausted on Step ${step.number} (${step.key}). Bouncing to previous step.`);
+    log(`[STATUS] Step ${step.number} (${step.key}) exhausted turn budget. Bouncing to previous step.`);
+  } else if (patternMatch?.action === 'wait') {
     log('Rate limited. Waiting 60s before retry...');
     log(`[STATUS] Rate limited on Step ${step.number}. Waiting 60s...`);
     await sleep(60_000);
@@ -1306,12 +1399,14 @@ async function handleFailure(step, result, state) {
   if (step.number > 1) {
     const prevStep = STEPS[step.number - 2];
     const preconds = validatePreconditions(step, state);
-    if (!preconds.ok) {
+    if (!preconds.ok || patternMatch?.action === 'max_turns') {
       if (incrementBounceCount()) {
         await escalate(step, `Bounce loop: ${bounceCount} step-back transitions exceed threshold ${MAX_BOUNCE_RETRIES}`, output);
         return 'escalated';
       }
-      const failedCheck = preconds.failedCheck || preconds.reason;
+      const failedCheck = preconds.failedCheck || preconds.reason || (patternMatch?.action === 'max_turns' ? 'turn budget exhausted' : null);
+      const reason = patternMatch?.action === 'max_turns' ? 'error_max_turns' : 'precondition_failed';
+      setBounceContext({ fromStep: step, reason, failedCheck, branch: state.currentBranch });
       log(`Step ${step.number} (${step.key}) precondition failed: "${failedCheck}". Bouncing to Step ${prevStep.number} (${prevStep.key}). (bounce ${bounceCount}/${MAX_BOUNCE_RETRIES})`);
       log(`[STATUS] Step ${step.number} (${step.key}) bounced to Step ${prevStep.number} (${prevStep.key}). Precondition failed: "${failedCheck}". (bounce ${bounceCount}/${MAX_BOUNCE_RETRIES})`);
       return 'retry-previous';
@@ -2061,6 +2156,7 @@ async function runStep(step, state) {
         await escalate(prevStep, `Bounce loop: ${bounceCount} step-back transitions exceed threshold ${MAX_BOUNCE_RETRIES} (precondition: ${failedCheck})`);
         return 'escalated';
       }
+      setBounceContext({ fromStep: step, reason: 'precondition_failed', failedCheck, branch: state.currentBranch });
       log(`Step ${step.number} (${step.key}) bounced to Step ${prevStep.number} (${prevStep.key}). Precondition failed: "${failedCheck}". (bounce ${bounceCount}/${MAX_BOUNCE_RETRIES})`);
       log(`[STATUS] Step ${step.number} (${step.key}) bounced to Step ${prevStep.number} (${prevStep.key}). Precondition failed: "${failedCheck}". (bounce ${bounceCount}/${MAX_BOUNCE_RETRIES})`);
       // Increment retry for the previous step
@@ -2204,6 +2300,7 @@ async function runStep(step, state) {
     }
 
     log(`[STATUS] Step ${step.number} (${step.key}) complete.${result.duration > 60 ? ` (${Math.round(result.duration / 60)}min)` : ''}`);
+    clearBounceContext();
     return 'ok';
   }
 
@@ -2394,6 +2491,7 @@ async function main() {
     if (SINGLE_ISSUE_NUMBER) break;
 
     // After a full cycle (or escalation), reset for next iteration
+    clearBounceContext();
     state = readState();
     if (state.currentStep === 0) {
       // Clean cycle completion or escalation reset — check for more issues
@@ -2426,6 +2524,7 @@ const __test__ = {
     consecutiveEscalations = 0;
     escalatedIssues.clear();
     SINGLE_ISSUE_NUMBER = null;
+    bounceContext = null;
   },
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;
@@ -2451,6 +2550,8 @@ const __test__ = {
   get skillRootSource() { return SKILL_ROOT_SOURCE; },
   get bounceCount() { return bounceCount; },
   set bounceCount(v) { bounceCount = v; },
+  get bounceContext() { return bounceContext; },
+  set bounceContext(v) { bounceContext = v; },
   get consecutiveEscalations() { return consecutiveEscalations; },
   set consecutiveEscalations(v) { consecutiveEscalations = v; },
   get escalatedIssues() { return escalatedIssues; },
@@ -2471,6 +2572,9 @@ export {
   extractStateFromStep,
   matchErrorPattern,
   incrementBounceCount,
+  setBounceContext,
+  clearBounceContext,
+  probeDivergenceHints,
   defaultState,
   validateConfig,
   getConfigObject,

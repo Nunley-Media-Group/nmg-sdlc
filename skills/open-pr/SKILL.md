@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, or creating issues. Handles version bumping, changelog updates, and links specs and acceptance criteria. Sixth step in the SDLC pipeline — follows /verify-code and precedes /address-pr-comments."
+description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in /commit-push. Links specs and acceptance criteria into the PR body. Eighth step in the SDLC pipeline — follows /commit-push and precedes /address-pr-comments."
 argument-hint: "[#issue-number] [--major]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Write, Edit, Bash(gh:*), Bash(git:*), Bash(sleep:*), AskUserQuestion
@@ -14,11 +14,11 @@ Create a pull request with a spec-driven summary that links to the GitHub issue 
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.claude/steering/` or `.claude/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 2 version-bump confirmation and actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging).
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging). Version-bump and push duties have moved to `/commit-push` as of FR1; this skill no longer owns a human-review gate for version bumping.
 
 Read `../../references/feature-naming.md` when locating the spec directory for the issue and no `{feature-name}` is already known — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
 
-Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, dual-file update (plugin.json + marketplace.json), CHANGELOG conventions, and the epic-child downgrade rule.
+Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, dual-file update (plugin.json + marketplace.json), CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `/commit-push` owns the bump itself.
 
 Read `../../references/steering-schema.md` when reading `steering/tech.md` for the `## Versioning` bump matrix or stack-specific versioned-files table — `tech.md` is the authoritative source for project-specific bump behaviour.
 
@@ -26,7 +26,7 @@ Read `../../references/steering-schema.md` when reading `steering/tech.md` for t
 
 1. Implementation is complete (all tasks from `tasks.md` done).
 2. Verification has passed (via `/verify-code`).
-3. Changes are committed to a feature branch.
+3. Changes are committed AND pushed via `/commit-push` — this skill reads `git log origin/main..HEAD` but does not push.
 
 ---
 
@@ -45,11 +45,11 @@ Inspect the invocation arguments for a `--major` token (alongside the issue numb
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
 ```
 
-Do NOT continue to Step 1, do NOT read/write `VERSION`, `CHANGELOG.md`, or any stack-specific version file, do NOT commit or push, and do NOT create a PR.
+Do NOT continue to Step 1, do NOT commit or push, and do NOT create a PR. Version-bump mutation lives in `/commit-push`; this skill does not touch `VERSION` or `CHANGELOG.md`, but the escalation still fires here because the `--major` decision is a release-level call that belongs with PR opening.
 
 ### Step 1: Read Context
 
-Read `references/preflight.md` when Step 1 begins — the gate aborts before any version-artifact read/write if the working tree is dirty or the branch has no non-bump commits.
+Read `references/preflight.md` when Step 1 begins — the gate aborts before PR creation if the working tree is dirty, the branch has no non-bump commits, or local is not an ancestor of `origin/main` (i.e., `/commit-push` has not yet reconciled divergence).
 
 Gather all information needed for the PR:
 
@@ -61,27 +61,41 @@ Gather all information needed for the PR:
 
    Skip this sub-step if specs-not-found — acceptance criteria will be extracted from the issue body already fetched in step 1.
 4. **Read git state**:
-   - `git status` — any uncommitted changes?
+   - `git status` — any uncommitted changes (must be empty; /commit-push should have committed everything)?
    - `git log main..HEAD --oneline` — commits on this branch.
    - `git diff main...HEAD --stat` — files changed vs main.
-
-### Step 2: Determine Version Bump
-
-Read `references/version-bump.md` when a `VERSION` file exists at the project root **AND the issue does not carry the `spike` label** — the reference covers the current-version read, label-matrix lookup in `steering/tech.md`, the `--major` override, and the epic-child sibling-aware downgrade (including the epic-closure warning that gates on interactive vs. unattended mode). If no `VERSION` file exists, skip Steps 2 and 3 entirely. Spike-labelled issues skip Steps 2 and 3 entirely regardless of whether `VERSION` exists — the spike-skip branch is documented in `references/version-bump.md` § Spike handling and records `spike = true` for Step 4's PR body template.
-
-### Step 3: Update Version Artifacts
-
-Read `references/version-bump.md` when Step 2 produced a bump — the same reference covers writing the new version into `VERSION`, rolling the `[Unreleased]` CHANGELOG section under the new version heading (with partial-delivery annotation for intermediate epic children), updating stack-specific files from the `## Versioning` table, and committing with `chore: bump version to {new_version}`. Spike-labelled issues skip this step (no artifacts to update).
+5. **Read version artifacts for the PR body** — read `VERSION` and the latest heading in `CHANGELOG.md` to populate the PR body's Version line. Do NOT modify these files; `/commit-push` is the only skill that writes version artifacts.
 
 ### Step 4: Generate PR Content
 
-Read `references/pr-body.md` when assembling the PR title and body — the reference covers the conventional-commit title format, the specs-found Template A (full spec-linked body), and the specs-not-found Template B (fallback to issue-body ACs). Both templates include the conditional Version and epic-child "Bump" lines.
+Read `references/pr-body.md` when assembling the PR title and body — the reference covers the conventional-commit title format, the specs-found Template A (full spec-linked body), and the specs-not-found Template B (fallback to issue-body ACs). Both templates include the conditional Version and epic-child "Bump" lines. The Version line is populated from the committed `VERSION` file (and the latest CHANGELOG heading); this skill does not compute or write the bump itself.
 
-**Spike PRs**: when the session's `spike` flag is `true` (set by Step 2's spike-skip branch), the PR body template omits the `Version` line entirely and adds `Type: Spike research (no version bump)` in its place. The rest of the template (summary, specs reference, test plan) is unchanged.
+**Spike PRs**: the PR body template omits the `Version` line entirely and adds `Type: Spike research (no version bump)` in its place when the issue carries the `spike` label. The rest of the template (summary, specs reference, test plan) is unchanged.
 
-### Step 5: Push and Create PR
+### Step 5: Ancestry Check and Create PR
 
-Read `references/pr-body.md` when pushing and creating the PR — the reference covers the pre-push race-detection and re-bump logic for epic children (`git fetch`, ancestry check, rebase-and-amend, conflict handling that never force-pushes), the `git push -u origin HEAD` vs. `git push` branching, the `gh pr create` call, and the specs-found/specs-not-found output block.
+Verify local contains every commit in `origin/main`:
+
+```bash
+git merge-base --is-ancestor origin/main HEAD
+```
+
+- **Exit code 0**: local is up-to-date with or ahead of `origin/main` — proceed to `gh pr create`.
+- **Non-zero**: local is behind `origin/main` (divergence has not been reconciled). Exit non-zero with this exact line on stdout:
+
+  ```
+  DIVERGED: re-run commit-push to reconcile before creating PR
+  ```
+
+  Do NOT rebase, do NOT amend, do NOT push, do NOT force-push. The SDLC runner reads the `DIVERGED:` sentinel via `bounceContext` and bounces control to `/commit-push`, which owns rebase and push. In interactive use, the user re-runs `/commit-push` manually.
+
+Once the ancestry check passes, create the PR:
+
+```bash
+gh pr create --title "[title]" --body "[body]"
+```
+
+Add labels matching the issue when appropriate. Read `references/pr-body.md` for the output block.
 
 ### Step 6: Output (Base Case)
 
@@ -99,6 +113,6 @@ Read `references/ci-monitoring.md` when `.claude/unattended-mode` does NOT exist
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /open-pr #N  →  /address-pr-comments #N
-                                                                                                                            ▲ You are here
+/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+                                                                                                                              ▲ You are here
 ```

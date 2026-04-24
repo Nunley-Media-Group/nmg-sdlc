@@ -10,6 +10,17 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unattended SDLC runner cascade failure on diverged remote branches** (issue #102) — moves history reconciliation and push out of `/open-pr` into a new `/commit-push` skill, teaches the SDLC runner to distinguish `error_max_turns` from rate-limiting, threads structured bounce context between steps, and reconciles stale remote branches in `/start-issue` before re-picked cycles rebuild local.
+  - New `skills/commit-push/` bundle (`SKILL.md`, `references/rebase-and-push.md`, `references/version-bump-delegation.md`) — owns stage + version-bump + commit + fetch + rebase + push. Under unattended mode plus a completed rebase plus a safe `--force-with-lease=HEAD:$EXPECTED_SHA` check, pushes without prompting.
+  - `scripts/sdlc-runner.mjs` `matchErrorPattern` now parses `{"subtype":"error_max_turns"}` from stream-json **before** the rate-limit regex runs; `handleFailure` takes a `max_turns` branch that logs `"Turn budget exhausted..."` (never `"Rate limited"`) and falls through to the bounce path without a 60s sleep.
+  - `scripts/sdlc-runner.mjs` adds module-level `bounceContext` state plus `setBounceContext` / `clearBounceContext` helpers; `buildClaudeArgs` prepends a `## Bounce context` block with `from` / `reason` / `failedCheck` / `remoteCommitsSuperseded` hints to the receiving step's prompt, so the bounced-to subagent doesn't re-investigate divergence from scratch.
+  - `/open-pr` Steps 2 and 3 removed; Step 5 replaced with an ancestry check that exits non-zero on divergence with `DIVERGED: re-run commit-push to reconcile before creating PR` (consumed by the runner to bounce to `/commit-push`). `skills/open-pr/references/pr-body.md` Section 0 (pre-push race detection) and Section 1 (push rules) removed. `skills/open-pr/references/preflight.md` adds a Step 1c ancestry gate that mirrors the same sentinel.
+  - `/start-issue` adds Step 3.5 and `references/stale-remote-branch.md` — probes `git ls-remote` for an existing remote branch, tests `git merge-base --is-ancestor <remote-tip> origin/main`, and deletes stale tips via `git push origin --delete` (auto under unattended mode, interactive confirm otherwise) before `gh issue develop --checkout` runs.
+  - `scripts/sdlc-config.example.json` wires the `commitPush` step to `skill: "commit-push"` with `maxTurns: 20, timeoutMin: 8` (up from 15 / 5 to absorb the moved version-bump and rebase responsibilities). `createPR` stays at `maxTurns: 45` pending FR6 empirical re-evaluation across three green-path cycles.
+  - Regression tests in `scripts/__tests__/sdlc-runner.test.mjs` cover the `error_max_turns` → `max_turns` action, the no-sleep `handleFailure` branch, and the `bounceContext` injection / clear / override paths.
+
 ## [1.59.0] - 2026-04-23
 
 ### Added
