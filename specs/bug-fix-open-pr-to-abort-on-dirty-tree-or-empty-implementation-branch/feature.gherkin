@@ -1,0 +1,81 @@
+# File: specs/bug-fix-open-pr-to-abort-on-dirty-tree-or-empty-implementation-branch/feature.gherkin
+#
+# Generated from: specs/bug-fix-open-pr-to-abort-on-dirty-tree-or-empty-implementation-branch/requirements.md
+# Issue: #95
+# Type: Defect regression
+
+@regression
+Feature: /open-pr preflight gate rejects dirty trees and empty implementation branches
+  /open-pr previously produced a version-bump-only PR when the working tree
+  contained uncommitted implementation files, or when the branch had no
+  non-bump commits ahead of main. This was fixed by adding a fail-fast
+  preflight gate to Step 1 that runs before any read or write of VERSION,
+  CHANGELOG.md, or stack-specific version files.
+
+  # --- AC1: Dirty-Tree Abort ---
+
+  @regression
+  Scenario: Dirty working tree aborts /open-pr before any version-artifact I/O
+    Given the current branch is "95-fix-open-pr-to-abort-on-dirty-tree-or-empty-implementation-branch"
+    And "git status --porcelain" reports the following dirty paths:
+      | path                                |
+      |  M skills/open-pr/SKILL.md          |
+      | ?? skills/open-pr/references/preflight.md |
+    And `.claude/unattended-mode` does NOT exist
+    When the user runs "/open-pr #95"
+    Then the skill aborts with a non-zero exit code
+    And the diagnostic output names both "skills/open-pr/SKILL.md" and "skills/open-pr/references/preflight.md"
+    And no read or write of "VERSION", "CHANGELOG.md", or "plugin.json" occurs
+    And no invocation of "git add", "git commit", "git push", or "gh pr create" occurs
+
+  # --- AC2: Empty-Implementation-Branch Abort ---
+
+  @regression
+  Scenario: Branch with only a version-bump commit aborts /open-pr
+    Given the current branch has been cut from main
+    And "git log main..HEAD --oneline" returns exactly one line:
+      """
+      deadbee chore: bump version to 1.55.0
+      """
+    And the working tree is clean
+    And `.claude/unattended-mode` does NOT exist
+    When the user runs "/open-pr #95"
+    Then the skill aborts with a non-zero exit code
+    And stdout contains the exact string "No implementation commits found on this branch — run /write-code before opening a PR."
+    And no read or write of "VERSION", "CHANGELOG.md", or "plugin.json" occurs
+    And no invocation of "git add", "git commit", "git push", or "gh pr create" occurs
+
+  # --- AC3: Runtime Artifacts Are Filtered Before Cleanliness Evaluation ---
+
+  @regression
+  Scenario: SDLC runtime artifacts do not trigger the dirty-tree abort
+    Given the current branch has at least one non-version-bump commit ahead of main
+    And "git status --porcelain" reports exactly these dirty paths:
+      | path                          |
+      | ?? .claude/sdlc-state.json    |
+      | ?? .claude/unattended-mode    |
+    And `.claude/unattended-mode` exists
+    When the preflight gate runs in Step 1 of "/open-pr"
+    Then the filtered dirty-path list is empty
+    And the dirty-tree check passes
+    And the workflow proceeds to the empty-branch check
+    And the empty-branch check passes
+    And Step 2 (version bump) is reached
+
+  # --- AC4: Unattended-Mode Escalation for Both Preflight Failures ---
+
+  @regression
+  Scenario Outline: Unattended mode escalates preflight failures via ESCALATION sentinel
+    Given `.claude/unattended-mode` exists
+    And the branch state matches "<failure_condition>"
+    When the user runs "/open-pr #95" via the SDLC runner
+    Then stdout contains a line beginning with "ESCALATION: open-pr — "
+    And the escalation line includes "<diagnostic_substring>"
+    And the skill exits with a non-zero exit code
+    And no call to "AskUserQuestion" is made
+    And no read or write of "VERSION", "CHANGELOG.md", or "plugin.json" occurs
+
+    Examples:
+      | failure_condition                                                                | diagnostic_substring                |
+      | dirty working tree with "skills/open-pr/SKILL.md" modified                       | working tree is not clean           |
+      | branch contains only a "chore: bump version to 1.55.0" commit ahead of main      | No implementation commits found     |
