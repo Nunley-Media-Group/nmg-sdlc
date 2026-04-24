@@ -256,7 +256,7 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `/end-loop` | Stop unattended mode and clear runner state |
 | `/upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.claude/steering/` and `.claude/specs/` to the project root |
 | `/init-config` | Generate an `sdlc-config.json` for the SDLC runner |
-| `/onboard-project [--dry-run] [--design-url <url>]` | Initialize a project for the SDLC — greenfield bootstrap, greenfield-enhancement, or brownfield spec reconciliation |
+| `/onboard-project [--dry-run] [--design-url <url>]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating
 

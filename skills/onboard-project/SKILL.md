@@ -1,6 +1,6 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, v1/v2 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues and merged PR diffs. Optionally ingests a Claude Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
+description: "Initialize a project for the SDLC — bootstrap greenfield projects with intent + tech-selection interview, VERSION + stack-manifest initialization, v1 milestone seeding, and 3–7 starter issues seeded via /draft-issue with dependency-aware autolinking; or reconcile specs for brownfield projects from closed GitHub issues, merged PR diffs, and the current source tree (including deterministic source-tree backfill when no closed issues exist). Optionally ingests a Claude Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for writing specs for new features (that is /write-spec), for updating existing specs to current templates (that is /upgrade-project), or for creating issues/PRs. Delegates to /init-config, /upgrade-project, and /draft-issue (in a loop) where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Write, Edit, WebFetch, Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(wc:*), Bash(node:*), AskUserQuestion
 argument-hint: "[--dry-run] [--design-url <url>]"
@@ -51,7 +51,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 | No | No | No | No | **Greenfield** (bootstrap mode) |
 | Yes | No | No | No | **Greenfield-Enhancement** (steering pre-seeded) |
 | Any | No | **Yes** | Yes | **Brownfield** |
-| Any | No | Yes | **No** | **Brownfield-no-issues** (empty state — offer to treat as greenfield) |
+| Any | No | Yes | **No** | **Brownfield-no-issues** (deterministic — backfill specs from source tree) |
 
 **Scaffold allowlist** (files that do NOT count as source): `README.md`, `.gitignore`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `LICENSE`, `LICENSE.md`, `LICENSE.txt`.
 
@@ -96,7 +96,7 @@ Store the evidence for the Step 5 summary. Proceed to the branch matching the de
 
 ### Step 2G: Greenfield (or Greenfield-Enhancement)
 
-Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the seven sub-steps (design URL ingest, interview, steering bootstrap/enhance, milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `/init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
+Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the eight sub-steps (design URL ingest, interview, steering bootstrap/enhance, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `/init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
 
 After Step 2G's seeding loop completes, the same reference covers Step 3G's prompt-vs-auto contract for delegating to `/init-config`. Then jump to Step 5 (Summary). Greenfield does not reconcile specs.
 
@@ -121,22 +121,25 @@ Both live in `references/brownfield.md` as covered above (Step 3B is the per-iss
 
 Emit a structured summary with these sections:
 
-1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, already-initialized, or brownfield-no-issues.
+1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized. For brownfield-no-issues runs, include the routing decision on this line: `brownfield-no-issues → source-backfill`.
 2. **Delegated skills invoked** — each of `/init-config`, `/upgrade-project`, and every `/draft-issue` invocation that ran, with success/failure status.
 3. **Greenfield only — Design URL fetch result** — `success (N bytes, M entries)`, `skipped (no URL provided)`, or `failed (<reason>)`.
 4. **Greenfield only — Interview defaults applied** — for each round, the value applied and its source (`from existing steering`, `from design context`, `from template default`, or `user input`).
-5. **Greenfield only — Milestones** — `v1 (MVP)` and `v2`: each marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`.
-6. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
-7. **Greenfield only — Starter issues seeded** — every issue created with its number, milestone, parent/child neighbors, and per-issue gap if any:
+5. **Versioning** (greenfield and brownfield) — two-line outcome block emitted before milestones:
+   - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>` | `seeded @ 0.1.0 (no manifest version to mirror)`
+   - Manifest: `<path> set @ 0.1.0` | `<path> preserved @ <X>` | `no-manifest`
+6. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
+7. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
+8. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
 
    ```
-   #200 [v1] Set up basic API           (parents: —, blocks: #201, #202)
-   #201 [v1] Add user profile           (parents: #200, blocks: —)
-   #202 [v2] Add caching layer          (parents: #200, blocks: —)
-   #203 [v1] FAILED — /draft-issue exited 1
+   #200 Set up basic API           (parents: —, blocks: #201, #202)
+   #201 Add user profile           (parents: #200, blocks: —)
+   #202 Add caching layer          (parents: #200, blocks: —)
+   #203 FAILED — /draft-issue exited 1
    ```
 
-8. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
+9. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
 
    ```
    specs/feature-dark-mode/        (#10, #14, #27)
@@ -144,13 +147,13 @@ Emit a structured summary with these sections:
    specs/feature-export-report/    (#61) — partial: ## Known Gaps noted
    ```
 
-9. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
-10. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
-11. **Gaps** — any missing artifact files (from Step 4), any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, design-fetch failures, and per-issue seeding failures.
-12. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
-13. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
-14. **Next step** —
-    - Greenfield: `Run /start-issue on a seeded starter (e.g., #<first-v1-issue>), or /draft-issue to add more.`
+10. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
+11. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
+12. **Gaps** — any missing artifact files (from Step 4), any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, design-fetch failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
+13. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
+14. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
+15. **Next step** —
+    - Greenfield: `Run /start-issue on a seeded starter (e.g., #<first-seeded-issue>), or /draft-issue to add more.`
     - Brownfield: `Review the reconciled specs, then run /draft-issue for new work or /upgrade-project to bring reconciled specs up to the latest templates.`
     - Already-initialized (after `/upgrade-project`): `Run /draft-issue for the next feature.`
 
@@ -167,6 +170,9 @@ If `.claude/unattended-mode` exists, replace the "Next step" with `Done. Awaitin
 | Steering bootstrap leaves any of the three files missing | Abort the greenfield flow; gap recorded for summary |
 | Claude Design URL fetch/decode fails (greenfield) | Logged with URL + reason; `design_context = {}`; greenfield flow continues; gap recorded |
 | Non-HTTPS Claude Design URL | Rejected before fetch; gap recorded; greenfield flow continues |
+| `VERSION` read failure (Step 2G.3a / 2B.0a) | Logged; VERSION outcome recorded as `read-failure`; init step skipped for VERSION; manifest probe still runs; gap recorded |
+| Manifest version-field parse failure (malformed JSON/TOML) | Logged with the failing probe command output; manifest outcome recorded as `parse-failure`; VERSION-only path fires; gap recorded |
+| Polyglot repo — wrong manifest detected | Detection is first-match-wins against the documented order; Step 5 summary names the detected manifest path so the choice is auditable; user can rename or remove the unintended manifest before re-running |
 | Milestone creation fails (greenfield) | Per-milestone gap recorded; loop continues; run does not abort |
 | Dependency DAG cycle detected (greenfield) | Wiring step skipped entirely; seeding loop proceeds without autolinks; recorded for summary |
 | `/draft-issue` invocation fails for one candidate (greenfield) | Per-issue gap recorded; loop continues with remaining candidates |
@@ -186,15 +192,20 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   ├── greenfield  → design URL ingest (opt)     │
                        │   │                 → interview (vision/tech)   │
                        │   │                 → steering bootstrap        │
-                       │   │                 → seed v1/v2 milestones     │
+                       │   │                 → VERSION + manifest init   │
+                       │   │                   (Step 2G.3a)              │
+                       │   │                 → seed v1 milestone         │
                        │   │                 → seed 3–7 starter issues   │
                        │   │                   via /draft-issue loop     │
                        │   │                 → /init-config              │
                        │   ├── greenfield-enhancement (re-run)           │
                        │   │                 → in-place steering Edit    │
                        │   │                 → skip already-seeded       │
-                       │   ├── brownfield  → steering bootstrap (if)     │
-                       │   │                 → reconcile specs           │
+                       │   ├── brownfield  → VERSION init (Step 2B.0a)   │
+                       │   │                 → steering bootstrap (if)   │
+                       │   │                 → reconcile specs (incl.    │
+                       │   │                   source-tree backfill when │
+                       │   │                   no closed issues exist)   │
                        │   └── initialized → /upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
