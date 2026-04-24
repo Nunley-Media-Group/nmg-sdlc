@@ -10,6 +10,8 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.58.0] - 2026-04-23
+
 ### Changed
 
 - **`/onboard-project` now seeds only the `v1` milestone** (issue #98) — supersedes the prior `v1 (MVP)` + `v2` seeding contract from #124. The v2 milestone is never created, and the starter-issue candidate schema drops the `milestone` field (all candidates land in `v1`). A dual-name idempotency probe detects legacy `v1 (MVP)` milestones from pre-#98 runs and reuses them with a Step 5 summary note rather than creating a duplicate.
