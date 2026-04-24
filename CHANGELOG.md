@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.56.2] - 2026-04-23
+
+### Fixed
+
+- /open-pr now aborts with a diagnostic when the working tree is dirty or the branch contains no implementation commits (#95).
+
 ## [1.56.1] - 2026-04-23
 
 ### Fixed

@@ -153,7 +153,7 @@ Ask: "Ready to start working on this issue?" If the user says no, return to Step
 
 ## Step 4: Create Feature Branch & Link to Issue
 
-Read `references/dirty-tree.md` when Step 4 begins — the reference covers the `git status --porcelain` filter for SDLC-runner artifacts and the abort messaging (interactive vs. unattended) when the filtered output is non-empty. Branch creation must not proceed against a dirty tree.
+Read `../../references/dirty-tree.md` when Step 4 begins — the reference covers the `git status --porcelain` filter for SDLC-runner artifacts and the abort messaging (interactive vs. unattended) when the filtered output is non-empty. Branch creation must not proceed against a dirty tree.
 
 ### Create Branch
 
