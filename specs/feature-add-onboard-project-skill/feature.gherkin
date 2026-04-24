@@ -1,7 +1,7 @@
 # File: specs/feature-add-onboard-project-skill/feature.gherkin
 #
 # Generated from: specs/feature-add-onboard-project-skill/requirements.md
-# Issues: #115, #124
+# Issues: #115, #124, #98
 
 Feature: Onboard Project
   As a developer adopting nmg-sdlc on a project that isn't spec-driven
@@ -355,3 +355,121 @@ Feature: Onboard Project
     And the summary lists the full DAG (or "skipped due to cycle")
     And the summary lists every seeded issue with its number and DAG neighbors
     And the summary lists every gap from every sub-step
+
+  # =========================================================================
+  # Added by issue #98 — v1-only milestones, VERSION initialization, brownfield source backfill
+  # =========================================================================
+
+  # --- v1-Only Milestone Seeding (supersedes the v1+v2 contract from #124) ---
+
+  Scenario: Only the v1 milestone is seeded in greenfield mode
+    Given greenfield mode and zero pre-existing milestones in the repo
+    When Step 2G.4 milestone seeding runs
+    Then the "v1" milestone is created via gh api
+    And "v2" is not created, proposed, or mentioned anywhere in the Step 5 summary
+
+  Scenario: Legacy v1 (MVP) milestone is reused without duplication
+    Given a repo where "v1 (MVP)" already exists (seeded by a prior run under the #124 contract)
+    When Step 2G.4 runs the dual-name idempotency probe
+    Then the existing "v1 (MVP)" milestone is reused
+    And no new "v1" milestone is created
+    And the Step 5 summary includes the note 'Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"'
+
+  Scenario: Every starter-issue candidate is allocated to v1
+    Given the interview surfaced 5 starter-issue candidates
+    When Step 2G.5 candidate generation runs
+    Then every candidate's allocation is "v1"
+    And the candidate schema does not contain a "milestone" field with any "v2" value
+    And no prompt asks the user to choose between v1 and v2 for any candidate
+
+  # --- VERSION File Initialization (Greenfield) ---
+
+  Scenario: VERSION file is created during greenfield bootstrap
+    Given a greenfield project with no existing VERSION file
+    When Step 2G.3a runs after steering bootstrap completes
+    Then a VERSION file containing "0.1.0\n" is written to the project root
+
+  Scenario: Stack-native manifest version is set to 0.1.0 when absent (greenfield)
+    Given a greenfield project with a package.json that has no "version" field
+    When Step 2G.3a runs
+    Then package.json's "version" field is set to "0.1.0"
+    And the edit touches only the "version" line (git diff does not reformat the rest of the JSON)
+    And the Step 5 Versioning section reports 'Manifest version set to 0.1.0 in package.json'
+
+  Scenario: No stack manifest detected (greenfield) — VERSION created, note emitted
+    Given a greenfield project with no matching stack manifest at the project root
+    When Step 2G.3a runs
+    Then VERSION is still written with "0.1.0"
+    And the Step 5 Versioning section reports 'No stack manifest detected — VERSION file seeded without manifest sync'
+
+  # --- VERSION File Initialization (Brownfield) ---
+
+  Scenario: Brownfield VERSION backfill mirrors an existing manifest version
+    Given a brownfield project with "package.json" declaring "version": "2.3.1"
+    And no VERSION file exists
+    When Step 2B.0a runs
+    Then a VERSION file containing "2.3.1\n" is created
+    And the manifest version is preserved byte-for-byte
+    And the Step 5 Versioning section reports 'VERSION backfilled from package.json @ 2.3.1'
+
+  Scenario: Brownfield with no manifest defaults VERSION to 0.1.0
+    Given a brownfield project with no VERSION file and no stack manifest
+    When Step 2B.0a runs
+    Then a VERSION file containing "0.1.0\n" is created
+    And no stack manifest is synthesized
+    And the Step 5 Versioning section reports 'VERSION seeded at 0.1.0 (no manifest version to mirror)'
+
+  # --- Idempotency of Version Initialization ---
+
+  Scenario: Existing VERSION file is preserved on re-run (any mode)
+    Given a project with a VERSION file containing "1.7.2"
+    When /onboard-project runs in any mode
+    Then the VERSION file content is unchanged
+    And the Step 5 Versioning section reports "VERSION exists (value: 1.7.2) — preserved"
+
+  Scenario: Existing manifest version is preserved even when it differs from VERSION
+    Given a project with VERSION "1.7.2" and package.json "version": "1.5.0"
+    When Step 2G.3a or Step 2B.0a runs
+    Then both files are preserved unchanged
+    And no reconciliation is attempted (divergence is out of scope per #98)
+    And the Step 5 Versioning section reports both "preserved" outcomes separately
+
+  # --- Brownfield Always Incorporates Source Code ---
+
+  Scenario: Brownfield with zero closed issues backfills from source (no greenfield offer)
+    Given a brownfield project with existing source files
+    And zero closed GitHub issues
+    When /onboard-project runs
+    Then no AskUserQuestion prompt offering the greenfield path fires
+    And Step 3B executes in source-backfill mode
+    And specs are synthesized using evidence only from issue bodies (if any) and the current source tree
+    And the Step 5 mode line reads 'brownfield-no-issues → source-backfill'
+
+  Scenario: Brownfield reconciliation always scans the current source tree
+    Given a brownfield project with closed issues AND existing source files
+    When Step 3B reconciliation runs for any closed issue
+    Then the per-issue evidence_set always contains a populated "current_source_tree" field
+    And the populated paths come from "git ls-files" filtered through the scaffold allowlist
+    And the produced design.md's Evidence Sources table includes a "current source tree" row for each major section
+
+  Scenario: Source enumeration excludes scaffold files and hidden directories
+    Given a brownfield project containing "README.md", ".gitignore", "package.json", source under "src/", and a "node_modules/" directory
+    When Step 3B enumerates source files
+    Then "README.md", ".gitignore", and "package.json" are excluded (scaffold allowlist)
+    And "node_modules/" and any hidden directories (".git/", ".github/", ".claude/") are excluded
+    And every file under "src/" is included in the enumeration
+
+  # --- Step 5 Summary: Versioning Block ---
+
+  Scenario: Step 5 summary's Versioning section lists VERSION and manifest outcomes
+    Given /onboard-project has completed Step 2G.3a or Step 2B.0a
+    When Step 5 emits the summary
+    Then the summary contains a "Versioning" section before the milestone block
+    And the Versioning section reports the VERSION outcome (created @ 0.1.0 | preserved @ <X> | backfilled from <path>)
+    And the Versioning section reports the manifest outcome (set @ 0.1.0 | preserved @ <X> | no-manifest)
+
+  Scenario: Step 5 summary's milestone block shows a single v1 line (no v2)
+    Given /onboard-project greenfield flow has completed
+    When Step 5 emits the summary
+    Then the milestone block contains a single line for "v1" (seeded | skipped | failed)
+    And no line mentions "v2"

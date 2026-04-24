@@ -1,8 +1,8 @@
 # Design: Add /onboard-project Skill
 
-**Issues**: #115, #124
-**Date**: 2026-04-18
-**Status**: Draft
+**Issues**: #115, #124, #98
+**Date**: 2026-04-23
+**Status**: Amended
 **Author**: Claude
 
 ---
@@ -16,6 +16,8 @@ The novel capability this skill introduces is **brownfield reconciliation**: rea
 Key architectural commitment: **this skill delegates rather than duplicates**. Steering-doc logic lives in `/setup-steering`; config logic lives in `/init-config`; template drift logic lives in `/upgrade-project`. `/onboard-project` owns only mode detection, issue-to-spec reconciliation, and summary reporting.
 
 > **Issue #124 amendment** — `/setup-steering` is **absorbed** into `/onboard-project`. The "delegates rather than duplicates" commitment is preserved for `/init-config` and `/upgrade-project`; for steering, the bootstrap and in-place enhancement logic now lives directly in Step 2G (greenfield) and the new Step 2I-Enhancement (re-run with steering present but specs absent). Issue #124 also expands greenfield's responsibilities: intent + tech-selection interview, `v1`/`v2` milestone seeding, starter-issue seeding via `/draft-issue` loop with dependency inference + autolinking (reusing Issue #125's primitive), and optional Claude Design URL ingestion. Brownfield (Step 2B/3B) is unchanged.
+
+> **Issue #98 amendment** — The skill narrows milestone seeding to **v1 only** (superseding #124's v1+v2 contract), adds **version-file initialization** (`VERSION` + stack-native manifest synced to `0.1.0`, idempotent) to both greenfield and brownfield paths, and makes **brownfield always backfill from tracked source code** — even when zero closed issues exist (superseding the "treat as greenfield" offer). The skill's orchestration model is unchanged; this amendment modifies step contents and adds one new step to each mode.
 
 ---
 
@@ -199,6 +201,175 @@ When mode detection lands in **Greenfield-Enhancement** (steering exists, specs 
 | 2G.4 Milestone seeding | Always create | Detect existing `v1 (MVP)` / `v2` and skip |
 | 2G.5 Candidate generation | All candidates new | Filter out candidates whose title matches an open issue with `seeded-by-onboard` label |
 | 2G.6 DAG | Build from scratch | Build only over the not-yet-seeded subset; never rewrite existing `--add-sub-issue` edges |
+
+### Issue #98 Amendments to Greenfield Workflow
+
+Three changes to Step 2G, append-only relative to #124's pipeline:
+
+#### 1. New Sub-Step 2G.3a — Version File Initialization
+
+Insert a new sub-step **between 2G.3 (Steering Bootstrap) and 2G.4 (Milestone Seeding)**:
+
+```
+Step 2G.3a — Version File Initialization
+
+  1. Detect stack by probing tracked files via `git ls-files -- <candidate>`,
+     in this order (first match wins):
+        package.json, pyproject.toml, Cargo.toml, go.mod, mix.exs,
+        *.gemspec, build.gradle, pom.xml
+  2. If VERSION exists at project root:
+        preserve (read value for summary); emit "VERSION exists (value: X) — preserved"
+     Else:
+        write VERSION containing "0.1.0\n"; emit "VERSION created at 0.1.0"
+  3. If a stack manifest was detected:
+        a. Read the manifest's version field using the format-specific rule
+           (table below).
+        b. If the field is already set to a non-empty value:
+              preserve; emit "Manifest version exists (<path>: X) — preserved"
+        c. Else:
+              set the field to "0.1.0" via the format-specific rule;
+              emit "Manifest version set to 0.1.0 in <path>"
+     Else:
+        emit "No stack manifest detected — VERSION file seeded without manifest sync"
+  4. Contribute per-file outcomes to Step 5 Versioning summary section.
+```
+
+**Stack manifest read/write rules** (each read uses a targeted command to avoid full-file rewrites):
+
+| Manifest | Version field | Read | Write (only when unset) |
+|----------|---------------|------|-------------------------|
+| `package.json` | `"version"` JSON key | `node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version||'')"` | `Edit` tool: replace the `"version"` line only — do not reformat the rest of the JSON |
+| `pyproject.toml` | `[project] version` or `[tool.poetry] version` | `grep -E '^version\s*=' pyproject.toml` (first match under a `[project]` or `[tool.poetry]` heading) | `Edit`: replace the matched line in place |
+| `Cargo.toml` | `[package] version` | `grep -E '^version\s*=' Cargo.toml` (under `[package]`) | `Edit`: replace in place |
+| `go.mod` | no version field | N/A — go.mod is detected for stack identification only; no version to write | N/A |
+| `mix.exs` | `@version` module attribute | `grep -E '@version\s+' mix.exs` | `Edit`: replace in place |
+| `*.gemspec` | `spec.version` assignment | `grep -E '\.version\s*=' *.gemspec` | `Edit`: replace in place |
+| `build.gradle` / `pom.xml` | `version =` (Gradle) / `<version>` (Maven) | `grep -E '^version\s*=' build.gradle` or `grep -m1 '<version>' pom.xml` | `Edit`: replace in place |
+
+Rationale for not using `node -e "JSON.stringify(...)"` for `package.json` rewrites: preserving key order, trailing commas, and formatting matters for downstream tooling (lockfile generation, commit diffs). Targeted line-level `Edit` is safer than a full JSON rewrite.
+
+#### 2. Step 2G.4 — Milestone Seeding Narrows to v1 Only
+
+The v1/v2 iteration becomes a single-milestone operation. Design changes:
+
+```
+Before (#124):
+  For each of {"v1 (MVP)", "v2"}:
+    <seed-or-skip>
+
+After (#98):
+  For the single milestone "v1":
+    <seed-or-skip>
+```
+
+- The milestone **name** is `v1` (not `v1 (MVP)`). Rationale: the issue's AC22 names `v1` explicitly; the `(MVP)` suffix came from #124 and is dropped for consistency with semver and with the VERSION file value. Legacy projects that have `v1 (MVP)` milestones from prior #124 runs are handled by the idempotency check (exact-title match against `v1` would miss them) — a follow-up note in the Step 5 summary flags mismatched legacy names but does not auto-rename them.
+- Description copy: `First version line — v1.x.y releases, seeded by /onboard-project.`
+- The `v2` creation branch and its description string are removed outright from `references/greenfield.md` (not commented out, not gated — deleted, per FR29 wording "Remove").
+
+#### 3. Step 2G.5 — Candidate Generation Loses the v2 Bucket
+
+The candidate schema drops the `milestone` field entirely (it is now always `v1`, no longer user-configurable at generation time):
+
+```
+Before (#124):
+  { title, milestone: "v1 (MVP)" | "v2", body_seed, component_refs[], ordering_cue }
+
+After (#98):
+  { title, body_seed, component_refs[], ordering_cue }
+  # All candidates seed into v1 at /draft-issue invocation time.
+```
+
+Interview copy updates: no "which milestone should this land in?" prompt; the dependency-DAG milestone-gate rule (drop edges where a v2 candidate parents a v1 candidate) is removed because the v2 partition no longer exists. Cycle detection and the other two edge-construction rules are unchanged.
+
+Step 2G.6's DAG rendering in the approval gate no longer annotates nodes with a milestone tag (every node is v1).
+
+#### 4. Step 5 Summary — New Versioning Section
+
+The summary sections, in order, become:
+
+```
+1. Mode detected
+2. Interview defaults applied (if greenfield)
+3. Design fetch result (if greenfield)
+4. Versioning                                        <-- NEW (#98)
+     - VERSION: created @ 0.1.0 | preserved @ <X> | (no-op)
+     - Manifest: <path> set @ 0.1.0 | preserved @ <X> | no-manifest
+5. Milestone seeding                                 <-- v1 only (was v1+v2 under #124)
+     - v1: seeded | skipped | failed
+6. Starter-issue seeding (if greenfield)
+7. Delegated skills invoked
+8. Reconciliation gaps (if brownfield)
+```
+
+The v1+v2 two-line milestone block from #124 collapses to one line.
+
+### Issue #98 Amendments to Brownfield Workflow
+
+Four changes to Step 2B and Step 3B:
+
+#### 1. New Sub-Step 2B.0a — Version File Initialization (Brownfield)
+
+Inserted at the top of Step 2B preflight, before the steering-bootstrap delegation and before the no-issues handler:
+
+```
+Step 2B.0a — Version File Initialization (Brownfield)
+
+  1. Detect stack per the same rule as 2G.3a (same order, same match rules).
+  2. If VERSION exists:
+        preserve; record for summary.
+     Else if a stack manifest with a non-empty version field exists:
+        read the manifest version (e.g., package.json "version": "2.3.1");
+        write VERSION containing that value + "\n";
+        emit 'VERSION backfilled from <path> @ <version>'.
+     Else:
+        write VERSION containing "0.1.0\n";
+        emit 'VERSION seeded at 0.1.0 (no manifest version to mirror)'.
+  3. If a stack manifest exists but has no version field, do NOT synthesize one.
+  4. Contribute outcomes to Step 5 Versioning section.
+```
+
+Rationale for mirroring the manifest into VERSION (rather than mirroring the other way): the manifest is the project's authoritative release history; VERSION is a new file introduced by onboard-project. Mirroring from manifest → VERSION preserves the project's existing release cadence rather than resetting it to `0.1.0`.
+
+#### 2. Step 2B — Brownfield-No-Issues Routes to Source Backfill
+
+The existing Step 2B bullet 3 offered to "treat as greenfield" when no closed issues were found. Under #98, this bullet is replaced (superseded, not appended) with:
+
+```
+Before (#124):
+  3. If zero closed issues: offer (via AskUserQuestion) to treat as
+     greenfield-plus-existing-code. On accept → Step 3G. On decline →
+     jump to Step 5 with no reconciliation performed.
+
+After (#98):
+  3. If zero closed issues: proceed to Step 3B source-backfill mode
+     (enumerate tracked source via `git ls-files` filtered by the
+     scaffold allowlist, synthesize specs from source-tree evidence
+     only). Emit 'brownfield-no-issues: backfilling from source tree'.
+     No AskUserQuestion gate — deterministic routing.
+```
+
+This is a behavior change, not an addition. AC29 explicitly supersedes the prior UX; the design.md amendment records the supersession rather than preserving the old path as a fallback.
+
+#### 3. Step 3B — Reconciliation Always Scans Source Tree
+
+Extend the Data Flow diagram (see Data Flow section below). The per-issue evidence set gains a `current_source_tree` component that is **always populated**, even when an issue has a merged PR with a diff. The evidence set becomes:
+
+```
+evidence_set = {
+  issue_body,
+  pr_body         | null,
+  pr_diff         | null,
+  commit_msgs     | [],
+  touched_files   | [],
+  current_source_tree: [paths from `git ls-files` filtered by scaffold allowlist],
+}
+```
+
+When reconciling, `design.md`'s Evidence Sources table gains a new `current source tree` row for each major section; the row records which tracked source files informed the section's content. In source-backfill mode (bullet 2 above), only `issue_body` (if any) and `current_source_tree` populate the evidence set — PR-based rows are explicitly marked `N/A — source-backfill`.
+
+#### 4. Scaffold Allowlist Reused
+
+The scaffold allowlist used for mode detection (`{README.md, .gitignore, package.json, pyproject.toml, Cargo.toml, go.mod, LICENSE, ...}`) is reused verbatim for source enumeration. Files in the allowlist are excluded from source evidence to avoid polluting reconciled specs with scaffold-only content. Hidden directories (`.git/`, `.github/`, `.claude/`) and `node_modules/` are excluded as they already are for mode detection.
 
 ### Data Flow — Brownfield Reconciliation (Step 3B)
 
@@ -392,6 +563,16 @@ None. The skill reads from git, the working tree, and GitHub via `gh` CLI; write
 | `CHANGELOG.md` | **Edit** — `[Unreleased]` adds Added/Changed/Removed entries | Removal of `/setup-steering` is significant; record it explicitly |
 | `README.md` | **Edit** — drop `/setup-steering` from skill list, expand `/onboard-project` description, update workflow diagram | Public docs must stay in sync |
 
+#### File Tree Changes (#98)
+
+| Path | Change | Reason |
+|------|--------|--------|
+| `plugins/nmg-sdlc/skills/onboard-project/references/greenfield.md` | **Edit** — remove v2 from Step 2G.4 (list, description, emit line); remove v2 bucket from Step 2G.5 candidate schema; remove v2 milestone-gate rule from Step 2G.6; insert new Step 2G.3a (version-file initialization) between 2G.3 and 2G.4; update Step 5 summary outline | FR29, FR30, FR31, FR32 (Issue #98) |
+| `plugins/nmg-sdlc/skills/onboard-project/references/brownfield.md` | **Edit** — replace Step 2B bullet 3 (no-issues → source backfill, no longer "treat as greenfield"); prepend new Step 2B.0a (version-file initialization); extend Step 3B evidence-set schema with `current_source_tree` | FR33, FR35, FR36 (Issue #98) |
+| `plugins/nmg-sdlc/skills/onboard-project/SKILL.md` | **Edit** — Step-by-Step diagram gains `2G.3a` and `2B.0a` nodes; Mode Detection Matrix row 5 updated ("treat as greenfield" → "source backfill"); Error States table gains VERSION/manifest-read error rows; Summary section documents the new Versioning block | FR37, FR38 (Issue #98) |
+| `VERSION` (in consuming projects) | **New** — written at `0.1.0` (greenfield) or mirrored from stack manifest (brownfield); preserved if already present | AC24, AC26, AC28 (Issue #98) |
+| `package.json` / `pyproject.toml` / etc. (in consuming projects) | **Edit** — single-line replacement of the version field when it is absent or empty; never overwritten when a value exists | AC25, AC28 (Issue #98) |
+
 ### Artifact File Writes
 
 | Path | Operation | Rollback on Failure |
@@ -455,6 +636,18 @@ N/A — this is a prompt-based skill; no UI components. User interaction is via 
 | **J: Re-implement dependency inference + autolinking inline** | Build the DAG and call `gh issue edit --add-sub-issue` directly | No coupling to Issue #125 | Duplicates the primitive #125 establishes; two implementations to keep in sync | Rejected — wait for #125 (Blocked By) and consume its primitive (FR22, AC16) |
 | **K: Run interview after steering bootstrap (preserve current ordering)** | Bootstrap from defaults first, then interview to refine | Smaller diff to the existing flow | The whole point of the interview is to drive steering content — bootstrapping first means rewriting steering after the interview, doubling the writes | Rejected — interview before bootstrap is the entire reason for AC1/AC12 |
 | **L: Treat the Claude Design URL as raw HTML / web content** | `WebFetch` and parse the response as text | Simpler — no decode step | The example URL returns a gzipped archive (~119 KB); raw-text parsing produces garbage | Rejected — payload is not HTML; gzip decode is required (AC17) |
+
+### Alternatives Considered (#98 amendments)
+
+| Option | Description | Pros | Cons | Decision |
+|--------|-------------|------|------|----------|
+| **M: Keep v2 milestone seeding, add a `--v1-only` flag** | Preserve #124's v1+v2 default; let the user opt into v1-only per-invocation | Backward-compatible with #124 | Adds a flag for a default most users will never toggle; the issue's motivation is that v2 seeding is wrong *for everyone*, not a matter of preference | Rejected — the issue mandates the narrowing unconditionally (AC22) |
+| **N: Seed v1 only, but keep `v1 (MVP)` as the name** | Drop the v2 branch but retain the `(MVP)` suffix from #124 | Smaller behavioral delta | AC22 uses `v1` verbatim; the suffix adds noise to `gh pr view --json milestone` output and diverges from the VERSION file's `0.1.0` value; legacy `v1 (MVP)` milestones are surfaced via summary warning so users can rename manually if they care | Rejected — AC22 + FR29 wording favors `v1` |
+| **O: Write VERSION via a shared helper script** | Add `scripts/init-version.sh` or a node helper that both modes invoke | Avoids duplicating the detect/write logic in two markdown files | Skills are markdown-only per `structure.md` skill-contract invariants; pulling logic into a shell script creates a second failure surface and couples the skill to shell behavior across platforms | Rejected — inline the logic in both references instead; code duplication is tolerable at this volume |
+| **P: Mirror VERSION → manifest rather than manifest → VERSION** | When both exist on a brownfield project, write the VERSION value into the manifest | Single source-of-truth for the project going forward | The manifest is the project's **existing** source-of-truth — the onboard-project invocation should not retroactively alter it. AC28 makes idempotency explicit; write-direction asymmetry (manifest → VERSION, never the reverse) preserves prior release history | Rejected — mirror direction is manifest → VERSION only |
+| **Q: Decode `package.json` by reading + `JSON.stringify` rewrite** | Parse the JSON, set `.version`, rewrite the whole file | Clean — no regex | Reformats unrelated content (key order, whitespace, trailing commas the project intentionally uses); breaks lockfile hygiene; surfaces a large diff in the `/onboard-project` commit | Rejected — targeted line-level `Edit` preserves formatting (see the stack manifest read/write rules table) |
+| **R: Auto-create a `package.json` when brownfield has no stack manifest** | Synthesize a minimal manifest so both VERSION and manifest align | Symmetrical | Onboarding should not decide a project's stack identity; a brownfield project without a manifest may be intentional (shell scripts, Lua, etc.). AC27 explicitly says no manifest synthesis | Rejected — VERSION-only fallback |
+| **S: Preserve the "treat as greenfield" offer as a fallback for source-less brownfield** | When brownfield has no issues AND no source files, still offer the greenfield path | Covers the empty-directory edge case | An empty brownfield project is actually greenfield by the mode-detection rules (source files beyond scaffold = no → greenfield-enhancement row); the fallback is never reached in practice | Rejected — mode detection already handles the edge case |
 
 ---
 
@@ -522,6 +715,11 @@ This project uses **exercise-based verification** (per `tech.md` → Testing Sta
 | **(#124)** `/draft-issue` invocation explosion (3–7 nested skill calls) blows token budget | Low | Medium | Hard cap at 7 candidates per FR19; sequential invocation (no parallelism); progress emitted per issue so the user can interrupt |
 | **(#124)** `/setup-steering` deletion breaks an external caller | Low | Low | Project-internal only — no marketplace consumers documented; CHANGELOG records removal; `/upgrade-project` references are rewritten in the same PR (FR24) |
 | **(#124)** Milestone name collision with existing user-created milestone of similar but not exact name (e.g., `v1` vs `v1 (MVP)`) | Low | Low | Strict exact-match on title; user resolves via interactive prompt if collision is suspected; unattended mode treats as "create" and lets GitHub return the dedupe error which is captured as a gap |
+| **(#98)** Legacy `v1 (MVP)` milestone exists from prior #124 run; #98's exact-match on `v1` creates a duplicate | Medium | Low | Step 2G.4 probe runs with two titles (`v1` and `v1 (MVP)`) and short-circuits on either match; if only the legacy name is found, emit a Step 5 summary warning `'Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"' and reuse the existing milestone rather than duplicating |
+| **(#98)** Manifest version field parse fails (malformed JSON, invalid TOML) | Low | Medium | Probe command failure is captured; VERSION-only path fires; gap recorded in Step 5 summary with the probe command output so the user can inspect |
+| **(#98)** Stack detection picks the wrong manifest in a polyglot repo (e.g., `package.json` for tooling when the actual project is Python) | Medium | Low | Detection order is project-root-only and first-match-wins; the order is documented in SKILL.md; users can rename or remove the unintended manifest before running; Step 5 summary names the detected manifest path so the choice is auditable |
+| **(#98)** `git ls-files` returns nothing (project not yet `git add`-ed) in brownfield mode | Low | Medium | Brownfield mode detection already requires source files to exist — if `git ls-files` is empty, mode detection would have routed to greenfield; if the user force-routed (e.g., passed `--brownfield`), the skill emits a gap and skips reconciliation rather than aborting |
+| **(#98)** Deterministic routing to source-backfill surprises a user who expected the old "treat as greenfield" offer | Low | Low | The Step 5 summary's mode line includes the routing decision explicitly (`brownfield-no-issues → source-backfill`); the README's onboard-project section documents the new deterministic path; a user who wants greenfield behavior can `rm` the source files and re-run |
 
 ---
 
@@ -538,6 +736,7 @@ This project uses **exercise-based verification** (per `tech.md` → Testing Sta
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
 | #124 | 2026-04-18 | Greenfield enhancement: Step 2G expanded into seven sub-steps (design URL ingest, interview, steering bootstrap absorbed from `/setup-steering`, milestone seeding, candidate generation, DAG inference, starter-issue seeding loop). Greenfield-Enhancement re-run mode added. `/setup-steering` standalone skill deleted; templates relocated to `onboard-project/templates/`. `/draft-issue` added to delegation contracts; `/setup-steering` removed. New tools: `WebFetch`, `Bash(node:*)`. New argument: `--design-url`. New risks tracked for autolinking dependency on Issue #125, design-payload format, and steering-enhancement overwrite. |
+| #98 | 2026-04-23 | Narrow milestone seeding to v1 only (supersedes #124's v1+v2 contract; `v1 (MVP)` → `v1`; candidate schema drops the milestone field). Add version-file initialization: new sub-step 2G.3a (greenfield) and 2B.0a (brownfield) seed `VERSION` at `0.1.0` + sync stack-native manifest (`package.json`/`pyproject.toml`/`Cargo.toml`/etc.) — both paths idempotent; brownfield mirrors existing manifest version into VERSION. Brownfield-no-issues UX: replace "treat as greenfield" offer with deterministic source-tree backfill; Step 3B evidence set always includes `current_source_tree`. Step 5 Summary adds a Versioning section. New risks tracked for legacy milestone name collision, manifest-parse failures, polyglot stack detection, and empty `git ls-files` edge cases. |
 
 ---
 

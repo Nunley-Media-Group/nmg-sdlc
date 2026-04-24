@@ -1,8 +1,8 @@
 # Tasks: Add /onboard-project Skill
 
-**Issues**: #115, #124
-**Date**: 2026-04-18
-**Status**: Planning
+**Issues**: #115, #124, #98
+**Date**: 2026-04-23
+**Status**: Amended
 **Author**: Claude
 
 ---
@@ -17,7 +17,8 @@
 | Integration | 4 | [ ] |
 | Testing | 3 | [ ] |
 | **Phase 6: Enhancement — Issue #124** | **11** | [ ] |
-| **Total** | **25** | |
+| **Phase 7: Enhancement — Issue #98** | **8** | [ ] |
+| **Total** | **33** | |
 
 > This is a Markdown skill addition, not a code feature. "Backend" here means the skill's workflow steps (mode detection, reconciliation logic written as prompt instructions); "Frontend" is N/A because the skill is prompt-based (see `steering/structure.md` — skills are Markdown, not executable code); "Integration" covers plugin registration, marketplace updates, and README/CHANGELOG wiring.
 
@@ -391,6 +392,133 @@ These tasks all amend the existing skill (built by T001–T014). They are writte
 
 ---
 
+## Phase 7: Enhancement — Issue #98
+
+Narrow milestone seeding to v1-only (supersedes #124's v1+v2 contract), add version-file initialization to both greenfield and brownfield paths, and replace the brownfield-no-issues "treat as greenfield" offer with deterministic source-tree backfill.
+
+> **Routing note** — All Phase 7 tasks edit skill artifacts under `plugins/nmg-sdlc/skills/onboard-project/` (`SKILL.md`, `references/greenfield.md`, `references/brownfield.md`). Per `steering/tech.md` and `specs/feature-route-skill-tasks-through-skill-creator/`, `/write-code` and `spec-implementer` must route these edits through `/skill-creator` when it is available (with verbatim fall-through warning `skill-creator not available — implementing skill directly` otherwise). Do not author `SKILL.md` content with raw `Edit`/`Write` when `/skill-creator` can own the edit.
+
+### T027: Narrow greenfield.md Step 2G.4 Milestone Seeding to v1 Only
+
+**File(s)**: `plugins/nmg-sdlc/skills/onboard-project/references/greenfield.md`
+**Type**: Modify
+**Depends**: T026 (#124's Phase 6 completion; v1+v2 seeding is what we're narrowing)
+**Acceptance**:
+- [ ] Step 2G.4 iteration collapses from `{"v1 (MVP)", "v2"}` to a single-milestone operation on `v1`
+- [ ] The v2 creation branch, its description string (`Post-MVP enhancements seeded by /onboard-project.`), and its emit-line are **deleted** — not commented out, not gated
+- [ ] The v1 milestone name is `v1` (not `v1 (MVP)`); description becomes `First version line — v1.x.y releases, seeded by /onboard-project.`
+- [ ] Legacy `v1 (MVP)` detection: the idempotency probe queries both `v1` AND `v1 (MVP)`; on legacy match, reuse the existing milestone and emit a Step 5 summary note `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`
+- [ ] Emit line after seeding: `Milestone: v1 seeded | skipped | failed (<reason>)`
+- [ ] Intro paragraph updated to reference `v1` milestone (not `v1`/`v2`)
+- [ ] Maps to AC22, FR29 (Issue #98)
+
+### T028: Drop v2 Bucket from greenfield.md Step 2G.5 Candidate Schema and Step 2G.6 DAG Rules
+
+**File(s)**: `plugins/nmg-sdlc/skills/onboard-project/references/greenfield.md`
+**Type**: Modify
+**Depends**: T027
+**Acceptance**:
+- [ ] Step 2G.5 candidate schema drops the `milestone` field — candidates are `{ title, body_seed, component_refs[], ordering_cue }`
+- [ ] "Allocate the foundational/setup concerns to `v1 (MVP)`; allocate enhancements to `v2`" guidance replaced with a single-line note that all candidates seed into `v1`
+- [ ] No "which milestone?" prompt exists in the interview copy for Step 2G.5
+- [ ] Step 2G.6 edge-construction rule 3 (milestone gate: "drop any edge with a v2 candidate as parent of a v1 candidate") is **deleted**
+- [ ] Step 2G.6 ASCII DAG rendering drops the `[v1]`/`[v2]` node tags; every node renders unadorned
+- [ ] Cycle detection and the other two edge-construction rules (shared component refs, ordering cues) are unchanged
+- [ ] `Grep` for `v2` in `greenfield.md` after edits returns zero hits (other than in Change History / prior-issue attribution if any)
+- [ ] Maps to AC23, FR30 (Issue #98)
+
+### T029: Insert New Step 2G.3a — Version File Initialization (Greenfield)
+
+**File(s)**: `plugins/nmg-sdlc/skills/onboard-project/references/greenfield.md`
+**Type**: Modify
+**Depends**: T027
+**Acceptance**:
+- [ ] New sub-step `## Step 2G.3a Version File Initialization` inserted between `## Step 2G.3 Steering Bootstrap or Enhancement` and `## Step 2G.4 Idempotent Milestone Seeding`
+- [ ] Step 2G.3a probes stack manifests via `git ls-files -- <candidate>` in order: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `mix.exs`, `*.gemspec`, `build.gradle`, `pom.xml` (first match wins)
+- [ ] If `VERSION` exists at project root, preserve; emit `VERSION exists (value: <X>) — preserved`
+- [ ] If `VERSION` does not exist, write with content `0.1.0\n`; emit `VERSION created at 0.1.0`
+- [ ] If a manifest is detected and its version field is non-empty, preserve; emit `Manifest version exists (<path>: <X>) — preserved`
+- [ ] If a manifest is detected and its version field is empty/absent, set to `0.1.0` via the per-format rule (targeted line `Edit`, not full-file rewrite); emit `Manifest version set to 0.1.0 in <path>`
+- [ ] If no manifest is detected, emit `No stack manifest detected — VERSION file seeded without manifest sync`
+- [ ] Per-format read/write rules table included (JSON key for `package.json`, `grep`-style pattern for TOML/Gradle/gemspec/etc.) — matches design.md's "Stack manifest read/write rules"
+- [ ] Contributions to Step 5 Versioning section documented
+- [ ] Maps to AC24, AC25, AC28, FR31, FR32, FR34 (Issue #98)
+
+### T030: Insert Step 2B.0a, Update Step 2B Bullet 3, Extend Step 3B Evidence Set (Brownfield)
+
+**File(s)**: `plugins/nmg-sdlc/skills/onboard-project/references/brownfield.md`
+**Type**: Modify
+**Depends**: T029 (reuses the stack-detection block from 2G.3a)
+**Acceptance**:
+- [ ] New sub-step `## Step 2B.0a Version File Initialization (Brownfield)` inserted at the top of the Step 2B preflight, **before** the steering-bootstrap delegation and the no-issues handler
+- [ ] Step 2B.0a: if VERSION exists → preserve; else if a manifest with a non-empty version exists → mirror that value into VERSION (byte-for-byte, no semver coercion beyond trailing-whitespace trim); else → write `0.1.0`
+- [ ] Step 2B.0a never synthesizes a stack manifest where none exists (AC27)
+- [ ] Step 2B.0a uses the same stack-detection order as Step 2G.3a (cite/reuse rather than duplicate if markdown cross-referencing is cleaner)
+- [ ] Step 2B bullet 3 (brownfield-no-issues) replaced: deterministic route to Step 3B source-backfill mode; emit `brownfield-no-issues: backfilling from source tree`; **no** `AskUserQuestion` gate (supersedes prior "treat as greenfield" offer)
+- [ ] Step 3B evidence-set schema gains a `current_source_tree` field, **always populated** from `git ls-files` filtered by the scaffold allowlist, even when PR evidence exists
+- [ ] Step 3B's `design.md` synthesis adds a `current source tree` row to the Evidence Sources table for each major section
+- [ ] In source-backfill mode (no PR evidence), the PR-based rows are explicitly marked `N/A — source-backfill`
+- [ ] Maps to AC26, AC27, AC28, AC29, AC30, FR33, FR34, FR35, FR36 (Issue #98)
+
+### T031: Update SKILL.md — Mode Matrix, Step Diagram, Error States, Versioning Summary
+
+**File(s)**: `plugins/nmg-sdlc/skills/onboard-project/SKILL.md`
+**Type**: Modify
+**Depends**: T027, T029, T030
+**Acceptance**:
+- [ ] Mode Detection Matrix row 5 (brownfield-no-issues) updated: outcome changes from "offer to treat as greenfield" to "deterministic source-backfill"
+- [ ] Step-by-Step diagram (or equivalent top-level flow) gains `2G.3a` and `2B.0a` nodes in the correct positions
+- [ ] Step 5 summary section includes a new `Versioning` block with three outcome types (created / preserved / no-manifest) for both VERSION and manifest; the block appears before milestone seeding in the summary order
+- [ ] Milestone seeding block in Step 5 collapses from a v1+v2 two-line summary to a single v1 line (note: if a legacy `v1 (MVP)` was detected, the legacy-name warning line is added)
+- [ ] Error States table adds rows: `VERSION read failure`, `Manifest version-field parse failure`, `Polyglot repo — wrong manifest detected` (with mitigations pointing at the summary-logging behavior)
+- [ ] All `v2` references in SKILL.md are removed (the skill no longer mentions v2 as a seeded milestone)
+- [ ] Maps to AC22, AC24, AC26, AC28, FR37, FR38 (Issue #98)
+
+### T032: Update README.md, CHANGELOG.md, Plugin Version Bump
+
+**File(s)**: `README.md`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `VERSION`
+**Type**: Modify
+**Depends**: T031
+**Acceptance**:
+- [ ] `README.md` `/onboard-project` section updated: v1-only milestone seeding; VERSION file + stack-native manifest initialization; brownfield always backfills from source (including zero-issues case)
+- [ ] `CHANGELOG.md` `[Unreleased]`:
+  - **Changed**: `/onboard-project` now seeds only the `v1` milestone (supersedes prior v1+v2 seeding); brownfield mode always backfills specs from tracked source files, including when no closed issues exist (#98)
+  - **Added**: `/onboard-project` now initializes `VERSION` and the detected stack-native manifest (`package.json`, `pyproject.toml`, etc.) to `0.1.0` in greenfield mode; brownfield mode mirrors an existing manifest version into `VERSION` when present (#98)
+- [ ] `plugin.json` version bumped one **minor** level per CLAUDE.md version-bump convention (`enhancement` label → minor, unless this is the last open issue in the milestone — check via `gh issue list --milestone v1 --state open`)
+- [ ] `VERSION` file updated to match `plugin.json` version (per the project's own integrated-versioning convention)
+- [ ] Per CLAUDE.md: **Do NOT** bump the plugin entry's `version` in the marketplace repo's `.claude-plugin/marketplace.json` — that is authoritatively read from the fetched `plugin.json`
+- [ ] Maps to FR37, FR38 (Issue #98)
+
+### T033: Exercise-Test Version Initialization and Brownfield Source-Backfill
+
+**File(s)**: No persistent file changes; exercise testing per `steering/tech.md`
+**Type**: Verify
+**Depends**: T031, T032
+**Acceptance**:
+- [ ] Fixture D (greenfield, no VERSION, no manifest) — run `/onboard-project`; `VERSION` is created at `0.1.0`; no manifest is synthesized; summary notes `No stack manifest detected`
+- [ ] Fixture E (greenfield, no VERSION, has `package.json` without version field) — run `/onboard-project`; `VERSION` created at `0.1.0`; `package.json`'s `version` field set to `0.1.0` via single-line `Edit` (verify diff touches only the `version` key)
+- [ ] Fixture F (brownfield, no VERSION, has `package.json` with `"version": "2.3.1"`) — run `/onboard-project`; `VERSION` created containing `2.3.1`; manifest version unchanged
+- [ ] Fixture G (brownfield, has VERSION at `1.7.2`, has manifest at `1.5.0` — divergent) — run `/onboard-project`; both files preserved as-is (idempotency trumps reconciliation per AC28 / Out of Scope)
+- [ ] Fixture H (brownfield, zero closed issues, has source files) — run `/onboard-project`; no `AskUserQuestion` fires; specs are synthesized from `git ls-files` output filtered by scaffold allowlist; summary routes as `brownfield-no-issues → source-backfill`
+- [ ] Fixture I (greenfield, milestone seeding) — run `/onboard-project`; only `v1` milestone exists in the target repo after run; `v2` is absent; summary's milestone block shows a single v1 line
+- [ ] Fixture J (greenfield on project with pre-existing legacy `v1 (MVP)` milestone) — run `/onboard-project`; legacy milestone is reused (no duplicate `v1` created); summary emits the legacy-name warning
+- [ ] Idempotency re-run: run `/onboard-project` a second time on each fixture; `git status --porcelain` shows zero modifications in all cases
+
+### T034: Run /verify-code Against Amended Skill
+
+**File(s)**: No file changes — runs `/verify-code` against `skills/onboard-project/`
+**Type**: Verify
+**Depends**: T033
+**Acceptance**:
+- [ ] `/verify-code` reports the amended skill still follows stack-agnostic invariant (no hardcoded languages/frameworks beyond the documented stack-detection table in Step 2G.3a / Step 2B.0a, which is allowed because it's enumerating supported *detection targets*, not privileging one)
+- [ ] Every `AskUserQuestion` invocation still guarded by unattended-mode check (the brownfield-no-issues bullet no longer calls `AskUserQuestion` at all — that's the intended change)
+- [ ] All tool refs valid in Steps 2G.3a and 2B.0a (`Read`, `Edit`, `Glob`, `Bash(git:*)`, `Bash(grep:*)` where used)
+- [ ] No `/setup-steering` or `v2` references remain in `SKILL.md`, `references/greenfield.md`, or `references/brownfield.md`
+- [ ] New scenarios in `feature.gherkin` added by #98 parse as valid Gherkin
+- [ ] Maps to FR29–FR38 (full #98 scope verified)
+
+---
+
 ## Dependency Graph
 
 ```
@@ -418,9 +546,15 @@ T015 ──┬──▶ T016
                                                                               ▲
                                                                               │
                                                                        Issue #125 (external blocker)
+
+# Phase 7 — Issue #98 (runs after Phase 6 has shipped)
+
+T026 ──▶ T027 ──▶ T028
+          │
+          └──▶ T029 ──▶ T030 ──▶ T031 ──▶ T032 ──▶ T033 ──▶ T034
 ```
 
-T012 (feature.gherkin) can be written in parallel with Phase 2 since it derives from `requirements.md`, not from implementation. T024 is hard-blocked on Issue #125 landing the autolinking primitive in `/draft-issue`.
+T012 (feature.gherkin) can be written in parallel with Phase 2 since it derives from `requirements.md`, not from implementation. T024 is hard-blocked on Issue #125 landing the autolinking primitive in `/draft-issue`. T028 and T029 can execute in parallel once T027 lands (both edit `greenfield.md` but touch disjoint step sections — the edits merge cleanly). T030 edits `brownfield.md` and depends on T029 only for its stack-detection shared block (cross-reference, not code reuse).
 
 ---
 
@@ -430,6 +564,7 @@ T012 (feature.gherkin) can be written in parallel with Phase 2 since it derives 
 |-------|------|---------|
 | #115 | 2026-04-18 | Initial feature spec |
 | #124 | 2026-04-18 | Added Phase 6 (T015–T026): absorb `/setup-steering`, add greenfield interview, milestone seeding, starter-issue seeding via `/draft-issue` loop, dependency inference + autolinking (consumes Issue #125 primitive), Claude Design URL ingestion, steering-enhancement re-run mode. Updated summary table; T024 hard-blocked on Issue #125. |
+| #98 | 2026-04-23 | Added Phase 7 (T027–T034): narrow milestone seeding to v1 only (T027), drop v2 bucket from candidate schema + DAG gate (T028), insert Step 2G.3a version-file initialization with stack-manifest sync (T029), insert Step 2B.0a + replace brownfield-no-issues bullet + extend Step 3B evidence set (T030), update SKILL.md mode matrix + step diagram + error states + versioning summary (T031), update README/CHANGELOG + plugin version bump (T032), exercise-test against fixtures D–J (T033), run /verify-code against amended skill (T034). Phase 7 routes all SKILL.md/references edits through `/skill-creator` per the project's skill-creator routing convention. |
 
 ---
 
