@@ -1,17 +1,19 @@
 ---
 name: verify-code
-description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows /write-code and precedes /commit-push."
+description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows $nmg-sdlc:write-code and precedes $nmg-sdlc:commit-push."
 ---
 
 # Verify Code
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
 Verify the implementation against specifications, fix any findings, review architecture and test coverage, then update the GitHub issue with evidence.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Verification against a mixed layout produces misleading results.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site in this skill so the runner proceeds through all steps without blocking.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every Codex interactive gate call site in this skill so the runner proceeds through all steps without blocking.
 
 Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
 
@@ -65,7 +67,7 @@ gh issue view #N --json labels --jq '.labels[].name'
 If any label is `spike`, print exactly:
 
 ```
-Spikes don't produce code — run /open-pr to merge the research spec
+Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
 ```
 
 Exit 0 — this is a correctness guard, not a failure. Do NOT post a verification report to the issue, do NOT call the architecture-reviewer subagent, do NOT run exercise testing. The abort fires in both modes.
@@ -144,7 +146,7 @@ Read `references/verification-gates.md` when gates were extracted in Step 1 — 
 
 ### Step 6: Fix Findings
 
-Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `/skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, the `/simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
+Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `$skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, the `$simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
 
 ### Step 7: Generate Verification Report
 
@@ -173,7 +175,7 @@ Remaining issues: [count]
 
 GitHub issue #N updated with verification report.
 
-[If `.codex/unattended-mode` does NOT exist AND passing]: Next step: Run `/open-pr #N` to create a pull request.
+[If `.codex/unattended-mode` does NOT exist AND passing]: Next step: Run `$nmg-sdlc:open-pr #N` to create a pull request.
 [If `.codex/unattended-mode` does NOT exist AND remaining issues]: Deferred items documented — review before creating a PR.
 [If `.codex/unattended-mode` does NOT exist AND failing]: Critical issues remain — address the items above before creating a PR.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
@@ -197,8 +199,8 @@ GitHub issue #N updated with verification report.
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                                                                ▲ You are here
 ```
 
-`/simplify` is an optional external marketplace skill. When installed, it runs once between `/write-code` and `/verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes. When not installed, the step logs a warning and proceeds.
+`$simplify` is an optional external marketplace skill. When installed, it runs once between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes. When not installed, the step logs a warning and proceeds.

@@ -2,7 +2,7 @@
 
 **Consumed by**: `write-spec` Phase 0 HRG (spike umbrella+children scope shape) and Phase 3 Seal-Spec Flow (multi-PR triggered).
 
-**Read this when** `/write-spec` needs to produce an umbrella+children structure — either because the Phase 0 Human Review Gate chose "Umbrella+Children" for a spike issue, or because the Phase 3 Seal-Spec Flow detected a `## Multi-PR Rollout` heading in `design.md`. The authoritative machinery for each piece lives where noted in § Authoritative Sources.
+**Read this when** `$nmg-sdlc:write-spec` needs to produce an umbrella+children structure — either because the Phase 0 Human Review Gate chose "Umbrella+Children" for a spike issue, or because the Phase 3 Seal-Spec Flow detected a `## Multi-PR Rollout` heading in `design.md`. The authoritative machinery for each piece lives where noted in § Authoritative Sources.
 
 ---
 
@@ -136,13 +136,13 @@ gh issue edit #{U} --add-sub-issue #{child-N}
 2. Create each child issue in dependency order (leaves first). Capture each `#{child-N}`.
 3. Update the umbrella's child checklist with the real issue numbers (edit the body).
 4. Run the autolink loop: for each child, `gh issue edit #{U} --add-sub-issue #{child-N}` (probe first).
-5. Record `epicParentNumber = U` in the session state for `/open-pr` step 2 epic-child downgrade.
+5. Record `epicParentNumber = U` in the session state for `$nmg-sdlc:open-pr` step 2 epic-child downgrade.
 
 ---
 
 ## Authoritative Sources
 
-This reference gives `/write-spec` a single production recipe. The *machinery* for each behaviour lives in:
+This reference gives `$nmg-sdlc:write-spec` a single production recipe. The *machinery* for each behaviour lives in:
 
 | Behavior | Authoritative Source |
 |-----------|---------------------|

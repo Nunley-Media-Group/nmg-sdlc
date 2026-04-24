@@ -12,7 +12,7 @@ gh issue view #N --json labels --jq '.labels[].name'
 
 If any label is `spike`, this is a **spike issue** and the variant below replaces the normal Phase 1 / Phase 2 / Phase 3 workflow.
 
-**Precedence**: spike takes precedence over `bug`. A label-carrying issue is never both at the same time (Step 2 classification in `/draft-issue` forces one or the other), but if both labels appear the spike variant wins — research has not yet reached "minimal fix" certainty, so the defect variant is premature.
+**Precedence**: spike takes precedence over `bug`. A label-carrying issue is never both at the same time (Step 2 classification in `$nmg-sdlc:draft-issue` forces one or the other), but if both labels appear the spike variant wins — research has not yet reached "minimal fix" certainty, so the defect variant is premature.
 
 ## Skipping Spec Discovery
 
@@ -27,7 +27,7 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
    - The full issue body (Research Questions, Candidate Set, Time-box, Expected Output Shape, Honest-Gap Protocol).
    - `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
 3. **Idempotency check**: file discovery for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
-   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `/write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
+   - Match found → load the existing ADR and skip to step 9 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `$nmg-sdlc:write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
    - No match → proceed to step 4.
 4. **Run the research pass**: perform the research inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
@@ -42,41 +42,41 @@ Execute in order — the commit-before-HRG rule (step 7) is not optional:
     The commit scope MUST be only `docs/decisions/`.
 8. **Push** `HEAD` so the ADR is on the remote before the user is asked to choose a scope shape.
 9. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
-10. **Emit the next-step hint**: `Next step: /open-pr #{N} to ship the ADR`.
+10. **Emit the next-step hint**: `Next step: $nmg-sdlc:open-pr #{N} to ship the ADR`.
 
 ## Human Review Gate menu (interactive)
 
-Call interactive user prompt with three options — the HRG decides how the research output flows into GitHub:
+Present a Codex interactive gate with three options — the HRG decides how the research output flows into GitHub:
 
 ```
 question: "Phase 0 research complete. Choose a scope shape:"
 options:
   - "[1] Single-PR — append findings to the spike issue and ship the ADR alone"
   - "[2] Umbrella+Children — create an umbrella issue plus child implementation issues"
-  - "[3] Re-scope+Redraft — edit the spike issue body with refined scope, then re-run /write-spec"
+  - "[3] Re-scope+Redraft — edit the spike issue body with refined scope, then re-run $nmg-sdlc:write-spec"
 ```
 
 ### [1] Single-PR
 
 - `gh issue comment #{N} --body "{ADR summary — the Recommendation section verbatim}"`.
-- Keep the ADR commit as the deliverable. `/open-pr` will ship it without a version bump.
+- Keep the ADR commit as the deliverable. `$nmg-sdlc:open-pr` will ship it without a version bump.
 
 ### [2] Umbrella+Children
 
 - Follow `references/umbrella-mode.md` to produce the umbrella issue and the child implementation issues. The umbrella body quotes the ADR's Recommendation and links the `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` file path.
-- Children are created via `/draft-issue` batch mode seeded from the researcher's Decomposition section (one child per component).
+- Children are created via `$nmg-sdlc:draft-issue` batch mode seeded from the researcher's Decomposition section (one child per component).
 - Each child carries `Depends on: #{umbrella-N}` in its body (machine-read by `skills/open-pr/references/version-bump.md` § 4a for the epic-child sibling-aware downgrade).
 - Label children `epic-child-of-{U}` plus `enhancement` or `bug` based on the child's type.
 
 ### [3] Re-scope+Redraft
 
 - `gh issue edit #{N} --body "{refined body}"` — use the researcher's Honest Gaps section to narrow the research questions.
-- Print: `Re-scope complete. Re-run /write-spec #{N} to revisit with the refined scope.` and exit.
+- Print: `Re-scope complete. Re-run $nmg-sdlc:write-spec #{N} to revisit with the refined scope.` and exit.
 - The previously committed ADR remains in `docs/decisions/` as a record of the first research pass. Later spike runs append new dated ADRs rather than rewriting this one.
 
 ## Unattended deterministic default
 
-Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call interactive user prompt — apply the default below and emit a one-line divergence note.
+Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT present a Codex interactive gate — apply the default below and emit a one-line divergence note.
 
 | `component-count` (from researcher output) | Default scope shape |
 |---|---|
@@ -101,7 +101,7 @@ The spike variant must NEVER produce:
 - `specs/{feature-name}/tasks.md`
 - `specs/{feature-name}/feature.gherkin`
 
-The ADR is the sole deliverable of `/write-spec` on a spike issue. Any child issues created under HRG [2] carry their own requirements in their body (authored via `/draft-issue`); they are not backed by a spec directory until `/start-issue` and `/write-spec` are run on each child independently.
+The ADR is the sole deliverable of `$nmg-sdlc:write-spec` on a spike issue. Any child issues created under HRG [2] carry their own requirements in their body (authored via `$nmg-sdlc:draft-issue`); they are not backed by a spec directory until `$nmg-sdlc:start-issue` and `$nmg-sdlc:write-spec` are run on each child independently.
 
 ## Cross-references
 

@@ -18,16 +18,16 @@ If **either** glob returns at least one match, the project is on the legacy layo
 Abort the current skill and print exactly:
 
 ```
-This project still uses the legacy `.codex/steering/` and/or `.codex/specs/` layout. Current Codex releases protect `.codex/` from Edit/Write, so SDLC artifacts must live at the project root. Run `/upgrade-project` to relocate them, then re-run `/{current-skill}`.
+This project still uses the legacy `.codex/steering/` and/or `.codex/specs/` layout. Current Codex releases protect `.codex/` from Edit/Write, so SDLC artifacts must live at the project root. Run `$nmg-sdlc:upgrade-project` to relocate them, then re-run `/{current-skill}`.
 ```
 
-Replace `{current-skill}` with the consuming skill's slash-command name (e.g., `/write-spec`, `/draft-issue`).
+Replace `{current-skill}` with the consuming skill's slash-command name (e.g., `$nmg-sdlc:write-spec`, `$nmg-sdlc:draft-issue`).
 
 ## Invariants
 
 - The gate fires in **both** interactive and unattended mode — the legacy layout is a hard block for Edit/Write, not a user-preference question. Do not silently proceed, do not prompt, and do not attempt a workaround.
 - The message is reasoning-first (the *why* precedes the *how*) and omits a rigid `ERROR:` prefix. No downstream parser depends on the old prefix — the SDLC runner detects failures from exit code and sentinel output, not from this string.
-- `/upgrade-project` is the **only** skill that resolves this gate. It runs its own legacy-layout detection in Step 1.5 and performs the relocation (`git mv .codex/steering → steering`, `git mv .codex/specs → specs`, and cross-reference rewrites). All other consumers abort.
+- `$nmg-sdlc:upgrade-project` is the **only** skill that resolves this gate. It runs its own legacy-layout detection in Step 1.5 and performs the relocation (`git mv .codex/steering → steering`, `git mv .codex/specs → specs`, and cross-reference rewrites). All other consumers abort.
 
 ## Runtime artifacts stay under `.codex/`
 

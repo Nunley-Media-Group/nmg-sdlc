@@ -7,12 +7,14 @@ description: "Upgrade a project to the latest nmg-sdlc contract — relocate leg
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
 Bring an existing project forward to the current nmg-sdlc contract. The skill covers two related jobs:
 
 1. **Directory relocation** — move `.codex/steering/` → `steering/` and `.codex/specs/` → `specs/` at the project root (current Codex releases protect `.codex/` from Edit/Write; canonical SDLC artifacts must live at the root).
 2. **Template reconciliation** — diff existing steering docs, spec files, and runner configs against current templates and merge missing sections while preserving all user content.
 
-`/upgrade-project` is the **only** pipeline skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md` — every other skill aborts on the legacy layout and points users here.
+`$nmg-sdlc:upgrade-project` is the **only** pipeline skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md` — every other skill aborts on the legacy layout and points users here.
 
 This skill is **self-updating**: it reads templates at runtime, so when templates gain new sections, this skill detects them automatically without any code changes.
 
@@ -32,7 +34,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 | Destructive | Spec directory consolidation, legacy spec-directory deletes (Steps 4b–4e) | Skipped; recorded under "Skipped Operations (Unattended-Mode)" |
 | Informational only | Config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval |
 
-When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via interactive user prompt per Step 8.
+When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via Codex interactive gate per Step 8.
 
 ## What Gets Analyzed
 
@@ -87,7 +89,7 @@ specs/*/tasks.md
 sdlc-config.json
 ```
 
-**Only analyze files that already exist.** Do not create missing files — suggest `/onboard-project` or `/write-spec` for that.
+**Only analyze files that already exist.** Do not create missing files — suggest `$nmg-sdlc:onboard-project` or `$nmg-sdlc:write-spec` for that.
 
 ### Step 3: Analyze Steering Docs
 
@@ -159,22 +161,22 @@ The approval flow has four parts:
 
 #### Part A: Steering doc sections (per-section approval)
 
-If there are proposed steering doc sections, present them via interactive user prompt with `multiSelect: true`. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
+If there are proposed steering doc sections, present a Codex interactive gate with a numbered checklist. Each option represents one section for one file (label format: `tech.md: Testing Standards`; description: brief intent). Ask the user to reply with comma-separated numbers, `all`, or `none`. Sections the user does **not** select are treated as declined and persisted in Step 9. Skip Part A if all sections were filtered.
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group interactive user prompt for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
+Per-group Codex interactive gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, or VERSION changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
-If Step 5 found drifted scalars, present them via interactive user prompt with `multiSelect: true`. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
+If Step 5 found drifted scalars, present a Codex interactive gate with a numbered checklist. Each option label shows `dotted.key.path: current → template`; descriptions provide brief context about the key's purpose. Ask the user to reply with comma-separated numbers, `all`, or `none`. Unselected values are left unchanged — drift is re-evaluated every run (no exclusions persistence for drift). Skip Part C if no drift was found.
 
 #### Part D: Recommended runner defaults diff (batch approve)
 
 This flow is additive — Parts A/B/C are unchanged. Part D specifically surfaces changes to the per-step `model` / `effort` / `maxTurns` / `timeoutMin` defaults so users upgrading across plugin versions can adopt the shipped recommendations without clicking through each field individually.
 
 1. **Build the diff** for each step in `steps.*` against `scripts/sdlc-config.example.json`. Include only fields where the user's value differs from (or inherits a value different than) the shipped example. Present unset/inherited values as `(unset — inherited "<global>")` so the source of each value is visible.
-2. **Present the diff** in a single interactive user prompt with three options:
+2. **Present the diff** in a single Codex interactive gate with three options:
    - `Apply all recommended defaults`.
    - `Review each field individually (falls back to Part C behavior)`.
    - `Decline — keep my current values`.
@@ -200,7 +202,7 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
     ## Skipped Operations (Unattended-Mode)
 
     The following destructive operations were skipped because `.codex/unattended-mode` is active.
-    Run `/upgrade-project` interactively to apply them.
+    Run `$nmg-sdlc:upgrade-project` interactively to apply them.
 
     | Operation Type | Affected Paths | Reason |
     |---------------|----------------|--------|
@@ -231,11 +233,11 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 Run this skill periodically after plugin updates to keep project files current:
 
 ```
-/onboard-project (one-time)
+$nmg-sdlc:onboard-project (one-time)
          ↓
-/upgrade-project (after plugin updates)
+$nmg-sdlc:upgrade-project (after plugin updates)
          ↓
-/draft-issue  →  /start-issue  →  /write-spec  →  /write-code  →  /simplify  →  /verify-code  →  /commit-push  →  /open-pr  →  /address-pr-comments
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue  →  $nmg-sdlc:write-spec  →  $nmg-sdlc:write-code  →  $simplify  →  $nmg-sdlc:verify-code  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr  →  $nmg-sdlc:address-pr-comments
 ```
 
-Next step: Once the upgrade completes, resume your normal SDLC workflow — run `/draft-issue` for new work or `/start-issue` to pick up an existing issue.
+Next step: Once the upgrade completes, resume your normal SDLC workflow — run `$nmg-sdlc:draft-issue` for new work or `$nmg-sdlc:start-issue` to pick up an existing issue.

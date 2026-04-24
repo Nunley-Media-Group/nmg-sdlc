@@ -2,7 +2,7 @@
 
 **Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `ambiguous` or `disagreement`, and by `references/fix-loop.md` when a `clear-fix` thread's postcondition gate fails. Both branches share the same skipped-set behaviour — the only difference is whether the user is prompted (interactive) or a sentinel is emitted (unattended).
 
-The two modes diverge on who makes the call. Interactive runs route the decision to the user via interactive user prompt because the wrong fix on a borderline thread is costly and a human can disambiguate in seconds. Unattended runs emit a machine-readable `ESCALATION:` sentinel and skip — the SDLC runner parses the sentinel and surfaces the thread to a human later, rather than guessing and potentially closing a thread with a wrong reply.
+The two modes diverge on who makes the call. Interactive runs route the decision to the user via Codex interactive gate because the wrong fix on a borderline thread is costly and a human can disambiguate in seconds. Unattended runs emit a machine-readable `ESCALATION:` sentinel and skip — the SDLC runner parses the sentinel and surfaces the thread to a human later, rather than guessing and potentially closing a thread with a wrong reply.
 
 ## Mode Selection
 
@@ -10,7 +10,7 @@ Read `../../references/unattended-mode.md` when deciding which branch below to t
 
 ## Interactive Branch
 
-When the cached sentinel is absent, prompt via interactive user prompt:
+When the cached sentinel is absent, prompt via Codex interactive gate:
 
 ```
 Question: "PR #{N} thread on {path}:{line} — {classification}. Rationale: {rationale}.
@@ -46,7 +46,7 @@ ESCALATION: address-pr-comments — pr=#{N} thread={node_id} classification={cla
 Rules:
 
 - One line per escalated thread. No surrounding blank line, no trailing period.
-- Never call interactive user prompt. Do not offer a fallback prompt and do not block on any input — that would hang the runner.
+- Never present a Codex interactive gate. Do not offer a fallback prompt and do not block on any input — that would hang the runner.
 - `{one-sentence}` is the one-sentence rationale from Step 3. If it contains a newline (it should not — `references/classification.md` caps it at one sentence), replace any newline with a space before emitting.
 - After emitting, add the thread to the in-process skipped-set and continue to the next thread.
 - Do NOT post a reply in unattended mode. The SDLC runner's escalation handling is responsible for looping a human into the decision; posting a reply preemptively would clutter the PR and could mislead the reviewer.
@@ -55,7 +55,7 @@ The sentinel pattern `^ESCALATION: address-pr-comments — ` is the anchor the S
 
 ## Shared Skipped-Set Semantics
 
-Both branches add escalated threads to an in-process `skipped-set` keyed by GraphQL `threadId`. The set is intentionally ephemeral — it is not persisted to disk and it is cleared on every new invocation of `/address-pr-comments`. Two invariants hold:
+Both branches add escalated threads to an in-process `skipped-set` keyed by GraphQL `threadId`. The set is intentionally ephemeral — it is not persisted to disk and it is cleared on every new invocation of `$nmg-sdlc:address-pr-comments`. Two invariants hold:
 
 1. **Within a single invocation**: a thread in the skipped-set is excluded from every subsequent `references/fetch-threads.md` re-fetch (see `references/polling.md` § Round Re-Fetch). This prevents the loop from repeatedly prompting the user about the same thread, and prevents unattended mode from emitting the same escalation sentinel every round.
 2. **Across invocations**: a new invocation re-fetches from scratch. A thread the user skipped yesterday will be re-evaluated today — the user may have addressed it manually in the meantime, or may have decided they want the prompt again.

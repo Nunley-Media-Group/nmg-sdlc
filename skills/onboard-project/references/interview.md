@@ -4,7 +4,7 @@
 
 ## Rounds (in order)
 
-Conduct via interactive user prompt, one question per round:
+Conduct via Codex interactive gate, one question per round:
 
 1. **Vision** — what is the product? *(open-ended)*
 2. **Target users / personas** — who is it for? *(open-ended)*
@@ -34,6 +34,6 @@ Store the answers as `interview_context` for use by 2G.3 (steering bootstrap), 2
 
 ## Why these seven rounds
 
-The trio (vision/personas/success criteria) populates `product.md` and provides the framing every starter issue needs. The trio (language/framework/test tooling) is the minimum signal `tech.md` needs to drive `/write-spec`'s technical-design phase. Deployment target rounds out `tech.md`'s constraints (e.g., serverless cold-start considerations vs. long-running server semantics). Skipping any round leaves a `tech.md` field unanswered and forces a follow-up edit later — better to ask once now.
+The trio (vision/personas/success criteria) populates `product.md` and provides the framing every starter issue needs. The trio (language/framework/test tooling) is the minimum signal `tech.md` needs to drive `$nmg-sdlc:write-spec`'s technical-design phase. Deployment target rounds out `tech.md`'s constraints (e.g., serverless cold-start considerations vs. long-running server semantics). Skipping any round leaves a `tech.md` field unanswered and forces a follow-up edit later — better to ask once now.
 
 Emit at the end: `Interview: complete (N rounds, K defaults applied unattended)`.

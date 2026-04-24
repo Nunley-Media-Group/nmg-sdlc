@@ -1,19 +1,21 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, VERSION + manifest setup, v1 milestone seeding, and starter issues via /draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Optionally ingests a Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use /write-spec), template upgrades (use /upgrade-project), or issue/PR creation. Delegates to /init-config, /upgrade-project, and /draft-issue where appropriate. Pipeline position: runs once per project lifetime, before /draft-issue."
+description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, VERSION + manifest setup, v1 milestone seeding, and starter issues via $nmg-sdlc:draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Optionally ingests a Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use $nmg-sdlc:write-spec), template upgrades (use $nmg-sdlc:upgrade-project), or issue/PR creation. Delegates to $nmg-sdlc:init-config, $nmg-sdlc:upgrade-project, and $nmg-sdlc:draft-issue where appropriate. Pipeline position: runs once per project lifetime, before $nmg-sdlc:draft-issue."
 ---
 
 # Onboard Project
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
 Single entry point for adopting nmg-sdlc on a project that isn't already spec-driven. Detects whether the project is **greenfield** (no code, no specs), **greenfield-enhancement** (steering exists, specs do not — re-run on a previously bootstrapped project), **brownfield** (existing code and closed issues but no specs), or **already-initialized**, then routes work to the matching branch.
 
 This skill **delegates rather than duplicates**:
 
-- Runner config generation → `/init-config`
-- Template drift on already-initialized projects → `/upgrade-project`
-- Starter-issue authoring → `/draft-issue` (one invocation per seeded candidate)
+- Runner config generation → `$nmg-sdlc:init-config`
+- Template drift on already-initialized projects → `$nmg-sdlc:upgrade-project`
+- Starter-issue authoring → `$nmg-sdlc:draft-issue` (one invocation per seeded candidate)
 - Spec template structure → read from `../write-spec/templates/`
 
 Steering bootstrap and steering enhancement run **inside** this skill. Steering templates live at `templates/`. The skill owns mode detection, the Step 5 summary, and the per-mode routing; the variant-specific work lives in the references below so a typical run only loads the branch it actually takes.
@@ -26,9 +28,9 @@ Steering bootstrap and steering enhancement run **inside** this skill. Steering 
 
 ## When NOT to Use
 
-- To write a spec for a new feature (use `/write-spec`).
-- To update existing specs to current templates (use `/upgrade-project`).
-- To create GitHub issues or PRs (use `/draft-issue` or `/open-pr`).
+- To write a spec for a new feature (use `$nmg-sdlc:write-spec`).
+- To update existing specs to current templates (use `$nmg-sdlc:upgrade-project`).
+- To create GitHub issues or PRs (use `$nmg-sdlc:draft-issue` or `$nmg-sdlc:open-pr`).
 
 ## Prerequisites
 
@@ -58,12 +60,12 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 When `.codex/unattended-mode` exists, the unattended-mode contract from `../../references/unattended-mode.md` applies. Skill-specific defaults applied in unattended mode:
 
-- All interactive user prompt prompts skipped — defaults from the priority chain in `references/interview.md` apply.
+- All Codex interactive gates skipped — defaults from the priority chain in `references/interview.md` apply.
 - Consolidation groups (brownfield) auto-accepted as proposed.
 - Inferred dependency DAG auto-accepted; the proposed graph is logged for the summary.
 - Starter-issue candidate cut to ≤ 7 applied automatically when interview output exceeds the cap.
-- `/init-config` invocation after greenfield bootstrap auto-yes.
-- Already-initialized mode auto-delegates to `/upgrade-project`.
+- `$nmg-sdlc:init-config` invocation after greenfield bootstrap auto-yes.
+- Already-initialized mode auto-delegates to `$nmg-sdlc:upgrade-project`.
 - Every auto-decision is logged in the final summary so the run can be audited.
 
 ---
@@ -93,16 +95,16 @@ Store the evidence for the Step 5 summary. Proceed to the branch matching the de
 
 ### Step 2G: Greenfield (or Greenfield-Enhancement)
 
-Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the eight sub-steps (design URL ingest, interview, steering bootstrap/enhance, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `/init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
+Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the eight sub-steps (design URL ingest, interview, steering bootstrap/enhance, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `$nmg-sdlc:init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
 
-After Step 2G's seeding loop completes, the same reference covers Step 3G's prompt-vs-auto contract for delegating to `/init-config`. Then jump to Step 5 (Summary). Greenfield does not reconcile specs.
+After Step 2G's seeding loop completes, the same reference covers Step 3G's prompt-vs-auto contract for delegating to `$nmg-sdlc:init-config`. Then jump to Step 5 (Summary). Greenfield does not reconcile specs.
 
-### Step 2I: Already-Initialized — Route to /upgrade-project
+### Step 2I: Already-Initialized — Route to $nmg-sdlc:upgrade-project
 
 1. List the existing spec directories under `specs/` so the user can audit what is already present.
-2. In interactive mode, interactive user prompt: `[1] Delegate to /upgrade-project now`, `[2] Exit without changes`.
+2. In interactive mode, Codex interactive gate: `[1] Delegate to $nmg-sdlc:upgrade-project now`, `[2] Exit without changes`.
 3. In unattended mode, auto-accept option 1. Log the auto-decision.
-4. On accept, invoke `/upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
+4. On accept, invoke `$nmg-sdlc:upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
 5. On decline, exit cleanly — jump to Step 5 summary with no specs modified.
 6. This branch MUST NOT read, modify, or overwrite any existing spec file.
 
@@ -119,7 +121,7 @@ Both live in `references/brownfield.md` as covered above (Step 3B is the per-iss
 Emit a structured summary with these sections:
 
 1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized.
-2. **Delegated skills invoked** — each of `/init-config`, `/upgrade-project`, and every `/draft-issue` invocation that ran, with success/failure status.
+2. **Delegated skills invoked** — each of `$nmg-sdlc:init-config`, `$nmg-sdlc:upgrade-project`, and every `$nmg-sdlc:draft-issue` invocation that ran, with success/failure status.
 3. **Greenfield only — Design URL fetch result** — `success (N bytes, M entries)`, `skipped (no URL provided)`, or `failed (<reason>)`.
 4. **Greenfield only — Interview defaults applied** — for each round, the value applied and its source (`from existing steering`, `from design context`, `from template default`, or `user input`).
 5. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.3a or 2B.0a ran) — two-line outcome block emitted before milestones:
@@ -133,7 +135,7 @@ Emit a structured summary with these sections:
    #200 Set up basic API           (parents: —, blocks: #201, #202)
    #201 Add user profile           (parents: #200, blocks: —)
    #202 Add caching layer          (parents: #200, blocks: —)
-   #203 FAILED — /draft-issue exited 1
+   #203 FAILED — $nmg-sdlc:draft-issue exited 1
    ```
 
 9. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
@@ -150,9 +152,9 @@ Emit a structured summary with these sections:
 13. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
 14. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
 15. **Next step** —
-    - Greenfield: `Run /start-issue on a seeded starter (e.g., #<first-seeded-issue>), or /draft-issue to add more.`
-    - Brownfield: `Review the reconciled specs, then run /draft-issue for new work or /upgrade-project to bring reconciled specs up to the latest templates.`
-    - Already-initialized (after `/upgrade-project`): `Run /draft-issue for the next feature.`
+    - Greenfield: `Run $nmg-sdlc:start-issue on a seeded starter (e.g., #<first-seeded-issue>), or $nmg-sdlc:draft-issue to add more.`
+    - Brownfield: `Review the reconciled specs, then run $nmg-sdlc:draft-issue for new work or $nmg-sdlc:upgrade-project to bring reconciled specs up to the latest templates.`
+    - Already-initialized (after `$nmg-sdlc:upgrade-project`): `Run $nmg-sdlc:draft-issue for the next feature.`
 
 If `.codex/unattended-mode` exists, replace the "Next step" with `Done. Awaiting orchestrator.`
 
@@ -172,7 +174,7 @@ If `.codex/unattended-mode` exists, replace the "Next step" with `Done. Awaiting
 | Polyglot repo — wrong manifest detected | Detection is first-match-wins against the documented order; Step 5 summary names the detected manifest path so the choice is auditable; user can rename or remove the unintended manifest before re-running |
 | Milestone creation fails (greenfield) | Per-milestone gap recorded; loop continues; run does not abort |
 | Dependency DAG cycle detected (greenfield) | Wiring step skipped entirely; seeding loop proceeds without autolinks; recorded for summary |
-| `/draft-issue` invocation fails for one candidate (greenfield) | Per-issue gap recorded; loop continues with remaining candidates |
+| `$nmg-sdlc:draft-issue` invocation fails for one candidate (greenfield) | Per-issue gap recorded; loop continues with remaining candidates |
 | Single issue fails reconciliation (brownfield) | Recorded as gap; run continues |
 | Spec dir already exists at target slug (brownfield) | Skipped, recorded in summary |
 | Spec references removed source file (brownfield) | Spec still written; gap recorded in summary |
@@ -181,11 +183,11 @@ If `.codex/unattended-mode` exists, replace the "Next step" with `Done. Awaiting
 
 ## Integration with SDLC Workflow
 
-This is the one-time adoption step for projects that aren't yet spec-driven. It runs before `/draft-issue` and produces the artifacts the pipeline depends on (`steering/` docs and, for brownfield, a seed population of specs).
+This is the one-time adoption step for projects that aren't yet spec-driven. It runs before `$nmg-sdlc:draft-issue` and produces the artifacts the pipeline depends on (`steering/` docs and, for brownfield, a seed population of specs).
 
 ```
                        ┌─────────────────────────────────────────────────┐
-                       │ /onboard-project (once per project)             │
+                       │ $nmg-sdlc:onboard-project (once per project)             │
                        │   ├── greenfield  → design URL ingest (opt)     │
                        │   │                 → interview (vision/tech)   │
                        │   │                 → steering bootstrap        │
@@ -193,8 +195,8 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   │                   (Step 2G.3a)              │
                        │   │                 → seed v1 milestone         │
                        │   │                 → seed 3–7 starter issues   │
-                       │   │                   via /draft-issue loop     │
-                       │   │                 → /init-config              │
+                       │   │                   via $nmg-sdlc:draft-issue loop     │
+                       │   │                 → $nmg-sdlc:init-config              │
                        │   ├── greenfield-enhancement (re-run)           │
                        │   │                 → in-place steering Edit    │
                        │   │                 → skip already-seeded       │
@@ -203,8 +205,8 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   │                 → reconcile specs (incl.    │
                        │   │                   source-tree backfill when │
                        │   │                   no closed issues exist)   │
-                       │   └── initialized → /upgrade-project            │
+                       │   └── initialized → $nmg-sdlc:upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
 ```

@@ -1,13 +1,15 @@
 ---
 name: commit-push
-description: "Stage, bump version, commit with conventional-commit message, fetch, rebase if diverged, and push the feature branch. Use when user says 'commit and push', 'push my changes', 'push to remote', 'commit the work', 'ship the commit', or when the SDLC runner invokes the commitPush step. Do NOT use for creating PRs, merging, or verifying code. Handles force-with-lease safely under unattended mode after a rebase. Sixth step in the SDLC pipeline — follows /verify-code and precedes /open-pr."
+description: "Stage, bump version, commit with conventional-commit message, fetch, rebase if diverged, and push the feature branch. Use when user says 'commit and push', 'push my changes', 'push to remote', 'commit the work', 'ship the commit', or when the SDLC runner invokes the commitPush step. Do NOT use for creating PRs, merging, or verifying code. Handles force-with-lease safely under unattended mode after a rebase. Sixth step in the SDLC pipeline — follows $nmg-sdlc:verify-code and precedes $nmg-sdlc:open-pr."
 ---
 
 # Commit and Push
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Stage implementation work, bump the project version, write a conventional-commit message, reconcile with the remote base branch if necessary, and push the feature branch. Owns history reconciliation for the pipeline so `/open-pr` can stay scoped to PR creation.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
+Stage implementation work, bump the project version, write a conventional-commit message, reconcile with the remote base branch if necessary, and push the feature branch. Owns history reconciliation for the pipeline so `$nmg-sdlc:open-pr` can stay scoped to PR creation.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
@@ -91,7 +93,7 @@ The push branches on four signals: remote tracking state, whether Step 5 rebased
    ```
    Where `$EXPECTED_SHA` is the `origin/{branch}` SHA recorded **before** the rebase (the `git fetch` output). The safe-lease check fails if the remote advanced between the fetch and the push — this is the safety envelope.
 4. **Tracking exists, `rebased === true`, sentinel absent** (interactive mode):
-   Use interactive user prompt with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
+   Present a Codex interactive gate with options `[1] Force-push with lease` and `[2] Abort — resolve manually`. Proceed with the user's selection. Abort exits non-zero.
 
 Read `references/rebase-and-push.md` § "Safe lease" for the exact `--force-with-lease` invocation and the recovery path when the lease check rejects the push.
 
@@ -117,7 +119,7 @@ Version bump: {old → new | none}
 Rebased: {yes | no}
 Force-with-lease used: {yes | no}
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/open-pr #N` to open a pull request.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:open-pr #N` to open a pull request.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
@@ -126,8 +128,8 @@ Force-with-lease used: {yes | no}
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                                                                   ▲ You are here
 ```
 
-The commit-push skill is invoked by the SDLC runner as the `commitPush` step. Its postcondition — `origin/{branch}` matches `HEAD` after push — is the precondition for `/open-pr`, which checks ancestry with `origin/main` but no longer pushes.
+The commit-push skill is invoked by the SDLC runner as the `commitPush` step. Its postcondition — `origin/{branch}` matches `HEAD` after push — is the precondition for `$nmg-sdlc:open-pr`, which checks ancestry with `origin/main` but no longer pushes.

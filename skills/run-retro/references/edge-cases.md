@@ -2,7 +2,7 @@
 
 **Consumed by**: `run-retro` whenever an input file is missing, malformed, or in an unexpected state.
 
-`/run-retro` must run reliably over an accumulating archive of defect specs — a partially hand-edited state file, a deleted defect spec, or a `**Related Spec**` chain that no longer resolves cannot halt the retrospective. Every graceful-degradation path below is safe to apply silently or with a one-line warning; none of them should escalate in unattended mode.
+`$nmg-sdlc:run-retro` must run reliably over an accumulating archive of defect specs — a partially hand-edited state file, a deleted defect spec, or a `**Related Spec**` chain that no longer resolves cannot halt the retrospective. Every graceful-degradation path below is safe to apply silently or with a one-line warning; none of them should escalate in unattended mode.
 
 ## Defect-spec and chain conditions
 

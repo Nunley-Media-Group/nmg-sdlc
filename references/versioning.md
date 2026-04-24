@@ -6,7 +6,7 @@
 
 The `VERSION` file at the project root holds the current semver string (`X.Y.Z`). Stack-specific files are derived from it. When a skill needs the current version, it reads `VERSION`.
 
-If `VERSION` is absent or does not parse as semver, `/open-pr` skips the version-bump steps entirely and warns in the output; `/draft-issue` skips milestone assignment (omits `--milestone` from `gh issue create`).
+If `VERSION` is absent or does not parse as semver, `$nmg-sdlc:open-pr` skips the version-bump steps entirely and warns in the output; `$nmg-sdlc:draft-issue` skips milestone assignment (omits `--milestone` from `gh issue create`).
 
 ## Bump classification matrix
 
@@ -19,15 +19,15 @@ Matching rules (not captured in the table itself):
 
 ## Major bumps are manual-only
 
-Major-version bumps are not triggered by labels, milestones, or breaking-change annotations. A developer opts in explicitly on the `/open-pr` invocation:
+Major-version bumps are not triggered by labels, milestones, or breaking-change annotations. A developer opts in explicitly on the `$nmg-sdlc:open-pr` invocation:
 
 ```
-/open-pr #N --major
+$nmg-sdlc:open-pr #N --major
 ```
 
-The `--major` flag forces bump type `major` (`X.Y.Z → (X+1).0.0`) regardless of the classified type. When the flag is absent, `/open-pr` can only produce a patch or minor bump.
+The `--major` flag forces bump type `major` (`X.Y.Z → (X+1).0.0`) regardless of the classified type. When the flag is absent, `$nmg-sdlc:open-pr` can only produce a patch or minor bump.
 
-**Unattended-mode escalation.** When `.codex/unattended-mode` exists AND `--major` is present, `/open-pr` prints:
+**Unattended-mode escalation.** When `.codex/unattended-mode` exists AND `--major` is present, `$nmg-sdlc:open-pr` prints:
 
 ```
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
@@ -41,7 +41,7 @@ Every version bump updates `.codex-plugin/plugin.json` at the plugin root:
 
 1. `.codex-plugin/plugin.json` — plugin manifest `version`
 
-Projects may declare additional stack-specific files in `steering/tech.md` under `## Versioning` (e.g., `package.json`, `Cargo.toml`, plain-text files). `/open-pr` reads that table and updates every listed file in lock-step with `VERSION`.
+Projects may declare additional stack-specific files in `steering/tech.md` under `## Versioning` (e.g., `package.json`, `Cargo.toml`, plain-text files). `$nmg-sdlc:open-pr` reads that table and updates every listed file in lock-step with `VERSION`.
 
 ## CHANGELOG conventions
 
@@ -62,7 +62,7 @@ Breaking changes still use a **minor** bump — the bump type is classification-
 
 ## Epic-child bump downgrade
 
-For epic children (issues linked as `Depends on: #{epic}` under an issue labeled `epic`), `/open-pr` downgrades the bump when at least one sibling child issue is still incomplete. The rule:
+For epic children (issues linked as `Depends on: #{epic}` under an issue labeled `epic`), `$nmg-sdlc:open-pr` downgrades the bump when at least one sibling child issue is still incomplete. The rule:
 
 - Every sibling complete (merged) → classification stands (`siblingClass = 'final'`).
 - At least one sibling incomplete → force `bump_type = 'patch'` (`siblingClass = 'intermediate'`).

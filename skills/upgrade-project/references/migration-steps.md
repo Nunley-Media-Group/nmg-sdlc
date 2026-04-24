@@ -42,12 +42,12 @@ For each group (and solo migration candidates):
 
 **If `.codex/unattended-mode` exists:**
 
-- **Solo renames** (type `"rename"` or `"rename-bug"` — single directory → `feature-{slug}/` or `bug-{slug}/`): non-destructive. Execute the rename automatically — proceed to Step 4e to apply `git mv`, frontmatter updates, and cross-reference updates without interactive user prompt. Do NOT record solo renames as skipped operations.
-- **Consolidation groups** (type `"consolidation"` — multiple directories merged into one): destructive. Skip interactive user prompt and record each group as a skipped operation (affected paths: source directories, reason: `"Destructive operation requires interactive approval"`).
+- **Solo renames** (type `"rename"` or `"rename-bug"` — single directory → `feature-{slug}/` or `bug-{slug}/`): non-destructive. Execute the rename automatically — proceed to Step 4e to apply `git mv`, frontmatter updates, and cross-reference updates without Codex interactive gate. Do NOT record solo renames as skipped operations.
+- **Consolidation groups** (type `"consolidation"` — multiple directories merged into one): destructive. Skip Codex interactive gate and record each group as a skipped operation (affected paths: source directories, reason: `"Destructive operation requires interactive approval"`).
 
 After processing all groups, proceed to Step 4f.
 
-**If `.codex/unattended-mode` does NOT exist:** Use interactive user prompt for each group:
+**If `.codex/unattended-mode` does NOT exist:** Present a Codex interactive gate for each group:
 
 - Option 1: `"Consolidate into feature-{slug}/"` (or `"Rename to feature-{slug}/"` / `"Rename to bug-{slug}/"` for solo specs).
 - Option 2: `"Skip — leave as-is"`.
@@ -92,6 +92,6 @@ After consolidation (or independently, for feature specs that already use `featu
 5. Present findings alongside other migration proposals in Step 8.
 6. Apply on user confirmation using Codex editing.
 
-This step runs on ALL feature-variant specs in `feature-*/` directories, catching specs that were created by newer `/write-spec` but somehow have stale frontmatter, renamed from legacy directories but not yet updated, or already in the new naming convention from a prior partial migration.
+This step runs on ALL feature-variant specs in `feature-*/` directories, catching specs that were created by newer `$nmg-sdlc:write-spec` but somehow have stale frontmatter, renamed from legacy directories but not yet updated, or already in the new naming convention from a prior partial migration.
 
 Read `../../references/spec-frontmatter.md` when applying any frontmatter rewrite during migration — the canonical conventions every spec file follows live there.

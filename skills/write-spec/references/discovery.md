@@ -1,6 +1,6 @@
 # Spec Discovery
 
-**Read this when** the issue is **not** bug-labelled and `/write-spec` needs to decide whether to *amend an existing feature spec* or *create a new one*. Bug-labelled issues skip discovery entirely — they always create a new `bug-{slug}/` and never amend.
+**Read this when** the issue is **not** bug-labelled and `$nmg-sdlc:write-spec` needs to decide whether to *amend an existing feature spec* or *create a new one*. Bug-labelled issues skip discovery entirely — they always create a new `bug-{slug}/` and never amend.
 
 Discovery has two stages run in strict order: parent-link resolution first (deterministic, follows the GitHub sub-issue graph and body cross-references), then keyword-based matching as a fallback. The reason for ordering this way is that an explicit parent link is a stronger signal of intent than token overlap — a child issue should never get keyword-matched to the wrong feature when its parent edge already names the right one.
 
@@ -14,7 +14,7 @@ Run before keyword discovery. Only fall through to Step 1 when this stage produc
 4. **Cycle detection.** Maintain a visited-set of issue numbers seeded with the current issue. When resolving transitively (a candidate parent that itself has a parent), abort with a cycle-detected error if the same issue number reappears. If `#A` lists `Depends on: #B` and `#B` lists `Depends on: #A`, writing the spec for either issue aborts with:
 
    ```
-   ERROR: cycle detected in parent-link graph — #A and #B depend on each other. Break the cycle by removing one of the Depends on: lines and re-run /write-spec.
+   ERROR: cycle detected in parent-link graph — #A and #B depend on each other. Break the cycle by removing one of the Depends on: lines and re-run $nmg-sdlc:write-spec.
    ```
 
 5. **Match candidates to spec directories.** For each candidate `#P`:
@@ -27,7 +27,7 @@ Run before keyword discovery. Only fall through to Step 1 when this stage produc
    - **Candidate found but no matching spec directory** → abort with the loud failure:
 
      ```
-     ERROR: Parent spec for #P not found — run '/write-spec #P' and seal the spec before starting child work.
+     ERROR: Parent spec for #P not found — run '$nmg-sdlc:write-spec #P' and seal the spec before starting child work.
      ```
 
      Do not create any spec files for the child. Exit non-zero in unattended mode (escalate via runner sentinel).
@@ -44,10 +44,10 @@ Step 0 is stateless — it derives everything fresh from `gh` state on each invo
 5. **Rank and filter**: Sort candidates by total keyword hits. Filter to candidates with at least 2 keyword hits.
 6. **If one or more candidates found**:
    - Read the top candidate's first `# ` heading and user story for context.
-   - Present to the user via interactive user prompt:
+   - Present to the user via Codex interactive gate:
      - Option 1: "Amend existing spec: `feature-{slug}`" (with brief description from heading/user story).
      - Option 2: "Create new spec" (derives a new `feature-{slug}` from the current issue title).
-   - **If unattended mode** (`.codex/unattended-mode` exists): skip interactive user prompt entirely and proceed in amendment mode against the top-scored existing spec.
+   - **If unattended mode** (`.codex/unattended-mode` exists): skip Codex interactive gate entirely and proceed in amendment mode against the top-scored existing spec.
 7. **If no candidates found**: proceed to create a new spec without prompting.
 
 The result determines whether subsequent phases operate in **amendment mode** (modifying an existing spec) or **creation mode** (writing a new spec from scratch).

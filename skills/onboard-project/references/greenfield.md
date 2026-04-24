@@ -2,7 +2,7 @@
 
 **Read this when** Step 1 detects `greenfield` (no code, no specs, no closed issues) or `greenfield-enhancement` (steering files exist, specs do not — re-run on a previously bootstrapped project). Both modes run the same eight sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each. The interview itself is in `references/interview.md`.
 
-The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: optional design-context ingestion, an intent + tech interview, steering docs, a `VERSION` file plus stack-native manifest sync, the `v1` milestone, and 3–7 starter issues seeded via `/draft-issue` with dependency-aware autolinking.
+The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: optional design-context ingestion, an intent + tech interview, steering docs, a `VERSION` file plus stack-native manifest sync, the `v1` milestone, and 3–7 starter issues seeded via `$nmg-sdlc:draft-issue` with dependency-aware autolinking.
 
 Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster and read-timing referenced by 2G.3 live there.
 
@@ -10,7 +10,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 ## Step 2G.1 Optional Design URL Ingestion
 
-1. Resolve the design URL: if `--design-url <url>` was passed, use it. Else (interactive only) interactive user prompt: `"Provide a Design URL? (optional — press Enter to skip)"`. In unattended mode without `--design-url`, skip 2G.1 entirely.
+1. Resolve the design URL: if `--design-url <url>` was passed, use it. Else (interactive only) Codex interactive gate: `"Provide a Design URL? (optional — press Enter to skip)"`. In unattended mode without `--design-url`, skip 2G.1 entirely.
 2. **Validate URL is HTTPS.** If not, log `design URL rejected (non-HTTPS)`, record the rejection as a gap, and continue to 2G.2 with empty `design_context`.
 3. Fetch via Codex web browsing with a 30s timeout.
 4. **Decode**: if the response indicates gzip (content-type `application/gzip`/`application/x-gzip` OR magic bytes `1f 8b` at offset 0), decode via `Bash(node -e "process.stdout.write(require('node:zlib').gunzipSync(Buffer.from(process.argv[1],'base64')).toString())" "<base64>")` — pass the payload as a base64 argument; never interpolate raw payload bytes into a shell command.
@@ -116,7 +116,7 @@ Seed only the single `v1` milestone. Later version lines are created by the user
    ```
    gh api --method POST "repos/{owner}/{repo}/milestones" \
      --field title="v1" \
-     --field description="First version line — v1.x.y releases, seeded by /onboard-project."
+     --field description="First version line — v1.x.y releases, seeded by $nmg-sdlc:onboard-project."
    ```
 4. On HTTP error (403, 422 collision, network) → record `v1 = failed (<status>)` as a gap; **do not abort** the run.
 
@@ -129,18 +129,18 @@ Synthesize 3–7 starter-issue candidates from `interview_context` and `design_c
 ```
 {
   title:           "Set up basic API",
-  body_seed:       "<one-paragraph seed used by /draft-issue>",
+  body_seed:       "<one-paragraph seed used by $nmg-sdlc:draft-issue>",
   component_refs:  ["api", "auth"],
   ordering_cue:    "first" | "before X" | null
 }
 ```
 
-All candidates seed into the `v1` milestone at `/draft-issue` invocation time — there is no per-candidate milestone choice.
+All candidates seed into the `v1` milestone at `$nmg-sdlc:draft-issue` invocation time — there is no per-candidate milestone choice.
 
 Generation rules:
 
 - Mine `interview_context.success_criteria` and (if present) `design_context` filenames/READMEs for distinct functional concerns.
-- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via interactive user prompt (auto-cut in unattended mode, with the cut list logged for Step 5).
+- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via Codex interactive gate (auto-cut in unattended mode, with the cut list logged for Step 5).
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 
@@ -168,7 +168,7 @@ Set up auth
    └─▶ Add user profile
 ```
 
-interactive user prompt: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
+Codex interactive gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
 
 In unattended mode: auto-accept option 1 and log the full DAG for Step 5.
 
@@ -182,26 +182,26 @@ Before the first iteration:
 
 1. Ensure the `seeded-by-onboard` label exists:
    ```
-   gh label create seeded-by-onboard --color 0E8A16 --description "Issue seeded by /onboard-project" 2>/dev/null || true
+   gh label create seeded-by-onboard --color 0E8A16 --description "Issue seeded by $nmg-sdlc:onboard-project" 2>/dev/null || true
    ```
-2. **Autolinking availability check**: probe `/draft-issue`'s autolinking primitive. If unavailable, log once — `Autolinking: not available; seeding will proceed without sub-issue wiring` — set `autolinking_available = false`, record the gap for Step 5. Do NOT repeat this failure per candidate.
+2. **Autolinking availability check**: probe `$nmg-sdlc:draft-issue`'s autolinking primitive. If unavailable, log once — `Autolinking: not available; seeding will proceed without sub-issue wiring` — set `autolinking_available = false`, record the gap for Step 5. Do NOT repeat this failure per candidate.
 
 For each candidate:
 
-1. **Invoke `/draft-issue`** (delegated) with the shared `interview_context`, `design_context`, and this candidate's `{title, body_seed, component_refs}` as the seed payload, and the fixed milestone assignment `v1`. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
-2. **Capture the created issue number** from `/draft-issue`'s return.
+1. **Invoke `$nmg-sdlc:draft-issue`** (delegated) with the shared `interview_context`, `design_context`, and this candidate's `{title, body_seed, component_refs}` as the seed payload, and the fixed milestone assignment `v1`. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
+2. **Capture the created issue number** from `$nmg-sdlc:draft-issue`'s return.
 3. **Apply the seeded-by-onboard label**: `gh issue edit <num> --add-label seeded-by-onboard`.
-4. **Wire DAG parents already created** (skip if `autolinking_available = false`): for each parent of this candidate already created in this loop, invoke `addSubIssue(parent_number, child_number)` on `/draft-issue`. Append a `Depends on: #<parent>` line to this issue's body via `gh issue edit <self> --body-file -`.
+4. **Wire DAG parents already created** (skip if `autolinking_available = false`): for each parent of this candidate already created in this loop, invoke `addSubIssue(parent_number, child_number)` on `$nmg-sdlc:draft-issue`. Append a `Depends on: #<parent>` line to this issue's body via `gh issue edit <self> --body-file -`.
 5. **Queue child back-references** (skip if `autolinking_available = false`): for each DAG child of this candidate not yet created, record a deferred `Blocks: #<self>` insertion to apply when that child is seeded.
 6. **State isolation**: discard any per-candidate working state before iterating to the next candidate.
 
-**Per-issue failure handling**: if any of `/draft-issue` invocation, label apply, autolink call, or body edit fails — record the failure as a per-issue gap (with the candidate title, the failed step, and the error message) and **continue the loop**. A single failure must not abort the remaining seeds.
+**Per-issue failure handling**: if any of `$nmg-sdlc:draft-issue` invocation, label apply, autolink call, or body edit fails — record the failure as a per-issue gap (with the candidate title, the failed step, and the error message) and **continue the loop**. A single failure must not abort the remaining seeds.
 
 Emit per candidate: `Seeded: <title> = #<num> (parents: #X #Y, blocks: #Z) | failed (<reason>)`.
 
 ## Step 3G Greenfield — Optional Init-Config
 
-1. In interactive mode, interactive user prompt whether to run `/init-config` now for unattended-runner setup. Options: `[1] Yes — run /init-config now`, `[2] No — skip, I'll run it later`.
+1. In interactive mode, Codex interactive gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`.
 2. In unattended mode, auto-yes without prompting. Log the auto-decision.
-3. If yes, invoke `/init-config` (delegated) and record its exit status.
+3. If yes, invoke `$nmg-sdlc:init-config` (delegated) and record its exit status.
 4. Jump to Step 5 (Summary). Greenfield does not reconcile specs.

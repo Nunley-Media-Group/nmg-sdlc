@@ -1,6 +1,6 @@
 # Product Steering Template
 
-Generate this document during `/onboard-project` (Step 2G.3 — steering bootstrap). Pre-fill what you can discover from the codebase, and leave the rest as templates for the user to customize.
+Generate this document during `$nmg-sdlc:onboard-project` (Step 2G.3 — steering bootstrap). Pre-fill what you can discover from the codebase, and leave the rest as templates for the user to customize.
 
 ---
 
@@ -86,7 +86,7 @@ All feature development should align with these guidelines.
 ### Won't Have (Now)
 - [Explicitly deferred 1]
 
-<!-- TODO: MoSCoW prioritization helps /write-spec scope features correctly -->
+<!-- TODO: MoSCoW prioritization helps $nmg-sdlc:write-spec scope features correctly -->
 
 ---
 

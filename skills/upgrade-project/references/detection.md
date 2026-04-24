@@ -2,7 +2,7 @@
 
 **Read this when** the workflow reaches Step 1.5. Current Codex releases protect the project-level `.codex/` directory from Edit/Write — canonical SDLC artifacts must live at the project root (`steering/`, `specs/`), not under `.codex/`. Runtime artifacts (`.codex/unattended-mode`, `.codex/sdlc-state.json`, `.codex/upgrade-exclusions.json`) stay under `.codex/` because the SDLC runner and the upgrade-exclusions write-back access them directly, not through Edit/Write.
 
-`/upgrade-project` is the **only** skill that resolves the legacy layout — every other pipeline skill aborts on it via `../../references/legacy-layout-gate.md`. This file is the relocation playbook the gate sends users back to run.
+`$nmg-sdlc:upgrade-project` is the **only** skill that resolves the legacy layout — every other pipeline skill aborts on it via `../../references/legacy-layout-gate.md`. This file is the relocation playbook the gate sends users back to run.
 
 ## Detection signals
 
@@ -20,7 +20,7 @@ Before any move, verify the working tree is clean enough to relocate safely:
 
 ## Proposal (interactive mode only)
 
-If NOT unattended, present the proposed actions via interactive user prompt:
+If NOT unattended, present the proposed actions via Codex interactive gate:
 
 ```
 question: "The project uses the legacy `.codex/steering/` and `.codex/specs/` layout. Relocate to `steering/` and `specs/` at the project root?"
@@ -49,4 +49,4 @@ If the user skips, record the relocation as deferred and stop Step 1.5. Downstre
 
 ## Why git mv (and not cp + rm)
 
-`git mv` registers the change as a rename in git, preserving `git log --follow` history on every relocated file. A `cp` followed by `rm` produces a delete + add diff that loses that history. Reviewers and `/run-retro` both depend on `git log --follow` to trace a spec back to its original commit, so the rename form is non-negotiable.
+`git mv` registers the change as a rename in git, preserving `git log --follow` history on every relocated file. A `cp` followed by `rm` produces a delete + add diff that loses that history. Reviewers and `$nmg-sdlc:run-retro` both depend on `git log --follow` to trace a spec back to its original commit, so the rename form is non-negotiable.

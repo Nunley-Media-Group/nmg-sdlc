@@ -51,7 +51,7 @@ Detection is deliberately conservative — any single signal triggers routing (f
 2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the file — never edit a skill-bundled file directly.
 3. **If unavailable**: do NOT silently fall back to direct editing. The hand-edit escape hatch was removed because it consistently produced drift from skill-creator's best practices. Stop the task and surface the missing dependency in the completion report — `/skill-creator is required for skill-bundled file edits but is not installed.` In unattended mode, emit `ESCALATION: /skill-creator is required for skill-bundled file edits — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
 
-Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not an interactive user prompt gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not a Codex interactive gate — unattended-mode behaviour is preserved.
 
 If `/skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to the next task.
 

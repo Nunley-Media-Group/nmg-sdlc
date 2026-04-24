@@ -1,11 +1,13 @@
 ---
 name: write-code
-description: "Read specs for current branch, enter plan mode, then execute implementation tasks sequentially. Use when user says 'implement the spec', 'start coding', 'build the feature', 'implement issue #N', 'resume implementation', 'how do I implement this', 'how to start coding', 'write the code', or 'build it'. Do NOT use for writing specs, verifying implementations, or creating PRs. Reads requirements, design, and tasks from specs/ and executes them in order. Fourth step in the SDLC pipeline — follows /write-spec and precedes /verify-code."
+description: "Read specs for current branch, enter plan mode, then execute implementation tasks sequentially. Use when user says 'implement the spec', 'start coding', 'build the feature', 'implement issue #N', 'resume implementation', 'how do I implement this', 'how to start coding', 'write the code', or 'build it'. Do NOT use for writing specs, verifying implementations, or creating PRs. Reads requirements, design, and tasks from specs/ and executes them in order. Fourth step in the SDLC pipeline — follows $nmg-sdlc:write-spec and precedes $nmg-sdlc:verify-code."
 ---
 
 # Write Code
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
 
 Read the specifications for the current branch's issue, enter plan mode to design the implementation approach, then execute tasks sequentially.
 
@@ -15,7 +17,7 @@ Read `../../references/unattended-mode.md` when the workflow starts — the sent
 
 ## Prerequisites
 
-1. Specs exist at `specs/{feature-name}/` (created by `/write-spec`).
+1. Specs exist at `specs/{feature-name}/` (created by `$nmg-sdlc:write-spec`).
 2. A feature branch exists for this issue (or will be created).
 3. Steering documents exist at `steering/`.
 
@@ -44,7 +46,7 @@ gh issue view #N --json labels --jq '.labels[].name'
 If any label is `spike`, print exactly:
 
 ```
-Spikes don't produce code — run /open-pr to merge the research spec
+Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
 ```
 
 Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to a worker, do NOT touch any file. The abort fires in both interactive and unattended modes.
@@ -66,13 +68,13 @@ If specs do not exist:
 - **Unattended mode**: output and stop:
 
   ```
-  No specs found for issue #N. The `/write-spec` step must run first.
+  No specs found for issue #N. The `$nmg-sdlc:write-spec` step must run first.
 
   [Missing: no spec directory found for this issue, or required files (requirements.md, design.md, tasks.md, feature.gherkin) are absent]
 
   Done. Awaiting orchestrator.
   ```
-- **Interactive mode**: use interactive user prompt to prompt `"No specs found. Run /write-spec #N first."`
+- **Interactive mode**: present a Codex interactive gate to prompt `"No specs found. Run $nmg-sdlc:write-spec #N first."`
 
 ### Step 3: Read Steering Documents
 
@@ -86,7 +88,7 @@ steering/
 
 ### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
 
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`/simplify` probe-and-skip).
+Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`$simplify` probe-and-skip).
 
 ### Resuming Partial Implementation
 
@@ -103,7 +105,7 @@ Tasks completed: [X/Y]
 Files created: [list]
 Files modified: [list]
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/verify-code #N` to verify implementation and update the issue.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:verify-code #N` to verify implementation and update the issue.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
@@ -112,8 +114,8 @@ Files modified: [list]
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                          ▲ You are here
 ```
 
-`/simplify` is an optional external marketplace skill. When installed, it runs between `/write-code` and `/verify-code` (including from inside `/write-code`'s completion step via the Step 5b probe). When not installed, pipeline steps log a warning and proceed without simplification.
+`$simplify` is an optional external marketplace skill. When installed, it runs between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` (including from inside `$nmg-sdlc:write-code`'s completion step via the Step 5b probe). When not installed, pipeline steps log a warning and proceed without simplification.

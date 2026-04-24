@@ -88,7 +88,7 @@ Multi-issue detection proposed a split of N asks:
 Signals: conjunctionHits=2, bulletListCount=3, distinctComponents=4 (confidence: high)
 ```
 
-Call interactive user prompt:
+Present a Codex interactive gate:
 
 ```
 question: "How would you like to proceed with the proposed split?"
@@ -141,7 +141,7 @@ Proposed dependency graph:
 (A1 is the root; A3 and A4 are leaves.)
 ```
 
-Call interactive user prompt:
+Present a Codex interactive gate:
 
 ```
 question: "Approve the proposed dependency graph?"
@@ -339,7 +339,7 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 5. **GitHub sub-issue link:** after each child is created, also run `gh issue edit <child> --add-parent <epic>` (gated on `session.subIssueSupported` — the `--add-parent` flag uses the same gh capability as `--add-sub-issue`). Per-edge failures append to `session.autolinkDegradationNotes`.
 6. **Update the epic's Child Issues checklist in place.** After all children are created, rewrite the epic's body (`gh issue edit <epic> --body-file <updated>`) to replace `#{askId-N}` placeholders in the Child Issues checklist and Delivery Phases table with the real child issue numbers.
 
-**Unattended-mode rule.** `/draft-issue` as a whole does not honor unattended-mode (the skill header states this). The Epic child-creation flow is therefore always interactive — each child pass through Steps 2–9 may prompt as needed. Nothing about this sub-step introduces a new interactive user prompt call site beyond those already present in the Per-Issue Loop.
+**Unattended-mode rule.** `$nmg-sdlc:draft-issue` as a whole does not honor unattended-mode (the skill header states this). The Epic child-creation flow is therefore always interactive — each child pass through Steps 2–9 may prompt as needed. Nothing about this sub-step introduces a new Codex interactive gate call site beyond those already present in the Per-Issue Loop.
 
 ### Output
 
@@ -378,12 +378,12 @@ Autolinking:
 
 [If design fetch failed]: Design fetch failed — issues drafted without design context.
 
-Next step: /start-issue #<first-issue-number>
+Next step: $nmg-sdlc:start-issue #<first-issue-number>
 ```
 
 #### Single-issue mode
 
-Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: /start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). If a design fetch failure was recorded, append the design-failure line.
+Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). If a design fetch failure was recorded, append the design-failure line.
 
 #### Abandonment
 

@@ -1,6 +1,6 @@
 # Technical Steering Template
 
-Generate this document during `/onboard-project` (Step 2G.3 — steering bootstrap). Pre-fill the tech stack, testing, and coding standards from codebase analysis.
+Generate this document during `$nmg-sdlc:onboard-project` (Step 2G.3 — steering bootstrap). Pre-fill the tech stack, testing, and coding standards from codebase analysis.
 
 ---
 
@@ -51,7 +51,7 @@ All technical decisions should align with these guidelines.
 The `VERSION` file (plain text semver at project root) is the **single source of truth** for the project's current version. Stack-specific files (e.g., `package.json`, `Cargo.toml`, `pubspec.yaml`) are kept in sync via the mapping table below.
 
 <!-- TODO: Fill in the stack-specific files that contain a version field. -->
-<!-- The /open-pr skill reads this table to know which files to update when bumping the version. -->
+<!-- The $nmg-sdlc:open-pr skill reads this table to know which files to update when bumping the version. -->
 
 | File | Path | Notes |
 |------|------|-------|
@@ -65,7 +65,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 
 ### Version Bump Classification
 
-The `/open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
+The `$nmg-sdlc:open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
 
 <!-- TODO: Add or modify label→bump mappings to match your project's labeling conventions. -->
 
@@ -76,7 +76,7 @@ The `/open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition 
 
 **Default**: If an issue's labels do not match any row, the bump type is **minor**.
 
-**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `/open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
+**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `$nmg-sdlc:open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
 
 **Breaking changes use minor bumps.** A `### Changed (BREAKING)` sub-section in a CHANGELOG version entry does NOT override the bump type. Communicate the breaking nature via a `**BREAKING CHANGE:**` bold prefix on the affected bullet, and (recommended) add a `### Migration Notes` sub-section to the entry. Example:
 
@@ -184,7 +184,7 @@ Replace any calls to `foo(x)` with `bar(x)` — the signature is otherwise uncha
 
 **Every acceptance criterion MUST have a Gherkin test.**
 
-<!-- TODO: Fill in your BDD framework details. This is critical for /write-spec and /verify-code. -->
+<!-- TODO: Fill in your BDD framework details. This is critical for $nmg-sdlc:write-spec and $nmg-sdlc:verify-code. -->
 
 | Layer | Framework | Location |
 |-------|-----------|----------|
@@ -249,7 +249,7 @@ Feature: Example
 
 ## Verification Gates
 
-Declare mandatory verification steps that `/verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
+Declare mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
 
 <!-- TODO: Define project-specific verification gates. Remove or replace the example rows below. -->
 

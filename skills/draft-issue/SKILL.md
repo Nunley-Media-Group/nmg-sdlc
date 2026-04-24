@@ -1,11 +1,13 @@
 ---
 name: draft-issue
-description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when user says 'create issue', 'new feature', 'report a bug', 'log a bug', 'request a feature', 'I need a...', 'file an issue', 'draft an issue', 'how do I create an issue', or 'how to file a feature request'. Do NOT use for writing specs, implementing code, or creating PRs. Supports feature and bug templates with codebase investigation and milestone assignment. First step in the SDLC pipeline — followed by /start-issue."
+description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when user says 'create issue', 'new feature', 'report a bug', 'log a bug', 'request a feature', 'I need a...', 'file an issue', 'draft an issue', 'how do I create an issue', or 'how to file a feature request'. Do NOT use for writing specs, implementing code, or creating PRs. Supports feature and bug templates with codebase investigation and milestone assignment. First step in the SDLC pipeline — followed by $nmg-sdlc:start-issue."
 ---
 
 # Draft Issue
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
 
 Interview the user to understand their need, then create a well-groomed GitHub issue with BDD acceptance criteria. The skill adapts its interview depth to issue complexity and plays back its understanding before drafting so the result is aligned with intent before a single byte lands in GitHub.
 
@@ -25,13 +27,13 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 - The user has an idea but hasn't formalized it yet
 - You need a trackable GitHub issue before writing specs
 
-`/draft-issue` does not honor `.codex/unattended-mode`. Issue drafting requires interactive input.
+`$nmg-sdlc:draft-issue` does not honor `.codex/unattended-mode`. Issue drafting requires interactive input.
 
 ## Workflow Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   /draft-issue Skill                         │
+│                   $nmg-sdlc:draft-issue Skill                         │
 ├──────────────────────────────────────────────────────────────┤
 │  Step 1:  Gather Context (+ optional Design URL)      │
 │  Step 1a: Fetch & Decode Design URL                          │
@@ -61,7 +63,7 @@ Single-issue prompts bypass Steps 1c, 1d, and the batch phases — Step 1b emits
 
 ### Step 0: Legacy-Layout Precondition
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate checks for legacy `.codex/steering/` and `.codex/specs/` trees and aborts with a pointer to `/upgrade-project` before any drafting happens.
+Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate checks for legacy `.codex/steering/` and `.codex/specs/` trees and aborts with a pointer to `$nmg-sdlc:upgrade-project` before any drafting happens.
 
 ### Step 1: Gather Context
 
@@ -99,7 +101,7 @@ Read `references/multi-issue.md` when you need the shared read-only `SessionStat
 - Step 1b's `distinctComponents >= 4` AND `sentenceCount >= 3`.
 - The description contains references to multiple sequential delivery phases (e.g., "first … then … finally …").
 
-Call interactive user prompt:
+Present a Codex interactive gate:
 
 ```
 question: "What type of issue is this?"
@@ -121,7 +123,7 @@ When `epicRecommended` is true, append `(Recommended)` to the Epic option label.
 **Process**:
 
 1. Read the `VERSION` file at the project root. If it exists and parses as semver (`X.Y.Z`), extract the major (`2.11.0` → `2`). Otherwise skip milestone assignment entirely (omit `--milestone` from `gh issue create` in Step 8).
-2. Call interactive user prompt with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
+2. Present a Codex interactive gate with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
 3. Ensure the milestone exists: `gh api repos/{owner}/{repo}/milestones --jq '.[].title'`. If the chosen milestone is missing, create it via `gh api repos/{owner}/{repo}/milestones --method POST --field title="v{N}"`. If creation fails (permission denied, API error), proceed without milestone and note the failure in Step 9 output.
 
 Read `../../references/versioning.md` when you need the project's VERSION-file conventions.
@@ -136,7 +138,7 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 **If Enhancement / Feature**: file discovery for `specs/*/requirements.md` and read related specs; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
-**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via interactive user prompt (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
+**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via Codex interactive gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose and read-timing.
 
@@ -154,15 +156,15 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 
 **Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
 
-Call interactive user prompt:
+Present a Codex interactive gate:
 
 ```
 question: "Is this issue suitable for hands-off automation?"
 body: |
   The `automatable` label tells the downstream SDLC pipeline
-  (/write-spec, /write-code, /verify-code, /open-pr) that it can
+  ($nmg-sdlc:write-spec, $nmg-sdlc:write-code, $nmg-sdlc:verify-code, $nmg-sdlc:open-pr) that it can
   progress this issue without human judgment at the review gates.
-  It does NOT affect /draft-issue itself — issue drafting always
+  It does NOT affect $nmg-sdlc:draft-issue itself — issue drafting always
   requires interactive human input.
 options:
   - "Yes — suitable for hands-off automation"
@@ -184,7 +186,7 @@ Understanding check:
   Scope out: [bullets]
 ```
 
-Call interactive user prompt: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
+Present a Codex interactive gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
 
 **Output**: `understanding` (persona, outcome, AC outline, scope in/out); `understandingConfirmed` must be true before Step 6.
 
@@ -228,7 +230,7 @@ Out of Scope: [comma-separated list]
 Labels: [applied labels]
 ```
 
-Call interactive user prompt:
+Present a Codex interactive gate:
 
 ```
 question: "Approve this draft?"
@@ -277,7 +279,7 @@ Labels: [labels applied]
 [If automatable verification failed]: Warning: automatable label was not applied — verify manually.
 ```
 
-In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode, Step 9 ends with `"Next step: Run /start-issue #N …"` and Steps 10/11 render as a trivial summary.
+In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode, Step 9 ends with `"Next step: Run $nmg-sdlc:start-issue #N …"` and Steps 10/11 render as a trivial summary.
 
 ### Step 10: Autolink Batch
 
@@ -285,7 +287,7 @@ Read `references/multi-issue.md` when the Per-Issue Loop has finished — the re
 
 ### Step 11: Batch Summary
 
-Read `references/multi-issue.md` when rendering the final batch summary. On the single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: /start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block); if a design fetch failure was recorded, append the design-failure line.
+Read `references/multi-issue.md` when rendering the final batch summary. On the single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block); if a design fetch failure was recorded, append the design-failure line.
 
 ## Guidelines
 
@@ -298,6 +300,6 @@ Read `references/multi-issue.md` when rendering the final batch summary. On the 
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
      ▲ You are here
 ```

@@ -2,7 +2,7 @@
 
 **Consumed by**: `run-retro` Steps 4 (aggregate), 5 (classify), and 6 (filter).
 
-These three steps take the combined set of fresh + carried-forward learnings from Step 3 / 3.5 and shape them into the `steering/retrospective.md` table that `/write-spec` reads. The goal across all three steps: surface higher-order patterns, assign a single pattern type, and keep only learnings that a better-written spec could have prevented.
+These three steps take the combined set of fresh + carried-forward learnings from Step 3 / 3.5 and shape them into the `steering/retrospective.md` table that `$nmg-sdlc:write-spec` reads. The goal across all three steps: surface higher-order patterns, assign a single pattern type, and keep only learnings that a better-written spec could have prevented.
 
 ## Step 4: Aggregate cross-cutting patterns
 
@@ -32,7 +32,7 @@ Classify each learning into exactly one of three pattern types:
 
 ## Step 6: Filter learnings
 
-**Include** only learnings that would improve `/write-spec` effectiveness — gaps a better-written feature spec could have prevented.
+**Include** only learnings that would improve `$nmg-sdlc:write-spec` effectiveness — gaps a better-written feature spec could have prevented.
 
 **Exclude** learnings that fall outside spec-writing scope:
 

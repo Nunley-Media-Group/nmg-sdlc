@@ -20,6 +20,7 @@ nmg-sdlc/
 ├── references/                   # Plugin-shared references (loaded on demand)
 │   ├── legacy-layout-gate.md
 │   ├── unattended-mode.md
+│   ├── interactive-gates.md
 │   ├── feature-naming.md
 │   ├── versioning.md
 │   ├── steering-schema.md
@@ -102,7 +103,7 @@ Codex sessions via `codex exec`
 |-------|------|------------|
 | Plugin manifest | Declares plugin identity, metadata, and component paths | Define workflows |
 | Skills | Define SDLC workflow trigger + skeleton, prompt Codex | Inline full variant branches, exhaustive examples, cross-skill duplication |
-| Plugin-shared references | Consolidate rules repeated across ≥ 2 skills (legacy-layout-gate, unattended-mode, feature-naming, versioning, steering-schema, spec-frontmatter); loaded on demand via pointer | Hold skill-specific workflow steps |
+| Plugin-shared references | Consolidate rules repeated across ≥ 2 skills (legacy-layout-gate, unattended-mode, interactive-gates, feature-naming, versioning, steering-schema, spec-frontmatter); loaded on demand via pointer | Hold skill-specific workflow steps |
 | Per-skill references | Hold variant branches, extended examples, rarely-fired paths for a single skill; loaded on demand via pointer | Hold content other skills consume (that lives in plugin-shared references) |
 | Templates | Provide output structure for generated documents | Contain logic or conditionals |
 | Agents | Provide reusable prompt contracts for optional built-in Codex subagent delegation | Act as installable plugin components or require delegation for normal skill execution |
@@ -230,17 +231,17 @@ import { parseArgs } from 'node:util';
 
 ## Architectural Invariants
 
-These are hard contracts that must never be violated. `/verify-code` should flag any change that breaks one.
+These are hard contracts that must never be violated. `$nmg-sdlc:verify-code` should flag any change that breaks one.
 
 ### Skill Contracts
 
 | Invariant | Rationale | How to Verify |
 |-----------|-----------|---------------|
-| Skill-bundled files must be authored via `/skill-creator` | Codex plugin best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skill-bundled files drift. The bundle includes `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and prompt contracts under `agents/*.md` | Any new/modified file in the skill bundle must be produced through `/skill-creator` — flag direct edits in PR review. There is no hand-edit fallback when `/skill-creator` is unavailable; the workflow escalates and exits instead |
+| Skill-bundled files must be authored via `$skill-creator` | Codex plugin best practices for frontmatter, triggering, and structure are enforced by the skill-creator skill; hand-authored skill-bundled files drift. The bundle includes `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and prompt contracts under `agents/*.md` | Any new/modified file in the skill bundle must be produced through `$skill-creator` — flag direct edits in PR review. There is no hand-edit fallback when `$skill-creator` is unavailable; the workflow escalates and exits instead |
 | Skills must be stack-agnostic | Skills work across any project; project specifics live in steering docs | text search skill content for hardcoded language/framework/tool names that aren't Codex tools |
 | One skill = one SDLC step | Each skill has a single, well-defined purpose in the pipeline | A skill's postconditions must be the preconditions of exactly one downstream skill |
 | Skills must reference steering docs for project context | Decouples workflow logic from project specifics | Skills say "reference `tech.md` for..." rather than embedding conventions directly |
-| Unattended-mode must be opt-in | Manual mode is the default; automation requires `.codex/unattended-mode` | Every interactive user prompt call must be guarded by unattended-mode check |
+| Unattended-mode must be opt-in | Manual mode is the default; automation requires `.codex/unattended-mode` | Every Codex interactive gate must be guarded by an unattended-mode branch |
 | Skill output feeds the next skill | The pipeline is a chain; each skill's output format is a contract | Verify output templates match the input expectations of downstream skills |
 
 ### Agent Contracts

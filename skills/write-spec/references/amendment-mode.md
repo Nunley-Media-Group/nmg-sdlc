@@ -53,4 +53,4 @@ Read `../../references/spec-frontmatter.md` when applying any frontmatter edit d
 
 ## Why append-only
 
-Rewriting existing content silently invalidates prior review approvals and breaks the Change History audit trail used by `/run-retro`. The append-only rule keeps every prior issue's contribution intact and traceable: an AC introduced for `#42` stays attributed to `#42` even after `#71` and `#84` add their own. When in doubt about whether a change is an *addition* or a *rewrite*, treat it as a rewrite and stop — discuss with the user before proceeding.
+Rewriting existing content silently invalidates prior review approvals and breaks the Change History audit trail used by `$nmg-sdlc:run-retro`. The append-only rule keeps every prior issue's contribution intact and traceable: an AC introduced for `#42` stays attributed to `#42` even after `#71` and `#84` add their own. When in doubt about whether a change is an *addition* or a *rewrite*, treat it as a rewrite and stop — discuss with the user before proceeding.

@@ -26,7 +26,7 @@ All feature development should align with these guidelines.
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Headless execution | Skills must detect `.codex/unattended-mode` and skip interactive prompts |
+| Headless execution | Skills must detect `.codex/unattended-mode` and skip conversational prompts |
 | Deterministic orchestration | Runner script drives steps sequentially with preconditions |
 | Log-based reporting | Status updates flow to console and log files |
 
@@ -67,20 +67,20 @@ All feature development should align with these guidelines.
 ## Feature Prioritization
 
 ### Must Have (MVP)
-- Issue creation with BDD acceptance criteria (`/draft-issue`)
-- 3-phase spec writing: requirements, design, tasks (`/write-spec`)
-- Spec-driven implementation with plan mode (`/write-code`)
-- Verification against specs with architecture review (`/verify-code`)
-- PR creation linking issue and specs (`/open-pr`)
-- Project initialization and steering bootstrap (`/onboard-project`)
+- Issue creation with BDD acceptance criteria (`$nmg-sdlc:draft-issue`)
+- 3-phase spec writing: requirements, design, tasks (`$nmg-sdlc:write-spec`)
+- Spec-driven implementation with plan mode (`$nmg-sdlc:write-code`)
+- Verification against specs with architecture review (`$nmg-sdlc:verify-code`)
+- PR creation linking issue and specs (`$nmg-sdlc:open-pr`)
+- Project initialization and steering bootstrap (`$nmg-sdlc:onboard-project`)
 
 ### Should Have
-- Issue branch linking and status management (`/start-issue`)
+- Issue branch linking and status management (`$nmg-sdlc:start-issue`)
 - Defect-specific spec templates (bug label detection)
-- Automation mode support (`/run-loop`)
+- Automation mode support (`$nmg-sdlc:run-loop`)
 
 ### Could Have
-- SDLC runner config generation (`/init-config`)
+- SDLC runner config generation (`$nmg-sdlc:init-config`)
 
 ### Won't Have (Now)
 - Multi-repo orchestration
@@ -94,12 +94,12 @@ All feature development should align with these guidelines.
 ### Journey 1: Manual SDLC Cycle
 
 ```
-1. Developer runs /draft-issue to capture a feature need
-2. Runs /start-issue #N to create branch and set status
-3. Runs /write-spec #N — reviews requirements, design, tasks at each gate
-4. Runs /write-code #N — approves plan, watches execution
-5. Runs /verify-code #N — reviews findings, confirms fixes
-6. Runs /open-pr #N — reviews PR before submission
+1. Developer runs $nmg-sdlc:draft-issue to capture a feature need
+2. Runs $nmg-sdlc:start-issue #N to create branch and set status
+3. Runs $nmg-sdlc:write-spec #N — reviews requirements, design, tasks at each gate
+4. Runs $nmg-sdlc:write-code #N — approves plan, watches execution
+5. Runs $nmg-sdlc:verify-code #N — reviews findings, confirms fixes
+6. Runs $nmg-sdlc:open-pr #N — reviews PR before submission
 ```
 
 ### Journey 2: Automated SDLC Cycle (Runner)
@@ -119,15 +119,15 @@ This project uses its own SDLC toolkit to develop itself. The verification step 
 
 ```
 1. Developer creates issue for a skill enhancement
-2. Runs /write-spec — spec defines expected skill behavior as ACs
-3. Runs /write-code — modifies SKILL.md files and templates
-4. Runs /verify-code — must exercise the changed skill:
+2. Runs $nmg-sdlc:write-spec — spec defines expected skill behavior as ACs
+3. Runs $nmg-sdlc:write-code — modifies SKILL.md files and templates
+4. Runs $nmg-sdlc:verify-code — must exercise the changed skill:
    a. Scaffold a disposable test project
-   b. Load the modified plugin: codex exec --cd /path/to/test-project "/nmg-sdlc:skill-name args"
+   b. Load the modified plugin: codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"
    c. Invoke the changed skill against the test project
    d. For GitHub-integrated skills: evaluate what WOULD be created (dry-run)
    e. Confirm output matches spec ACs
-5. Runs /open-pr — PR includes verification evidence
+5. Runs $nmg-sdlc:open-pr — PR includes verification evidence
 ```
 
 The key difference from Journey 1: traditional "run tests" is replaced by "exercise the skill in Codex and evaluate the output."
@@ -136,7 +136,7 @@ The key difference from Journey 1: traditional "run tests" is replaced by "exerc
 
 ## Intent Verification
 
-Each product principle translates to a verifiable behavioral contract. `/verify-code` should check these when evaluating whether a change serves the product mission.
+Each product principle translates to a verifiable behavioral contract. `$nmg-sdlc:verify-code` should check these when evaluating whether a change serves the product mission.
 
 ### Principle → Postcondition Mapping
 
@@ -145,7 +145,7 @@ Each product principle translates to a verifiable behavioral contract. `/verify-
 | **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | text search changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
 | **OS-agnostic** | No platform-specific paths, commands, or assumptions | text search for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
 | **Spec as source of truth** | Every implementation change traces to a requirement in the spec | Each modified file must map to a task in `tasks.md` or an AC in `requirements.md` |
-| **Human gates by default** | Interactive approval exists at every decision point | Skills contain interactive user prompt at gates, guarded by unattended-mode check |
+| **Human gates by default** | Interactive approval exists at every decision point | Skills contain Codex interactive gates, guarded by unattended-mode checks |
 | **Process over tooling** | Skills define workflow structure; project details live in steering docs | Skills reference steering docs for conventions, not hardcode them |
 | **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `codex exec --cd` and invoked against a test project |
 
@@ -154,22 +154,22 @@ Each product principle translates to a verifiable behavioral contract. `/verify-
 The SDLC pipeline is a chain. Each skill's output is a contract with the next:
 
 ```
-/draft-issue
+$nmg-sdlc:draft-issue
   Postcondition: GitHub issue exists with BDD acceptance criteria
   ↓ (issue # feeds into)
-/start-issue #N
+$nmg-sdlc:start-issue #N
   Postcondition: Feature branch exists, issue status = In Progress
   ↓ (branch context feeds into)
-/write-spec #N
+$nmg-sdlc:write-spec #N
   Postcondition: specs/{feature}/ contains requirements.md, design.md, tasks.md, feature.gherkin
   ↓ (spec files feed into)
-/write-code #N
+$nmg-sdlc:write-code #N
   Postcondition: Code changes implement all tasks
   ↓ (implementation feeds into)
-/verify-code #N
+$nmg-sdlc:verify-code #N
   Postcondition: Verification report posted to issue; all ACs pass or deferred items documented
   ↓ (verified implementation feeds into)
-/open-pr #N
+$nmg-sdlc:open-pr #N
   Postcondition: PR created linking issue, specs, and verification report
 ```
 

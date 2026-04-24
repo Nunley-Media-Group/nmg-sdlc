@@ -1,11 +1,13 @@
 ---
 name: init-config
-description: "Generate an SDLC runner config for the current project. Use when user says 'generate config', 'set up SDLC runner', 'configure runner', 'init config', 'how do I set up the runner', or asks about sdlc-config.json. Creates a ready-to-use sdlc-config.json from the template with project-specific paths. Prerequisite for /run-loop."
+description: "Generate an SDLC runner config for the current project. Use when user says 'generate config', 'set up SDLC runner', 'configure runner', 'init config', 'how do I set up the runner', or asks about sdlc-config.json. Creates a ready-to-use sdlc-config.json from the template with project-specific paths. Prerequisite for $nmg-sdlc:run-loop."
 ---
 
 # Init Config
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
 
 Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting the current project directory into the config template.
 
@@ -41,7 +43,7 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
    - `"pluginRoot": "/path/to/nmg-sdlc"` → the resolved plugin root, expanded to the full absolute path
    - Leave `"pluginsPath"` empty unless the local checkout uses the legacy `plugins/nmg-sdlc` monorepo layout
 
-6. **Write the config file** — save the fully substituted config JSON to `sdlc-config.json` in the project root (resolved in Step 1). use Codex editing.
+6. **Write the config file** — save the fully substituted config JSON to `sdlc-config.json` in the project root (resolved in Step 1). Use Codex editing.
 
 7. **Add to .gitignore** — ensure `sdlc-config.json` and `.codex/sdlc-state.json` are listed in the project's `.gitignore`:
    - Read the `.gitignore` file in the project root. If it does not exist, create it.
@@ -51,7 +53,7 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
 8. **Confirm and suggest next step** — tell the user the config has been written and is git-ignored, then suggest:
    ```
    Run the SDLC runner:
-     /run-loop
+     $nmg-sdlc:run-loop
    Or run directly:
      node scripts/sdlc-runner.mjs --config sdlc-config.json
    ```

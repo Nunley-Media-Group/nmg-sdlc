@@ -49,7 +49,7 @@ If the rebase produces conflicts in `VERSION`, `.codex-plugin/plugin.json`, `pac
 Abort message:
 
 ```
-ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run /commit-push. Force-push never overwrites unresolved conflicts.
+ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run $nmg-sdlc:commit-push. Force-push never overwrites unresolved conflicts.
 ```
 
 Unattended escalation:
@@ -85,7 +85,7 @@ After a rebase the commit SHAs on local diverge from what the remote still holds
 
 ### Interactive fallback
 
-When `.codex/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Use interactive user prompt with two options:
+When `.codex/unattended-mode` is absent (interactive mode), do NOT take the force-with-lease branch automatically. Present a Codex interactive gate with two options:
 
 - `[1] Force-push with lease — overwrite the remote feature branch`
 - `[2] Abort — investigate the divergence manually`

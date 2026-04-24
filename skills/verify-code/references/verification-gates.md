@@ -2,7 +2,7 @@
 
 **Consumed by**: `verify-code` Step 1 (extract) and Step 5f (execute).
 
-Steering-level verification gates let a project declare mandatory shell-command checks that run as part of every `/verify-code` pass — build-clean tests, security scanners, linters, skill-inventory audits, anything else the team wants enforced without baking it into the SKILL.md. The skill itself stays stack-agnostic: it only knows how to read gate rows from `steering/tech.md`, evaluate their conditions, run their Actions, and grade their Pass Criteria.
+Steering-level verification gates let a project declare mandatory shell-command checks that run as part of every `$nmg-sdlc:verify-code` pass — build-clean tests, security scanners, linters, skill-inventory audits, anything else the team wants enforced without baking it into the SKILL.md. The skill itself stays stack-agnostic: it only knows how to read gate rows from `steering/tech.md`, evaluate their conditions, run their Actions, and grade their Pass Criteria.
 
 ## Extracting gates (Step 1)
 
@@ -13,7 +13,7 @@ After loading `tech.md`, check whether it contains a `## Verification Gates` sec
   - **Condition** — when the gate applies (`Always`, `{path} directory exists`, `{glob} files exist in {path}`).
   - **Action** — shell command to execute.
   - **Pass Criteria** — how to determine success (`Exit code 0`, `{file} file generated`, compound `AND`).
-- **If absent**: no gates are enforced. This is backward-compatible — projects without the section run through `/verify-code` unchanged.
+- **If absent**: no gates are enforced. This is backward-compatible — projects without the section run through `$nmg-sdlc:verify-code` unchanged.
 
 Queue the extracted gates as mandatory steps for Step 5f execution.
 

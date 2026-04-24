@@ -67,7 +67,7 @@ Use the flat Defect Tasks Variant from `templates/tasks.md` — typically:
 
 Skip phasing entirely. Dependencies are linear (fix → test → verify).
 
-In `feature.gherkin`, tag every scenario with `@regression` — this is required by `/verify-code`'s bug-fix verification contract.
+In `feature.gherkin`, tag every scenario with `@regression` — this is required by `$nmg-sdlc:verify-code`'s bug-fix verification contract.
 
 ## Defect Workflow Summary
 

@@ -37,26 +37,26 @@ SDLC Runner (automation layer)
 
 | Service | Purpose | Notes |
 |---------|---------|-------|
-| GitHub API | Issue/PR management, branch creation | Via `gh` CLI; requires `GITHUB_TOKEN`. Sub-issue parent queries (`gh issue view --json parent`) require `gh` >= 2.62.0. If an older `gh` is installed, parent-link resolution in `/write-spec` and `/open-pr` degrades gracefully — the `parent` field is absent from the JSON response, so resolution falls back to body-cross-ref parsing (`Depends on: #N`, `Blocks: #N`) with a logged warning. |
+| GitHub API | Issue/PR management, branch creation | Via `gh` CLI; requires `GITHUB_TOKEN`. Sub-issue parent queries (`gh issue view --json parent`) require `gh` >= 2.62.0. If an older `gh` is installed, parent-link resolution in `$nmg-sdlc:write-spec` and `$nmg-sdlc:open-pr` degrades gracefully — the `parent` field is absent from the JSON response, so resolution falls back to body-cross-ref parsing (`Depends on: #N`, `Blocks: #N`) with a logged warning. |
 | Console/Log | Status updates from SDLC runner | Via log files in `<tmpdir>/sdlc-logs/` |
 | OpenAI API | Powers Codex sessions | Underlying LLM for all skills |
 
 ### Automated Review
 
-The `/address-pr-comments` skill reads this section to decide which PR review threads it may address. Treat threads whose author satisfies either predicate below as in-scope; all other threads (including human reviewers) are out of scope and left untouched.
+The `$nmg-sdlc:address-pr-comments` skill reads this section to decide which PR review threads it may address. Treat threads whose author satisfies either predicate below as in-scope; all other threads (including human reviewers) are out of scope and left untouched.
 
 | Predicate | Default | Description |
 |-----------|---------|-------------|
 | `bots` | `true` | When `true`, any thread whose first comment has `author.__typename == "Bot"` is eligible |
 | `logins` | `["codex[bot]"]` | Explicit GitHub login allow-list (in addition to the Bot typename rule); add a login here to opt a new reviewer in |
 
-Modify the defaults above to change the eligibility rules — no skill or script changes are needed. The skill fails closed: if this section is missing or malformed, `/address-pr-comments` treats every thread as out of scope and exits with the no-reviewer message.
+Modify the defaults above to change the eligibility rules — no skill or script changes are needed. The skill fails closed: if this section is missing or malformed, `$nmg-sdlc:address-pr-comments` treats every thread as out of scope and exits with the no-reviewer message.
 
 ---
 
 ## Versioning
 
-The `VERSION` file at the project root is the single source of truth for the current version. Stack-specific files are kept in sync via `/open-pr`.
+The `VERSION` file at the project root is the single source of truth for the current version. Stack-specific files are kept in sync via `$nmg-sdlc:open-pr`.
 
 | File | Path | Notes |
 |------|------|-------|
@@ -64,7 +64,7 @@ The `VERSION` file at the project root is the single source of truth for the cur
 
 ### Version Bump Classification
 
-The `/open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
+The `$nmg-sdlc:open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
 
 | Label | Bump Type | Description |
 |-------|-----------|-------------|
@@ -72,11 +72,11 @@ The `/open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition 
 | `enhancement` | minor | New feature — backwards-compatible |
 | `spike` | skip | Research-only PR — no release, no bump |
 
-The `skip` verdict is a special value — not a placeholder. When `skip` is the classified bump type, `/open-pr` skips Steps 2 and 3 entirely and produces a PR with no version change. The spike-skip logic is implemented in `skills/open-pr/references/version-bump.md` § Spike handling; this row makes the classification discoverable in the canonical table.
+The `skip` verdict is a special value — not a placeholder. When `skip` is the classified bump type, `$nmg-sdlc:open-pr` skips Steps 2 and 3 entirely and produces a PR with no version change. The spike-skip logic is implemented in `skills/open-pr/references/version-bump.md` § Spike handling; this row makes the classification discoverable in the canonical table.
 
 **Default**: If an issue's labels do not match any row, the bump type is **minor**.
 
-**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `/open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
+**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `$nmg-sdlc:open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
 
 **Breaking changes use minor bumps.** A `### Changed (BREAKING)` sub-section in a CHANGELOG version entry does NOT override the bump type. Communicate the breaking nature via a `**BREAKING CHANGE:**` bold prefix on the affected bullet, and (recommended) add a `### Migration Notes` sub-section to the entry. Example:
 
@@ -134,13 +134,13 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 
 ### Skills (SKILL.md and the rest of the skill bundle)
 
-**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`/skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every prompt contract under `agents/*.md`. `skill-creator` enforces Codex plugin best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
+**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`$skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every prompt contract under `agents/*.md`. `skill-creator` enforces Codex plugin best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
 
-**No hand-edit fallback.** If `/skill-creator` is unavailable, do not silently fall back to direct Codex editing. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `/skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
+**No hand-edit fallback.** If `$skill-creator` is unavailable, do not silently fall back to direct Codex editing. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `$skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
 
 | Aspect | Best Practice |
 |--------|---------------|
-| Authoring tool | **Always use `/skill-creator` for creation and edits** — never hand-edit SKILL.md |
+| Authoring tool | **Always use `$skill-creator` for creation and edits** — never hand-edit SKILL.md |
 | Frontmatter | Use YAML frontmatter for `name` and `description` only; put UI metadata in `agents/openai.yaml` when needed |
 | Size | Keep under 500 lines — move detailed reference material to separate files |
 | Arguments | Use `$ARGUMENTS` placeholder to capture user input |
@@ -294,10 +294,10 @@ Feature: [Feature name from issue title]
 #### Loading the Plugin for Development
 
 ```bash
-codex exec --cd /path/to/test-project "/nmg-sdlc:skill-name args"
+codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"
 ```
 
-Then invoke each changed skill directly (e.g., `/nmg-sdlc:write-spec #42`) and verify:
+Then invoke each changed skill directly (e.g., `$nmg-sdlc:write-spec #42`) and verify:
 - The skill loads without errors
 - Workflow steps execute in the expected order
 - Output artifacts (files, GitHub comments, PR bodies) match downstream skill expectations
@@ -312,14 +312,14 @@ When verifying SDLC skill changes, exercise them against a **disposable test pro
    - `steering/` with minimal `product.md`, `tech.md`, `structure.md`
    - Initialized git repo (`git init`) for branch/commit operations
    - A GitHub repo if the skill under test needs issue/PR operations (or use dry-run evaluation — see below)
-2. **Load** the modified plugin: `codex exec --cd /path/to/test-project "/nmg-sdlc:skill-name args"`
+2. **Load** the modified plugin: `codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"`
 3. **Exercise** the changed skill against the test project
 4. **Evaluate** the output against the spec's acceptance criteria
 5. **Clean up** the test project after verification
 
 #### Dry-Run Evaluation for GitHub-Integrated Skills
 
-For skills that create GitHub resources (`/draft-issue`, `/open-pr`, `/start-issue`):
+For skills that create GitHub resources (`$nmg-sdlc:draft-issue`, `$nmg-sdlc:open-pr`, `$nmg-sdlc:start-issue`):
 
 | Instead of... | Do this... |
 |---------------|------------|
@@ -337,18 +337,18 @@ Use `codex exec` for non-interactive smoke tests. Skills that normally request u
 codex exec \
   --cd /path/to/test-project \
   --full-auto \
-  "Exercise the skill: /nmg-sdlc:skill-name args"
+  "Exercise the skill: $nmg-sdlc:skill-name args"
 ```
 
 This tests the non-interactive execution path. For full interactive paths, run the skill manually in Codex and record the transcript as verification evidence.
 
 ### Validation Approach Summary
 
-| Type | Method | Applies To | interactive user prompt |
+| Type | Method | Applies To | Conversational Gate Handling |
 |------|--------|------------|-----------------|
 | Codex exec smoke test | `codex exec --cd <test-project>` | Quick verification | Provide deterministic context up front |
 | Manual Codex exercise | Interactive Codex session | Skills with interactive gates | Full support |
-| Spec verification | `/verify-code` skill — behavioral contract checking | All changes | N/A |
+| Spec verification | `$nmg-sdlc:verify-code` skill — behavioral contract checking | All changes | N/A |
 | Architecture review | Inline review by default; optional Codex `explorer` delegation when explicitly authorized — 5 checklists scored 1–5 | Code structure, scripts | N/A |
 | Runner unit tests | Jest (`npm test` in `scripts/`) | `sdlc-runner.mjs` | N/A |
 | Structural validation | Verify `.codex-plugin/plugin.json` schema and file existence | Plugin manifest | N/A |
@@ -358,9 +358,9 @@ This tests the non-interactive execution path. For full interactive paths, run t
 
 ## Verification Gates
 
-Declare mandatory verification steps that `/verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
+Declare mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
 
-This project is prompt-based: skills are Markdown instructions that Codex executes. Traditional code quality metrics (test coverage, cyclomatic complexity) don't apply to most of the codebase. The gates below combine automated tests (for the runner script) with contract-based review (for skills and templates). Verification uses **Design by Contract** — each skill and component has preconditions, postconditions, invariants, and behavioral boundaries that `/verify-code` checks.
+This project is prompt-based: skills are Markdown instructions that Codex executes. Traditional code quality metrics (test coverage, cyclomatic complexity) don't apply to most of the codebase. The gates below combine automated tests (for the runner script) with contract-based review (for skills and templates). Verification uses **Design by Contract** — each skill and component has preconditions, postconditions, invariants, and behavioral boundaries that `$nmg-sdlc:verify-code` checks.
 
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
@@ -381,18 +381,18 @@ This project is prompt-based: skills are Markdown instructions that Codex execut
 - `Exit code 0` — the Action command must exit with code 0
 - `{file} file generated` — the named file must exist after the Action command completes (artifact verification)
 - `output contains "{text}"` — stdout or stderr must contain the specified text
-- Textual criteria (e.g., "reviewer confirms ...") are evaluated by `/verify-code` against the verification report
+- Textual criteria (e.g., "reviewer confirms ...") are evaluated by `$nmg-sdlc:verify-code` against the verification report
 
 ### Self-Verification (Dogfooding)
 
-This project develops the SDLC toolkit itself. When `/verify-code` runs for changes to SDLC skills, it MUST go beyond static analysis:
+This project develops the SDLC toolkit itself. When `$nmg-sdlc:verify-code` runs for changes to SDLC skills, it MUST go beyond static analysis:
 
 1. **Read the changed skill** — verify prompt quality (unambiguous, complete, correct tool refs)
 2. **Check behavioral contracts** — preconditions, postconditions, invariants per the tables below
 3. **Exercise the skill** — if feasible within the verification session, load the plugin and invoke the changed skill against a test project (see Testing Standards → Test Project Pattern)
 4. **Evaluate output** — for GitHub-integrated skills, evaluate what WOULD be created rather than creating real artifacts (see Testing Standards → Dry-Run Evaluation)
 
-If exercise testing is not feasible during automated verification (time or tool constraints), `/verify-code` should explicitly note this in the verification report and recommend manual exercise testing as a follow-up.
+If exercise testing is not feasible during automated verification (time or tool constraints), `$nmg-sdlc:verify-code` should explicitly note this in the verification report and recommend manual exercise testing as a follow-up.
 
 ### Contract Framework
 
@@ -416,12 +416,12 @@ Every skill has implicit contracts. When verifying a skill change, check:
 - Output files created in the correct location and format
 - GitHub issue/PR updated with expected content
 - No orphaned files or partial state left behind
-- Downstream skills can consume the output (e.g., `/write-spec` output feeds `/write-code`)
+- Downstream skills can consume the output (e.g., `$nmg-sdlc:write-spec` output feeds `$nmg-sdlc:write-code`)
 
 #### Invariants (Throughout Execution)
 - Stack-agnostic: no project-specific technology hardcoded in skill instructions
 - Steering docs used as the abstraction layer for project-specific details
-- Unattended-mode gates: interactive prompts present unless `.codex/unattended-mode` exists
+- Unattended-mode gates: conversational prompts present unless `.codex/unattended-mode` exists
 - Cross-platform: no platform-specific paths, commands, or assumptions
 
 #### Behavioral Boundaries
@@ -452,7 +452,7 @@ For Markdown skills, the "code quality" equivalent is prompt quality. The Prompt
 | **Complete workflow paths** | Happy path, error/edge cases, and unattended mode all covered |
 | **Correct tool references** | Skills use Codex-native language from `references/codex-tooling.md` and do not name legacy-only tools |
 | **Logical step ordering** | Dependencies flow forward; no step references information from a later step |
-| **Gate integrity** | Decision points have interactive user prompt (or unattended-mode bypass) |
+| **Gate integrity** | Decision points present a Codex interactive gates (or unattended-mode bypass) |
 | **Template-output chain** | Output format matches what downstream skills expect as input |
 | **Cross-reference validity** | Links to templates, checklists, and other skills resolve correctly |
 

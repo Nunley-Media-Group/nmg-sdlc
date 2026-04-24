@@ -13,7 +13,7 @@ This reference owns the three concerns that bookend each round: pushing new comm
 | Max polls per round | 60 | `skills/open-pr/references/ci-monitoring.md` |
 | Default max rounds | 10 | this skill (configurable via `--max-rounds=N`) |
 
-These values match `/open-pr` Step 7 exactly so interactive and unattended runs share a single "how long do we wait on GitHub" policy. A change to the constants here should be paired with a change to the `/open-pr` reference in the same PR.
+These values match `$nmg-sdlc:open-pr` Step 7 exactly so interactive and unattended runs share a single "how long do we wait on GitHub" policy. A change to the constants here should be paired with a change to the `$nmg-sdlc:open-pr` reference in the same PR.
 
 ## Step 5a: Push This Round's Commits
 
@@ -34,7 +34,7 @@ Failure paths:
 - Non-fast-forward rejection (remote has diverged: someone else rebased or pushed to the branch). Exit non-zero with:
 
   ```
-  git push was rejected (remote has diverged) on round {N}. Force-push is never used by this skill — reconcile the divergence manually (e.g., git pull --rebase, resolve, then re-run /address-pr-comments).
+  git push was rejected (remote has diverged) on round {N}. Force-push is never used by this skill — reconcile the divergence manually (e.g., git pull --rebase, resolve, then re-run $nmg-sdlc:address-pr-comments).
   ```
 
 - Any other push failure — exit non-zero surfacing the `git push` stderr verbatim.
@@ -111,6 +111,6 @@ Do NOT resolve any remaining threads. Do NOT amend or revert any commits. The op
 | `Round {N}: {M} threads escalated, 0 fixes applied — exiting unattended loop.` | 0 | AC15 | Step 5b |
 | `Round cap of {max_rounds} reached without reaching review-clean — exiting so you can investigate. {remaining_unresolved} unresolved, {skipped_size} skipped this invocation.` | non-zero | AC12 | Step 5e |
 | `Re-review polling timeout reached after 30 min on round {N} — exiting so you can investigate.` | non-zero | AC13 | Step 5f |
-| `git push was rejected (remote has diverged) on round {N}. Force-push is never used by this skill — reconcile the divergence manually (e.g., git pull --rebase, resolve, then re-run /address-pr-comments).` | non-zero | AC11 / AC14 | Step 5a |
+| `git push was rejected (remote has diverged) on round {N}. Force-push is never used by this skill — reconcile the divergence manually (e.g., git pull --rebase, resolve, then re-run $nmg-sdlc:address-pr-comments).` | non-zero | AC11 / AC14 | Step 5a |
 
 Any operator parsing this skill's output can map a single line to a single cause.

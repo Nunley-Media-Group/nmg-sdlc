@@ -37,7 +37,7 @@ After Phase 0 research completes, the Human Review Gate (HRG) chooses one:
 
 - [ ] **ADR only (single-PR)** — findings appended to the spike issue as a comment; ADR shipped in the same PR as the gap-analysis file.
 - [ ] **ADR + umbrella + child implementation issues** — umbrella issue created; child issues capture each independent implementation component.
-- [ ] **ADR + re-drafted spike scope** — spike issue body edited with refined scope; `/write-spec` re-runs to revisit the research with narrower questions.
+- [ ] **ADR + re-drafted spike scope** — spike issue body edited with refined scope; `$nmg-sdlc:write-spec` re-runs to revisit the research with narrower questions.
 
 ## Honest-Gap Protocol
 
@@ -53,6 +53,6 @@ If a candidate cannot be evaluated within the time-box, list it under "Honest Ga
 ## Authoring Guidance
 
 - **Title**: start with "Spike:" or "Evaluate:" or "Investigate:" — makes the issue type obvious at a glance (e.g., "Spike: evaluate OAuth vs session-cookie auth for the API gateway").
-- **No acceptance criteria**: spike issues do not have ACs. The deliverable is the ADR and scope-shape decision, not a working feature. `/verify-code` and `/write-code` abort on spike-labelled issues.
+- **No acceptance criteria**: spike issues do not have ACs. The deliverable is the ADR and scope-shape decision, not a working feature. `$nmg-sdlc:verify-code` and `$nmg-sdlc:write-code` abort on spike-labelled issues.
 - **Time-box is required**: a spike without a time-box becomes scope creep. The researcher stops when the time-box is reached and reports what was found, including honest gaps.
 - **Candidate Set at draft time**: filling in known candidates accelerates the researcher and focuses research. Leave as a placeholder if the candidates are entirely unknown — the researcher will enumerate them during Phase 0.

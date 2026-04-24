@@ -2,7 +2,7 @@
 
 **Consumed by**: `write-code` when a branch already carries some of its tasks' commits.
 
-Implementations rarely complete in a single sitting — the developer reruns `/write-code` on an existing branch to pick up where the previous session stopped. The skill must detect that state and resume cleanly rather than re-executing already-committed tasks.
+Implementations rarely complete in a single sitting — the developer reruns `$nmg-sdlc:write-code` on an existing branch to pick up where the previous session stopped. The skill must detect that state and resume cleanly rather than re-executing already-committed tasks.
 
 ## Resumption workflow
 
@@ -17,7 +17,7 @@ Implementations rarely complete in a single sitting — the developer reruns `/w
 |-----------|-----------|
 | No commits on branch yet | Treat as a fresh run — start from Task 1. |
 | Commits exist but none match a task in `tasks.md` | Warn and ask the user whether to treat the branch as fresh or as corrupt. In unattended mode, emit an `ESCALATION:` line rather than guessing. |
-| All tasks appear complete but `/verify-code` has not been run | Skip to Step 6 (Signal Completion) and recommend running `/verify-code` next. |
+| All tasks appear complete but `$nmg-sdlc:verify-code` has not been run | Skip to Step 6 (Signal Completion) and recommend running `$nmg-sdlc:verify-code` next. |
 | `tasks.md` was amended after commits started | Run the existing commits against the updated task list; treat any task without a matching commit as incomplete. Note the amendment in the completion summary. |
 
 ## Example

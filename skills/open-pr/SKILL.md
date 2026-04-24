@@ -1,29 +1,31 @@
 ---
 name: open-pr
-description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in /commit-push. Links specs and acceptance criteria into the PR body. Seventh step in the SDLC pipeline — follows /commit-push and precedes /address-pr-comments."
+description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in $nmg-sdlc:commit-push. Links specs and acceptance criteria into the PR body. Seventh step in the SDLC pipeline — follows $nmg-sdlc:commit-push and precedes $nmg-sdlc:address-pr-comments."
 ---
 
 # Open PR
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
 Create a pull request with a spec-driven summary that links to the GitHub issue and references specification documents.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging). Version-bump and push duties have moved to `/commit-push` as of FR1; this skill no longer owns a human-review gate for version bumping.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging). Version-bump and push duties have moved to `$nmg-sdlc:commit-push` as of FR1; this skill no longer owns a human-review gate for version bumping.
 
 Read `../../references/feature-naming.md` when locating the spec directory for the issue and no `{feature-name}` is already known — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
 
-Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, `.codex-plugin/plugin.json` manifest update, CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `/commit-push` owns the bump itself.
+Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, `.codex-plugin/plugin.json` manifest update, CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `$nmg-sdlc:commit-push` owns the bump itself.
 
 Read `../../references/steering-schema.md` when reading `steering/tech.md` for the `## Versioning` bump matrix or stack-specific versioned-files table — `tech.md` is the authoritative source for project-specific bump behaviour.
 
 ## Prerequisites
 
 1. Implementation is complete (all tasks from `tasks.md` done).
-2. Verification has passed (via `/verify-code`).
-3. Changes are committed AND pushed via `/commit-push` — this skill reads `git log origin/main..HEAD` but does not push.
+2. Verification has passed (via `$nmg-sdlc:verify-code`).
+3. Changes are committed AND pushed via `$nmg-sdlc:commit-push` — this skill reads `git log origin/main..HEAD` but does not push.
 
 ---
 
@@ -31,7 +33,7 @@ Read `../../references/steering-schema.md` when reading `steering/tech.md` for t
 
 ### Step 0: Parse Arguments
 
-Inspect the invocation arguments for a `--major` token (alongside the issue number, e.g., `/open-pr #42 --major`).
+Inspect the invocation arguments for a `--major` token (alongside the issue number, e.g., `$nmg-sdlc:open-pr #42 --major`).
 
 - `--major` present → set a `major_requested` flag and remember it through Step 2. This is the only supported path to a major version bump — the label-based classification matrix never produces one on its own.
 - `--major` absent → `major_requested` is false and the rest of the workflow behaves normally.
@@ -42,11 +44,11 @@ Inspect the invocation arguments for a `--major` token (alongside the issue numb
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
 ```
 
-Do NOT continue to Step 1, do NOT commit or push, and do NOT create a PR. Version-bump mutation lives in `/commit-push`; this skill does not touch `VERSION` or `CHANGELOG.md`, but the escalation still fires here because the `--major` decision is a release-level call that belongs with PR opening.
+Do NOT continue to Step 1, do NOT commit or push, and do NOT create a PR. Version-bump mutation lives in `$nmg-sdlc:commit-push`; this skill does not touch `VERSION` or `CHANGELOG.md`, but the escalation still fires here because the `--major` decision is a release-level call that belongs with PR opening.
 
 ### Step 1: Read Context
 
-Read `references/preflight.md` when Step 1 begins — the gate aborts before PR creation if the working tree is dirty, the branch has no non-bump commits, or local is not an ancestor of `origin/main` (i.e., `/commit-push` has not yet reconciled divergence).
+Read `references/preflight.md` when Step 1 begins — the gate aborts before PR creation if the working tree is dirty, the branch has no non-bump commits, or local is not an ancestor of `origin/main` (i.e., `$nmg-sdlc:commit-push` has not yet reconciled divergence).
 
 Gather all information needed for the PR:
 
@@ -58,10 +60,10 @@ Gather all information needed for the PR:
 
    Skip this sub-step if specs-not-found — acceptance criteria will be extracted from the issue body already fetched in step 1.
 4. **Read git state**:
-   - `git status` — any uncommitted changes (must be empty; /commit-push should have committed everything)?
+   - `git status` — any uncommitted changes (must be empty; $nmg-sdlc:commit-push should have committed everything)?
    - `git log main..HEAD --oneline` — commits on this branch.
    - `git diff main...HEAD --stat` — files changed vs main.
-5. **Read version artifacts for the PR body** — read `VERSION` and the latest heading in `CHANGELOG.md` to populate the PR body's Version line. Do NOT modify these files; `/commit-push` is the only skill that writes version artifacts.
+5. **Read version artifacts for the PR body** — read `VERSION` and the latest heading in `CHANGELOG.md` to populate the PR body's Version line. Do NOT modify these files; `$nmg-sdlc:commit-push` is the only skill that writes version artifacts.
 
 ### Step 4: Generate PR Content
 
@@ -84,7 +86,7 @@ git merge-base --is-ancestor origin/main HEAD
   DIVERGED: re-run commit-push to reconcile before creating PR
   ```
 
-  Do NOT rebase, do NOT amend, do NOT push, do NOT force-push. The SDLC runner reads the `DIVERGED:` sentinel via `bounceContext` and bounces control to `/commit-push`, which owns rebase and push. In interactive use, the user re-runs `/commit-push` manually.
+  Do NOT rebase, do NOT amend, do NOT push, do NOT force-push. The SDLC runner reads the `DIVERGED:` sentinel via `bounceContext` and bounces control to `$nmg-sdlc:commit-push`, which owns rebase and push. In interactive use, the user re-runs `$nmg-sdlc:commit-push` manually.
 
 Once the ancestry check passes, create the PR:
 
@@ -110,6 +112,6 @@ Read `references/ci-monitoring.md` when `.codex/unattended-mode` does NOT exist 
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                                                                               ▲ You are here
 ```

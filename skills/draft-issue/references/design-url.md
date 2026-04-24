@@ -7,7 +7,7 @@ This reference documents how the skill fetches a design archive, decodes its pay
 
 ## Procedure
 
-Reuses the same flow as `/onboard-project` §2G.1 to avoid drift.
+Reuses the same flow as `$nmg-sdlc:onboard-project` §2G.1 to avoid drift.
 
 1. **Validate URL is HTTPS.** If not, log `"Design URL rejected (non-HTTPS)"`, set `session.designContext = null`, set `session.designFailureNote = "non-HTTPS URL"`, and continue to Step 1b.
 2. **Fetch** via Codex web browsing with a 15s default timeout.

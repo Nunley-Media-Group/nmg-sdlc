@@ -1,11 +1,13 @@
 ---
 name: write-spec
-description: "Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Do NOT use for creating issues, implementing code, or verifying implementations. Produces requirements.md, design.md, tasks.md, and feature.gherkin with human review gates. Third step in the SDLC pipeline — follows /start-issue and precedes /write-code."
+description: "Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Do NOT use for creating issues, implementing code, or verifying implementations. Produces requirements.md, design.md, tasks.md, and feature.gherkin with human review gates. Third step in the SDLC pipeline — follows $nmg-sdlc:start-issue and precedes $nmg-sdlc:write-code."
 ---
 
 # Write Spec
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
 
 Create BDD specifications from a GitHub issue through three phases — Requirements, Design, Tasks — each ending with a human review gate. Each phase reads at most one variant-specific reference (defect, amendment, discovery) so the typical run only loads the workflow skeleton plus the gates it actually fires.
 
@@ -31,14 +33,14 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 
 ## Prerequisites
 
-1. A GitHub issue exists (created via `/draft-issue` or manually).
-2. Steering documents exist in `steering/` (create via `/onboard-project` if missing).
+1. A GitHub issue exists (created via `$nmg-sdlc:draft-issue` or manually).
+2. Steering documents exist in `steering/` (create via `$nmg-sdlc:onboard-project` if missing).
 3. Spec directories follow the `feature-{slug}` / `bug-{slug}` convention.
 4. The project uses the current directory layout (`steering/` and `specs/` at the repo root).
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
 
-Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no interactive user prompt, no inline summary) when the `.codex/unattended-mode` sentinel exists.
+Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no Codex interactive gate, no inline summary) when the `.codex/unattended-mode` sentinel exists.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose, read-timing, or discovery rules.
 
@@ -72,7 +74,7 @@ After reading the issue in Phase 1, check whether it has the `spike` label (reus
 
 Read `references/spike-variant.md` when any label is `spike` — the spike variant replaces Phases 1–3 with a single Phase 0: Research that commits a gap-analysis ADR under `docs/decisions/` and ends with a Human Review Gate.
 
-**Precedence**: spike > defect. If both labels appear on the same issue (unusual — `/draft-issue` Step 2 forces one classification), load `references/spike-variant.md` and ignore the defect path.
+**Precedence**: spike > defect. If both labels appear on the same issue (unusual — `$nmg-sdlc:draft-issue` Step 2 forces one classification), load `references/spike-variant.md` and ignore the defect path.
 
 ---
 
@@ -186,11 +188,11 @@ After the Phase 3 approval gate, detect a multi-PR delivery trigger. The trigger
 - `design.md` contains a `## Multi-PR Rollout` heading, OR
 - Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive).
 
-The umbrella spec is not itself a shipping change, so sealing commits the spec without a version bump and (optionally) creates child issues — bypassing `/open-pr`'s normal version-bump path.
+The umbrella spec is not itself a shipping change, so sealing commits the spec without a version bump and (optionally) creates child issues — bypassing `$nmg-sdlc:open-pr`'s normal version-bump path.
 
 #### 3b.1 Offer Seal (interactive) or Auto-Execute (unattended)
 
-- **Interactive mode.** interactive user prompt: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
+- **Interactive mode.** Codex interactive gate: `[1] Seal and transition — commit specs/{feature-name}/, push, offer child issue creation` / `[2] Don't seal — I'll handle child-issue creation manually`.
 - **Unattended mode.** Auto-execute the seal per 3b.2 (deterministic-default gate per `../../references/unattended-mode.md`).
 
 #### 3b.2 Idempotency Check and Seal Commit
@@ -210,7 +212,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.3 Offer Child-Issue Creation
 
-- **Interactive mode.** After a successful seal, interactive user prompt whether to create child issues now via `/draft-issue` batch mode using the design's Delivery Phases table as input.
+- **Interactive mode.** After a successful seal, Codex interactive gate whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input.
 - **Unattended mode.** Auto-execute child creation (no prompt).
 
 #### 3b.4 After-Seal Next-Step Hint
@@ -219,10 +221,10 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 Umbrella spec sealed at commit {sealCommitSha}.
 Children created: #{child1}, #{child2}, ...  (or: "none — create manually later")
 
-Next step: /start-issue #{first-unblocked-child}
+Next step: $nmg-sdlc:start-issue #{first-unblocked-child}
 ```
 
-If no children were created, fall back to: `"Create child issues with /draft-issue and then run /start-issue #{child-number}."`
+If no children were created, fall back to: `"Create child issues with $nmg-sdlc:draft-issue and then run $nmg-sdlc:start-issue #{child-number}."`
 
 ---
 
@@ -235,7 +237,7 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 - tasks.md — Phased implementation tasks
 - feature.gherkin — BDD test scenarios
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/write-code #N` to plan and execute implementation.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:write-code #N` to plan and execute implementation.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
@@ -244,7 +246,7 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                   ▲ You are here
 ```
 

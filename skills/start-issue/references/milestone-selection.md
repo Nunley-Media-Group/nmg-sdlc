@@ -2,7 +2,7 @@
 
 **Consumed by**: `start-issue` Step 1 (when no issue number was supplied as an argument).
 
-Step 1 of `/start-issue` produces the candidate issue set that Step 1a then orders and filters. Milestone selection is deterministic — the same repo state always yields the same candidates — and it adapts to interactive vs. unattended mode through explicit branches rather than hidden defaults so the runner can predict the skill's behaviour exactly.
+Step 1 of `$nmg-sdlc:start-issue` produces the candidate issue set that Step 1a then orders and filters. Milestone selection is deterministic — the same repo state always yields the same candidates — and it adapts to interactive vs. unattended mode through explicit branches rather than hidden defaults so the runner can predict the skill's behaviour exactly.
 
 ## Fetch viable milestones
 
@@ -42,7 +42,7 @@ gh issue list -s open -m "<milestone>" --label automatable -L 10 --json number,t
 
 ### Multiple viable milestones
 
-- **Interactive mode**: present the filtered milestone list via interactive user prompt (option label: milestone title; description: "N open issues"), then fetch issues from the selected milestone.
+- **Interactive mode**: present the filtered milestone list via Codex interactive gate (option label: milestone title; description: "N open issues"), then fetch issues from the selected milestone.
 - **Unattended mode**: select the first milestone alphabetically and fetch its issues with `--label automatable`.
 
 ## Unattended-mode empty-result handling

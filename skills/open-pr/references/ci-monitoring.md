@@ -4,11 +4,11 @@
 
 ## Entry gate
 
-If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT call interactive user prompt for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
+If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT present a Codex interactive gate for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
 
 Otherwise:
 
-1. **Prompt the user** via interactive user prompt:
+1. **Prompt the user** via Codex interactive gate:
 
    ```
    question: "Monitor CI and auto-merge this PR once all required checks pass?"
@@ -20,7 +20,7 @@ Otherwise:
 2. **On "No, I'll handle it"** (opt-out): print the existing guidance and exit:
 
    ```
-   Next step: Wait for CI to pass, then merge the PR to close issue #N. After merging, you can start the next issue with `/draft-issue` (for new work) or `/start-issue` (to pick up an existing issue).
+   Next step: Wait for CI to pass, then merge the PR to close issue #N. After merging, you can start the next issue with `$nmg-sdlc:draft-issue` (for new work) or `$nmg-sdlc:start-issue` (to pick up an existing issue).
    ```
 
 3. **On "Yes, monitor CI and auto-merge"** (opt-in): run the polling loop, then the merge-and-cleanup path (or the failure path on any non-success terminal state).

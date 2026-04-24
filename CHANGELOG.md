@@ -10,6 +10,11 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+### Changed
+
+- Added a shared Codex interactive-gate contract and wired every skill to it, so manual gates render numbered conversational prompts and wait for the user's next reply instead of assuming a legacy prompt widget exists.
+- Updated active skill and README next-step examples to use Codex `$nmg-sdlc:<skill>` invocation syntax instead of legacy slash-command examples.
+
 ## [1.60.0] - 2026-04-24
 
 ### Changed

@@ -8,7 +8,7 @@ Every spec file (`requirements.md`, `design.md`, `tasks.md`) begins with a bolde
 
 | Field | Format | Purpose |
 |-------|--------|---------|
-| `**Issues**` | `**Issues**: #N` or `**Issues**: #N, #M, #K` — plural, comma-separated | Lists every issue that contributed to this spec. Used by `/write-spec`'s parent-link resolution, `/open-pr`'s spec lookup, and `/run-retro`'s defect-origin trace. |
+| `**Issues**` | `**Issues**: #N` or `**Issues**: #N, #M, #K` — plural, comma-separated | Lists every issue that contributed to this spec. Used by `$nmg-sdlc:write-spec`'s parent-link resolution, `$nmg-sdlc:open-pr`'s spec lookup, and `$nmg-sdlc:run-retro`'s defect-origin trace. |
 | `**Date**` | `**Date**: YYYY-MM-DD` | Most recent amendment date (ISO 8601). Initial creation date on first write; overwritten when the spec is amended. |
 | `**Status**` | `**Status**: Draft` / `Approved` / `Amended` | Tracks the spec's lifecycle. |
 | `**Author**` | `**Author**: Full Name` | Original author. |
@@ -20,13 +20,13 @@ Feature specs use `**Issues**` (plural). Defect specs use singular `**Issue**` (
 
 Feature specs track multiple contributing issues because the same feature can accumulate enhancements over time. The field is always plural on new feature specs — even when only one issue has contributed so far (`**Issues**: #42`).
 
-The singular `**Issue**: #N` form is the **legacy** frontmatter shape used before the feature/bug directory split. It remains valid **only** on defect specs (which are per-issue and never amended). Feature specs that still carry singular `**Issue**` are from before the convention change and should be migrated — `/upgrade-project` Step 4f does this migration.
+The singular `**Issue**: #N` form is the **legacy** frontmatter shape used before the feature/bug directory split. It remains valid **only** on defect specs (which are per-issue and never amended). Feature specs that still carry singular `**Issue**` are from before the convention change and should be migrated — `$nmg-sdlc:upgrade-project` Step 4f does this migration.
 
 Consumers that look up specs by issue number should fall back from `**Issues**` to singular `**Issue**` so un-upgraded projects still resolve. `references/feature-naming.md` → "Fallback discovery" documents the chain.
 
 ## Amendment rules
 
-Feature specs are amendable when a subsequent issue contributes to the same feature. The `/write-spec` amendment path drives the updates:
+Feature specs are amendable when a subsequent issue contributes to the same feature. The `$nmg-sdlc:write-spec` amendment path drives the updates:
 
 1. Append the new issue number to `**Issues**` (comma-separated).
 2. Overwrite `**Date**` with today's date (ISO 8601).
@@ -56,7 +56,7 @@ Rules:
 - `Summary` is a one-line change description — keep it short; the full rationale belongs in the spec body.
 - For the **initial** row, use `Initial feature spec` (feature) or `Initial defect report` (defect) as the summary.
 
-The Change History is the audit log. `/run-retro` reads it when tracing defect-derived learnings back to the feature spec that introduced the underlying code.
+The Change History is the audit log. `$nmg-sdlc:run-retro` reads it when tracing defect-derived learnings back to the feature spec that introduced the underlying code.
 
 ## Defect-spec frontmatter
 
@@ -75,5 +75,5 @@ Defect specs use a reduced schema:
 Key differences from feature specs:
 
 - Singular `**Issue**` (defect specs are per-issue; never amended).
-- `**Related Spec**` is required and points to the feature spec that introduced the affected code, or `N/A` when no feature spec applies. `/upgrade-project` Step 4a validates these links and resolves defect-to-defect chains to their root feature spec.
+- `**Related Spec**` is required and points to the feature spec that introduced the affected code, or `N/A` when no feature spec applies. `$nmg-sdlc:upgrade-project` Step 4a validates these links and resolves defect-to-defect chains to their root feature spec.
 - `**Status**` values differ (`Investigating` / `Fixed` / `Closed` vs. `Draft` / `Approved` / `Amended`).

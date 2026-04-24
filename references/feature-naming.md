@@ -43,4 +43,4 @@ When a consuming skill needs to locate the spec directory for an issue but canno
 
 ## Legacy `{issue#}-{slug}/` directories
 
-The legacy convention `{issue#}-{slug}/` (e.g., `42-add-precipitation-overlay/`) predates the `feature-`/`bug-` split. It remains supported for read-through compatibility — skills must locate and consume legacy directories via the fallback above. New specs must never be created in the legacy format; `/upgrade-project` migrates legacy directories to the current convention.
+The legacy convention `{issue#}-{slug}/` (e.g., `42-add-precipitation-overlay/`) predates the `feature-`/`bug-` split. It remains supported for read-through compatibility — skills must locate and consume legacy directories via the fallback above. New specs must never be created in the legacy format; `$nmg-sdlc:upgrade-project` migrates legacy directories to the current convention.

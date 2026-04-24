@@ -1,34 +1,36 @@
 ---
 name: start-issue
-description: "Select a GitHub issue, create a linked feature branch, and set the issue to In Progress. Use when user says 'start issue', 'pick up issue', 'begin working on #N', 'start #N', 'what should I work on', 'how do I start an issue', 'how to begin work on an issue', or 'kick off issue #N'. Do NOT use for creating issues, writing specs, or implementing code. Fetches milestones, presents issue selection, creates branch via gh issue develop, and updates project board status. Second step in the SDLC pipeline — follows /draft-issue and precedes /write-spec."
+description: "Select a GitHub issue, create a linked feature branch, and set the issue to In Progress. Use when user says 'start issue', 'pick up issue', 'begin working on #N', 'start #N', 'what should I work on', 'how do I start an issue', 'how to begin work on an issue', or 'kick off issue #N'. Do NOT use for creating issues, writing specs, or implementing code. Fetches milestones, presents issue selection, creates branch via gh issue develop, and updates project board status. Second step in the SDLC pipeline — follows $nmg-sdlc:draft-issue and precedes $nmg-sdlc:write-spec."
 ---
 
 # Start Issue
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
 Select a GitHub issue to work on, create a linked feature branch, and set the issue to "In Progress" in any associated GitHub Project.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every Codex interactive gate call site in this skill. Steps 2 and 3 are skipped when the sentinel is present; the auto-selection rules below replace them.
 
 ## Unattended-Mode Behaviour Specific to This Skill
 
 The shared reference covers sentinel semantics; these skill-specific branches apply when `.codex/unattended-mode` exists:
 
-- **Argument supplied** (`/start-issue #N`): skip Steps 2–3 (selection and confirmation) and go directly to Step 4.
-- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. interactive user prompt is never called.
+- **Argument supplied** (`$nmg-sdlc:start-issue #N`): skip Steps 2–3 (selection and confirmation) and go directly to Step 4.
+- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. Codex interactive gate is never called.
 - Only issues with the `automatable` label are eligible. Every `gh issue list` command gains `--label automatable`. If no automatable issues exist, run the diagnostic per `references/milestone-selection.md` and exit without creating a branch.
 
 ## Workflow Overview
 
 ```
-/start-issue [#N]
+$nmg-sdlc:start-issue [#N]
     │
     ├─ 1.  Fetch milestones & issues
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
-    ├─ 2.  Present issue selection (interactive user prompt)
+    ├─ 2.  Present issue selection (Codex interactive gate)
     ├─ 3.  Confirm selected issue
     ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
@@ -40,11 +42,11 @@ The shared reference covers sentinel semantics; these skill-specific branches ap
 
 ## Step 1: Identify Issue
 
-If an argument was provided (e.g., `/start-issue #42`), skip to Step 3 using that issue number.
+If an argument was provided (e.g., `$nmg-sdlc:start-issue #42`), skip to Step 3 using that issue number.
 
 Otherwise, discover available issues.
 
-Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. interactive prompt, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
+Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. Codex interactive gate, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
 
 After the raw candidate set is produced (and the empty-result handler has not fired), proceed to Step 1a before any presentation or auto-selection.
 
@@ -135,7 +137,7 @@ The topologically-ordered, blocked-filtered list is what Step 2 and the unattend
 
 In unattended mode, skip this step entirely — the auto-pick rule in the Unattended-Mode Behaviour section replaces it.
 
-Interactive mode uses interactive user prompt to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
+Interactive mode uses Codex interactive gate to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none. If the issue has the `automatable` label, append `(automatable)` to the description.
@@ -194,17 +196,17 @@ Milestone: [milestone or "none"]
 Labels: [labels or "none"]
 Status: In Progress
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `/write-spec #N` to create specifications for this issue.
+[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:write-spec #N` to create specifications for this issue.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
-This summary is the handoff contract for downstream skills like `/write-spec` and `/write-code`.
+This summary is the handoff contract for downstream skills like `$nmg-sdlc:write-spec` and `$nmg-sdlc:write-code`.
 
 ---
 
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                           ▲ You are here
 ```

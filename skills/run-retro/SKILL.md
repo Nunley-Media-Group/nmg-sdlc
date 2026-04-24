@@ -1,17 +1,19 @@
 ---
 name: run-retro
-description: "Analyze defect specs to identify spec-writing gaps and produce actionable learnings. Use when user says 'run retrospective', 'analyze defects', 'review past bugs', 'what can we learn from bugs', 'update retrospective', 'how do I run a retrospective', or 'learn from our bugs'. Produces steering/retrospective.md that /write-spec reads to avoid repeating past failures. Utility skill — run periodically, outside the main SDLC pipeline."
+description: "Analyze defect specs to identify spec-writing gaps and produce actionable learnings. Use when user says 'run retrospective', 'analyze defects', 'review past bugs', 'what can we learn from bugs', 'update retrospective', 'how do I run a retrospective', or 'learn from our bugs'. Produces steering/retrospective.md that $nmg-sdlc:write-spec reads to avoid repeating past failures. Utility skill — run periodically, outside the main SDLC pipeline."
 ---
 
 # Run Retro
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Batch-analyze defect specs to identify recurring spec-writing gaps and produce `steering/retrospective.md` — a steering document that `/write-spec` reads during Phase 1 to avoid repeating past spec failures.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
+Batch-analyze defect specs to identify recurring spec-writing gaps and produce `steering/retrospective.md` — a steering document that `$nmg-sdlc:write-spec` reads during Phase 1 to avoid repeating past spec failures.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every interactive user prompt call site so the runner can drive a retro without stopping for user input.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every Codex interactive gate call site so the runner can drive a retro without stopping for user input.
 
 Read `../../references/spec-frontmatter.md` when you need the defect-spec schema or the `**Related Spec**` field conventions — Step 2's chain resolution depends on `**Related Spec**` pointing at either a feature spec (terminating) or another defect spec (recursive).
 
@@ -81,7 +83,7 @@ Found [N] defect specs: [new] new, [modified] modified, [unchanged] unchanged, [
 
 Read `references/adr-aging.md` when `docs/decisions/` exists — the reference covers scanning ADR files, reading commit dates via `git log --follow --format=%aI -- {file}`, flagging ADRs older than 180 days, and emitting re-spike candidate rows in the retrospective output.
 
-If `docs/decisions/` does not exist, skip this step entirely (no error, no warning — ADRs are optional, created on first spike via `/write-spec` Phase 0).
+If `docs/decisions/` does not exist, skip this step entirely (no error, no warning — ADRs are optional, created on first spike via `$nmg-sdlc:write-spec` Phase 0).
 
 Record the re-spike candidate list in session state for Step 7 to append to the retrospective output.
 
@@ -161,7 +163,7 @@ Learnings generated: [total] ([new_count] new, [carried_count] carried forward)
 Written to steering/retrospective.md
 State saved to steering/retrospective-state.json
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: This document will be read automatically by `/write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `/draft-issue` or `/start-issue` to continue the SDLC workflow.
+[If `.codex/unattended-mode` does NOT exist]: Next step: This document will be read automatically by `$nmg-sdlc:write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `$nmg-sdlc:draft-issue` or `$nmg-sdlc:start-issue` to continue the SDLC workflow.
 [If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
 ```
 
@@ -170,10 +172,10 @@ State saved to steering/retrospective-state.json
 ## Integration with SDLC Workflow
 
 ```
-/draft-issue  →  /start-issue #N  →  /write-spec #N  →  /write-code #N  →  /simplify  →  /verify-code #N  →  /commit-push  →  /open-pr #N  →  /address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                    ▲                                                                         │
                                                    │                                                                         ▼
-                                                   └──── reads retrospective.md ◄──── /run-retro ◄──── defect specs
+                                                   └──── reads retrospective.md ◄──── $nmg-sdlc:run-retro ◄──── defect specs
 ```
 
 The retrospective skill sits outside the main linear pipeline. It is invoked periodically (not per-issue) and feeds learnings back into the spec-writing step.

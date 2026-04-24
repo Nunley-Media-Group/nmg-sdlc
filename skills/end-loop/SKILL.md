@@ -1,13 +1,15 @@
 ---
 name: end-loop
-description: "Stop unattended mode and clear runner state. Use when user says 'end loop', 'stop loop', 'kill the runner', 'exit unattended mode', 'disable unattended mode', 'cleanup runner artifacts', or 'stop SDLC automation'. Pairs with /run-loop — signals the runner PID (if live) and removes .codex/unattended-mode and .codex/sdlc-state.json."
+description: "Stop unattended mode and clear runner state. Use when user says 'end loop', 'stop loop', 'kill the runner', 'exit unattended mode', 'disable unattended mode', 'cleanup runner artifacts', or 'stop SDLC automation'. Pairs with $nmg-sdlc:run-loop — signals the runner PID (if live) and removes .codex/unattended-mode and .codex/sdlc-state.json."
 ---
 
 # End Loop
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
 
-Tear down unattended mode and clear SDLC runner state. This is the explicit counterpart to `/run-loop`: one command to stop the loop cleanly, whether the runner is live, crashed, or already gone.
+Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex renders these as conversational numbered prompts and waits for the next user reply.
+
+Tear down unattended mode and clear SDLC runner state. This is the explicit counterpart to `$nmg-sdlc:run-loop`: one command to stop the loop cleanly, whether the runner is live, crashed, or already gone.
 
 The runner artifacts this skill manages mirror `RUNNER_ARTIFACTS` in `scripts/sdlc-runner.mjs:566` and the delete-best-effort semantics of `removeUnattendedMode()` in `scripts/sdlc-runner.mjs:614`. If those locations change, this skill needs a corresponding update.
 
@@ -141,15 +143,15 @@ Already handled in Step 6 — a deletion failure exits non-zero with a specific-
 
 ## Unattended Mode
 
-This skill always runs non-interactively. It does not call interactive user prompt, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
+This skill always runs non-interactively. It does not present a Codex interactive gate, does not enter plan mode, and does not gate on any user confirmation. Invocation under `.codex/unattended-mode` behaves identically to invocation without it — which matters because a common use case is to disable unattended mode that the skill itself is currently running under.
 
 ## Integration with SDLC Workflow
 
-`/end-loop` pairs with `/run-loop` as the explicit stop command:
+`$nmg-sdlc:end-loop` pairs with `$nmg-sdlc:run-loop` as the explicit stop command:
 
 ```
-/run-loop           →  Starts the SDLC pipeline (creates .codex/unattended-mode + state)
-/end-loop           →  Stops the pipeline (signals runner, removes both files)
+$nmg-sdlc:run-loop           →  Starts the SDLC pipeline (creates .codex/unattended-mode + state)
+$nmg-sdlc:end-loop           →  Stops the pipeline (signals runner, removes both files)
 ```
 
-The underlying runner (`scripts/sdlc-runner.mjs`) also removes `.codex/unattended-mode` automatically on clean exit via its `removeUnattendedMode()` helper. `/end-loop` is the manual equivalent for mid-cycle stop, crash recovery, or "make sure it's off" idempotent invocations.
+The underlying runner (`scripts/sdlc-runner.mjs`) also removes `.codex/unattended-mode` automatically on clean exit via its `removeUnattendedMode()` helper. `$nmg-sdlc:end-loop` is the manual equivalent for mid-cycle stop, crash recovery, or "make sure it's off" idempotent invocations.

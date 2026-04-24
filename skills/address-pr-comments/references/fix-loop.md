@@ -1,21 +1,21 @@
 # Per-Thread Fix Loop
 
-**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `/address-pr-comments` — no `codex exec` subprocesses — so sub-skill output (including any `ESCALATION:` lines emitted by `/write-code` or `/verify-code`) lands in the same transcript and can be observed inline.
+**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `$nmg-sdlc:address-pr-comments` — no `codex exec` subprocesses — so sub-skill output (including any `ESCALATION:` lines emitted by `$nmg-sdlc:write-code` or `$nmg-sdlc:verify-code`) lands in the same transcript and can be observed inline.
 
 ## Why a postcondition gate
 
-Self-reported success from a delegate is never sufficient to close a loop. `/write-code` can return "done" when a soft failure (missing specs, permission denial, plan-mode abort, turn-limit exhaustion) left the tree unchanged; `/verify-code` can return a pass while a regression sneaks in through an unrelated test. Replying and resolving a thread on self-report alone would silently close threads the reviewer flagged, which would erode trust faster than any bug. So: `write-code` + `verify-code` produce a candidate fix, and a postcondition gate inspects the observable artifacts (commit graph, file diff, verify report) before we tell GitHub the thread is resolved.
+Self-reported success from a delegate is never sufficient to close a loop. `$nmg-sdlc:write-code` can return "done" when a soft failure (missing specs, permission denial, plan-mode abort, turn-limit exhaustion) left the tree unchanged; `$nmg-sdlc:verify-code` can return a pass while a regression sneaks in through an unrelated test. Replying and resolving a thread on self-report alone would silently close threads the reviewer flagged, which would erode trust faster than any bug. So: `write-code` + `verify-code` produce a candidate fix, and a postcondition gate inspects the observable artifacts (commit graph, file diff, verify report) before we tell GitHub the thread is resolved.
 
 ## Sub-Skill Invocation
 
 Invoke the two skills in this order. Both run in the current session — do not spawn subprocesses.
 
-### 1. /write-code with synthetic task context
+### 1. $nmg-sdlc:write-code with synthetic task context
 
-Because `/write-code` normally reads `specs/{feature-name}/tasks.md`, it needs a synthetic task when driven by a review thread. Invoke it inline with a prompt shaped like:
+Because `$nmg-sdlc:write-code` normally reads `specs/{feature-name}/tasks.md`, it needs a synthetic task when driven by a review thread. Invoke it inline with a prompt shaped like:
 
 ```
-/write-code
+$nmg-sdlc:write-code
 
 ## Synthetic task — PR review finding on PR #{PR_NUMBER}
 
@@ -34,17 +34,17 @@ Because `/write-code` normally reads `specs/{feature-name}/tasks.md`, it needs a
 **Commit message**: use exactly `fix: address review finding on {path}:{line}`. Omit the `:{line}` segment when `line` is null.
 ```
 
-`/write-code`'s internal workflow still runs (steering-doc load, its own plan mode in interactive, tasks-md read if a spec exists for the current branch) — the synthetic-task prompt sits alongside its usual spec input so Codex treats the reviewer finding as the task of record.
+`$nmg-sdlc:write-code`'s internal workflow still runs (steering-doc load, its own plan mode in interactive, tasks-md read if a spec exists for the current branch) — the synthetic-task prompt sits alongside its usual spec input so Codex treats the reviewer finding as the task of record.
 
-### 2. /verify-code
+### 2. $nmg-sdlc:verify-code
 
-After `/write-code` returns, invoke `/verify-code` in the same session:
+After `$nmg-sdlc:write-code` returns, invoke `$nmg-sdlc:verify-code` in the same session:
 
 ```
-/verify-code
+$nmg-sdlc:verify-code
 ```
 
-`/verify-code` reads the branch's specs and runs the review / exercise / verification-gate path defined by its own SKILL.md. It will produce a report naming any regressions. If it reports findings, treat the thread as postcondition-failed (below).
+`$nmg-sdlc:verify-code` reads the branch's specs and runs the review / exercise / verification-gate path defined by its own SKILL.md. It will produce a report naming any regressions. If it reports findings, treat the thread as postcondition-failed (below).
 
 ## Postcondition Gate
 
@@ -54,8 +54,8 @@ Before posting any reply or resolving any thread, verify every item in the table
 |---------------|--------------|--------|
 | Commit SHA moved forward | `git rev-parse HEAD` changed from the SHA captured before the sub-skill invocation | Silently no-op delegations produce "success" but no commit; this catches them. |
 | Fix commit touches the referenced file | `git diff {prior_sha}..HEAD --name-only` includes `path` (skip this check when `path` is null — the reviewer did not name a file) | A commit that does not touch the reviewer's file is addressing something else; do not claim it fixed the thread. |
-| `/verify-code` reported no regressions | Read `/verify-code`'s report output; treat a non-pass overall status (e.g. `Fail` / `Partial`) or any remaining-issue bullet flagged as a regression against a prior AC as a failure for this check | Regressions introduced by the fix attempt must not be silently published as a "resolved" thread. |
-| No sub-skill `ESCALATION:` line | `/write-code` and `/verify-code` both can emit `ESCALATION:` lines; scan their stdout | Sub-skill escalations map to per-thread escalation — the reviewer's comment is not yet addressable in this invocation. |
+| `$nmg-sdlc:verify-code` reported no regressions | Read `$nmg-sdlc:verify-code`'s report output; treat a non-pass overall status (e.g. `Fail` / `Partial`) or any remaining-issue bullet flagged as a regression against a prior AC as a failure for this check | Regressions introduced by the fix attempt must not be silently published as a "resolved" thread. |
+| No sub-skill `ESCALATION:` line | `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` both can emit `ESCALATION:` lines; scan their stdout | Sub-skill escalations map to per-thread escalation — the reviewer's comment is not yet addressable in this invocation. |
 
 If every postcondition holds, proceed to Reply and Resolve below. If any fails, the thread joins the in-process skipped-set, the skill prints the same unattended-mode-style escalation sentinel defined in `references/escalation.md` (with the classification kept as `clear-fix` and the rationale updated to name the failed postcondition), and the loop continues to the next thread. This treatment is intentional: a sub-skill soft failure here is a per-thread issue, not a whole-invocation issue — other threads in the round may still be fixable.
 
@@ -101,7 +101,7 @@ Confirm the mutation response has `isResolved: true`. If the mutation fails (e.g
 
 ## Commit Message Convention
 
-Every fix commit in this loop MUST use the exact prefix `fix: address review finding on {path}:{line}`. When the thread has no file context (`path` is null), use `fix: address review finding on PR #{pr_number} thread {short_thread_id}`. The commit message tail may contain free-form explanation, but the prefix stays exact — runner logs and `/run-retro` both parse it.
+Every fix commit in this loop MUST use the exact prefix `fix: address review finding on {path}:{line}`. When the thread has no file context (`path` is null), use `fix: address review finding on PR #{pr_number} thread {short_thread_id}`. The commit message tail may contain free-form explanation, but the prefix stays exact — runner logs and `$nmg-sdlc:run-retro` both parse it.
 
 ## Force-push prohibition
 
