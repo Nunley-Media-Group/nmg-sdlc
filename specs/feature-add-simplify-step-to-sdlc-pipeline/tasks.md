@@ -1,8 +1,8 @@
 # Tasks: Add /simplify Step to SDLC Pipeline
 
-**Issues**: #140
-**Date**: 2026-04-19
-**Status**: Planning
+**Issues**: #140, #106
+**Date**: 2026-04-24
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -16,7 +16,10 @@
 | Runner & config updates | 3 | [ ] |
 | Documentation updates | 3 | [ ] |
 | Testing (BDD + runner unit) | 2 | [ ] |
-| **Total** | **11** | |
+| Bundled simplify skill (#106) | 1 | [ ] |
+| Pipeline contract replacement (#106) | 4 | [ ] |
+| Regression and exercise coverage (#106) | 4 | [ ] |
+| **Total** | **20** | |
 
 ---
 
@@ -193,11 +196,138 @@ Critical path: **T001 → T002 → T011** (longest chain at 3 tasks).
 
 ---
 
+## Phase 6: Bundled Simplify Skill Amendment (#106)
+
+### T012: Create bundled `$nmg-sdlc:simplify` skill through `$skill-creator`
+
+**File(s)**: `skills/simplify/SKILL.md`
+**Type**: Create
+**Depends**: None
+**Acceptance**:
+- [ ] `$skill-creator` is used to author `skills/simplify/SKILL.md`; the file is not hand-edited directly
+- [ ] Skill frontmatter uses `name: simplify` and a description that fits Codex plugin skill discovery
+- [ ] Workflow identifies changed files using `git diff --name-only`, `git diff HEAD --name-only` when staged changes exist, and a recently edited / conversation-mentioned fallback when the diff is empty
+- [ ] Workflow performs reuse, quality, and efficiency review tracks
+- [ ] Workflow applies behavior-preserving cleanup fixes in-place and reports skipped false positives or risky changes
+- [ ] Workflow states that optional explorer subagents are used only when the user or runner explicitly authorizes delegation
+- [ ] Skill includes an `Integration with SDLC Workflow` section showing `$nmg-sdlc:write-code → $nmg-sdlc:simplify → $nmg-sdlc:verify-code`
+
+### T013: Replace write-code optional external simplify contract with bundled invocation
+
+**File(s)**: `skills/write-code/SKILL.md`, `skills/write-code/references/plan-mode.md`
+**Type**: Modify
+**Depends**: T012
+**Acceptance**:
+- [ ] `$skill-creator` is used for both skill-bundled edits
+- [ ] Step 5b invokes `$nmg-sdlc:simplify` after all implementation tasks complete
+- [ ] Optional external/marketplace probe wording and `simplify skill not available — skipping simplification pass` warning are removed from live write-code surfaces
+- [ ] Completion remains after the simplify pass and still preserves unattended-mode behavior
+- [ ] Integration diagram uses `$nmg-sdlc:simplify`
+
+### T014: Replace verify-code optional external simplify contract with bundled invocation
+
+**File(s)**: `skills/verify-code/SKILL.md`, `skills/verify-code/references/autofix-loop.md`
+**Type**: Modify
+**Depends**: T012
+**Acceptance**:
+- [ ] `$skill-creator` is used for both skill-bundled edits
+- [ ] Step 6a-bis invokes `$nmg-sdlc:simplify` after autofix batches that changed files
+- [ ] Optional external/marketplace probe wording and skip warning are removed from live verify-code surfaces
+- [ ] No-fix batches still skip the simplify sub-step to avoid unnecessary work
+- [ ] Integration diagram uses `$nmg-sdlc:simplify`
+
+### T015: Update runner simplify step to invoke bundled skill directly
+
+**File(s)**: `scripts/sdlc-runner.mjs`
+**Type**: Modify
+**Depends**: T012
+**Acceptance**:
+- [ ] `STEP_KEYS` keeps `simplify` at index 4 between `implement` and `verify`
+- [ ] `buildCodexArgs()` prompt for `STEP_NUMBER.simplify` instructs Codex to run `$nmg-sdlc:simplify`
+- [ ] Prompt passes the branch changed-file scope from `git diff main...HEAD --name-only`
+- [ ] Prompt no longer probes for external simplify locations
+- [ ] Prompt no longer treats missing simplify as an expected success path
+- [ ] Runner behavior still exits non-zero when the bundled simplify skill reports a real failure
+
+### T016: Update public docs and pipeline diagrams for bundled simplify
+
+**File(s)**: `README.md`, `skills/*/SKILL.md`, `skills/*/references/*.md`
+**Type**: Modify
+**Depends**: T012, T013, T014, T015
+**Acceptance**:
+- [ ] README pipeline diagram shows `$nmg-sdlc:simplify` between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`
+- [ ] README describes simplify as bundled in nmg-sdlc, not optional/external/marketplace-provided
+- [ ] Every live `## Integration with SDLC Workflow` block uses `$nmg-sdlc:simplify`
+- [ ] Skill-bundled doc edits are routed through `$skill-creator`; README edits use normal Codex editing
+- [ ] Archival history is not bulk-normalized unless it is also a live contract surface
+
+### T017: Update CHANGELOG for bundled simplify
+
+**File(s)**: `CHANGELOG.md`
+**Type**: Modify
+**Depends**: T012, T013, T014, T015
+**Acceptance**:
+- [ ] `[Unreleased]` records that nmg-sdlc now bundles `$nmg-sdlc:simplify`
+- [ ] Entry notes that write-code, verify-code, and the runner use the bundled skill
+- [ ] Entry references issue #106
+- [ ] Entry does not describe simplify as optional external behavior
+
+### T018: Add inventory and compatibility coverage for the new skill
+
+**File(s)**: `scripts/skill-inventory-audit.mjs`, `scripts/__tests__/*`, `package.json` or existing compatibility scripts as applicable
+**Type**: Modify
+**Depends**: T012
+**Acceptance**:
+- [ ] Inventory audit validates `skills/simplify/SKILL.md` and required sections
+- [ ] `node scripts/skill-inventory-audit.mjs --check` passes
+- [ ] `npm run compat` passes
+- [ ] Validation fails if the new skill omits the `Integration with SDLC Workflow` section
+
+### T019: Add runner and grep regressions for bundled simplify wording
+
+**File(s)**: `scripts/__tests__/sdlc-runner.test.mjs`, `scripts/__tests__/*`
+**Type**: Modify
+**Depends**: T013, T014, T015, T016
+**Acceptance**:
+- [ ] Runner unit test asserts the simplify prompt contains `$nmg-sdlc:simplify`
+- [ ] Runner unit test asserts the simplify prompt does not contain `simplify skill not available — skipping simplification pass`
+- [ ] Regression check covers live README, skills, runner prompts, and current-contract simplify spec sections for old unbundled simplify wording
+- [ ] Regression check explicitly excludes archival-only history and superseded issue #140 spec sections when needed
+- [ ] Regression check catches malformed live shorthand such as `-sdlc:simplify`
+
+### T020: Exercise bundled simplify in a disposable project
+
+**File(s)**: `skills/simplify/SKILL.md`, verification notes or issue comment evidence
+**Type**: Verify
+**Depends**: T012, T013, T014, T015, T018, T019
+**Acceptance**:
+- [ ] Disposable test project is created with at least one changed file
+- [ ] Modified plugin is loaded into a Codex session for the test project
+- [ ] `$nmg-sdlc:simplify` is invoked directly
+- [ ] Output shows changed-file discovery and reuse/quality/efficiency review coverage
+- [ ] Exercise confirms either behavior-preserving fixes were applied or the changed files were already clean
+- [ ] Verification evidence is captured for `$nmg-sdlc:verify-code`
+
+### Amendment Dependency Graph (#106)
+
+```
+T012 ─┬─▶ T013 ─┐
+      ├─▶ T014 ─┼─▶ T016 ─┬─▶ T019 ─┐
+      ├─▶ T015 ─┘         │          │
+      └─▶ T018 ───────────┘          ├─▶ T020
+T017 ────────────────────────────────┘
+```
+
+Critical path: **T012 → T013/T014/T015 → T016 → T019 → T020**.
+
+---
+
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #140 | 2026-04-19 | Initial task breakdown |
+| #106 | 2026-04-24 | Added bundled simplify skill implementation tasks |
 
 ---
 

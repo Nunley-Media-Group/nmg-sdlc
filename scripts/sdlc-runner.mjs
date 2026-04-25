@@ -167,7 +167,7 @@ const STEP_KEYS = [
   'startIssue',   // 2
   'writeSpecs',   // 3
   'implement',    // 4
-  'simplify',     // 5 — optional marketplace skill; probe-and-skip if absent
+  'simplify',     // 5 — bundled cleanup skill
   'verify',       // 6
   'commitPush',   // 7
   'createPR',     // 8
@@ -898,7 +898,7 @@ function validatePreconditions(step, state) {
       return { ok: true };
     }
 
-    case STEP_NUMBER.simplify: // Simplify — no preconditions; probe-and-skip handled in prompt
+    case STEP_NUMBER.simplify: // Simplify — no preconditions
       return { ok: true };
 
     case STEP_NUMBER.verify: { // Verify — implementation committed on feature branch
@@ -1024,17 +1024,13 @@ function buildCodexArgs(step, state, overrides = {}) {
     [STEP_NUMBER.implement]: `Implement the specifications for issue #${issue} on branch ${branch}. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
     [STEP_NUMBER.simplify]: [
-      `Run the simplify pass over files changed on branch ${branch} for issue #${issue}.`,
+      `Run the bundled nmg-sdlc simplify pass over files changed on branch ${branch} for issue #${issue}.`,
       ``,
-      `1. Probe for the simplify skill. Treat it as available if ANY of these is true:`,
-      `   - file discovery finds ~/.codex/skills/simplify/SKILL.md`,
-      `   - file discovery finds ~/.codex/plugins/**/skills/simplify/SKILL.md`,
-      `   - The available-skills list in your system reminder advertises a skill named "simplify" (or "*:simplify")`,
-      `2. If NOT available, print the following line verbatim and exit with code 0:`,
-      `   simplify skill not available — skipping simplification pass`,
-      `3. If available, invoke /simplify on the files listed by: git diff main...HEAD --name-only`,
-      `   Apply any fixes it returns. Exit with code 0 on success.`,
-      `   If /simplify errors or reports failures, print the error details to stdout and exit with code 1.`,
+      `Invoke $nmg-sdlc:simplify and provide the changed-file scope from:`,
+      `git diff main...HEAD --name-only`,
+      ``,
+      `If the bundled skill reports failures, print the details and exit with code 1.`,
+      `Exit with code 0 only after simplify has either applied worthwhile behavior-preserving fixes or reported that the changed files were already clean.`,
     ].join('\n'),
 
     [STEP_NUMBER.verify]: `Verify the implementation for issue #${issue} on branch ${branch}. Fix any findings. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,

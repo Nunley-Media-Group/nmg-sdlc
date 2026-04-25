@@ -48,26 +48,15 @@ The Fixes Applied table in the verification report records the routing path take
 
 ## 6a-bis. Simplify After Fix
 
-If at least one fix was applied in 6a AND the `simplify` marketplace skill is available, run `$simplify` over the files just modified to ensure the fix itself is clean before re-testing. If no fixes were applied in 6a, skip this sub-step entirely (no Codex turn consumed).
+If at least one fix was applied in 6a, run bundled `$nmg-sdlc:simplify` over the files just modified to ensure the fix itself is clean before re-testing. If no fixes were applied in 6a, skip this sub-step entirely (no Codex turn consumed).
 
-### Simplify-Skill Probe Contract
+### Bundled Simplify Invocation
 
-1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - file discovery finds `~/.codex/skills/simplify/SKILL.md`
-   - file discovery finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
-   - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
-2. **If available**: invoke `$simplify` on the files touched by fixes in 6a. Apply any returned changes before proceeding to 6b.
-3. **If unavailable**: emit the warning verbatim:
+Invoke `$nmg-sdlc:simplify` on the files touched by fixes in 6a. Apply any returned behavior-preserving changes before proceeding to 6b.
 
-   ```
-   simplify skill not available — skipping simplification pass
-   ```
+If `$nmg-sdlc:simplify` errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
-   Then proceed to 6b without simplification.
-
-If the `simplify` skill is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
-
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a `request_user_input` gate.
+Unattended-mode behaviour is preserved — this sub-step is not a `request_user_input` gate.
 
 ## 6b. Run Tests After Fixes
 

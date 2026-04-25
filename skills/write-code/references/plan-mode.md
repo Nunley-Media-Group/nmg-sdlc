@@ -103,23 +103,16 @@ If `$skill-creator` is available but errors or reports failures, surface those a
 
 ## Step 5b: Simplify Pass
 
-After all tasks are complete and before signalling completion, run the `$simplify` skill over the files changed on this branch. Simplify is a marketplace skill that is NOT bundled with `nmg-sdlc`; the probe-and-skip pattern below keeps pipelines without it working.
+After all tasks are complete and before signalling completion, run the bundled `$nmg-sdlc:simplify` skill over the files changed on this branch.
 
-### Simplify-Skill Probe Contract
+Invoke `$nmg-sdlc:simplify` with the changed-file scope from:
 
-1. **Probe for availability** — treat the `simplify` skill as available if ANY of the following is true:
-   - file discovery finds `~/.codex/skills/simplify/SKILL.md`
-   - file discovery finds `~/.codex/plugins/**/skills/simplify/SKILL.md`
-   - The available-skills list in your system reminder advertises a skill named `simplify` (or `*:simplify`)
-2. **If available**: invoke `$simplify` against the files returned by `git diff main...HEAD --name-only`. Apply any fixes it returns in-place. Only proceed to Step 6 once findings are cleared.
-3. **If unavailable**: emit the warning verbatim:
+```bash
+git diff main...HEAD --name-only
+```
 
-   ```
-   simplify skill not available — skipping simplification pass
-   ```
+Apply any behavior-preserving fixes it returns in-place. Only proceed to Step 6 once `$nmg-sdlc:simplify` has either applied worthwhile cleanup fixes or reported that the changed files are already clean.
 
-   Then proceed to Step 6 with the same success status you would have had without the simplify pass.
+If `$nmg-sdlc:simplify` errors or reports failures, surface those as additional findings and address them before proceeding to Step 6.
 
-If the `simplify` skill is available but errors or reports failures, surface those as additional findings and address them before proceeding to Step 6.
-
-Unattended-mode behaviour is preserved — the probe is a filesystem / system-reminder check, not a `request_user_input` gate.
+Unattended-mode behaviour is preserved — this sub-step is not a `request_user_input` gate.

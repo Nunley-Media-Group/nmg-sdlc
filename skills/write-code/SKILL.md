@@ -88,7 +88,7 @@ steering/
 
 ### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
 
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (`$simplify` probe-and-skip).
+Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (bundled `$nmg-sdlc:simplify` invocation).
 
 ### Resuming Partial Implementation
 
@@ -96,7 +96,7 @@ Read `references/resumption.md` when the branch already carries some of its task
 
 ### Step 6: Signal Completion
 
-After all tasks are complete and the simplify pass has either run or been gracefully skipped:
+After all tasks are complete and the bundled simplify pass has completed:
 
 ```
 Implementation complete for issue #N.
@@ -114,8 +114,8 @@ Files modified: [list]
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                          ▲ You are here
 ```
 
-`$simplify` is an optional external marketplace skill. When installed, it runs between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` (including from inside `$nmg-sdlc:write-code`'s completion step via the Step 5b probe). When not installed, pipeline steps log a warning and proceed without simplification.
+`$nmg-sdlc:simplify` is bundled with this plugin. It runs between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, including from inside `$nmg-sdlc:write-code`'s completion flow.
