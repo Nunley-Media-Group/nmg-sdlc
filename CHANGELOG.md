@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.62.0] - 2026-04-24
+
+### Added
+
+- Bundled `$nmg-sdlc:simplify` as a first-class cleanup skill for issue #106, and updated write-code, verify-code, and the unattended runner to invoke the bundled skill between implementation and verification.
+
 ## [1.61.0] - 2026-04-24
 
 ### Changed

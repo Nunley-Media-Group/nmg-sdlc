@@ -1,8 +1,8 @@
 # Requirements: Add /simplify Step to SDLC Pipeline
 
-**Issues**: #140
-**Date**: 2026-04-19
-**Status**: Draft
+**Issues**: #140, #106
+**Date**: 2026-04-24
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -90,6 +90,89 @@ Reference: [GitHub issue #140](https://github.com/Nunley-Media-Group/nmg-plugins
 - When: the change is merged
 - Then: every diagram is updated to `/draft-issue → /start-issue → /write-spec → /write-code → /simplify → /verify-code → /open-pr`, including diagrams inside each pipeline skill's `## Integration with SDLC Workflow` section
 
+### AC6: Bundled simplify skill is directly invocable
+
+**Given** the nmg-sdlc plugin is installed
+**When** a user invokes `$nmg-sdlc:simplify`
+**Then** Codex identifies changed files and runs a behavior-preserving simplification pass over them
+
+**Example**:
+- Given: The active Codex session lists the nmg-sdlc plugin skills
+- When: the user runs `$nmg-sdlc:simplify`
+- Then: the bundled `skills/simplify/SKILL.md` workflow runs without requiring a separate skill
+
+### AC7: Changed-file discovery matches simplify behavior
+
+**Given** a project has unstaged or staged changes
+**When** `$nmg-sdlc:simplify` starts
+**Then** it inspects `git diff` or `git diff HEAD` as appropriate
+**And** if no git changes exist, it reviews recently modified files mentioned by the user or edited in the current conversation
+
+**Example**:
+- Given: `git diff --name-only` returns changed source files
+- When: simplify starts
+- Then: those files become the review scope; if the diff is empty, the skill falls back to conversation-mentioned or recently edited files rather than reporting a false no-op
+
+### AC8: Code reuse review is performed
+
+**Given** changed files contain newly written or modified logic
+**When** simplify reviews the diff
+**Then** it searches for existing utilities, helpers, adjacent patterns, and shared modules that could replace duplicated or hand-rolled code
+**And** it flags new functions or inline logic that duplicate existing functionality
+
+### AC9: Code quality review is performed
+
+**Given** changed files contain implementation changes
+**When** simplify reviews the diff
+**Then** it checks for redundant state, parameter sprawl, copy-paste variation, leaky abstractions, stringly typed code, unnecessary nesting, nested conditionals, and unnecessary comments
+
+### AC10: Efficiency review is performed
+
+**Given** changed files contain implementation changes
+**When** simplify reviews the diff
+**Then** it checks for unnecessary work, missed concurrency, hot-path bloat, recurring no-op updates, unnecessary existence pre-checks, memory leaks, and overly broad operations
+
+### AC11: Findings are fixed or explicitly skipped
+
+**Given** simplify finds one or more issues
+**When** the findings are aggregated
+**Then** worthwhile fixes are applied directly in-place while preserving behavior
+**And** false positives or not-worthwhile changes are briefly noted and skipped without blocking completion
+
+### AC12: write-code uses bundled simplify
+
+**Given** `$nmg-sdlc:write-code` completes implementation tasks
+**When** it reaches its simplify pass
+**Then** it invokes bundled `$nmg-sdlc:simplify`
+**And** it no longer probes for or references a separate simplify skill
+
+### AC13: verify-code uses bundled simplify after fixes
+
+**Given** `$nmg-sdlc:verify-code` applies fixes during its autofix loop
+**When** it reaches the post-fix simplify pass
+**Then** it invokes bundled `$nmg-sdlc:simplify` before re-running tests and re-verification
+
+### AC14: Runner simplify step uses bundled simplify
+
+**Given** the SDLC runner advances to its simplify step
+**When** it builds the step prompt
+**Then** the prompt instructs Codex to run `$nmg-sdlc:simplify`
+**And** it does not treat simplify as optional or unavailable when this plugin is installed
+
+### AC15: old unbundled simplify holdovers are removed from live surfaces
+
+**Given** README, live skill docs, runner prompts, and current-contract sections of the active simplify specs reference old unbundled simplify behavior
+**When** this issue is complete
+**Then** those live references are updated to `$nmg-sdlc:simplify` and Codex-native wording
+**And** archival history that only records past behavior is not bulk-normalized
+
+### AC16: Skill-bundled edits route through skill-creator
+
+**Given** this change creates or edits skill-bundled files such as `skills/simplify/SKILL.md`, skill references, shared references, or prompt contracts
+**When** `$nmg-sdlc:write-code` implements those tasks
+**Then** the tasks require `$skill-creator` routing
+**And** there is no direct-edit fallback for those skill-bundled files
+
 ### Generated Gherkin Preview
 
 ```gherkin
@@ -131,10 +214,10 @@ Feature: Add /simplify step to SDLC pipeline
 |----|-------------|----------|-------|
 | FR1 | `write-code` probes for simplify skill availability before invoking | Must | Probe via `Glob` over plugin/skills directories or a deterministic check the skill author can document; result must be observable in step output |
 | FR2 | `write-code` invokes simplify and blocks step completion until findings are addressed | Must | Step 6 is the natural insertion point; the existing "Signal Completion" output moves to after simplify |
-| FR3 | `write-code` logs a warning and continues if simplify is not found | Must | Warning string MUST be: `simplify skill not available — skipping simplification pass` |
+| FR3 | `write-code` invokes the bundled simplify skill before completion | Must | Missing bundled skill loading is a packaging defect, not a pass-through state |
 | FR4 | `verify-code` applies the same simplify-then-verify pattern after each fix | Must | Insertion point is between Step 6a (Prioritize and Fix) and Step 6b (Run Tests After Fixes); same probe + warning pattern as write-code |
 | FR5 | SDLC runner `STEP_KEYS` gains a `simplify` step between `implement` and `verify` | Must | Inserted at index 4 (`startCycle, startIssue, writeSpecs, implement, simplify, verify, ...`); `STEP_NUMBER` and `STEPS` derive from `STEP_KEYS` so they update automatically; downstream step numbers shift by one |
-| FR6 | Runner skips the simplify step gracefully (warning, no failure) when skill unavailable | Should | Probe runs in the runner's prompt-builder or precondition; on miss the step logs `[STATUS] simplify skill not available — skipping` and returns success without invoking Codex |
+| FR6 | Runner simplify step invokes the bundled skill directly | Should | Missing bundled skill loading should fail validation rather than being treated as a successful skip |
 | FR7 | README pipeline diagram and all skill integration sections updated | Must | Update `README.md` pipeline diagram, every `## Integration with SDLC Workflow` block in pipeline skills, and `sdlc-config.example.json` to include the simplify step |
 
 ### Derivative Functional Requirements (technical adjustments)
@@ -145,6 +228,17 @@ Feature: Add /simplify step to SDLC pipeline
 | FR9 | Runner unit tests cover the new step ordering | Must | Update existing `STEP_KEYS and STEPS` test (`scripts/__tests__/sdlc-runner.test.mjs`) to expect 10 steps with `simplify` at index 4 |
 | FR10 | Hard-coded step numbers in runner prompts are still keyed off `STEP_NUMBER` (not literals) where they reference verify/commitPush/createPR/monitorCI/merge | Must | Inserting the new step shifts numbers; any literal usage (e.g., comments mentioning "step 5") should be re-validated |
 | FR11 | CHANGELOG `[Unreleased]` entry added describing the new pipeline step | Must | Per repo conventions in AGENTS.md |
+| FR12 | Add `skills/simplify/SKILL.md` as a bundled nmg-sdlc skill | Must | The plugin manifest already loads `./skills/`, so adding the skill directory makes it available with the plugin |
+| FR13 | Make the skill directly invocable as `$nmg-sdlc:simplify` when the plugin is installed | Must | Use the plugin namespace consistently in README, skill integration diagrams, runner prompts, and active specs |
+| FR14 | Translate legacy runtime's three-review-track simplify model into Codex-compatible execution | Must | Preserve the reuse, quality, and efficiency review categories while using Codex-native file inspection, shell commands, and edits |
+| FR15 | Use optional Codex explorer subagents only when explicitly authorized | Should | If the user or runner explicitly authorizes delegation, run bounded reuse, quality, and efficiency explorer reviews in parallel; otherwise perform the same checks inline |
+| FR16 | Changed-file discovery uses git diffs first and a conversation/recent-file fallback second | Must | Inspect `git diff` or `git diff HEAD` based on staged state; avoid false no-op results when a user asks about recently edited files with a clean worktree |
+| FR17 | Simplify fixes preserve behavior and must not introduce spec drift | Must | Changes are cleanup-only; any scope or behavior change is skipped and reported |
+| FR18 | Update write-code, verify-code, and runner prompts to invoke bundled `$nmg-sdlc:simplify` | Must | Remove unbundled probe-and-skip logic from live pipeline surfaces |
+| FR19 | Update README, integration diagrams, CHANGELOG, and this active spec to describe bundled simplify behavior | Must | README remains the primary public documentation; specs stay aligned with live behavior |
+| FR20 | Add or update inventory and compatibility tests so the new skill is discoverable and valid | Must | Include `node scripts/skill-inventory-audit.mjs --check` and `npm run compat` coverage where applicable |
+| FR21 | Add regression checks that no live pipeline surface still describes simplify as old unbundled behavior | Must | Search live README, skills, runner prompts, and current-contract spec sections; exclude archival or superseded issue #140 sections explicitly |
+| FR22 | Skill-bundled implementation tasks must route through `$skill-creator` | Must | Applies to new `skills/simplify/SKILL.md` and edits under `skills/**`, root `references/**`, and `agents/*.md` |
 
 ---
 
@@ -190,6 +284,11 @@ Feature: Add /simplify step to SDLC pipeline
 ### External Dependencies
 - [ ] `simplify` skill from the Codex marketplace — NOT bundled, optional at runtime
 
+### Amendment Dependency Update (#106)
+- [ ] No external simplify skill dependency remains for live nmg-sdlc behavior; simplify is bundled in this plugin
+- [ ] Codex CLI plugin skill loading discovers `skills/simplify/SKILL.md` through `.codex-plugin/plugin.json`
+- [ ] `$skill-creator` is required during implementation for skill-bundled file creation or edits
+
 ### Blocked By
 - None
 
@@ -202,6 +301,15 @@ Feature: Add /simplify step to SDLC pipeline
 - Installing or bundling the `simplify` skill as part of nmg-sdlc
 - Adding metrics or telemetry for simplify pass effectiveness
 - Detecting whether simplify made meaningful changes (any change reported by simplify is accepted)
+
+### Amendment Scope Update (#106)
+
+Issue #106 supersedes the previous unbundled simplify contract. Bundling `$nmg-sdlc:simplify`, replacing the live probe-and-skip wording, and updating the active simplify spec are now in scope. The following remain out of scope:
+
+- Implementing legacy runtime internals or depending on legacy runtime at runtime
+- Changing program behavior while simplifying code
+- Turning simplify into a full architecture, security, or spec verification review
+- Bulk-normalizing archival documents that only record past behavior and are not live contracts
 
 ---
 
@@ -217,7 +325,7 @@ Feature: Add /simplify step to SDLC pipeline
 
 ## Open Questions
 
-- [ ] What is the canonical detection mechanism for an installed marketplace skill? (Design phase will answer — likely a `Glob` over `~/.codex/plugins/**/skills/simplify/SKILL.md` plus the active project's plugin dirs, or a documented "the runner trusts the prompt to detect")
+- [ ] What is the canonical detection mechanism for bundled plugin skills? (Design phase will answer using the active plugin skill-loading contract)
 - [ ] Should the runner also consult `sdlc-config.json` for an explicit `simplify.enabled = false` opt-out? (Design phase will decide; default behaviour is "enabled if installed")
 
 ---
@@ -227,6 +335,7 @@ Feature: Add /simplify step to SDLC pipeline
 | Issue | Date | Summary |
 |-------|------|---------|
 | #140 | 2026-04-19 | Initial feature spec |
+| #106 | 2026-04-24 | Bundled nmg-sdlc simplify skill supersedes the old unbundled simplify contract |
 
 ---
 

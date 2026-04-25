@@ -237,7 +237,7 @@ $nmg-sdlc:onboard-project (one-time)
          ↓
 $nmg-sdlc:upgrade-project (after plugin updates)
          ↓
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue  →  $nmg-sdlc:write-spec  →  $nmg-sdlc:write-code  →  $simplify  →  $nmg-sdlc:verify-code  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr  →  $nmg-sdlc:address-pr-comments
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue  →  $nmg-sdlc:write-spec  →  $nmg-sdlc:write-code  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr  →  $nmg-sdlc:address-pr-comments
 ```
 
 Next step: Once the upgrade completes, resume your normal SDLC workflow — run `$nmg-sdlc:draft-issue` for new work or `$nmg-sdlc:start-issue` to pick up an existing issue.

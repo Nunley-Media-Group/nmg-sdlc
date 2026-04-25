@@ -28,3 +28,7 @@ Read `../../references/interactive-gates.md` when the workflow reaches any manua
 ## Action
 
 Stop here. Print the notice above to the user. Do not attempt to perform any upgrade work from this stub — direct the user to `$nmg-sdlc:upgrade-project` and exit.
+
+## Integration with SDLC Workflow
+
+This deprecated compatibility stub is outside the SDLC pipeline. Use `$nmg-sdlc:upgrade-project` for project contract upgrades before running pipeline skills.

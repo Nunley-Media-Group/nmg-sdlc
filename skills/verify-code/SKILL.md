@@ -146,7 +146,7 @@ Read `references/verification-gates.md` when gates were extracted in Step 1 — 
 
 ### Step 6: Fix Findings
 
-Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `$skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, the `$simplify` probe for post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
+Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `$skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, bundled `$nmg-sdlc:simplify` post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
 
 ### Step 7: Generate Verification Report
 
@@ -199,8 +199,8 @@ GitHub issue #N updated with verification report.
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                                                                ▲ You are here
 ```
 
-`$simplify` is an optional external marketplace skill. When installed, it runs once between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes. When not installed, the step logs a warning and proceeds.
+`$nmg-sdlc:simplify` is bundled with this plugin. It runs once between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes.

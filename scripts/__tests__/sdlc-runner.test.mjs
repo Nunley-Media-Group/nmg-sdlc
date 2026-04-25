@@ -1556,15 +1556,17 @@ describe('STEP_KEYS and STEPS', () => {
     expect(STEP_KEYS.includes('draftIssue')).toBe(false);
   });
 
-  it('simplify prompt contains verbatim skip warning and git diff command (issue #140)', () => {
+  it('simplify prompt invokes bundled nmg-sdlc skill and git diff scope (issue #106)', () => {
     const step = STEPS[STEP_KEYS.indexOf('simplify')];
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
     const args = buildCodexArgs(step, state);
     const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
-    expect(prompt).toContain('simplify skill not available — skipping simplification pass');
+    expect(prompt).toContain('$nmg-sdlc:simplify');
     expect(prompt).toContain('git diff main...HEAD --name-only');
     expect(prompt).toContain('exit with code 1');
+    expect(prompt).not.toContain('simplify skill not available — skipping simplification pass');
+    expect(prompt).not.toContain('Probe for the simplify skill');
   });
 });
 

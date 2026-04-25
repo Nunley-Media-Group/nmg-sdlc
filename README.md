@@ -4,21 +4,21 @@ Stack-agnostic BDD spec-driven development toolkit for Codex, by Nunley Media Gr
 
 ## Overview
 
-The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is seven commands: `$nmg-sdlc:start-issue` → `$nmg-sdlc:write-spec` → `$nmg-sdlc:write-code` → `$nmg-sdlc:verify-code` → `$nmg-sdlc:commit-push` → `$nmg-sdlc:open-pr` → `$nmg-sdlc:address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. Architecture review runs inline by default and may use Codex `explorer` delegation when explicitly authorized, scoring every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling). Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`$nmg-sdlc:run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `$nmg-sdlc:write-spec` and `$nmg-sdlc:write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
+The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, bundled simplification, automated verification with integrated versioning, PR creation, and closing the PR review loop — but the core flow is eight commands: `$nmg-sdlc:start-issue` → `$nmg-sdlc:write-spec` → `$nmg-sdlc:write-code` → `$nmg-sdlc:simplify` → `$nmg-sdlc:verify-code` → `$nmg-sdlc:commit-push` → `$nmg-sdlc:open-pr` → `$nmg-sdlc:address-pr-comments`. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. Architecture review runs inline by default and may use Codex `explorer` delegation when explicitly authorized, scoring every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling). Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`$nmg-sdlc:run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `$nmg-sdlc:write-spec` and `$nmg-sdlc:write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
 
 It provides a GitHub issue-driven workflow. Projects first run `$nmg-sdlc:onboard-project` (once per project lifetime) to bootstrap steering docs and — for existing codebases — reconcile specs from closed issues; afterward the per-feature cycle kicks in:
 
 ```
-Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Optional                 Step 5                    Step 6                Step 7
-$nmg-sdlc:onboard-project  →  $nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #42  →  $nmg-sdlc:write-spec #42  →  $nmg-sdlc:write-code #42  →  $simplify  →  $nmg-sdlc:verify-code #42  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #42  →  $nmg-sdlc:address-pr-comments #42
-Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean & simplify         Verify implementation,    Create PR with        Close the PR review loop:
+Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Step 5                         Step 6                    Step 7                Step 8
+$nmg-sdlc:onboard-project  →  $nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #42  →  $nmg-sdlc:write-spec #42  →  $nmg-sdlc:write-code #42  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #42  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #42  →  $nmg-sdlc:address-pr-comments #42
+Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean changed code             Verify implementation,    Create PR with        Close the PR review loop:
 or brownfield spec   create groomed       linked branch, set       specs (requirements/    mode, create plan,         changed code             review architecture,      summary referencing   read automated-reviewer
-reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               (optional external)      update issue              specs and issue       threads, fix via
+reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               reuse/quality/efficiency update issue              specs and issue       threads, fix via
                                                                                                                                                                                                 $nmg-sdlc:write-code + $nmg-sdlc:verify-code,
                                                                                                                                                                                                 loop until review-clean
 ```
 
-`$simplify` is an optional marketplace skill. When installed, `$nmg-sdlc:write-code` invokes it before signalling completion and `$nmg-sdlc:verify-code` re-runs it after each batch of fixes. When not installed, both steps log `simplify skill not available — skipping simplification pass` and proceed without failing.
+`$nmg-sdlc:simplify` is bundled with this plugin. `$nmg-sdlc:write-code` invokes it before signalling completion, `$nmg-sdlc:verify-code` re-runs it after each batch of fixes, and the unattended runner executes it as the dedicated step between implementation and verification.
 
 ## Installation
 
@@ -100,7 +100,15 @@ $nmg-sdlc:write-code #42
 
 Reads the specs, enters plan mode to design the implementation approach, then executes tasks sequentially after your approval.
 
-### Step 4: Verify
+### Step 4: Simplify
+
+```bash
+$nmg-sdlc:simplify
+```
+
+Reviews changed files for behavior-preserving cleanup opportunities across reuse, code quality, and efficiency. It uses git diffs first, falls back to recently edited or conversation-mentioned files when the worktree is clean, applies worthwhile fixes in place, and reports skipped risky changes.
+
+### Step 5: Verify
 
 ```bash
 $nmg-sdlc:verify-code #42
@@ -122,7 +130,7 @@ Verifies the implementation against the spec:
 - Fixes findings under ~20 lines of change; defers architectural changes or out-of-scope modifications
 - Posts verification report as a comment on the GitHub issue
 
-### Step 5: Create PR
+### Step 6: Create PR
 
 ```bash
 $nmg-sdlc:open-pr #42
@@ -135,7 +143,7 @@ Determines the version bump (patch for bugs, minor for enhancements; major bumps
 - Version bump details
 - `Closes #42` to auto-close the issue on merge
 
-### Step 6: Close the PR Review Loop
+### Step 7: Close the PR Review Loop
 
 ```bash
 $nmg-sdlc:address-pr-comments #42

@@ -1,8 +1,8 @@
 # Design: Add /simplify Step to SDLC Pipeline
 
-**Issues**: #140
-**Date**: 2026-04-19
-**Status**: Draft
+**Issues**: #140, #106
+**Date**: 2026-04-24
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -223,11 +223,118 @@ N/A (CLI-only project).
 
 ---
 
+## Amendment: Bundled `$nmg-sdlc:simplify` Skill (#106)
+
+Issue #106 supersedes the original unbundled simplify architecture. The simplify pass is now a first-class nmg-sdlc skill, bundled under `skills/simplify/SKILL.md` and invoked through the plugin namespace as `$nmg-sdlc:simplify`.
+
+The old probe-and-skip design remains above as historical context for issue #140. Live pipeline surfaces should no longer tell users that simplify is optional, external, marketplace-provided, or legacy runtime-dependent.
+
+### Updated Component Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                         nmg-sdlc Plugin                              │
+│                                                                      │
+│  skills/write-code  ──▶  $nmg-sdlc:simplify  ──▶  verify-code        │
+│                                  ▲                                   │
+│                                  │                                   │
+│  skills/verify-code ─────────────┘  (after autofix batches)          │
+│                                  ▲                                   │
+│                                  │                                   │
+│  scripts/sdlc-runner.mjs step 5 ─┘  (bundled skill invocation)       │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### New Skill Workflow
+
+`skills/simplify/SKILL.md` defines a behavior-preserving cleanup pass with these phases:
+
+1. **Scope discovery** — inspect changed files via `git diff --name-only`; when staged changes exist, inspect `git diff HEAD --name-only` so staged and unstaged work are both considered. If the worktree is clean, review files the user mentioned or files edited in the current conversation rather than claiming there is nothing to inspect.
+2. **Reuse review** — search the codebase for existing helpers, adjacent patterns, shared utilities, and duplicate logic before accepting new hand-rolled code.
+3. **Quality review** — identify redundant state, parameter sprawl, copy-paste variation, leaky abstractions, stringly typed code, unnecessary nesting, nested conditionals, and comments that restate obvious code.
+4. **Efficiency review** — identify unnecessary work, missed concurrency, hot-path bloat, recurring no-op updates, unnecessary existence pre-checks, memory leaks, and overly broad operations.
+5. **Aggregate and fix** — apply worthwhile cleanup changes in-place, preserve behavior, and briefly report skipped false positives or risky changes.
+
+### Delegation Policy
+
+The default execution path is inline review. Codex subagents are only used when the user or runner prompt explicitly authorizes delegation.
+
+When delegation is authorized, `$nmg-sdlc:simplify` may spawn three bounded read-only Codex `explorer` subagents in parallel:
+
+| Explorer | Scope | Output |
+|----------|-------|--------|
+| Reuse | Existing helpers, adjacent patterns, duplicated functions, and shared modules | Findings with file references and suggested replacements |
+| Quality | State shape, abstraction boundaries, conditionals, comments, and duplicated branches | Findings with behavior-preserving cleanup recommendations |
+| Efficiency | Avoidable work, repeated no-ops, hot paths, concurrency, and broad operations | Findings with risk-ranked optimization recommendations |
+
+The parent skill owns the final decision and edits. Explorer output is advisory; the parent aggregates findings, discards false positives, and applies only behavior-preserving changes.
+
+### Updated Pipeline Invocation
+
+| Surface | Previous live behavior | Updated behavior |
+|---------|------------------------|------------------|
+| `skills/write-code/references/plan-mode.md` | Probe for the old unbundled cleanup skill and skip when unavailable | Invoke bundled `$nmg-sdlc:simplify` after all implementation tasks complete |
+| `skills/verify-code/references/autofix-loop.md` | Probe for the old unbundled cleanup skill after fixes and skip when unavailable | Invoke bundled `$nmg-sdlc:simplify` after autofix batches that modify files |
+| `scripts/sdlc-runner.mjs` simplify prompt | Ask Codex to probe for external simplify and exit 0 on absence | Ask Codex to run `$nmg-sdlc:simplify` over `git diff main...HEAD --name-only` |
+| README and integration diagrams | Describe the old unbundled cleanup step | Describe `$nmg-sdlc:simplify` as a bundled pipeline step |
+
+### Skill-Creator Routing
+
+Implementation touches skill-bundled files, so `$nmg-sdlc:write-code` must route the following through `$skill-creator`:
+
+- `skills/simplify/SKILL.md`
+- Any new simplify-specific references under `skills/simplify/references/`
+- Edits to existing `skills/*/SKILL.md` files or skill reference files
+- Any shared root `references/*.md` or `agents/*.md` edits introduced by this issue
+
+Non-skill files such as `README.md`, `CHANGELOG.md`, `scripts/sdlc-runner.mjs`, `scripts/sdlc-config.example.json`, and `scripts/__tests__/*.mjs` can be edited through normal Codex editing, subject to the tasks below.
+
+### Runner Design Update
+
+The runner keeps the existing `simplify` step key at index 4, but the step is no longer a discovery/probe step. Its prompt becomes a direct bundled invocation:
+
+```text
+Run the bundled nmg-sdlc simplify pass over files changed on branch {branch} for issue #{issue}.
+
+Invoke $nmg-sdlc:simplify and provide the changed-file scope from:
+git diff main...HEAD --name-only
+
+If the bundled skill itself reports failures, print the details and exit non-zero.
+Exit 0 only after simplify has either applied worthwhile behavior-preserving fixes or reported that the changed files were already clean.
+```
+
+Because the skill is bundled in the same plugin, absence is no longer an expected pass-through state. A missing bundled skill is a packaging or plugin-load defect and should fail inventory/compatibility validation rather than be skipped at runtime.
+
+### Tests and Static Checks
+
+Add or update checks in these layers:
+
+| Layer | Required check |
+|-------|----------------|
+| Inventory | `node scripts/skill-inventory-audit.mjs --check` recognizes `skills/simplify/SKILL.md` and enforces required skill sections |
+| Compatibility | `npm run compat` passes with the new skill and updated references |
+| Runner unit | Simplify prompt invokes `$nmg-sdlc:simplify` and does not contain the old skip warning |
+| Regression grep | Live surfaces no longer contain old unbundled simplify wording, except archival/history-only and superseded issue #140 spec contexts explicitly excluded from the check |
+| Exercise | A disposable test project can invoke `$nmg-sdlc:simplify` against changed files and observe a cleanup summary or clean result |
+
+### Risks & Mitigations Added by #106
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| The issue body's shorthand invocation is copied without the plugin namespace | Medium | Medium | Use `$nmg-sdlc:simplify` consistently in live docs and specs; add regression checks for malformed shorthand in live surfaces |
+| Simplify becomes too broad and drifts into architecture or security review | Medium | Medium | Keep the skill limited to reuse, quality, and efficiency cleanup; defer architecture/security findings to `$nmg-sdlc:verify-code` |
+| Skill-bundled files are edited directly despite the project invariant | Medium | High | Tasks explicitly require `$skill-creator` routing and verification checks the routing evidence |
+| Bundled skill silently fails to load | Low | High | Inventory audit and compatibility tests validate skill discoverability before release |
+| Cleanup edits alter behavior | Medium | High | Skill instructions require behavior preservation, skip risky changes, and rely on downstream verify-code to catch spec drift |
+
+---
+
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #140 | 2026-04-19 | Initial design |
+| #106 | 2026-04-24 | Bundled simplify skill architecture supersedes the old unbundled probe design |
 
 ---
 

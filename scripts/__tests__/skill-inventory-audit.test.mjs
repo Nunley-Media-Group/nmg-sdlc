@@ -22,6 +22,7 @@ import {
   scan,
   findTrackedFiles,
   validateSkillMetadata,
+  validateSkillStructure,
 } from '../skill-inventory-audit.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -273,6 +274,41 @@ describe('validateSkillMetadata', () => {
           length: 1025,
           max: 1024,
         }),
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('validateSkillStructure', () => {
+  test('current skills include Integration with SDLC Workflow sections', () => {
+    expect(validateSkillStructure(REPO_ROOT)).toEqual([]);
+  });
+
+  test('flags SKILL.md files missing Integration with SDLC Workflow', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'structure-'));
+    const skillDir = path.join(tmpDir, 'skills', 'missing-section');
+    try {
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+        '---',
+        'name: missing-section',
+        'description: "Missing the required workflow integration section."',
+        '---',
+        '',
+        '# Missing Section',
+        '',
+        '## Workflow',
+        'Do work.',
+      ].join('\n'));
+
+      expect(validateSkillStructure(tmpDir)).toEqual([
+        {
+          file: 'skills/missing-section/SKILL.md',
+          section: 'Integration with SDLC Workflow',
+          message: 'missing required Integration with SDLC Workflow section',
+        },
       ]);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

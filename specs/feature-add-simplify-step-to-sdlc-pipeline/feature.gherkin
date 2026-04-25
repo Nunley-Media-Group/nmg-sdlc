@@ -1,7 +1,7 @@
 # File: specs/feature-add-simplify-step-to-sdlc-pipeline/feature.gherkin
 #
 # Generated from: specs/feature-add-simplify-step-to-sdlc-pipeline/requirements.md
-# Issue: #140
+# Issues: #140, #106
 
 Feature: Add /simplify step to SDLC pipeline
   As a developer or automated SDLC pipeline
@@ -74,3 +74,72 @@ Feature: Add /simplify step to SDLC pipeline
     When a contributor inspects any pipeline skill's "## Integration with SDLC Workflow" section
     Then the depicted SDLC chain shows "/write-code → /simplify → /verify-code"
     And no skill Integration block omits the /simplify step
+
+  # Added by issue #106
+
+  Scenario: Bundled simplify skill is directly invocable
+    Given the nmg-sdlc plugin is installed
+    When a user invokes "$nmg-sdlc:simplify"
+    Then Codex runs the bundled simplify workflow from "skills/simplify/SKILL.md"
+    And no separate marketplace simplify skill is required
+
+  Scenario: Bundled simplify discovers changed files before review
+    Given a project has staged and unstaged changes
+    When "$nmg-sdlc:simplify" starts
+    Then it inspects changed files from git diff output
+    And staged changes are included by inspecting the HEAD diff when needed
+    And if the git diff is empty it falls back to recently edited or conversation-mentioned files
+
+  Scenario: Simplify performs reuse review
+    Given changed files contain newly written logic
+    When "$nmg-sdlc:simplify" reviews the diff
+    Then it searches for existing utilities, helpers, adjacent patterns, and shared modules
+    And it flags duplicated or hand-rolled logic that can be replaced safely
+
+  Scenario: Simplify performs code quality review
+    Given changed files contain implementation changes
+    When "$nmg-sdlc:simplify" reviews the diff
+    Then it checks for redundant state, parameter sprawl, copy-paste variation, and leaky abstractions
+    And it checks for stringly typed code, unnecessary nesting, nested conditionals, and unnecessary comments
+
+  Scenario: Simplify performs efficiency review
+    Given changed files contain implementation changes
+    When "$nmg-sdlc:simplify" reviews the diff
+    Then it checks for unnecessary work, missed concurrency, and hot-path bloat
+    And it checks for recurring no-op updates, unnecessary existence pre-checks, memory leaks, and overly broad operations
+
+  Scenario: Simplify fixes worthwhile findings and skips risky ones
+    Given "$nmg-sdlc:simplify" finds cleanup opportunities
+    When it aggregates reuse, quality, and efficiency findings
+    Then it applies worthwhile behavior-preserving fixes in-place
+    And it briefly reports false positives or risky changes that were skipped
+
+  Scenario: write-code invokes bundled simplify
+    Given "$nmg-sdlc:write-code" has completed all implementation tasks
+    When it reaches its simplify pass
+    Then it invokes "$nmg-sdlc:simplify"
+    And it does not probe for a separate simplify skill
+
+  Scenario: verify-code invokes bundled simplify after autofixes
+    Given "$nmg-sdlc:verify-code" applies at least one fix during its autofix loop
+    When it reaches the post-fix simplify pass
+    Then it invokes "$nmg-sdlc:simplify"
+    And it runs tests and re-verification after the simplify pass completes
+
+  Scenario: Runner simplify step invokes bundled simplify
+    Given the SDLC runner advances to the simplify step
+    When it builds the simplify step prompt
+    Then the prompt instructs Codex to run "$nmg-sdlc:simplify"
+    And the prompt does not treat simplify as optional or unavailable when nmg-sdlc is installed
+
+  Scenario: Live surfaces remove old external simplify wording
+    Given README, live skill docs, runner prompts, and current-contract simplify spec sections have been updated for issue #106
+    When a contributor searches live contract surfaces
+    Then those surfaces use "$nmg-sdlc:simplify"
+    And they do not describe simplify as an old unbundled skill
+
+  Scenario: Skill-bundled simplify work routes through skill-creator
+    Given implementation creates or edits "skills/simplify/SKILL.md" or other skill-bundled files
+    When "$nmg-sdlc:write-code" executes the bundled simplify tasks
+    Then those file edits are routed through "$skill-creator"
+    And there is no direct-edit fallback for the skill-bundled files
