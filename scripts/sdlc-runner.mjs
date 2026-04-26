@@ -24,6 +24,11 @@ import { fileURLToPath } from 'node:url';
 
 const IS_WINDOWS = process.platform === 'win32';
 const VALID_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+const INHERITED_CODEX_SANDBOX_ENV = [
+  'CODEX_SANDBOX',
+  'CODEX_SANDBOX_NETWORK_DISABLED',
+  'CODEX_SANDBOX_SEATBELT_PROFILE',
+];
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing & configuration (guarded for testability)
@@ -160,7 +165,7 @@ let bounceContext = null;
 // ---------------------------------------------------------------------------
 
 // NOTE: draftIssue is intentionally absent. /draft-issue is interactive-only
-// as of plugin v1.41.0 (issue #116). Do not add it here — see
+// as of plugin v1.41.0. Do not add it here — see
 // skills/draft-issue/SKILL.md for the rationale.
 const STEP_KEYS = [
   'startCycle',   // 1
@@ -262,10 +267,13 @@ const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'featur
 
 /**
  * Locate the feature directory inside specs/.
- * Matches by featureName, branchSlug, or falls back to the last directory.
+ * Matches by featureName, branchSlug, issue frontmatter, or directory name.
+ * By default it preserves the legacy fallback to the last directory; validation
+ * callers pass `{ strict: true }` so unrelated old specs cannot satisfy the
+ * current issue's postconditions.
  * Returns the absolute path, or null if nothing is found.
  */
-function findFeatureDir(specsDir, featureName, branchSlug) {
+function findFeatureDir(specsDir, featureName, branchSlug, opts = {}) {
   if (!fs.existsSync(specsDir)) return null;
   const dirs = fs.readdirSync(specsDir)
     .filter(d => fs.statSync(path.join(specsDir, d)).isDirectory());
@@ -274,10 +282,33 @@ function findFeatureDir(specsDir, featureName, branchSlug) {
   if (featureName && dirs.includes(featureName)) {
     return path.join(specsDir, featureName);
   }
-  const matched = branchSlug
-    ? dirs.find(d => d.includes(branchSlug)) || dirs[dirs.length - 1]
-    : dirs[dirs.length - 1];
-  return path.join(specsDir, matched);
+  if (branchSlug) {
+    const matched = dirs.find(d => d.includes(branchSlug));
+    if (matched) return path.join(specsDir, matched);
+  }
+
+  const issueNumber = Number(opts.issueNumber);
+  if (Number.isInteger(issueNumber) && issueNumber > 0) {
+    const issuePattern = new RegExp(`(^|[^0-9])#?${issueNumber}([^0-9]|$)`);
+    for (const dir of dirs) {
+      if (issuePattern.test(dir)) return path.join(specsDir, dir);
+      const reqPath = path.join(specsDir, dir, 'requirements.md');
+      if (!fs.existsSync(reqPath)) continue;
+      try {
+        const content = fs.readFileSync(reqPath, 'utf8');
+        const issueFrontmatter = content.match(/^\*\*Issues?\*\*:.*$/m)?.[0] || '';
+        if (issuePattern.test(issueFrontmatter)) return path.join(specsDir, dir);
+      } catch { /* ignore unreadable candidate */ }
+    }
+  }
+
+  if (opts.strict) return null;
+  return path.join(specsDir, dirs[dirs.length - 1]);
+}
+
+function slugFromBranch(branch) {
+  const match = typeof branch === 'string' ? branch.match(/^\d+-(.+)$/) : null;
+  return match ? match[1] : null;
 }
 
 /**
@@ -421,7 +452,10 @@ function detectAndHydrateState() {
   // Check for spec files (writeSpecs)
   const specsDir = path.join(PROJECT_PATH, 'specs');
   let featureName = null;
-  const featureDir = findFeatureDir(specsDir, null, branchMatch[2]);
+  const featureDir = findFeatureDir(specsDir, null, branchMatch[2], {
+    strict: true,
+    issueNumber,
+  });
   if (featureDir && checkRequiredSpecFiles(featureDir).length === 0) {
     lastCompletedStep = STEP_NUMBER.writeSpecs;
     featureName = path.basename(featureDir);
@@ -839,8 +873,19 @@ function cleanupProcesses() {
 
 function validatePreconditions(step, state) {
   switch (step.number) {
-    case STEP_NUMBER.startCycle: // Start cycle — no preconditions
-      return { ok: true };
+    case STEP_NUMBER.startCycle: { // Start cycle — clean working tree before any checkout/pull
+      try {
+        const status = git('status --porcelain')
+          .split('\n')
+          .filter(line => !RUNNER_ARTIFACTS.some(f => line.trimStart().endsWith(f)))
+          .join('\n')
+          .trim();
+        if (status.length > 0) return { ok: false, failedCheck: 'clean working tree', reason: 'Working tree is dirty before start-cycle' };
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, failedCheck: 'git state check', reason: `Git check failed: ${err.message}` };
+      }
+    }
 
     case STEP_NUMBER.startIssue: { // Start issue — clean main branch
       try {
@@ -867,7 +912,10 @@ function validatePreconditions(step, state) {
 
     case STEP_NUMBER.implement: { // Implement — all 4 spec files exist
       const specsDir = path.join(PROJECT_PATH, 'specs');
-      const featureDir = findFeatureDir(specsDir, state.featureName);
+      const featureDir = findFeatureDir(specsDir, state.featureName, slugFromBranch(state.currentBranch), {
+        strict: true,
+        issueNumber: state.currentIssue,
+      });
       if (!featureDir) {
         return { ok: false, failedCheck: 'spec files exist', reason: 'No feature spec directory found' };
       }
@@ -908,7 +956,8 @@ function validatePreconditions(step, state) {
     case STEP_NUMBER.merge: { // Merge — CI passing
       try {
         const checks = gh('pr checks');
-        if (/fail/i.test(checks)) return { ok: false, failedCheck: 'CI checks passing', reason: 'CI checks failing' };
+        if (checksIndicateFailure(checks)) return { ok: false, failedCheck: 'CI checks passing', reason: 'CI checks failing' };
+        if (checksIndicatePending(checks)) return { ok: false, failedCheck: 'CI checks complete', reason: 'CI checks pending' };
         return { ok: true };
       } catch (err) {
         if (/no checks reported/i.test(err.stderr || err.message || '')) {
@@ -968,7 +1017,7 @@ function buildCodexArgs(step, state, overrides = {}) {
     : null;
 
   const prompts = {
-    [STEP_NUMBER.startCycle]: 'Check out main, clean the working tree, and pull latest. Run: git checkout main && git clean -fd && git checkout -- . && git pull. Report the current branch and latest commit.',
+    [STEP_NUMBER.startCycle]: 'Check out main and pull latest without discarding user work. Run: git checkout main && git pull --ff-only. Do not run destructive cleanup or reset commands in this step. If checkout or pull cannot complete cleanly, exit non-zero and report the blocker. Report the current branch and latest commit.',
 
     [STEP_NUMBER.startIssue]: (SINGLE_ISSUE_NUMBER || preSelectedIssue)
       ? `Start issue #${SINGLE_ISSUE_NUMBER || preSelectedIssue}. Create a linked feature branch and set the issue to In Progress. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`
@@ -1078,6 +1127,14 @@ function buildCodexArgs(step, state, overrides = {}) {
   return codexArgs;
 }
 
+function buildCodexEnv(baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const key of INHERITED_CODEX_SANDBOX_ENV) {
+    delete env[key];
+  }
+  return env;
+}
+
 // ---------------------------------------------------------------------------
 // Codex subprocess execution
 // ---------------------------------------------------------------------------
@@ -1112,6 +1169,7 @@ function runCodex(step, state, overrides = {}) {
     const spawnOpts = {
       cwd: PROJECT_PATH,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: buildCodexEnv(),
     };
 
     const proc = spawn('codex', codexArgs, spawnOpts);
@@ -1583,7 +1641,10 @@ function extractStateFromStep(step, result, state) {
   if (step.number === STEP_NUMBER.writeSpecs) {
     // Try to detect the feature name from specs directory
     const specsDir = path.join(PROJECT_PATH, 'specs');
-    const featureDir = findFeatureDir(specsDir);
+    const featureDir = findFeatureDir(specsDir, state.featureName, slugFromBranch(state.currentBranch), {
+      strict: true,
+      issueNumber: state.currentIssue,
+    });
     if (featureDir) {
       patch.featureName = path.basename(featureDir);
     }
@@ -1638,7 +1699,7 @@ function hasNonEscalatedIssues() {
 // Milestone + topological issue selection
 // ---------------------------------------------------------------------------
 
-const DEPENDENCY_BODY_RE = /(?:Depends on|Blocks):\s*#(\d+)\b/gi;
+const DEPENDENCY_BODY_RE = /(Depends on|Blocks):\s*#(\d+)\b/gi;
 
 /**
  * Pick the alphabetically-first open milestone with open issues.
@@ -1717,18 +1778,23 @@ function selectNextIssueFromMilestone(milestone, opts = {}) {
     }
   }
 
-  const depMap = new Map();
+  const depMap = new Map(candidates.map((n) => [n, new Set()]));
   for (const [n, d] of details) {
-    const deps = new Set();
+    const deps = depMap.get(n) || new Set();
     const body = typeof d.body === 'string' ? d.body : '';
     for (const match of body.matchAll(DEPENDENCY_BODY_RE)) {
-      const dep = Number(match[1]);
-      if (Number.isInteger(dep) && dep > 0 && dep !== n) deps.add(dep);
+      const relation = match[1].toLowerCase();
+      const dep = Number(match[2]);
+      if (!Number.isInteger(dep) || dep <= 0 || dep === n) continue;
+      if (relation === 'depends on') {
+        deps.add(dep);
+      } else if (relation === 'blocks' && depMap.has(dep)) {
+        depMap.get(dep).add(n);
+      }
     }
     if (d.parent && typeof d.parent.number === 'number' && d.parent.number !== n) {
       deps.add(d.parent.number);
     }
-    depMap.set(n, deps);
   }
 
   const milestoneSet = new Set(candidates);
@@ -1807,7 +1873,10 @@ function validateSpecContent(featureDir) {
 
 function validateSpecs(state) {
   const specsDir = path.join(PROJECT_PATH, 'specs');
-  const featureDir = findFeatureDir(specsDir, state.featureName);
+  const featureDir = findFeatureDir(specsDir, state.featureName, slugFromBranch(state.currentBranch), {
+    strict: true,
+    issueNumber: state.currentIssue,
+  });
 
   if (!featureDir) {
     return { ok: false, missing: ['feature directory'] };
@@ -1837,11 +1906,22 @@ function validateSpecs(state) {
 // CI validation gate (post-monitorCI)
 // ---------------------------------------------------------------------------
 
+function checksIndicateFailure(checks) {
+  return /\b(fail|failed|failure|error|cancelled|canceled|timed[_ -]?out|timed out)\b/i.test(checks || '');
+}
+
+function checksIndicatePending(checks) {
+  return /\b(pending|queued|waiting|in[_ -]?progress|in progress|expected|requested)\b/i.test(checks || '');
+}
+
 function validateCI() {
   try {
     const checks = gh('pr checks');
-    if (/fail/i.test(checks)) {
+    if (checksIndicateFailure(checks)) {
       return { ok: false, reason: `CI checks still failing after Step ${STEP_NUMBER.monitorCI}` };
+    }
+    if (checksIndicatePending(checks)) {
+      return { ok: false, reason: `CI checks still pending after Step ${STEP_NUMBER.monitorCI}` };
     }
     return { ok: true };
   } catch (err) {
@@ -2186,6 +2266,14 @@ async function runStep(step, state) {
     log(`Preconditions failed for step ${step.number} (${step.key}): "${failedCheck}"`);
     log(`[STATUS] Step ${step.number} (${step.key}) preconditions failed: "${failedCheck}"`);
 
+    if (step.number === STEP_NUMBER.startCycle) {
+      await haltFailureLoop('start-cycle precondition failed', [
+        `Step 1 cannot run safely: ${failedCheck}`,
+        preconds.reason,
+      ].filter(Boolean));
+      return 'escalated';
+    }
+
     if (step.number > 1) {
       const prevStep = STEPS[step.number - 2];
       if (incrementBounceCount()) {
@@ -2245,6 +2333,13 @@ async function runStep(step, state) {
       if (issue !== null) {
         preSelectedIssue = issue;
         log(`[runner] pre-selected issue #${issue} from milestone "${milestone || '(repo-wide)'}"`);
+      } else {
+        const diagnostic = `No automatable issues found in ${milestone ? `milestone "${milestone}"` : 'the repository'}. SDLC runner complete.`;
+        log(diagnostic);
+        log(`[STATUS] ${diagnostic}`);
+        updateState({ currentStep: 0, lastCompletedStep: 0 });
+        removeUnattendedMode();
+        return 'done';
       }
     } catch (err) {
       log(`Warning: pre-selection failed (${err.message}); falling back to prompt-driven selection`);
@@ -2269,7 +2364,7 @@ async function runStep(step, state) {
 
     // Extract state updates
     const patch = extractStateFromStep(step, result, state);
-    // Track completed step for resume (step 10/merge resets this to 0 via its own patch)
+    // Track completed step for resume (merge resets this to 0 via its own patch)
     if (patch.lastCompletedStep === undefined) {
       patch.lastCompletedStep = step.number;
     }
@@ -2504,6 +2599,11 @@ async function main() {
         continue;
       }
 
+      if (result === 'done') {
+        shuttingDown = true;
+        break;
+      }
+
       // Post-startIssue safety check: halt if Codex selected an escalated issue (skip in single-issue mode)
       if (!SINGLE_ISSUE_NUMBER && result === 'ok' && step.number === STEP_NUMBER.startIssue) {
         const freshState = readState();
@@ -2623,6 +2723,10 @@ export {
   findFeatureDir,
   checkRequiredSpecFiles,
   parseMaxBounceRetries,
+  slugFromBranch,
+  buildCodexEnv,
+  checksIndicateFailure,
+  checksIndicatePending,
   classifyBumpType,
   runValidationGate,
 

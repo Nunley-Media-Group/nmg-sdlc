@@ -138,18 +138,17 @@ describe('selectNextIssueFromMilestone', () => {
     expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [20] }]);
   });
 
-  test('"Blocks:" body lines also produce dependency edges', () => {
+  test('"Blocks:" body lines order blockers before blocked issues', () => {
     const ghRunner = makeGhRunner({
       list: [10, 20],
       details: {
-        10: { body: 'Blocks: #20' }, // 10 blocks 20 → 10 depends on 20 via regex
+        10: { body: 'Blocks: #20' }, // 10 blocks 20 → 20 depends on 10
         20: {},
       },
     });
     const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    // Regex treats Blocks and Depends on uniformly — #10's body cross-ref to #20 means #10 won't be picked until #20 merges.
-    expect(result.issue).toBe(20);
-    expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [20] }]);
+    expect(result.issue).toBe(10);
+    expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
   });
 
   test('excluded issues are filtered before dependency graph is built', () => {

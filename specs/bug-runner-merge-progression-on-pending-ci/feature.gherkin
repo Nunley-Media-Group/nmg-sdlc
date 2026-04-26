@@ -1,0 +1,13 @@
+@regression @run-loop @issue-118
+Feature: Runner merge progression on pending CI
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Pending CI checks block merge progression
+    Given GitHub checks are pending, queued, waiting, or in progress
+    When validate-ci evaluates checks
+    Then the precondition fails with a pending-checks reason
+
+  Scenario: Related behavior remains intact
+    Given merge preconditions inspect pending checks
+    When checks have not reached a terminal pass state
+    Then merge does not proceed

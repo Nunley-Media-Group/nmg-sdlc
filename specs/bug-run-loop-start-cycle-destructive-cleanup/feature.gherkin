@@ -1,0 +1,13 @@
+@regression @run-loop @issue-116
+Feature: Run-loop start-cycle destructive cleanup
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Dirty worktree blocks start-cycle before mutation
+    Given the working tree has uncommitted changes
+    When the runner executes Step 1
+    Then it halts through the failure loop before checkout, pull, or cleanup actions
+
+  Scenario: Related behavior remains intact
+    Given Step 1 is allowed to run
+    When the runner builds the Codex prompt
+    Then the prompt requests safe checkout/pull behavior without cleanup or reset instructions

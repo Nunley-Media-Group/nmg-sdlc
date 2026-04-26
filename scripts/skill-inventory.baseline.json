@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26T05:25:16.278Z",
+  "generated_at": "2026-04-26T19:59:46.346Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -1401,21 +1401,21 @@
     },
     {
       "id": "a0d443136a87",
-      "source_before": "skills/run-loop/SKILL.md:80",
+      "source_before": "skills/run-loop/SKILL.md:88",
       "normalized": "unattended-mode flag management (.codex/unattended-mode)",
-      "destination": "skills/run-loop/SKILL.md:80"
+      "destination": "skills/run-loop/SKILL.md:88"
     },
     {
       "id": "63ee9a24bd91",
-      "source_before": "skills/run-loop/SKILL.md:94",
+      "source_before": "skills/run-loop/SKILL.md:102",
       "normalized": "the runner creates and manages .codex/unattended-mode automatically. when this f",
-      "destination": "skills/run-loop/SKILL.md:94"
+      "destination": "skills/run-loop/SKILL.md:102"
     },
     {
       "id": "275d8edc6c84",
-      "source_before": "skills/run-loop/SKILL.md:96",
+      "source_before": "skills/run-loop/SKILL.md:104",
       "normalized": "do not create or remove .codex/unattended-mode manually — the runner handles the",
-      "destination": "skills/run-loop/SKILL.md:96"
+      "destination": "skills/run-loop/SKILL.md:104"
     },
     {
       "id": "9711433e8e7f",

@@ -163,7 +163,7 @@ From within the target project (must have a `.codex/` directory):
 $nmg-sdlc:init-config
 ```
 
-This writes `sdlc-config.json` to the project root and adds it to `.gitignore`. The config specifies the project path, per-step timeouts and turn limits, and which nmg-sdlc skills to inject.
+This writes `sdlc-config.json` to the project root and adds it to `.gitignore`. The config specifies the project path, per-step timeouts, model/effort choices, and which nmg-sdlc skills to inject.
 
 #### 2. Launch the runner
 

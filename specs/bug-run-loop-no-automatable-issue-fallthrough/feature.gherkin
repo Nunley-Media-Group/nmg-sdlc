@@ -1,0 +1,13 @@
+@regression @run-loop @issue-114
+Feature: Run-loop no-automatable issue fallthrough
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Empty automatable queue exits cleanly
+    Given no automatable issues are available
+    When the runner executes start-issue
+    Then it logs a no-issues diagnostic and returns done
+
+  Scenario: Related behavior remains intact
+    Given no issue was selected
+    When start-issue completes
+    Then no child Codex session is spawned

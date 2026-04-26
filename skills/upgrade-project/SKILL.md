@@ -173,7 +173,7 @@ If Step 5 found drifted scalars, present a `request_user_input` gate with option
 
 #### Part D: Recommended runner defaults diff (batch approve)
 
-This flow is additive — Parts A/B/C are unchanged. Part D specifically surfaces changes to the per-step `model` / `effort` / `maxTurns` / `timeoutMin` defaults so users upgrading across plugin versions can adopt the shipped recommendations without clicking through each field individually.
+This flow is additive — Parts A/B/C are unchanged. Part D specifically surfaces changes to the per-step `model` / `effort` / `timeoutMin` defaults so users upgrading across plugin versions can adopt the shipped recommendations without clicking through each field individually.
 
 1. **Build the diff** for each step in `steps.*` against `scripts/sdlc-config.example.json`. Include only fields where the user's value differs from (or inherits a value different than) the shipped example. Present unset/inherited values as `(unset — inherited "<global>")` so the source of each value is visible.
 2. **Present the diff** in a single `request_user_input` gate with three options:

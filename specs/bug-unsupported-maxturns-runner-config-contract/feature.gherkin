@@ -1,0 +1,13 @@
+@regression @run-loop @issue-117
+Feature: Unsupported maxTurns runner config contract
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Unsupported maxTurns fields are not advertised
+    Given a user copies scripts/sdlc-config.example.json
+    When they inspect step configuration fields
+    Then unsupported maxTurns fields are absent
+
+  Scenario: Related behavior remains intact
+    Given a user reads runner documentation
+    When they look for step limit configuration
+    Then the docs describe only supported timeout/model/effort controls

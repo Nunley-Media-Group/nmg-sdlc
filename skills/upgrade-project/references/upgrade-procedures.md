@@ -85,8 +85,8 @@ For each user-selected drifted value from Step 9 Part C (interactive mode only; 
 
 **Example edit for a step sub-key drift:**
 ```
-Old: "maxTurns": 15
-New: "maxTurns": 30
+Old: "timeoutMin": 15
+New: "timeoutMin": 30
 ```
 
 **Example edit for a root-level drift:**
