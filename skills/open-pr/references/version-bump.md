@@ -1,6 +1,6 @@
 # Version-Bump Computation and Artifact Updates
 
-**Consumed by**: `open-pr` Steps 2 (classify bump) and 3 (apply bump to versioned files).
+**Consumed by**: `open-pr` Steps 2 (classify bump), 3 (apply bump to versioned files), and delivery preparation.
 
 Steps 2 and 3 take the current version from `VERSION`, decide the bump type from the issue's labels (adjusted for epic-child sibling state and the explicit `--major` override), and write the new version into every file listed in `steering/tech.md`'s versioning table. Both steps are skipped entirely when no `VERSION` file exists at the project root.
 
@@ -75,8 +75,9 @@ If Step 2 determined a version bump, update all version-related files before gen
    - **TOML files** (e.g., `Cargo.toml`): use the dot-notation path to locate and update the version field.
    - **Plain-text files**: replace the version string on the specified line (or the entire file content if no line is specified).
    - Versioning section missing or table empty → only update `VERSION` and `CHANGELOG.md`.
-4. **Commit the version bump.** Stage and commit the version-related file changes:
+4. **Stage the version bump for delivery.** Stage the version-related file changes so `open-pr` can include them in the delivery commit:
    ```
    git add VERSION CHANGELOG.md [stack-specific files...]
-   git commit -m "chore: bump version to {new_version}"
    ```
+
+Do not create a standalone version commit from this reference. `references/preflight.md` decides whether to combine the version artifacts with implementation changes or create a bump-only `chore: bump version to {new_version}` commit when no other staged files exist.

@@ -1,8 +1,8 @@
 # Requirements: Creating PRs Skill
 
-**Issues**: #8, #128
-**Date**: 2026-04-18
-**Status**: Approved
+**Issues**: #8, #128, #108
+**Date**: 2026-04-25
+**Status**: Amended
 **Author**: Codex (retroactive)
 
 ---
@@ -81,6 +81,42 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 
 *Retrospective-derived defensive check (see `steering/retrospective.md` → "Missing Acceptance Criteria" on explicitly excluded automation modes).*
 
+### AC10: Open-pr Commits Pending Work Before PR Creation
+
+**Given** a developer runs `$nmg-sdlc:open-pr #N` on a feature branch with uncommitted tracked or untracked non-runner-artifact changes
+**When** the skill starts its PR workflow
+**Then** it stages all eligible non-runner-artifact changes, applies the project version bump when applicable, creates a conventional commit, reconciles with `origin/main`, pushes the branch, and then creates the PR
+
+### AC11: Open-pr Preserves Safe Rebase and Push Behavior
+
+**Given** local work is behind `origin/main`
+**When** `$nmg-sdlc:open-pr #N` prepares the branch for PR creation
+**Then** it uses the same rebase plus safe force-with-lease envelope that `$nmg-sdlc:commit-push` currently documents, including unattended-mode behavior and conflict escalation
+
+### AC12: Commit-push Removed From Public Workflow
+
+**Given** the plugin is installed
+**When** a user reads the README, skill descriptions, integration diagrams, runner steps, or plugin skill inventory
+**Then** `$nmg-sdlc:commit-push` is no longer presented as a required or available workflow step, and the standard cycle is simplified to `verify-code` → `open-pr` → `address-pr-comments`
+
+### AC13: Runner Uses Open-pr as Delivery Handoff
+
+**Given** the unattended runner completes verification for an issue
+**When** it advances to PR creation
+**Then** it invokes `$nmg-sdlc:open-pr` to commit, version, push, and create the PR in one step, with no separate `commitPush` step or bounce-back sentinel to `$nmg-sdlc:commit-push`
+
+### AC14: Clean Branch Does Not Create a Redundant Commit
+
+**Given** a branch is already committed and pushed with no dirty work
+**When** `$nmg-sdlc:open-pr #N` runs
+**Then** it skips unnecessary commits, verifies branch ancestry, creates the PR normally, and reports that no additional commit was needed
+
+### AC15: Docs and Tests Cover the Simplified Workflow
+
+**Given** the change is complete
+**When** repository checks run
+**Then** tests or contract checks cover the new runner step order and `$nmg-sdlc:open-pr` commit/push responsibility, and README plus skill integration diagrams no longer reference `$nmg-sdlc:commit-push` as a separate step
+
 ---
 
 ## Functional Requirements
@@ -98,6 +134,12 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 | FR9 | On any check failure, non-mergeable state, or integration absent (no checks configured), print check name(s) + details URL(s) and exit without merging or deleting the branch | Must | Issue #128 — covers CI failure + "no CI configured" graceful skip |
 | FR10 | When `.codex/unattended-mode` exists, actively suppress the new prompt, polling, and merge invocation — preserve current unattended output | Must | Issue #128 |
 | FR11 | Use a sensible polling cadence and timeout (30-second interval matching the runner, configurable constants documented in the skill) | Should | Issue #128 |
+| FR12 | Move stage, commit, version-bump, rebase, and push responsibility into `$nmg-sdlc:open-pr` before PR creation | Must | Issue #108 |
+| FR13 | Remove or deprecate `$nmg-sdlc:commit-push` from the shipped public skill surface | Must | Issue #108 |
+| FR14 | Update `scripts/sdlc-runner.mjs` so the deterministic pipeline no longer has a separate `commitPush` step | Must | Issue #108 |
+| FR15 | Preserve safe unattended-mode force-with-lease behavior after rebases | Must | Issue #108 |
+| FR16 | Update README, skill descriptions, integration diagrams, and references that mention `$nmg-sdlc:commit-push` | Must | Issue #108 |
+| FR17 | Add or update tests for runner step numbering, preconditions, state hydration, and `$nmg-sdlc:open-pr` delivery behavior | Must | Issue #108 |
 
 ---
 
@@ -165,6 +207,9 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - Post-merge `git checkout main && git pull` step
 - Changes to the unattended orchestrator path in `scripts/sdlc-runner.mjs`
 - Pre-merge conflict resolution (if the PR is not mergeable, treat it like a failure and stop)
+- Changing how `$nmg-sdlc:draft-issue`, `$nmg-sdlc:start-issue`, `$nmg-sdlc:write-spec`, `$nmg-sdlc:write-code`, `$nmg-sdlc:simplify`, `$nmg-sdlc:verify-code`, or `$nmg-sdlc:address-pr-comments` perform their core responsibilities
+- Removing git safety checks around rebases, force-with-lease, dirty runner artifacts, or version-file conflicts
+- Changing the version bump classification matrix itself
 
 ---
 
@@ -189,6 +234,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 |-------|------|---------|
 | #8 | 2026-02-15 | Initial feature spec |
 | #128 | 2026-04-18 | Add interactive opt-in CI monitor + auto-merge path; preserve unattended branch behavior |
+| #108 | 2026-04-25 | Fold commit, version, rebase, and push responsibility into open-pr; remove commit-push as a separate workflow step |
 
 ---
 

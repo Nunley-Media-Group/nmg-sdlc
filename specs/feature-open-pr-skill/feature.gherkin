@@ -1,7 +1,7 @@
 # File: specs/feature-open-pr-skill/feature.gherkin
 #
 # Generated from: specs/feature-open-pr-skill/requirements.md
-# Issues: #8, #128
+# Issues: #8, #128, #108
 
 Feature: Creating PRs Skill
   As a developer ready to merge a verified feature
@@ -87,3 +87,55 @@ Feature: Creating PRs Skill
     Then the skill MUST NOT call "interactive prompt" for CI monitoring
     And the skill MUST NOT poll "gh pr checks"
     And the skill MUST NOT invoke "gh pr merge"
+
+  # Added by issue #108
+  Scenario: Open-pr commits pending work before creating the PR
+    Given a developer runs "$nmg-sdlc:open-pr #N" on a feature branch with uncommitted tracked and untracked non-runner-artifact changes
+    When the skill starts its PR workflow
+    Then it stages all eligible non-runner-artifact changes
+    And it applies the project version bump when applicable
+    And it creates a conventional commit
+    And it reconciles with "origin/main"
+    And it pushes the branch
+    And it creates the PR
+
+  # Added by issue #108
+  Scenario: Open-pr preserves safe rebase and force-with-lease behavior
+    Given local work is behind "origin/main"
+    When "$nmg-sdlc:open-pr #N" prepares the branch for PR creation
+    Then it rebases onto the current base branch
+    And it re-computes version artifacts against the post-rebase baseline
+    And it pushes with "git push --force-with-lease=HEAD:{EXPECTED_SHA}"
+    And it escalates instead of overwriting remote work when the lease check fails
+
+  # Added by issue #108
+  Scenario: Commit-push is removed from the public workflow
+    Given the plugin is installed
+    When a user reads the README, skill descriptions, integration diagrams, runner steps, or plugin skill inventory
+    Then "$nmg-sdlc:commit-push" is no longer presented as a required or available workflow step
+    And the standard cycle is "verify-code" to "open-pr" to "address-pr-comments"
+
+  # Added by issue #108
+  Scenario: Runner uses open-pr as the delivery handoff
+    Given the unattended runner completes verification for an issue
+    When it advances to PR creation
+    Then it invokes "$nmg-sdlc:open-pr" to commit, version, push, and create the PR in one step
+    And it does not run a separate "commitPush" step
+    And it does not bounce back to "$nmg-sdlc:commit-push" on divergence
+
+  # Added by issue #108
+  Scenario: Clean branch does not create a redundant commit
+    Given a branch is already committed and pushed with no dirty work
+    When "$nmg-sdlc:open-pr #N" runs
+    Then it skips unnecessary commits
+    And it verifies branch ancestry
+    And it creates the PR normally
+    And it reports that no additional commit was needed
+
+  # Added by issue #108
+  Scenario: Docs and tests cover the simplified workflow
+    Given the change is complete
+    When repository checks run
+    Then tests or contract checks cover the new runner step order
+    And tests or contract checks cover "$nmg-sdlc:open-pr" commit and push responsibility
+    And README plus skill integration diagrams no longer reference "$nmg-sdlc:commit-push" as a separate step

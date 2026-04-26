@@ -2,7 +2,7 @@
 
 **Consumed by**: `start-issue` Step 3.5 (before `gh issue develop --checkout` in Step 4).
 
-When the runner re-picks an issue that already has a remote feature branch from an earlier cycle, the remote tip reflects work against a now-outdated `main`. Step 4's `gh issue develop --checkout` checks out that stale tip, and any subsequent rebase-plus-push in `$nmg-sdlc:commit-push` or `$nmg-sdlc:open-pr` collides with the remote. This step detects that state and deletes the stale remote branch before a fresh cycle rebuilds local.
+When the runner re-picks an issue that already has a remote feature branch from an earlier cycle, the remote tip can reflect work against a now-outdated `main`. Step 4's `gh issue develop --checkout` checks out that stale tip, and the later `$nmg-sdlc:open-pr` delivery rebase-plus-push can collide with the remote. This step detects that state and deletes the stale remote branch before a fresh cycle rebuilds local.
 
 The probe runs in **both** interactive and unattended modes — the difference is only whether deletion requires confirmation.
 

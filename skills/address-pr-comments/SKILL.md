@@ -1,6 +1,6 @@
 ---
 name: address-pr-comments
-description: "Close the PR review loop locally: read the automated reviewer's unresolved threads on an open PR, classify each as clear-fix / ambiguous / disagreement, apply fixes via $nmg-sdlc:write-code + $nmg-sdlc:verify-code, reply and resolve each successful thread, push with plain git push, and loop until the PR is review-clean. Use when the user says 'address PR comments', 'address review findings', 'respond to the reviewer', 'close the review loop', 'handle reviewer comments on #N', 'fix PR review findings', 'resolve review threads', 'clean up the PR review', or 'run the review loop'. Do NOT use for creating PRs, handling CI failures, or human-reviewer comments — those are owned by $nmg-sdlc:open-pr (creation, CI) and are intentionally out of scope for this skill (human comments). Eighth step in the SDLC pipeline — follows $nmg-sdlc:open-pr."
+description: "Close the PR review loop locally: read the automated reviewer's unresolved threads on an open PR, classify each as clear-fix / ambiguous / disagreement, apply fixes via $nmg-sdlc:write-code + $nmg-sdlc:verify-code, reply and resolve each successful thread, push with plain git push, and loop until the PR is review-clean. Use when the user says 'address PR comments', 'address review findings', 'respond to the reviewer', 'close the review loop', 'handle reviewer comments on #N', 'fix PR review findings', 'resolve review threads', 'clean up the PR review', or 'run the review loop'. Do NOT use for creating PRs, handling CI failures, or human-reviewer comments — those are owned by $nmg-sdlc:open-pr (creation, CI) and are intentionally out of scope for this skill (human comments). Final SDLC pipeline step — follows $nmg-sdlc:open-pr."
 ---
 
 # Address PR Comments
@@ -73,7 +73,7 @@ When the loop determines another round is warranted, increment the round counter
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
                                                                                                                                   ▲ You are here
 ```
 

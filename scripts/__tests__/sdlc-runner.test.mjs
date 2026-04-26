@@ -493,31 +493,10 @@ describe('Precondition validation', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('commitPush step always passes — no strict preconditions', () => {
-    const commitPushStep = STEPS[STEP_KEYS.indexOf('commitPush')];
-    const result = validatePreconditions(commitPushStep, defaultState());
-    expect(result.ok).toBe(true);
-  });
-
-  it('createPR step passes when branch is pushed with no unpushed commits', () => {
-    mockGitMulti({
-      'rev-parse --abbrev-ref HEAD': '42-feature',
-      'log origin/42-feature..HEAD --oneline': '',
-    });
+  it('createPR step always passes — open-pr owns delivery preparation', () => {
     const createPRStep = STEPS[STEP_KEYS.indexOf('createPR')];
     const result = validatePreconditions(createPRStep, defaultState());
     expect(result.ok).toBe(true);
-  });
-
-  it('createPR step fails when unpushed commits exist', () => {
-    mockGitMulti({
-      'rev-parse --abbrev-ref HEAD': '42-feature',
-      'log origin/42-feature..HEAD --oneline': 'abc1234 some commit',
-    });
-    const createPRStep = STEPS[STEP_KEYS.indexOf('createPR')];
-    const result = validatePreconditions(createPRStep, defaultState());
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain('Unpushed');
   });
 
   it('monitorCI step passes when PR exists', () => {
@@ -1323,9 +1302,9 @@ describe('No CI checks handling (#54)', () => {
 
 describe('detectAndHydrateState after signal shutdown', () => {
   it('caps lastCompletedStep to state file value when signalShutdown is set', () => {
-    // Simulate: runner was at writeSpecs, SIGTERM auto-pushed WIP.
-    // Artifact probing would see "no unpushed commits" → commitPush.
-    // But state file says lastCompletedStep=3 (writeSpecs) + signalShutdown=true → cap to 3.
+    // Simulate: runner was at writeSpecs, SIGTERM auto-saved WIP.
+    // Artifact probing must not treat that saved WIP as a completed delivery step.
+    // State says lastCompletedStep=3 (writeSpecs) + signalShutdown=true → cap to 3.
     mockExecSync.mockImplementation((cmd) => {
       if (cmd.includes('rev-parse --abbrev-ref HEAD')) return '42-my-feature';
       if (cmd.includes('pr view --json state')) throw new Error('no PR');
@@ -1518,12 +1497,12 @@ describe('defaultState', () => {
 });
 
 describe('STEP_KEYS and STEPS', () => {
-  it('has 10 step keys', () => {
-    expect(STEP_KEYS).toHaveLength(10);
+  it('has 9 step keys after folded open-pr delivery', () => {
+    expect(STEP_KEYS).toHaveLength(9);
   });
 
-  it('STEPS has 10 entries with correct numbering', () => {
-    expect(STEPS).toHaveLength(10);
+  it('STEPS has 9 entries with correct numbering', () => {
+    expect(STEPS).toHaveLength(9);
     STEPS.forEach((step, i) => {
       expect(step.number).toBe(i + 1);
       expect(step.key).toBe(STEP_KEYS[i]);
@@ -1533,7 +1512,7 @@ describe('STEP_KEYS and STEPS', () => {
   it('step keys match expected names', () => {
     expect(STEP_KEYS).toEqual([
       'startCycle', 'startIssue', 'writeSpecs', 'implement',
-      'simplify', 'verify', 'commitPush', 'createPR', 'monitorCI', 'merge',
+      'simplify', 'verify', 'createPR', 'monitorCI', 'merge',
     ]);
   });
 
@@ -1543,13 +1522,13 @@ describe('STEP_KEYS and STEPS', () => {
     expect(STEP_KEYS[5]).toBe('verify');
   });
 
-  it('downstream step numbers shift after #140: verify=6, commitPush=7, createPR=8, monitorCI=9, merge=10', () => {
+  it('downstream step numbers reflect folded open-pr delivery after #108', () => {
     expect(STEP_KEYS.indexOf('simplify') + 1).toBe(5);
     expect(STEP_KEYS.indexOf('verify') + 1).toBe(6);
-    expect(STEP_KEYS.indexOf('commitPush') + 1).toBe(7);
-    expect(STEP_KEYS.indexOf('createPR') + 1).toBe(8);
-    expect(STEP_KEYS.indexOf('monitorCI') + 1).toBe(9);
-    expect(STEP_KEYS.indexOf('merge') + 1).toBe(10);
+    expect(STEP_KEYS.indexOf('createPR') + 1).toBe(7);
+    expect(STEP_KEYS.indexOf('monitorCI') + 1).toBe(8);
+    expect(STEP_KEYS.indexOf('merge') + 1).toBe(9);
+    expect(STEP_KEYS).not.toContain('commitPush');
   });
 
   it('STEP_KEYS does not contain draftIssue — /draft-issue is interactive-only (v1.41.0, issue #116)', () => {
@@ -2778,8 +2757,8 @@ describe('performDeterministicVersionBump (#60)', () => {
   });
 });
 
-describe('createPR prompt contract post-FR1 (issue #102 AC4)', () => {
-  it('createPR prompt delegates the version bump to /commit-push and names the DIVERGED sentinel', () => {
+describe('createPR prompt contract after folded delivery (issue #108)', () => {
+  it('createPR prompt owns commit, version, rebase, push, and PR creation', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockReturnValue('skill content');
 
@@ -2789,9 +2768,12 @@ describe('createPR prompt contract post-FR1 (issue #102 AC4)', () => {
 
     const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
-    expect(prompt).toContain('already been applied by /commit-push');
-    expect(prompt).toContain('DIVERGED: re-run commit-push to reconcile');
-    expect(prompt).not.toContain('MUST bump the version');
+    expect(prompt).toContain('owns staging eligible non-runner work');
+    expect(prompt).toContain('applying the version bump');
+    expect(prompt).toContain('--force-with-lease=HEAD:{EXPECTED_SHA}');
+    expect(prompt).toContain('no unpushed commits remain');
+    expect(prompt).not.toContain('/commit-push');
+    expect(prompt).not.toContain('DIVERGED: re-run commit-push');
   });
 });
 
@@ -2980,7 +2962,7 @@ describe('validateConfig — issue #130 additions', () => {
   it('accepts effort on a gpt-5.4-mini step', () => {
     const errors = validateConfig({
       projectPath: '/p', pluginsPath: '/q',
-      steps: { commitPush: { model: 'gpt-5.4-mini', effort: 'low' } },
+      steps: { merge: { model: 'gpt-5.4-mini', effort: 'low' } },
     });
     expect(errors).toEqual([]);
   });
@@ -3449,7 +3431,7 @@ describe('handleFailure: error_max_turns does not sleep (issue #102 AC3, FR3)', 
   });
 
   it('handleFailure with error_max_turns routes to bounce without a 60s rate-limit sleep', async () => {
-    const step = STEPS[7]; // createPR (step 8)
+    const step = STEPS[6]; // createPR (step 7)
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-fix-divergence', retries: {} };
     const stdout = '{"type":"result","subtype":"error_max_turns","session_id":"x"}';
     const result = { exitCode: 1, stdout, stderr: '', duration: 10 };
@@ -3474,7 +3456,7 @@ describe('handleFailure: error_max_turns does not sleep (issue #102 AC3, FR3)', 
   });
 
   it('handleFailure with error_max_turns populates bounceContext with reason=error_max_turns', async () => {
-    const step = STEPS[7];
+    const step = STEPS[6];
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-fix-divergence', retries: {} };
     const stdout = '{"type":"result","subtype":"error_max_turns","session_id":"x"}';
     const result = { exitCode: 1, stdout, stderr: '', duration: 10 };
@@ -3501,15 +3483,15 @@ describe('bounceContext injection into buildCodexArgs (issue #102 AC5, FR4)', ()
   it('prepends "## Bounce context" block when receiving step matches fromStepNumber - 1', () => {
     __test__.bounceContext = {
       from: 'createPR',
-      fromStepNumber: STEPS[7].number, // createPR = step 8
+      fromStepNumber: STEPS[6].number, // createPR = step 7
       reason: 'error_max_turns',
       failedCheck: 'turn budget exhausted',
       divergenceHints: { remoteCommitsSuperseded: true, localCommitsAhead: true },
     };
 
-    // Receiving step: commitPush (step 7) — skill-backed so the prompt is the
-    // default commit-push prompt.
-    const receivingStep = { ...STEPS[6], skill: 'commit-push' };
+    // Receiving step: verify (step 6) — skill-backed so the prompt is the
+    // default verify-code prompt.
+    const receivingStep = { ...STEPS[5], skill: 'verify-code' };
     const state = { ...defaultState(), currentIssue: 42, currentBranch: '42-feature' };
     const args = buildCodexArgs(receivingStep, state);
     const promptIdx = args.length - 1;
@@ -3535,9 +3517,9 @@ describe('bounceContext injection into buildCodexArgs (issue #102 AC5, FR4)', ()
   it('does NOT inject when the receiving step does not match fromStepNumber - 1', () => {
     __test__.bounceContext = {
       from: 'createPR',
-      fromStepNumber: 8,
+      fromStepNumber: 7,
       reason: 'precondition_failed',
-      failedCheck: 'branch pushed to remote',
+      failedCheck: 'open-pr delivery preparation',
       divergenceHints: {},
     };
 
@@ -3554,13 +3536,13 @@ describe('bounceContext injection into buildCodexArgs (issue #102 AC5, FR4)', ()
   it('does NOT inject when an override prompt is supplied', () => {
     __test__.bounceContext = {
       from: 'createPR',
-      fromStepNumber: 8,
+      fromStepNumber: 7,
       reason: 'precondition_failed',
       failedCheck: 'foo',
       divergenceHints: {},
     };
 
-    const receivingStep = { ...STEPS[6], skill: 'commit-push' };
+    const receivingStep = { ...STEPS[5], skill: 'verify-code' };
     const args = buildCodexArgs(receivingStep, defaultState(), { prompt: 'OVERRIDE' });
     const promptIdx = args.length - 1;
     expect(args[promptIdx]).toBe('OVERRIDE');

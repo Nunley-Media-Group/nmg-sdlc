@@ -1,8 +1,8 @@
 # Tasks: Creating PRs Skill
 
-**Issues**: #8, #128
-**Date**: 2026-04-18
-**Status**: In Progress
+**Issues**: #8, #128, #108
+**Date**: 2026-04-25
+**Status**: Complete
 **Author**: Codex (retroactive)
 
 ---
@@ -16,7 +16,8 @@
 | Integration | 1 | [x] |
 | Testing | 1 | [x] |
 | Phase 5: Enhancement — Issue #128 | 4 | [x] |
-| **Total** | **8** | |
+| Phase 6: Enhancement — Issue #108 | 8 | [x] |
+| **Total** | **16** | |
 
 ---
 
@@ -31,8 +32,8 @@ Each task follows this structure:
 **Type**: Create | Modify | Delete
 **Depends**: T[NNN], T[NNN] (or None)
 **Acceptance**:
-- [ ] [Verifiable criterion 1]
-- [ ] [Verifiable criterion 2]
+- [x] [Verifiable criterion 1]
+- [x] [Verifiable criterion 2]
 
 **Notes**: [Optional implementation hints]
 ```
@@ -161,6 +162,106 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ---
 
+## Phase 6: Enhancement — Issue #108 (Fold Commit and Push Into Open-pr)
+
+### T009: Replace Open-pr Abort-only Preflight With Delivery Preparation
+
+**File(s)**: `skills/open-pr/SKILL.md`, `skills/open-pr/references/preflight.md`
+**Type**: Modify
+**Depends**: T002
+**Status**: Complete
+**Acceptance**:
+- [x] `$nmg-sdlc:open-pr` stages eligible tracked and untracked non-runner-artifact changes before PR creation
+- [x] `.codex/sdlc-state.json` and `.codex/unattended-mode` remain filtered from delivery decisions and are not published
+- [x] Dirty non-runner work is no longer an immediate preflight failure when it can be committed safely
+- [x] Clean already-pushed branches continue without creating a redundant commit and report that no additional commit was needed
+
+### T010: Move Version-bump Application Into Open-pr Delivery Commit
+
+**File(s)**: `skills/open-pr/SKILL.md`, `skills/open-pr/references/version-bump.md`, `skills/open-pr/references/pr-body.md`
+**Type**: Modify
+**Depends**: T009
+**Status**: Complete
+**Acceptance**:
+- [x] `$nmg-sdlc:open-pr` applies the label-based version bump before creating the delivery commit when the issue is not spike-labelled and a `VERSION` file exists
+- [x] `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, and stack-specific version files stay synchronized per `steering/tech.md`
+- [x] `--major` remains manual-only and escalates in unattended mode before any mutation
+- [x] PR body version lines read the committed version artifacts after delivery preparation completes
+
+### T011: Move Rebase and Safe Push Behavior Into Open-pr
+
+**File(s)**: `skills/open-pr/SKILL.md`, `skills/open-pr/references/preflight.md`
+**Type**: Modify
+**Depends**: T010
+**Status**: Complete
+**Acceptance**:
+- [x] `$nmg-sdlc:open-pr` fetches `origin`, checks ancestry against `origin/main`, and rebases when local is behind
+- [x] Rebase conflicts in version artifacts stop the workflow and emit the same interactive/unattended escalation semantics as the existing commit-push contract
+- [x] Rebased branches push with `git push --force-with-lease=HEAD:{EXPECTED_SHA}` where `EXPECTED_SHA` is captured before rebase
+- [x] Push success is verified by confirming `git log origin/{branch}..HEAD --oneline` is empty before `gh pr create`
+
+### T012: Remove or Deprecate Commit-push Public Skill Surface
+
+**File(s)**: `skills/commit-push/SKILL.md`, `.codex-plugin/plugin.json`
+**Type**: Modify | Delete
+**Depends**: T011
+**Status**: Complete
+**Acceptance**:
+- [x] `$nmg-sdlc:commit-push` is no longer presented as a required or available public workflow step
+- [x] If kept for compatibility, the skill is a deprecation stub that directs users to `$nmg-sdlc:open-pr`
+- [x] Plugin inventory and descriptions do not advertise commit-push as a normal SDLC step
+- [x] No downstream skill still declares commit-push as its required predecessor
+
+### T013: Collapse Runner Delivery Step Into Create-pr
+
+**File(s)**: `scripts/sdlc-runner.mjs`
+**Type**: Modify
+**Depends**: T011
+**Status**: Complete
+**Acceptance**:
+- [x] `commitPush` is removed from the deterministic `STEP_KEYS` sequence
+- [x] The createPR/open-pr prompt instructs the skill to commit, version, rebase, push, and create the PR in one step
+- [x] Runner preconditions and state hydration no longer treat "branch pushed" as a completed standalone commitPush step
+- [x] The `DIVERGED: re-run commit-push...` bounce-back path is removed because open-pr owns divergence reconciliation
+
+### T014: Update Public Workflow Documentation and Integration Diagrams
+
+**File(s)**: `README.md`, `skills/*/SKILL.md`, `references/*.md`, `skills/*/references/*.md`
+**Type**: Modify
+**Depends**: T012, T013
+**Status**: Complete
+**Acceptance**:
+- [x] README workflow diagrams show `verify-code` → `open-pr` → `address-pr-comments`
+- [x] Skill descriptions and Integration with SDLC Workflow sections no longer include commit-push as a separate step
+- [x] References that mention commit-push handoff or bounce-back behavior are removed or rewritten around open-pr delivery preparation
+- [x] Public docs still explain where version bumping, CHANGELOG updates, and push verification happen
+
+### T015: Update Runner and Open-pr Contract Tests
+
+**File(s)**: `scripts/__tests__/sdlc-runner.test.mjs`, `scripts/__tests__/exercise-open-pr-epic.test.mjs`, `scripts/__tests__/*open-pr*.test.mjs`
+**Type**: Modify
+**Depends**: T013, T014
+**Status**: Complete
+**Acceptance**:
+- [x] Runner tests assert the new step order and shifted downstream step numbers
+- [x] Prompt contract tests assert createPR/open-pr owns commit, version, rebase, push, and PR creation
+- [x] Tests cover clean branch no-op delivery and dirty branch commit delivery
+- [x] Tests cover removal of commit-push bounce-back and stale public workflow references
+
+### T016: Exercise Open-pr Delivery End-to-end
+
+**File(s)**: `scripts/__tests__/exercise-open-pr-epic.test.mjs`, `/tmp/nmg-sdlc-test-*`
+**Type**: Modify
+**Depends**: T015
+**Status**: Complete
+**Acceptance**:
+- [x] Exercise `$nmg-sdlc:open-pr` against a disposable project with dirty work and confirm it commits, bumps, pushes, and prepares PR creation
+- [x] Exercise an already clean/pushed branch and confirm no redundant commit is created
+- [x] Exercise unattended mode and confirm no interactive force-push or CI-monitor prompt appears
+- [x] Record verification evidence suitable for `$nmg-sdlc:verify-code`
+
+---
+
 ## Dependency Graph
 
 ```
@@ -170,6 +271,11 @@ T001 ──▶ T002 ──▶ T003 ──▶ T004
 Phase 5 (Issue #128):
 T002 ──▶ T005 ──┬──▶ T006 ──┐
                  └──▶ T007 ──┼──▶ T008
+
+Phase 6 (Issue #108):
+T002 ──▶ T009 ──▶ T010 ──▶ T011 ──┬──▶ T012 ──┬──▶ T014 ──┐
+                                    └──▶ T013 ──┘           ├──▶ T015 ──▶ T016
+                                                             └────────────┘
 ```
 
 ---
@@ -180,6 +286,7 @@ T002 ──▶ T005 ──┬──▶ T006 ──┐
 |-------|------|---------|
 | #8 | 2026-02-15 | Initial feature spec |
 | #128 | 2026-04-18 | Add Phase 5 enhancement — Interactive CI monitor + auto-merge (T005–T008) |
+| #108 | 2026-04-25 | Add Phase 6 enhancement — fold commit, version, rebase, and push into open-pr; remove separate commit-push workflow step (T009–T016) |
 
 ---
 

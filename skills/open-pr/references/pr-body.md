@@ -2,7 +2,7 @@
 
 **Consumed by**: `open-pr` Steps 4 (generate PR content) and 5 (create PR).
 
-Step 4 picks the PR body template based on the specs-found / specs-not-found flag from Step 1. Step 5 verifies local ancestry vs. `origin/main` and invokes `gh pr create`. Push and rebase responsibilities have moved to `$nmg-sdlc:commit-push` — this reference no longer covers them.
+Step 4 picks the PR body template based on the specs-found / specs-not-found flag from Step 1. Step 5 creates the PR only after `references/preflight.md` has committed eligible work, applied version artifacts, reconciled with `origin/main`, pushed safely, and verified that no unpushed commits remain.
 
 ## Step 4: Generate PR content
 
@@ -84,15 +84,12 @@ Closes #N
 
 ## Step 5: Create PR
 
-Ancestry, push, and rebase are owned by `$nmg-sdlc:commit-push` (see `skills/commit-push/references/rebase-and-push.md` for the force-with-lease envelope). By the time this reference is consulted, local must already be pushed and `origin/main` must already be an ancestor of HEAD.
+By the time this reference is consulted, `open-pr` delivery preparation must have already pushed the branch and verified these postconditions:
 
-SKILL.md Step 5 runs a final ancestry check:
-
-```bash
-git merge-base --is-ancestor origin/main HEAD
-```
-
-Exit 0 → proceed to `gh pr create`. Non-zero → exit non-zero with the sentinel line `DIVERGED: re-run commit-push to reconcile before creating PR` on stdout. The SDLC runner reads this sentinel through `bounceContext` and bounces control back to `$nmg-sdlc:commit-push`; in interactive use, the user re-runs `$nmg-sdlc:commit-push` manually.
+- `git merge-base --is-ancestor origin/main HEAD` exits 0;
+- `git log origin/{branch}..HEAD --oneline` is empty;
+- any version line in the body reflects committed artifacts;
+- `delivery_commit_created = false` is reported when no additional commit was needed.
 
 ### Create the PR
 
@@ -112,6 +109,7 @@ PR created: [PR URL]
 Title: [title]
 Base: main ← [branch-name]
 Issue: Closes #N
+[If delivery_commit_created is false]: No additional commit needed — branch was already clean and pushed.
 
 [If specs-found]: The PR links to specs at specs/{feature}/ and will close issue #N when merged.
 [If specs-not-found]: The PR extracts acceptance criteria from the issue body and will close issue #N when merged.

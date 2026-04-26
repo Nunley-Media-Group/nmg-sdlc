@@ -1,102 +1,109 @@
-# Open-PR Preflight Gate
+# Open-PR Delivery Preparation
 
 **Consumed by**: `open-pr` Step 1.
 
-Before reading the issue, spec files, or `VERSION` / `CHANGELOG.md`, Step 1 must run the three checks below in order. Any failure aborts the skill immediately — no PR is created. `$nmg-sdlc:open-pr` no longer owns version-artifact writes (that moved to `$nmg-sdlc:commit-push`), so "no version artifacts are touched" is automatic; the checks below still exist because they guard PR creation against avoidable corruption of the pipeline handoff.
+Before `gh pr create`, `$nmg-sdlc:open-pr` prepares the branch for delivery. Dirty eligible work is committed, local divergence is rebased, safe pushes happen here, and clean already-pushed branches continue without a redundant commit.
 
----
+## Step 1a: Filter Runner Artifacts
 
-## Step 1a: Dirty-Tree Check
+Read `../../../references/dirty-tree.md` when Step 1a runs — use its filtering rule for SDLC runtime artifacts:
 
-Read `../../../references/dirty-tree.md` when Step 1a runs — the reference covers the filter algorithm (remove lines whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode` from `git status --porcelain` output, then evaluate the remainder for cleanliness) and the generic abort-message shapes. The inputs to the filter and the expected outcomes are:
+- run `git status --porcelain`;
+- remove rows whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode`;
+- treat the remaining rows as eligible delivery changes.
 
-- **Command**: `git status --porcelain`
-- **Filter out**: lines whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode`
-- **Filtered output empty**: clean — proceed to Step 1b.
-- **Filtered output non-empty**: dirty tree — abort with the messaging in the "Abort messaging" section below.
+Never publish `.codex/sdlc-state.json` or `.codex/unattended-mode`. If only those runtime artifacts are dirty, record `eligible_dirty = false` and continue.
 
-## Step 1b: Empty-Branch Check
+## Step 1b: Stage Eligible Changes
 
-Run the commit-subject-only log (so the filter anchors against the subject, not the leading short-SHA that `--oneline` emits):
-
-```bash
-git log main..HEAD --format=%s
-```
-
-Count subjects that do NOT match the case-insensitive regex `^chore: bump version` — e.g., pipe through `grep -ivE '^chore: bump version'` and count lines.
-
-- **At least one non-bump commit**: implementation work is present — preflight passes, proceed to the existing Step 1 reads (issue, spec files, git diff).
-- **Zero non-bump commits** (empty output or only bump commits): no implementation work — abort with the messaging in the "Abort messaging" section below.
-
-The exact abort string for this condition is:
-
-```
-No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.
-```
-
-## Step 1c: Ancestry Check
-
-Verify `$nmg-sdlc:commit-push` has already reconciled local with `origin/main` before PR creation:
+If eligible changes exist, stage them with normal git staging while preserving the runtime-artifact filter:
 
 ```bash
-git fetch origin main
+git add -A
+git reset -- .codex/sdlc-state.json .codex/unattended-mode
+```
+
+Then inspect `git diff --cached --name-only`. If the staged set is empty, record `eligible_dirty = false`; otherwise record `eligible_dirty = true`.
+
+## Step 1c: Prepare Version Artifacts
+
+Run `open-pr` Steps 2 and 3 before creating the delivery commit:
+
+- skip version work for `spike` issues or projects without `VERSION`;
+- apply the label-based bump from `steering/tech.md`;
+- update `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, and stack-specific files declared in `steering/tech.md`;
+- stage those version artifacts with the eligible delivery changes.
+
+If the version computation requires a human-only decision, use the gate defined by `references/version-bump.md`; in unattended mode, use its documented deterministic default or escalation path.
+
+## Step 1d: Create or Skip the Delivery Commit
+
+After staging, inspect `git diff --cached --name-only`.
+
+- **Staged files exist and implementation/spec/docs files are included**: commit once with `feat: <short description> (#N)` for enhancement labels or `fix: <short description> (#N)` for bug labels.
+- **Only version artifacts are staged**: commit with `chore: bump version to {new_version}`.
+- **No staged files exist**: set `delivery_commit_created = false`, print `No additional commit needed — branch already clean.`, and continue to ancestry/push verification.
+
+If the branch has no commits ahead of `main` after this step, stop:
+
+- **Interactive mode**: print `No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
+- **Unattended mode**: emit `ESCALATION: open-pr — No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
+
+## Step 1e: Fetch and Rebase if Behind
+
+Fetch the base and branch refs:
+
+```bash
+git fetch origin
 git merge-base --is-ancestor origin/main HEAD
 ```
 
-- **Exit 0**: local contains every commit in `origin/main` — proceed to Step 1's existing reads (issue, spec files, git diff).
-- **Non-zero**: local is behind `origin/main` — abort. `$nmg-sdlc:commit-push` owns the rebase; `$nmg-sdlc:open-pr` must not rewrite history.
+- **Exit 0**: local already contains `origin/main`; set `rebased = false`.
+- **Non-zero**: local is behind `origin/main`; record the remote feature-branch tip and rebase:
 
-### Divergence abort
-
-Print the exact sentinel line on stdout and exit non-zero (both interactive and unattended — the SDLC runner reads the sentinel via `bounceContext`):
-
-```
-DIVERGED: re-run commit-push to reconcile before creating PR
+```bash
+EXPECTED_SHA=$(git rev-parse origin/{branch})
+git pull --rebase origin main
 ```
 
-Do NOT rebase, do NOT amend, do NOT `git push`, and do NOT pass `--force` or `--force-with-lease` to any push. The sentinel is parsed by the runner to bounce control back to `$nmg-sdlc:commit-push` (step 7 in the pipeline), which owns the rebase-and-push envelope.
+If the rebase pulls in a sibling version bump, re-run Step 1c against the post-rebase baseline. If the computed version changes, amend the delivery commit so the final commit contains the correct version artifacts.
 
----
+### Rebase Conflicts
 
-## Abort messaging
+If rebase conflicts touch `VERSION`, `.codex-plugin/plugin.json`, `CHANGELOG.md`, or stack-specific version files:
 
-### Dirty-tree failure
+- **Interactive mode**: print `ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run $nmg-sdlc:open-pr. Force-push never overwrites unresolved conflicts.` and stop.
+- **Unattended mode**: emit `ESCALATION: open-pr — rebase conflict in version file(s): {file-list}. Resolve manually and re-run.` and exit non-zero.
 
-#### Interactive mode
+## Step 1f: Push Safely
 
-Print and stop:
+Branch on remote state and `rebased`:
 
-```
-ERROR: Working tree is not clean. Cannot open a PR.
+1. No remote tracking branch:
+   ```bash
+   git push -u origin HEAD
+   ```
+2. Tracking branch exists and `rebased === false`:
+   ```bash
+   git push
+   ```
+3. Tracking branch exists and `rebased === true`:
+   ```bash
+   git push --force-with-lease=HEAD:{EXPECTED_SHA}
+   ```
 
-Dirty files:
-[paste the filtered git status --porcelain output here]
+The `EXPECTED_SHA` value is captured before the rebase. If the lease rejects the push, stop rather than overwriting remote work:
 
-Please resolve these changes (commit, stash, or discard) before running $nmg-sdlc:open-pr again.
-```
+- **Interactive mode**: print the rejection and stop for manual investigation.
+- **Unattended mode**: emit `ESCALATION: open-pr — force-with-lease rejected because the remote branch advanced. Re-run after fetching the latest remote state.`
 
-#### Unattended mode (`.codex/unattended-mode` exists)
+## Step 1g: Verify Delivery State
 
-Emit the escalation sentinel and stop — do NOT present a `request_user_input` gate. `$nmg-sdlc:open-pr` uses the single-line `ESCALATION:` sentinel shape rather than the multi-line shape shown in `../../../references/dirty-tree.md`; the SDLC runner matches escalations on the `ESCALATION:` prefix, so the single-line shape is what the runner consumes:
+Before PR creation, run:
 
-```
-ESCALATION: open-pr — Working tree is not clean. Dirty files: [filtered git status --porcelain output, space-separated or newline-separated].
-```
-
-### Empty-branch failure
-
-#### Interactive mode
-
-Print the exact abort string from Step 1b above and stop.
-
-#### Unattended mode (`.codex/unattended-mode` exists)
-
-Emit the escalation sentinel and stop — do NOT present a `request_user_input` gate:
-
-```
-ESCALATION: open-pr — No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.
+```bash
+git log origin/{branch}..HEAD --oneline
+git merge-base --is-ancestor origin/main HEAD
 ```
 
----
-
-In all failure cases: do NOT invoke `git add`, `git commit`, `git push`, or `gh pr create`. `$nmg-sdlc:open-pr` never writes to `VERSION`, `CHANGELOG.md`, or any stack-specific version file — those writes belong to `$nmg-sdlc:commit-push`.
+Both checks must pass: no unpushed commits and local contains `origin/main`. If either fails, exit non-zero with a concise explanation. Do not create a PR from an unpushed or stale branch.
