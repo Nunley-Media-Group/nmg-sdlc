@@ -10,7 +10,6 @@ This reference covers adaptive depth selection, the user-override prompt, the pr
 - `classification` from Step 2
 - `investigation.filesFound`, `investigation.componentsInvolved`, `investigation.descriptionVagueness` from Step 4
 - Initial description from Step 1
-- `session.designContext` (read-only; may be null)
 
 ## Process
 
@@ -50,7 +49,7 @@ If the user selects `[2]`, switch `depth` to the other value and emit a one-line
 
 ### 5.4 Run the Probe Rounds
 
-Skip any topics already answered by the initial description, the Step 4 investigation, or `session.designContext`. When `session.designContext` is present, the interview may reference design components or flows as pre-known context rather than re-eliciting them from the user (e.g., `"The design shows the overlay layer toggles from the map-controls panel — is the same trigger acceptable here?"`). Group related questions when natural. Use multi-question `request_user_input` gate rounds rather than individual questions.
+Skip any topics already answered by the initial description or the Step 4 investigation. Group related questions when natural. Use multi-question `request_user_input` gate rounds rather than individual questions.
 
 #### If Feature / Enhancement
 

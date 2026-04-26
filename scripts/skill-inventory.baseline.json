@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T23:35:02.552Z",
+  "generated_at": "2026-04-26T03:21:59.111Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -182,7 +182,7 @@
         "skills/commit-push/SKILL.md:126",
         "skills/draft-issue/references/multi-issue.md:113",
         "skills/draft-issue/references/multi-issue.md:166",
-        "skills/onboard-project/SKILL.md:161",
+        "skills/onboard-project/SKILL.md:160",
         "skills/open-pr/SKILL.md:110",
         "skills/run-retro/SKILL.md:170",
         "skills/start-issue/SKILL.md:205",
@@ -301,12 +301,12 @@
       "additional_destinations": [
         "skills/commit-push/SKILL.md:89",
         "skills/commit-push/SKILL.md:93",
-        "skills/draft-issue/SKILL.md:264",
-        "skills/draft-issue/SKILL.md:266",
-        "skills/onboard-project/SKILL.md:134",
-        "skills/onboard-project/SKILL.md:139",
-        "skills/onboard-project/SKILL.md:143",
-        "skills/onboard-project/SKILL.md:147",
+        "skills/draft-issue/SKILL.md:256",
+        "skills/draft-issue/SKILL.md:258",
+        "skills/onboard-project/SKILL.md:133",
+        "skills/onboard-project/SKILL.md:138",
+        "skills/onboard-project/SKILL.md:142",
+        "skills/onboard-project/SKILL.md:146",
         "skills/open-pr/SKILL.md:85",
         "skills/open-pr/SKILL.md:87",
         "skills/upgrade-project/SKILL.md:201",
@@ -414,451 +414,421 @@
     },
     {
       "id": "e8941ead2c2e",
-      "source_before": "skills/draft-issue/SKILL.md:66",
+      "source_before": "skills/draft-issue/SKILL.md:65",
       "normalized": "read ../../references/legacy-layout-gate.md when the workflow starts — the gate ",
-      "destination": "skills/draft-issue/SKILL.md:66",
+      "destination": "skills/draft-issue/SKILL.md:65",
       "additional_destinations": [
         "skills/onboard-project/SKILL.md:77"
       ]
     },
     {
-      "id": "03d25c1f0f81",
-      "source_before": "skills/draft-issue/SKILL.md:70",
-      "normalized": "input: optional argument; optional design url; steering/product.md if present.",
-      "destination": "skills/draft-issue/SKILL.md:70"
+      "id": "5fb777052e75",
+      "source_before": "skills/draft-issue/SKILL.md:69",
+      "normalized": "input: optional argument; steering/product.md if present.",
+      "destination": "skills/draft-issue/SKILL.md:69"
     },
     {
       "id": "87ad5fbf4cdd",
-      "source_before": "skills/draft-issue/SKILL.md:72",
+      "source_before": "skills/draft-issue/SKILL.md:71",
       "normalized": "process:",
-      "destination": "skills/draft-issue/SKILL.md:72",
+      "destination": "skills/draft-issue/SKILL.md:71",
       "additional_destinations": [
-        "skills/draft-issue/SKILL.md:123"
+        "skills/draft-issue/SKILL.md:117"
       ]
     },
     {
       "id": "19c320bff519",
-      "source_before": "skills/draft-issue/SKILL.md:74",
+      "source_before": "skills/draft-issue/SKILL.md:73",
       "normalized": "if an argument was provided, use it as the starting description. otherwise, ask ",
-      "destination": "skills/draft-issue/SKILL.md:74"
-    },
-    {
-      "id": "c9db51c61415",
-      "source_before": "skills/draft-issue/SKILL.md:75",
-      "normalized": "detect a design url in the argument. if none is present, ask once: \"supply an op",
-      "destination": "skills/draft-issue/SKILL.md:75"
+      "destination": "skills/draft-issue/SKILL.md:73"
     },
     {
       "id": "39f8df0159d7",
-      "source_before": "skills/draft-issue/SKILL.md:76",
+      "source_before": "skills/draft-issue/SKILL.md:74",
       "normalized": "read steering/product.md for product vision, personas, moscow priorities, and ex",
-      "destination": "skills/draft-issue/SKILL.md:76"
+      "destination": "skills/draft-issue/SKILL.md:74"
     },
     {
       "id": "7898a7512b71",
-      "source_before": "skills/draft-issue/SKILL.md:78",
+      "source_before": "skills/draft-issue/SKILL.md:76",
       "normalized": "read ../../references/steering-schema.md when you need the roster of steering do",
+      "destination": "skills/draft-issue/SKILL.md:76"
+    },
+    {
+      "id": "8b1482714c66",
+      "source_before": "skills/draft-issue/SKILL.md:78",
+      "normalized": "output: session.initialdescription, session.productcontext.",
       "destination": "skills/draft-issue/SKILL.md:78"
     },
     {
-      "id": "33142c19404e",
-      "source_before": "skills/draft-issue/SKILL.md:80",
-      "normalized": "output: session.initialdescription, session.designurl, session.productcontext.",
-      "destination": "skills/draft-issue/SKILL.md:80"
-    },
-    {
-      "id": "a21d6df54d7c",
-      "source_before": "skills/draft-issue/SKILL.md:84",
-      "normalized": "read references/design-url.md when session.designurl is non-null. if it is null,",
-      "destination": "skills/draft-issue/SKILL.md:84"
-    },
-    {
       "id": "970a91182936",
-      "source_before": "skills/draft-issue/SKILL.md:88",
+      "source_before": "skills/draft-issue/SKILL.md:82",
       "normalized": "read references/multi-issue.md when the workflow reaches step 1b — the detector ",
-      "destination": "skills/draft-issue/SKILL.md:88"
+      "destination": "skills/draft-issue/SKILL.md:82"
     },
     {
       "id": "0756b635c52b",
-      "source_before": "skills/draft-issue/SKILL.md:96",
+      "source_before": "skills/draft-issue/SKILL.md:90",
       "normalized": "input: initial description from step 1; multi-phase signals from step 1b.",
-      "destination": "skills/draft-issue/SKILL.md:96"
+      "destination": "skills/draft-issue/SKILL.md:90"
     },
     {
       "id": "9d33587f5433",
-      "source_before": "skills/draft-issue/SKILL.md:98",
+      "source_before": "skills/draft-issue/SKILL.md:92",
       "normalized": "process: compute epicrecommended = true when any fire:",
-      "destination": "skills/draft-issue/SKILL.md:98"
+      "destination": "skills/draft-issue/SKILL.md:92"
     },
     {
       "id": "b631ba56d608",
-      "source_before": "skills/draft-issue/SKILL.md:100",
+      "source_before": "skills/draft-issue/SKILL.md:94",
       "normalized": "the description contains \"in phases\", \"multiple prs\", or \"multi-pr\" (case-insens",
-      "destination": "skills/draft-issue/SKILL.md:100"
+      "destination": "skills/draft-issue/SKILL.md:94"
     },
     {
       "id": "5de9266014d7",
-      "source_before": "skills/draft-issue/SKILL.md:101",
+      "source_before": "skills/draft-issue/SKILL.md:95",
       "normalized": "step 1b's distinctcomponents >= 4 and sentencecount >= 3.",
-      "destination": "skills/draft-issue/SKILL.md:101"
+      "destination": "skills/draft-issue/SKILL.md:95"
     },
     {
       "id": "a5f05384091c",
-      "source_before": "skills/draft-issue/SKILL.md:102",
+      "source_before": "skills/draft-issue/SKILL.md:96",
       "normalized": "the description contains references to multiple sequential delivery phases (e.g.",
-      "destination": "skills/draft-issue/SKILL.md:102"
+      "destination": "skills/draft-issue/SKILL.md:96"
     },
     {
       "id": "c1e548921a68",
-      "source_before": "skills/draft-issue/SKILL.md:104",
+      "source_before": "skills/draft-issue/SKILL.md:98",
       "normalized": "present a requestuserinput gate:",
-      "destination": "skills/draft-issue/SKILL.md:104",
+      "destination": "skills/draft-issue/SKILL.md:98",
       "additional_destinations": [
-        "skills/draft-issue/SKILL.md:159",
-        "skills/draft-issue/SKILL.md:233"
+        "skills/draft-issue/SKILL.md:153",
+        "skills/draft-issue/SKILL.md:225"
       ]
     },
     {
       "id": "a394c8d2c68e",
-      "source_before": "skills/draft-issue/SKILL.md:115",
+      "source_before": "skills/draft-issue/SKILL.md:109",
       "normalized": "when epicrecommended is true, append (recommended) to the epic option label.",
-      "destination": "skills/draft-issue/SKILL.md:115"
+      "destination": "skills/draft-issue/SKILL.md:109"
     },
     {
       "id": "a1a9510eaaf0",
-      "source_before": "skills/draft-issue/SKILL.md:117",
+      "source_before": "skills/draft-issue/SKILL.md:111",
       "normalized": "output: classification ∈ {feature, bug, epic, spike}.",
-      "destination": "skills/draft-issue/SKILL.md:117"
+      "destination": "skills/draft-issue/SKILL.md:111"
     },
     {
       "id": "c8e51ee88d44",
-      "source_before": "skills/draft-issue/SKILL.md:121",
+      "source_before": "skills/draft-issue/SKILL.md:115",
       "normalized": "input: project root version file (if present); github milestones via gh api.",
-      "destination": "skills/draft-issue/SKILL.md:121"
+      "destination": "skills/draft-issue/SKILL.md:115"
     },
     {
       "id": "d49c351fcd03",
-      "source_before": "skills/draft-issue/SKILL.md:125",
+      "source_before": "skills/draft-issue/SKILL.md:119",
       "normalized": "read the version file at the project root. if it exists and parses as semver (x.",
-      "destination": "skills/draft-issue/SKILL.md:125"
+      "destination": "skills/draft-issue/SKILL.md:119"
     },
     {
       "id": "fe7090593560",
-      "source_before": "skills/draft-issue/SKILL.md:126",
+      "source_before": "skills/draft-issue/SKILL.md:120",
       "normalized": "present a requestuserinput gate with options \"v{major} (current major version)\" ",
-      "destination": "skills/draft-issue/SKILL.md:126"
+      "destination": "skills/draft-issue/SKILL.md:120"
     },
     {
       "id": "7f68950aaf21",
-      "source_before": "skills/draft-issue/SKILL.md:127",
+      "source_before": "skills/draft-issue/SKILL.md:121",
       "normalized": "ensure the milestone exists: gh api repos/{owner}/{repo}/milestones --jq '.[].ti",
-      "destination": "skills/draft-issue/SKILL.md:127"
+      "destination": "skills/draft-issue/SKILL.md:121"
     },
     {
       "id": "22608715532d",
-      "source_before": "skills/draft-issue/SKILL.md:129",
+      "source_before": "skills/draft-issue/SKILL.md:123",
       "normalized": "read ../../references/versioning.md when you need the project's version-file con",
-      "destination": "skills/draft-issue/SKILL.md:129"
+      "destination": "skills/draft-issue/SKILL.md:123"
     },
     {
       "id": "ce2ff300f0bc",
-      "source_before": "skills/draft-issue/SKILL.md:131",
+      "source_before": "skills/draft-issue/SKILL.md:125",
       "normalized": "output: milestone — e.g., \"v2\", or null if skipped.",
+      "destination": "skills/draft-issue/SKILL.md:125"
+    },
+    {
+      "id": "a359928ec175",
+      "source_before": "skills/draft-issue/SKILL.md:129",
+      "normalized": "input: classification from step 2; relevant source, specs, and steering docs.",
+      "destination": "skills/draft-issue/SKILL.md:129"
+    },
+    {
+      "id": "3a6e80b4d3f6",
+      "source_before": "skills/draft-issue/SKILL.md:131",
+      "normalized": "process: perform a targeted codebase investigation before the interview.",
       "destination": "skills/draft-issue/SKILL.md:131"
     },
     {
-      "id": "2029310d7893",
-      "source_before": "skills/draft-issue/SKILL.md:135",
-      "normalized": "input: classification from step 2; relevant source, specs, and steering docs; se",
-      "destination": "skills/draft-issue/SKILL.md:135"
-    },
-    {
-      "id": "d96b558cedce",
-      "source_before": "skills/draft-issue/SKILL.md:137",
-      "normalized": "process: perform a targeted codebase investigation before the interview. when se",
-      "destination": "skills/draft-issue/SKILL.md:137"
-    },
-    {
       "id": "c627c00a93d3",
-      "source_before": "skills/draft-issue/SKILL.md:139",
+      "source_before": "skills/draft-issue/SKILL.md:133",
       "normalized": "if enhancement / feature: file discovery for specs/*/requirements.md and read re",
-      "destination": "skills/draft-issue/SKILL.md:139"
+      "destination": "skills/draft-issue/SKILL.md:133"
     },
     {
       "id": "e6a5fc8d1b82",
-      "source_before": "skills/draft-issue/SKILL.md:141",
+      "source_before": "skills/draft-issue/SKILL.md:135",
       "normalized": "if bug: text search for code related to the bug (error messages, function names,",
-      "destination": "skills/draft-issue/SKILL.md:141"
+      "destination": "skills/draft-issue/SKILL.md:135"
     },
     {
       "id": "084bc23546fe",
-      "source_before": "skills/draft-issue/SKILL.md:143",
+      "source_before": "skills/draft-issue/SKILL.md:137",
       "normalized": "read ../../references/steering-schema.md when you need each steering doc's purpo",
-      "destination": "skills/draft-issue/SKILL.md:143"
+      "destination": "skills/draft-issue/SKILL.md:137"
     },
     {
       "id": "0d1e3e0a3562",
-      "source_before": "skills/draft-issue/SKILL.md:145",
+      "source_before": "skills/draft-issue/SKILL.md:139",
       "normalized": "before exiting, capture three signals that step 5 uses for adaptive depth: files",
-      "destination": "skills/draft-issue/SKILL.md:145"
+      "destination": "skills/draft-issue/SKILL.md:139"
     },
     {
       "id": "050b98836c20",
-      "source_before": "skills/draft-issue/SKILL.md:147",
+      "source_before": "skills/draft-issue/SKILL.md:141",
       "normalized": "output: investigation.summary plus the three signals.",
-      "destination": "skills/draft-issue/SKILL.md:147"
+      "destination": "skills/draft-issue/SKILL.md:141"
     },
     {
       "id": "fd1f6cc6740f",
-      "source_before": "skills/draft-issue/SKILL.md:151",
+      "source_before": "skills/draft-issue/SKILL.md:145",
       "normalized": "read references/interview-depth.md when entering the interview phase — the refer",
-      "destination": "skills/draft-issue/SKILL.md:151"
+      "destination": "skills/draft-issue/SKILL.md:145"
     },
     {
       "id": "42e9296bf44b",
-      "source_before": "skills/draft-issue/SKILL.md:153",
+      "source_before": "skills/draft-issue/SKILL.md:147",
       "normalized": "output: depth, depthoverridden, interviewanswers, anythingmissed.",
-      "destination": "skills/draft-issue/SKILL.md:153"
+      "destination": "skills/draft-issue/SKILL.md:147"
     },
     {
       "id": "31e132251a35",
-      "source_before": "skills/draft-issue/SKILL.md:157",
+      "source_before": "skills/draft-issue/SKILL.md:151",
       "normalized": "skip this step when classification === 'spike'. spike issues are never automatio",
-      "destination": "skills/draft-issue/SKILL.md:157"
+      "destination": "skills/draft-issue/SKILL.md:151"
     },
     {
       "id": "a4cbe52a4cba",
-      "source_before": "skills/draft-issue/SKILL.md:174",
+      "source_before": "skills/draft-issue/SKILL.md:168",
       "normalized": "output: automatable ∈ {true, false}.",
-      "destination": "skills/draft-issue/SKILL.md:174"
+      "destination": "skills/draft-issue/SKILL.md:168"
     },
     {
       "id": "9996c4d6ceb6",
-      "source_before": "skills/draft-issue/SKILL.md:178",
+      "source_before": "skills/draft-issue/SKILL.md:172",
       "normalized": "play back a structured understanding block whose length is proportional to depth",
-      "destination": "skills/draft-issue/SKILL.md:178"
+      "destination": "skills/draft-issue/SKILL.md:172"
     },
     {
       "id": "98e65d797f32",
-      "source_before": "skills/draft-issue/SKILL.md:189",
+      "source_before": "skills/draft-issue/SKILL.md:183",
       "normalized": "present a requestuserinput gate: \"does this match your intent?\" → \"[1] looks rig",
-      "destination": "skills/draft-issue/SKILL.md:189"
+      "destination": "skills/draft-issue/SKILL.md:183"
     },
     {
       "id": "b72262530f10",
-      "source_before": "skills/draft-issue/SKILL.md:191",
+      "source_before": "skills/draft-issue/SKILL.md:185",
       "normalized": "output: understanding (persona, outcome, ac outline, scope in/out); understandin",
-      "destination": "skills/draft-issue/SKILL.md:191"
+      "destination": "skills/draft-issue/SKILL.md:185"
     },
     {
       "id": "ceb8d7f084d7",
-      "source_before": "skills/draft-issue/SKILL.md:193",
+      "source_before": "skills/draft-issue/SKILL.md:187",
       "normalized": "human review gate: blocks step 6 until the user confirms the playback.",
-      "destination": "skills/draft-issue/SKILL.md:193"
+      "destination": "skills/draft-issue/SKILL.md:187"
     },
     {
-      "id": "b8e23d048358",
-      "source_before": "skills/draft-issue/SKILL.md:197",
-      "normalized": "input: confirmed understanding; classification; investigation.summary; session.d",
-      "destination": "skills/draft-issue/SKILL.md:197"
+      "id": "188b1a17d1a4",
+      "source_before": "skills/draft-issue/SKILL.md:191",
+      "normalized": "input: confirmed understanding; classification; investigation.summary; current i",
+      "destination": "skills/draft-issue/SKILL.md:191"
     },
     {
       "id": "43221402d101",
-      "source_before": "skills/draft-issue/SKILL.md:199",
+      "source_before": "skills/draft-issue/SKILL.md:193",
       "normalized": "choose the template based on classification:",
-      "destination": "skills/draft-issue/SKILL.md:199"
+      "destination": "skills/draft-issue/SKILL.md:193"
     },
     {
       "id": "ebda578acb16",
-      "source_before": "skills/draft-issue/SKILL.md:201",
+      "source_before": "skills/draft-issue/SKILL.md:195",
       "normalized": "read references/feature-template.md when classification === 'feature'.",
-      "destination": "skills/draft-issue/SKILL.md:201"
+      "destination": "skills/draft-issue/SKILL.md:195"
     },
     {
       "id": "e6e4b99dbb2a",
-      "source_before": "skills/draft-issue/SKILL.md:202",
+      "source_before": "skills/draft-issue/SKILL.md:196",
       "normalized": "read references/bug-template.md when classification === 'bug'.",
-      "destination": "skills/draft-issue/SKILL.md:202"
+      "destination": "skills/draft-issue/SKILL.md:196"
     },
     {
       "id": "0d3ef5721729",
-      "source_before": "skills/draft-issue/SKILL.md:203",
+      "source_before": "skills/draft-issue/SKILL.md:197",
       "normalized": "read references/multi-issue.md when classification === 'epic' — the epic coordin",
-      "destination": "skills/draft-issue/SKILL.md:203"
+      "destination": "skills/draft-issue/SKILL.md:197"
     },
     {
       "id": "00d8ecc32f5c",
-      "source_before": "skills/draft-issue/SKILL.md:204",
+      "source_before": "skills/draft-issue/SKILL.md:198",
       "normalized": "read references/spike-template.md when classification === 'spike' — the spike te",
-      "destination": "skills/draft-issue/SKILL.md:204"
-    },
-    {
-      "id": "1765582b004c",
-      "source_before": "skills/draft-issue/SKILL.md:206",
-      "normalized": "when session.designcontext is present, cite the design url in the background / c",
-      "destination": "skills/draft-issue/SKILL.md:206"
+      "destination": "skills/draft-issue/SKILL.md:198"
     },
     {
       "id": "cc6efd32250d",
-      "source_before": "skills/draft-issue/SKILL.md:208",
+      "source_before": "skills/draft-issue/SKILL.md:200",
       "normalized": "body cross-ref placeholders (batch mode): when session.dag has edges touching th",
-      "destination": "skills/draft-issue/SKILL.md:208"
+      "destination": "skills/draft-issue/SKILL.md:200"
     },
     {
       "id": "29e5a78224c9",
-      "source_before": "skills/draft-issue/SKILL.md:210",
+      "source_before": "skills/draft-issue/SKILL.md:202",
       "normalized": "output: draft (issue body markdown), title (concise, action-oriented, starts wit",
-      "destination": "skills/draft-issue/SKILL.md:210"
+      "destination": "skills/draft-issue/SKILL.md:202"
     },
     {
       "id": "70b4c08235ca",
-      "source_before": "skills/draft-issue/SKILL.md:214",
+      "source_before": "skills/draft-issue/SKILL.md:206",
       "normalized": "render an inline review summary:",
-      "destination": "skills/draft-issue/SKILL.md:214"
+      "destination": "skills/draft-issue/SKILL.md:206"
     },
     {
       "id": "3817a8e6cc52",
-      "source_before": "skills/draft-issue/SKILL.md:242",
+      "source_before": "skills/draft-issue/SKILL.md:234",
       "normalized": "on [2], ask one free-text follow-up (\"what would you like to change?\"), apply th",
-      "destination": "skills/draft-issue/SKILL.md:242"
+      "destination": "skills/draft-issue/SKILL.md:234"
     },
     {
       "id": "8cedfe0a0dec",
-      "source_before": "skills/draft-issue/SKILL.md:244",
+      "source_before": "skills/draft-issue/SKILL.md:236",
       "normalized": "consecutive-revise soft guard: maintain consecutiverevises starting at 0. increm",
-      "destination": "skills/draft-issue/SKILL.md:244"
+      "destination": "skills/draft-issue/SKILL.md:236"
     },
     {
       "id": "dc0065d87a0e",
-      "source_before": "skills/draft-issue/SKILL.md:246",
+      "source_before": "skills/draft-issue/SKILL.md:238",
       "normalized": "batch-mode abandonment: when session.proposedsplit !== null and session.createdi",
-      "destination": "skills/draft-issue/SKILL.md:246"
+      "destination": "skills/draft-issue/SKILL.md:238"
     },
     {
       "id": "843cc13a6611",
-      "source_before": "skills/draft-issue/SKILL.md:248",
+      "source_before": "skills/draft-issue/SKILL.md:240",
       "normalized": "output: approved (true after approve or accept as-is); session.abandoned (true i",
-      "destination": "skills/draft-issue/SKILL.md:248"
+      "destination": "skills/draft-issue/SKILL.md:240"
     },
     {
       "id": "c12654799888",
-      "source_before": "skills/draft-issue/SKILL.md:250",
+      "source_before": "skills/draft-issue/SKILL.md:242",
       "normalized": "human review gate: blocks step 8 until approved = true or the user abandons the ",
-      "destination": "skills/draft-issue/SKILL.md:250"
+      "destination": "skills/draft-issue/SKILL.md:242"
     },
     {
       "id": "6cef80f77b97",
-      "source_before": "skills/draft-issue/SKILL.md:254",
+      "source_before": "skills/draft-issue/SKILL.md:246",
       "normalized": "gh label list — enumerate existing labels.",
-      "destination": "skills/draft-issue/SKILL.md:254"
+      "destination": "skills/draft-issue/SKILL.md:246"
     },
     {
       "id": "74687a5ac0b9",
-      "source_before": "skills/draft-issue/SKILL.md:255",
+      "source_before": "skills/draft-issue/SKILL.md:247",
       "normalized": "create missing labels via gh label create \"label-name\" --description \"...\" --col",
-      "destination": "skills/draft-issue/SKILL.md:255"
+      "destination": "skills/draft-issue/SKILL.md:247"
     },
     {
       "id": "f10c7abbab8d",
-      "source_before": "skills/draft-issue/SKILL.md:256",
+      "source_before": "skills/draft-issue/SKILL.md:248",
       "normalized": "if step 5b answered \"yes\", ensure the automatable label exists (gh label list --",
-      "destination": "skills/draft-issue/SKILL.md:256"
+      "destination": "skills/draft-issue/SKILL.md:248"
     },
     {
       "id": "f3fc1c001acf",
-      "source_before": "skills/draft-issue/SKILL.md:257",
+      "source_before": "skills/draft-issue/SKILL.md:249",
       "normalized": "determine labels by classification:",
-      "destination": "skills/draft-issue/SKILL.md:257"
+      "destination": "skills/draft-issue/SKILL.md:249"
     },
     {
       "id": "1d00f2b4b684",
-      "source_before": "skills/draft-issue/SKILL.md:258",
+      "source_before": "skills/draft-issue/SKILL.md:250",
       "normalized": "feature → enhancement",
-      "destination": "skills/draft-issue/SKILL.md:258"
+      "destination": "skills/draft-issue/SKILL.md:250"
     },
     {
       "id": "0b5218e84f0e",
-      "source_before": "skills/draft-issue/SKILL.md:259",
+      "source_before": "skills/draft-issue/SKILL.md:251",
       "normalized": "bug → bug",
-      "destination": "skills/draft-issue/SKILL.md:259"
+      "destination": "skills/draft-issue/SKILL.md:251"
     },
     {
       "id": "6d6e679062d8",
-      "source_before": "skills/draft-issue/SKILL.md:260",
+      "source_before": "skills/draft-issue/SKILL.md:252",
       "normalized": "epic → epic + enhancement (both; lazily create the epic label with color 5319e7 ",
-      "destination": "skills/draft-issue/SKILL.md:260"
+      "destination": "skills/draft-issue/SKILL.md:252"
     },
     {
       "id": "7e5d06a7624c",
-      "source_before": "skills/draft-issue/SKILL.md:261",
+      "source_before": "skills/draft-issue/SKILL.md:253",
       "normalized": "spike → spike (lazily create with color 0052cc if absent)",
-      "destination": "skills/draft-issue/SKILL.md:261"
+      "destination": "skills/draft-issue/SKILL.md:253"
     },
     {
       "id": "3b0dca2850c7",
-      "source_before": "skills/draft-issue/SKILL.md:262",
+      "source_before": "skills/draft-issue/SKILL.md:254",
       "normalized": "automatable applies to feature/bug when step 5b answered \"yes\" — epics and spike",
-      "destination": "skills/draft-issue/SKILL.md:262"
+      "destination": "skills/draft-issue/SKILL.md:254"
     },
     {
       "id": "1ca1e765ab55",
-      "source_before": "skills/draft-issue/SKILL.md:263",
+      "source_before": "skills/draft-issue/SKILL.md:255",
       "normalized": "create the issue (include --milestone only when step 3 assigned one):",
-      "destination": "skills/draft-issue/SKILL.md:263"
+      "destination": "skills/draft-issue/SKILL.md:255"
     },
     {
       "id": "841970b097d2",
-      "source_before": "skills/draft-issue/SKILL.md:265",
+      "source_before": "skills/draft-issue/SKILL.md:257",
       "normalized": "gh issue create --title \"...\" --body \"...\" --label \"label1,label2\" --milestone \"",
-      "destination": "skills/draft-issue/SKILL.md:265"
+      "destination": "skills/draft-issue/SKILL.md:257"
     },
     {
       "id": "e828d657bba7",
-      "source_before": "skills/draft-issue/SKILL.md:267",
+      "source_before": "skills/draft-issue/SKILL.md:259",
       "normalized": "if automatable was intended, verify with gh issue view #n --json labels --jq '.l",
-      "destination": "skills/draft-issue/SKILL.md:267"
+      "destination": "skills/draft-issue/SKILL.md:259"
     },
     {
       "id": "97dc58c99c31",
-      "source_before": "skills/draft-issue/SKILL.md:269",
+      "source_before": "skills/draft-issue/SKILL.md:261",
       "normalized": "output: issuenumber, issueurl, appliedlabels.",
-      "destination": "skills/draft-issue/SKILL.md:269"
+      "destination": "skills/draft-issue/SKILL.md:261"
     },
     {
       "id": "18123f472d45",
-      "source_before": "skills/draft-issue/SKILL.md:273",
+      "source_before": "skills/draft-issue/SKILL.md:265",
       "normalized": "render the final status block:",
-      "destination": "skills/draft-issue/SKILL.md:273"
+      "destination": "skills/draft-issue/SKILL.md:265"
     },
     {
       "id": "79b077e27b17",
-      "source_before": "skills/draft-issue/SKILL.md:282",
+      "source_before": "skills/draft-issue/SKILL.md:274",
       "normalized": "in batch mode, per-iteration step 9 blocks are compact (one line per iteration) ",
-      "destination": "skills/draft-issue/SKILL.md:282"
+      "destination": "skills/draft-issue/SKILL.md:274"
     },
     {
       "id": "d7de89cee5ae",
-      "source_before": "skills/draft-issue/SKILL.md:286",
+      "source_before": "skills/draft-issue/SKILL.md:278",
       "normalized": "read references/multi-issue.md when the per-issue loop has finished — the refere",
-      "destination": "skills/draft-issue/SKILL.md:286"
+      "destination": "skills/draft-issue/SKILL.md:278"
     },
     {
       "id": "7d3e538f0709",
-      "source_before": "skills/draft-issue/SKILL.md:290",
+      "source_before": "skills/draft-issue/SKILL.md:282",
       "normalized": "read references/multi-issue.md when rendering the final batch summary. on the si",
-      "destination": "skills/draft-issue/SKILL.md:290"
-    },
-    {
-      "id": "0a921af03c04",
-      "source_before": "skills/draft-issue/references/design-url.md:35",
-      "normalized": "session.designcontext — { url, fetchedat, readme, rawsize } or null",
-      "destination": "skills/draft-issue/references/design-url.md:35"
-    },
-    {
-      "id": "6bc79b22af8c",
-      "source_before": "skills/draft-issue/references/design-url.md:36",
-      "normalized": "session.designfailurenote — single-line failure description or null",
-      "destination": "skills/draft-issue/references/design-url.md:36"
+      "destination": "skills/draft-issue/SKILL.md:282"
     },
     {
       "id": "73f12e6f2770",
@@ -879,184 +849,178 @@
       "destination": "skills/draft-issue/references/interview-depth.md:12"
     },
     {
-      "id": "c442793ac643",
-      "source_before": "skills/draft-issue/references/interview-depth.md:13",
-      "normalized": "session.designcontext (read-only; may be null)",
-      "destination": "skills/draft-issue/references/interview-depth.md:13"
-    },
-    {
       "id": "cf903bbd567c",
-      "source_before": "skills/draft-issue/references/interview-depth.md:19",
+      "source_before": "skills/draft-issue/references/interview-depth.md:18",
       "normalized": "compute depth from the step 4 signals:",
-      "destination": "skills/draft-issue/references/interview-depth.md:19"
+      "destination": "skills/draft-issue/references/interview-depth.md:18"
     },
     {
       "id": "e6920e1b1503",
-      "source_before": "skills/draft-issue/references/interview-depth.md:21",
+      "source_before": "skills/draft-issue/references/interview-depth.md:20",
       "normalized": "| depth | condition | rounds |",
-      "destination": "skills/draft-issue/references/interview-depth.md:21"
+      "destination": "skills/draft-issue/references/interview-depth.md:20"
     },
     {
       "id": "a5465459bb03",
-      "source_before": "skills/draft-issue/references/interview-depth.md:23",
+      "source_before": "skills/draft-issue/references/interview-depth.md:22",
       "normalized": "| core | filesfound ≤ 3 and componentsinvolved ≤ 1 and descriptionvagueness < 0.",
-      "destination": "skills/draft-issue/references/interview-depth.md:23"
+      "destination": "skills/draft-issue/references/interview-depth.md:22"
     },
     {
       "id": "0213e14dd042",
-      "source_before": "skills/draft-issue/references/interview-depth.md:24",
+      "source_before": "skills/draft-issue/references/interview-depth.md:23",
       "normalized": "| extended (borderline bias) | descriptionvagueness ∈ [0.10, 0.15) or (component",
-      "destination": "skills/draft-issue/references/interview-depth.md:24"
+      "destination": "skills/draft-issue/references/interview-depth.md:23"
     },
     {
       "id": "78e7ede6b123",
-      "source_before": "skills/draft-issue/references/interview-depth.md:25",
+      "source_before": "skills/draft-issue/references/interview-depth.md:24",
       "normalized": "| extended | otherwise (multi-component, many files, or vague description) | 4 r",
-      "destination": "skills/draft-issue/references/interview-depth.md:25"
+      "destination": "skills/draft-issue/references/interview-depth.md:24"
     },
     {
       "id": "cddcf68c18bc",
-      "source_before": "skills/draft-issue/references/interview-depth.md:27",
+      "source_before": "skills/draft-issue/references/interview-depth.md:26",
       "normalized": "the borderline row intentionally biases ambiguous cases to the deeper interview ",
-      "destination": "skills/draft-issue/references/interview-depth.md:27"
+      "destination": "skills/draft-issue/references/interview-depth.md:26"
     },
     {
       "id": "5e3f7df803be",
-      "source_before": "skills/draft-issue/references/interview-depth.md:31",
+      "source_before": "skills/draft-issue/references/interview-depth.md:30",
       "normalized": "emit a one-sentence user-visible log line explaining the selection, for example:",
-      "destination": "skills/draft-issue/references/interview-depth.md:31"
+      "destination": "skills/draft-issue/references/interview-depth.md:30"
     },
     {
       "id": "bcc940047bf7",
-      "source_before": "skills/draft-issue/references/interview-depth.md:33",
+      "source_before": "skills/draft-issue/references/interview-depth.md:32",
       "normalized": "extended: \"this touches 4 components across 2 skills — i'll ask deeper scope que",
-      "destination": "skills/draft-issue/references/interview-depth.md:33"
+      "destination": "skills/draft-issue/references/interview-depth.md:32"
     },
     {
       "id": "6b5f5facfd4f",
-      "source_before": "skills/draft-issue/references/interview-depth.md:34",
+      "source_before": "skills/draft-issue/references/interview-depth.md:33",
       "normalized": "core: \"small scoped change — running a core interview.\"",
-      "destination": "skills/draft-issue/references/interview-depth.md:34"
+      "destination": "skills/draft-issue/references/interview-depth.md:33"
     },
     {
       "id": "18b99ff11438",
-      "source_before": "skills/draft-issue/references/interview-depth.md:38",
+      "source_before": "skills/draft-issue/references/interview-depth.md:37",
       "normalized": "immediately after the log line, present a requestuserinput gate with two options",
-      "destination": "skills/draft-issue/references/interview-depth.md:38"
+      "destination": "skills/draft-issue/references/interview-depth.md:37"
     },
     {
       "id": "c4464c9e0cb6",
-      "source_before": "skills/draft-issue/references/interview-depth.md:49",
+      "source_before": "skills/draft-issue/references/interview-depth.md:48",
       "normalized": "if the user selects [2], switch depth to the other value and emit a one-line ses",
-      "destination": "skills/draft-issue/references/interview-depth.md:49"
+      "destination": "skills/draft-issue/references/interview-depth.md:48"
     },
     {
-      "id": "c8d211e9b83f",
-      "source_before": "skills/draft-issue/references/interview-depth.md:53",
-      "normalized": "skip any topics already answered by the initial description, the step 4 investig",
-      "destination": "skills/draft-issue/references/interview-depth.md:53"
+      "id": "44a06a95870b",
+      "source_before": "skills/draft-issue/references/interview-depth.md:52",
+      "normalized": "skip any topics already answered by the initial description or the step 4 invest",
+      "destination": "skills/draft-issue/references/interview-depth.md:52"
     },
     {
       "id": "6f1e66c824c4",
-      "source_before": "skills/draft-issue/references/interview-depth.md:57",
+      "source_before": "skills/draft-issue/references/interview-depth.md:56",
       "normalized": "| round | core (3 rounds) | extended (4 rounds) |",
-      "destination": "skills/draft-issue/references/interview-depth.md:57"
+      "destination": "skills/draft-issue/references/interview-depth.md:56"
     },
     {
       "id": "6bee675e2597",
-      "source_before": "skills/draft-issue/references/interview-depth.md:59",
+      "source_before": "skills/draft-issue/references/interview-depth.md:58",
       "normalized": "| r1 persona & outcome | who benefits? what pain point? what desired outcome? | ",
-      "destination": "skills/draft-issue/references/interview-depth.md:59"
+      "destination": "skills/draft-issue/references/interview-depth.md:58"
     },
     {
       "id": "ebcf89124c30",
-      "source_before": "skills/draft-issue/references/interview-depth.md:60",
+      "source_before": "skills/draft-issue/references/interview-depth.md:59",
       "normalized": "| r2 acs, scope, priority | key acs in g/w/t format; in-scope / out-of-scope; mo",
-      "destination": "skills/draft-issue/references/interview-depth.md:60"
+      "destination": "skills/draft-issue/references/interview-depth.md:59"
     },
     {
       "id": "734ccd533497",
-      "source_before": "skills/draft-issue/references/interview-depth.md:61",
+      "source_before": "skills/draft-issue/references/interview-depth.md:60",
       "normalized": "| r3 nfrs & edge cases | (omitted) | performance / accessibility / security / i1",
-      "destination": "skills/draft-issue/references/interview-depth.md:61"
+      "destination": "skills/draft-issue/references/interview-depth.md:60"
     },
     {
       "id": "38b3a6dedc82",
-      "source_before": "skills/draft-issue/references/interview-depth.md:62",
+      "source_before": "skills/draft-issue/references/interview-depth.md:61",
       "normalized": "| r4 related features & priority | (folded into r2) | existing related features ",
-      "destination": "skills/draft-issue/references/interview-depth.md:62"
+      "destination": "skills/draft-issue/references/interview-depth.md:61"
     },
     {
       "id": "7f869a064fb2",
-      "source_before": "skills/draft-issue/references/interview-depth.md:66",
+      "source_before": "skills/draft-issue/references/interview-depth.md:65",
       "normalized": "| round | probes |",
-      "destination": "skills/draft-issue/references/interview-depth.md:66"
+      "destination": "skills/draft-issue/references/interview-depth.md:65"
     },
     {
       "id": "f0c3e0fa2a0a",
-      "source_before": "skills/draft-issue/references/interview-depth.md:68",
+      "source_before": "skills/draft-issue/references/interview-depth.md:67",
       "normalized": "| r1 repro | exact reproduction steps; expected vs actual |",
-      "destination": "skills/draft-issue/references/interview-depth.md:68"
+      "destination": "skills/draft-issue/references/interview-depth.md:67"
     },
     {
       "id": "980974e07410",
-      "source_before": "skills/draft-issue/references/interview-depth.md:69",
+      "source_before": "skills/draft-issue/references/interview-depth.md:68",
       "normalized": "| r2 env & recency | environment (os, browser, version); frequency; error output",
-      "destination": "skills/draft-issue/references/interview-depth.md:69"
+      "destination": "skills/draft-issue/references/interview-depth.md:68"
     },
     {
       "id": "b56c86eb2942",
-      "source_before": "skills/draft-issue/references/interview-depth.md:70",
+      "source_before": "skills/draft-issue/references/interview-depth.md:69",
       "normalized": "| r3 edge cases & regression risk | edge/error states beyond the primary repro; ",
-      "destination": "skills/draft-issue/references/interview-depth.md:70"
+      "destination": "skills/draft-issue/references/interview-depth.md:69"
     },
     {
       "id": "56097d41a98b",
-      "source_before": "skills/draft-issue/references/interview-depth.md:72",
+      "source_before": "skills/draft-issue/references/interview-depth.md:71",
       "normalized": "reproduction remains the bug-path primary focus. r3 is always asked, regardless ",
-      "destination": "skills/draft-issue/references/interview-depth.md:72"
+      "destination": "skills/draft-issue/references/interview-depth.md:71"
     },
     {
       "id": "c2dd939e0db1",
-      "source_before": "skills/draft-issue/references/interview-depth.md:76",
+      "source_before": "skills/draft-issue/references/interview-depth.md:75",
       "normalized": "regardless of classification or depth, the final round ends with a single free-t",
-      "destination": "skills/draft-issue/references/interview-depth.md:76"
+      "destination": "skills/draft-issue/references/interview-depth.md:75"
     },
     {
       "id": "d251862e27a7",
-      "source_before": "skills/draft-issue/references/interview-depth.md:78",
+      "source_before": "skills/draft-issue/references/interview-depth.md:77",
       "normalized": "> \"before i play back my understanding, is there anything i haven't asked that m",
-      "destination": "skills/draft-issue/references/interview-depth.md:78"
+      "destination": "skills/draft-issue/references/interview-depth.md:77"
     },
     {
       "id": "fc21b468e806",
-      "source_before": "skills/draft-issue/references/interview-depth.md:80",
+      "source_before": "skills/draft-issue/references/interview-depth.md:79",
       "normalized": "a non-empty answer is folded into the understanding block that feeds step 5c.",
-      "destination": "skills/draft-issue/references/interview-depth.md:80"
+      "destination": "skills/draft-issue/references/interview-depth.md:79"
     },
     {
       "id": "cd1c35995e83",
-      "source_before": "skills/draft-issue/references/interview-depth.md:84",
+      "source_before": "skills/draft-issue/references/interview-depth.md:83",
       "normalized": "depth ∈ {core, extended}",
-      "destination": "skills/draft-issue/references/interview-depth.md:84"
+      "destination": "skills/draft-issue/references/interview-depth.md:83"
     },
     {
       "id": "5a2fdfadc97d",
-      "source_before": "skills/draft-issue/references/interview-depth.md:85",
+      "source_before": "skills/draft-issue/references/interview-depth.md:84",
       "normalized": "depthoverridden — true if the user chose the non-recommended option",
-      "destination": "skills/draft-issue/references/interview-depth.md:85"
+      "destination": "skills/draft-issue/references/interview-depth.md:84"
     },
     {
       "id": "590da189c951",
-      "source_before": "skills/draft-issue/references/interview-depth.md:86",
+      "source_before": "skills/draft-issue/references/interview-depth.md:85",
       "normalized": "interviewanswers — map of round → answers",
-      "destination": "skills/draft-issue/references/interview-depth.md:86"
+      "destination": "skills/draft-issue/references/interview-depth.md:85"
     },
     {
       "id": "bc9172aef160",
-      "source_before": "skills/draft-issue/references/interview-depth.md:87",
+      "source_before": "skills/draft-issue/references/interview-depth.md:86",
       "normalized": "anythingmissed — free-text answer or null",
-      "destination": "skills/draft-issue/references/interview-depth.md:87"
+      "destination": "skills/draft-issue/references/interview-depth.md:86"
     },
     {
       "id": "624c67101e72",
@@ -1072,9 +1036,9 @@
     },
     {
       "id": "0025f0937564",
-      "source_before": "skills/draft-issue/references/multi-issue.md:342",
+      "source_before": "skills/draft-issue/references/multi-issue.md:338",
       "normalized": "unattended-mode rule. $nmg-sdlc:draft-issue as a whole does not honor unattended",
-      "destination": "skills/draft-issue/references/multi-issue.md:342"
+      "destination": "skills/draft-issue/references/multi-issue.md:338"
     },
     {
       "id": "9ca7b9b30521",
@@ -1209,160 +1173,154 @@
       "destination": "skills/onboard-project/SKILL.md:124"
     },
     {
-      "id": "04fb054e54cc",
+      "id": "946025e3b687",
       "source_before": "skills/onboard-project/SKILL.md:125",
-      "normalized": "greenfield only — design url fetch result — success (n bytes, m entries), skippe",
+      "normalized": "greenfield only — interview defaults applied — for each round, the value applied",
       "destination": "skills/onboard-project/SKILL.md:125"
     },
     {
-      "id": "946025e3b687",
+      "id": "f8a2b7ef0689",
       "source_before": "skills/onboard-project/SKILL.md:126",
-      "normalized": "greenfield only — interview defaults applied — for each round, the value applied",
+      "normalized": "versioning (greenfield, greenfield-enhancement, and brownfield — emitted wheneve",
       "destination": "skills/onboard-project/SKILL.md:126"
     },
     {
-      "id": "f8a2b7ef0689",
+      "id": "47c927d0a57f",
       "source_before": "skills/onboard-project/SKILL.md:127",
-      "normalized": "versioning (greenfield, greenfield-enhancement, and brownfield — emitted wheneve",
+      "normalized": "version: created @ 0.1.0 | preserved @ <x> | backfilled from <path> @ <x>",
       "destination": "skills/onboard-project/SKILL.md:127"
     },
     {
-      "id": "47c927d0a57f",
+      "id": "8cdabace53f3",
       "source_before": "skills/onboard-project/SKILL.md:128",
-      "normalized": "version: created @ 0.1.0 | preserved @ <x> | backfilled from <path> @ <x>",
+      "normalized": "manifest: <path> set @ 0.1.0 (greenfield only) | <path> preserved @ <x> | no-man",
       "destination": "skills/onboard-project/SKILL.md:128"
     },
     {
-      "id": "8cdabace53f3",
+      "id": "20ee86ab5eff",
       "source_before": "skills/onboard-project/SKILL.md:129",
-      "normalized": "manifest: <path> set @ 0.1.0 (greenfield only) | <path> preserved @ <x> | no-man",
+      "normalized": "greenfield only — milestones — single line for v1: marked seeded, skipped (alrea",
       "destination": "skills/onboard-project/SKILL.md:129"
     },
     {
-      "id": "20ee86ab5eff",
+      "id": "3c1fd2f5c2e6",
       "source_before": "skills/onboard-project/SKILL.md:130",
-      "normalized": "greenfield only — milestones — single line for v1: marked seeded, skipped (alrea",
+      "normalized": "greenfield only — dependency dag — full ascii rendering, or skipped due to cycle",
       "destination": "skills/onboard-project/SKILL.md:130"
     },
     {
-      "id": "3c1fd2f5c2e6",
+      "id": "228180342061",
       "source_before": "skills/onboard-project/SKILL.md:131",
-      "normalized": "greenfield only — dependency dag — full ascii rendering, or skipped due to cycle",
+      "normalized": "greenfield only — starter issues seeded — every issue created with its number, p",
       "destination": "skills/onboard-project/SKILL.md:131"
     },
     {
-      "id": "228180342061",
-      "source_before": "skills/onboard-project/SKILL.md:132",
-      "normalized": "greenfield only — starter issues seeded — every issue created with its number, p",
-      "destination": "skills/onboard-project/SKILL.md:132"
-    },
-    {
       "id": "530cf94379c1",
-      "source_before": "skills/onboard-project/SKILL.md:135",
+      "source_before": "skills/onboard-project/SKILL.md:134",
       "normalized": "#200 set up basic api (parents: —, blocks: #201, #202)",
-      "destination": "skills/onboard-project/SKILL.md:135"
+      "destination": "skills/onboard-project/SKILL.md:134"
     },
     {
       "id": "0df71482780b",
-      "source_before": "skills/onboard-project/SKILL.md:136",
+      "source_before": "skills/onboard-project/SKILL.md:135",
       "normalized": "#201 add user profile (parents: #200, blocks: —)",
-      "destination": "skills/onboard-project/SKILL.md:136"
+      "destination": "skills/onboard-project/SKILL.md:135"
     },
     {
       "id": "92d1d0a0bc28",
-      "source_before": "skills/onboard-project/SKILL.md:137",
+      "source_before": "skills/onboard-project/SKILL.md:136",
       "normalized": "#202 add caching layer (parents: #200, blocks: —)",
-      "destination": "skills/onboard-project/SKILL.md:137"
+      "destination": "skills/onboard-project/SKILL.md:136"
     },
     {
       "id": "119459d7f845",
-      "source_before": "skills/onboard-project/SKILL.md:138",
+      "source_before": "skills/onboard-project/SKILL.md:137",
       "normalized": "#203 failed — $nmg-sdlc:draft-issue exited 1",
-      "destination": "skills/onboard-project/SKILL.md:138"
+      "destination": "skills/onboard-project/SKILL.md:137"
     },
     {
       "id": "f279e7effa16",
-      "source_before": "skills/onboard-project/SKILL.md:141",
+      "source_before": "skills/onboard-project/SKILL.md:140",
       "normalized": "brownfield only — specs produced — every spec directory written this run, with c",
-      "destination": "skills/onboard-project/SKILL.md:141"
+      "destination": "skills/onboard-project/SKILL.md:140"
     },
     {
       "id": "78bed830fb50",
-      "source_before": "skills/onboard-project/SKILL.md:144",
+      "source_before": "skills/onboard-project/SKILL.md:143",
       "normalized": "specs/feature-dark-mode/ (#10, #14, #27)",
-      "destination": "skills/onboard-project/SKILL.md:144"
+      "destination": "skills/onboard-project/SKILL.md:143"
     },
     {
       "id": "2e5d9dc48d6e",
-      "source_before": "skills/onboard-project/SKILL.md:145",
+      "source_before": "skills/onboard-project/SKILL.md:144",
       "normalized": "specs/bug-login-crash-on-timeout/ (#42)",
-      "destination": "skills/onboard-project/SKILL.md:145"
+      "destination": "skills/onboard-project/SKILL.md:144"
     },
     {
       "id": "30a3e47b60eb",
-      "source_before": "skills/onboard-project/SKILL.md:146",
+      "source_before": "skills/onboard-project/SKILL.md:145",
       "normalized": "specs/feature-export-report/ (#61) — partial: ## known gaps noted",
-      "destination": "skills/onboard-project/SKILL.md:146"
+      "destination": "skills/onboard-project/SKILL.md:145"
     },
     {
       "id": "eca0bb73a350",
-      "source_before": "skills/onboard-project/SKILL.md:149",
+      "source_before": "skills/onboard-project/SKILL.md:148",
       "normalized": "brownfield only — skipped — issues skipped as duplicate/wontfix/not planned, and",
-      "destination": "skills/onboard-project/SKILL.md:149"
+      "destination": "skills/onboard-project/SKILL.md:148"
     },
     {
       "id": "c801e6f3d966",
-      "source_before": "skills/onboard-project/SKILL.md:150",
+      "source_before": "skills/onboard-project/SKILL.md:149",
       "normalized": "enhancement-mode skips (greenfield-enhancement only) — milestones detected as al",
-      "destination": "skills/onboard-project/SKILL.md:150"
+      "destination": "skills/onboard-project/SKILL.md:149"
     },
     {
       "id": "fed03d8c37d2",
-      "source_before": "skills/onboard-project/SKILL.md:151",
+      "source_before": "skills/onboard-project/SKILL.md:150",
       "normalized": "gaps — any missing artifact files (from step 4), any referenced source files tha",
-      "destination": "skills/onboard-project/SKILL.md:151"
+      "destination": "skills/onboard-project/SKILL.md:150"
     },
     {
       "id": "1294085ede4b",
-      "source_before": "skills/onboard-project/SKILL.md:152",
+      "source_before": "skills/onboard-project/SKILL.md:151",
       "normalized": "auto-decisions (unattended-mode runs only) — every consolidation auto-accept, ev",
-      "destination": "skills/onboard-project/SKILL.md:152"
+      "destination": "skills/onboard-project/SKILL.md:151"
     },
     {
       "id": "1e92811f4cc4",
-      "source_before": "skills/onboard-project/SKILL.md:153",
+      "source_before": "skills/onboard-project/SKILL.md:152",
       "normalized": "review reminder — one line reminding the user that reconciled specs (brownfield)",
-      "destination": "skills/onboard-project/SKILL.md:153"
+      "destination": "skills/onboard-project/SKILL.md:152"
     },
     {
       "id": "64818aa4a61f",
-      "source_before": "skills/onboard-project/SKILL.md:154",
+      "source_before": "skills/onboard-project/SKILL.md:153",
       "normalized": "next step —",
-      "destination": "skills/onboard-project/SKILL.md:154"
+      "destination": "skills/onboard-project/SKILL.md:153"
     },
     {
       "id": "403fcc1fec35",
-      "source_before": "skills/onboard-project/SKILL.md:155",
+      "source_before": "skills/onboard-project/SKILL.md:154",
       "normalized": "greenfield: run $nmg-sdlc:start-issue on a seeded starter (e.g., #<first-seeded-",
-      "destination": "skills/onboard-project/SKILL.md:155"
+      "destination": "skills/onboard-project/SKILL.md:154"
     },
     {
       "id": "3fd0b7fae92a",
-      "source_before": "skills/onboard-project/SKILL.md:156",
+      "source_before": "skills/onboard-project/SKILL.md:155",
       "normalized": "brownfield: review the reconciled specs, then run $nmg-sdlc:draft-issue for new ",
-      "destination": "skills/onboard-project/SKILL.md:156"
+      "destination": "skills/onboard-project/SKILL.md:155"
     },
     {
       "id": "d8124b94ab3a",
-      "source_before": "skills/onboard-project/SKILL.md:157",
+      "source_before": "skills/onboard-project/SKILL.md:156",
       "normalized": "already-initialized (after $nmg-sdlc:upgrade-project): run $nmg-sdlc:draft-issue",
-      "destination": "skills/onboard-project/SKILL.md:157"
+      "destination": "skills/onboard-project/SKILL.md:156"
     },
     {
       "id": "0c45030f0137",
-      "source_before": "skills/onboard-project/SKILL.md:159",
+      "source_before": "skills/onboard-project/SKILL.md:158",
       "normalized": "if .codex/unattended-mode exists, replace the \"next step\" with done. awaiting or",
-      "destination": "skills/onboard-project/SKILL.md:159"
+      "destination": "skills/onboard-project/SKILL.md:158"
     },
     {
       "id": "014b21808f0f",
@@ -1372,15 +1330,15 @@
     },
     {
       "id": "9e2b65b1f103",
-      "source_before": "skills/onboard-project/references/greenfield.md:26",
+      "source_before": "skills/onboard-project/references/greenfield.md:13",
       "normalized": "read references/interview.md when conducting the interview — the round-by-round ",
-      "destination": "skills/onboard-project/references/greenfield.md:26"
+      "destination": "skills/onboard-project/references/greenfield.md:13"
     },
     {
-      "id": "c9c277553e71",
-      "source_before": "skills/onboard-project/references/interview.md:33",
-      "normalized": "store the answers as interview_context for use by 2g.3 (steering bootstrap), 2g.",
-      "destination": "skills/onboard-project/references/interview.md:33"
+      "id": "4ca5038e7d06",
+      "source_before": "skills/onboard-project/references/interview.md:32",
+      "normalized": "store the answers as interview_context for use by 2g.2 (steering bootstrap), 2g.",
+      "destination": "skills/onboard-project/references/interview.md:32"
     },
     {
       "id": "f38faf610d8a",

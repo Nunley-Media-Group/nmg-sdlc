@@ -1,31 +1,18 @@
 # Greenfield — Steering, Milestones, Starter Issues
 
-**Read this when** Step 1 detects `greenfield` (no code, no specs, no closed issues) or `greenfield-enhancement` (steering files exist, specs do not — re-run on a previously bootstrapped project). Both modes run the same eight sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each. The interview itself is in `references/interview.md`.
+**Read this when** Step 1 detects `greenfield` (no code, no specs, no closed issues) or `greenfield-enhancement` (steering files exist, specs do not — re-run on a previously bootstrapped project). Both modes run the same seven sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each. The interview itself is in `references/interview.md`.
 
-The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: optional design-context ingestion, an intent + tech interview, steering docs, a `VERSION` file plus stack-native manifest sync, the `v1` milestone, and 3–7 starter issues seeded via `$nmg-sdlc:draft-issue` with dependency-aware autolinking.
+The greenfield branch sets up everything an empty project needs to enter the SDLC pipeline: an intent + tech interview, steering docs, a `VERSION` file plus stack-native manifest sync, the `v1` milestone, and 3–7 starter issues seeded via `$nmg-sdlc:draft-issue` with dependency-aware autolinking.
 
-Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster and read-timing referenced by 2G.3 live there.
+Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster and read-timing referenced by 2G.2 live there.
 
-Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the eight sub-steps below live there.
+Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the seven sub-steps below live there.
 
-## Step 2G.1 Optional Design URL Ingestion
+## Step 2G.1 Intent + Tech-Selection Interview
 
-1. Resolve the design URL: if `--design-url <url>` was passed, use it. Else (interactive only) `request_user_input` gate: `"Provide a Design URL? (optional — press Enter to skip)"`. In unattended mode without `--design-url`, skip 2G.1 entirely.
-2. **Validate URL is HTTPS.** If not, log `design URL rejected (non-HTTPS)`, record the rejection as a gap, and continue to 2G.2 with empty `design_context`.
-3. Fetch via Codex web browsing with a 30s timeout.
-4. **Decode**: if the response indicates gzip (content-type `application/gzip`/`application/x-gzip` OR magic bytes `1f 8b` at offset 0), decode via `Bash(node -e "process.stdout.write(require('node:zlib').gunzipSync(Buffer.from(process.argv[1],'base64')).toString())" "<base64>")` — pass the payload as a base64 argument; never interpolate raw payload bytes into a shell command.
-5. **Parse**: locate `README.md` or `README` at the archive root. Read and summarize it for the user. List archive entries (filename, size) inside a fenced code block.
-6. Store the parsed content as `design_context` (in-memory only — no file writes by this skill).
-7. **Failure handling**: network error, HTTP non-2xx, gzip decode error, missing README — log the URL + failure mode + a single-sentence remediation hint (e.g., `Verify the URL is reachable and points to a valid design archive`), record the gap for Step 5, set `design_context = {}`, and **continue** the run. Fetch failures must NOT abort.
-8. All payload content surfaced to the user goes inside fenced code blocks. Archive entry filenames are validated against `[A-Za-z0-9._/-]`; any `..` path component aborts the parse and records a gap.
+Read `references/interview.md` when conducting the interview — the round-by-round questions, default-sourcing priority chain, and unattended-mode default-application contract live there. Store answers as `interview_context` for 2G.2, 2G.4, and 2G.6.
 
-Emit: `Design URL: fetched (N bytes, M entries) | skipped | failed (<reason>)`.
-
-## Step 2G.2 Intent + Tech-Selection Interview
-
-Read `references/interview.md` when conducting the interview — the round-by-round questions, default-sourcing priority chain, and unattended-mode default-application contract live there. Store answers as `interview_context` for 2G.3, 2G.5, and 2G.7.
-
-## Step 2G.3 Steering Bootstrap or Enhancement
+## Step 2G.2 Steering Bootstrap or Enhancement
 
 Read the three steering templates from `templates/`:
 
@@ -54,7 +41,7 @@ After this sub-step, verify all three of `steering/product.md`, `steering/tech.m
 
 Emit: `Steering: bootstrapped (3 files written) | enhanced (N sections updated)`.
 
-## Step 2G.3a Version File Initialization
+## Step 2G.2a Version File Initialization
 
 Seed `VERSION` at the project root and, if a stack-native manifest is detected, seed its version field in parallel. Idempotent in every mode — existing values are preserved.
 
@@ -106,7 +93,7 @@ Manifest: <path> set @ 0.1.0 | preserved @ <X> | no-manifest
 
 This section appears **before** Milestone Seeding in the Step 5 summary — versioning is a scaffold concern that lands before issue-tracker concerns.
 
-## Step 2G.4 Idempotent Milestone Seeding
+## Step 2G.3 Idempotent Milestone Seeding
 
 Seed only the single `v1` milestone. Later version lines are created by the user or by a future skill.
 
@@ -122,9 +109,9 @@ Seed only the single `v1` milestone. Later version lines are created by the user
 
 Emit: `Milestone: v1 seeded | skipped | failed (<reason>)`.
 
-## Step 2G.5 Starter-Issue Candidate Generation
+## Step 2G.4 Starter-Issue Candidate Generation
 
-Synthesize 3–7 starter-issue candidates from `interview_context` and `design_context`. Each candidate carries:
+Synthesize 3–7 starter-issue candidates from `interview_context`. Each candidate carries:
 
 ```
 {
@@ -139,14 +126,14 @@ All candidates seed into the `v1` milestone at `$nmg-sdlc:draft-issue` invocatio
 
 Generation rules:
 
-- Mine `interview_context.success_criteria` and (if present) `design_context` filenames/READMEs for distinct functional concerns.
+- Mine `interview_context.success_criteria` for distinct functional concerns.
 - Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate (auto-cut in unattended mode, with the cut list logged for Step 5).
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 
 Emit: `Candidates: N generated, M dropped as already-seeded, K cut to top-7`.
 
-## Step 2G.6 Dependency DAG Inference + Confirmation Gate
+## Step 2G.5 Dependency DAG Inference + Confirmation Gate
 
 Build edges from the candidate set per these rules:
 
@@ -156,7 +143,7 @@ Build edges from the candidate set per these rules:
 **Cycle detection** — DFS with white/gray/black marking. On any back edge:
 
 - Log the cycle (list the participating candidates).
-- **Skip the wiring step entirely** — proceed to 2G.7 with no autolinks. Do not partially wire.
+- **Skip the wiring step entirely** — proceed to 2G.6 with no autolinks. Do not partially wire.
 - Record `DAG: skipped due to cycle` for Step 5.
 
 Render the DAG as ASCII for the user, e.g.:
@@ -174,9 +161,9 @@ In unattended mode: auto-accept option 1 and log the full DAG for Step 5.
 
 Emit: `DAG: N edges inferred, cycle detected? = no | yes (skipped wiring)`.
 
-## Step 2G.7 Starter-Issue Seeding Loop with Autolinking
+## Step 2G.6 Starter-Issue Seeding Loop with Autolinking
 
-Iterate candidates in **topological order** from 2G.6 (or arbitrary order if the DAG step was skipped).
+Iterate candidates in **topological order** from 2G.5 (or arbitrary order if the DAG step was skipped).
 
 Before the first iteration:
 
@@ -188,7 +175,7 @@ Before the first iteration:
 
 For each candidate:
 
-1. **Invoke `$nmg-sdlc:draft-issue`** (delegated) with the shared `interview_context`, `design_context`, and this candidate's `{title, body_seed, component_refs}` as the seed payload, and the fixed milestone assignment `v1`. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
+1. **Invoke `$nmg-sdlc:draft-issue`** (delegated) with the shared `interview_context` and this candidate's `{title, body_seed, component_refs}` as the seed payload, and the fixed milestone assignment `v1`. The delegated skill is responsible for full AC/FR synthesis — do not bypass it.
 2. **Capture the created issue number** from `$nmg-sdlc:draft-issue`'s return.
 3. **Apply the seeded-by-onboard label**: `gh issue edit <num> --add-label seeded-by-onboard`.
 4. **Wire DAG parents already created** (skip if `autolinking_available = false`): for each parent of this candidate already created in this loop, invoke `addSubIssue(parent_number, child_number)` on `$nmg-sdlc:draft-issue`. Append a `Depends on: #<parent>` line to this issue's body via `gh issue edit <self> --body-file -`.

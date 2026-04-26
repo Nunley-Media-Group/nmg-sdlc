@@ -174,7 +174,6 @@ The confirmed split + DAG drives a loop over Steps 2–9. Each iteration runs th
 | Field | Source | Consumers |
 |-------|--------|-----------|
 | `session.productContext` | Step 1 | Step 4 investigation |
-| `session.designContext` | Step 1a | Steps 4, 5, 6 |
 | `session.dag` | Step 1d | Step 6 (body cross-ref placeholders), Step 10 (autolinking) |
 
 Iterations **must not mutate** these fields. Everything else — classification, milestone, investigation, interview answers, depth, understanding, draft, review counter — lives in a per-iteration `DraftState`.
@@ -205,9 +204,6 @@ When `session.proposedSplit === null`, the loop runs exactly once against the or
 ```
 SessionState {
   initialDescription: string
-  designUrl: string | null
-  designContext: { url, fetchedAt, readme, rawSize } | null
-  designFailureNote: string | null
   productContext: object
 
   proposedSplit: {
@@ -355,7 +351,7 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 ### Input
 
 - `session.createdIssues`, `session.proposedSplit`, `session.dag`
-- `session.abandoned`, `session.designFailureNote`, `session.autolinkDegradationNotes`, `session.subIssueSupported`
+- `session.abandoned`, `session.autolinkDegradationNotes`, `session.subIssueSupported`
 
 ### Process
 
@@ -376,14 +372,12 @@ Autolinking:
   - Body cross-refs written: yes (unconditionally)
   [If degraded]: Sub-issue linking unavailable in this gh version — body cross-refs only.
 
-[If design fetch failed]: Design fetch failed — issues drafted without design context.
-
 Next step: $nmg-sdlc:start-issue #<first-issue-number>
 ```
 
 #### Single-issue mode
 
-Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). If a design fetch failure was recorded, append the design-failure line.
+Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block).
 
 #### Abandonment
 
