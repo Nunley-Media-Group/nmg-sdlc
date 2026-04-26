@@ -8,6 +8,8 @@ Read `../../references/steering-schema.md` when bootstrapping or enhancing the s
 
 Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the seven sub-steps below live there.
 
+Read `../../references/contribution-guide.md` when Step 2G.2 verifies that all three steering docs exist — the shared contract creates or updates `CONTRIBUTING.md`, preserves existing contribution content in enhancement mode, handles the README link idempotently, and returns status for the Step 5 summary.
+
 ## Step 2G.1 Intent + Tech-Selection Interview
 
 Read `references/interview.md` when conducting the interview — the round-by-round questions, default-sourcing priority chain, and unattended-mode default-application contract live there. Store answers as `interview_context` for 2G.2, 2G.4, and 2G.6.
@@ -40,6 +42,26 @@ Extract template content from the ` ```markdown ... ``` ` fenced block in each t
 After this sub-step, verify all three of `steering/product.md`, `steering/tech.md`, `steering/structure.md` exist. If any is missing, record as a gap and abort the greenfield flow.
 
 Emit: `Steering: bootstrapped (3 files written) | enhanced (N sections updated)`.
+
+## Step 2G.2 Contribution Guide Postcondition
+
+After Step 2G.2 verifies all three steering docs exist, apply `../../references/contribution-guide.md`.
+
+**Bootstrap mode**:
+
+1. Create `CONTRIBUTING.md` when missing after steering exists.
+2. Generate stack-agnostic issue, spec, steering, implementation, verification, and PR expectations.
+3. Summarize project-specific expectations from the steering docs where safe.
+4. Insert a README link when `README.md` exists, or record `README.md link: skipped (README missing)` without creating a README.
+
+**Enhancement mode**:
+
+1. Preserve existing `CONTRIBUTING.md` content.
+2. Append only the missing nmg-sdlc contribution section when equivalent issue/spec/steering coverage is absent.
+3. Detect existing README links before inserting anything.
+4. Record `CONTRIBUTING.md` and README-link outcomes for Step 5.
+
+In unattended mode, auto-apply the non-destructive guide and README-link changes and log the outcomes. This step must run before milestone seeding and starter-issue generation so contributor expectations exist before new work is created.
 
 ## Step 2G.2a Version File Initialization
 

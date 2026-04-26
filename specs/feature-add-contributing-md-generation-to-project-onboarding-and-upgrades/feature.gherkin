@@ -1,0 +1,77 @@
+# File: specs/feature-add-contributing-md-generation-to-project-onboarding-and-upgrades/feature.gherkin
+#
+# Generated from: specs/feature-add-contributing-md-generation-to-project-onboarding-and-upgrades/requirements.md
+# Issue: #109
+
+Feature: Add CONTRIBUTING.md Generation to Project Onboarding and Upgrades
+  As a developer adopting nmg-sdlc on a project
+  I want onboarding and upgrade flows to create and maintain a project-level CONTRIBUTING.md
+  So that contributors understand the expected GitHub issue, steering, and BDD spec workflow
+
+  Scenario: Greenfield onboarding creates CONTRIBUTING.md
+    Given a greenfield project has no CONTRIBUTING.md
+    When onboard-project completes steering bootstrap
+    Then a root CONTRIBUTING.md is created
+    And it explains contributor expectations for GitHub issues, BDD specs, and respecting project steering before implementation
+    And it references the project steering files that were just created
+
+  Scenario: Brownfield onboarding creates CONTRIBUTING.md
+    Given a brownfield project is being onboarded and has no CONTRIBUTING.md
+    When onboard-project completes or verifies the steering layer before reconciliation
+    Then a root CONTRIBUTING.md is created before onboarding exits
+    And it reflects that existing code and reconciled specs are part of the contribution context
+    And missing or incomplete steering is handled only after the existing onboarding steering bootstrap path succeeds
+
+  Scenario: Upgrade creates missing CONTRIBUTING.md
+    Given an already-initialized project has steering docs but no CONTRIBUTING.md
+    When upgrade-project runs
+    Then it proposes or applies creation of a root CONTRIBUTING.md according to the normal interactive vs unattended upgrade rules
+    And the creation is treated as a non-destructive upgrade operation
+    And the upgrade summary reports whether the file was created, skipped, or already present
+
+  Scenario: Existing CONTRIBUTING.md is preserved
+    Given a project already has a CONTRIBUTING.md
+    When onboarding enhancement mode or upgrade runs
+    Then existing contributor content is not overwritten
+    And any nmg-sdlc contribution expectations are added only as a targeted missing section or reported as already present
+    And unrelated sections, custom project policies, and formatting are preserved
+
+  Scenario: README links the contribution guide
+    Given a project has a README.md
+    When onboarding or upgrade ensures CONTRIBUTING.md
+    Then the README links to CONTRIBUTING.md in a discoverable setup or contribution section
+    And re-running the same skill does not duplicate the link
+    And if no README exists, the skill records the missing README as a gap instead of creating an unrelated README
+
+  Scenario: Generated content accounts for steering
+    Given steering/product.md, steering/tech.md, and steering/structure.md exist
+    When CONTRIBUTING.md content is generated or updated
+    Then it directs contributors to consult product, technical, and structure steering before drafting issues, writing specs, or implementing code
+    And it includes project-specific expectations derived from steering where the skill can safely summarize them
+    And it remains stack-agnostic when steering does not provide stack-specific details
+
+  Scenario: Onboard and upgrade reruns are idempotent
+    Given onboarding or upgrade is run multiple times on the same project
+    When CONTRIBUTING.md and the README link are already up to date
+    Then the skills report that no contribution-guide changes are needed
+    And git status remains clean after the second run, aside from unrelated pre-existing changes
+
+  Scenario: Public plugin documentation is updated
+    Given this feature ships
+    When a user reads the nmg-sdlc README
+    Then the First-Time Setup and upgrade documentation mention that projects receive a root CONTRIBUTING.md
+    And the docs describe that the guide covers issue, spec, and steering expectations
+
+  Scenario: Contribution guide verification exercises both workflows
+    Given this feature changes skill-bundled onboarding or upgrade behavior
+    When verification runs for the implementation
+    Then onboarding is exercised against a disposable project and confirms the generated CONTRIBUTING.md and README link
+    And upgrade is exercised against a disposable initialized project and confirms missing-guide creation, existing-guide preservation, and idempotent rerun behavior
+    And any exercise limitation is documented in the verification report instead of silently substituting static review
+
+  Scenario: Upgrade-project allows managed file creation
+    Given the current nmg-sdlc contract declares a missing project-root artifact as managed and non-destructive
+    When upgrade-project analyzes an initialized project
+    Then the skill may propose or apply creation of that missing managed artifact according to the normal interactive vs unattended upgrade rules
+    And the workflow no longer states a blanket prohibition against creating files
+    And unrelated project files are still not synthesized unless the current upgrade contract explicitly names them as managed artifacts
