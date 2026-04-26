@@ -24,7 +24,11 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 
 ---
 
-## Phase 1: Setup (Additive Infrastructure) — PR 1
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup (Additive Infrastructure) — PR 1
 
 ### T001: Create Plugin-Shared References Directory with 6 Files
 

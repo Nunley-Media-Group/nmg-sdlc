@@ -23,7 +23,11 @@
 
 ---
 
-## Phase 1: Setup (Inventory)
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup (Inventory)
 
 ### T001: Capture baseline drift inventory
 

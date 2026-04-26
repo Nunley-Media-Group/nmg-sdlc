@@ -19,7 +19,11 @@
 
 ---
 
-## Phase 1: Runner Enhancement
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Runner Enhancement
 
 ### T001: Add `--issue` CLI Flag Parsing and Validation
 

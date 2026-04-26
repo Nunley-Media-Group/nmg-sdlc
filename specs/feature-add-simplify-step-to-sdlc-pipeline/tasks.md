@@ -23,7 +23,11 @@
 
 ---
 
-## Phase 1: Setup
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup
 
 ### T001: Document the simplify-skill probe pattern in shared location
 

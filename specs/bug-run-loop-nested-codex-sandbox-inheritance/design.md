@@ -55,6 +55,18 @@ Introduce a narrow environment builder that copies the parent environment, remov
 
 ---
 
+---
+
+## Alternatives Considered
+
+| Option | Description | Why Not Selected |
+|--------|-------------|------------------|
+| [Alternative fix] | [approach] | [why the chosen approach is better] |
+
+*Omit this section if only one reasonable fix approach exists.*
+
+---
+
 ## Validation Checklist
 
 Before moving to TASKS phase:

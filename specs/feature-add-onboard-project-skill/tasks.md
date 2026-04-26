@@ -24,7 +24,11 @@
 
 ---
 
-## Phase 1: Setup
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup
 
 ### T001: Create Skill Directory and Scaffold SKILL.md Frontmatter
 

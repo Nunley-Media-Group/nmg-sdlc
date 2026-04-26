@@ -59,6 +59,18 @@ Remove unsupported maxTurns references from live docs and templates, then add a 
 
 ---
 
+---
+
+## Alternatives Considered
+
+| Option | Description | Why Not Selected |
+|--------|-------------|------------------|
+| [Alternative fix] | [approach] | [why the chosen approach is better] |
+
+*Omit this section if only one reasonable fix approach exists.*
+
+---
+
 ## Validation Checklist
 
 Before moving to TASKS phase:

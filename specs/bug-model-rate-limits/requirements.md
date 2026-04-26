@@ -14,7 +14,16 @@
 3. Invoke any skill via `/skill-name` — get "API Error: Rate limit reached"
 4. Ask Codex to do the same task without `/` — works fine
 
-## Expected Behavior
+---
+
+## Expected vs Actual
+
+| | Description |
+|---|-------------|
+| **Expected** | [What should happen] |
+| **Actual** | [What actually happens] |
+
+### Error Output## Expected Behavior
 
 Skills invoked via `/skill-name` should use the same model as the current session without triggering a model switch or separate rate limit bucket.
 

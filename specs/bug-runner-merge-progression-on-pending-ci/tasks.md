@@ -52,7 +52,17 @@
 
 ---
 
-## Change History
+---
+
+## Validation Checklist
+
+Before moving to IMPLEMENT phase:
+
+- [ ] Tasks are focused on the fix — no feature work
+- [ ] Regression test is included (T002)
+- [ ] Each task has verifiable acceptance criteria
+- [ ] No scope creep beyond the defect
+- [ ] File paths reference actual project structure (per `structure.md`)## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|

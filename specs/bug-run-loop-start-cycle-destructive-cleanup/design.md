@@ -55,6 +55,18 @@ Move the clean-worktree precondition to the beginning of Step 1 and send failure
 
 ---
 
+---
+
+## Alternatives Considered
+
+| Option | Description | Why Not Selected |
+|--------|-------------|------------------|
+| [Alternative fix] | [approach] | [why the chosen approach is better] |
+
+*Omit this section if only one reasonable fix approach exists.*
+
+---
+
 ## Validation Checklist
 
 Before moving to TASKS phase:

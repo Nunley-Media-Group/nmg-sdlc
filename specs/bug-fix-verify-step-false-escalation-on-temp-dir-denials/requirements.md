@@ -5,7 +5,7 @@
 **Status**: Fixed
 **Author**: Codex (spec agent)
 **Severity**: High
-**Related Spec**: `specs/bug-detect-soft-failures-runner-tests/`
+**Related Spec**: specs/feature-add-skill-to-run-full-sdlc-pipeline-loop-from-within-codex/
 
 ---
 

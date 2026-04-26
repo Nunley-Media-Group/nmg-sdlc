@@ -21,7 +21,11 @@ This skill is a Codex plugin resource, not a stack-layered application. "Backend
 
 ---
 
-## Phase 1: Setup
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup
 
 ### T001: Add Automated-Reviewer Allow-List Config to steering/tech.md
 

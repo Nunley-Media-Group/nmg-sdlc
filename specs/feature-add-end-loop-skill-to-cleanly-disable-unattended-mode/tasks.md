@@ -22,7 +22,11 @@ This feature has no backend services or frontend components — it is a prompt-b
 
 ---
 
-## Phase 1: Setup
+---
+
+## Task Format
+
+Each task follows this structure:## Phase 1: Setup
 
 ### T001: Scaffold skill directory
 
