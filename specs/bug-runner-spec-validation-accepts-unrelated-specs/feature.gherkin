@@ -1,0 +1,13 @@
+@regression @run-loop @issue-115
+Feature: Runner spec validation accepts unrelated specs
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Unrelated specs are rejected for issue-bound steps
+    Given no spec matches the current issue, feature name, or branch slug
+    When an issue-bound runner step resolves specs
+    Then the step fails preconditions instead of using another directory
+
+  Scenario: Related behavior remains intact
+    Given a spec directory name differs but its frontmatter references the issue
+    When the runner resolves specs for that issue
+    Then the frontmatter-matching spec is accepted

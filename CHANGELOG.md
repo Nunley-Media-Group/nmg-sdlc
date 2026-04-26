@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.64.1] - 2026-04-26
+
+### Fixed
+
+- Hardened `$nmg-sdlc:run-loop` and `sdlc-runner.mjs` against reviewed edge cases: inherited Codex sandbox markers, no automatable issue fallthrough, unrelated spec detection, destructive start-cycle cleanup, pending CI advancement, inverted `Blocks:` ordering, and unsupported `maxTurns` config drift.
+
 ## [1.64.0] - 2026-04-26
 
 ### Changed

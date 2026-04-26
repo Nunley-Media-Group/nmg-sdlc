@@ -67,6 +67,7 @@ const {
   performDeterministicVersionBump,
   autoCommitIfDirty,
   buildCodexArgs,
+  buildCodexEnv,
   readSkill,
   resolveSkillsBase,
   handleFailure,
@@ -95,6 +96,7 @@ const {
   enforceMaxDisk,
   resolveLogDir,
   sleep,
+  checksIndicatePending,
   IS_WINDOWS,
   STEPS,
   STEP_KEYS,
@@ -372,9 +374,21 @@ describe('Precondition validation', () => {
     });
   }
 
-  it('step 1 (startCycle) always passes — no preconditions', () => {
+  it('step 1 (startCycle) passes on clean working tree', () => {
+    mockGitMulti({
+      'status --porcelain': '',
+    });
     const result = validatePreconditions(STEPS[0], defaultState());
     expect(result.ok).toBe(true);
+  });
+
+  it('step 1 (startCycle) fails on non-runner dirty working tree before cleanup', () => {
+    mockGitMulti({
+      'status --porcelain': 'M src/index.js',
+    });
+    const result = validatePreconditions(STEPS[0], defaultState());
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('dirty');
   });
 
   it('step 2 (startIssue) passes on clean main branch', () => {
@@ -529,6 +543,14 @@ describe('Precondition validation', () => {
     expect(result.reason).toContain('failing');
   });
 
+  it('merge step fails when CI checks are pending', () => {
+    mockExecSync.mockReturnValue('build\tpending\t0m');
+    const mergeStep = STEPS[STEP_KEYS.indexOf('merge')];
+    const result = validatePreconditions(mergeStep, defaultState());
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('pending');
+  });
+
   it('merge step passes when no CI checks are reported (#54)', () => {
     const err = new Error('Command failed: gh pr checks\nno checks reported on the \'54-fix\' branch');
     err.stderr = "no checks reported on the '54-fix' branch";
@@ -559,14 +581,14 @@ describe('State extraction', () => {
     expect(patch.currentBranch).toBe('42-feature-branch');
   });
 
-  it('step 3 detects feature name from specs directory', () => {
+  it('step 3 detects current feature name from specs directory', () => {
     const specsDir = `${TEST_PROJECT}/specs`;
     mockFs.existsSync.mockImplementation((p) => p === specsDir);
     mockFs.readdirSync.mockReturnValue(['38-detect-soft-failures']);
     mockFs.statSync.mockReturnValue({ isDirectory: () => true });
 
     const result = { stdout: '{}', stderr: '', exitCode: 0 };
-    const state = defaultState();
+    const state = { ...defaultState(), currentIssue: 38, currentBranch: '38-detect-soft-failures' };
     const patch = extractStateFromStep(STEPS[2], result, state);
     expect(patch.featureName).toBe('38-detect-soft-failures');
   });
@@ -589,6 +611,54 @@ describe('State extraction', () => {
     expect(patch.currentIssue).toBeNull();
     expect(patch.currentBranch).toBe('main');
     expect(patch.retries).toEqual({});
+  });
+});
+
+describe('Strict spec lookup for runner validation', () => {
+  it('validateSpecs rejects unrelated old spec directories', () => {
+    const specsDir = `${TEST_PROJECT}/specs`;
+    const oldDir = `${specsDir}/feature-old-complete-spec`;
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === specsDir) return true;
+      if (p === oldDir) return true;
+      if (p === `${oldDir}/requirements.md`) return true;
+      return false;
+    });
+    mockFs.readdirSync.mockReturnValue(['feature-old-complete-spec']);
+    mockFs.statSync.mockReturnValue({ isDirectory: () => true, size: 100 });
+    mockFs.readFileSync.mockImplementation((p) => {
+      if (p === `${oldDir}/requirements.md`) return '**Issues**: #7\n\n### AC1\n';
+      return '{}';
+    });
+
+    const result = validateSpecs({
+      ...defaultState(),
+      currentIssue: 42,
+      currentBranch: '42-new-runner-fix',
+      featureName: null,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toContain('feature directory');
+  });
+});
+
+describe('No automatable issue handling', () => {
+  it('startIssue returns done without spawning Codex when no eligible issue exists', async () => {
+    mockExecSync.mockImplementation((cmd) => {
+      if (cmd.includes('status --porcelain')) return '';
+      if (cmd.includes('rev-parse --abbrev-ref HEAD')) return 'main';
+      if (cmd.includes('api repos/{owner}/{repo}/milestones')) {
+        return JSON.stringify([{ title: 'v1', open_issues: 3 }]);
+      }
+      if (cmd.includes('issue list -s open')) return '[]';
+      return '';
+    });
+
+    const outcome = await runStep(STEPS[STEP_KEYS.indexOf('startIssue')], defaultState());
+
+    expect(outcome).toBe('done');
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 });
 
@@ -1263,6 +1333,18 @@ describe('No CI checks handling (#54)', () => {
     expect(result.reason).toContain('Could not check CI status');
   });
 
+  it('validateCI fails while checks are pending', () => {
+    mockExecSync.mockReturnValue('build\tpending\t0m');
+    const result = validateCI();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('pending');
+  });
+
+  it('checksIndicatePending recognizes in-progress states', () => {
+    expect(checksIndicatePending('lint\tin_progress\t1m')).toBe(true);
+    expect(checksIndicatePending('All checks passed')).toBe(false);
+  });
+
   it('detectAndHydrateState advances to monitorCI when no checks reported (with prior verify evidence)', () => {
     // Advancement past implement via the "all pushed" signal requires saved state
     // to confirm verify previously completed — see
@@ -1531,7 +1613,7 @@ describe('STEP_KEYS and STEPS', () => {
     expect(STEP_KEYS).not.toContain('commitPush');
   });
 
-  it('STEP_KEYS does not contain draftIssue — /draft-issue is interactive-only (v1.41.0, issue #116)', () => {
+  it('STEP_KEYS does not contain draftIssue — /draft-issue is interactive-only (v1.41.0)', () => {
     expect(STEP_KEYS.includes('draftIssue')).toBe(false);
   });
 
@@ -2258,14 +2340,15 @@ describe('Cross-cycle state contamination (#62)', () => {
     expect(patch.currentBranch).toBeUndefined();
   });
 
-  it('step 1 prompt includes git clean -fd and git checkout -- .', () => {
+  it('step 1 prompt avoids destructive cleanup commands', () => {
     const state = defaultState();
     const args = buildCodexArgs(STEPS[0], state);
     // buildCodexArgs returns an array: ['--model', model, '-p', prompt, ...]
     const promptIdx = args.length - 1;
     const prompt = args[promptIdx];
-    expect(prompt).toContain('git clean -fd');
-    expect(prompt).toContain('git checkout -- .');
+    expect(prompt).toContain('git pull --ff-only');
+    expect(prompt).not.toContain('git clean -fd');
+    expect(prompt).not.toContain('git checkout -- .');
   });
 });
 
@@ -2889,7 +2972,7 @@ describe('resolveStepConfig (#77)', () => {
 
   it('falls back to config-level when step has no overrides', () => {
     const result = resolveStepConfig(
-      { maxTurns: 10 },
+      { timeoutMin: 10 },
       { model: 'gpt-5.5', effort: 'high' }
     );
     expect(result.model).toBe('gpt-5.5');
@@ -3027,6 +3110,24 @@ describe('buildCodexArgs overrides (#77)', () => {
     const args = buildCodexArgs(step, state);
     const promptIdx = args.length - 1;
     expect(args[promptIdx]).toContain('Check out main');
+  });
+});
+
+describe('nested Codex environment sanitization', () => {
+  it('removes inherited Codex sandbox markers but preserves auth variables', () => {
+    const env = buildCodexEnv({
+      CODEX_SANDBOX: 'seatbelt',
+      CODEX_SANDBOX_NETWORK_DISABLED: '1',
+      CODEX_SANDBOX_SEATBELT_PROFILE: '/tmp/profile.sb',
+      GITHUB_TOKEN: 'secret',
+      PATH: '/usr/bin',
+    });
+
+    expect(env.CODEX_SANDBOX).toBeUndefined();
+    expect(env.CODEX_SANDBOX_NETWORK_DISABLED).toBeUndefined();
+    expect(env.CODEX_SANDBOX_SEATBELT_PROFILE).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBe('secret');
+    expect(env.PATH).toBe('/usr/bin');
   });
 });
 

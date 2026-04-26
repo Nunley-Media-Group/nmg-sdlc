@@ -1,0 +1,13 @@
+@regression @run-loop @issue-119
+Feature: Run-loop Blocks dependency ordering
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Blocks relationships order issues correctly
+    Given issue A says Blocks: #B
+    When the runner builds dependency state
+    Then issue B is treated as blocked by issue A
+
+  Scenario: Related behavior remains intact
+    Given issue A says Depends on: #B
+    When the runner builds dependency state
+    Then issue A is treated as blocked by issue B

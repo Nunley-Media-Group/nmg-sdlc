@@ -1,0 +1,13 @@
+@regression @run-loop @issue-113
+Feature: Run-loop nested Codex sandbox inheritance
+  The SDLC runner must handle this edge case without breaking the run-loop contract.
+
+  Scenario: Nested Codex sandbox environment is stripped
+    Given the runner process contains Codex sandbox environment variables
+    When runCodex() starts a child Codex session
+    Then the child environment omits those sandbox variables
+
+  Scenario: Related behavior remains intact
+    Given the runner process contains normal authentication or path variables
+    When the child environment is built
+    Then unrelated variables remain available to the child process

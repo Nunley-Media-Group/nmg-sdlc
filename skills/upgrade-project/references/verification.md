@@ -13,11 +13,11 @@ If `sdlc-config.json` exists in the project root:
 5. **Record missing keys at all levels** with their template default values.
 6. **Compare scalar values for drift** — after identifying missing keys, perform a second pass over keys that exist in **both** the project config and the template:
    - **Root-level scalars** (e.g., `model`, `effort`, `maxRetriesPerStep`, `maxBounceRetries`, `maxLogDiskUsageMB`): compare values directly.
-   - **Step sub-key scalars** (e.g., `steps.createPR.maxTurns`, `steps.verify.timeoutMin`, `steps.implement.model`): for each step present in both configs, compare each sub-key value.
+   - **Step sub-key scalars** (e.g., `steps.createPR.timeoutMin`, `steps.verify.timeoutMin`, `steps.implement.model`): for each step present in both configs, compare each sub-key value.
    - **Skip non-scalars**: if both values are objects, recurse into sub-keys (for `steps.*` nesting — max two levels deep: `steps.{stepName}.{subKey}`); if one is an object and the other a scalar, record as drift (type mismatch); arrays and complex nested objects not present in the template are excluded.
    - **Skip user additions**: keys present in the project config but absent from the template are not drift candidates.
 7. **Record each drifted value** with:
-   - Dotted key path (e.g., `steps.createPR.maxTurns`).
+   - Dotted key path (e.g., `steps.createPR.timeoutMin`).
    - Current project value.
    - Template default value.
 
