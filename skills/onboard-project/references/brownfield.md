@@ -4,6 +4,8 @@
 
 Read `../../references/unattended-mode.md` when applying auto-accept defaults — the consolidation gate (Step 3B.4) and any other `request_user_input` gate site reads sentinel semantics from there.
 
+Read `../../references/contribution-guide.md` when Step 2B confirms that all three steering docs exist — the shared contract creates or updates `CONTRIBUTING.md`, preserves existing contribution policy, reflects brownfield code/spec context, handles the README link idempotently, and returns status for the Step 5 summary.
+
 ## Step 2B Preflight
 
 ### Step 2B.0a Version File Initialization (Brownfield)
@@ -21,8 +23,9 @@ Seed `VERSION` at the project root before the steering bootstrap delegation and 
 
 1. Run `gh auth status`. If it fails, abort with a clear message pointing the user at `gh auth login` — do not proceed to reconciliation.
 2. If `steering/` is missing or incomplete (fewer than all three of `product.md`, `tech.md`, `structure.md`), run the absorbed steering bootstrap (Step 2G.1 → 2G.2 from `references/greenfield.md`) first to establish the steering docs, then return to Step 2B. Skip Step 2G.2a (VERSION init is already satisfied by 2B.0a above) and 2G.3–2G.6 (milestone and starter-issue seeding are greenfield-only and not appropriate for brownfield). After steering bootstrap returns, re-verify all three files exist before continuing. If still incomplete, record a gap and abort.
-3. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No `request_user_input` gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
-4. Read the four `$nmg-sdlc:write-spec` template files from `../write-spec/templates/`:
+3. Apply `../../references/contribution-guide.md` after steering verification succeeds. The guide must mention that existing code and reconciled or source-backfilled specs are part of contribution context, preserve existing guides through targeted insertion only, add an idempotent README link when possible, and record contribution-guide outcomes for Step 5. Missing README is a gap, not an abort.
+4. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No `request_user_input` gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
+5. Read the four `$nmg-sdlc:write-spec` template files from `../write-spec/templates/`:
    - `requirements.md` — contains both the full feature variant and the lightweight "Defect Requirements Variant" (search for the `# Defect Requirements Variant` heading to locate the defect section)
    - `design.md`
    - `tasks.md` — contains both the phased feature task layout and the flat "Defect Tasks Variant"
@@ -30,7 +33,7 @@ Seed `VERSION` at the project root before the steering bootstrap delegation and 
 
    Store their contents in memory for synthesis. Reading templates at runtime — rather than embedding their structure here — keeps this skill aligned with future `$nmg-sdlc:write-spec` template changes automatically. When synthesizing a defect spec, use the Defect variant sections from `requirements.md` and `tasks.md`; for feature specs, use the full variants.
 
-5. Proceed to Step 3B.
+6. Proceed to Step 3B.
 
 ## Step 3B Reconciliation Loop
 

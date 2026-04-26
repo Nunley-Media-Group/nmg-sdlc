@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.65.0] - 2026-04-26
+
+### Added
+
+- Added shared contribution-guide generation for issue #109: onboarding now ensures a root `CONTRIBUTING.md` after steering exists, upgrade-project can create or update that managed non-destructive artifact, and existing READMEs receive an idempotent contribution-guide link when present.
+
 ## [1.64.1] - 2026-04-26
 
 ### Fixed

@@ -42,6 +42,8 @@ Read `../../references/steering-schema.md` when bootstrapping or enhancing the s
 
 Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel semantics referenced throughout this skill live there.
 
+Read `../../references/contribution-guide.md` when steering bootstrap or verification succeeds — onboarding uses that shared contract to create or update `CONTRIBUTING.md`, preserve existing contributor policy, insert a README link when possible, and return contribution-guide status for Step 5.
+
 ## Mode Detection Matrix
 
 | `steering/` exists | `specs/` has specs | Source files beyond scaffold | Closed issues exist | Mode |
@@ -126,9 +128,10 @@ Emit a structured summary with these sections:
 4. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.2a or 2B.0a ran) — two-line outcome block emitted before milestones:
    - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>`
    - Manifest: `<path> set @ 0.1.0` (greenfield only) | `<path> preserved @ <X>` | `no-manifest`
-5. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
-6. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
-7. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
+5. **Contribution Guide** — the status block returned by `../../references/contribution-guide.md`, including `CONTRIBUTING.md`, README link, and gaps.
+6. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
+7. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
+8. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
 
    ```
    #200 Set up basic API           (parents: —, blocks: #201, #202)
@@ -137,7 +140,7 @@ Emit a structured summary with these sections:
    #203 FAILED — $nmg-sdlc:draft-issue exited 1
    ```
 
-8. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
+9. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
 
    ```
    specs/feature-dark-mode/        (#10, #14, #27)
@@ -145,12 +148,12 @@ Emit a structured summary with these sections:
    specs/feature-export-report/    (#61) — partial: ## Known Gaps noted
    ```
 
-9. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
-10. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
-11. **Gaps** — any missing artifact files (from Step 4), any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
-12. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
-13. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
-14. **Next step** —
+10. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
+11. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
+12. **Gaps** — any missing artifact files (from Step 4), contribution-guide gaps, any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
+13. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
+14. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
+15. **Next step** —
     - Greenfield: `Run $nmg-sdlc:start-issue on a seeded starter (e.g., #<first-seeded-issue>), or $nmg-sdlc:draft-issue to add more.`
     - Brownfield: `Review the reconciled specs, then run $nmg-sdlc:draft-issue for new work or $nmg-sdlc:upgrade-project to bring reconciled specs up to the latest templates.`
     - Already-initialized (after `$nmg-sdlc:upgrade-project`): `Run $nmg-sdlc:draft-issue for the next feature.`

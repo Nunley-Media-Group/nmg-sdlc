@@ -44,6 +44,8 @@ $nmg-sdlc:onboard-project
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
 
+After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation, verification, and PR workflow expectations while preserving any existing contributor policy.
+
 The three steering documents written during greenfield bootstrap:
 
 | Document | Purpose |
@@ -242,6 +244,10 @@ The **classification matrix**:
 
 **Stack-specific files** (e.g., `package.json`, `Cargo.toml`) are declared in `tech.md`'s `## Versioning` section. The `$nmg-sdlc:open-pr` skill reads this mapping to update all version files in a single commit. Run `$nmg-sdlc:upgrade-project` to bootstrap `CHANGELOG.md` and `VERSION` from git history if they don't exist yet.
 
+### Project Upgrades
+
+`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it can create managed non-destructive project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists.
+
 **Spike research ADRs** are committed to `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` by `$nmg-sdlc:write-spec` Phase 0. The directory is created on demand (on the first spike); no pre-existing file or placeholder is required. `$nmg-sdlc:run-retro` scans this directory for ADRs older than 180 days and surfaces them as re-spike candidates in the retrospective output.
 
 ### Verification Gates
@@ -262,9 +268,9 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `$nmg-sdlc:run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
 | `$nmg-sdlc:run-loop [#N]` | Run the full SDLC pipeline from within an active Codex session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
 | `$nmg-sdlc:end-loop` | Stop unattended mode and clear runner state |
-| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/` to the project root |
+| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, and can create or update `CONTRIBUTING.md` non-destructively |
 | `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner |
-| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
+| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, contribution guide, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating
 

@@ -38,7 +38,7 @@ The `.codex/upgrade-exclusions.json` file stores section headings the user has p
 
 ---
 
-## Step 10: Apply Changes
+## Step 9: Apply Changes
 
 If the user approves:
 
@@ -72,6 +72,25 @@ For the `sdlc-config.json`:
 4. For each existing step with missing sub-keys, add the missing sub-keys
 5. Write the updated JSON (preserve existing values, only add missing keys)
 6. Use Codex editing to add the missing keys — do not overwrite the entire file
+
+### Contribution guide
+
+Apply approved or unattended-managed findings from `../../references/contribution-guide.md`:
+
+1. Verify `steering/product.md`, `steering/tech.md`, and `steering/structure.md` exist before writing guide content.
+2. If `CONTRIBUTING.md` is missing, create the root guide using the shared reference's default structure and steering-derived, stack-agnostic expectations.
+3. If `CONTRIBUTING.md` exists but lacks nmg-sdlc issue/spec/steering coverage, append only `## nmg-sdlc Contribution Workflow` and preserve all existing content.
+4. If equivalent guide coverage is already present, leave the file unchanged and report `CONTRIBUTING.md: already present`.
+5. If `README.md` exists without a `CONTRIBUTING.md` link, insert a concise link in an existing setup/contribution section or append a small `## Contributing` section.
+6. If `README.md` is missing, do not create it; report `README.md link: skipped (README missing)`.
+7. Re-read changed files and emit the stable status block:
+
+   ```text
+   Contribution Guide:
+   - CONTRIBUTING.md: created | updated | already present | skipped (<reason>)
+   - README.md link: added | already present | skipped (README missing)
+   - Gaps: none | <comma-separated gaps>
+   ```
 
 ### Config value drift updates
 
@@ -115,12 +134,14 @@ After applying changes, output a summary:
 ### Changes Applied
 - **product.md** — Added sections: "Product Principles"
 - **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
+- **Contribution Guide** — CONTRIBUTING.md: created; README.md link: added
 
 ### Declined (will be skipped in future runs)
 - **product.md** — "Brand Voice" (saved to .codex/upgrade-exclusions.json)
 
 ### Skipped (already up to date)
 - tech.md, structure.md, 42-add-auth/design.md
+- Contribution Guide: CONTRIBUTING.md already present; README.md link already present
 
 ### Filtered by relevance (no codebase evidence)
 - **tech.md** — "Database Standards", "API / Interface Standards"
