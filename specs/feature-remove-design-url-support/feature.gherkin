@@ -1,0 +1,50 @@
+# File: specs/feature-remove-design-url-support/feature.gherkin
+#
+# Generated from: specs/feature-remove-design-url-support/requirements.md
+# Issue: #105
+
+Feature: Remove legacy Design URL support
+  As a developer using the Codex-only SDLC plugin
+  I want legacy Design and design archive URL support removed from the live workflow surface
+  So that the plugin no longer advertises or preserves legacy-provider design integration paths
+
+  Scenario: Draft issue no longer exposes design URL support
+    Given a user invokes "$nmg-sdlc:draft-issue"
+    When the workflow gathers initial context
+    Then it does not prompt for a Design URL
+    And it does not detect, fetch, decode, cache, cite, or carry design archive context
+    And the draft-issue session state no longer includes design URL, design context, or design failure fields
+
+  Scenario: Onboard project no longer exposes design URL support
+    Given a user invokes "$nmg-sdlc:onboard-project" for greenfield setup
+    When the workflow handles the greenfield branch
+    Then it does not accept "--design-url"
+    And it does not ask for a design archive URL
+    And it does not fetch design context or include design fetch results in summaries
+    And starter issue seeding uses interview and steering context only
+
+  Scenario: Public docs match the active workflow
+    Given users read README.md and skill reference surfaces
+    When they look for supported inputs and workflow behavior
+    Then legacy Design, Design URL, and design archive support are not advertised as available capabilities
+    And command signatures do not include "[design-url]" or "--design-url <url>"
+
+  Scenario: Archival specs are not bulk-rewritten
+    Given older specs document historical design archive behavior
+    When the removal is implemented
+    Then archival references may remain where they describe past decisions
+    And live contract files do not continue to expose the removed capability
+
+  Scenario: Verification catches stale live support
+    Given the implementation is complete
+    When "npm --prefix scripts run compat" runs
+    And "node scripts/skill-inventory-audit.mjs --check" runs
+    And targeted stale-reference searches run over live surfaces
+    Then compatibility and inventory checks pass
+    And remaining live references to the removed Design URL workflow are either eliminated or explicitly justified as archival-only
+
+  Scenario: Skill-bundled edits route through skill-creator
+    Given implementation edits skill-bundled files under "skills/draft-issue/" or "skills/onboard-project/"
+    When "$nmg-sdlc:write-code" implements the removal
+    Then those file edits are routed through "$skill-creator"
+    And there is no direct-edit fallback for skill-bundled files
