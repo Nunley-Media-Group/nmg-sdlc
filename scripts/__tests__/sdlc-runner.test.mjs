@@ -292,6 +292,41 @@ describe('Non-JSON output does not trigger false positive', () => {
 // ===========================================================================
 
 describe('Text-pattern soft failure detection', () => {
+  it('detects GitHub API connectivity failures as GitHub access soft failures', () => {
+    const stdout = [
+      'error connecting to api.github.com',
+      'check your internet connection or https://githubstatus.com',
+    ].join('\n');
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: github_access');
+  });
+
+  it('detects GitHub API connectivity failures inside successful Codex JSON output', () => {
+    const stdout = JSON.stringify({
+      subtype: 'success',
+      result: [
+        'I could not complete the GitHub check:',
+        'error connecting to api.github.com',
+      ].join('\n'),
+      session_id: 'abc123',
+    });
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: github_access');
+  });
+
+  it('detects GitHub API connectivity failures when stderr is combined with JSON stdout', () => {
+    const stdout = [
+      JSON.stringify({ type: 'thread.started', thread_id: 'abc123' }),
+      JSON.stringify({ type: 'turn.completed', session_id: 'abc123' }),
+      'error connecting to api.github.com',
+    ].join('\n');
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: github_access');
+  });
+
   it('detects plan approval text pattern as soft failure (AC1)', () => {
     const stdout = 'Some output\nplan approval called in headless session — cannot enter plan mode without a TTY\nMore output';
     const result = detectSoftFailure(stdout);
@@ -3078,6 +3113,21 @@ describe('getConfigObject (#77)', () => {
 });
 
 describe('buildCodexArgs overrides (#77)', () => {
+  it('uses yolo/no-sandbox execution for every runner-spawned child step', () => {
+    const state = {
+      ...defaultState(),
+      currentIssue: 122,
+      currentBranch: '122-fix-run-loop-child-codex-github-access',
+      featureName: 'bug-fix-run-loop-child-codex-github-access',
+    };
+
+    for (const step of STEPS) {
+      const args = buildCodexArgs(step, state);
+      expect(args).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(args).not.toContain('--full-auto');
+    }
+  });
+
   it('uses override model instead of global MODEL', () => {
     const step = STEPS[0];
     const state = defaultState();

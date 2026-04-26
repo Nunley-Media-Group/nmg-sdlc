@@ -1,0 +1,48 @@
+# File: specs/bug-fix-run-loop-child-codex-github-access/feature.gherkin
+#
+# Generated from: specs/bug-fix-run-loop-child-codex-github-access/requirements.md
+# Issue: #122
+# Type: Defect regression
+
+@regression @run-loop @issue-122
+Feature: Runner-spawned child Codex sessions are not sandboxed
+  The SDLC runner previously launched every child Codex step with sandboxed
+  --full-auto execution. GitHub-dependent child sessions could not reach
+  api.github.com even when the parent runner process had GitHub access.
+
+  @regression
+  Scenario: All runner-spawned child steps use yolo execution
+    Given the SDLC runner has configured pipeline steps
+    When the runner builds codex exec arguments for each step
+    Then every child command includes the yolo no-sandbox flag
+    And no child command includes the sandboxed full-auto flag
+
+  @regression
+  Scenario: GitHub-dependent child steps have GitHub access
+    Given the parent runner process can run a read-only gh issue command
+    When a runner-spawned child Codex session runs the same GitHub-dependent command
+    Then the child command is launched without Codex sandboxing
+    And the GitHub command is not blocked by api.github.com sandbox restrictions
+
+  @regression
+  Scenario: startIssue escalates known GitHub access failures immediately
+    Given Step 2 startIssue exits with code 0
+    And the child output contains "error connecting to api.github.com"
+    When the runner classifies the child result
+    Then the result is treated as a GitHub access soft failure
+    And the concrete GitHub access failure is surfaced before no-branch retries are exhausted
+
+  @regression
+  Scenario: Missing feature branch still catches silent startIssue failures
+    Given Step 2 startIssue exits with code 0
+    And the child output does not contain a GitHub auth or network failure
+    When no feature branch is checked out after the child session completes
+    Then the missing-feature-branch postcondition treats the step as a soft failure
+    And the runner routes through the normal retry or escalation path
+
+  @regression
+  Scenario: Parent and child capability parity is verified
+    Given the parent runner process can perform a representative SDLC capability operation
+    When the runner child launch mode is exercised for the same operation
+    Then the child session can perform the operation with equivalent capability
+    And verification fails with a capability-divergence diagnostic if the child remains sandboxed
