@@ -39,7 +39,7 @@ Run `$nmg-sdlc:onboard-project` in your project — it is the single entry point
 $nmg-sdlc:onboard-project
 ```
 
-- **Greenfield projects** (no code yet): optionally ingests a Design URL, runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds `v1 (MVP)` and `v2` GitHub milestones, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner. Pass `--design-url <url>` to skip the design URL input gate.
+- **Greenfield projects** (no code yet): runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds the `v1` GitHub milestone, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner.
 - **Greenfield-Enhancement (re-run)**: when steering files already exist but `specs/` does not, the same Step 2G pipeline runs in enhancement mode — steering files are edited in place (no overwrites), and milestones or issues already seeded by a prior run (detected via the `seeded-by-onboard` label) are skipped.
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
@@ -73,8 +73,6 @@ $nmg-sdlc:draft-issue "add user authentication"
 **Interactive-only** (v1.41.0+) — `$nmg-sdlc:draft-issue` always runs the full interactive workflow regardless of `.codex/unattended-mode`. Classifies the issue type (Bug or Enhancement/Feature), investigates the codebase for relevant context, then interviews you with adaptive depth (core 3-round or extended 4-round with NFR/edge-case probing). Assigns the issue to a version milestone. Plays back its understanding before drafting (Step 5c), then renders a structured inline summary with `[1] Approve / [2] Revise` review menu before creating the issue.
 
 **Multi-issue mode (v1.46.0)**: Step 1b heuristically detects multi-part asks (conjunction markers, bullet lists, distinct component mentions) and proposes a split with per-ask summaries and a `high`/`medium`/`low` confidence indicator. A split-confirm menu (`[1] Approve / [2] Adjust / [3] Collapse`) lets you recover from false-positive splits. Step 1d infers a dependency DAG with a graph-confirm menu before any drafting begins. Each planned issue runs the full Steps 2–9 independently; created issues are autolinked via `gh issue edit --add-sub-issue` (availability probe + body cross-ref fallback). Batch abandonment at any review gate preserves already-created issues with no rollback.
-
-**Design URL**: supply an optional `design archive` design URL to share parsed archive context read-only across every per-issue investigation, interview, and synthesis in the batch — reuses the `$nmg-sdlc:onboard-project` fetch/gzip-decode/README-parse helper.
 
 ### Step 2: Write Specs
 
@@ -255,7 +253,7 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | Skill | Description |
 |-------|-------------|
 | `$nmg-sdlc:start-issue [#N]` | Select a GitHub issue, create a linked feature branch, and set the issue to In Progress |
-| `$nmg-sdlc:draft-issue [description] [design-url]` | Interview user about a feature need, assign to version milestone, create groomed GitHub issue with BDD acceptance criteria |
+| `$nmg-sdlc:draft-issue [description]` | Interview user about a feature need, assign to version milestone, create groomed GitHub issue with BDD acceptance criteria |
 | `$nmg-sdlc:write-spec #N` | Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown |
 | `$nmg-sdlc:write-code #N` | Read specs for current branch, enter plan mode, then execute implementation tasks sequentially |
 | `$nmg-sdlc:verify-code #N` | Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue |
@@ -266,7 +264,7 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `$nmg-sdlc:end-loop` | Stop unattended mode and clear runner state |
 | `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/` to the project root |
 | `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner |
-| `$nmg-sdlc:onboard-project [--dry-run] [--design-url <url>]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
+| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating
 

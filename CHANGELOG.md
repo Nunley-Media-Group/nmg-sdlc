@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.63.0] - 2026-04-25
+
+### Changed
+
+- Removed legacy Design URL support from the live `$nmg-sdlc:draft-issue` and `$nmg-sdlc:onboard-project` workflows for issue #105.
+
 ## [1.62.0] - 2026-04-24
 
 ### Added

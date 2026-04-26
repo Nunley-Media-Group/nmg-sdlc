@@ -1,6 +1,6 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, VERSION + manifest setup, v1 milestone seeding, and starter issues via $nmg-sdlc:draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Optionally ingests a Design URL as interview + seed context. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use $nmg-sdlc:write-spec), template upgrades (use $nmg-sdlc:upgrade-project), or issue/PR creation. Delegates to $nmg-sdlc:init-config, $nmg-sdlc:upgrade-project, and $nmg-sdlc:draft-issue where appropriate. Pipeline position: runs once per project lifetime, before $nmg-sdlc:draft-issue."
+description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, VERSION + manifest setup, v1 milestone seeding, and starter issues via $nmg-sdlc:draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use $nmg-sdlc:write-spec), template upgrades (use $nmg-sdlc:upgrade-project), or issue/PR creation. Delegates to $nmg-sdlc:init-config, $nmg-sdlc:upgrade-project, and $nmg-sdlc:draft-issue where appropriate. Pipeline position: runs once per project lifetime, before $nmg-sdlc:draft-issue."
 ---
 
 # Onboard Project
@@ -95,7 +95,7 @@ Store the evidence for the Step 5 summary. Proceed to the branch matching the de
 
 ### Step 2G: Greenfield (or Greenfield-Enhancement)
 
-Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the eight sub-steps (design URL ingest, interview, steering bootstrap/enhance, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `$nmg-sdlc:init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
+Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the seven sub-steps (interview, steering bootstrap/enhance, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) and the optional `$nmg-sdlc:init-config` delegation in § Step 3G live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
 
 After Step 2G's seeding loop completes, the same reference covers Step 3G's prompt-vs-auto contract for delegating to `$nmg-sdlc:init-config`. Then jump to Step 5 (Summary). Greenfield does not reconcile specs.
 
@@ -122,14 +122,13 @@ Emit a structured summary with these sections:
 
 1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized.
 2. **Delegated skills invoked** — each of `$nmg-sdlc:init-config`, `$nmg-sdlc:upgrade-project`, and every `$nmg-sdlc:draft-issue` invocation that ran, with success/failure status.
-3. **Greenfield only — Design URL fetch result** — `success (N bytes, M entries)`, `skipped (no URL provided)`, or `failed (<reason>)`.
-4. **Greenfield only — Interview defaults applied** — for each round, the value applied and its source (`from existing steering`, `from design context`, `from template default`, or `user input`).
-5. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.3a or 2B.0a ran) — two-line outcome block emitted before milestones:
+3. **Greenfield only — Interview defaults applied** — for each round, the value applied and its source (`from existing steering`, `from template default`, or `user input`).
+4. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.2a or 2B.0a ran) — two-line outcome block emitted before milestones:
    - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>`
    - Manifest: `<path> set @ 0.1.0` (greenfield only) | `<path> preserved @ <X>` | `no-manifest`
-6. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
-7. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
-8. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
+5. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
+6. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
+7. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
 
    ```
    #200 Set up basic API           (parents: —, blocks: #201, #202)
@@ -138,7 +137,7 @@ Emit a structured summary with these sections:
    #203 FAILED — $nmg-sdlc:draft-issue exited 1
    ```
 
-9. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
+8. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
 
    ```
    specs/feature-dark-mode/        (#10, #14, #27)
@@ -146,12 +145,12 @@ Emit a structured summary with these sections:
    specs/feature-export-report/    (#61) — partial: ## Known Gaps noted
    ```
 
-10. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
-11. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
-12. **Gaps** — any missing artifact files (from Step 4), any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, design-fetch failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
-13. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
-14. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
-15. **Next step** —
+9. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
+10. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
+11. **Gaps** — any missing artifact files (from Step 4), any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
+12. **Auto-decisions** (unattended-mode runs only) — every consolidation auto-accept, every default applied without prompting (with source), DAG auto-accept, candidate top-7 cuts.
+13. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
+14. **Next step** —
     - Greenfield: `Run $nmg-sdlc:start-issue on a seeded starter (e.g., #<first-seeded-issue>), or $nmg-sdlc:draft-issue to add more.`
     - Brownfield: `Review the reconciled specs, then run $nmg-sdlc:draft-issue for new work or $nmg-sdlc:upgrade-project to bring reconciled specs up to the latest templates.`
     - Already-initialized (after `$nmg-sdlc:upgrade-project`): `Run $nmg-sdlc:draft-issue for the next feature.`
@@ -167,9 +166,7 @@ If `.codex/unattended-mode` exists, replace the "Next step" with `Done. Awaiting
 | Legacy `.codex/steering/` or `.codex/specs/` layout detected | Abort in Step 0 per `../../references/legacy-layout-gate.md` |
 | `gh auth status` fails in brownfield mode | Abort in Step 2B with `gh auth login` pointer |
 | Steering bootstrap leaves any of the three files missing | Abort the greenfield flow; gap recorded for summary |
-| Design URL fetch/decode fails (greenfield) | Logged with URL + reason; `design_context = {}`; greenfield flow continues; gap recorded |
-| Non-HTTPS Design URL | Rejected before fetch; gap recorded; greenfield flow continues |
-| `VERSION` read failure (Step 2G.3a / 2B.0a) | Logged; VERSION outcome recorded as `read-failure`; init step skipped for VERSION; manifest probe still runs; gap recorded |
+| `VERSION` read failure (Step 2G.2a / 2B.0a) | Logged; VERSION outcome recorded as `read-failure`; init step skipped for VERSION; manifest probe still runs; gap recorded |
 | Manifest version-field parse failure (malformed JSON/TOML) | Logged with the failing probe command output; manifest outcome recorded as `parse-failure`; VERSION-only path fires; gap recorded |
 | Polyglot repo — wrong manifest detected | Detection is first-match-wins against the documented order; Step 5 summary names the detected manifest path so the choice is auditable; user can rename or remove the unintended manifest before re-running |
 | Milestone creation fails (greenfield) | Per-milestone gap recorded; loop continues; run does not abort |
@@ -188,11 +185,10 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
 ```
                        ┌─────────────────────────────────────────────────┐
                        │ $nmg-sdlc:onboard-project (once per project)             │
-                       │   ├── greenfield  → design URL ingest (opt)     │
-                       │   │                 → interview (vision/tech)   │
+                       │   ├── greenfield  → interview (vision/tech)      │
                        │   │                 → steering bootstrap        │
                        │   │                 → VERSION + manifest init   │
-                       │   │                   (Step 2G.3a)              │
+                       │   │                   (Step 2G.2a)              │
                        │   │                 → seed v1 milestone         │
                        │   │                 → seed 3–7 starter issues   │
                        │   │                   via $nmg-sdlc:draft-issue loop     │

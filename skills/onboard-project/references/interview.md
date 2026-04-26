@@ -1,6 +1,6 @@
 # Greenfield Interview
 
-**Read this when** Step 2G.2 of `references/greenfield.md` runs. The interview captures the seven inputs steering bootstrap (2G.3) and starter-issue generation (2G.5) consume. The same structure runs in interactive and unattended modes — the only difference is where each round's value comes from.
+**Read this when** Step 2G.1 of `references/greenfield.md` runs. The interview captures the seven inputs steering bootstrap (2G.2) and starter-issue generation (2G.4) consume. The same structure runs in interactive and unattended modes — the only difference is where each round's value comes from.
 
 ## Rounds (in order)
 
@@ -19,18 +19,17 @@ Conduct via `request_user_input` gate, one question per round:
 For each round, the default presented to the user is sourced in this priority order:
 
 1. (Enhancement mode) the existing value parsed from the relevant steering file (e.g., `# Mission` heading in `product.md` for vision).
-2. The corresponding field from `design_context` (if 2G.1 succeeded).
-3. The default in the steering template.
+2. The default in the steering template.
 
-This ordering preserves prior decisions: an existing steering file always wins over an inferred design-context value, which in turn wins over a generic template default. Surfacing the chain explicitly lets a returning user re-confirm without re-typing what they already wrote.
+This ordering preserves prior decisions: an existing steering file always wins over a generic template default. Surfacing the chain explicitly lets a returning user re-confirm without re-typing what they already wrote.
 
 ## Unattended-mode branch
 
-Skip all prompts. For each round, apply the default from the priority chain above. Log every applied default with its source label — `from existing steering`, `from design context`, or `from template default` — into a list that Step 5's Summary Report emits under "Interview defaults applied". This gives the run an audit trail for any auto-applied value.
+Skip all prompts. For each round, apply the default from the priority chain above. Log every applied default with its source label — `from existing steering` or `from template default` — into a list that Step 5's Summary Report emits under "Interview defaults applied". This gives the run an audit trail for any auto-applied value.
 
 ## Output
 
-Store the answers as `interview_context` for use by 2G.3 (steering bootstrap), 2G.5 (starter-issue candidate generation), and 2G.7 (the seeding loop's per-issue body seeds).
+Store the answers as `interview_context` for use by 2G.2 (steering bootstrap), 2G.4 (starter-issue candidate generation), and 2G.6 (the seeding loop's per-issue body seeds).
 
 ## Why these seven rounds
 

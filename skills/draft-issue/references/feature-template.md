@@ -80,5 +80,4 @@ Each criterion uses Given/When/Then format. These become Gherkin BDD test scenar
 
 The general issue-quality guidance (title shape, AC format, scope discipline, MoSCoW priorities, no-implementation-details rule) is defined once in the consuming SKILL.md `## Guidelines` section — do not duplicate it here. Template-specific rules:
 
-- When `session.designContext` is present, cite the design URL in the Background section (e.g., `"Design reference: <session.designContext.url>"`) and weave relevant design details into the narrative.
 - When the iteration has DAG neighbors (batch mode), append placeholder cross-ref lines at the end of the body (`Depends on: <A1>, <A2>` / `Blocks: <A4>`). Step 10 rewrites each `<askId>` token to a real `#N` once siblings have been created.

@@ -35,8 +35,7 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 ┌──────────────────────────────────────────────────────────────┐
 │                   $nmg-sdlc:draft-issue Skill                         │
 ├──────────────────────────────────────────────────────────────┤
-│  Step 1:  Gather Context (+ optional Design URL)      │
-│  Step 1a: Fetch & Decode Design URL                          │
+│  Step 1:  Gather Context                                      │
 │  Step 1b: Detect Multi-Issue Prompt                          │
 │  Step 1c: Split-Confirm Menu  ◀── Human Review Gate          │
 │  Step 1d: Infer Dependency DAG + Graph-Confirm ◀── Gate      │
@@ -67,21 +66,16 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 ### Step 1: Gather Context
 
-**Input**: optional argument; optional Design URL; `steering/product.md` if present.
+**Input**: optional argument; `steering/product.md` if present.
 
 **Process**:
 
 1. If an argument was provided, use it as the starting description. Otherwise, ask the user what they need.
-2. Detect a Design URL in the argument. If none is present, ask once: `"Supply an optional Design URL? (press Enter to skip)"`. Store as `session.designUrl` (may be null).
-3. Read `steering/product.md` for product vision, personas, MoSCoW priorities, and existing user journeys.
+2. Read `steering/product.md` for product vision, personas, MoSCoW priorities, and existing user journeys.
 
 Read `../../references/steering-schema.md` when you need the roster of steering documents and their read-timing.
 
-**Output**: `session.initialDescription`, `session.designUrl`, `session.productContext`.
-
-### Step 1a: Fetch & Decode the Design URL
-
-Read `references/design-url.md` when `session.designUrl` is non-null. If it is null, skip this step entirely and proceed to Step 1b.
+**Output**: `session.initialDescription`, `session.productContext`.
 
 ### Step 1b–1d: Detect, Confirm, and Graph a Multi-Issue Prompt
 
@@ -132,9 +126,9 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 ### Step 4: Investigate Codebase
 
-**Input**: `classification` from Step 2; relevant source, specs, and steering docs; `session.designContext` (read-only).
+**Input**: `classification` from Step 2; relevant source, specs, and steering docs.
 
-**Process**: perform a targeted codebase investigation before the interview. When `session.designContext` is present, read its README alongside the steering docs and fold relevant sections into the Current State / root-cause framing — cite the design URL inline when a section directly describes the area under investigation.
+**Process**: perform a targeted codebase investigation before the interview.
 
 **If Enhancement / Feature**: file discovery for `specs/*/requirements.md` and read related specs; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
@@ -194,7 +188,7 @@ Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] 
 
 ### Step 6: Synthesize into Issue Body
 
-**Input**: confirmed `understanding`; `classification`; `investigation.summary`; `session.designContext` (read-only); current iteration's `planId` and neighbor `askId`s from `session.dag`.
+**Input**: confirmed `understanding`; `classification`; `investigation.summary`; current iteration's `planId` and neighbor `askId`s from `session.dag`.
 
 Choose the template based on `classification`:
 
@@ -202,8 +196,6 @@ Read `references/feature-template.md` when `classification === 'feature'`.
 Read `references/bug-template.md` when `classification === 'bug'`.
 Read `references/multi-issue.md` when `classification === 'epic'` — the Epic Coordination template lives there alongside the multi-issue pipeline.
 Read `references/spike-template.md` when `classification === 'spike'` — the spike template replaces User Story / Acceptance Criteria with Research Questions, Candidate Set, Time-box, Expected Output Shape, and Honest-Gap Protocol. Spike issues do not carry acceptance criteria (the deliverable is an ADR, not a working feature).
-
-When `session.designContext` is present, cite the design URL in the Background / Current State section and weave relevant design details into the narrative. Epics do NOT cite the design URL in the body — the reference belongs on the child feature/bug issues.
 
 **Body cross-ref placeholders (batch mode)**: when `session.dag` has edges touching the current iteration's `planId`, append placeholder lines at the end of the body — `Depends on: <A1>, <A2>` / `Blocks: <A4>`. The `<askId>` tokens are resolved to real `#N` references in Step 10 once all issues in the batch have been created. On the single-issue path, no placeholder lines are added.
 
@@ -287,7 +279,7 @@ Read `references/multi-issue.md` when the Per-Issue Loop has finished — the re
 
 ### Step 11: Batch Summary
 
-Read `references/multi-issue.md` when rendering the final batch summary. On the single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block); if a design fetch failure was recorded, append the design-failure line.
+Read `references/multi-issue.md` when rendering the final batch summary. On the single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block).
 
 ## Guidelines
 
