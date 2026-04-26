@@ -169,10 +169,9 @@ const STEP_KEYS = [
   'implement',    // 4
   'simplify',     // 5 — bundled cleanup skill
   'verify',       // 6
-  'commitPush',   // 7
-  'createPR',     // 8
-  'monitorCI',    // 9
-  'merge',        // 10
+  'createPR',     // 7 — open-pr commits, versions, pushes, and creates the PR
+  'monitorCI',    // 8
+  'merge',        // 9
 ];
 
 const STEPS = STEP_KEYS.map((key, i) => ({
@@ -438,26 +437,8 @@ function detectAndHydrateState() {
     } catch { /* ignore */ }
   }
 
-  // Check if branch is pushed to remote with no unpushed commits (commitPush).
-  // "All commits pushed" only implies commitPush completion when verify
-  // actually passed. Since simplify/verify have no git-observable artifact,
-  // require the saved state to confirm `lastCompletedStep >= verify` before
-  // advancing past implement on this signal alone. Otherwise, a crash
-  // mid-verify followed by a resume would falsely skip verification entirely.
-  if (lastCompletedStep >= STEP_NUMBER.implement && savedLastCompleted >= STEP_NUMBER.verify) {
-    try {
-      const unpushed = git(`log origin/${branch}..HEAD --oneline`);
-      if (!unpushed) {
-        // All commits pushed AND verify previously confirmed
-        lastCompletedStep = STEP_NUMBER.commitPush;
-      }
-    } catch {
-      // Remote branch doesn't exist — not pushed yet
-    }
-  }
-
   // Check if PR exists (createPR)
-  if (lastCompletedStep >= STEP_NUMBER.commitPush) {
+  if (lastCompletedStep >= STEP_NUMBER.verify || savedLastCompleted >= STEP_NUMBER.verify) {
     try {
       gh('pr view --json number');
       lastCompletedStep = STEP_NUMBER.createPR;
@@ -480,10 +461,9 @@ function detectAndHydrateState() {
     }
   }
 
-  // If the runner was shut down by signal, the SIGTERM handler auto-pushed WIP
-  // commits. That makes artifact probing think "all pushed → step 7 (commitPush) done" even
-  // if the runner was mid-way through an earlier step. Cap the probed value to
-  // what the state file recorded before shutdown.
+  // If the runner was shut down by signal, the SIGTERM handler may have saved
+  // WIP commits. Cap the probed value to what the state file recorded before
+  // shutdown so resume never treats saved WIP as a completed delivery handoff.
   if (savedState.signalShutdown && savedState.lastCompletedStep < lastCompletedStep) {
     log(`detectAndHydrateState: signal shutdown detected — capping lastCompletedStep from ${lastCompletedStep} to ${savedState.lastCompletedStep} (state file value)`);
     lastCompletedStep = savedState.lastCompletedStep;
@@ -913,19 +893,8 @@ function validatePreconditions(step, state) {
       return { ok: true };
     }
 
-    case STEP_NUMBER.commitPush: // Commit/push — no strict preconditions (step handles it)
+    case STEP_NUMBER.createPR: // open-pr owns commit, version, rebase, push, and PR creation
       return { ok: true };
-
-    case STEP_NUMBER.createPR: { // Create PR — branch pushed to remote
-      const branch = git('rev-parse --abbrev-ref HEAD');
-      try {
-        const unpushed = git(`log origin/${branch}..HEAD --oneline`);
-        if (unpushed) return { ok: false, failedCheck: 'branch pushed to remote', reason: 'Unpushed commits exist' };
-      } catch {
-        return { ok: false, failedCheck: 'branch pushed to remote', reason: 'Remote branch not found — push first' };
-      }
-      return { ok: true };
-    }
 
     case STEP_NUMBER.monitorCI: { // Monitor CI — PR exists
       try {
@@ -1035,9 +1004,7 @@ function buildCodexArgs(step, state, overrides = {}) {
 
     [STEP_NUMBER.verify]: `Verify the implementation for issue #${issue} on branch ${branch}. Fix any findings. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
-    [STEP_NUMBER.commitPush]: `Commit and push the work for issue #${issue} on branch ${branch}. Stage changes, apply the version bump per the skill's procedure, write a conventional-commit message, fetch + reconcile with origin/main (rebase + --force-with-lease under unattended mode when local was rebased and the lease check is safe), and push. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
-
-    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. The version bump has already been applied by /commit-push; your responsibility is preconditions + ancestry check + gh pr create + labels. If local is behind origin/main, exit non-zero with the sentinel "DIVERGED: re-run commit-push to reconcile before creating PR" on stdout — the runner will bounce control back to /commit-push. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
+    [STEP_NUMBER.createPR]: `Create a pull request for branch ${branch} targeting main for issue #${issue}. This open-pr delivery step owns staging eligible non-runner work, applying the version bump, creating the conventional commit when needed, fetching origin, rebasing onto origin/main when local is behind, pushing with --force-with-lease=HEAD:{EXPECTED_SHA} after a rebase, verifying no unpushed commits remain, and then running gh pr create. Clean already-pushed branches must skip unnecessary commits and report that no additional commit was needed. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
 
     [STEP_NUMBER.monitorCI]: [
       `Monitor CI for the PR on branch ${branch}. Follow these steps exactly:`,
@@ -2171,8 +2138,8 @@ function handleSignal(signal) {
   const nextStep = (savedState.lastCompletedStep || 0) + 1;
   log(`[STATUS] SDLC runner stopped (${signal}). Work saved. Resume with --resume to continue from Step ${nextStep}.`);
   // Preserve lastCompletedStep for resume — don't reset step tracking.
-  // Mark signalShutdown so detectAndHydrateState knows the auto-push was WIP,
-  // not a completed commitPush step.
+  // Mark signalShutdown so detectAndHydrateState knows the saved commit was
+  // WIP, not a completed open-pr delivery step.
   updateState({ runnerPid: null, signalShutdown: true });
   removeUnattendedMode();
   process.exit(0);
@@ -2329,14 +2296,11 @@ async function runStep(step, state) {
       if (gate) return gate;
     }
 
-    // Special: push validation gate after commitPush
-    if (step.number === STEP_NUMBER.commitPush) {
-      const gate = await runValidationGate(step, state, validatePush, 'Push validation');
-      if (gate) return gate;
-    }
-
-    // Special: version bump postcondition gate after createPR
+    // Special: delivery validation gates after createPR
     if (step.number === STEP_NUMBER.createPR) {
+      const pushGate = await runValidationGate(step, state, validatePush, 'Push validation');
+      if (pushGate) return pushGate;
+
       const versionCheck = validateVersionBump();
       if (!versionCheck.ok) {
         log(`Version bump missing: ${versionCheck.reason}`);

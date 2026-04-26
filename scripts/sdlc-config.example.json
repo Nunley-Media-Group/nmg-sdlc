@@ -18,8 +18,7 @@
     "implement":    { "model": "gpt-5.5",      "effort": "xhigh",  "maxTurns": 150, "timeoutMin": 30, "skill": "write-code" },
     "simplify":     { "model": "gpt-5.4",      "effort": "medium", "maxTurns": 60,  "timeoutMin": 15 },
     "verify":       { "model": "gpt-5.5",      "effort": "high",   "maxTurns": 100, "timeoutMin": 20, "skill": "verify-code" },
-    "commitPush":   { "model": "gpt-5.4-mini", "effort": "low",    "maxTurns": 20,  "timeoutMin": 8,  "skill": "commit-push" },
-    "createPR":     { "model": "gpt-5.4",      "effort": "low",    "maxTurns": 45,  "timeoutMin": 5,  "skill": "open-pr" },
+    "createPR":     { "model": "gpt-5.4",      "effort": "low",    "maxTurns": 45,  "timeoutMin": 8,  "skill": "open-pr" },
     "monitorCI":    { "model": "gpt-5.4",      "effort": "medium", "maxTurns": 60,  "timeoutMin": 20 },
     "merge":        { "model": "gpt-5.4-mini", "effort": "low",    "maxTurns": 10,  "timeoutMin": 5  }
   },

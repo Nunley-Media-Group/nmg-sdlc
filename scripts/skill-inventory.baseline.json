@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26T03:21:59.111Z",
+  "generated_at": "2026-04-26T05:25:16.278Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -50,7 +50,6 @@
       "normalized": "read ../../references/unattended-mode.md when the workflow starts — the sentinel",
       "destination": "skills/address-pr-comments/SKILL.md:16",
       "additional_destinations": [
-        "skills/commit-push/SKILL.md:16",
         "skills/open-pr/SKILL.md:16",
         "skills/run-retro/SKILL.md:16",
         "skills/start-issue/SKILL.md:16",
@@ -178,8 +177,6 @@
       "normalized": "---",
       "destination": "skills/address-pr-comments/SKILL.md:71",
       "additional_destinations": [
-        "skills/commit-push/SKILL.md:110",
-        "skills/commit-push/SKILL.md:126",
         "skills/draft-issue/references/multi-issue.md:113",
         "skills/draft-issue/references/multi-issue.md:166",
         "skills/onboard-project/SKILL.md:160",
@@ -210,201 +207,6 @@
       "source_before": "skills/address-pr-comments/references/polling.md:44",
       "normalized": "applies only when the cached .codex/unattended-mode sentinel is present. the gua",
       "destination": "skills/address-pr-comments/references/polling.md:44"
-    },
-    {
-      "id": "f2d9c181979d",
-      "source_before": "skills/commit-push/SKILL.md:40",
-      "normalized": "stage all tracked and untracked changes (excluding sdlc runner artifacts already",
-      "destination": "skills/commit-push/SKILL.md:40"
-    },
-    {
-      "id": "8cf82cdf304d",
-      "source_before": "skills/commit-push/SKILL.md:46",
-      "normalized": "if git status --porcelain (after staging) is empty and git log main..head --onel",
-      "destination": "skills/commit-push/SKILL.md:46"
-    },
-    {
-      "id": "a780bef92ebc",
-      "source_before": "skills/commit-push/SKILL.md:50",
-      "normalized": "read references/version-bump-delegation.md. apply the version bump (unless spike",
-      "destination": "skills/commit-push/SKILL.md:50"
-    },
-    {
-      "id": "345f37c57faa",
-      "source_before": "skills/commit-push/SKILL.md:54",
-      "normalized": "write a conventional-commit message summarising the issue's implementation (e.g.",
-      "destination": "skills/commit-push/SKILL.md:54"
-    },
-    {
-      "id": "15792879aed7",
-      "source_before": "skills/commit-push/SKILL.md:67",
-      "normalized": "base branch is main unless steering/config specifies otherwise.",
-      "destination": "skills/commit-push/SKILL.md:67"
-    },
-    {
-      "id": "82a71546adb1",
-      "source_before": "skills/commit-push/SKILL.md:69",
-      "normalized": "exit code 0: local contains every commit in origin/{base-branch} — no rebase nee",
-      "destination": "skills/commit-push/SKILL.md:69"
-    },
-    {
-      "id": "4acdf8ade01a",
-      "source_before": "skills/commit-push/SKILL.md:70",
-      "normalized": "non-zero: local does not contain origin/{base-branch}'s tip — proceed to step 5.",
-      "destination": "skills/commit-push/SKILL.md:70"
-    },
-    {
-      "id": "09c660b2586f",
-      "source_before": "skills/commit-push/SKILL.md:74",
-      "normalized": "read references/rebase-and-push.md — the reference covers the rebase command, re",
-      "destination": "skills/commit-push/SKILL.md:74"
-    },
-    {
-      "id": "2d5f4b33e068",
-      "source_before": "skills/commit-push/SKILL.md:76",
-      "normalized": "mark this session as rebased = true so step 6 takes the force-with-lease branch.",
-      "destination": "skills/commit-push/SKILL.md:76"
-    },
-    {
-      "id": "35c6e94561a6",
-      "source_before": "skills/commit-push/SKILL.md:80",
-      "normalized": "the push branches on four signals: remote tracking state, whether step 5 rebased",
-      "destination": "skills/commit-push/SKILL.md:80"
-    },
-    {
-      "id": "2c9dbde74f05",
-      "source_before": "skills/commit-push/SKILL.md:82",
-      "normalized": "no remote tracking branch (first push for this branch):",
-      "destination": "skills/commit-push/SKILL.md:82"
-    },
-    {
-      "id": "8dc414a245b0",
-      "source_before": "skills/commit-push/SKILL.md:83",
-      "normalized": "```bash",
-      "destination": "skills/commit-push/SKILL.md:83",
-      "additional_destinations": [
-        "skills/commit-push/SKILL.md:87",
-        "skills/commit-push/SKILL.md:91"
-      ]
-    },
-    {
-      "id": "b8896468af7d",
-      "source_before": "skills/commit-push/SKILL.md:84",
-      "normalized": "git push -u origin head",
-      "destination": "skills/commit-push/SKILL.md:84"
-    },
-    {
-      "id": "bbc0aff80688",
-      "source_before": "skills/commit-push/SKILL.md:85",
-      "normalized": "```",
-      "destination": "skills/commit-push/SKILL.md:85",
-      "additional_destinations": [
-        "skills/commit-push/SKILL.md:89",
-        "skills/commit-push/SKILL.md:93",
-        "skills/draft-issue/SKILL.md:256",
-        "skills/draft-issue/SKILL.md:258",
-        "skills/onboard-project/SKILL.md:133",
-        "skills/onboard-project/SKILL.md:138",
-        "skills/onboard-project/SKILL.md:142",
-        "skills/onboard-project/SKILL.md:146",
-        "skills/open-pr/SKILL.md:85",
-        "skills/open-pr/SKILL.md:87",
-        "skills/upgrade-project/SKILL.md:201",
-        "skills/upgrade-project/SKILL.md:210",
-        "skills/write-code/SKILL.md:70",
-        "skills/write-code/SKILL.md:76"
-      ]
-    },
-    {
-      "id": "19d823036424",
-      "source_before": "skills/commit-push/SKILL.md:86",
-      "normalized": "tracking exists, rebased === false, fast-forward:",
-      "destination": "skills/commit-push/SKILL.md:86"
-    },
-    {
-      "id": "8f6e64c9d6b6",
-      "source_before": "skills/commit-push/SKILL.md:88",
-      "normalized": "git push",
-      "destination": "skills/commit-push/SKILL.md:88"
-    },
-    {
-      "id": "45b09635a930",
-      "source_before": "skills/commit-push/SKILL.md:90",
-      "normalized": "tracking exists, rebased === true, .codex/unattended-mode sentinel present, safe",
-      "destination": "skills/commit-push/SKILL.md:90"
-    },
-    {
-      "id": "ba1fc25131a8",
-      "source_before": "skills/commit-push/SKILL.md:92",
-      "normalized": "git push --force-with-lease=head:$expected_sha",
-      "destination": "skills/commit-push/SKILL.md:92"
-    },
-    {
-      "id": "b7da459c6fe2",
-      "source_before": "skills/commit-push/SKILL.md:94",
-      "normalized": "where $expected_sha is the origin/{branch} sha recorded before the rebase (the g",
-      "destination": "skills/commit-push/SKILL.md:94"
-    },
-    {
-      "id": "3e9435fa456d",
-      "source_before": "skills/commit-push/SKILL.md:95",
-      "normalized": "tracking exists, rebased === true, sentinel absent (interactive mode):",
-      "destination": "skills/commit-push/SKILL.md:95"
-    },
-    {
-      "id": "d29c4d7c5ba7",
-      "source_before": "skills/commit-push/SKILL.md:96",
-      "normalized": "present a requestuserinput gate with options [1] force-push with lease and [2] a",
-      "destination": "skills/commit-push/SKILL.md:96"
-    },
-    {
-      "id": "5ba971d56f57",
-      "source_before": "skills/commit-push/SKILL.md:98",
-      "normalized": "read references/rebase-and-push.md § \"safe lease\" for the exact --force-with-lea",
-      "destination": "skills/commit-push/SKILL.md:98"
-    },
-    {
-      "id": "eb374aa376d8",
-      "source_before": "skills/commit-push/SKILL.md:102",
-      "normalized": "after the push returns, verify no unpushed commits remain:",
-      "destination": "skills/commit-push/SKILL.md:102"
-    },
-    {
-      "id": "05b473c82311",
-      "source_before": "skills/commit-push/SKILL.md:108",
-      "normalized": "if the output is non-empty or git push reported an error, exit with a non-zero s",
-      "destination": "skills/commit-push/SKILL.md:108"
-    },
-    {
-      "id": "c0b2a13a348e",
-      "source_before": "skills/commit-push/SKILL.md:122",
-      "normalized": "[if .codex/unattended-mode does not exist]: next step: run $nmg-sdlc:open-pr #n ",
-      "destination": "skills/commit-push/SKILL.md:122"
-    },
-    {
-      "id": "da87f7431ecd",
-      "source_before": "skills/commit-push/SKILL.md:123",
-      "normalized": "[if .codex/unattended-mode exists]: done. awaiting orchestrator.",
-      "destination": "skills/commit-push/SKILL.md:123",
-      "additional_destinations": [
-        "skills/run-retro/SKILL.md:167",
-        "skills/start-issue/SKILL.md:200",
-        "skills/verify-code/SKILL.md:181",
-        "skills/write-code/SKILL.md:109",
-        "skills/write-spec/SKILL.md:241"
-      ]
-    },
-    {
-      "id": "c2cd44e9f99c",
-      "source_before": "skills/commit-push/references/rebase-and-push.md:67",
-      "normalized": "when rebased === true and .codex/unattended-mode exists, push with --force-with-",
-      "destination": "skills/commit-push/references/rebase-and-push.md:67"
-    },
-    {
-      "id": "52475417ac99",
-      "source_before": "skills/commit-push/references/rebase-and-push.md:88",
-      "normalized": "when .codex/unattended-mode is absent (interactive mode), do not take the force-",
-      "destination": "skills/commit-push/references/rebase-and-push.md:88"
     },
     {
       "id": "37cf8fe1b736",
@@ -787,6 +589,23 @@
       "source_before": "skills/draft-issue/SKILL.md:255",
       "normalized": "create the issue (include --milestone only when step 3 assigned one):",
       "destination": "skills/draft-issue/SKILL.md:255"
+    },
+    {
+      "id": "bbc0aff80688",
+      "source_before": "skills/draft-issue/SKILL.md:256",
+      "normalized": "```",
+      "destination": "skills/draft-issue/SKILL.md:256",
+      "additional_destinations": [
+        "skills/draft-issue/SKILL.md:258",
+        "skills/onboard-project/SKILL.md:133",
+        "skills/onboard-project/SKILL.md:138",
+        "skills/onboard-project/SKILL.md:142",
+        "skills/onboard-project/SKILL.md:146",
+        "skills/upgrade-project/SKILL.md:201",
+        "skills/upgrade-project/SKILL.md:210",
+        "skills/write-code/SKILL.md:70",
+        "skills/write-code/SKILL.md:76"
+      ]
     },
     {
       "id": "841970b097d2",
@@ -1365,15 +1184,15 @@
       "destination": "skills/open-pr/SKILL.md:41"
     },
     {
-      "id": "d46900a6cae0",
+      "id": "24200800ae72",
       "source_before": "skills/open-pr/SKILL.md:47",
-      "normalized": "do not continue to step 1, do not commit or push, and do not create a pr. versio",
+      "normalized": "do not continue to step 1, do not commit or push, and do not create a pr. major ",
       "destination": "skills/open-pr/SKILL.md:47"
     },
     {
-      "id": "95770563bfb4",
+      "id": "971400066ecc",
       "source_before": "skills/open-pr/SKILL.md:51",
-      "normalized": "read references/preflight.md when step 1 begins — the gate aborts before pr crea",
+      "normalized": "read references/preflight.md when steps 1–3 have collected issue context and pre",
       "destination": "skills/open-pr/SKILL.md:51"
     },
     {
@@ -1425,9 +1244,9 @@
       "destination": "skills/open-pr/SKILL.md:62"
     },
     {
-      "id": "9c2501b0de05",
+      "id": "c3ca0281b04c",
       "source_before": "skills/open-pr/SKILL.md:63",
-      "normalized": "git status — any uncommitted changes (must be empty; $nmg-sdlc:commit-push shoul",
+      "normalized": "git status — eligible changes after delivery preparation.",
       "destination": "skills/open-pr/SKILL.md:63"
     },
     {
@@ -1443,57 +1262,69 @@
       "destination": "skills/open-pr/SKILL.md:65"
     },
     {
-      "id": "149b44b898bb",
+      "id": "f8d3368b8ecd",
       "source_before": "skills/open-pr/SKILL.md:66",
-      "normalized": "read version artifacts for the pr body — read version and the latest heading in ",
+      "normalized": "read version artifacts for the pr body — read version, changelog.md, and the del",
       "destination": "skills/open-pr/SKILL.md:66"
     },
     {
-      "id": "455a33a83d9a",
+      "id": "e47ec592f3fc",
       "source_before": "skills/open-pr/SKILL.md:70",
-      "normalized": "read references/pr-body.md when assembling the pr title and body — the reference",
+      "normalized": "read references/version-bump.md when a version file exists at the project root a",
       "destination": "skills/open-pr/SKILL.md:70"
     },
     {
+      "id": "339ebcd5606f",
+      "source_before": "skills/open-pr/SKILL.md:74",
+      "normalized": "use references/version-bump.md to update version, changelog.md, .codex-plugin/pl",
+      "destination": "skills/open-pr/SKILL.md:74"
+    },
+    {
+      "id": "455a33a83d9a",
+      "source_before": "skills/open-pr/SKILL.md:78",
+      "normalized": "read references/pr-body.md when assembling the pr title and body — the reference",
+      "destination": "skills/open-pr/SKILL.md:78"
+    },
+    {
       "id": "092987c66f68",
-      "source_before": "skills/open-pr/SKILL.md:72",
+      "source_before": "skills/open-pr/SKILL.md:80",
       "normalized": "spike prs: the pr body template omits the version line entirely and adds type: s",
-      "destination": "skills/open-pr/SKILL.md:72"
+      "destination": "skills/open-pr/SKILL.md:80"
     },
     {
-      "id": "28d02735d9fe",
-      "source_before": "skills/open-pr/SKILL.md:76",
-      "normalized": "verify local contains every commit in origin/main:",
-      "destination": "skills/open-pr/SKILL.md:76"
+      "id": "1a2d092c1620",
+      "source_before": "skills/open-pr/SKILL.md:84",
+      "normalized": "before gh pr create, confirm the delivery-preparation postconditions from refere",
+      "destination": "skills/open-pr/SKILL.md:84"
     },
     {
-      "id": "f0dded902406",
-      "source_before": "skills/open-pr/SKILL.md:82",
-      "normalized": "exit code 0: local is up-to-date with or ahead of origin/main — proceed to gh pr",
-      "destination": "skills/open-pr/SKILL.md:82"
-    },
-    {
-      "id": "8ad5ef12041c",
-      "source_before": "skills/open-pr/SKILL.md:83",
-      "normalized": "non-zero: local is behind origin/main (divergence has not been reconciled). exit",
-      "destination": "skills/open-pr/SKILL.md:83"
-    },
-    {
-      "id": "a2588b95bd89",
+      "id": "51674671dae5",
       "source_before": "skills/open-pr/SKILL.md:86",
-      "normalized": "diverged: re-run commit-push to reconcile before creating pr",
+      "normalized": "local contains origin/main;",
       "destination": "skills/open-pr/SKILL.md:86"
     },
     {
-      "id": "a05a20e620cc",
+      "id": "85b99902ae91",
+      "source_before": "skills/open-pr/SKILL.md:87",
+      "normalized": "git log origin/{branch}..head --oneline is empty;",
+      "destination": "skills/open-pr/SKILL.md:87"
+    },
+    {
+      "id": "2170df485eed",
+      "source_before": "skills/open-pr/SKILL.md:88",
+      "normalized": "runner artifacts remain untracked/unpublished;",
+      "destination": "skills/open-pr/SKILL.md:88"
+    },
+    {
+      "id": "e253ac6a7358",
       "source_before": "skills/open-pr/SKILL.md:89",
-      "normalized": "do not rebase, do not amend, do not push, do not force-push. the sdlc runner rea",
+      "normalized": "deliverycommitcreated accurately records whether this invocation created a commi",
       "destination": "skills/open-pr/SKILL.md:89"
     },
     {
-      "id": "a5aaed9b5a2e",
+      "id": "715fdb369402",
       "source_before": "skills/open-pr/SKILL.md:91",
-      "normalized": "once the ancestry check passes, create the pr:",
+      "normalized": "then create the pr:",
       "destination": "skills/open-pr/SKILL.md:91"
     },
     {
@@ -1540,21 +1371,27 @@
     },
     {
       "id": "ce3351d16f3f",
-      "source_before": "skills/open-pr/references/pr-body.md:120",
+      "source_before": "skills/open-pr/references/pr-body.md:118",
       "normalized": "then branch on the .codex/unattended-mode sentinel:",
-      "destination": "skills/open-pr/references/pr-body.md:120"
+      "destination": "skills/open-pr/references/pr-body.md:118"
     },
     {
-      "id": "8e4b575ec4ea",
-      "source_before": "skills/open-pr/references/preflight.md:11",
-      "normalized": "read ../../../references/dirty-tree.md when step 1a runs — the reference covers ",
-      "destination": "skills/open-pr/references/preflight.md:11"
+      "id": "58fc9714cca3",
+      "source_before": "skills/open-pr/references/preflight.md:12",
+      "normalized": "remove rows whose path ends with .codex/sdlc-state.json or .codex/unattended-mod",
+      "destination": "skills/open-pr/references/preflight.md:12"
     },
     {
-      "id": "f39e800f6158",
-      "source_before": "skills/open-pr/references/preflight.md:14",
-      "normalized": "filter out: lines whose path ends with .codex/sdlc-state.json or .codex/unattend",
-      "destination": "skills/open-pr/references/preflight.md:14"
+      "id": "5409b07dd32a",
+      "source_before": "skills/open-pr/references/preflight.md:15",
+      "normalized": "never publish .codex/sdlc-state.json or .codex/unattended-mode. if only those ru",
+      "destination": "skills/open-pr/references/preflight.md:15"
+    },
+    {
+      "id": "cb1b109fe826",
+      "source_before": "skills/open-pr/references/preflight.md:23",
+      "normalized": "git reset -- .codex/sdlc-state.json .codex/unattended-mode",
+      "destination": "skills/open-pr/references/preflight.md:23"
     },
     {
       "id": "637c383cbecc",
@@ -1885,6 +1722,18 @@
       "source_before": "skills/run-retro/SKILL.md:166",
       "normalized": "[if .codex/unattended-mode does not exist]: next step: this document will be rea",
       "destination": "skills/run-retro/SKILL.md:166"
+    },
+    {
+      "id": "da87f7431ecd",
+      "source_before": "skills/run-retro/SKILL.md:167",
+      "normalized": "[if .codex/unattended-mode exists]: done. awaiting orchestrator.",
+      "destination": "skills/run-retro/SKILL.md:167",
+      "additional_destinations": [
+        "skills/start-issue/SKILL.md:200",
+        "skills/verify-code/SKILL.md:181",
+        "skills/write-code/SKILL.md:109",
+        "skills/write-spec/SKILL.md:241"
+      ]
     },
     {
       "id": "5132982b316c",

@@ -1,6 +1,6 @@
 ---
 name: run-loop
-description: "Run the full SDLC pipeline loop from within an active Codex session. Use when user says 'run the SDLC loop', 'run loop', 'run SDLC for #N', 'process issue end-to-end', 'run pipeline', 'how do I run the SDLC loop', or 'kick off automation'. Invokes sdlc-runner.mjs as a subprocess; the runner starts nested `codex exec` sessions for each SDLC step. Orchestrates the full pipeline: $nmg-sdlc:draft-issue → $nmg-sdlc:start-issue → $nmg-sdlc:write-spec → $nmg-sdlc:write-code → $nmg-sdlc:simplify → $nmg-sdlc:verify-code → $nmg-sdlc:commit-push → $nmg-sdlc:open-pr → $nmg-sdlc:address-pr-comments."
+description: "Run the full SDLC pipeline loop from within an active Codex session. Use when user says 'run the SDLC loop', 'run loop', 'run SDLC for #N', 'process issue end-to-end', 'run pipeline', 'how do I run the SDLC loop', or 'kick off automation'. Invokes sdlc-runner.mjs as a subprocess; the runner starts nested `codex exec` sessions for each SDLC step. Orchestrates the full pipeline: $nmg-sdlc:draft-issue → $nmg-sdlc:start-issue → $nmg-sdlc:write-spec → $nmg-sdlc:write-code → $nmg-sdlc:simplify → $nmg-sdlc:verify-code → $nmg-sdlc:open-pr → $nmg-sdlc:address-pr-comments."
 ---
 
 # Run Loop

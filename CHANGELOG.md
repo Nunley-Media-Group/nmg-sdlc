@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.64.0] - 2026-04-26
+
+### Changed
+
+- Folded commit, version bump, rebase, and push responsibilities into `$nmg-sdlc:open-pr`, and removed the separate commit-push step from the public runner workflow for issue #108.
+
 ## [1.63.0] - 2026-04-25
 
 ### Changed

@@ -141,3 +141,55 @@ describeRunner('exercise: /open-pr sibling-aware bump', () => {
     expect(blob).toMatch(/Epic #\d+ is closed but child #\d+ is still open/);
   }, 300_000);
 });
+
+describeRunner('exercise: /open-pr folded delivery preparation', () => {
+  const projects = [];
+  afterEach(() => {
+    while (projects.length) try { fs.rmSync(projects.pop(), { recursive: true, force: true }); } catch {}
+  });
+
+  test('dirty branch — open-pr commits, bumps, pushes, and prepares PR creation', async () => {
+    const dir = scaffoldProject({ onBranch: '300-folded-delivery-dirty' });
+    projects.push(dir);
+    fs.writeFileSync(path.join(dir, 'dirty.txt'), 'pending work\n');
+
+    const messages = await runSkill({
+      cwd: dir,
+      prompt: '/nmg-sdlc:open-pr #300',
+    });
+    const blob = JSON.stringify(messages);
+    expect(blob).toMatch(/git add|staged|delivery/i);
+    expect(blob).toMatch(/push|pushed|gh pr create/i);
+  }, 300_000);
+
+  test('clean pushed branch — open-pr reports no additional commit needed', async () => {
+    const dir = scaffoldProject({ onBranch: '300-folded-delivery-clean' });
+    projects.push(dir);
+    const bareRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-clean-bare-'));
+    projects.push(bareRepo);
+    execSync('git init -q --bare', { cwd: bareRepo });
+    execSync(`git remote add origin ${bareRepo}`, { cwd: dir });
+    execSync('git push -q -u origin HEAD', { cwd: dir });
+
+    const messages = await runSkill({
+      cwd: dir,
+      prompt: '/nmg-sdlc:open-pr #300',
+    });
+    const blob = JSON.stringify(messages);
+    expect(blob).toMatch(/No additional commit needed|already clean/i);
+  }, 300_000);
+
+  test('unattended mode — open-pr does not prompt for force-push or CI monitoring', async () => {
+    const dir = scaffoldProject({ onBranch: '300-folded-delivery-unattended' });
+    projects.push(dir);
+    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.codex', 'unattended-mode'), '');
+
+    const messages = await runSkill({
+      cwd: dir,
+      prompt: '/nmg-sdlc:open-pr #300',
+    });
+    const blob = JSON.stringify(messages);
+    expect(blob).not.toMatch(/Force-push with lease|monitor CI and auto-merge/i);
+  }, 300_000);
+});

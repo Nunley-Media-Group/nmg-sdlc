@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: "Create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Do NOT use for implementing code, verifying specs, creating issues, or committing/pushing — version bumping and pushing live in $nmg-sdlc:commit-push. Links specs and acceptance criteria into the PR body. Seventh step in the SDLC pipeline — follows $nmg-sdlc:commit-push and precedes $nmg-sdlc:address-pr-comments."
+description: "Prepare delivery and create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR. Seventh step in the SDLC pipeline — follows $nmg-sdlc:verify-code and precedes $nmg-sdlc:address-pr-comments."
 ---
 
 # Open PR
@@ -13,11 +13,11 @@ Create a pull request with a spec-driven summary that links to the GitHub issue 
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging). Version-bump and push duties have moved to `$nmg-sdlc:commit-push` as of FR1; this skill no longer owns a human-review gate for version bumping.
+Read `../../references/unattended-mode.md` when the workflow starts — the sentinel actively suppresses the Step 7 CI-monitor prompt (the runner owns CI monitoring and merging) and pre-approves deterministic delivery preparation except for explicit escalation branches such as `--major`.
 
 Read `../../references/feature-naming.md` when locating the spec directory for the issue and no `{feature-name}` is already known — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
 
-Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, `.codex-plugin/plugin.json` manifest update, CHANGELOG conventions, and the epic-child downgrade rule. This skill reads the version artifacts (`VERSION`, `CHANGELOG.md`) to populate the PR body but does NOT modify them — `$nmg-sdlc:commit-push` owns the bump itself.
+Read `../../references/versioning.md` when you need the versioning invariants — single-source-of-truth (`VERSION`), major-bumps-are-manual, `.codex-plugin/plugin.json` manifest update, CHANGELOG conventions, and the epic-child downgrade rule.
 
 Read `../../references/steering-schema.md` when reading `steering/tech.md` for the `## Versioning` bump matrix or stack-specific versioned-files table — `tech.md` is the authoritative source for project-specific bump behaviour.
 
@@ -25,7 +25,7 @@ Read `../../references/steering-schema.md` when reading `steering/tech.md` for t
 
 1. Implementation is complete (all tasks from `tasks.md` done).
 2. Verification has passed (via `$nmg-sdlc:verify-code`).
-3. Changes are committed AND pushed via `$nmg-sdlc:commit-push` — this skill reads `git log origin/main..HEAD` but does not push.
+3. `origin` is reachable for fetch, rebase, push, and PR creation.
 
 ---
 
@@ -44,11 +44,11 @@ Inspect the invocation arguments for a `--major` token (alongside the issue numb
 ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
 ```
 
-Do NOT continue to Step 1, do NOT commit or push, and do NOT create a PR. Version-bump mutation lives in `$nmg-sdlc:commit-push`; this skill does not touch `VERSION` or `CHANGELOG.md`, but the escalation still fires here because the `--major` decision is a release-level call that belongs with PR opening.
+Do NOT continue to Step 1, do NOT commit or push, and do NOT create a PR. Major version bumps are a release-level call that cannot be made headlessly.
 
 ### Step 1: Read Context
 
-Read `references/preflight.md` when Step 1 begins — the gate aborts before PR creation if the working tree is dirty, the branch has no non-bump commits, or local is not an ancestor of `origin/main` (i.e., `$nmg-sdlc:commit-push` has not yet reconciled divergence).
+Read `references/preflight.md` when Steps 1–3 have collected issue context and prepared version artifacts — it stages eligible non-runner work, preserves `.codex` runtime-artifact filtering, classifies clean/no-op branches, fetches origin, rebases when needed, pushes safely, and verifies that no unpushed commits remain before PR creation.
 
 Gather all information needed for the PR:
 
@@ -60,35 +60,35 @@ Gather all information needed for the PR:
 
    Skip this sub-step if specs-not-found — acceptance criteria will be extracted from the issue body already fetched in step 1.
 4. **Read git state**:
-   - `git status` — any uncommitted changes (must be empty; $nmg-sdlc:commit-push should have committed everything)?
+   - `git status` — eligible changes after delivery preparation.
    - `git log main..HEAD --oneline` — commits on this branch.
    - `git diff main...HEAD --stat` — files changed vs main.
-5. **Read version artifacts for the PR body** — read `VERSION` and the latest heading in `CHANGELOG.md` to populate the PR body's Version line. Do NOT modify these files; `$nmg-sdlc:commit-push` is the only skill that writes version artifacts.
+5. **Read version artifacts for the PR body** — read `VERSION`, `CHANGELOG.md`, and the delivery-preparation results to populate the PR body's Version line.
+
+### Step 2: Determine Version Bump
+
+Read `references/version-bump.md` when a `VERSION` file exists at the project root and the issue does not carry the `spike` label. Classify the version bump from `steering/tech.md`, honor `--major` only in interactive mode, apply the epic-child downgrade rule, and record `old_version`, `new_version`, `bump_type`, `siblingClass`, and `epicParentNumber`.
+
+### Step 3: Apply Version Artifacts
+
+Use `references/version-bump.md` to update `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, and any stack-specific version files from `steering/tech.md`. Stage the version artifacts with the rest of the delivery changes so the delivery commit contains a coherent release state. If there are no implementation changes and only version artifacts changed, use the `chore: bump version to {new_version}` commit message.
 
 ### Step 4: Generate PR Content
 
-Read `references/pr-body.md` when assembling the PR title and body — the reference covers the conventional-commit title format, the specs-found Template A (full spec-linked body), and the specs-not-found Template B (fallback to issue-body ACs). Both templates include the conditional Version and epic-child "Bump" lines. The Version line is populated from the committed `VERSION` file (and the latest CHANGELOG heading); this skill does not compute or write the bump itself.
+Read `references/pr-body.md` when assembling the PR title and body — the reference covers the conventional-commit title format, the specs-found Template A (full spec-linked body), and the specs-not-found Template B (fallback to issue-body ACs). Both templates include the conditional Version and epic-child "Bump" lines. Generate this content after delivery preparation so the Version line reflects committed artifacts.
 
 **Spike PRs**: the PR body template omits the `Version` line entirely and adds `Type: Spike research (no version bump)` in its place when the issue carries the `spike` label. The rest of the template (summary, specs reference, test plan) is unchanged.
 
-### Step 5: Ancestry Check and Create PR
+### Step 5: Push and Create PR
 
-Verify local contains every commit in `origin/main`:
+Before `gh pr create`, confirm the delivery-preparation postconditions from `references/preflight.md`:
 
-```bash
-git merge-base --is-ancestor origin/main HEAD
-```
+- local contains `origin/main`;
+- `git log origin/{branch}..HEAD --oneline` is empty;
+- runner artifacts remain untracked/unpublished;
+- `delivery_commit_created` accurately records whether this invocation created a commit.
 
-- **Exit code 0**: local is up-to-date with or ahead of `origin/main` — proceed to `gh pr create`.
-- **Non-zero**: local is behind `origin/main` (divergence has not been reconciled). Exit non-zero with this exact line on stdout:
-
-  ```
-  DIVERGED: re-run commit-push to reconcile before creating PR
-  ```
-
-  Do NOT rebase, do NOT amend, do NOT push, do NOT force-push. The SDLC runner reads the `DIVERGED:` sentinel via `bounceContext` and bounces control to `$nmg-sdlc:commit-push`, which owns rebase and push. In interactive use, the user re-runs `$nmg-sdlc:commit-push` manually.
-
-Once the ancestry check passes, create the PR:
+Then create the PR:
 
 ```bash
 gh pr create --title "[title]" --body "[body]"
@@ -112,6 +112,6 @@ Read `references/ci-monitoring.md` when `.codex/unattended-mode` does NOT exist 
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:commit-push  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
-                                                                                                                              ▲ You are here
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+                                                                                                       ▲ You are here
 ```
