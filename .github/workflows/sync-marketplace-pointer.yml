@@ -1,0 +1,60 @@
+name: Sync Marketplace Pointer
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch nmg-plugins marketplace sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out nmg-sdlc
+        uses: actions/checkout@v4
+
+      - name: Read plugin metadata
+        id: plugin
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./.codex-plugin/plugin.json").version')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch nmg-plugins update
+        env:
+          GH_TOKEN: ${{ secrets.NMG_PLUGINS_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.plugin.outputs.version }}
+          SHA: ${{ steps.plugin.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Set NMG_PLUGINS_DISPATCH_TOKEN to a token that can dispatch workflows in Nunley-Media-Group/nmg-plugins."
+            exit 1
+          fi
+
+          payload="$(mktemp)"
+          trap 'rm -f "$payload"' EXIT
+          node > "$payload" <<'NODE'
+          const payload = {
+            event_type: 'nmg-sdlc-main-updated',
+            client_payload: {
+              repository: process.env.GITHUB_REPOSITORY,
+              version: process.env.VERSION,
+              sha: process.env.SHA,
+              run_url: process.env.RUN_URL,
+            },
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+
+          gh api \
+            --method POST \
+            repos/Nunley-Media-Group/nmg-plugins/dispatches \
+            --input "$payload"
