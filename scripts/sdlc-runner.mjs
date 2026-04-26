@@ -1114,7 +1114,7 @@ function buildCodexArgs(step, state, overrides = {}) {
     'exec',
     '--model', overrides.model || MODEL,
     '--cd', PROJECT_PATH,
-    '--full-auto',
+    '--dangerously-bypass-approvals-and-sandbox',
     '--json',
   ];
 
@@ -1287,9 +1287,21 @@ const OS_TMPDIR = os.tmpdir();
 // find no failure indicators.  Each entry has a regex and a human-readable label
 // used in the soft-failure reason string and status log messages.
 const TEXT_FAILURE_PATTERNS = [
+  { pattern: /error connecting to api\.github\.com/i, label: 'github_access' },
   { pattern: /plan approval/i, label: 'plan approval' },
   { pattern: /request_user_input.*unattended-mode/i, label: 'request_user_input in unattended-mode' },
 ];
+
+function matchTextFailure(text, labels = null) {
+  if (!text) return null;
+  for (const { pattern, label } of TEXT_FAILURE_PATTERNS) {
+    if (labels && !labels.has(label)) continue;
+    if (pattern.test(text)) {
+      return { isSoftFailure: true, reason: `text_pattern: ${label}` };
+    }
+  }
+  return null;
+}
 
 function getToolName(denial) {
   return typeof denial === 'object' && denial !== null ? denial.tool_name : String(denial);
@@ -1311,11 +1323,12 @@ function detectSoftFailure(stdout) {
   const parsed = extractTerminalEventFromStream(stdout);
   if (parsed) {
     const failureCode = getEventFailureCode(parsed);
-    if (failureCode === 'error_max_turns' || /error_max_turns/i.test(getEventMessage(parsed))) {
+    const eventMessage = getEventMessage(parsed);
+    if (failureCode === 'error_max_turns' || /error_max_turns/i.test(eventMessage)) {
       return { isSoftFailure: true, reason: 'error_max_turns' };
     }
     if (parsed.type === 'turn.failed') {
-      const reason = getEventMessage(parsed) || failureCode || 'turn.failed';
+      const reason = eventMessage || failureCode || 'turn.failed';
       return { isSoftFailure: true, reason: `turn_failed: ${reason}` };
     }
     if (Array.isArray(parsed.permission_denials) && parsed.permission_denials.length > 0) {
@@ -1331,17 +1344,19 @@ function detectSoftFailure(stdout) {
         return { isSoftFailure: true, reason: `permission_denials: ${serious.map(getToolName).join(', ')}` };
       }
     }
+
+    const textFailure = matchTextFailure(eventMessage);
+    if (textFailure) return textFailure;
   }
-  // Text-pattern scan: catch failures that produce text output but no JSON indicators.
-  // Only runs when no JSON result was extracted — if JSON was present, the JSON checks
-  // above are authoritative (avoids false positives from tool names in JSON fields).
-  if (!parsed && stdout) {
-    for (const { pattern, label } of TEXT_FAILURE_PATTERNS) {
-      if (pattern.test(stdout)) {
-        return { isSoftFailure: true, reason: `text_pattern: ${label}` };
-      }
-    }
-  }
+  // Text-pattern scan: catch failures that produce text output but no JSON
+  // indicators. Structured checks above stay authoritative when they find a
+  // concrete failure; otherwise the parsed terminal message and raw combined
+  // output can still carry child-tool failures that exited 0.
+  const textFailure = matchTextFailure(
+    stdout,
+    parsed ? new Set(['github_access']) : null
+  );
+  if (textFailure) return textFailure;
   return { isSoftFailure: false };
 }
 
@@ -2355,7 +2370,8 @@ async function runStep(step, state) {
 
   if (result.exitCode === 0) {
     // Check for soft failures (exit code 0 but step did not succeed)
-    const softFailure = detectSoftFailure(result.stdout);
+    const combinedOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    const softFailure = detectSoftFailure(combinedOutput);
     if (softFailure.isSoftFailure) {
       log(`Soft failure detected: ${softFailure.reason}`);
       log(`[STATUS] Step ${step.number} (${step.key}) soft failure: ${softFailure.reason}`);

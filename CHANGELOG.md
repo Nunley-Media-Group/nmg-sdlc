@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.65.1] - 2026-04-26
+
+### Fixed
+
+- Fixed `$nmg-sdlc:run-loop` child Codex sessions so runner-spawned steps use no-sandbox execution instead of `--full-auto`, and GitHub API connectivity failures are surfaced as GitHub-access soft failures before missing-branch retries consume the root cause.
+
 ## [1.65.0] - 2026-04-26
 
 ### Added
