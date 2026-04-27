@@ -33,7 +33,7 @@ Determine the issue and feature being implemented:
 2. **From branch name** — parse the current branch for an issue number. Common patterns: `42-feature-name`, `feature/42-name`, `issue-42`. Run `git branch --show-current` to get the current branch.
 3. **Read the issue** — `gh issue view #N` for full context.
 
-If no issue can be identified, ask the user.
+If no issue can be identified, present a `request_user_input` gate per `../../references/interactive-gates.md`; the predefined option should request an issue number through the free-form `Other` answer, and the workflow maps that text to the issue number before continuing.
 
 ### Step 1.5: Spike Abort
 
@@ -74,7 +74,7 @@ If specs do not exist:
 
   Done. Awaiting orchestrator.
   ```
-- **Interactive mode**: present a `request_user_input` gate to prompt `"No specs found. Run $nmg-sdlc:write-spec #N first."`
+- **Interactive mode**: present a `request_user_input` gate with the message `"No specs found. Run $nmg-sdlc:write-spec #N first."`; the only predefined action is to stop, and any free-form `Other` answer is treated as a corrected spec path or issue number to re-check before stopping.
 
 ### Step 3: Read Steering Documents
 

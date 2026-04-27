@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26T20:27:54.518Z",
+  "generated_at": "2026-04-27T10:11:28.067Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -9,16 +9,82 @@
       "destination": "references/dirty-tree.md:15"
     },
     {
+      "id": "3110ab972721",
+      "source_before": "references/interactive-gates.md:5",
+      "normalized": "read prompt-config.md before a manual-mode gate calls requestuserinput — it ensu",
+      "destination": "references/interactive-gates.md:5"
+    },
+    {
       "id": "5464e76cc19f",
-      "source_before": "references/interactive-gates.md:43",
+      "source_before": "references/interactive-gates.md:46",
       "normalized": "when .codex/unattended-mode exists, never call requestuserinput, never emit text",
-      "destination": "references/interactive-gates.md:43"
+      "destination": "references/interactive-gates.md:46"
     },
     {
       "id": "55cbbdafc276",
       "source_before": "references/legacy-layout-gate.md:34",
       "normalized": "the gate checks only steering/ and specs/ subtrees. runtime artifacts — .codex/u",
       "destination": "references/legacy-layout-gate.md:34"
+    },
+    {
+      "id": "9a6e0751b65b",
+      "source_before": "references/prompt-config.md:5",
+      "normalized": "interactive nmg-sdlc gates require codex's user-question surface to be enabled b",
+      "destination": "references/prompt-config.md:5"
+    },
+    {
+      "id": "9bbb4a637fda",
+      "source_before": "references/prompt-config.md:23",
+      "normalized": "before a manual-mode decision, menu, review gate, or clarification prompt calls ",
+      "destination": "references/prompt-config.md:23"
+    },
+    {
+      "id": "1f0fbe9e1181",
+      "source_before": "references/prompt-config.md:25",
+      "normalized": "run node scripts/ensure-codex-prompt-config.mjs from the plugin root.",
+      "destination": "references/prompt-config.md:25"
+    },
+    {
+      "id": "0c62961fc7af",
+      "source_before": "references/prompt-config.md:26",
+      "normalized": "read the json result from stdout.",
+      "destination": "references/prompt-config.md:26"
+    },
+    {
+      "id": "46c9ed13a1db",
+      "source_before": "references/prompt-config.md:27",
+      "normalized": "if changed is false, continue to the original requestuserinput gate.",
+      "destination": "references/prompt-config.md:27"
+    },
+    {
+      "id": "2b8c066b3f61",
+      "source_before": "references/prompt-config.md:28",
+      "normalized": "if changed is true, stop before the original gate and tell the user the listed s",
+      "destination": "references/prompt-config.md:28"
+    },
+    {
+      "id": "1f57e708e299",
+      "source_before": "references/prompt-config.md:29",
+      "normalized": "if the helper exits non-zero, stop before the original gate and report the faili",
+      "destination": "references/prompt-config.md:29"
+    },
+    {
+      "id": "3f9c4e3b0660",
+      "source_before": "references/prompt-config.md:31",
+      "normalized": "changed-config runs are setup runs, not normal workflow continuations. do not pr",
+      "destination": "references/prompt-config.md:31"
+    },
+    {
+      "id": "c8f8ccd08d5c",
+      "source_before": "references/prompt-config.md:35",
+      "normalized": "successful helper output is deterministic json:",
+      "destination": "references/prompt-config.md:35"
+    },
+    {
+      "id": "740f6d162016",
+      "source_before": "references/prompt-config.md:49",
+      "normalized": "user-facing restart message:",
+      "destination": "references/prompt-config.md:49"
     },
     {
       "id": "024f1899bc9c",
@@ -239,9 +305,9 @@
       ]
     },
     {
-      "id": "19c320bff519",
+      "id": "2dedf8f8da71",
       "source_before": "skills/draft-issue/SKILL.md:73",
-      "normalized": "if an argument was provided, use it as the starting description. otherwise, ask ",
+      "normalized": "if an argument was provided, use it as the starting description. otherwise, pres",
       "destination": "skills/draft-issue/SKILL.md:73"
     },
     {
@@ -501,9 +567,9 @@
       "destination": "skills/draft-issue/SKILL.md:206"
     },
     {
-      "id": "3817a8e6cc52",
+      "id": "3c9c23871ccc",
       "source_before": "skills/draft-issue/SKILL.md:234",
-      "normalized": "on [2], ask one free-text follow-up (\"what would you like to change?\"), apply th",
+      "normalized": "on [2] or a free-form other answer, treat the text as the requested change, appl",
       "destination": "skills/draft-issue/SKILL.md:234"
     },
     {
@@ -2607,9 +2673,9 @@
     },
     {
       "id": "a48915a1b731",
-      "source_before": "skills/upgrade-project/references/detection.md:39",
+      "source_before": "skills/upgrade-project/references/detection.md:41",
       "normalized": "do not touch .codex/unattended-mode or .codex/sdlc-state.json. these runtime art",
-      "destination": "skills/upgrade-project/references/detection.md:39"
+      "destination": "skills/upgrade-project/references/detection.md:41"
     },
     {
       "id": "84cd5e79a477",
@@ -2945,9 +3011,9 @@
       "destination": "skills/write-code/SKILL.md:34"
     },
     {
-      "id": "f574d1b05263",
+      "id": "3d346ac65c36",
       "source_before": "skills/write-code/SKILL.md:36",
-      "normalized": "if no issue can be identified, ask the user.",
+      "normalized": "if no issue can be identified, present a requestuserinput gate per ../../referen",
       "destination": "skills/write-code/SKILL.md:36"
     },
     {
@@ -2993,9 +3059,9 @@
       "destination": "skills/write-code/SKILL.md:75"
     },
     {
-      "id": "3817e92bedad",
+      "id": "63315fb4a19a",
       "source_before": "skills/write-code/SKILL.md:77",
-      "normalized": "interactive mode: present a requestuserinput gate to prompt \"no specs found. run",
+      "normalized": "interactive mode: present a requestuserinput gate with the message \"no specs fou",
       "destination": "skills/write-code/SKILL.md:77"
     },
     {
@@ -3060,9 +3126,9 @@
     },
     {
       "id": "1a58c88b5512",
-      "source_before": "skills/write-spec/references/discovery.md:50",
+      "source_before": "skills/write-spec/references/discovery.md:51",
       "normalized": "if unattended mode (.codex/unattended-mode exists): skip requestuserinput entire",
-      "destination": "skills/write-spec/references/discovery.md:50"
+      "destination": "skills/write-spec/references/discovery.md:51"
     },
     {
       "id": "bf6b3ff4c3e5",

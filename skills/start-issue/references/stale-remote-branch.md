@@ -70,6 +70,8 @@ Present a `request_user_input` gate with two options:
 - `[1] Delete stale branch and proceed` — issue `git push origin --delete {branch}`, log the "Reconciled stale remote branch" line, and proceed to Step 4.
 - `[2] Abort — keep stale branch for inspection` — exit non-zero without creating a branch so the user can inspect the remote state before re-running.
 
+These choices are exhaustive; a free-form `Other` answer is treated as an abort reason and the branch is left untouched.
+
 ### 5. Logging rules
 
 - The probe emits no log line when there is no remote branch (green path).

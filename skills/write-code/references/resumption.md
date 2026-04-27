@@ -16,7 +16,7 @@ Implementations rarely complete in a single sitting — the developer reruns `$n
 | Condition | Behaviour |
 |-----------|-----------|
 | No commits on branch yet | Treat as a fresh run — start from Task 1. |
-| Commits exist but none match a task in `tasks.md` | Warn and ask the user whether to treat the branch as fresh or as corrupt. In unattended mode, emit an `ESCALATION:` line rather than guessing. |
+| Commits exist but none match a task in `tasks.md` | Warn and present a `request_user_input` gate with `Treat as fresh` / `Stop as corrupt`; any free-form `Other` answer is treated as a task-id mapping hint and the task scan is retried. In unattended mode, emit an `ESCALATION:` line rather than guessing. |
 | All tasks appear complete but `$nmg-sdlc:verify-code` has not been run | Skip to Step 6 (Signal Completion) and recommend running `$nmg-sdlc:verify-code` next. |
 | `tasks.md` was amended after commits started | Run the existing commits against the updated task list; treat any task without a matching commit as incomplete. Note the amendment in the completion summary. |
 

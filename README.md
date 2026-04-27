@@ -33,6 +33,18 @@ For auto-updates from a private repo, ensure `GITHUB_TOKEN` is set with read acc
 
 ## First-Time Setup
 
+Interactive nmg-sdlc gates use Codex `request_user_input` Plan Mode prompts. Before a manual gate opens, nmg-sdlc automatically checks `~/.codex/config.toml` and ensures:
+
+```toml
+suppress_unstable_features_warning = true
+
+[features]
+default_mode_request_user_input = true
+ask_user_questions = true
+```
+
+If the first run has to add or update any of those settings, it stops before the original prompt and tells you to close and reopen Codex, then retry the same command. This prompt-mode setup is separate from `.codex/unattended-mode`, which is only the SDLC runner's headless-session sentinel.
+
 Run `$nmg-sdlc:onboard-project` in your project — it is the single entry point for adopting nmg-sdlc:
 
 ```bash

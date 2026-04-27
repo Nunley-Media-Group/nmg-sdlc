@@ -10,6 +10,10 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+### Added
+
+- Added automatic Codex prompt-mode config management before interactive nmg-sdlc gates: the plugin now ensures `default_mode_request_user_input`, `ask_user_questions`, and `suppress_unstable_features_warning` are enabled, then stops with close-and-reopen Codex instructions when it repairs the config.
+
 ## [1.65.1] - 2026-04-26
 
 ### Fixed

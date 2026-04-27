@@ -31,6 +31,8 @@ options:
 
 If the user skips, record the relocation as deferred and stop Step 1.5. Downstream steps in this skill will still run against whatever lives at `steering/` and `specs/` (which in this case is nothing) and will produce a mostly-empty upgrade report.
 
+A free-form `Other` answer is treated as "Skip for now" with the text recorded as the deferral reason.
+
 ## Apply (both modes, once approved)
 
 1. **`STEERING_LEGACY`**: run `git mv .codex/steering steering`. After the move, text search across every file under `steering/` for the literal strings `.codex/steering/` and `.codex/specs/`. For each match, use Codex editing to rewrite the reference to the new path (`steering/` and `specs/` respectively). Remove any now-empty `.codex/steering/` directory.
