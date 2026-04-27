@@ -40,7 +40,7 @@ Feature: Running SDLC Loop
     When the failure is detected
     Then the runner escalates with the issue number and failed step name
     And in single-issue mode the runner exits with code 1
-    And in loop mode the runner moves to the next issue after escalation
+    And in loop mode the runner exits with code 1 without selecting another issue
 
   # --- Edge Cases ---
 

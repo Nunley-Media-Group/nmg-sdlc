@@ -61,6 +61,7 @@ No single stack trace. The failure presents as runner control flow continuing af
 **Given** a step escalation saved partial work for the current issue
 **When** the runner stops
 **Then** logs and runner state identify the failed issue and branch
+**And** the repository remains on the failed issue branch
 **And** the operator can resume or complete that issue interactively without first undoing work on a later issue
 
 ### AC3: Successful Continuous Looping Is Preserved
@@ -69,11 +70,19 @@ No single stack trace. The failure presents as runner control flow continuing af
 **When** continuous mode reaches the end of that successful cycle
 **Then** the runner may still select the next eligible automatable issue
 
-### AC4: Regression Coverage Proves No Next-Issue Selection After Escalation
+### AC4: Terminal Escalation Exits Non-Zero
+
+**Given** a continuous-mode step escalates and requires manual intervention
+**When** the runner stops for that escalation
+**Then** the process exits non-zero
+**And** the run-loop skill reports the invocation as a failure instead of success
+
+### AC5: Regression Coverage Proves The Real Terminal Path
 
 **Given** runner tests simulate a continuous-mode issue escalation
 **When** the main loop handles the `escalated` result
-**Then** the test proves the runner exits or sets a stop condition
+**Then** the test proves the runner sets a stop condition and non-zero exit status
+**And** the test proves the failed branch is not checked out to `main`
 **And** the test proves next-issue selection is not invoked after the escalation
 
 ---
@@ -85,7 +94,9 @@ No single stack trace. The failure presents as runner control flow continuing af
 | FR1 | Change continuous-mode escalation handling so `result === 'escalated'` sets a runner stop condition and exits the outer loop. | Must |
 | FR2 | Preserve or report the failed issue number and branch as the manual recovery target instead of resetting directly into next-cycle selection. | Must |
 | FR3 | Keep successful continuous-mode completion behavior unchanged: after a clean merge, the runner can continue to the next automatable issue. | Must |
-| FR4 | Add regression coverage for continuous-mode escalation from a mid-cycle step and for successful-cycle continuation. | Must |
+| FR4 | Do not check out `main` after a terminal escalation; leave the repository on the failed branch named by runner state. | Must |
+| FR5 | Return a non-zero process status when continuous-mode escalation stops the runner. | Must |
+| FR6 | Add regression coverage for continuous-mode escalation from a mid-cycle step, failed-branch preservation, non-zero exit status, and successful-cycle continuation. | Must |
 
 ---
 
@@ -103,6 +114,7 @@ No single stack trace. The failure presents as runner control flow continuing af
 | Issue | Date | Summary |
 |-------|------|---------|
 | #131 | 2026-04-27 | Initial defect report |
+| #131 | 2026-04-27 | Added review findings for non-zero exit, failed-branch preservation, and stronger regression coverage |
 
 ---
 

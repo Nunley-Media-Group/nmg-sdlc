@@ -1768,11 +1768,6 @@ async function escalate(step, reason, output = '') {
   // Commit/push partial work
   autoCommitIfDirty('chore: save partial work before escalation');
 
-  // Return to main
-  try {
-    if (!DRY_RUN) git('checkout main');
-  } catch { /* non-fatal */ }
-
   // Post diagnostic
   const diagnostic = [
     `ESCALATION: Step ${step.number} (${step.key}) failed.`,
@@ -2448,6 +2443,7 @@ function resolveMainLoopAction(result, step) {
       action: 'stop-runner',
       logMessage: 'Escalation triggered. Stopping runner.',
       removeUnattendedMode: true,
+      exitCode: 1,
     };
   }
 
@@ -2844,6 +2840,7 @@ async function main() {
       const mainLoopAction = resolveMainLoopAction(result, step);
       if (mainLoopAction.logMessage) log(mainLoopAction.logMessage);
       if (mainLoopAction.removeUnattendedMode) removeUnattendedMode();
+      if (typeof mainLoopAction.exitCode === 'number') process.exitCode = mainLoopAction.exitCode;
 
       if (mainLoopAction.action === 'stop-runner') {
         shuttingDown = true;
@@ -2879,15 +2876,15 @@ async function main() {
 
     if (shuttingDown) break;
 
-    // After a full cycle (or escalation), reset for next iteration
+    // After a full cycle, reset for next iteration
     clearBounceContext();
     state = readState();
     if (state.currentStep === 0) {
-      // Clean cycle completion or escalation reset — check for more issues
+      // Clean cycle completion — check for more issues
       continue;
     }
 
-    // If we got here from an escalation mid-cycle, the state was already reset
+    // If we got here mid-cycle, reset to a clean cycle boundary.
     state = updateState({ currentStep: 0, lastCompletedStep: 0 });
   }
 
@@ -2917,6 +2914,7 @@ const __test__ = {
     bounceContext = null;
     dryRunState = null;
     SKILL_ROOT_RECOVERY = null;
+    shuttingDown = false;
   },
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;

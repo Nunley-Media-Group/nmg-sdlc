@@ -138,7 +138,7 @@ let SINGLE_ISSUE_NUMBER = args.issue ? parseInt(args.issue, 10) : null;
 |--------|-------------------|------------------|
 | Issue selection (Step 2) | Prompt Codex to select next automatable issue | Prompt Codex to start issue #N specifically |
 | Loop behavior | After step 9, loop back to step 1 for next issue | After step 9, exit with code 0 (single cycle) |
-| Escalation | Escalate + move to next issue | Escalate + exit with non-zero code |
+| Escalation | Escalate + exit with non-zero code | Escalate + exit with non-zero code |
 | `hasOpenIssues` check | Controls loop continuation | Skipped — single issue doesn't need it |
 
 #### Step 2 Prompt Modification
@@ -168,13 +168,13 @@ if (result === 'ok' && step.number === 9 && SINGLE_ISSUE_NUMBER) {
 
 #### Escalation Behavior
 
-When `--issue` is set, escalation should exit the runner (not loop to next issue):
+Escalation should exit the runner with a non-zero status in both continuous mode and single-issue mode. This preserves the failed issue as the manual recovery target and prevents the same invocation from burying partial work under a later issue.
 
 ```javascript
-if (SINGLE_ISSUE_NUMBER) {
-  // Single-issue mode: don't loop, just exit
-  removeAutoMode();
-  process.exit(1);
+if (result === 'escalated') {
+  removeUnattendedMode();
+  process.exitCode = 1;
+  break;
 }
 ```
 
