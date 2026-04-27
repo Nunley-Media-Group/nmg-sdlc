@@ -676,6 +676,166 @@ function parseJsonEvents(streamOutput) {
   return events;
 }
 
+const MEMORY_METADATA_KEYS = new Set([
+  'cmd',
+  'command',
+  'file_path',
+  'filepath',
+  'notebook_path',
+  'path',
+  'pathname',
+  'source',
+  'source_path',
+  'uri',
+  'url',
+]);
+
+const OUTPUT_LIKE_KEYS = new Set([
+  'aggregated_output',
+  'content',
+  'delta',
+  'message',
+  'messages',
+  'output',
+  'result',
+  'stderr',
+  'stdout',
+  'summary',
+  'text',
+]);
+
+function normalizePathForSearch(value) {
+  return String(value)
+    .replace(/^file:\/\//i, '')
+    .replace(/\\ /g, ' ')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '');
+}
+
+function codexMemoryRoots() {
+  return [normalizePathForSearch(path.resolve(path.join(os.homedir(), '.codex', 'memories')))];
+}
+
+function containsPathUnderRoot(value, root) {
+  const haystack = normalizePathForSearch(value);
+  const needle = normalizePathForSearch(root);
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    const before = index === 0 ? '' : haystack[index - 1];
+    const after = haystack[index + needle.length] || '';
+    const beforeOk = index === 0 || /[\s"'=(:;,]/.test(before) || before === '/';
+    const afterOk = after === '' || after === '/' || /[\s"')\];,]/.test(after);
+    if (beforeOk && afterOk) return true;
+    index = haystack.indexOf(needle, index + 1);
+  }
+  return false;
+}
+
+function valueReferencesCodexMemory(value, memoryRoots) {
+  return memoryRoots.some(root => containsPathUnderRoot(value, root));
+}
+
+function shouldInspectMetadataKey(key) {
+  const normalized = key.toLowerCase();
+  return MEMORY_METADATA_KEYS.has(normalized) ||
+    normalized.endsWith('_path') ||
+    normalized.endsWith('path') ||
+    normalized.endsWith('_uri') ||
+    normalized.endsWith('uri') ||
+    normalized.endsWith('_source') ||
+    normalized.endsWith('source');
+}
+
+function collectMetadataStrings(value, key = '', results = []) {
+  if (typeof value === 'string') {
+    if (shouldInspectMetadataKey(key)) results.push(value);
+    return results;
+  }
+  if (!value || typeof value !== 'object') return results;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectMetadataStrings(item, key, results);
+    return results;
+  }
+
+  for (const [childKey, childValue] of Object.entries(value)) {
+    if (OUTPUT_LIKE_KEYS.has(childKey.toLowerCase())) continue;
+    collectMetadataStrings(childValue, childKey, results);
+  }
+
+  return results;
+}
+
+function hasMemorySourceMarker(value, key = '') {
+  if (typeof value === 'string') {
+    const normalizedKey = key.toLowerCase();
+    if (!/(^|_)source($|_)|(^|_)origin($|_)/.test(normalizedKey)) return false;
+    return /^(codex[-_\s])?memor(y|ies)$/i.test(value.trim());
+  }
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(item => hasMemorySourceMarker(item, key));
+
+  for (const [childKey, childValue] of Object.entries(value)) {
+    if (OUTPUT_LIKE_KEYS.has(childKey.toLowerCase())) continue;
+    if (hasMemorySourceMarker(childValue, childKey)) return true;
+  }
+
+  return false;
+}
+
+function isMemoryOriginEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (hasMemorySourceMarker(event)) return true;
+  const memoryRoots = codexMemoryRoots();
+  return collectMetadataStrings(event).some(value => valueReferencesCodexMemory(value, memoryRoots));
+}
+
+function eventExitCode(event) {
+  const candidates = [
+    event?.exit_code,
+    event?.exitCode,
+    event?.item?.exit_code,
+    event?.item?.exitCode,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number') return candidate;
+    if (typeof candidate === 'string' && /^-?\d+$/.test(candidate.trim())) {
+      return Number(candidate);
+    }
+  }
+  return null;
+}
+
+function isCommandExecutionEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  const type = typeof event.type === 'string' ? event.type : '';
+  const itemType = typeof event.item?.type === 'string' ? event.item.type : '';
+  return type === 'command_execution' || itemType === 'command_execution';
+}
+
+function isSuccessfulCommandExecutionEvent(event) {
+  return isCommandExecutionEvent(event) && eventExitCode(event) === 0;
+}
+
+function failureEvidenceOutput(output) {
+  if (!output || typeof output !== 'string') return '';
+  const evidenceLines = [];
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      evidenceLines.push(line);
+      continue;
+    }
+    try {
+      const event = JSON.parse(line);
+      if (isSuccessfulCommandExecutionEvent(event) || (eventExitCode(event) === null && isMemoryOriginEvent(event))) continue;
+    } catch { /* non-JSON lines remain failure evidence */ }
+    evidenceLines.push(line);
+  }
+  return evidenceLines.join('\n');
+}
+
 /**
  * Extract the final result JSON object from stream-json output.
  * Older Codex CLI versions emitted a final event with type "result".
@@ -1388,8 +1548,9 @@ const IMMEDIATE_ESCALATION_PATTERNS = [
 const RATE_LIMIT_PATTERN = /rate_limit/i;
 
 function matchErrorPattern(output) {
+  const failureOutput = failureEvidenceOutput(output);
   for (const pattern of IMMEDIATE_ESCALATION_PATTERNS) {
-    if (pattern.test(output)) return { action: 'escalate', pattern: pattern.source };
+    if (pattern.test(failureOutput)) return { action: 'escalate', pattern: pattern.source };
   }
   const terminalEvent = extractTerminalEventFromStream(output);
   const terminalCode = getEventFailureCode(terminalEvent);
@@ -1401,7 +1562,7 @@ function matchErrorPattern(output) {
   if (terminalCode === 'error_max_turns' || /error_max_turns/i.test(terminalMessage)) {
     return { action: 'max_turns', pattern: 'error_max_turns' };
   }
-  if (RATE_LIMIT_PATTERN.test(output) || RATE_LIMIT_PATTERN.test(terminalMessage)) return { action: 'wait', pattern: 'rate_limit' };
+  if (RATE_LIMIT_PATTERN.test(failureOutput) || RATE_LIMIT_PATTERN.test(terminalMessage)) return { action: 'wait', pattern: 'rate_limit' };
   return null;
 }
 
@@ -1485,7 +1646,8 @@ function isToolOriginatedEvent(event) {
 }
 
 function matchGithubAccessFailure(output) {
-  const events = parseJsonEvents(output);
+  const failureOutput = failureEvidenceOutput(output);
+  const events = parseJsonEvents(failureOutput);
   for (const event of events) {
     if (!GITHUB_ACCESS_PATTERN.test(JSON.stringify(event))) continue;
     if (isTerminalFailureEvent(event) || isToolOriginatedEvent(event)) {
@@ -1493,7 +1655,7 @@ function matchGithubAccessFailure(output) {
     }
   }
 
-  const lines = nonJsonLines(output);
+  const lines = nonJsonLines(failureOutput);
   for (let i = 0; i < lines.length; i++) {
     if (isDirectGithubAccessLine(lines[i], lines[i + 1] || '')) {
       return { isSoftFailure: true, reason: 'text_pattern: github_access' };
@@ -1554,7 +1716,7 @@ function detectSoftFailure(stdout) {
   // output can still carry child-tool failures that exited 0.
   const githubAccessFailure = matchGithubAccessFailure(stdout);
   if (githubAccessFailure) return githubAccessFailure;
-  const textFailure = parsed ? null : matchTextFailure(stdout);
+  const textFailure = parsed ? null : matchTextFailure(failureEvidenceOutput(stdout));
   if (textFailure) return textFailure;
   return { isSoftFailure: false };
 }

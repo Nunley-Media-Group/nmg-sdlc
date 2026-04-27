@@ -1,0 +1,43 @@
+# File: specs/bug-fix-runner-failure-pattern-matching-on-successful-command-output/feature.gherkin
+#
+# Generated from: specs/bug-fix-runner-failure-pattern-matching-on-successful-command-output/requirements.md
+# Issue: #136
+# Type: Defect regression
+
+@regression
+Feature: successful command output is ignored during failure matching
+  The runner previously treated historical failure strings read by successful
+  command/search operations as live child-step failures. This is fixed by
+  excluding successful command transcript events before soft-failure,
+  hard-escalation, and wait-pattern matching.
+
+  @regression
+  Scenario: Successful command output does not trigger GitHub soft failure detection
+    Given a child Codex JSONL transcript contains an item.completed event for command_execution
+    And the command has exit_code 0
+    And aggregated_output contains historical "error connecting to api.github.com" text
+    When detectSoftFailure evaluates the transcript
+    Then it does not return "text_pattern: github_access"
+
+  @regression
+  Scenario: Successful command output does not trigger hard failure or wait patterns
+    Given a child Codex JSONL transcript contains an item.completed event for command_execution
+    And the command has exit_code 0
+    And aggregated_output contains historical "context_window_exceeded", "signal: 9", "signal: SIGKILL", or "rate_limit" text
+    When matchErrorPattern evaluates the transcript
+    Then it does not return an escalation or wait action for those historical search results
+
+  @regression
+  Scenario: Real failed commands still classify correctly
+    Given a child command, terminal event, or stderr output actually fails with GitHub access, rate-limit, context-window, or signal failure evidence
+    When the runner evaluates the transcript
+    Then the appropriate existing soft-failure, wait, or hard-escalation classification is preserved
+
+  @regression
+  Scenario: Completed start-issue handoffs advance
+    Given startIssue exits successfully
+    And the repository is checked out on the issue branch
+    And failure strings appear only inside successful command output
+    When the parent runner evaluates Step 2
+    Then it records Step 2 complete
+    And it advances to writeSpecs instead of retrying or hard-stopping
