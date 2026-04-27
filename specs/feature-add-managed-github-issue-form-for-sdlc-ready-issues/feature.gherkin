@@ -1,0 +1,73 @@
+# File: specs/feature-add-managed-github-issue-form-for-sdlc-ready-issues/feature.gherkin
+#
+# Generated from: specs/feature-add-managed-github-issue-form-for-sdlc-ready-issues/requirements.md
+# Issue: #135
+
+Feature: Add Managed GitHub Issue Form for SDLC-Ready Issues
+  As a developer using nmg-sdlc in this repository or a consumer project
+  I want GitHub's manual issue flow to collect the same structured fields expected from $nmg-sdlc:draft-issue
+  So that issues are spec-ready even when they are created directly in GitHub instead of through the skill
+
+  Background:
+    Given the nmg-sdlc plugin repository has steering docs and lifecycle skills
+    And GitHub Issue Forms are loaded from .github/ISSUE_TEMPLATE/
+
+  Scenario: Repository issue form exists
+    Given a contributor opens a new issue in the nmg-sdlc GitHub repository
+    When they choose the SDLC issue form
+    Then GitHub presents a structured Issue Form YAML template for SDLC-ready issues
+    And the form lives under .github/ISSUE_TEMPLATE/ in this repository
+    And required fields enforce the core $nmg-sdlc:draft-issue expectations before submission
+
+  Scenario: Draft-issue expectations are captured
+    Given the SDLC issue form is displayed
+    When a contributor fills out the required fields
+    Then the form captures issue type, user story or bug/spike context, Given/When/Then acceptance criteria, functional requirements, scope boundaries, priority, and automation suitability
+    And the resulting issue body is usable as input to downstream $nmg-sdlc:write-spec work
+
+  Scenario: Submitted issue body is spec-ready
+    Given a contributor submits the SDLC issue form
+    When GitHub converts the form responses into an issue body
+    Then the body contains recognizable sections for issue type, context, acceptance criteria, functional requirements, scope, priority, and automation suitability
+    And acceptance criteria remain in a format that can be translated one-to-one into Gherkin scenarios
+
+  Scenario: Init config installs the managed form
+    Given a consumer project runs $nmg-sdlc:init-config
+    When the skill installs managed project artifacts
+    Then it writes the nmg-sdlc managed issue form into the project's .github/ISSUE_TEMPLATE/ directory
+    And the final status reports the issue-form installation outcome
+
+  Scenario: Upgrade project reconciles the managed form
+    Given an existing consumer project runs $nmg-sdlc:upgrade-project
+    When the skill analyzes managed project artifacts
+    Then it detects a missing or outdated nmg-sdlc managed issue form
+    And it installs or updates the form as part of the upgrade findings and summary
+
+  Scenario: Existing target-path templates are overwritten
+    Given a consumer project already has a file at the managed issue-form target path
+    When $nmg-sdlc:init-config or $nmg-sdlc:upgrade-project applies the managed issue form
+    Then the nmg-sdlc form replaces the existing file
+    And the status summary clearly reports that the target-path template was overwritten
+
+  Scenario: Unrelated issue templates are preserved
+    Given a consumer project has other files under .github/ISSUE_TEMPLATE/
+    When $nmg-sdlc:init-config or $nmg-sdlc:upgrade-project applies the managed issue form
+    Then unrelated issue templates are not moved, deleted, renamed, reformatted, or overwritten
+    And only the approved nmg-sdlc issue-form target path is managed
+
+  Scenario: Public docs describe the managed issue form
+    Given users read the plugin README and CHANGELOG
+    When this feature ships
+    Then the docs describe the managed GitHub issue form, the setup and upgrade flows that install it, and the overwrite behavior for the managed target path
+
+  Scenario: Install paths are exercised
+    Given the implementation is verified against disposable projects
+    When $nmg-sdlc:init-config and $nmg-sdlc:upgrade-project are exercised
+    Then both flows produce the expected .github/ISSUE_TEMPLATE/ issue form
+    And the verification evidence confirms the generated YAML contains the required draft-issue fields
+
+  Scenario: GitHub form schema remains valid
+    Given the managed issue form is created or installed
+    When tests inspect the YAML template
+    Then it satisfies GitHub Issue Form schema expectations for required top-level keys, supported body field types, unique ids, unique labels, and required validations
+    And dropdown options that could be parsed as booleans are quoted

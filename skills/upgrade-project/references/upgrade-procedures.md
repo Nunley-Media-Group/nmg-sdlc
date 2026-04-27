@@ -125,6 +125,27 @@ Apply approved or unattended-managed findings from `../../references/contributio
    - Gaps: none | <comma-separated gaps>
    ```
 
+### Issue form
+
+Apply approved or unattended-managed findings from `../../references/issue-form.md`:
+
+1. Read the canonical `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` from the plugin root.
+2. Inspect `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` in the target project.
+3. If the form is missing, create `.github/ISSUE_TEMPLATE/` and write the canonical template.
+4. If the form exists and matches the canonical template, leave it unchanged and report `Form: already present`.
+5. If the form exists and differs from the canonical template, replace only that approved target path and report `Form: overwritten`.
+6. If the canonical template cannot be read, leave the target unchanged and report `Form: skipped (canonical template unavailable)`.
+7. If the target cannot be written, record `Form: skipped (write failed)` with the actionable filesystem gap.
+8. Preserve unrelated issue templates under `.github/ISSUE_TEMPLATE/` and unrelated workflows under `.github/workflows/` byte-for-byte.
+9. Re-read the form when present and emit the stable status block:
+
+   ```text
+   Issue Form:
+   - Form: created | overwritten | already present | skipped (<reason>)
+   - Path: .github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml
+   - Gaps: none | <comma-separated gaps>
+   ```
+
 ### Config value drift updates
 
 For each user-selected drifted value from Step 9 Part C (interactive mode only; this section is skipped entirely in unattended mode):
@@ -169,6 +190,7 @@ After applying changes, output a summary:
 - **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
 - **Contribution Guide** — CONTRIBUTING.md: created; README.md link: added
 - **Contribution Gate** — Workflow: created at `.github/workflows/nmg-sdlc-contribution-gate.yml`
+- **Issue Form** — Form: created at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`
 
 ### Declined (will be skipped in future runs)
 - **product.md** — "Brand Voice" (saved to .codex/upgrade-exclusions.json)
@@ -177,6 +199,7 @@ After applying changes, output a summary:
 - tech.md, structure.md, 42-add-auth/design.md
 - Contribution Guide: CONTRIBUTING.md already present; README.md link already present
 - Contribution Gate: Workflow already present
+- Issue Form: Form already present
 
 ### Filtered by relevance (no codebase evidence)
 - **tech.md** — "Database Standards", "API / Interface Standards"

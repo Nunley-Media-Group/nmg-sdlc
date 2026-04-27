@@ -11,6 +11,8 @@ Read `../../references/interactive-gates.md` when the workflow reaches any manua
 
 Read `../../references/contribution-gate.md` when runner config setup reaches managed project artifact creation — the shared contract defines the GitHub Actions contribution-gate workflow, managed marker/version, safe update rules, and stable status output.
 
+Read `../../references/issue-form.md` when runner config setup reaches managed issue-form installation — the shared contract defines the GitHub Issue Form path, canonical template source, overwrite rule, preservation rule, and stable status output.
+
 Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting the current project directory into the config template.
 
 ## Steps
@@ -60,7 +62,15 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
    - If the file exists without the managed marker, leave it untouched and record a path-collision gap.
    - Preserve every unrelated workflow under `.github/workflows/` byte-for-byte.
 
-9. **Confirm and suggest next step** — tell the user the config has been written and is git-ignored, include the stable Contribution Gate status block from `../../references/contribution-gate.md`, then suggest:
+9. **Install the managed issue form** — apply `../../references/issue-form.md` in the resolved project root:
+   - Read the canonical `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` template from the resolved plugin root.
+   - Create `.github/ISSUE_TEMPLATE/` when needed.
+   - If `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is absent, write the managed form template.
+   - If the file already matches the canonical template, leave it unchanged.
+   - If the file exists and differs from the canonical template, replace it and report `overwritten`.
+   - Preserve every unrelated issue template under `.github/ISSUE_TEMPLATE/` byte-for-byte.
+
+10. **Confirm and suggest next step** — tell the user the config has been written and is git-ignored, include the stable Contribution Gate status block from `../../references/contribution-gate.md` and the stable Issue Form status block from `../../references/issue-form.md`, then suggest:
    ```
    Run the SDLC runner:
      $nmg-sdlc:run-loop
@@ -72,8 +82,8 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
 
 ### Example 1: First-time setup
 User says: "Set up the SDLC runner for this project"
-Actions: Resolves project root, reads template, substitutes paths, writes `sdlc-config.json`, adds to `.gitignore`, installs the managed contribution gate
-Result: Config file and contribution-gate workflow ready at project root; user told how to run the runner
+Actions: Resolves project root, reads template, substitutes paths, writes `sdlc-config.json`, adds to `.gitignore`, installs the managed contribution gate, and installs the managed issue form
+Result: Config file, contribution-gate workflow, and SDLC-ready issue form ready at project root; user told how to run the runner
 
 ### Example 2: Project without .codex/
 User says: "Generate a runner config"
