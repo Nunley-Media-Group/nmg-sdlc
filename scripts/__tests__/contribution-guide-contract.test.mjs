@@ -22,6 +22,8 @@ describe('contribution guide contract (issue #109)', () => {
     expect(contract).toContain('Never create a `README.md`');
     expect(contract).toContain('Do not call `request_user_input`');
     expect(contract).toContain('## nmg-sdlc Contribution Workflow');
+    expect(contract).toContain('lacks PR readiness and managed contribution-gate remediation coverage');
+    expect(contract).toContain('append a focused subsection under that existing section instead of duplicating the heading');
   });
 
   test('onboard-project references the shared contract and reports contribution-guide status', () => {

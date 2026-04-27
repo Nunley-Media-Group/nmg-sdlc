@@ -92,6 +92,26 @@ Apply approved or unattended-managed findings from `../../references/contributio
    - Gaps: none | <comma-separated gaps>
    ```
 
+### Contribution gate
+
+Apply approved or unattended-managed findings from `../../references/contribution-gate.md`:
+
+1. Inspect `.github/workflows/nmg-sdlc-contribution-gate.yml`.
+2. If the workflow is missing, create `.github/workflows/` and write the shared contract's workflow template.
+3. If the workflow contains the nmg-sdlc managed marker and has an older numeric managed version, replace only that workflow with the current template.
+4. If the workflow contains the current managed marker/version, leave it unchanged and report `Workflow: already present`.
+5. If the workflow contains a future managed version, leave it unchanged and report `Workflow: skipped (newer managed version)`.
+6. If the approved path exists without the managed marker, leave it unchanged and report `Workflow: skipped (unmanaged file at path)`.
+7. Preserve unrelated workflows under `.github/workflows/` byte-for-byte.
+8. Re-read the workflow when present and emit the stable status block:
+
+   ```text
+   Contribution Gate:
+   - Workflow: created | updated | already present | skipped (<reason>)
+   - Path: .github/workflows/nmg-sdlc-contribution-gate.yml
+   - Gaps: none | <comma-separated gaps>
+   ```
+
 ### Config value drift updates
 
 For each user-selected drifted value from Step 9 Part C (interactive mode only; this section is skipped entirely in unattended mode):
@@ -135,6 +155,7 @@ After applying changes, output a summary:
 - **product.md** — Added sections: "Product Principles"
 - **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
 - **Contribution Guide** — CONTRIBUTING.md: created; README.md link: added
+- **Contribution Gate** — Workflow: created at `.github/workflows/nmg-sdlc-contribution-gate.yml`
 
 ### Declined (will be skipped in future runs)
 - **product.md** — "Brand Voice" (saved to .codex/upgrade-exclusions.json)
@@ -142,6 +163,7 @@ After applying changes, output a summary:
 ### Skipped (already up to date)
 - tech.md, structure.md, 42-add-auth/design.md
 - Contribution Guide: CONTRIBUTING.md already present; README.md link already present
+- Contribution Gate: Workflow already present
 
 ### Filtered by relevance (no codebase evidence)
 - **tech.md** — "Database Standards", "API / Interface Standards"

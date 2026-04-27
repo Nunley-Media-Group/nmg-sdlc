@@ -1,0 +1,66 @@
+# File: specs/feature-add-github-actions-contribution-gates-to-project-setup/feature.gherkin
+# Generated from: specs/feature-add-github-actions-contribution-gates-to-project-setup/requirements.md
+# Issue: #125
+
+Feature: Add GitHub Actions contribution gates to project setup
+  As a project maintainer using nmg-sdlc-managed repositories
+  I want project setup and upgrade flows to install a GitHub Actions PR contribution gate and richer contribution guidance
+  So that pull requests that bypass nmg-sdlc expectations are blocked before merge with actionable feedback
+
+  Scenario: Init creates the managed PR gate
+    Given a project runs "$nmg-sdlc:init-config"
+    And ".github/workflows/nmg-sdlc-contribution-gate.yml" is absent or already nmg-sdlc-managed
+    When runner config setup completes
+    Then ".github/workflows/nmg-sdlc-contribution-gate.yml" exists
+    And the workflow contains the current nmg-sdlc managed marker and managed-version metadata
+    And the workflow validates pull requests against nmg-sdlc contribution expectations
+
+  Scenario: Upgrade reconciles missing or outdated gates
+    Given an initialized project is missing the contribution-gate workflow or has an older nmg-sdlc-managed version
+    When "$nmg-sdlc:upgrade-project" runs
+    Then the workflow is reported as a managed non-destructive upgrade finding
+    And applying the finding creates or updates only the managed nmg-sdlc workflow
+    And unrelated project files and unmanaged workflows are preserved
+
+  Scenario: Non-compliant PRs fail with actionable output
+    Given a pull request lacks required nmg-sdlc contribution evidence
+    When the generated contribution-gate workflow runs
+    Then CI fails
+    And the output names each missing expectation
+    And the output points contributors to "CONTRIBUTING.md" or the relevant nmg-sdlc artifact path
+
+  Scenario: Existing GitHub Actions are preserved
+    Given a project already has unrelated workflows under ".github/workflows/"
+    When "$nmg-sdlc:init-config" or "$nmg-sdlc:upgrade-project" manages the contribution gate
+    Then unrelated workflows are not overwritten, moved, deleted, or reformatted
+    And only ".github/workflows/nmg-sdlc-contribution-gate.yml" is created or reconciled when that path is nmg-sdlc-owned
+
+  Scenario: CONTRIBUTING.md becomes a north star for non-plugin contributors
+    Given a developer does not have nmg-sdlc installed locally
+    When they read generated or updated "CONTRIBUTING.md"
+    Then they can understand expected issue quality
+    And they can understand spec location and steering alignment
+    And they can understand implementation scope, verification evidence, PR readiness, and contribution-gate failure remediation
+
+  Scenario: Workflow security and portability hold
+    Given the generated workflow runs on pull requests
+    When it evaluates repository content and PR metadata
+    Then it uses minimal GitHub token permissions
+    And it requires no repository secrets by default
+    And it does not run untrusted PR content as code
+    And it remains stack-agnostic unless a project explicitly declares additional steering-level verification expectations
+
+  Scenario: Path collisions are safe
+    Given ".github/workflows/nmg-sdlc-contribution-gate.yml" exists without the nmg-sdlc managed marker
+    When "$nmg-sdlc:init-config" or "$nmg-sdlc:upgrade-project" reaches the contribution-gate step
+    Then the workflow is not overwritten
+    And the skill records a gap naming the occupied path and required manual remediation
+    And unattended mode does not prompt or force the replacement
+
+  Scenario: Gate installation is idempotent
+    Given the managed contribution-gate workflow and guide content are already current
+    When "$nmg-sdlc:init-config" or "$nmg-sdlc:upgrade-project" runs again
+    Then no duplicate workflow content is produced
+    And no duplicate README links or contribution-guide sections are produced
+    And no unrelated diffs are produced
+    And the skill summary reports the gate as already present
