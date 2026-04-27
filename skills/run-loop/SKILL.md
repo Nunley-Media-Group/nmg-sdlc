@@ -57,12 +57,43 @@ If `pluginRoot` is not set, fall back to:
 <pluginsPath>/plugins/nmg-sdlc/scripts/sdlc-runner.mjs
 ```
 
+Verify the configured plugin root shape before launching. A valid nmg-sdlc plugin root contains:
+
+```
+.codex-plugin/plugin.json
+skills/
+scripts/sdlc-runner.mjs
+```
+
 Verify the runner exists:
 ```bash
 test -f "<runner-path>"
 ```
 
-If the runner is not found, report the error and stop.
+If the runner or any required root artifact is missing, treat the selected path as stale. Resolve a current installed nmg-sdlc plugin root using the same priority as `$nmg-sdlc:init-config`:
+
+1. Discover `~/.codex/plugins/**/nmg-sdlc/**/scripts/sdlc-config.example.json`.
+2. Prefer candidates whose parent plugin root also contains `skills/run-loop/SKILL.md`.
+3. If multiple versioned cache entries match, use the newest version directory.
+4. If no installed copy is found, fall back to this source checkout when it contains the same required plugin-root shape.
+
+If a verified replacement root is found, use its `scripts/sdlc-runner.mjs` for this invocation and tell the user:
+
+```
+Configured plugin root is stale: <stale-path>
+Using verified plugin root for this run: <replacement-root>
+Run $nmg-sdlc:upgrade-project to repair sdlc-config.json.
+```
+
+Do not rewrite `sdlc-config.json` from `$nmg-sdlc:run-loop`; durable repair belongs to `$nmg-sdlc:upgrade-project`.
+
+If no verified replacement is found, stop with an actionable diagnostic naming the stale path and the required shape:
+
+```
+Configured plugin root is stale: <stale-path>
+Expected a valid nmg-sdlc plugin root containing .codex-plugin/plugin.json, skills/, and scripts/sdlc-runner.mjs.
+Run $nmg-sdlc:upgrade-project after installing the current nmg-sdlc plugin, or update sdlc-config.json to a valid pluginRoot.
+```
 
 ## Step 4: Execute the Runner
 

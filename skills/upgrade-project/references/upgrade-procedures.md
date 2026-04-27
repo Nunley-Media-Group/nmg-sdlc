@@ -73,6 +73,19 @@ For the `sdlc-config.json`:
 5. Write the updated JSON (preserve existing values, only add missing keys)
 6. Use Codex editing to add the missing keys — do not overwrite the entire file
 
+### Runner Config Path Refresh
+
+Apply approved or unattended-managed Runner Config Path Refresh findings from `verification.md` separately from generic value drift:
+
+1. Read `sdlc-config.json` as JSON.
+2. For each approved path-refresh finding, verify the replacement root still contains `.codex-plugin/plugin.json`, `skills/`, and `scripts/sdlc-runner.mjs`.
+3. If the selected stale field was `pluginRoot`, replace only `pluginRoot` with the verified replacement root.
+4. If the selected stale field was `pluginsPath`, add or replace `pluginRoot` with the verified replacement root and leave `pluginsPath` unchanged. The runner's existing precedence makes `pluginRoot` the selected path without destroying legacy config.
+5. Preserve every unrelated key and value, including project path, model, effort, timeouts, retries, cleanup, log settings, and user-added fields.
+6. Write the updated JSON with 2-space indentation.
+7. Re-read `sdlc-config.json` and verify the selected runner root now passes the plugin-root shape check.
+8. If the replacement root no longer validates, skip the edit and record the no-replacement gap instead of writing a partial config.
+
 ### Contribution guide
 
 Apply approved or unattended-managed findings from `../../references/contribution-guide.md`:

@@ -30,9 +30,9 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 | Class | Examples | Unattended-mode behaviour |
 |-------|----------|---------------------------|
-| Non-destructive | Legacy directory relocation, exclusions-file rename, steering doc section additions, spec section additions, Related Spec corrections, frontmatter migration (`Issue` → `Issues`, Change History additions), runner config key additions, CHANGELOG fixes, VERSION updates, solo `feature-`/`bug-` renames, managed contribution-guide creation or update, README contribution-link insertion, managed contribution-gate workflow creation or update | Auto-applied; recorded in the Step 9 summary |
+| Non-destructive | Legacy directory relocation, exclusions-file rename, steering doc section additions, spec section additions, Related Spec corrections, frontmatter migration (`Issue` → `Issues`, Change History additions), runner config key additions, stale runner-config plugin-root path refreshes, CHANGELOG fixes, VERSION updates, solo `feature-`/`bug-` renames, managed contribution-guide creation or update, README contribution-link insertion, managed contribution-gate workflow creation or update | Auto-applied; recorded in the Step 9 summary |
 | Destructive | Spec directory consolidation, legacy spec-directory deletes (Steps 4b–4e) | Skipped; recorded under "Skipped Operations (Unattended-Mode)" |
-| Informational only | Config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval |
+| Informational only | Generic config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval. Stale plugin-root path refreshes are semantic repairs for unusable paths, not generic drift. |
 
 When `.codex/unattended-mode` does NOT exist, all interactive behavior is preserved unchanged — present all findings via `request_user_input` gate per Step 8.
 
@@ -47,7 +47,7 @@ specs/*/{requirements,design,tasks}.md — Spec files (feature + defect variants
 specs/*/                            — Spec directory naming (legacy `{issue#}-{slug}` vs feature-/bug-)
 specs/feature-*/*.md                — Spec frontmatter format (`**Issue**` → `**Issues**`, Change History)
 .codex/upgrade-exclusions.json     — Declined sections (read to skip, written after user declines)
-sdlc-config.json                    — SDLC runner config (key merge + value drift)
+sdlc-config.json                    — SDLC runner config (key merge + stale plugin-root path refresh + value drift)
 CHANGELOG.md                        — Changelog format and completeness (Keep a Changelog)
 VERSION                             — Single source of truth for project version
 CONTRIBUTING.md                     — Managed non-destructive contribution guide
@@ -157,7 +157,7 @@ Read `references/migration-steps.md` when any legacy `{issue#}-{slug}` directori
 
 ### Steps 5–7: Config, CHANGELOG, and VERSION Analysis
 
-Read `references/verification.md` when reaching Steps 5, 6, or 7 — the analysis logic for `sdlc-config.json` (key merge + value drift), `CHANGELOG.md` (Keep a Changelog reconciliation), and `VERSION` (semver consistency) lives there.
+Read `references/verification.md` when reaching Steps 5, 6, or 7 — the analysis logic for `sdlc-config.json` (key merge + stale plugin-root path refresh + value drift), `CHANGELOG.md` (Keep a Changelog reconciliation), and `VERSION` (semver consistency) lives there.
 
 ### Step 7a: Analyze Contribution Guide
 
@@ -184,7 +184,7 @@ Treat missing workflow creation and outdated managed workflow replacement as non
 
 ### Step 8: Present Findings
 
-Display a per-file summary of all proposed changes grouped by category — Legacy Layout Relocation (Step 1.5), Steering Docs (Step 3), Spec Files (Step 4), Spec Directory Consolidation (Step 4b–4e), Spec Frontmatter Migration (Step 4f), Runner Config (Step 5 keys), Config Value Drift (Step 5 scalars), Related Spec Links (Step 4a), CHANGELOG (Step 6), VERSION (Step 7), Contribution Guide (Step 7a), and Contribution Gate (Step 7b). If everything is up to date, report `Everything is up to date — no upgrade needed.` and stop.
+Display a per-file summary of all proposed changes grouped by category — Legacy Layout Relocation (Step 1.5), Steering Docs (Step 3), Spec Files (Step 4), Spec Directory Consolidation (Step 4b–4e), Spec Frontmatter Migration (Step 4f), Runner Config (Step 5 keys and stale path refreshes), Config Value Drift (Step 5 scalars), Related Spec Links (Step 4a), CHANGELOG (Step 6), VERSION (Step 7), Contribution Guide (Step 7a), and Contribution Gate (Step 7b). If everything is up to date, report `Everything is up to date — no upgrade needed.` and stop.
 
 The approval flow has four parts:
 
@@ -198,7 +198,7 @@ If there are proposed steering doc sections, present a `request_user_input` gate
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`); a free-form `Other` answer is treated as "Skip" with the text persisted as the reason. For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, VERSION changes, contribution-guide/README-link changes, or contribution-gate workflow changes, ask as a single batch (`Yes, apply all` / `No, cancel`); a free-form `Other` answer is treated as a request to narrow the batch, then the batch is re-presented. Skip Part B if there are no non-steering changes.
+Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`); a free-form `Other` answer is treated as "Skip" with the text persisted as the reason. For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, stale runner-config path refreshes, CHANGELOG fixes, VERSION changes, contribution-guide/README-link changes, or contribution-gate workflow changes, ask as a single batch (`Yes, apply all` / `No, cancel`); a free-form `Other` answer is treated as a request to narrow the batch, then the batch is re-presented. Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
@@ -226,6 +226,7 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 4. **Markdown files** — insert missing sections after their predecessor heading using Codex editing. Add `---` separator matching file style. Re-read to verify.
 5. **Related Spec corrections** — replace `**Related Spec**:` lines with resolved feature spec paths.
 6. **JSON config** — add missing keys only; never overwrite existing values.
+   Exception: approved or unattended stale plugin-root path-refresh findings from `references/verification.md` update only unusable path fields after replacement validation.
 7. **Config value drift updates** — for each user-selected drifted value from Part C (interactive only; skipped in unattended): read, Codex editing to replace the old value with the template default, re-read to verify. Preserve all unselected values.
 8. **Contribution guide** — apply approved or unattended-managed `CONTRIBUTING.md` creation/update and README-link insertion through `../../references/contribution-guide.md`; re-read both files when present and record `created`, `updated`, `already present`, `added`, or `skipped` statuses.
 9. **Contribution gate** — apply approved or unattended-managed `.github/workflows/nmg-sdlc-contribution-gate.yml` creation/update through `../../references/contribution-gate.md`; re-read the workflow when present and record `created`, `updated`, `already present`, or `skipped` statuses.
@@ -252,7 +253,7 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 
 1. **Never modify existing content** — only insert new sections or add new keys.
 2. **Create only managed non-destructive files** — `CHANGELOG.md`, `VERSION`, `.codex/upgrade-exclusions.json`, `CONTRIBUTING.md`, and `.github/workflows/nmg-sdlc-contribution-gate.yml` may be created when missing under their documented contracts. Do not synthesize unrelated project files, never create a missing `README.md`, and never overwrite an unmanaged workflow at the contribution-gate path.
-3. **Never overwrite values** — for JSON, only add absent keys. Exception: config value drift updates are applied only with explicit per-value user approval (Step 8 Part C); in unattended mode, value updates are never applied.
+3. **Never overwrite values** — for JSON, only add absent keys. Exceptions: stale plugin-root path-refresh findings update only unusable path fields after a replacement root passes shape validation; config value drift updates are applied only with explicit per-value user approval (Step 8 Part C). In unattended mode, stale path refreshes may apply, but generic value drift is never applied.
 4. **Skip `feature.gherkin`** — generated, not templated.
 5. **Interactive by default** — when `.codex/unattended-mode` is absent, present findings with per-section approval for steering docs and wait for user selection before applying.
 6. **Unattended-mode aware** — auto-apply all non-destructive changes; skip destructive operations and report them.

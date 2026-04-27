@@ -44,6 +44,7 @@ let PROJECT_PATH = '';
 let PLUGINS_PATH = '';
 let PLUGIN_ROOT = '';
 let SKILL_ROOT_SOURCE = '';
+let SKILL_ROOT_RECOVERY = null;
 let MODEL = 'gpt-5.5';
 let EFFORT = 'medium';
 let MAX_RETRIES = 3;
@@ -235,6 +236,136 @@ function validateConfig(config) {
   }
 
   return errors;
+}
+
+function pluginRootShapeDescription() {
+  return 'a valid nmg-sdlc plugin root containing .codex-plugin/plugin.json, skills/, and scripts/sdlc-runner.mjs';
+}
+
+function safeIsDirectory(targetPath) {
+  try {
+    return fs.statSync(targetPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function validatePluginRootShape(pluginRoot) {
+  if (!pluginRoot) {
+    return {
+      ok: false,
+      missingArtifact: 'plugin root path',
+      missingPath: pluginRoot,
+      reason: 'path is empty',
+    };
+  }
+
+  const required = [
+    {
+      artifact: '.codex-plugin/plugin.json',
+      path: path.join(pluginRoot, '.codex-plugin', 'plugin.json'),
+      type: 'file',
+    },
+    {
+      artifact: 'skills/',
+      path: path.join(pluginRoot, 'skills'),
+      type: 'directory',
+    },
+    {
+      artifact: 'scripts/sdlc-runner.mjs',
+      path: path.join(pluginRoot, 'scripts', 'sdlc-runner.mjs'),
+      type: 'file',
+    },
+  ];
+
+  for (const item of required) {
+    if (!fs.existsSync(item.path)) {
+      return {
+        ok: false,
+        missingArtifact: item.artifact,
+        missingPath: item.path,
+        reason: 'missing',
+      };
+    }
+    if (item.type === 'directory' && !safeIsDirectory(item.path)) {
+      return {
+        ok: false,
+        missingArtifact: item.artifact,
+        missingPath: item.path,
+        reason: 'not a directory',
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+function pathSegments(candidatePath) {
+  return path
+    .normalize(candidatePath)
+    .split(/[\\/]+/)
+    .filter(Boolean);
+}
+
+function isVersionedNmgSdlcCacheRoot(candidatePath) {
+  const parts = pathSegments(candidatePath);
+  if (parts.length < 5) return false;
+  const tail = parts.slice(-5);
+  return tail[0] === 'plugins'
+    && tail[1] === 'cache'
+    && tail[2] === 'nmg-plugins'
+    && tail[3] === 'nmg-sdlc'
+    && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(tail[4]);
+}
+
+function runtimePluginRoot() {
+  return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+}
+
+function selectedSkillsRoot() {
+  const base = resolveSkillsBase();
+  const configuredValue = SKILL_ROOT_SOURCE === 'pluginRoot' ? PLUGIN_ROOT : PLUGINS_PATH;
+  return {
+    base,
+    field: SKILL_ROOT_SOURCE,
+    configuredValue,
+  };
+}
+
+function pluginRootDiagnostic({ base, field, configuredValue }, validation) {
+  return [
+    `Invalid plugin root from ${field}="${configuredValue}".`,
+    `Resolved path: ${base}.`,
+    `Missing required artifact: ${validation.missingArtifact} at ${validation.missingPath}.`,
+    `Expected ${pluginRootShapeDescription()}.`,
+    'Run $nmg-sdlc:upgrade-project to refresh stale versioned cache roots, or update sdlc-config.json to a valid pluginRoot.',
+  ].join(' ');
+}
+
+function resolveUsableSkillsBase() {
+  const selected = selectedSkillsRoot();
+  SKILL_ROOT_RECOVERY = null;
+
+  const validation = validatePluginRootShape(selected.base);
+  if (validation.ok) return selected.base;
+
+  if (isVersionedNmgSdlcCacheRoot(selected.base)) {
+    const fallbackRoot = runtimePluginRoot();
+    const fallbackValidation = validatePluginRootShape(fallbackRoot);
+    if (fallbackValidation.ok) {
+      SKILL_ROOT_RECOVERY = {
+        staleField: selected.field,
+        staleValue: selected.configuredValue,
+        staleRoot: selected.base,
+        recoveredRoot: fallbackRoot,
+        missingArtifact: validation.missingArtifact,
+        missingPath: validation.missingPath,
+      };
+      return fallbackRoot;
+    }
+  }
+
+  throw new Error(pluginRootDiagnostic(selected, validation));
 }
 
 /**
@@ -996,14 +1127,17 @@ function resolveSkillsBase() {
 }
 
 function readSkill(skillName) {
-  const base = resolveSkillsBase();
+  const base = resolveUsableSkillsBase();
   const skillPath = path.join(base, 'skills', skillName, 'SKILL.md');
   if (!fs.existsSync(skillPath)) {
-    const configuredValue = SKILL_ROOT_SOURCE === 'pluginRoot' ? PLUGIN_ROOT : PLUGINS_PATH;
+    const configuredValue = SKILL_ROOT_RECOVERY
+      ? SKILL_ROOT_RECOVERY.recoveredRoot
+      : (SKILL_ROOT_SOURCE === 'pluginRoot' ? PLUGIN_ROOT : PLUGINS_PATH);
+    const source = SKILL_ROOT_RECOVERY ? 'recovered plugin root' : SKILL_ROOT_SOURCE;
     throw new Error(
       `Skill file not found: ${skillPath} ` +
-      `(resolved from ${SKILL_ROOT_SOURCE}="${configuredValue}"). ` +
-      `Check that ${SKILL_ROOT_SOURCE} in sdlc-config.json points at a directory containing skills/${skillName}/SKILL.md.`
+      `(resolved from ${source}="${configuredValue}"). ` +
+      `Check that ${source} points at a directory containing skills/${skillName}/SKILL.md.`
     );
   }
   return fs.readFileSync(skillPath, 'utf8');
@@ -1013,7 +1147,7 @@ function buildCodexArgs(step, state, overrides = {}) {
   const issue = state.currentIssue || '<unknown>';
   const branch = state.currentBranch || '<unknown>';
   const skillRoot = step.skill
-    ? path.join(resolveSkillsBase(), 'skills', step.skill)
+    ? path.join(resolveUsableSkillsBase(), 'skills', step.skill)
     : null;
 
   const prompts = {
@@ -2514,8 +2648,16 @@ async function main() {
   log('SDLC Runner starting...');
   log(`Config: ${configPath}`);
   log(`Project: ${PROJECT_PATH}`);
-  const resolvedSkillsBase = resolveSkillsBase();
+  const resolvedSkillsBase = resolveUsableSkillsBase();
   log(`Plugin root: ${resolvedSkillsBase} (from ${SKILL_ROOT_SOURCE})`);
+  if (SKILL_ROOT_RECOVERY) {
+    log(
+      `Recovered stale ${SKILL_ROOT_RECOVERY.staleField}="${SKILL_ROOT_RECOVERY.staleValue}" ` +
+      `(${SKILL_ROOT_RECOVERY.missingArtifact} missing at ${SKILL_ROOT_RECOVERY.missingPath}); ` +
+      `using ${SKILL_ROOT_RECOVERY.recoveredRoot} for this invocation. ` +
+      'Run $nmg-sdlc:upgrade-project to repair sdlc-config.json.'
+    );
+  }
   log(`Model: ${MODEL}`);
   if (EFFORT) log(`Effort: ${EFFORT}`);
   if (DRY_RUN) log('DRY-RUN MODE — no actions will be executed');
@@ -2739,6 +2881,7 @@ const __test__ = {
     SINGLE_ISSUE_NUMBER = null;
     bounceContext = null;
     dryRunState = null;
+    SKILL_ROOT_RECOVERY = null;
   },
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;
@@ -2762,6 +2905,7 @@ const __test__ = {
   get singleIssueNumber() { return SINGLE_ISSUE_NUMBER; },
   set singleIssueNumber(v) { SINGLE_ISSUE_NUMBER = v; },
   get skillRootSource() { return SKILL_ROOT_SOURCE; },
+  get skillRootRecovery() { return SKILL_ROOT_RECOVERY; },
   get bounceCount() { return bounceCount; },
   set bounceCount(v) { bounceCount = v; },
   get bounceContext() { return bounceContext; },
@@ -2791,6 +2935,10 @@ export {
   probeDivergenceHints,
   defaultState,
   validateConfig,
+  validatePluginRootShape,
+  isVersionedNmgSdlcCacheRoot,
+  resolveUsableSkillsBase,
+  runtimePluginRoot,
   getConfigObject,
   resolveStepConfig,
 

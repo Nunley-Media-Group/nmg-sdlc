@@ -9,6 +9,7 @@
  */
 
 import { jest } from '@jest/globals';
+import path from 'node:path';
 
 // ---------------------------------------------------------------------------
 // ESM mocking setup — must come before importing the module under test
@@ -55,6 +56,10 @@ const {
   incrementBounceCount,
   defaultState,
   validateConfig,
+  validatePluginRootShape,
+  isVersionedNmgSdlcCacheRoot,
+  resolveUsableSkillsBase,
+  runtimePluginRoot,
   getConfigObject,
   resolveStepConfig,
 
@@ -3515,7 +3520,7 @@ describe('skill path resolution (#88)', () => {
   });
 
   describe('AC3: diagnostic error names the field, value, and attempted path', () => {
-    it('error message from readSkill includes pluginRoot, its value, and the full path', () => {
+    it('error message from readSkill includes pluginRoot, its value, and the missing artifact path', () => {
       const badRoot = '/wrong/path';
       __test__.setConfig({ pluginRoot: badRoot, pluginsPath: '' });
       mockFs.existsSync.mockReturnValue(false);
@@ -3526,7 +3531,8 @@ describe('skill path resolution (#88)', () => {
       } catch (err) {
         expect(err.message).toContain('pluginRoot');
         expect(err.message).toContain(badRoot);
-        expect(err.message).toContain(`${badRoot}/skills/write-spec/SKILL.md`);
+        expect(err.message).toContain(path.join(badRoot, '.codex-plugin', 'plugin.json'));
+        expect(err.message).toContain('Expected a valid nmg-sdlc plugin root');
       }
     });
 
@@ -3540,7 +3546,8 @@ describe('skill path resolution (#88)', () => {
       } catch (err) {
         expect(err.message).toContain('pluginsPath');
         expect(err.message).toContain(PLUGINS_PATH);
-        expect(err.message).toContain('/plugins/nmg-sdlc/skills/write-spec/SKILL.md');
+        expect(err.message).toContain(path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc', '.codex-plugin', 'plugin.json'));
+        expect(err.message).toContain('Expected a valid nmg-sdlc plugin root');
       }
     });
   });
@@ -3608,6 +3615,118 @@ describe('skill path resolution (#88)', () => {
 
       __test__.singleIssueNumber = null;
     });
+  });
+});
+
+// ===========================================================================
+// Issue #124 — stale pluginRoot detection and recovery
+// ===========================================================================
+
+describe('stale pluginRoot config handling (#124)', () => {
+  const STALE_CACHE_ROOT = '/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.59.0';
+  const CUSTOM_ROOT = '/Users/dev/source/nmg-sdlc';
+  const PLUGINS_PATH = '/Users/dev/repos/nmg-plugins';
+
+  function rootArtifacts(root) {
+    return [
+      path.join(root, '.codex-plugin', 'plugin.json'),
+      path.join(root, 'skills'),
+      path.join(root, 'scripts', 'sdlc-runner.mjs'),
+    ];
+  }
+
+  function mockValidRoots(...roots) {
+    const valid = new Set(roots.flatMap(rootArtifacts));
+    mockFs.existsSync.mockImplementation((p) => valid.has(p));
+    mockFs.statSync.mockImplementation((p) => ({
+      isDirectory: () => p.endsWith(`${path.sep}skills`) || p.endsWith('/skills'),
+      size: 100,
+      mtimeMs: Date.now(),
+    }));
+  }
+
+  it('recognizes versioned nmg-sdlc cache roots', () => {
+    expect(isVersionedNmgSdlcCacheRoot(STALE_CACHE_ROOT)).toBe(true);
+    expect(isVersionedNmgSdlcCacheRoot(CUSTOM_ROOT)).toBe(false);
+  });
+
+  it('validates the plugin-root shape with required artifacts', () => {
+    mockValidRoots(CUSTOM_ROOT);
+
+    const result = validatePluginRootShape(CUSTOM_ROOT);
+
+    expect(result).toEqual({ ok: true });
+    expect(mockFs.existsSync).toHaveBeenCalledWith(path.join(CUSTOM_ROOT, '.codex-plugin', 'plugin.json'));
+    expect(mockFs.existsSync).toHaveBeenCalledWith(path.join(CUSTOM_ROOT, 'skills'));
+    expect(mockFs.existsSync).toHaveBeenCalledWith(path.join(CUSTOM_ROOT, 'scripts', 'sdlc-runner.mjs'));
+  });
+
+  it('fails with an actionable diagnostic when a stale cache root has no verified replacement', () => {
+    __test__.setConfig({ pluginRoot: STALE_CACHE_ROOT, pluginsPath: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    let message = '';
+    try {
+      resolveUsableSkillsBase();
+      throw new Error('expected resolveUsableSkillsBase to throw');
+    } catch (err) {
+      message = err.message;
+    }
+
+    expect(message).toMatch(/Invalid plugin root from pluginRoot/);
+    expect(message).toContain(STALE_CACHE_ROOT);
+    expect(message).toMatch(/Missing required artifact: \.codex-plugin\/plugin\.json/);
+    expect(message).toMatch(/upgrade-project/);
+    expect(__test__.skillRootRecovery).toBe(null);
+  });
+
+  it('recovers a missing versioned cache root through the current runner plugin root when it is valid', () => {
+    const runtimeRoot = runtimePluginRoot();
+    __test__.setConfig({ pluginRoot: STALE_CACHE_ROOT, pluginsPath: '' });
+    mockValidRoots(runtimeRoot);
+
+    const resolved = resolveUsableSkillsBase();
+
+    expect(resolved).toBe(runtimeRoot);
+    expect(__test__.skillRootRecovery).toEqual(expect.objectContaining({
+      staleField: 'pluginRoot',
+      staleValue: STALE_CACHE_ROOT,
+      staleRoot: STALE_CACHE_ROOT,
+      recoveredRoot: runtimeRoot,
+      missingArtifact: '.codex-plugin/plugin.json',
+    }));
+  });
+
+  it('preserves a valid custom pluginRoot unchanged', () => {
+    __test__.setConfig({ pluginRoot: CUSTOM_ROOT, pluginsPath: '' });
+    mockValidRoots(CUSTOM_ROOT);
+
+    const resolved = resolveUsableSkillsBase();
+
+    expect(resolved).toBe(CUSTOM_ROOT);
+    expect(__test__.skillRootRecovery).toBe(null);
+  });
+
+  it('keeps legacy pluginsPath composition when pluginRoot is absent', () => {
+    const legacyRoot = path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc');
+    __test__.setConfig({ pluginRoot: '', pluginsPath: PLUGINS_PATH });
+    mockValidRoots(legacyRoot);
+
+    const resolved = resolveUsableSkillsBase();
+
+    expect(resolved).toBe(legacyRoot);
+    expect(__test__.skillRootSource).toBe('pluginsPath');
+  });
+
+  it('keeps pluginRoot precedence when both path fields are set', () => {
+    const legacyRoot = path.join(PLUGINS_PATH, 'plugins', 'nmg-sdlc');
+    __test__.setConfig({ pluginRoot: CUSTOM_ROOT, pluginsPath: PLUGINS_PATH });
+    mockValidRoots(CUSTOM_ROOT, legacyRoot);
+
+    const resolved = resolveUsableSkillsBase();
+
+    expect(resolved).toBe(CUSTOM_ROOT);
+    expect(__test__.skillRootSource).toBe('pluginRoot');
   });
 });
 
