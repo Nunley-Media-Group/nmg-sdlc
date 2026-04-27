@@ -11,6 +11,10 @@ function canonicalForm() {
   return fs.readFileSync(path.join(repoRoot, FORM_RELATIVE_PATH), 'utf8');
 }
 
+function expectedStatus(form) {
+  return { form, path: FORM_RELATIVE_PATH, gaps: [] };
+}
+
 function scaffoldProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-issue-form-'));
   fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
@@ -37,15 +41,15 @@ function ensureIssueForm(projectDir) {
   if (existing === null) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, template);
-    return { form: 'created', path: FORM_RELATIVE_PATH, gaps: [] };
+    return expectedStatus('created');
   }
 
   if (existing !== template) {
     fs.writeFileSync(target, template);
-    return { form: 'overwritten', path: FORM_RELATIVE_PATH, gaps: [] };
+    return expectedStatus('overwritten');
   }
 
-  return { form: 'already present', path: FORM_RELATIVE_PATH, gaps: [] };
+  return expectedStatus('already present');
 }
 
 describe('managed issue form exercise coverage (issue #135)', () => {
@@ -53,11 +57,11 @@ describe('managed issue form exercise coverage (issue #135)', () => {
     const project = scaffoldProject();
 
     const first = ensureIssueForm(project);
-    expect(first).toEqual({ form: 'created', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(first).toEqual(expectedStatus('created'));
     expect(fs.readFileSync(issueFormPath(project), 'utf8')).toBe(canonicalForm());
 
     const second = ensureIssueForm(project);
-    expect(second).toEqual({ form: 'already present', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(second).toEqual(expectedStatus('already present'));
   });
 
   test('init-style setup overwrites only the managed target path and preserves unrelated issue templates', () => {
@@ -70,24 +74,24 @@ describe('managed issue form exercise coverage (issue #135)', () => {
 
     const status = ensureIssueForm(project);
 
-    expect(status).toEqual({ form: 'overwritten', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(status).toEqual(expectedStatus('overwritten'));
     expect(fs.readFileSync(target, 'utf8')).toBe(canonicalForm());
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: Project bug report\n');
   });
 
   test('upgrade-style reconciliation creates missing, overwrites differing, and reports current forms', () => {
     const missing = scaffoldProject();
-    expect(ensureIssueForm(missing)).toEqual({ form: 'created', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(ensureIssueForm(missing)).toEqual(expectedStatus('created'));
 
     const differing = scaffoldProject();
     fs.mkdirSync(path.dirname(issueFormPath(differing)), { recursive: true });
     fs.writeFileSync(issueFormPath(differing), 'name: stale managed path\n');
-    expect(ensureIssueForm(differing)).toEqual({ form: 'overwritten', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(ensureIssueForm(differing)).toEqual(expectedStatus('overwritten'));
 
     const current = scaffoldProject();
     fs.mkdirSync(path.dirname(issueFormPath(current)), { recursive: true });
     fs.writeFileSync(issueFormPath(current), canonicalForm());
-    expect(ensureIssueForm(current)).toEqual({ form: 'already present', path: FORM_RELATIVE_PATH, gaps: [] });
+    expect(ensureIssueForm(current)).toEqual(expectedStatus('already present'));
   });
 
   test('upgrade-style reconciliation preserves unrelated issue templates and workflows', () => {
