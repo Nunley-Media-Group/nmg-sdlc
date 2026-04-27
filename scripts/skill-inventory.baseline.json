@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-27T10:55:58.490Z",
+  "generated_at": "2026-04-27T15:05:17.373Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -309,7 +309,7 @@
         "skills/open-pr/SKILL.md:110",
         "skills/run-retro/SKILL.md:170",
         "skills/start-issue/SKILL.md:205",
-        "skills/upgrade-project/SKILL.md:249",
+        "skills/upgrade-project/SKILL.md:250",
         "skills/verify-code/SKILL.md:184",
         "skills/write-code/SKILL.md:112",
         "skills/write-spec/SKILL.md:112",
@@ -727,8 +727,8 @@
         "skills/onboard-project/SKILL.md:141",
         "skills/onboard-project/SKILL.md:145",
         "skills/onboard-project/SKILL.md:149",
-        "skills/upgrade-project/SKILL.md:236",
-        "skills/upgrade-project/SKILL.md:245",
+        "skills/upgrade-project/SKILL.md:237",
+        "skills/upgrade-project/SKILL.md:246",
         "skills/write-code/SKILL.md:70",
         "skills/write-code/SKILL.md:76"
       ]
@@ -1533,21 +1533,21 @@
     },
     {
       "id": "a0d443136a87",
-      "source_before": "skills/run-loop/SKILL.md:88",
+      "source_before": "skills/run-loop/SKILL.md:119",
       "normalized": "unattended-mode flag management (.codex/unattended-mode)",
-      "destination": "skills/run-loop/SKILL.md:88"
+      "destination": "skills/run-loop/SKILL.md:119"
     },
     {
       "id": "63ee9a24bd91",
-      "source_before": "skills/run-loop/SKILL.md:102",
+      "source_before": "skills/run-loop/SKILL.md:133",
       "normalized": "the runner creates and manages .codex/unattended-mode automatically. when this f",
-      "destination": "skills/run-loop/SKILL.md:102"
+      "destination": "skills/run-loop/SKILL.md:133"
     },
     {
       "id": "275d8edc6c84",
-      "source_before": "skills/run-loop/SKILL.md:104",
+      "source_before": "skills/run-loop/SKILL.md:135",
       "normalized": "do not create or remove .codex/unattended-mode manually — the runner handles the",
-      "destination": "skills/run-loop/SKILL.md:104"
+      "destination": "skills/run-loop/SKILL.md:135"
     },
     {
       "id": "9711433e8e7f",
@@ -2684,94 +2684,100 @@
       "destination": "skills/upgrade-project/SKILL.md:228"
     },
     {
-      "id": "3ecfbf0e38db",
+      "id": "a351abd8cd20",
       "source_before": "skills/upgrade-project/SKILL.md:229",
-      "normalized": "config value drift updates — for each user-selected drifted value from part c (i",
+      "normalized": "exception: approved or unattended stale plugin-root path-refresh findings from r",
       "destination": "skills/upgrade-project/SKILL.md:229"
     },
     {
-      "id": "a75792b67ddb",
+      "id": "3ecfbf0e38db",
       "source_before": "skills/upgrade-project/SKILL.md:230",
-      "normalized": "contribution guide — apply approved or unattended-managed contributing.md creati",
+      "normalized": "config value drift updates — for each user-selected drifted value from part c (i",
       "destination": "skills/upgrade-project/SKILL.md:230"
     },
     {
-      "id": "954b322d1314",
+      "id": "a75792b67ddb",
       "source_before": "skills/upgrade-project/SKILL.md:231",
-      "normalized": "contribution gate — apply approved or unattended-managed .github/workflows/nmg-s",
+      "normalized": "contribution guide — apply approved or unattended-managed contributing.md creati",
       "destination": "skills/upgrade-project/SKILL.md:231"
     },
     {
-      "id": "da6571a1c4b0",
+      "id": "954b322d1314",
       "source_before": "skills/upgrade-project/SKILL.md:232",
-      "normalized": "persist declined sections — if interactive, save unselected steering doc section",
+      "normalized": "contribution gate — apply approved or unattended-managed .github/workflows/nmg-s",
       "destination": "skills/upgrade-project/SKILL.md:232"
     },
     {
-      "id": "fb7a18f6913f",
+      "id": "da6571a1c4b0",
       "source_before": "skills/upgrade-project/SKILL.md:233",
-      "normalized": "output summary — report changes applied (including contribution-guide outcomes, ",
+      "normalized": "persist declined sections — if interactive, save unselected steering doc section",
       "destination": "skills/upgrade-project/SKILL.md:233"
     },
     {
-      "id": "1bf53d166b97",
+      "id": "fb7a18f6913f",
       "source_before": "skills/upgrade-project/SKILL.md:234",
-      "normalized": "skipped operations (unattended-mode) — if running unattended and any destructive",
+      "normalized": "output summary — report changes applied (including contribution-guide outcomes, ",
       "destination": "skills/upgrade-project/SKILL.md:234"
     },
     {
+      "id": "1bf53d166b97",
+      "source_before": "skills/upgrade-project/SKILL.md:235",
+      "normalized": "skipped operations (unattended-mode) — if running unattended and any destructive",
+      "destination": "skills/upgrade-project/SKILL.md:235"
+    },
+    {
       "id": "e15e45cdab84",
-      "source_before": "skills/upgrade-project/SKILL.md:237",
+      "source_before": "skills/upgrade-project/SKILL.md:238",
       "normalized": "## skipped operations (unattended-mode)",
-      "destination": "skills/upgrade-project/SKILL.md:237"
+      "destination": "skills/upgrade-project/SKILL.md:238"
     },
     {
       "id": "02eef79eb6f0",
-      "source_before": "skills/upgrade-project/SKILL.md:239",
-      "normalized": "the following destructive operations were skipped because .codex/unattended-mode",
-      "destination": "skills/upgrade-project/SKILL.md:239"
-    },
-    {
-      "id": "dd741dbdbc03",
       "source_before": "skills/upgrade-project/SKILL.md:240",
-      "normalized": "run $nmg-sdlc:upgrade-project interactively to apply them.",
+      "normalized": "the following destructive operations were skipped because .codex/unattended-mode",
       "destination": "skills/upgrade-project/SKILL.md:240"
     },
     {
+      "id": "dd741dbdbc03",
+      "source_before": "skills/upgrade-project/SKILL.md:241",
+      "normalized": "run $nmg-sdlc:upgrade-project interactively to apply them.",
+      "destination": "skills/upgrade-project/SKILL.md:241"
+    },
+    {
       "id": "c56e3de4103f",
-      "source_before": "skills/upgrade-project/SKILL.md:242",
+      "source_before": "skills/upgrade-project/SKILL.md:243",
       "normalized": "| operation type | affected paths | reason |",
-      "destination": "skills/upgrade-project/SKILL.md:242"
+      "destination": "skills/upgrade-project/SKILL.md:243"
     },
     {
       "id": "000d137a6bd6",
-      "source_before": "skills/upgrade-project/SKILL.md:244",
+      "source_before": "skills/upgrade-project/SKILL.md:245",
       "normalized": "| consolidation | 42-add-dark-mode/ + 71-dark-mode-toggle/ → feature-dark-mode/ ",
-      "destination": "skills/upgrade-project/SKILL.md:244"
+      "destination": "skills/upgrade-project/SKILL.md:245"
     },
     {
       "id": "4f4b5c458429",
-      "source_before": "skills/upgrade-project/SKILL.md:247",
+      "source_before": "skills/upgrade-project/SKILL.md:248",
       "normalized": "omit this section if no destructive operations were skipped.",
-      "destination": "skills/upgrade-project/SKILL.md:247"
+      "destination": "skills/upgrade-project/SKILL.md:248"
     },
     {
       "id": "4b359fd89474",
-      "source_before": "skills/upgrade-project/SKILL.md:257",
-      "normalized": "interactive by default — when .codex/unattended-mode is absent, present findings",
-      "destination": "skills/upgrade-project/SKILL.md:257"
-    },
-    {
-      "id": "9511d7d63639",
       "source_before": "skills/upgrade-project/SKILL.md:258",
-      "normalized": "unattended-mode aware — auto-apply all non-destructive changes; skip destructive",
+      "normalized": "interactive by default — when .codex/unattended-mode is absent, present findings",
       "destination": "skills/upgrade-project/SKILL.md:258"
     },
     {
+      "id": "9511d7d63639",
+      "source_before": "skills/upgrade-project/SKILL.md:259",
+      "normalized": "unattended-mode aware — auto-apply all non-destructive changes; skip destructive",
+      "destination": "skills/upgrade-project/SKILL.md:259"
+    },
+    {
       "id": "9da2d25f7ba4",
-      "source_before": "skills/upgrade-project/SKILL.md:262",
+      "source_before": "skills/upgrade-project/SKILL.md:263",
       "normalized": "preserve runtime artifacts — never relocate .codex/unattended-mode or .codex/sdl",
-      "destination": "skills/upgrade-project/SKILL.md:262"
+      "destination": "skills/upgrade-project/SKILL.md:263"
     },
     {
       "id": "6b5cd66f3a23",
