@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.67.3] - 2026-04-27
+
+### Fixed
+
+- Prevented unattended `$nmg-sdlc:run-loop` `start-issue` child sessions from reaching `request_user_input` prompts when the runner has already selected an issue, and classified the current Codex exec prompt-tool error as a Step 2 failure.
+
 ## [1.67.2] - 2026-04-27
 
 ### Fixed

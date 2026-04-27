@@ -47,9 +47,11 @@ git merge-base --is-ancestor {remote-tip-sha} origin/main
 
 ### 4. Delete the stale remote branch
 
-Unattended-mode deterministic-default (per `../../../references/unattended-mode.md`): delete without prompting. Interactive mode: confirm first.
+Unattended-mode deterministic-default (per `../../../references/unattended-mode.md`): delete without prompting and do not call `request_user_input`. Interactive mode: confirm first.
 
 #### Unattended mode (`.codex/unattended-mode` exists)
+
+This branch is non-interactive. Do not ask the user to confirm deletion, do not emit text asking the user to reply, and do not call `request_user_input`.
 
 ```bash
 git push origin --delete {branch}

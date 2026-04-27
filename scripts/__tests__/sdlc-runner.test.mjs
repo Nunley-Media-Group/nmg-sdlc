@@ -393,6 +393,26 @@ describe('Text-pattern soft failure detection', () => {
     expect(result.reason).toContain('request_user_input');
   });
 
+  it('detects current Codex exec request_user_input unsupported phrase as soft failure', () => {
+    const stdout = [
+      'Preparing to start issue #129',
+      'request_user_input is not supported in exec mode',
+    ].join('\n');
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: request_user_input unsupported in exec mode');
+  });
+
+  it('does not classify inline historical request_user_input exec-mode prose as a live failure', () => {
+    const stdout = JSON.stringify({
+      subtype: 'success',
+      result: 'The issue body quotes "request_user_input is not supported in exec mode" as historical context.',
+      session_id: 'abc123',
+    });
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(false);
+  });
+
   it('returns isSoftFailure:false for normal success text with no failure patterns (AC6)', () => {
     const stdout = 'Implementation complete for issue #42.\nFiles created: src/index.js';
     const result = detectSoftFailure(stdout);
@@ -1394,6 +1414,37 @@ describe('Soft failure integration', () => {
     expect(['retry', 'retry-previous', 'escalated']).toContain(handleResult);
 
     mockExit.mockRestore();
+  });
+
+  it('runStep treats startIssue exit 0 without a feature branch as failure before marking Step 2 complete', async () => {
+    __test__.setConfig({
+      dryRun: true,
+      singleIssueNumber: 129,
+      pluginRoot: '/tmp/test-plugin-root',
+      pluginsPath: '',
+    });
+    mockFs.existsSync.mockImplementation((targetPath) => {
+      if (targetPath === TEST_STATE_PATH) return false;
+      return true;
+    });
+    mockFs.readFileSync.mockImplementation((targetPath) => {
+      if (String(targetPath).endsWith('/SKILL.md')) return '# mock start-issue skill';
+      return '{}';
+    });
+    mockExecSync.mockImplementation((command) => {
+      if (command === 'git status --porcelain') return '';
+      if (command === 'git rev-parse --abbrev-ref HEAD') return 'main';
+      return '';
+    });
+
+    const result = await runStep(
+      { ...STEPS[1], skill: 'start-issue' },
+      { ...defaultState(), currentBranch: 'main' }
+    );
+
+    expect(result).toBe('retry');
+    expect(readState().lastCompletedStep).toBe(0);
+    expect(readState().retries[2]).toBe(1);
   });
 });
 
@@ -3390,15 +3441,39 @@ describe('--issue flag (single-issue mode) (#107)', () => {
       mockFs.existsSync.mockReturnValue(true);
       mockFs.readFileSync.mockReturnValue('# mock skill');
 
-      const step = STEPS[1]; // Step 2 = startIssue
+      const step = { ...STEPS[1], skill: 'start-issue' }; // Step 2 = startIssue
       const state = defaultState();
       const args = buildCodexArgs(step, state);
       const promptIdx = args.length - 1;
 
       expect(args[promptIdx]).toContain('Start issue #42');
+      expect(args[promptIdx]).toContain('UNATTENDED MODE');
+      expect(args[promptIdx]).toContain('Do NOT call `request_user_input`');
+      expect(args[promptIdx]).toContain('Skip issue selection and confirmation gates');
       expect(args[promptIdx]).not.toContain('Select and start the next');
 
       __test__.singleIssueNumber = null;
+    });
+
+    it('includes non-interactive instructions when the runner preselects an issue', () => {
+      __test__.singleIssueNumber = null;
+      __test__.preSelectedIssue = 129;
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('# mock skill');
+
+      const step = { ...STEPS[1], skill: 'start-issue' }; // Step 2 = startIssue
+      const state = defaultState();
+      const args = buildCodexArgs(step, state);
+      const promptIdx = args.length - 1;
+
+      expect(args[promptIdx]).toContain('Start issue #129');
+      expect(args[promptIdx]).toContain('already been selected by the runner');
+      expect(args[promptIdx]).toContain('Do NOT ask the user questions');
+      expect(args[promptIdx]).toContain('Do NOT call `request_user_input`');
+      expect(args[promptIdx]).toContain('Skip issue selection and confirmation gates');
+      expect(args[promptIdx]).not.toContain('Select and start the next');
+
+      __test__.preSelectedIssue = null;
     });
 
     it('uses default selection prompt when SINGLE_ISSUE_NUMBER is null', () => {
