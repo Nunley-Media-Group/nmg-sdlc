@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Implementation passes verification for issue #135. The repository now includes the canonical SDLC-ready GitHub Issue Form, lifecycle skill instructions install or reconcile it through the shared issue-form contract, docs describe setup/upgrade/overwrite behavior, and both init and upgrade paths were exercised against disposable projects.
+Implementation passes verification for issue #135. The repository now includes the canonical SDLC-ready GitHub Issue Form, lifecycle skill instructions install or reconcile it through the shared issue-form contract, docs describe setup/upgrade/overwrite behavior, and both init and upgrade issue-form paths were exercised against a disposable project using the changed source checkout.
 
 No verification findings required fixes.
 
@@ -22,12 +22,12 @@ No verification findings required fixes.
 | AC1 Repository Issue Form Exists | Pass | `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` exists with required `name`, `description`, and `body` keys. |
 | AC2 Draft-Issue Expectations Are Captured | Pass | Required form fields cover issue type, user story or bug/spike context, Given/When/Then ACs, FRs, scope, priority, and automation suitability. |
 | AC3 Submitted Issue Body Is Spec-Ready | Pass | Field labels map to recognizable GitHub issue body sections, and AC placeholder text preserves one-to-one Gherkin structure. |
-| AC4 Init Config Installs the Managed Form | Pass | `skills/init-config/SKILL.md` reads `../../references/issue-form.md`; disposable `codex exec` exercise created the form and emitted `Form: created`. |
-| AC5 Upgrade Project Reconciles the Managed Form | Pass | `skills/upgrade-project/SKILL.md` and `upgrade-procedures.md` analyze/apply issue-form findings; disposable exercise replaced stale target content. |
+| AC4 Init Config Installs the Managed Form | Pass | `skills/init-config/SKILL.md` reads `../../references/issue-form.md`; disposable `codex exec` source-checkout exercise created the form and emitted `Form: created`. |
+| AC5 Upgrade Project Reconciles the Managed Form | Pass | `skills/upgrade-project/SKILL.md` and `upgrade-procedures.md` analyze/apply issue-form findings; disposable source-checkout exercise replaced stale target content. |
 | AC6 Existing Target-Path Templates Are Overwritten | Pass | Contract and upgrade exercise report `Form: overwritten` when the approved target path differs from canonical content. |
 | AC7 Unrelated Issue Templates Are Preserved | Pass | Fixture and `codex exec` upgrade exercise preserved unrelated issue template and workflow bytes. |
 | AC8 Public Docs Describe the Managed Issue Form | Pass | `README.md` and `CHANGELOG.md` document managed form installation, reconciliation, and overwrite behavior. |
-| AC9 Install Paths Are Exercised | Pass | Jest fixture exercise and live disposable `codex exec` runs covered init creation and upgrade overwrite/preservation paths. |
+| AC9 Install Paths Are Exercised | Pass | Jest fixture exercise and live disposable `codex exec` source-checkout exercise covered init creation and upgrade overwrite/preservation paths. |
 | AC10 GitHub Form Schema Remains Valid | Pass | Static contract tests cover required top-level keys, supported field types, unique ids/labels/options, required validations, and quoted boolean-like dropdown values. |
 
 ---
@@ -72,13 +72,13 @@ Results:
 
 ## Exercise Test Results
 
-Plugin changes were detected in `skills/init-config/SKILL.md` and `skills/upgrade-project/SKILL.md`, so exercise verification was required.
+Plugin changes were detected in `skills/init-config/SKILL.md` and `skills/upgrade-project/SKILL.md`, so exercise verification was required. The installed plugin cache for this Codex session was still `1.67.5` and did not contain the issue-form changes, so the live `codex exec` exercise explicitly read the changed source checkout at `/Volumes/Fast Brick/source/repos/nmg-sdlc`.
 
 | Exercise | Status | Evidence |
 |----------|--------|----------|
-| Init config setup | Pass | Disposable `codex exec` run created `sdlc-config.json`, `.gitignore`, `.github/workflows/nmg-sdlc-contribution-gate.yml`, and `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`; Issue Form status was `created`, gaps `none`. |
-| Upgrade reconciliation | Pass | Disposable `codex exec` run replaced stale `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` with the canonical template; Issue Form status was `overwritten`, gaps `none`. |
-| Preservation boundary | Pass | Upgrade exercise preserved `.github/ISSUE_TEMPLATE/question.yml` and `.github/workflows/project-ci.yml` byte-for-byte. |
+| Init config issue-form install | Pass | Disposable `codex exec` source-checkout exercise created `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`; Issue Form status was `created`, path `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`, gaps `none`. |
+| Upgrade issue-form reconciliation | Pass | Disposable `codex exec` source-checkout exercise replaced stale `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` with the canonical template; Issue Form status was `overwritten`, gaps `none`, followed by `already present` on post-reconcile classification. |
+| Preservation boundary | Pass | Init/upgrade exercise preserved unrelated issue templates and an unrelated workflow byte-for-byte. Canonical form hash after both paths: `14dca9b036a71deaac4eeb80ef1d720913ca07d586e64ade6519b4462b1d10af`. |
 
 ---
 
@@ -87,7 +87,7 @@ Plugin changes were detected in `skills/init-config/SKILL.md` and `skills/upgrad
 | Gate | Status | Evidence |
 |------|--------|----------|
 | SDLC runner tests | Pass | `npm --prefix scripts test -- --runInBand` exited 0. |
-| Skill exercise test | Pass | Changed skills were exercised via disposable `codex exec` runs. |
+| Skill exercise test | Pass | Changed source-checkout issue-form install/reconcile behavior was exercised via disposable `codex exec`. |
 | Skill inventory audit | Pass | `node scripts/skill-inventory-audit.mjs --check` exited 0. |
 | Prompt quality review | Pass | Changed skill instructions use Codex-native references, maintain unattended branches, and preserve downstream output contracts. |
 | Behavioral contract review | Pass | Managed issue-form path, overwrite boundary, preservation rules, and setup/upgrade postconditions are documented and exercised. |
