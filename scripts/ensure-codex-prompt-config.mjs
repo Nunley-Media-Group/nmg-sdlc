@@ -119,7 +119,7 @@ function insertTopLevelKey(lines, key, keyName, keysChanged) {
 }
 
 function insertFeatureKeys(lines, keys, keysChanged) {
-  let span = findTableSpan(lines, 'features');
+  const span = findTableSpan(lines, 'features');
 
   if (!span) {
     const addition = [];
@@ -178,7 +178,6 @@ export function ensurePromptConfigText(source) {
       if (!present) {
         missingFeatureKeys.push(key);
       }
-      featureSpan = findTableSpan(lines, 'features');
     }
   } else {
     missingFeatureKeys.push(...REQUIRED_FEATURE_KEYS);
