@@ -1286,8 +1286,10 @@ const OS_TMPDIR = os.tmpdir();
 // Known text-based failure patterns — detected in raw stdout when JSON checks
 // find no failure indicators.  Each entry has a regex and a human-readable label
 // used in the soft-failure reason string and status log messages.
+const GITHUB_ACCESS_PATTERN = /error connecting to api\.github\.com/i;
+const GITHUB_STATUS_HINT_PATTERN = /check your internet connection or https:\/\/githubstatus\.com/i;
+
 const TEXT_FAILURE_PATTERNS = [
-  { pattern: /error connecting to api\.github\.com/i, label: 'github_access' },
   { pattern: /plan approval/i, label: 'plan approval' },
   { pattern: /request_user_input.*unattended-mode/i, label: 'request_user_input in unattended-mode' },
 ];
@@ -1300,6 +1302,63 @@ function matchTextFailure(text, labels = null) {
       return { isSoftFailure: true, reason: `text_pattern: ${label}` };
     }
   }
+  return null;
+}
+
+function nonJsonLines(output) {
+  if (!output || typeof output !== 'string') return [];
+  return output.split('\n').filter(line => {
+    if (!line.trim()) return false;
+    try {
+      JSON.parse(line);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+}
+
+function isDirectGithubAccessLine(line, nextLine = '') {
+  const trimmed = line.trim();
+  if (!GITHUB_ACCESS_PATTERN.test(trimmed)) return false;
+  if (/^error connecting to api\.github\.com$/i.test(trimmed)) return true;
+  if (/^(gh|github|error|fatal):/i.test(trimmed)) return true;
+  return GITHUB_STATUS_HINT_PATTERN.test(nextLine);
+}
+
+function isTerminalFailureEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (event.type === 'turn.failed') return true;
+  if (event.error) return true;
+  if (event.subtype && event.subtype !== 'success') return true;
+  return false;
+}
+
+function isToolOriginatedEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  const type = typeof event.type === 'string' ? event.type : '';
+  const itemType = typeof event.item?.type === 'string' ? event.item.type : '';
+  return /tool|exec|command|function_call_output/i.test(type) ||
+    /tool|exec|command|function_call_output/i.test(itemType) ||
+    Boolean(event.tool_name || event.tool_call_id);
+}
+
+function matchGithubAccessFailure(output) {
+  const events = parseJsonEvents(output);
+  for (const event of events) {
+    if (!GITHUB_ACCESS_PATTERN.test(JSON.stringify(event))) continue;
+    if (isTerminalFailureEvent(event) || isToolOriginatedEvent(event)) {
+      return { isSoftFailure: true, reason: 'text_pattern: github_access' };
+    }
+  }
+
+  const lines = nonJsonLines(output);
+  for (let i = 0; i < lines.length; i++) {
+    if (isDirectGithubAccessLine(lines[i], lines[i + 1] || '')) {
+      return { isSoftFailure: true, reason: 'text_pattern: github_access' };
+    }
+  }
+
   return null;
 }
 
@@ -1352,10 +1411,9 @@ function detectSoftFailure(stdout) {
   // indicators. Structured checks above stay authoritative when they find a
   // concrete failure; otherwise the parsed terminal message and raw combined
   // output can still carry child-tool failures that exited 0.
-  const textFailure = matchTextFailure(
-    stdout,
-    parsed ? new Set(['github_access']) : null
-  );
+  const githubAccessFailure = matchGithubAccessFailure(stdout);
+  if (githubAccessFailure) return githubAccessFailure;
+  const textFailure = parsed ? null : matchTextFailure(stdout);
   if (textFailure) return textFailure;
   return { isSoftFailure: false };
 }

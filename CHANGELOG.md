@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.67.1] - 2026-04-27
+
+### Fixed
+
+- Fixed `$nmg-sdlc:run-loop` GitHub access soft-failure detection so quoted historical `api.github.com` errors in successful child output no longer trigger retries, while real live GitHub CLI failures still classify correctly.
+
 ## [1.67.0] - 2026-04-27
 
 ### Added
