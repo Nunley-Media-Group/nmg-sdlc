@@ -1,0 +1,31 @@
+@regression @run-loop @issue-131
+Feature: Run-loop stops after issue escalation
+  The SDLC runner previously treated an issue-level escalation as a completed cycle boundary.
+  This was fixed by making continuous-mode escalation terminate the current invocation while preserving successful looping.
+
+  @regression
+  Scenario: AC1 - Continuous mode hard-stops on issue escalation
+    Given the SDLC runner is processing an issue in continuous mode
+    When any step for that issue returns escalated
+    Then the runner stops instead of selecting another issue
+    And no subsequent startIssue step runs in the same invocation
+
+  @regression
+  Scenario: AC2 - Failed issue remains the manual recovery target
+    Given a step escalation saved partial work for the current issue
+    When the runner stops
+    Then logs and runner state identify the failed issue and branch
+    And the operator can resume or complete that issue interactively without first undoing work on a later issue
+
+  @regression
+  Scenario: AC3 - Successful continuous looping is preserved
+    Given an issue completes successfully through the merge step
+    When continuous mode reaches the end of that successful cycle
+    Then the runner may still select the next eligible automatable issue
+
+  @regression
+  Scenario: AC4 - Regression coverage proves no next-issue selection after escalation
+    Given runner tests simulate a continuous-mode issue escalation
+    When the main loop handles the escalated result
+    Then the test proves the runner exits or sets a stop condition
+    And the test proves next-issue selection is not invoked after the escalation
