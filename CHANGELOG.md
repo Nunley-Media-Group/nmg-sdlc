@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.67.5] - 2026-04-27
+
+### Fixed
+
+- Ignored successful child `command_execution` output during `$nmg-sdlc:run-loop` failure matching, so historical GitHub, context-window, signal, and rate-limit text read from logs or memory no longer forces retries, waits, or hard stops while real failed command evidence still classifies correctly.
+
 ## [1.67.4] - 2026-04-27
 
 ### Fixed

@@ -9,6 +9,7 @@
  */
 
 import { jest } from '@jest/globals';
+import os from 'node:os';
 import path from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,21 @@ const {
 const TEST_PROJECT = '/tmp/test-project';
 const TEST_PLUGINS = '/tmp/test-plugins';
 const TEST_STATE_PATH = '/tmp/test-project/.codex/sdlc-state.json';
+const TEST_MEMORY_FILE = path.join(os.homedir(), '.codex', 'memories', 'MEMORY.md');
+const TEST_NON_MEMORY_FILE = path.join(TEST_PROJECT, 'logs', 'runner.log');
+
+function commandExecutionEvent(command, aggregatedOutput, exitCode = 0) {
+  return JSON.stringify({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      command,
+      aggregated_output: aggregatedOutput,
+      exit_code: exitCode,
+      status: 'completed',
+    },
+  });
+}
 
 function setupTestConfig() {
   __test__.setConfig({
@@ -456,6 +472,113 @@ describe('Text-pattern soft failure detection', () => {
       expect(typeof entry.label).toBe('string');
       expect(entry.label.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('Issue #136 successful command failure evidence filtering', () => {
+  it('does not classify GitHub access text from successful non-memory command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'rg -n "github_access" ${TEST_NON_MEMORY_FILE}'`,
+      [
+        'old runner log evidence:',
+        'error connecting to api.github.com',
+        'check your internet connection or https://githubstatus.com',
+      ].join('\n'),
+    );
+
+    const result = detectSoftFailure(stdout);
+
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('does not classify GitHub access text from memory-origin command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'rg -n "github_access" ${TEST_MEMORY_FILE}'`,
+      [
+        'old rollout evidence:',
+        'error connecting to api.github.com',
+        'check your internet connection or https://githubstatus.com',
+      ].join('\n'),
+    );
+
+    const result = detectSoftFailure(stdout);
+
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('does not match hard escalation or wait patterns from successful non-memory command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'rg -n "context_window_exceeded|rate_limit" ${TEST_NON_MEMORY_FILE}'`,
+      [
+        'historical context_window_exceeded note',
+        'historical signal: 9 note',
+        'historical signal: SIGKILL note',
+        'historical rate_limit note',
+      ].join('\n'),
+    );
+
+    expect(matchErrorPattern(stdout)).toBeNull();
+  });
+
+  it('does not match hard escalation or wait patterns from memory-origin command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'rg -n "context_window_exceeded|rate_limit" ${TEST_MEMORY_FILE}'`,
+      [
+        'historical context_window_exceeded note',
+        'historical signal: 9 note',
+        'historical signal: SIGKILL note',
+        'historical rate_limit note',
+      ].join('\n'),
+    );
+
+    expect(matchErrorPattern(stdout)).toBeNull();
+  });
+
+  it('still classifies GitHub access text from failed non-memory command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'cat ${TEST_NON_MEMORY_FILE}'`,
+      [
+        'gh issue view failed:',
+        'error connecting to api.github.com',
+        'check your internet connection or https://githubstatus.com',
+      ].join('\n'),
+      1,
+    );
+
+    const result = detectSoftFailure(stdout);
+
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: github_access');
+  });
+
+  it('still escalates context-window and signal patterns from failed non-memory command output', () => {
+    const contextResult = matchErrorPattern(commandExecutionEvent(
+      `/bin/zsh -lc 'cat ${TEST_NON_MEMORY_FILE}'`,
+      'Error: context_window_exceeded',
+      1,
+    ));
+    const signalResult = matchErrorPattern(commandExecutionEvent(
+      `/bin/zsh -lc 'cat ${TEST_NON_MEMORY_FILE}'`,
+      'Process terminated with signal: SIGKILL',
+      1,
+    ));
+
+    expect(contextResult?.action).toBe('escalate');
+    expect(signalResult?.action).toBe('escalate');
+  });
+
+  it('still waits on rate-limit patterns from failed non-memory command output and plain stderr', () => {
+    const commandResult = matchErrorPattern(commandExecutionEvent(
+      `/bin/zsh -lc 'cat ${TEST_NON_MEMORY_FILE}'`,
+      'Error: rate_limit exceeded',
+      1,
+    ));
+    const stderrResult = matchErrorPattern('Error: rate_limit exceeded');
+
+    expect(commandResult?.action).toBe('wait');
+    expect(stderrResult?.action).toBe('wait');
   });
 });
 
@@ -1555,6 +1678,89 @@ describe('Soft failure integration', () => {
     expect(result).toBe('retry');
     expect(readState().lastCompletedStep).toBe(0);
     expect(readState().retries[2]).toBe(1);
+  });
+
+  it('runStep lets completed startIssue handoffs advance when historical failure text appears only in successful command output', async () => {
+    __test__.setConfig({
+      dryRun: false,
+      singleIssueNumber: 136,
+      pluginRoot: '/tmp/test-plugin-root',
+      pluginsPath: '',
+      statePath: TEST_STATE_PATH,
+      logDir: '/tmp/test-logs',
+      orchestrationLog: '/tmp/test-logs/sdlc-runner.log',
+    });
+
+    let branchChecks = 0;
+    mockExecSync.mockImplementation((command) => {
+      if (command === 'git status --porcelain') return '';
+      if (command === 'git rev-parse --abbrev-ref HEAD') {
+        branchChecks += 1;
+        return branchChecks === 1
+          ? 'main'
+          : '136-fix-runner-failure-pattern-matching-on-successful-command-output';
+      }
+      return '';
+    });
+    const pluginRootArtifacts = new Set([
+      '/tmp/test-plugin-root/.codex-plugin/plugin.json',
+      '/tmp/test-plugin-root/skills',
+      '/tmp/test-plugin-root/scripts/sdlc-runner.mjs',
+    ]);
+    mockFs.existsSync.mockImplementation((targetPath) => (
+      pluginRootArtifacts.has(String(targetPath)) ||
+      String(targetPath).endsWith('/SKILL.md')
+    ));
+    mockFs.readFileSync.mockImplementation((targetPath) => {
+      if (String(targetPath).endsWith('/SKILL.md')) return '# mock start-issue skill';
+      return '{}';
+    });
+
+    let stdoutHandler;
+    const mockProc = {
+      pid: 12345,
+      stdout: {
+        on: jest.fn((event, handler) => {
+          if (event === 'data') stdoutHandler = handler;
+        }),
+      },
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, handler) => {
+        if (event === 'close') {
+          process.nextTick(() => {
+            stdoutHandler(Buffer.from(commandExecutionEvent(
+              `/bin/zsh -lc 'rg -n "context_window_exceeded|github_access" ${TEST_NON_MEMORY_FILE}'`,
+              [
+                'historical error connecting to api.github.com',
+                'historical context_window_exceeded note',
+              ].join('\n'),
+              0,
+            )));
+            handler(0);
+          });
+        }
+      }),
+      kill: jest.fn(),
+      killed: false,
+    };
+    mockSpawn.mockReturnValue(mockProc);
+
+    const result = await runStep(
+      { ...STEPS[1], skill: 'start-issue' },
+      { ...defaultState(), currentBranch: 'main' }
+    );
+
+    const serializedState = mockFs.writeFileSync.mock.calls
+      .map(([, content]) => String(content))
+      .find(content => content.includes('136-fix-runner-failure-pattern-matching-on-successful-command-output'));
+
+    expect(result).toBe('ok');
+    expect(serializedState).toBeDefined();
+    expect(JSON.parse(serializedState)).toEqual(expect.objectContaining({
+      currentIssue: 136,
+      currentBranch: '136-fix-runner-failure-pattern-matching-on-successful-command-output',
+      lastCompletedStep: 2,
+    }));
   });
 });
 
