@@ -1786,15 +1786,15 @@ async function escalate(step, reason, output = '') {
 
   log(`[STATUS] ${diagnostic}`);
 
+  // Preserve issue/branch state for manual recovery. The main loop treats any
+  // issue-level escalation as terminal for this invocation, so do not reset the
+  // state into a clean next-cycle boundary.
+
   // In single-issue mode, exit immediately on escalation — no next cycle
   if (SINGLE_ISSUE_NUMBER) {
     removeUnattendedMode();
     process.exit(1);
   }
-
-  // Reset state for next cycle (keep unattended-mode flag — the runner is still running
-  // and will start a fresh cycle; removing the flag causes skills to run interactively)
-  updateState({ currentStep: 0, lastCompletedStep: 0 });
 }
 
 /**
@@ -2442,6 +2442,38 @@ function handleSignal(signal) {
 process.on('SIGTERM', () => handleSignal('SIGTERM'));
 process.on('SIGINT', () => handleSignal('SIGINT'));
 
+function resolveMainLoopAction(result, step) {
+  if (result === 'escalated') {
+    return {
+      action: 'stop-runner',
+      logMessage: 'Escalation triggered. Stopping runner.',
+      removeUnattendedMode: true,
+    };
+  }
+
+  if (result === 'skip') {
+    return {
+      action: 'skip',
+      logMessage: `Skipping step ${step.number}`,
+      removeUnattendedMode: false,
+    };
+  }
+
+  if (result === 'done') {
+    return {
+      action: 'stop-runner',
+      logMessage: null,
+      removeUnattendedMode: false,
+    };
+  }
+
+  return {
+    action: 'continue',
+    logMessage: null,
+    removeUnattendedMode: false,
+  };
+}
+
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -2809,21 +2841,16 @@ async function main() {
         continue;
       }
 
-      if (result === 'escalated') {
-        log('Escalation triggered. Stopping cycle.');
-        // Break to outer loop which will check for issues again
-        break;
-      }
+      const mainLoopAction = resolveMainLoopAction(result, step);
+      if (mainLoopAction.logMessage) log(mainLoopAction.logMessage);
+      if (mainLoopAction.removeUnattendedMode) removeUnattendedMode();
 
-      if (result === 'skip') {
-        log(`Skipping step ${step.number}`);
-        continue;
-      }
-
-      if (result === 'done') {
+      if (mainLoopAction.action === 'stop-runner') {
         shuttingDown = true;
         break;
       }
+
+      if (mainLoopAction.action === 'skip') continue;
 
       // Post-startIssue safety check: halt if Codex selected an escalated issue (skip in single-issue mode)
       if (!SINGLE_ISSUE_NUMBER && result === 'ok' && step.number === STEP_NUMBER.startIssue) {
@@ -2849,6 +2876,8 @@ async function main() {
 
     // Single-issue mode: exit the while loop after the for loop completes
     if (SINGLE_ISSUE_NUMBER) break;
+
+    if (shuttingDown) break;
 
     // After a full cycle (or escalation), reset for next iteration
     clearBounceContext();
@@ -2980,6 +3009,7 @@ export {
   writeState,
   updateState,
   runCodex,
+  resolveMainLoopAction,
   removeUnattendedMode,
   ensureRunnerArtifactsGitignored,
   cleanupProcesses,

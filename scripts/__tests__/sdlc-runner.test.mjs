@@ -81,6 +81,7 @@ const {
   handleSignal,
 
   runStep,
+  resolveMainLoopAction,
   readState,
   writeState,
   updateState,
@@ -1116,6 +1117,25 @@ describe('Same-issue loop detection', () => {
     mockExit.mockRestore();
   });
 
+  it('escalate preserves failed issue state for manual recovery', async () => {
+    const failedState = {
+      ...defaultState(),
+      currentStep: 4,
+      lastCompletedStep: 3,
+      currentIssue: 131,
+      currentBranch: '131-fix-run-loop-continuing-after-issue-escalation',
+    };
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockReturnValue(JSON.stringify(failedState));
+    mockExecSync.mockReturnValue('');
+
+    await escalate(STEPS[STEP_KEYS.indexOf('implement')], 'test escalation');
+
+    const stateWrites = mockFs.writeFileSync.mock.calls.filter(([file]) => String(file).includes('sdlc-state.json'));
+    expect(stateWrites).toEqual([]);
+    expect(__test__.escalatedIssues.has(131)).toBe(true);
+  });
+
   it('buildCodexArgs excludes escalated issues from step 2 prompt', () => {
     __test__.escalatedIssues.add(10);
     __test__.escalatedIssues.add(20);
@@ -1133,6 +1153,47 @@ describe('Same-issue loop detection', () => {
     expect(prompt).toContain('#10');
     expect(prompt).toContain('#20');
     expect(prompt).toContain('Do NOT select');
+  });
+});
+
+describe('Continuous run-loop escalation control (#131)', () => {
+  it('stops the runner after a mid-cycle escalation before another startIssue can run', () => {
+    const outcomes = [
+      { step: STEPS[STEP_KEYS.indexOf('implement')], result: 'escalated' },
+      { step: STEPS[STEP_KEYS.indexOf('startIssue')], result: 'ok' },
+    ];
+    const visited = [];
+
+    for (const outcome of outcomes) {
+      visited.push(outcome.step.key);
+      const action = resolveMainLoopAction(outcome.result, outcome.step);
+      if (action.action === 'stop-runner') break;
+    }
+
+    expect(visited).toEqual(['implement']);
+    expect(resolveMainLoopAction('escalated', STEPS[STEP_KEYS.indexOf('implement')])).toMatchObject({
+      action: 'stop-runner',
+      removeUnattendedMode: true,
+    });
+  });
+
+  it('keeps successful merge completion eligible for another continuous cycle', () => {
+    const action = resolveMainLoopAction('ok', STEPS[STEP_KEYS.indexOf('merge')]);
+
+    expect(action).toMatchObject({
+      action: 'continue',
+      removeUnattendedMode: false,
+    });
+  });
+
+  it('main exits before the post-cycle state reset after a terminal stop', () => {
+    const source = main.toString();
+    const shutdownGuard = source.indexOf('if (shuttingDown) break;');
+    const postCycleReset = source.indexOf('// After a full cycle (or escalation), reset for next iteration');
+
+    expect(shutdownGuard).toBeGreaterThan(-1);
+    expect(postCycleReset).toBeGreaterThan(-1);
+    expect(shutdownGuard).toBeLessThan(postCycleReset);
   });
 });
 
