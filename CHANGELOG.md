@@ -10,6 +10,10 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+### Fixed
+
+- Detect and repair stale versioned `pluginRoot` cache paths before the SDLC loop requires a temporary config, preserving valid custom roots and legacy `pluginsPath` compatibility.
+
 ## [1.67.1] - 2026-04-27
 
 ### Fixed

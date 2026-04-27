@@ -11,12 +11,12 @@
 
 | Task | Description | Status |
 |------|-------------|--------|
-| T001 | Add runner plugin-root validation and stale-root diagnostics | [ ] |
-| T002 | Update run-loop stale-root recovery instructions through `$skill-creator` | [ ] |
-| T003 | Teach upgrade-project to detect and repair stale cache roots through `$skill-creator` | [ ] |
-| T004 | Add regression coverage and BDD scenarios | [ ] |
-| T005 | Update user-facing config guidance if behavior changes | [ ] |
-| T006 | Verify runner, skill, and config behavior | [ ] |
+| T001 | Add runner plugin-root validation and stale-root diagnostics | [x] |
+| T002 | Update run-loop stale-root recovery instructions through `$skill-creator` | [x] |
+| T003 | Teach upgrade-project to detect and repair stale cache roots through `$skill-creator` | [x] |
+| T004 | Add regression coverage and BDD scenarios | [x] |
+| T005 | Update user-facing config guidance if behavior changes | [x] |
+| T006 | Verify runner, skill, and config behavior | [x] |
 
 ---
 

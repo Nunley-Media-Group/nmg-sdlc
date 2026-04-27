@@ -11,17 +11,26 @@ If `sdlc-config.json` exists in the project root:
 3. **Compare `steps.*` keys** — identify missing step entries (e.g., a new step added to the template).
 4. **Compare step sub-keys** — for each step that exists in both, identify missing sub-keys (e.g., `skill`, `timeoutMin`).
 5. **Record missing keys at all levels** with their template default values.
-6. **Compare scalar values for drift** — after identifying missing keys, perform a second pass over keys that exist in **both** the project config and the template:
+6. **Analyze plugin-root path freshness** before generic drift:
+   - Determine the selected runner root using the runner's precedence: `pluginRoot` wins when non-empty; otherwise `pluginsPath` resolves to `{pluginsPath}/plugins/nmg-sdlc`.
+   - A valid root contains `.codex-plugin/plugin.json`, `skills/`, and `scripts/sdlc-runner.mjs`. Valid custom roots are preserved and are not drift.
+   - If the selected root is missing or fails the shape check and the selected path is a versioned nmg-sdlc cache root (`.../.codex/plugins/cache/nmg-plugins/nmg-sdlc/{semver}`), resolve the current installed nmg-sdlc root using the same discovery priority as `$nmg-sdlc:init-config`: newest valid versioned cache first, then this source checkout if valid.
+   - When a verified replacement exists, record a **Runner Config Path Refresh** finding with: selected field (`pluginRoot` or `pluginsPath`), configured value, resolved stale root, missing artifact, replacement root, and affected JSON field(s). If `pluginRoot` was selected, the affected field is `pluginRoot`. If only `pluginsPath` was selected, add or refresh `pluginRoot` to the replacement root and preserve `pluginsPath`; this uses the runner's existing precedence without rewriting legacy values. This is a non-destructive semantic repair, not generic scalar drift.
+   - When no verified replacement exists, record a gap instead of a change: `Runner config path refresh skipped — <field> points at <stale-root>, but no current installed nmg-sdlc plugin root containing .codex-plugin/plugin.json, skills/, and scripts/sdlc-runner.mjs could be verified.`
+   - If `pluginRoot` is valid and `pluginsPath` is stale, do not report the stale `pluginsPath`; pluginRoot precedence means it is not selected by the runner.
+7. **Compare scalar values for drift** — after identifying missing keys and stale path-refresh findings, perform a second pass over keys that exist in **both** the project config and the template:
    - **Root-level scalars** (e.g., `model`, `effort`, `maxRetriesPerStep`, `maxBounceRetries`, `maxLogDiskUsageMB`): compare values directly.
    - **Step sub-key scalars** (e.g., `steps.createPR.timeoutMin`, `steps.verify.timeoutMin`, `steps.implement.model`): for each step present in both configs, compare each sub-key value.
    - **Skip non-scalars**: if both values are objects, recurse into sub-keys (for `steps.*` nesting — max two levels deep: `steps.{stepName}.{subKey}`); if one is an object and the other a scalar, record as drift (type mismatch); arrays and complex nested objects not present in the template are excluded.
    - **Skip user additions**: keys present in the project config but absent from the template are not drift candidates.
-7. **Record each drifted value** with:
+8. **Record each drifted value** with:
    - Dotted key path (e.g., `steps.createPR.timeoutMin`).
    - Current project value.
    - Template default value.
 
 **Important:** Never overwrite existing values. Only add keys that are entirely absent. Config value drift is reported separately and requires explicit per-value user approval before any values are updated (see Step 8 Part C in SKILL.md).
+
+**Exception:** Runner Config Path Refresh findings may update the unusable selected path field because the old value cannot run the SDLC loop and the replacement has passed shape validation. Preserve every unrelated config value.
 
 ## Step 6: Analyze CHANGELOG.md
 
