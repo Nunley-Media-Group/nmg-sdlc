@@ -1,0 +1,47 @@
+# File: specs/bug-fix-stale-pluginroot-config-blocking-sdlc-loop/feature.gherkin
+#
+# Generated from: specs/bug-fix-stale-pluginroot-config-blocking-sdlc-loop/requirements.md
+# Issue: #124
+# Type: Defect regression
+
+@regression @run-loop @plugin-root @issue-124
+Feature: Stale pluginRoot config does not block the SDLC loop
+  A project config can point pluginRoot at an old versioned nmg-sdlc cache root
+  after the plugin has been upgraded or the cache has been cleaned.
+  The SDLC loop must detect and repair or clearly report that stale path without
+  requiring users to create a temporary runner config.
+
+  @regression
+  Scenario: run-loop detects stale pluginRoot before a temporary config is needed
+    Given a project sdlc-config.json sets pluginRoot to "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.59.0"
+    And that pluginRoot directory does not exist
+    And "/Users/dev/.codex/plugins/cache/nmg-plugins/nmg-sdlc/1.67.1" is a valid installed nmg-sdlc plugin root
+    When "$nmg-sdlc:run-loop" starts from that project
+    Then the stale pluginRoot is detected before the user creates a temporary config
+    And the output either records the safe recovered plugin root for this invocation or names the stale path with an actionable correction message
+
+  @regression
+  Scenario: upgrade-project repairs a stale versioned cache root
+    Given a project sdlc-config.json sets pluginRoot to a missing versioned nmg-sdlc cache root
+    And a current installed nmg-sdlc plugin root passes shape validation
+    When "$nmg-sdlc:upgrade-project" analyzes and applies non-destructive runner-config findings
+    Then the upgrade findings include a runner-config path refresh
+    And the applied config updates only the stale plugin path field needed by the runner
+    And unrelated model, effort, timeout, retry, cleanup, and projectPath values remain unchanged
+
+  @regression
+  Scenario: valid custom plugin roots are preserved
+    Given a project sdlc-config.json sets pluginRoot to an existing local checkout
+    And that checkout contains ".codex-plugin/plugin.json", "skills/", and "scripts/sdlc-runner.mjs"
+    When runner startup or "$nmg-sdlc:upgrade-project" config analysis runs
+    Then the configured pluginRoot is treated as valid
+    And it is not replaced by the newest versioned cache root
+
+  @regression
+  Scenario: legacy pluginsPath compatibility and pluginRoot precedence remain intact
+    Given one config uses only pluginsPath with a legacy "plugins/nmg-sdlc" layout
+    And another config sets both pluginRoot and pluginsPath
+    When skill path resolution runs
+    Then the pluginsPath-only config resolves through the existing legacy nested path
+    And the config with both fields still resolves through pluginRoot
+    And existing plugin-root and monorepo layout regression tests continue to pass
