@@ -33,25 +33,19 @@ function ensureIssueForm(projectDir) {
   const target = issueFormPath(projectDir);
   const template = canonicalForm();
   const existing = readIfExists(target);
-  const status = {
-    form: 'already present',
-    path: FORM_RELATIVE_PATH,
-    gaps: [],
-  };
 
   if (existing === null) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, template);
-    status.form = 'created';
-    return status;
+    return { form: 'created', path: FORM_RELATIVE_PATH, gaps: [] };
   }
 
   if (existing !== template) {
     fs.writeFileSync(target, template);
-    status.form = 'overwritten';
+    return { form: 'overwritten', path: FORM_RELATIVE_PATH, gaps: [] };
   }
 
-  return status;
+  return { form: 'already present', path: FORM_RELATIVE_PATH, gaps: [] };
 }
 
 describe('managed issue form exercise coverage (issue #135)', () => {

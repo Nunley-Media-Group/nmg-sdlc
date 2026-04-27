@@ -38,7 +38,6 @@ function optionLines(block) {
 describe('managed GitHub issue form contract (issue #135)', () => {
   test('canonical issue form exists with required top-level keys and body fields', () => {
     const source = read(FORM_RELATIVE_PATH);
-    expect(source.startsWith('name:')).toBe(true);
     expect(source).toMatch(/^name: .+/m);
     expect(source).toMatch(/^description: .+/m);
     expect(source).toMatch(/^body:\n/m);

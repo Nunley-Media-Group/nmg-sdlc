@@ -10,6 +10,8 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.68.0] - 2026-04-27
+
 ### Added
 
 - Added a managed GitHub Issue Form for issue #135: the repository now includes `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`, `$nmg-sdlc:init-config` installs it into consumer projects, `$nmg-sdlc:upgrade-project` reconciles missing or drifted forms, and the approved target path is explicitly overwritten while unrelated issue templates are preserved.
