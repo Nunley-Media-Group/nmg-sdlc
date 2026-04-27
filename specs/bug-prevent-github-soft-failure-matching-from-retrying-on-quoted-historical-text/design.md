@@ -79,6 +79,18 @@ The change is confined to text soft-failure classification for `github_access`. 
 
 ---
 
+## Validation Checklist
+
+Before moving to TASKS phase:
+
+- [ ] Root cause is identified with specific code references
+- [ ] Fix is minimal — no unrelated refactoring
+- [ ] Blast radius is assessed
+- [ ] Regression risks are documented with mitigations
+- [ ] Fix follows existing project patterns (per `structure.md`)
+
+---
+
 ## Validation
 
 - Run `cd scripts && npm test` after implementation.
