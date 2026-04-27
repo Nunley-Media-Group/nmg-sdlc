@@ -302,7 +302,7 @@ describe('Text-pattern soft failure detection', () => {
     expect(result.reason).toBe('text_pattern: github_access');
   });
 
-  it('detects GitHub API connectivity failures inside successful Codex JSON output', () => {
+  it('ignores GitHub API connectivity text inside successful Codex JSON output', () => {
     const stdout = JSON.stringify({
       subtype: 'success',
       result: [
@@ -312,8 +312,8 @@ describe('Text-pattern soft failure detection', () => {
       session_id: 'abc123',
     });
     const result = detectSoftFailure(stdout);
-    expect(result.isSoftFailure).toBe(true);
-    expect(result.reason).toBe('text_pattern: github_access');
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
   });
 
   it('detects GitHub API connectivity failures when stderr is combined with JSON stdout', () => {
@@ -325,6 +325,52 @@ describe('Text-pattern soft failure detection', () => {
     const result = detectSoftFailure(stdout);
     expect(result.isSoftFailure).toBe(true);
     expect(result.reason).toBe('text_pattern: github_access');
+  });
+
+  it('detects GitHub API connectivity failures inside unsuccessful Codex JSON output', () => {
+    const stdout = JSON.stringify({
+      type: 'result',
+      subtype: 'error',
+      result: [
+        'gh issue view failed:',
+        'error connecting to api.github.com',
+      ].join('\n'),
+      session_id: 'abc123',
+    });
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(true);
+    expect(result.reason).toBe('text_pattern: github_access');
+  });
+
+  it('ignores quoted historical GitHub API text inside memory and rollout context', () => {
+    const stdout = JSON.stringify({
+      subtype: 'success',
+      result: [
+        'Memory lookup found older context:',
+        '- Symptom: `gh` failed with `error connecting to api.github.com` in a prior run.',
+        '- Fix: rerun GitHub commands with network access.',
+        'Next step: $nmg-sdlc:write-code #278.',
+      ].join('\n'),
+      session_id: 'abc123',
+    });
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('ignores assistant prose that quotes the GitHub phrase without live failure evidence', () => {
+    const stdout = [
+      JSON.stringify({ type: 'thread.started', thread_id: 'abc123' }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'The spec quotes "error connecting to api.github.com" as historical context.',
+        session_id: 'abc123',
+      }),
+    ].join('\n');
+    const result = detectSoftFailure(stdout);
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
   });
 
   it('detects plan approval text pattern as soft failure (AC1)', () => {

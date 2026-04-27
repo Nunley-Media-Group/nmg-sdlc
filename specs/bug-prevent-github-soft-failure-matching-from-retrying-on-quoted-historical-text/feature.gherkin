@@ -1,0 +1,41 @@
+# File: specs/bug-prevent-github-soft-failure-matching-from-retrying-on-quoted-historical-text/feature.gherkin
+#
+# Generated from: specs/bug-prevent-github-soft-failure-matching-from-retrying-on-quoted-historical-text/requirements.md
+# Issue: #128
+# Type: Defect regression
+
+@regression
+Feature: GitHub soft-failure detection ignores quoted historical context
+  The runner previously treated any occurrence of "error connecting to api.github.com"
+  as a live GitHub access failure, including occurrences quoted from memory,
+  rollout summaries, specs, logs, or assistant prose. This was fixed by making
+  GitHub access matching source-aware.
+
+  @regression
+  Scenario: Live GitHub access failures still classify
+    Given child step output contains a current GitHub command failure "error connecting to api.github.com"
+    When detectSoftFailure evaluates the output
+    Then it returns a soft failure
+    And the reason is "text_pattern: github_access"
+
+  @regression
+  Scenario: Quoted historical GitHub errors do not classify
+    Given child step output contains "error connecting to api.github.com" only inside quoted memory, rollout, spec, log, or historical context
+    When detectSoftFailure evaluates the output
+    Then it does not return "github_access"
+    And the runner does not retry the step for that quoted phrase
+
+  @regression
+  Scenario: Successful child steps advance despite quoted GitHub error context
+    Given a child step exits with code 0 and emits successful completion text
+    And its transcript includes a quoted historical "api.github.com" failure
+    When the runner processes the step result
+    Then the step is marked complete
+    And the runner advances to the next step instead of burning retries
+
+  @regression
+  Scenario: Regression tests cover true and false positives
+    Given the runner test suite includes detectSoftFailure coverage
+    When the tests run
+    Then they cover a real GitHub access failure that still matches
+    And they cover quoted or historical context that must not match
