@@ -2,136 +2,204 @@
   "version": 1,
   "specs": {
     "specs/bug-add-auto-mode-support-to-migrate-project-skill/requirements.md": {
-      "hash": "ee5121ab64c297ffb252392c9ea5d71aaf9af37a30ede6001f9243b48a6a4f4e",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "807e1926f99df8591653a11705d15c502a155a945f8202d47a782eb6fa3f7f66",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-detect-soft-failures-runner-tests/requirements.md": {
-      "hash": "ee175dbd80b97ba3b322292614a68250ea073d9c554b516bef968041176c0696",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "93cc2361620a11e9cfa3564166d08ea3bd6faffbddcedc42f25a627d980faf66",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-drop-unsupported-parent-field-from-gh-issue-view-json-query-in-sdlc-runner/requirements.md": {
+      "hash": "f8d4c0c60fb3f57c0cc81fced6b4f0ed9238fbfa5f312f21b47d3cd521f4e8cf",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-exercise-template-dry-run-prefix/requirements.md": {
-      "hash": "9b6670d55513c67c3dd0b3351fe6ee845f629e857856d9aa4f3335cf2f66e772",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "bcff67b7e4ccd3b490927a0efe851ad894cbe12e0edc1de7365a913450097743",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-auto-mode-cleanup-on-exit/requirements.md": {
-      "hash": "8cc3a08172ab2e18a720bfc825a9e96a3f79af728054f77d6c6e3ecb4530a4f6",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "dc2a1e7b7ba69d0d02e93ad2f32161a5008c708bc53e2a3c72b4551c75d43c6c",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-draft-issue-steering-docs/requirements.md": {
-      "hash": "00845c3ef012a43afbc197eb17d6570ba1f615b95990eee014e3d0c48517aeee",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "1f62c07f35876c41a91ff8b7d5cfbe9fdb3318dd86ee09826f155e09354f0520",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-false-positive-permission-denied-escalation/requirements.md": {
-      "hash": "8a8702f1210e144ca3ef56d4b3ffa6af4696aa52c4947d6ed5d78a34bfcd4665",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "b3e95904c11df65f25c583a6fef84e5e04eb90d1caae01efa1a5fdcfcb174e8d",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-inconsistent-version-bumping/requirements.md": {
-      "hash": "ae55e8cb02d8c5686279790c640b86d9c2d2245c9ca9a6b517c270b7e0d78a65",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "6c333cdcc3033915de755a31ad866ebb2d6c079d0ea66422767b585ab0095bc2",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-merge-step-false-escalation-post-merge/requirements.md": {
-      "hash": "6ae5ee6b99a7c3ec95a8db54cef2436d6ebdd2133e45e2e2a5b00ac00c84b95e",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "9f4438eb15718ff945adcf202b7801216a1bde74bea7618d1e4ae75dd76621a0",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-migrate-project-auto-mode/requirements.md": {
-      "hash": "02898b50a9b05e3d7851a5033240625b06a405971d3735efafc84b3dfac51ed7",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "fa29a5764956e53c73a3f1b5f05bb93b92d45ddeae6cde3e511a6fd9cad76833",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-migrate-project-irrelevant-sections/requirements.md": {
-      "hash": "76f92586137c93c3c5773060592dc291218bd1a1b6ae11a70bc0821f3145bfb9",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "62c7e5b24d5067be891635f8fa42c0bc6d8b9f55f6c44644cd5db257dd6ffaf3",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-monitorci-step8/requirements.md": {
-      "hash": "23a492fbf564b6dde39714ea4858b65778a9411753c7a2f9bcf0129d03bb1905",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "4e6818b7e6560642e36c81a12a01f4ad8665f63cea20006d9ebffa4da3d4c821",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-open-pr-to-abort-on-dirty-tree-or-empty-implementation-branch/requirements.md": {
+      "hash": "5173b9aa5b323adddf182ab32a5d408ee3859b941c2e45e462b9e43df2d0bf4e",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-run-loop-child-codex-github-access/requirements.md": {
+      "hash": "f0fe9dfda52d35916d6251fa39e6015908eb2b2b4991955bfe63cb860a0a2ca8",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-run-loop-continuing-after-issue-escalation/requirements.md": {
+      "hash": "eb77da5b80fdd3772a76d0541ac35410d064adaa3e4a9b6d33f19e6a4a92ef15",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-run-retro-defect-spec-discovery/requirements.md": {
-      "hash": "f737be18607a21bd3003d7ec50376941893c836c38d0712bc632b296214b05f3",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "a324d4a5e26d0ae69f58950bb37144dc713031b144683ddf3c8d328d37a2b655",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-run-retro-learnings-transferability/requirements.md": {
-      "hash": "19313157ee6544c89355ae119b3b35544efe694e5efafe98a3cef5650a4c478e",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "65d7f19cc1a425e06259fa2eb5a94b0713c0665de696c52968fa2825e5518c56",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-run-retro-severity-grep-pattern/requirements.md": {
-      "hash": "43029e96dcd4e2d1c45b991916bc281de41a071ddb4f96e24d7c0a2e29f08c4a",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "a12840baee0bf0bd59ef084f5fc7ec6af059854c707f5a1e993ecb8aa1eb6e3d",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-runner-detectandhydratestate-skips-verify/requirements.md": {
-      "hash": "afd0abc256f2a17c988c36db2391592efd364b520913a0660ba2cd266fb4e2de",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "c7770078cb760e9631743b101065d1a5a654c3a254a9d0b7e91d0b0733298506",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-sdlc-runner-auto-mode-gitignore/requirements.md": {
-      "hash": "a1e03a81c2a725ddcb2109c87c712d0b8925b68b2d54f89acf377e401df7d814",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "b56a2c025d35520af269bafb8697c2ebe18fddaddfb9e6e679491a7c3fa22b8b",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-sdlc-runner-cross-cycle-state-contamination/requirements.md": {
-      "hash": "05210f7dfb94e764d524af928ac4aee9be08491c05244983b309ae9c711ec566",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "75a15776fc13b02f1653ca55a75a39af0a511002c24fa9ad6ef001eee7535ab7",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-sdlc-runner-infinite-retry-no-ci/requirements.md": {
-      "hash": "30ce141319bf56218e2960f42fe9bbcaa21e0a027fde68f979c64bbf9110a211",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "3e15030de9ed67443c68c586112123dd4611b9a1806f3fffb0c3f0dece2632e7",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-sdlc-runner-path-resolution-to-support-the-cc-plugin-cache-layout/requirements.md": {
+      "hash": "41559bc9039a61848385f7c76b706c6e8bda4e34d98c013cfffb72a3dd4c0384",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-sdlc-runner-process-tree-cleanup/requirements.md": {
-      "hash": "8aab66c7f5c0534b0950e524f2208b8d7945e953ba40c86f84e030b2611858f3",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "67140d4b280a981e27038b26cdb7d0d68f588c4ba46b8b8c2c596e744fe25f9f",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-silent-commitpush-failure/requirements.md": {
-      "hash": "bce7d1d00f4f343db94bc6ba42d339fe34b94694c7a9e1a7b5fb34abaa4f6518",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "924162632bd509fa13e4bbf69d29fab4fbcd9fbd09af5681c00c027ad42c3c7c",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-stale-pluginroot-config-blocking-sdlc-loop/requirements.md": {
+      "hash": "111a2f3049f3767b7022be14ab5e526f043282a0838a9847f184af5505de77f5",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-start-issue-dirty-tree-runner-artifacts/requirements.md": {
-      "hash": "103e1a3980c34b9f87e8dec7e804a98aa320a2b931fb353f16b2970e108ced73",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "d519cec1eb647f82f8c0d364663edb07f1653e468f897717bcfa6ae799a1e355",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-start-issue-milestone-selection/requirements.md": {
-      "hash": "ea8694966d08c0432fa694389ce1b0bdf609d9e82e88092469bde73914ac1c0a",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "a494db1f1c5b4133fa5aa2253e49625b83604d7e03c9f03d18a35911fa994e81",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-start-issue-unattended-mode-interactive-fallback/requirements.md": {
-      "hash": "94bb832e52c6110e367f4b75a6c9f2a49962bab6bcc5519b0098ece445228a79",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "154a98903dc166a48da13717c0ac226a4061e674ac520871ffd10e0c80e7b705",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-unattended-sdlc-runner-cascade-failure-on-diverged-remote-branch/requirements.md": {
+      "hash": "2f6eadc4802d038ea668e859802a4ec4068e1bcdc96c4af8b576a8b6ea8999a1",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-verify-step-false-escalation-on-temp-dir-denials/requirements.md": {
-      "hash": "50f4647ab696ed488e8ca059da48c028f798a189843cf1a682e21766e9f8dc95",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "057150777490a7b686e0a9a7326e5e5f78b3793169a1374795ec72eec77dafb6",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-fix-write-spec-defect-related-spec-search/requirements.md": {
-      "hash": "ded9f7de08f721cd95e3301153d94e8e4ffa5193c2238ddc162cc6cb2d515ec5",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "24581b9203a0086eed0856f4fd3b2cd52295ace7178ec2309d456a8f94e639db",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-fix-write-spec-to-interview-users-when-the-issue-has-open-questions/requirements.md": {
+      "hash": "6fbbd536ffed5352de7321da7b8329649b12e8b0a347edad66981552050855fc",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-handle-missing-spec-files-in-open-pr/requirements.md": {
-      "hash": "7cb73991966d2e7a9fbf84a37e395b2015d7fd62561355ab78e78666b56ecef1",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "cd77379a01931f878cef126d5a342b1ddb2230cac5634982ae01f0bd5c917a57",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-model-rate-limits/requirements.md": {
-      "hash": "5091480d4e561391a56926791bdcd1af51579e03d3db6f5154cd5ea3a3b83943",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "1d5119d8c7141b2c58d43f6adb31a0102273f9baaa13b17cf687a970b00d21e3",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-prevent-github-soft-failure-matching-from-retrying-on-quoted-historical-text/requirements.md": {
+      "hash": "a3e860f7e306defbc2a1ecd6230cac481eac89d2d7a116787459f4a8aa739ae6",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-prevent-start-issue-prompts-during-unattended-run-loop-exec/requirements.md": {
+      "hash": "5bcecf507007d8e912a85659355c94fc0961ca499ee531f153450938fce67b8c",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-relocate-specs-and-steering/requirements.md": {
-      "hash": "294ef32178b1a4ca8521d683891ea9afde966a0daa900b6e80b57e25211d8e3c",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "9d4ab9c422c21fd43a44ef27936c01dcd6764a7c6426701c2d5681e12140bc4e",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-replace-askuserquestion-with-escalation-when-specs-missing/requirements.md": {
-      "hash": "3666b589d27ed29583664e1e6e0fd3811ae7a9d9d8d9efd2e325c91c40ce19cf",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "1073dcc2c061adf4b0c03d6b33f0cd5a381b9f5172a6b922ace8f44405d09272",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-run-loop-blocks-dependency-ordering/requirements.md": {
+      "hash": "bfe9fa5e5424376b14fa2cee53516e59e8a8dc7f06595c20dfac22d35c934b95",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-run-loop-nested-codex-sandbox-inheritance/requirements.md": {
+      "hash": "2225fd2f900e336218785cf518e4008ecf5191c3fe8d6423497f563b1adf91d4",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-run-loop-no-automatable-issue-fallthrough/requirements.md": {
+      "hash": "07191048f9e515993df818a06b546c6c2b86673613281188c8c7120856c79310",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-run-loop-start-cycle-destructive-cleanup/requirements.md": {
+      "hash": "edcd355b105e6b9e18300e79f8f806a6533539c8c139defdebacdedaf431cfb7",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-runner-merge-progression-on-pending-ci/requirements.md": {
+      "hash": "a200e390416b7573621dfff2e5e252ee3529ba3baf038f52404f6347f4e59b49",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-runner-spec-validation-accepts-unrelated-specs/requirements.md": {
+      "hash": "911bf7f972ed3f21ddef2eff23107ba463e203a707d2afc7f83fdd9359ac2cad",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-sdlc-runner-edge-case-fixes/requirements.md": {
-      "hash": "d1a8a3c915a8c6d02886b8073c8fb39f1b0dcd844de2c3fa2c786f56dbb16d7a",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "00bdf707dff0479743df304a7d5e4a7681f71fe4ff12b4eab6e070023fd11159",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-spec-directory-rename-migrate-project/requirements.md": {
-      "hash": "46e2be0d43ef5fc304623b58ad7ed8f151cc53aa99ce102637f0b8fed5565351",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "efd16220de57367e9c1066ec23c81b0952553715b2fc03d6e5268e5b110deb43",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-text-pattern-soft-failure-detection-sdlc-runner/requirements.md": {
-      "hash": "776047664352a2af39099d78eed4505b8bf0a10e69e4616ff1d2dfc2e1aaf42c",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "3b18204c87444ddb105e39c26180fade75bdfeee593fff9677c563c5a663fef6",
+      "lastAnalyzed": "2026-04-27"
+    },
+    "specs/bug-unsupported-maxturns-runner-config-contract/requirements.md": {
+      "hash": "96712a62e962be57ff8af7bc2be1291ab24bff145511058fa4a5409047819c1a",
+      "lastAnalyzed": "2026-04-27"
     },
     "specs/bug-validate-git-cleanliness-before-branching-in-start-issue/requirements.md": {
-      "hash": "4f0d50e9499cc6d29b7b80825696ddf93fe1df9d0e2cba7ada25da88eff58bec",
-      "lastAnalyzed": "2026-04-19"
+      "hash": "6e24030351debb864d0539e2a2666f617c2b868e40627b8648fcadfd26560b81",
+      "lastAnalyzed": "2026-04-27"
     }
   }
 }

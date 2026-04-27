@@ -81,6 +81,7 @@ const {
   handleSignal,
 
   runStep,
+  resolveMainLoopAction,
   readState,
   writeState,
   updateState,
@@ -142,6 +143,7 @@ function setupTestConfig() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.exitCode = undefined;
   __test__.resetState();
   setupTestConfig();
 
@@ -1116,6 +1118,27 @@ describe('Same-issue loop detection', () => {
     mockExit.mockRestore();
   });
 
+  it('escalate preserves failed issue state for manual recovery', async () => {
+    const failedState = {
+      ...defaultState(),
+      currentStep: 4,
+      lastCompletedStep: 3,
+      currentIssue: 131,
+      currentBranch: '131-fix-run-loop-continuing-after-issue-escalation',
+    };
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockReturnValue(JSON.stringify(failedState));
+    mockExecSync.mockReturnValue('');
+
+    await escalate(STEPS[STEP_KEYS.indexOf('implement')], 'test escalation');
+
+    const stateWrites = mockFs.writeFileSync.mock.calls.filter(([file]) => String(file).includes('sdlc-state.json'));
+    const checkoutMainCalls = mockExecSync.mock.calls.filter(([cmd]) => String(cmd).includes('checkout main'));
+    expect(stateWrites).toEqual([]);
+    expect(checkoutMainCalls).toEqual([]);
+    expect(__test__.escalatedIssues.has(131)).toBe(true);
+  });
+
   it('buildCodexArgs excludes escalated issues from step 2 prompt', () => {
     __test__.escalatedIssues.add(10);
     __test__.escalatedIssues.add(20);
@@ -1133,6 +1156,93 @@ describe('Same-issue loop detection', () => {
     expect(prompt).toContain('#10');
     expect(prompt).toContain('#20');
     expect(prompt).toContain('Do NOT select');
+  });
+});
+
+describe('Continuous run-loop escalation control (#131)', () => {
+  it('stops the runner after a mid-cycle escalation before another startIssue can run', () => {
+    const outcomes = [
+      { step: STEPS[STEP_KEYS.indexOf('implement')], result: 'escalated' },
+      { step: STEPS[STEP_KEYS.indexOf('startIssue')], result: 'ok' },
+    ];
+    const visited = [];
+
+    for (const outcome of outcomes) {
+      visited.push(outcome.step.key);
+      const action = resolveMainLoopAction(outcome.result, outcome.step);
+      if (action.action === 'stop-runner') break;
+    }
+
+    expect(visited).toEqual(['implement']);
+    expect(resolveMainLoopAction('escalated', STEPS[STEP_KEYS.indexOf('implement')])).toMatchObject({
+      action: 'stop-runner',
+      removeUnattendedMode: true,
+      exitCode: 1,
+    });
+  });
+
+  it('keeps successful merge completion eligible for another continuous cycle', () => {
+    const action = resolveMainLoopAction('ok', STEPS[STEP_KEYS.indexOf('merge')]);
+
+    expect(action).toMatchObject({
+      action: 'continue',
+      removeUnattendedMode: false,
+    });
+  });
+
+  it('main sets a non-zero process status when continuous escalation stops the runner', async () => {
+    const failedState = {
+      ...defaultState(),
+      currentStep: 4,
+      lastCompletedStep: 3,
+      currentIssue: 131,
+      currentBranch: '131-fix-run-loop-continuing-after-issue-escalation',
+      retries: {},
+    };
+
+    __test__.setConfig({
+      dryRun: true,
+      resume: true,
+      maxRetriesPerStep: 1,
+      statePath: TEST_STATE_PATH,
+    });
+
+    mockFs.existsSync.mockImplementation((file) => {
+      const p = String(file);
+      return p === TEST_PROJECT
+        || p === TEST_STATE_PATH
+        || p.endsWith('/.codex/unattended-mode')
+        || p.endsWith('/.codex-plugin/plugin.json')
+        || p.endsWith('/skills')
+        || p.endsWith('/scripts/sdlc-runner.mjs');
+    });
+    mockFs.readFileSync.mockImplementation((file) => {
+      if (String(file) === TEST_STATE_PATH) return JSON.stringify(failedState);
+      return '{}';
+    });
+    mockExecSync.mockImplementation((cmd) => {
+      const command = String(cmd);
+      if (command.includes('rev-parse --is-inside-work-tree')) return 'true';
+      if (command.includes('rev-parse --abbrev-ref HEAD')) return 'main';
+      if (command.includes('status --porcelain')) return '';
+      return '';
+    });
+
+    await main();
+
+    expect(process.exitCode).toBe(1);
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(mockExecSync.mock.calls.some(([cmd]) => String(cmd).includes('checkout main'))).toBe(false);
+  });
+
+  it('main exits before the post-cycle state reset after a terminal stop', () => {
+    const source = main.toString();
+    const shutdownGuard = source.indexOf('if (shuttingDown) break;');
+    const postCycleReset = source.indexOf('// After a full cycle, reset for next iteration');
+
+    expect(shutdownGuard).toBeGreaterThan(-1);
+    expect(postCycleReset).toBeGreaterThan(-1);
+    expect(shutdownGuard).toBeLessThan(postCycleReset);
   });
 });
 

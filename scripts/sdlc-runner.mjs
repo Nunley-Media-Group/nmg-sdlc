@@ -1768,11 +1768,6 @@ async function escalate(step, reason, output = '') {
   // Commit/push partial work
   autoCommitIfDirty('chore: save partial work before escalation');
 
-  // Return to main
-  try {
-    if (!DRY_RUN) git('checkout main');
-  } catch { /* non-fatal */ }
-
   // Post diagnostic
   const diagnostic = [
     `ESCALATION: Step ${step.number} (${step.key}) failed.`,
@@ -1786,15 +1781,15 @@ async function escalate(step, reason, output = '') {
 
   log(`[STATUS] ${diagnostic}`);
 
+  // Preserve issue/branch state for manual recovery. The main loop treats any
+  // issue-level escalation as terminal for this invocation, so do not reset the
+  // state into a clean next-cycle boundary.
+
   // In single-issue mode, exit immediately on escalation — no next cycle
   if (SINGLE_ISSUE_NUMBER) {
     removeUnattendedMode();
     process.exit(1);
   }
-
-  // Reset state for next cycle (keep unattended-mode flag — the runner is still running
-  // and will start a fresh cycle; removing the flag causes skills to run interactively)
-  updateState({ currentStep: 0, lastCompletedStep: 0 });
 }
 
 /**
@@ -2442,6 +2437,39 @@ function handleSignal(signal) {
 process.on('SIGTERM', () => handleSignal('SIGTERM'));
 process.on('SIGINT', () => handleSignal('SIGINT'));
 
+function resolveMainLoopAction(result, step) {
+  if (result === 'escalated') {
+    return {
+      action: 'stop-runner',
+      logMessage: 'Escalation triggered. Stopping runner.',
+      removeUnattendedMode: true,
+      exitCode: 1,
+    };
+  }
+
+  if (result === 'skip') {
+    return {
+      action: 'skip',
+      logMessage: `Skipping step ${step.number}`,
+      removeUnattendedMode: false,
+    };
+  }
+
+  if (result === 'done') {
+    return {
+      action: 'stop-runner',
+      logMessage: null,
+      removeUnattendedMode: false,
+    };
+  }
+
+  return {
+    action: 'continue',
+    logMessage: null,
+    removeUnattendedMode: false,
+  };
+}
+
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -2809,21 +2837,17 @@ async function main() {
         continue;
       }
 
-      if (result === 'escalated') {
-        log('Escalation triggered. Stopping cycle.');
-        // Break to outer loop which will check for issues again
-        break;
-      }
+      const mainLoopAction = resolveMainLoopAction(result, step);
+      if (mainLoopAction.logMessage) log(mainLoopAction.logMessage);
+      if (mainLoopAction.removeUnattendedMode) removeUnattendedMode();
+      if (typeof mainLoopAction.exitCode === 'number') process.exitCode = mainLoopAction.exitCode;
 
-      if (result === 'skip') {
-        log(`Skipping step ${step.number}`);
-        continue;
-      }
-
-      if (result === 'done') {
+      if (mainLoopAction.action === 'stop-runner') {
         shuttingDown = true;
         break;
       }
+
+      if (mainLoopAction.action === 'skip') continue;
 
       // Post-startIssue safety check: halt if Codex selected an escalated issue (skip in single-issue mode)
       if (!SINGLE_ISSUE_NUMBER && result === 'ok' && step.number === STEP_NUMBER.startIssue) {
@@ -2850,15 +2874,17 @@ async function main() {
     // Single-issue mode: exit the while loop after the for loop completes
     if (SINGLE_ISSUE_NUMBER) break;
 
-    // After a full cycle (or escalation), reset for next iteration
+    if (shuttingDown) break;
+
+    // After a full cycle, reset for next iteration
     clearBounceContext();
     state = readState();
     if (state.currentStep === 0) {
-      // Clean cycle completion or escalation reset — check for more issues
+      // Clean cycle completion — check for more issues
       continue;
     }
 
-    // If we got here from an escalation mid-cycle, the state was already reset
+    // If we got here mid-cycle, reset to a clean cycle boundary.
     state = updateState({ currentStep: 0, lastCompletedStep: 0 });
   }
 
@@ -2888,6 +2914,7 @@ const __test__ = {
     bounceContext = null;
     dryRunState = null;
     SKILL_ROOT_RECOVERY = null;
+    shuttingDown = false;
   },
   setConfig(cfg) {
     PROJECT_PATH = cfg.projectPath ?? PROJECT_PATH;
@@ -2980,6 +3007,7 @@ export {
   writeState,
   updateState,
   runCodex,
+  resolveMainLoopAction,
   removeUnattendedMode,
   ensureRunnerArtifactsGitignored,
   cleanupProcesses,

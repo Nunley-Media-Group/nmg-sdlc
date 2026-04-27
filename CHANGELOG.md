@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.67.4] - 2026-04-27
+
+### Fixed
+
+- Hard-stopped continuous `$nmg-sdlc:run-loop` invocations after an issue-level escalation, preserving the failed issue branch for manual recovery and returning a non-zero status instead of selecting another automatable issue.
+
 ## [1.67.3] - 2026-04-27
 
 ### Fixed
