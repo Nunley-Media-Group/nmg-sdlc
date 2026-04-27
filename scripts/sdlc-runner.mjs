@@ -829,7 +829,7 @@ function failureEvidenceOutput(output) {
     }
     try {
       const event = JSON.parse(line);
-      if (isSuccessfulCommandExecutionEvent(event) || (eventExitCode(event) === null && isMemoryOriginEvent(event))) continue;
+      if (isMemoryOriginEvent(event) || isSuccessfulCommandExecutionEvent(event)) continue;
     } catch { /* non-JSON lines remain failure evidence */ }
     evidenceLines.push(line);
   }
