@@ -1,0 +1,47 @@
+# File: specs/bug-prevent-start-issue-prompts-during-unattended-run-loop-exec/feature.gherkin
+#
+# Generated from: specs/bug-prevent-start-issue-prompts-during-unattended-run-loop-exec/requirements.md
+# Issue: #129
+# Type: Defect regression
+
+@regression
+Feature: Prevent start-issue prompts during unattended run-loop exec
+  The start-issue child session previously reached request_user_input inside codex exec.
+  This is fixed by making unattended prompt guards explicit and classifying prompt-tool failures as Step 2 contract violations.
+
+  @regression
+  Scenario: AC1 - unattended start-issue does not call request_user_input
+    Given the SDLC runner has preselected an automatable issue
+    And ".codex/unattended-mode" exists
+    When Step 2 launches start-issue inside codex exec
+    Then start-issue does not call request_user_input
+    And start-issue does not ask the user to reply
+
+  @regression
+  Scenario: AC2 - unattended start-issue creates or reconciles the feature branch
+    Given the selected issue metadata is valid
+    And the working tree satisfies start-issue preconditions
+    When unattended start-issue runs for the selected issue
+    Then the linked feature branch is created or reconciled
+    And no manual confirmation is required
+
+  @regression
+  Scenario: AC3 - branch creation failures are actionable and non-interactive
+    Given branch creation cannot proceed
+    And ".codex/unattended-mode" exists
+    When start-issue reaches the branch creation path
+    Then it exits non-zero with an actionable diagnostic
+    And runner state does not mark Step 2 successful
+
+  @regression
+  Scenario: AC4 - interactive behavior is unchanged
+    Given ".codex/unattended-mode" does not exist
+    When a user-driven start-issue session needs issue selection or confirmation
+    Then request_user_input gates remain available
+
+  @regression
+  Scenario: AC5 - runner treats prompt-tool failures as Step 2 contract violations
+    Given a start-issue child emits "request_user_input is not supported in exec mode"
+    When the runner evaluates Step 2 output
+    Then the runner treats the output as a Step 2 contract violation
+    And the runner routes through the existing failure path

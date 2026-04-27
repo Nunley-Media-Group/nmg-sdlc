@@ -1154,7 +1154,13 @@ function buildCodexArgs(step, state, overrides = {}) {
     [STEP_NUMBER.startCycle]: 'Check out main and pull latest without discarding user work. Run: git checkout main && git pull --ff-only. Do not run destructive cleanup or reset commands in this step. If checkout or pull cannot complete cleanly, exit non-zero and report the blocker. Report the current branch and latest commit.',
 
     [STEP_NUMBER.startIssue]: (SINGLE_ISSUE_NUMBER || preSelectedIssue)
-      ? `Start issue #${SINGLE_ISSUE_NUMBER || preSelectedIssue}. Create a linked feature branch and set the issue to In Progress. Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`
+      ? [
+          `You are running in UNATTENDED MODE (\`.codex/unattended-mode\` exists).`,
+          `Start issue #${SINGLE_ISSUE_NUMBER || preSelectedIssue}. The issue has already been selected by the runner.`,
+          `Do NOT ask the user questions — there is no interactive user in this runner. Do NOT call \`request_user_input\`, and do NOT emit text asking the user to reply.`,
+          `Skip issue selection and confirmation gates. Follow the skill's unattended-mode path: create or reconcile the linked feature branch, set the issue to In Progress if applicable, and exit successfully only after HEAD is on the <number>-<slug> feature branch.`,
+          `Skill instructions are included below. Resolve relative file references from ${skillRoot}/.`,
+        ].join('\n')
       : [
           `You are running in UNATTENDED MODE (\`.codex/unattended-mode\` exists).`,
           `Do NOT ask the user questions — there is no interactive user in this runner. Do NOT emit`,
@@ -1425,6 +1431,7 @@ const GITHUB_STATUS_HINT_PATTERN = /check your internet connection or https:\/\/
 
 const TEXT_FAILURE_PATTERNS = [
   { pattern: /plan approval/i, label: 'plan approval' },
+  { pattern: /^request_user_input is not supported in exec mode$/im, label: 'request_user_input unsupported in exec mode' },
   { pattern: /request_user_input.*unattended-mode/i, label: 'request_user_input in unattended-mode' },
 ];
 
@@ -2572,26 +2579,24 @@ async function runStep(step, state) {
 
     // Extract state updates
     const patch = extractStateFromStep(step, result, state);
+    // Step 2 postcondition: a feature branch must be checked out. Check this
+    // before persisting lastCompletedStep so a failed handoff cannot leave
+    // runner state that implies Step 2 succeeded.
+    if (step.number === STEP_NUMBER.startIssue) {
+      const nextIssue = patch.currentIssue ?? state.currentIssue;
+      const nextBranch = patch.currentBranch ?? state.currentBranch;
+      if (!nextIssue || !nextBranch || nextBranch === 'main') {
+        log('Soft failure detected: step 2 exited 0 but no feature branch was created');
+        log(`[STATUS] Step 2 (startIssue) soft failure: no feature branch created (HEAD on ${nextBranch || 'main'})`);
+        return await handleFailure(step, result, state);
+      }
+    }
+
     // Track completed step for resume (merge resets this to 0 via its own patch)
     if (patch.lastCompletedStep === undefined) {
       patch.lastCompletedStep = step.number;
     }
     state = updateState(patch);
-
-    // Step 2 postcondition: a feature branch must be checked out. When the
-    // skill bails without creating one (e.g., a user-input request was denied in
-    // unattended mode and the model fell back to a text prompt), the exit
-    // code is still 0 but HEAD stays on main. Without this gate, downstream
-    // preconditions bounce repeatedly until the bounce-loop guard escalates.
-    // Treat "no feature branch" as a soft failure so the retry path handles
-    // it deterministically.
-    if (step.number === STEP_NUMBER.startIssue && !SINGLE_ISSUE_NUMBER) {
-      if (!state.currentIssue || !state.currentBranch || state.currentBranch === 'main') {
-        log('Soft failure detected: step 2 exited 0 but no feature branch was created');
-        log(`[STATUS] Step 2 (startIssue) soft failure: no feature branch created (HEAD on ${state.currentBranch || 'main'})`);
-        return await handleFailure(step, result, state);
-      }
-    }
 
     // Special: spec validation gate after writeSpecs
     if (step.number === STEP_NUMBER.writeSpecs) {
@@ -2879,6 +2884,7 @@ const __test__ = {
     consecutiveEscalations = 0;
     escalatedIssues.clear();
     SINGLE_ISSUE_NUMBER = null;
+    preSelectedIssue = null;
     bounceContext = null;
     dryRunState = null;
     SKILL_ROOT_RECOVERY = null;
@@ -2904,6 +2910,8 @@ const __test__ = {
   },
   get singleIssueNumber() { return SINGLE_ISSUE_NUMBER; },
   set singleIssueNumber(v) { SINGLE_ISSUE_NUMBER = v; },
+  get preSelectedIssue() { return preSelectedIssue; },
+  set preSelectedIssue(v) { preSelectedIssue = v; },
   get skillRootSource() { return SKILL_ROOT_SOURCE; },
   get skillRootRecovery() { return SKILL_ROOT_RECOVERY; },
   get bounceCount() { return bounceCount; },

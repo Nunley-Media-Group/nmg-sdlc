@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-27T15:05:17.373Z",
+  "generated_at": "2026-04-27T16:24:34.119Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -308,7 +308,7 @@
         "skills/onboard-project/SKILL.md:163",
         "skills/open-pr/SKILL.md:110",
         "skills/run-retro/SKILL.md:170",
-        "skills/start-issue/SKILL.md:205",
+        "skills/start-issue/SKILL.md:207",
         "skills/upgrade-project/SKILL.md:250",
         "skills/verify-code/SKILL.md:184",
         "skills/write-code/SKILL.md:112",
@@ -1861,7 +1861,7 @@
       "normalized": "[if .codex/unattended-mode exists]: done. awaiting orchestrator.",
       "destination": "skills/run-retro/SKILL.md:167",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:200",
+        "skills/start-issue/SKILL.md:202",
         "skills/verify-code/SKILL.md:181",
         "skills/write-code/SKILL.md:109",
         "skills/write-spec/SKILL.md:241"
@@ -2175,15 +2175,15 @@
     },
     {
       "id": "29899a286cd3",
-      "source_before": "skills/start-issue/SKILL.md:199",
+      "source_before": "skills/start-issue/SKILL.md:201",
       "normalized": "[if .codex/unattended-mode does not exist]: next step: run $nmg-sdlc:write-spec ",
-      "destination": "skills/start-issue/SKILL.md:199"
+      "destination": "skills/start-issue/SKILL.md:201"
     },
     {
       "id": "4963cc48b604",
-      "source_before": "skills/start-issue/SKILL.md:203",
+      "source_before": "skills/start-issue/SKILL.md:205",
       "normalized": "this summary is the handoff contract for downstream skills like $nmg-sdlc:write-",
-      "destination": "skills/start-issue/SKILL.md:203"
+      "destination": "skills/start-issue/SKILL.md:205"
     },
     {
       "id": "a8c4e4453d16",
