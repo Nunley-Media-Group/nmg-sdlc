@@ -2,5 +2,6 @@ node_modules/
 scripts/node_modules/
 
 # SDLC runner artifacts
+sdlc-config.json
 .codex/sdlc-state.json
 .codex/unattended-mode
