@@ -50,7 +50,7 @@ Then ask through `request_user_input`:
 }
 ```
 
-If the user selects 2 (or provides feedback), apply the changes to the file and re-present the summary and menu. Repeat until they select 1.
+If the user selects 2 or provides a free-form `Other` answer, treat that text as the requested revision, apply the changes to the file, and re-present the summary plus `request_user_input` gate. Repeat until they select 1.
 
 ## Phase 2 — Design Review Gate
 

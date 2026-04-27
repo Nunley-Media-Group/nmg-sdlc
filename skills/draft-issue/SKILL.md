@@ -70,7 +70,7 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 **Process**:
 
-1. If an argument was provided, use it as the starting description. Otherwise, ask the user what they need.
+1. If an argument was provided, use it as the starting description. Otherwise, present a `request_user_input` gate whose free-form `Other` answer captures what the user needs, then use that text as the starting description.
 2. Read `steering/product.md` for product vision, personas, MoSCoW priorities, and existing user journeys.
 
 Read `../../references/steering-schema.md` when you need the roster of steering documents and their read-timing.
@@ -132,7 +132,7 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 **If Enhancement / Feature**: file discovery for `specs/*/requirements.md` and read related specs; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
-**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); on "not quite", ask one follow-up and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
+**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); a free-form `Other` answer is treated as corrective bug context. On "not quite" or `Other`, collect one clarification and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
 
 Read `../../references/steering-schema.md` when you need each steering doc's purpose and read-timing.
 
@@ -180,7 +180,7 @@ Understanding check:
   Scope out: [bullets]
 ```
 
-Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]`, ask one free-text clarification, revise the understanding, re-render at the same depth, and re-menu. Loop until `[1]`.
+Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]` or a free-form `Other` answer, treat the text as the clarification, revise the understanding, re-render at the same depth, and re-present the gate. Loop until `[1]`.
 
 **Output**: `understanding` (persona, outcome, AC outline, scope in/out); `understandingConfirmed` must be true before Step 6.
 
@@ -231,7 +231,7 @@ options:
   - "[2] Revise — I'll describe what to change"
 ```
 
-On `[2]`, ask one free-text follow-up (`"What would you like to change?"`), apply the changes wholesale (revise iterations do NOT preserve previous drafts as diffs), re-render the summary and menu. Loop until `[1]`.
+On `[2]` or a free-form `Other` answer, treat the text as the requested change, apply the changes wholesale (revise iterations do NOT preserve previous drafts as diffs), re-render the summary and `request_user_input` gate. Loop until `[1]`.
 
 **Consecutive-revise soft guard**: maintain `consecutiveRevises` starting at `0`. Increment on `[2] Revise` (or `[1] Keep revising` on the expanded menu); reset on any selection that exits or restarts the loop. When `consecutiveRevises == 3`, the next round expands the menu to three options — `"[1] Keep revising"` / `"[2] Reset and re-interview"` / `"[3] Accept as-is"`. `[1]` returns to the two-option menu; `[2]` jumps back to Step 5 with `classification` and `milestone` preserved and resets the counter; `[3]` proceeds to Step 8. The skill does not auto-terminate — the user stays in control.
 

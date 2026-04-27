@@ -1,0 +1,60 @@
+# Generated from: specs/feature-require-request-user-input-mode-for-plugin-prompts/requirements.md
+# Issue: #110
+
+Feature: Require request_user_input mode for plugin prompts
+  As a developer using the nmg-sdlc Codex plugin
+  I want the plugin to automatically enable Codex user-question feature flags and route every user-input prompt through that contract
+  So that interactive workflows are consistent, typed, and always provide a free-form "something else" path
+
+  Scenario: Config flags are added automatically before interactive prompts
+    Given an interactive nmg-sdlc skill is invoked
+    And the user's Codex config does not enable default_mode_request_user_input, ask_user_questions, and suppress_unstable_features_warning
+    When the skill reaches a user-input gate
+    Then nmg-sdlc adds or updates all required settings in the user's Codex config
+    And the current workflow is blocked with close-and-reopen Codex instructions
+
+  Scenario: All user input uses request_user_input
+    Given any bundled skill or shared or per-skill reference asks the user for input
+    When active instructions are audited
+    Then the prompt is expressed as a request_user_input gate
+    And active instructions do not use handwritten menus, ad hoc text prompts, or legacy prompt wording for user decisions
+
+  Scenario: Free-form something else path is always available
+    Given a request_user_input gate offers predefined choices
+    When the user needs to provide an answer outside those choices
+    Then the final available path is the tool-provided free-form Other answer
+    And the skill documents how to handle that free-form text before continuing
+
+  Scenario: Setup documentation explains automatic config management
+    Given a user installs, upgrades, or adopts the nmg-sdlc plugin
+    When they read the README or run setup guidance
+    Then they see that nmg-sdlc automatically manages the required Codex prompt settings
+    And the documentation names default_mode_request_user_input, ask_user_questions, and suppress_unstable_features_warning
+
+  Scenario: Regression coverage pins the prompt contract
+    Given a developer changes skill or reference instructions
+    When the prompt-contract tests run
+    Then they fail if active prompt instructions omit request_user_input
+    And they fail if active prompt instructions omit free-form fallback handling
+    And they fail if active prompt instructions reintroduce ad hoc prompt wording
+    And they fail if automatic feature-flag setup guidance is dropped
+
+  Scenario: Under-development feature warnings are suppressed automatically
+    Given nmg-sdlc enables default_mode_request_user_input and ask_user_questions
+    When Codex would emit an under-development feature warning for either feature flag
+    Then nmg-sdlc also writes suppress_unstable_features_warning as true
+    And future invocations do not display the warning for those prompt flags
+
+  Scenario: Restart is required after automatic config update
+    Given nmg-sdlc changed the user's Codex config to add or update a required prompt feature setting
+    When the config write succeeds
+    Then the skill stops before continuing
+    And it tells the user to close and reopen Codex for the change to take effect
+    When the user reruns the skill after reopening Codex with all required settings present
+    Then the skill proceeds to the normal request_user_input gate without repeating the config-update block
+
+  Scenario: Existing user config is preserved
+    Given the user's Codex config already contains unrelated settings, marketplace entries, plugin enablement, projects, or comments
+    When nmg-sdlc adds the request-user-input and ask-user-questions feature flags plus the warning suppression setting
+    Then it preserves unrelated config values and comments
+    And it only changes the required keys

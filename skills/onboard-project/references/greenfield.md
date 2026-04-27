@@ -34,7 +34,7 @@ Extract template content from the ` ```markdown ... ``` ` fenced block in each t
 **Enhancement mode** (all three steering files already exist):
 
 1. For each section that has a corresponding interview answer differing from the existing value:
-   - In interactive mode, present the diff to the user (one section at a time) and ask whether to apply.
+   - In interactive mode, present the diff through a `request_user_input` gate (one section at a time); predefined choices apply or skip, and a free-form `Other` answer is treated as replacement section text before re-presenting the gate.
    - In unattended mode, auto-apply and log the diff for Step 5.
 2. Use targeted edits so unrelated sections in the steering files are preserved.
 3. Do not delete content the interview did not address.
@@ -149,7 +149,7 @@ All candidates seed into the `v1` milestone at `$nmg-sdlc:draft-issue` invocatio
 Generation rules:
 
 - Mine `interview_context.success_criteria` for distinct functional concerns.
-- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate (auto-cut in unattended mode, with the cut list logged for Step 5).
+- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate; a free-form `Other` answer is parsed as a custom keep/drop list before re-rendering the cut (auto-cut in unattended mode, with the cut list logged for Step 5).
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 
@@ -177,7 +177,7 @@ Set up auth
    └─▶ Add user profile
 ```
 
-`request_user_input` gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`.
+`request_user_input` gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`. A free-form `Other` answer is treated as edge-adjustment instructions, then the DAG is rebuilt and the gate is re-presented.
 
 In unattended mode: auto-accept option 1 and log the full DAG for Step 5.
 
@@ -210,7 +210,7 @@ Emit per candidate: `Seeded: <title> = #<num> (parents: #X #Y, blocks: #Z) | fai
 
 ## Step 3G Greenfield — Optional Init-Config
 
-1. In interactive mode, `request_user_input` gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`.
+1. In interactive mode, `request_user_input` gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`. The choices are exhaustive; a free-form `Other` answer is treated as "No" with the text recorded in the summary.
 2. In unattended mode, auto-yes without prompting. Log the auto-decision.
 3. If yes, invoke `$nmg-sdlc:init-config` (delegated) and record its exit status.
 4. Jump to Step 5 (Summary). Greenfield does not reconcile specs.

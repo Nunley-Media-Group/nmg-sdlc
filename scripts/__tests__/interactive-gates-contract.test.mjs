@@ -16,6 +16,32 @@ function skillFiles() {
     .filter((relativePath) => fs.existsSync(path.join(REPO_ROOT, relativePath)));
 }
 
+function walkMarkdown(relativeDir) {
+  const absoluteDir = path.join(REPO_ROOT, relativeDir);
+  if (!fs.existsSync(absoluteDir)) return [];
+
+  const entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+  return entries.flatMap((entry) => {
+    const relativePath = path.join(relativeDir, entry.name).split(path.sep).join('/');
+
+    if (entry.isDirectory()) {
+      return walkMarkdown(relativePath);
+    }
+    if (entry.isFile() && entry.name.endsWith('.md')) {
+      return [relativePath];
+    }
+    return [];
+  });
+}
+
+function activeInstructionFiles() {
+  return [
+    ...walkMarkdown('references'),
+    ...skillFiles(),
+    ...fs.readdirSync(path.join(REPO_ROOT, 'skills')).flatMap((name) => walkMarkdown(`skills/${name}/references`)),
+  ].sort();
+}
+
 describe('Plan Mode input gate contract', () => {
   it('requires request_user_input and proposed_plan for manual gates', () => {
     const source = read('references/interactive-gates.md');
@@ -23,6 +49,8 @@ describe('Plan Mode input gate contract', () => {
     expect(source).toContain('request_user_input');
     expect(source).toContain('<proposed_plan>');
     expect(source).toContain('Do not add a second "proceed?" confirmation gate');
+    expect(source).toContain('prompt-config.md');
+    expect(source).toContain('free-form `Other` affordance');
   });
 
   it('forbids request_user_input in unattended mode', () => {
@@ -43,17 +71,23 @@ describe('Plan Mode input gate contract', () => {
   });
 
   it('does not reintroduce legacy Codex interactive gate wording in active instructions', () => {
-    const activeDocs = [
-      'references/codex-tooling.md',
-      'references/interactive-gates.md',
-      'references/unattended-mode.md',
-      ...skillFiles(),
-    ];
-
-    for (const relativePath of activeDocs) {
+    for (const relativePath of activeInstructionFiles()) {
       const source = read(relativePath);
       expect(`${relativePath}\n${source}`).not.toContain('Codex interactive gate');
       expect(`${relativePath}\n${source}`).not.toContain('conversational prompt');
+      expect(`${relativePath}\n${source}`).not.toContain('free-text prompt');
+      expect(`${relativePath}\n${source}`).not.toContain('re-menu');
     }
+  });
+
+  it('pins the automatic prompt config and free-form fallback contract', () => {
+    const promptConfig = read('references/prompt-config.md');
+    const interactiveGates = read('references/interactive-gates.md');
+
+    expect(interactiveGates).toContain('Run the prompt-config preflight');
+    expect(promptConfig).toContain('node scripts/ensure-codex-prompt-config.mjs');
+    expect(promptConfig).toContain('changed` is `true`, stop before the original gate');
+    expect(interactiveGates).toContain('free-form `Other` affordance');
+    expect(interactiveGates).toContain('free-form text is mapped back into the current decision');
   });
 });
