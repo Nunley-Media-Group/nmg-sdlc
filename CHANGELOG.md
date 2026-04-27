@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.67.0] - 2026-04-27
+
+### Added
+
+- Added managed GitHub Actions contribution gates for issue #125: `init-config` installs the stack-agnostic PR gate, `upgrade-project` reconciles missing or outdated managed gates without overwriting project-authored workflows, and the contribution guide now gives contributors a concrete issue/spec/steering/verification readiness checklist.
+
 ## [1.66.0] - 2026-04-27
 
 ### Added

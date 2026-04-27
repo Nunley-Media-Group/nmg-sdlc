@@ -51,12 +51,12 @@ Run `$nmg-sdlc:onboard-project` in your project — it is the single entry point
 $nmg-sdlc:onboard-project
 ```
 
-- **Greenfield projects** (no code yet): runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds the `v1` GitHub milestone, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner.
+- **Greenfield projects** (no code yet): runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds the `v1` GitHub milestone, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner and managed GitHub Actions contribution gate.
 - **Greenfield-Enhancement (re-run)**: when steering files already exist but `specs/` does not, the same Step 2G pipeline runs in enhancement mode — steering files are edited in place (no overwrites), and milestones or issues already seeded by a prior run (detected via the `seeded-by-onboard` label) are skipped.
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
 
-After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation, verification, and PR workflow expectations while preserving any existing contributor policy.
+After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation scope, verification evidence, PR readiness, and managed contribution-gate failure remediation while preserving any existing contributor policy.
 
 The three steering documents written during greenfield bootstrap:
 
@@ -177,7 +177,7 @@ From within the target project (must have a `.codex/` directory):
 $nmg-sdlc:init-config
 ```
 
-This writes `sdlc-config.json` to the project root and adds it to `.gitignore`. The config specifies the project path, per-step timeouts, model/effort choices, and which nmg-sdlc skills to inject.
+This writes `sdlc-config.json` to the project root, adds it to `.gitignore`, and installs `.github/workflows/nmg-sdlc-contribution-gate.yml` when the approved path is absent or already nmg-sdlc-managed. The config specifies the project path, per-step timeouts, model/effort choices, and which nmg-sdlc skills to inject. The generated workflow runs on pull requests, checks for issue/spec/steering/verification evidence, uses read-only GitHub token permissions, requires no repository secrets by default, and does not replace project CI or human review.
 
 #### 2. Launch the runner
 
@@ -258,7 +258,7 @@ The **classification matrix**:
 
 ### Project Upgrades
 
-`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it can create managed non-destructive project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists.
+`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it can create managed non-destructive project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists. The managed contribution-gate workflow is another artifact: upgrade creates it when missing, replaces only older nmg-sdlc-managed versions, preserves unrelated workflows, and reports an unmanaged path collision instead of overwriting project-authored CI.
 
 **Spike research ADRs** are committed to `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` by `$nmg-sdlc:write-spec` Phase 0. The directory is created on demand (on the first spike); no pre-existing file or placeholder is required. `$nmg-sdlc:run-retro` scans this directory for ADRs older than 180 days and surfaces them as re-spike candidates in the retrospective output.
 
@@ -280,8 +280,8 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `$nmg-sdlc:run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
 | `$nmg-sdlc:run-loop [#N]` | Run the full SDLC pipeline from within an active Codex session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
 | `$nmg-sdlc:end-loop` | Stop unattended mode and clear runner state |
-| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, and can create or update `CONTRIBUTING.md` non-destructively |
-| `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner |
+| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, and can create or update `CONTRIBUTING.md` and the managed contribution-gate workflow non-destructively |
+| `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner and install the managed GitHub Actions contribution gate |
 | `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, contribution guide, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating

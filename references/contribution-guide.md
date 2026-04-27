@@ -35,13 +35,15 @@ Classify the current guide state:
 | State | Detection | Action |
 |-------|-----------|--------|
 | Missing guide | `CONTRIBUTING.md` does not exist | Create the default guide |
-| Incomplete guide | Guide exists but lacks nmg-sdlc issue, spec, and steering coverage | Append one targeted nmg-sdlc section |
-| Complete guide | Guide has the canonical nmg-sdlc heading or equivalent nearby issue/spec/steering coverage | Report already present |
+| Incomplete guide | Guide exists but lacks nmg-sdlc issue/spec/steering coverage, or lacks PR readiness and managed contribution-gate remediation coverage | Append or extend targeted nmg-sdlc guidance |
+| Complete guide | Guide has equivalent issue/spec/steering coverage plus PR readiness and contribution-gate remediation coverage | Report already present |
 
-Equivalent coverage is present when either condition is true:
+Equivalent issue/spec/steering coverage is present when either condition is true:
 
 - The guide contains `## nmg-sdlc Contribution Workflow`.
 - The guide has contributor workflow text that mentions GitHub issues, specs, and steering expectations near one another.
+
+Equivalent PR readiness and gate-remediation coverage is present when the guide mentions PR readiness or review readiness, verification evidence, and the managed contribution gate or its missing-evidence failure categories near one another.
 
 Be conservative. If an existing guide has close equivalent coverage, report `already present` instead of duplicating a near-identical section.
 
@@ -67,18 +69,32 @@ Generated content must cover:
 - Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
 - Contributors should consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before drafting issues, writing specs, or implementing code.
 - Implementation should follow the issue -> spec -> code -> simplify -> verify -> PR workflow.
+- PRs should include a readiness checklist covering issue linkage, spec artifacts, steering alignment, implementation scope, verification evidence, and review readiness.
+- The managed GitHub Actions contribution gate checks for issue, spec, steering, verification, and guide evidence; failures should name the missing category and point contributors back to this guide.
 - Existing code and reconciled specs are contribution context for brownfield projects.
 - Project-specific expectations should be summarized from steering where safe. If steering does not contain stack-specific guidance, keep the language stack-agnostic.
+
+The default guide must include concrete sections or bullets for:
+
+- Issue quality: a linked GitHub issue with a user story, BDD acceptance criteria, scope, and out-of-scope notes.
+- Spec location and frontmatter: `specs/feature-*` or `specs/bug-*` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`, and `**Issues**: #N`.
+- Steering alignment: how the change respects `product.md`, `tech.md`, and `structure.md`.
+- Implementation scope: stay within the approved spec, avoid unrelated refactors, and preserve existing project-owned files.
+- Verification evidence: summarize tests, `$nmg-sdlc:verify-code` results, steering verification gates, or `verification-report.md`.
+- PR readiness: include issue/spec links, verification summary, known gaps, and reviewer context before requesting review.
+- Contribution-gate remediation: fix missing issue, spec, steering, verification, or guide evidence rather than bypassing the workflow.
 
 ## Existing Guide Update
 
 When `CONTRIBUTING.md` exists but lacks nmg-sdlc coverage:
 
 1. Preserve the file byte-for-byte outside the inserted section.
-2. Append one section named `## nmg-sdlc Contribution Workflow`.
-3. Include issue, spec, steering, implementation, verification, and PR expectations.
-4. Include a short note that existing code and reconciled specs are context when the caller is in brownfield or upgrade mode.
-5. Do not rewrite headings, reformat custom project policies, delete sections, or move unrelated content.
+2. If the file lacks the canonical heading, append one section named `## nmg-sdlc Contribution Workflow`.
+3. If the canonical heading exists but lacks PR readiness or contribution-gate remediation detail, append a focused subsection under that existing section instead of duplicating the heading.
+4. Include issue, spec, steering, implementation, verification, and PR expectations.
+5. Include a concrete PR readiness checklist and managed contribution-gate remediation guidance.
+6. Include a short note that existing code and reconciled specs are context when the caller is in brownfield or upgrade mode.
+7. Do not rewrite headings, reformat custom project policies, delete sections, or move unrelated content.
 
 If the existing file has no trailing newline, add one before appending the section.
 

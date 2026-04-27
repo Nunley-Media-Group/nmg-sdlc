@@ -9,6 +9,8 @@ Read `../../references/codex-tooling.md` when the workflow starts — it maps le
 
 Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
+Read `../../references/contribution-gate.md` when runner config setup reaches managed project artifact creation — the shared contract defines the GitHub Actions contribution-gate workflow, managed marker/version, safe update rules, and stable status output.
+
 Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting the current project directory into the config template.
 
 ## Steps
@@ -50,7 +52,15 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
    - For each of `sdlc-config.json` and `.codex/sdlc-state.json`: if NOT already present, add it under an `# SDLC runner config` comment.
    - If both are already listed, skip this step.
 
-8. **Confirm and suggest next step** — tell the user the config has been written and is git-ignored, then suggest:
+8. **Install the managed contribution gate** — apply `../../references/contribution-gate.md` in the resolved project root:
+   - Create `.github/workflows/` when needed.
+   - If `.github/workflows/nmg-sdlc-contribution-gate.yml` is absent, write the managed workflow template.
+   - If the file is already nmg-sdlc-managed and current, leave it unchanged.
+   - If the file is nmg-sdlc-managed and outdated, update only that workflow from the shared contract.
+   - If the file exists without the managed marker, leave it untouched and record a path-collision gap.
+   - Preserve every unrelated workflow under `.github/workflows/` byte-for-byte.
+
+9. **Confirm and suggest next step** — tell the user the config has been written and is git-ignored, include the stable Contribution Gate status block from `../../references/contribution-gate.md`, then suggest:
    ```
    Run the SDLC runner:
      $nmg-sdlc:run-loop
@@ -62,8 +72,8 @@ Generate a ready-to-use `sdlc-config.json` for the SDLC runner by substituting t
 
 ### Example 1: First-time setup
 User says: "Set up the SDLC runner for this project"
-Actions: Resolves project root, reads template, substitutes paths, writes `sdlc-config.json`, adds to `.gitignore`
-Result: Config file ready at project root; user told how to run the runner
+Actions: Resolves project root, reads template, substitutes paths, writes `sdlc-config.json`, adds to `.gitignore`, installs the managed contribution gate
+Result: Config file and contribution-gate workflow ready at project root; user told how to run the runner
 
 ### Example 2: Project without .codex/
 User says: "Generate a runner config"
