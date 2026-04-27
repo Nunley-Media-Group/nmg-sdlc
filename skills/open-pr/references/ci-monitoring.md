@@ -8,7 +8,7 @@ If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT pre
 
 Otherwise:
 
-1. **Prompt the user** via `request_user_input` gate:
+1. **Present** a `request_user_input` gate:
 
    ```
    question: "Monitor CI and auto-merge this PR once all required checks pass?"
@@ -16,6 +16,8 @@ Otherwise:
      - "Yes, monitor CI and auto-merge"
      - "No, I'll handle it"
    ```
+
+   These choices are exhaustive for this step. Treat a free-form `Other` answer as "No, I'll handle it" and include the text in the final guidance.
 
 2. **On "No, I'll handle it"** (opt-out): print the existing guidance and exit:
 

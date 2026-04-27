@@ -99,7 +99,7 @@ options:
 ```
 
 - **`[1] Approve`** — proceed to Step 1d.
-- **`[2] Adjust`** — ask one free-text prompt (`"How should the split be adjusted? (e.g., 'merge A1 and A2', 'split A3 into two')"`), apply the edits, re-render the summary, and re-menu. Loop until `[1]` or `[3]`.
+- **`[2] Adjust`** — use the free-form `Other` answer for `"How should the split be adjusted? (e.g., 'merge A1 and A2', 'split A3 into two')"`, apply the edits, re-render the summary, and re-present the `request_user_input` gate. Loop until `[1]` or `[3]`.
 - **`[3] Collapse`** — set `session.proposedSplit = null` and proceed to Step 2 with the original single-issue description (false-positive path).
 
 ### Output
@@ -152,7 +152,7 @@ options:
 ```
 
 - **`[1] Approve`** — proceed to the Per-Issue Loop.
-- **`[2] Adjust edges`** — free-text prompt (`"Describe the edge to add or remove, e.g., 'A2 depends on A4' or 'remove A1 → A3'"`); apply; re-render; re-menu.
+- **`[2] Adjust edges`** — use the free-form `Other` answer for `"Describe the edge to add or remove, e.g., 'A2 depends on A4' or 'remove A1 → A3'"`; apply; re-render; re-present the `request_user_input` gate.
 - **`[3] Flatten`** — clear all edges (`session.dag = []`); proceed.
 
 ### Output

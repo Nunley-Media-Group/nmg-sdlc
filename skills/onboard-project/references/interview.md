@@ -4,7 +4,7 @@
 
 ## Rounds (in order)
 
-Conduct via `request_user_input` gate, one question per round:
+Conduct via `request_user_input` gate, one question per round. Open-ended rounds use the free-form `Other` answer as the stored value; predefined rounds map `Other` to a custom value before the workflow continues.
 
 1. **Vision** — what is the product? *(open-ended)*
 2. **Target users / personas** — who is it for? *(open-ended)*

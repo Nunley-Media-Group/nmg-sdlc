@@ -182,7 +182,7 @@ If there are proposed steering doc sections, present a `request_user_input` gate
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`). For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, VERSION changes, or contribution-guide/README-link changes, ask as a single batch (`Yes, apply all` / `No, cancel`). Skip Part B if there are no non-steering changes.
+Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`); a free-form `Other` answer is treated as "Skip" with the text persisted as the reason. For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, CHANGELOG fixes, VERSION changes, or contribution-guide/README-link changes, ask as a single batch (`Yes, apply all` / `No, cancel`); a free-form `Other` answer is treated as a request to narrow the batch, then the batch is re-presented. Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
@@ -197,7 +197,7 @@ This flow is additive — Parts A/B/C are unchanged. Part D specifically surface
    - `Apply all recommended defaults`.
    - `Review each field individually (falls back to Part C behavior)`.
    - `Decline — keep my current values`.
-3. **Apply on approval** updates each listed field via Codex editing, preserving JSON formatting. "Review individually" falls through to Part C. "Decline" leaves values unchanged.
+3. **Apply on approval** updates each listed field via Codex editing, preserving JSON formatting. "Review individually" falls through to Part C. "Decline" leaves values unchanged. A free-form `Other` answer is treated as "Review each field individually" with the text used to preselect or exclude named fields when possible.
 4. **Unattended mode**: Part D is **not** applied — the diff is recorded in the upgrade summary under "Recommended defaults (not applied)". Automatic runs never overwrite user-configured values.
 
 ### Step 9: Apply Changes
