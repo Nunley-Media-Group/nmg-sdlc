@@ -73,6 +73,28 @@ The failure classifier should recognize the exact current exec-mode phrase as a 
 
 ---
 
+## Alternatives Considered
+
+| Option | Description | Why Not Selected |
+|--------|-------------|------------------|
+| [Alternative fix] | [approach] | [why the chosen approach is better] |
+
+*Omit this section if only one reasonable fix approach exists.*
+
+---
+
+## Validation Checklist
+
+Before moving to TASKS phase:
+
+- [ ] Root cause is identified with specific code references
+- [ ] Fix is minimal — no unrelated refactoring
+- [ ] Blast radius is assessed
+- [ ] Regression risks are documented with mitigations
+- [ ] Fix follows existing project patterns (per `structure.md`)
+
+---
+
 ## Verification Strategy
 
 1. Run `npm test` in `scripts/` for runner unit coverage.
