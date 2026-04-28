@@ -30,7 +30,7 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 | Class | Examples | Unattended-mode behaviour |
 |-------|----------|---------------------------|
-| Non-destructive | Legacy directory relocation, exclusions-file rename, steering doc section additions, spec section additions, Related Spec corrections, frontmatter migration (`Issue` → `Issues`, Change History additions), runner config key additions, stale runner-config plugin-root path refreshes, CHANGELOG fixes, VERSION updates, solo `feature-`/`bug-` renames, managed contribution-guide creation or update, README contribution-link insertion, managed contribution-gate workflow creation or update | Auto-applied; recorded in the Step 9 summary |
+| Non-destructive | Legacy directory relocation, exclusions-file rename, steering doc section additions, spec section additions, Related Spec corrections, frontmatter migration (`Issue` → `Issues`, Change History additions), runner config key additions, stale runner-config plugin-root path refreshes, CHANGELOG fixes, VERSION updates, solo `feature-`/`bug-` renames, managed contribution-guide creation or update, README contribution-link insertion, managed contribution-gate workflow creation or update, managed issue-form creation or approved target-path replacement | Auto-applied; recorded in the Step 9 summary |
 | Destructive | Spec directory consolidation, legacy spec-directory deletes (Steps 4b–4e) | Skipped; recorded under "Skipped Operations (Unattended-Mode)" |
 | Informational only | Generic config value drift (Step 5) | Reported in summary but NOT applied — value updates may represent intentional customizations and require explicit per-value approval. Stale plugin-root path refreshes are semantic repairs for unusable paths, not generic drift. |
 
@@ -52,6 +52,7 @@ CHANGELOG.md                        — Changelog format and completeness (Keep 
 VERSION                             — Single source of truth for project version
 CONTRIBUTING.md                     — Managed non-destructive contribution guide
 .github/workflows/nmg-sdlc-contribution-gate.yml — Managed non-destructive GitHub Actions contribution gate
+.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml — Managed GitHub Issue Form for SDLC-ready issues
 README.md                           — Existing README gets an idempotent contribution-guide link when present
 ```
 
@@ -62,6 +63,8 @@ Read `../../references/spec-frontmatter.md` when validating or migrating any spe
 Read `../../references/contribution-guide.md` when analyzing or applying contribution-guide findings — the shared contract defines managed `CONTRIBUTING.md` creation/update, existing guide preservation, README-link insertion, steering-derived content, unattended behavior, and summary statuses.
 
 Read `../../references/contribution-gate.md` when analyzing or applying contribution-gate findings — the shared contract defines the managed GitHub Actions workflow path, marker/version, safe update rules, path-collision behavior, and stable status output.
+
+Read `../../references/issue-form.md` when analyzing or applying issue-form findings — the shared contract defines the managed GitHub Issue Form path, canonical template source, overwrite rule, preservation rule, and stable status output.
 
 ---
 
@@ -96,10 +99,11 @@ specs/*/tasks.md
 sdlc-config.json
 CONTRIBUTING.md
 .github/workflows/nmg-sdlc-contribution-gate.yml
+.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml
 README.md
 ```
 
-Analyze existing files by default. Missing files may be created only when the current upgrade contract names them as managed, non-destructive project artifacts. `CONTRIBUTING.md` is managed; create or update it only through `../../references/contribution-guide.md` after steering docs exist. `.github/workflows/nmg-sdlc-contribution-gate.yml` is managed; create or update it only through `../../references/contribution-gate.md` and only when the path is absent or already nmg-sdlc-owned. Do not synthesize unrelated project files, never create a missing `README.md`, and never overwrite an unmanaged workflow.
+Analyze existing files by default. Missing files may be created only when the current upgrade contract names them as managed project artifacts. `CONTRIBUTING.md` is managed; create or update it only through `../../references/contribution-guide.md` after steering docs exist. `.github/workflows/nmg-sdlc-contribution-gate.yml` is managed; create or update it only through `../../references/contribution-gate.md` and only when the path is absent or already nmg-sdlc-owned. `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is managed; create or replace that exact target path only through `../../references/issue-form.md`. Do not synthesize unrelated project files, never create a missing `README.md`, never overwrite an unmanaged workflow, and never overwrite unrelated issue templates.
 
 ### Step 3: Analyze Steering Docs
 
@@ -182,9 +186,20 @@ Apply `../../references/contribution-gate.md` as a managed-artifact analysis aft
 
 Treat missing workflow creation and outdated managed workflow replacement as non-destructive managed-artifact changes. Treat future managed versions and unmanaged path collisions as skipped gaps. Preserve all unrelated workflows under `.github/workflows/`.
 
+### Step 7c: Analyze Issue Form
+
+Apply `../../references/issue-form.md` as a managed-artifact analysis after contribution-gate analysis. Record findings for:
+
+1. Missing `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
+2. Existing form whose content matches the canonical template.
+3. Existing target-path file whose content differs from the canonical template.
+4. Canonical template read failures.
+
+Treat missing form creation and differing target-path replacement as managed project artifact changes. In unattended mode, auto-apply both states and record the outcome without prompting. Preserve all unrelated issue templates under `.github/ISSUE_TEMPLATE/` and all unrelated workflows under `.github/workflows/`.
+
 ### Step 8: Present Findings
 
-Display a per-file summary of all proposed changes grouped by category — Legacy Layout Relocation (Step 1.5), Steering Docs (Step 3), Spec Files (Step 4), Spec Directory Consolidation (Step 4b–4e), Spec Frontmatter Migration (Step 4f), Runner Config (Step 5 keys and stale path refreshes), Config Value Drift (Step 5 scalars), Related Spec Links (Step 4a), CHANGELOG (Step 6), VERSION (Step 7), Contribution Guide (Step 7a), and Contribution Gate (Step 7b). If everything is up to date, report `Everything is up to date — no upgrade needed.` and stop.
+Display a per-file summary of all proposed changes grouped by category — Legacy Layout Relocation (Step 1.5), Steering Docs (Step 3), Spec Files (Step 4), Spec Directory Consolidation (Step 4b–4e), Spec Frontmatter Migration (Step 4f), Runner Config (Step 5 keys and stale path refreshes), Config Value Drift (Step 5 scalars), Related Spec Links (Step 4a), CHANGELOG (Step 6), VERSION (Step 7), Contribution Guide (Step 7a), Contribution Gate (Step 7b), and Issue Form (Step 7c). If everything is up to date, report `Everything is up to date — no upgrade needed.` and stop.
 
 The approval flow has four parts:
 
@@ -198,7 +213,7 @@ If there are proposed steering doc sections, present a `request_user_input` gate
 
 #### Part B: Spec directory consolidations and other batched changes
 
-Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`); a free-form `Other` answer is treated as "Skip" with the text persisted as the reason. For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, stale runner-config path refreshes, CHANGELOG fixes, VERSION changes, contribution-guide/README-link changes, or contribution-gate workflow changes, ask as a single batch (`Yes, apply all` / `No, cancel`); a free-form `Other` answer is treated as a request to narrow the batch, then the batch is re-presented. Skip Part B if there are no non-steering changes.
+Per-group `request_user_input` gate for each spec directory consolidation or rename from Steps 4b–4e (`Yes, consolidate` / `Skip — leave as-is`); a free-form `Other` answer is treated as "Skip" with the text persisted as the reason. For spec frontmatter migrations, spec file sections, Related Spec corrections, runner config keys, stale runner-config path refreshes, CHANGELOG fixes, VERSION changes, contribution-guide/README-link changes, contribution-gate workflow changes, or issue-form changes, ask as a single batch (`Yes, apply all` / `No, cancel`); a free-form `Other` answer is treated as a request to narrow the batch, then the batch is re-presented. Skip Part B if there are no non-steering changes.
 
 #### Part C: Config value drift (per-value approval)
 
@@ -230,9 +245,10 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 7. **Config value drift updates** — for each user-selected drifted value from Part C (interactive only; skipped in unattended): read, Codex editing to replace the old value with the template default, re-read to verify. Preserve all unselected values.
 8. **Contribution guide** — apply approved or unattended-managed `CONTRIBUTING.md` creation/update and README-link insertion through `../../references/contribution-guide.md`; re-read both files when present and record `created`, `updated`, `already present`, `added`, or `skipped` statuses.
 9. **Contribution gate** — apply approved or unattended-managed `.github/workflows/nmg-sdlc-contribution-gate.yml` creation/update through `../../references/contribution-gate.md`; re-read the workflow when present and record `created`, `updated`, `already present`, or `skipped` statuses.
-10. **Persist declined sections** — if interactive, save unselected steering doc sections to `.codex/upgrade-exclusions.json`. Skip in unattended mode.
-11. **Output summary** — report changes applied (including contribution-guide outcomes, contribution-gate outcomes, drift updates, and the legacy layout relocation), declined, skipped, and filtered sections with recommendations.
-12. **Skipped Operations (Unattended-Mode)** — if running unattended and any destructive operations were skipped, emit a machine-readable block:
+10. **Issue form** — apply approved or unattended-managed `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` creation/replacement through `../../references/issue-form.md`; re-read the issue form when present and record `created`, `overwritten`, `already present`, or `skipped` statuses.
+11. **Persist declined sections** — if interactive, save unselected steering doc sections to `.codex/upgrade-exclusions.json`. Skip in unattended mode.
+12. **Output summary** — report changes applied (including contribution-guide outcomes, contribution-gate outcomes, issue-form outcomes, drift updates, and the legacy layout relocation), declined, skipped, and filtered sections with recommendations.
+13. **Skipped Operations (Unattended-Mode)** — if running unattended and any destructive operations were skipped, emit a machine-readable block:
 
     ```
     ## Skipped Operations (Unattended-Mode)
@@ -252,15 +268,16 @@ Read `references/upgrade-procedures.md` when applying Step 9 changes — the det
 ## Key Rules
 
 1. **Never modify existing content** — only insert new sections or add new keys.
-2. **Create only managed non-destructive files** — `CHANGELOG.md`, `VERSION`, `.codex/upgrade-exclusions.json`, `CONTRIBUTING.md`, and `.github/workflows/nmg-sdlc-contribution-gate.yml` may be created when missing under their documented contracts. Do not synthesize unrelated project files, never create a missing `README.md`, and never overwrite an unmanaged workflow at the contribution-gate path.
-3. **Never overwrite values** — for JSON, only add absent keys. Exceptions: stale plugin-root path-refresh findings update only unusable path fields after a replacement root passes shape validation; config value drift updates are applied only with explicit per-value user approval (Step 8 Part C). In unattended mode, stale path refreshes may apply, but generic value drift is never applied.
-4. **Skip `feature.gherkin`** — generated, not templated.
-5. **Interactive by default** — when `.codex/unattended-mode` is absent, present findings with per-section approval for steering docs and wait for user selection before applying.
-6. **Unattended-mode aware** — auto-apply all non-destructive changes; skip destructive operations and report them.
-7. **Self-updating** — read templates at runtime; never hardcode template content.
-8. **Filter irrelevant sections** — use codebase analysis to exclude sections with no evidence of relevance; persist user declines in `.codex/upgrade-exclusions.json` (interactive only).
-9. **Conservative defaults** — when a missing section's heading doesn't match any keyword in the heuristic table, include it and let the user decide.
-10. **Preserve runtime artifacts** — never relocate `.codex/unattended-mode` or `.codex/sdlc-state.json`; only the exclusions file is renamed.
+2. **Create only managed non-destructive files** — `CHANGELOG.md`, `VERSION`, `.codex/upgrade-exclusions.json`, `CONTRIBUTING.md`, `.github/workflows/nmg-sdlc-contribution-gate.yml`, and `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` may be created when missing under their documented contracts. Do not synthesize unrelated project files, never create a missing `README.md`, never overwrite an unmanaged workflow at the contribution-gate path, and never overwrite unrelated issue templates.
+3. **Overwrite only the approved issue-form path** — `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is nmg-sdlc-owned and may be replaced from `../../references/issue-form.md` when it differs from the canonical template. No other `.github/ISSUE_TEMPLATE/` file may be changed.
+4. **Never overwrite values** — for JSON, only add absent keys. Exceptions: stale plugin-root path-refresh findings update only unusable path fields after a replacement root passes shape validation; config value drift updates are applied only with explicit per-value user approval (Step 8 Part C). In unattended mode, stale path refreshes may apply, but generic value drift is never applied.
+5. **Skip `feature.gherkin`** — generated, not templated.
+6. **Interactive by default** — when `.codex/unattended-mode` is absent, present findings with per-section approval for steering docs and wait for user selection before applying.
+7. **Unattended-mode aware** — auto-apply all non-destructive changes; skip destructive operations and report them. Managed issue-form target-path replacement is allowed only because `../../references/issue-form.md` declares that exact path as nmg-sdlc-owned.
+8. **Self-updating** — read templates at runtime; never hardcode template content.
+9. **Filter irrelevant sections** — use codebase analysis to exclude sections with no evidence of relevance; persist user declines in `.codex/upgrade-exclusions.json` (interactive only).
+10. **Conservative defaults** — when a missing section's heading doesn't match any keyword in the heuristic table, include it and let the user decide.
+11. **Preserve runtime artifacts** — never relocate `.codex/unattended-mode` or `.codex/sdlc-state.json`; only the exclusions file is renamed.
 
 ---
 

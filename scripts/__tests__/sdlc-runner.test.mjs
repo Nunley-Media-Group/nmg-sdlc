@@ -508,6 +508,22 @@ describe('Issue #136 successful command failure evidence filtering', () => {
     expect(result.reason).toBeUndefined();
   });
 
+  it('does not classify GitHub access text from failed memory-origin command output', () => {
+    const stdout = commandExecutionEvent(
+      `/bin/zsh -lc 'rg -n "" ${TEST_MEMORY_FILE} -e "nmg-sdlc"'`,
+      [
+        'rg: : No such file or directory (os error 2)',
+        `${TEST_MEMORY_FILE}:165:scope: detectSoftFailure falsely retrying when successful output quotes historical error connecting to api.github.com text`,
+      ].join('\n'),
+      2,
+    );
+
+    const result = detectSoftFailure(stdout);
+
+    expect(result.isSoftFailure).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
   it('does not match hard escalation or wait patterns from successful non-memory command output', () => {
     const stdout = commandExecutionEvent(
       `/bin/zsh -lc 'rg -n "context_window_exceeded|rate_limit" ${TEST_NON_MEMORY_FILE}'`,
