@@ -174,8 +174,13 @@ function ensureAgentsGuidance(project) {
   }
 
   if (start !== -1 || end !== -1) {
-    const prefix = source.endsWith('\n') ? source : `${source}\n`;
-    fs.writeFileSync(target, `${prefix}\n${MANAGED_SECTION}`);
+    if (start !== -1) {
+      const repaired = `${source.slice(0, start)}${MANAGED_SECTION.trimEnd()}${source.slice(start + MANAGED_START.length)}`;
+      fs.writeFileSync(target, repaired);
+    } else {
+      const repaired = `${source.slice(0, end)}${MANAGED_SECTION.trimEnd()}${source.slice(end + MANAGED_END.length)}`;
+      fs.writeFileSync(target, repaired);
+    }
     return { agents: 'updated', gaps: ['malformed managed markers'] };
   }
 
@@ -262,5 +267,47 @@ describe('bounded spec context exercise coverage (issue #139)', () => {
       '',
     ].join('\n'));
     expect(ensureAgentsGuidance(equivalentProject)).toEqual({ agents: 'already present', gaps: [] });
+  });
+
+  test('AGENTS guidance repairs orphan managed markers without consuming project-authored text on rerun', () => {
+    const openingOnlyProject = makeProject();
+    fs.writeFileSync(path.join(openingOnlyProject, 'AGENTS.md'), [
+      '# AGENTS.md',
+      '',
+      MANAGED_START,
+      '',
+      '## Local Rules',
+      '',
+      'Keep local instructions.',
+      '',
+    ].join('\n'));
+
+    expect(ensureAgentsGuidance(openingOnlyProject)).toEqual({ agents: 'updated', gaps: ['malformed managed markers'] });
+    expect(ensureAgentsGuidance(openingOnlyProject)).toEqual({ agents: 'already present', gaps: [] });
+    const openingOnly = fs.readFileSync(path.join(openingOnlyProject, 'AGENTS.md'), 'utf8');
+    expect(openingOnly).toContain('## Local Rules');
+    expect(openingOnly).toContain('Keep local instructions.');
+    expect(openingOnly.match(/nmg-sdlc-managed: spec-context/g)).toHaveLength(1);
+    expect(openingOnly.match(/\/nmg-sdlc-managed/g)).toHaveLength(1);
+
+    const closingOnlyProject = makeProject();
+    fs.writeFileSync(path.join(closingOnlyProject, 'AGENTS.md'), [
+      '# AGENTS.md',
+      '',
+      '## Local Rules',
+      '',
+      'Keep local instructions.',
+      '',
+      MANAGED_END,
+      '',
+    ].join('\n'));
+
+    expect(ensureAgentsGuidance(closingOnlyProject)).toEqual({ agents: 'updated', gaps: ['malformed managed markers'] });
+    expect(ensureAgentsGuidance(closingOnlyProject)).toEqual({ agents: 'already present', gaps: [] });
+    const closingOnly = fs.readFileSync(path.join(closingOnlyProject, 'AGENTS.md'), 'utf8');
+    expect(closingOnly).toContain('## Local Rules');
+    expect(closingOnly).toContain('Keep local instructions.');
+    expect(closingOnly.match(/nmg-sdlc-managed: spec-context/g)).toHaveLength(1);
+    expect(closingOnly.match(/\/nmg-sdlc-managed/g)).toHaveLength(1);
   });
 });

@@ -37,9 +37,9 @@ Read `../../references/spec-context.md` when Step 1 loads the active spec — ve
 
 Read all spec documents:
 
-```
-
 After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
+
+```
 specs/{feature-name}/
 ├── requirements.md    — Acceptance criteria to verify
 ├── design.md          — Architecture decisions to validate

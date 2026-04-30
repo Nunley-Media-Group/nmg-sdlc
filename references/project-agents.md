@@ -39,7 +39,7 @@ Classify root `AGENTS.md`:
 | Managed section stale | Both markers exist but required guidance is missing or obsolete | Replace only the marked section |
 | Equivalent project-authored guidance | No markers, but the file already mentions `specs/`, active spec, bounded discovery or capped loading, neighboring or related specs, and avoids legacy `.codex/specs/` | Leave unchanged and report already present |
 | Incomplete guidance | File exists without current managed section or equivalent coverage | Append the managed section |
-| Malformed markers | One marker exists without the other | Append a new complete managed section and record a malformed-marker gap |
+| Malformed markers | One marker exists without the other | Do not pair the orphan with any later marker; repair it in place by inserting the missing counterpart adjacent to the orphan, then refresh only that repaired managed section and record a malformed-marker gap |
 
 Be conservative. If project-authored guidance is close and clearly covers the same behavior, do not duplicate it.
 
@@ -56,7 +56,9 @@ Be conservative. If project-authored guidance is close and clearly covers the sa
    ```
 3. If appending to an existing file, add one blank line before the managed section when needed.
 4. If refreshing a managed section, replace only the bytes from the opening marker through the closing marker.
-5. Re-read the file after writing and verify exactly one complete managed section exists unless equivalent project-authored guidance was already present.
+5. If only the opening marker exists, insert the missing closing marker immediately after that orphan opening marker before refreshing that repaired section; do not pair the orphan opening marker with any later appended closing marker.
+6. If only the closing marker exists, insert the missing opening marker immediately before that orphan closing marker before refreshing that repaired section; do not pair the orphan closing marker with any later appended opening marker.
+7. Re-read the file after writing and verify exactly one complete managed section exists unless equivalent project-authored guidance was already present.
 
 ## Mode Behavior
 

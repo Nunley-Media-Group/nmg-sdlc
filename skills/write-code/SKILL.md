@@ -57,9 +57,9 @@ Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT
 
 Load all active specification documents:
 
-```
-
 Then read `../../references/spec-context.md` and establish bounded neighboring context. Fully load related specs only when the ranking reasons show their surrounding contracts can affect implementation scope, and cap related full-spec loading per the shared contract. The active spec remains authoritative; related specs provide constraints, compatibility notes, and blast-radius context, not replacement task sources.
+
+```
 specs/{feature-name}/
 ├── requirements.md    — Acceptance criteria, functional requirements
 ├── design.md          — Architecture, data flow, component design

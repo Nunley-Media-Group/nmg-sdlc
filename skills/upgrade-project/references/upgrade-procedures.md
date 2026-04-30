@@ -114,7 +114,7 @@ Apply approved or unattended-managed findings from `../../references/project-age
 3. If `AGENTS.md` exists but lacks equivalent bounded spec-context guidance, append the managed section and preserve all existing content.
 4. If the managed section exists but is stale, replace only the bytes between `<!-- nmg-sdlc-managed: spec-context -->` and `<!-- /nmg-sdlc-managed -->`.
 5. If equivalent project-authored guidance is already present, leave the file unchanged and report `AGENTS.md: already present`.
-6. If markers are malformed, append a complete managed section and record the malformed-marker gap.
+6. If markers are malformed, repair the orphan marker per the shared contract, refresh only that repaired managed section, and record the malformed-marker gap.
 7. Re-read changed files and emit the stable status block:
 
    ```text

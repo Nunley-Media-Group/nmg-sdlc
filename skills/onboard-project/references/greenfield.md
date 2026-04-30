@@ -70,7 +70,7 @@ In unattended mode, auto-apply the non-destructive guide and README-link changes
 After Step 2G.2 verifies all three steering docs exist, apply `../../references/project-agents.md`.
 
 1. Create root `AGENTS.md` when missing after steering exists.
-2. Append or refresh only the managed nmg-sdlc spec-context section when existing guidance is incomplete or stale.
+2. Append, repair, or refresh only the managed nmg-sdlc spec-context section when existing guidance is incomplete, malformed, or stale.
 3. Preserve project-authored instructions byte-for-byte outside the managed section.
 4. Record `AGENTS.md` status and gaps for Step 5.
 

@@ -49,4 +49,3 @@ Feature: Add Bounded Relevant-Spec Discovery for nmg-sdlc Projects
     When verification runs
     Then tests or exercise coverage prove ranking caps, ambiguous-candidate handling, AGENTS.md idempotency, active-spec-first behavior, and no full-archive loading by default
     And the checks demonstrate enough surrounding context to be effective without loading unrelated spec bodies
-

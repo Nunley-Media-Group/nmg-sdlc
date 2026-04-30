@@ -177,4 +177,3 @@ None.
 | Issue | Date | Summary |
 |-------|------|---------|
 | #139 | 2026-04-30 | Initial feature spec |
-
