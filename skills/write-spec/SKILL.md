@@ -48,11 +48,13 @@ Read `../../references/feature-naming.md` when deriving a `feature-{slug}` / `bu
 
 Read `../../references/spec-frontmatter.md` when writing or amending any spec file's frontmatter (plural `**Issues**`, Change History, defect-spec schema).
 
+Read `../../references/spec-context.md` when Spec Discovery needs related existing specs — parent-link resolution remains first, then bounded metadata ranking decides whether to amend an existing feature spec or create a new one.
+
 ---
 
 ## Spec Discovery
 
-Read `references/discovery.md` when the issue is not bug-labelled — discovery decides between amending an existing feature spec (parent-link first, keyword fallback) and creating a new one. Bug-labelled issues skip discovery and always create a fresh `bug-{slug}/`. Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues) and proceed directly to Phase 0 per `references/spike-variant.md`.
+Read `references/discovery.md` when the issue is not bug-labelled — discovery decides between amending an existing feature spec (parent-link first, bounded spec-context ranking fallback) and creating a new one. Bug-labelled issues skip discovery and always create a fresh `bug-{slug}/`. Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues) and proceed directly to Phase 0 per `references/spike-variant.md`.
 
 The discovery outcome flips the rest of the workflow into one of two modes — **amendment mode** when an existing spec was resolved, otherwise **creation mode**.
 

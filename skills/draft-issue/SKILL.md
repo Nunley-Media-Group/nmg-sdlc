@@ -9,6 +9,8 @@ Read `../../references/codex-tooling.md` when the workflow starts — it maps le
 
 Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
+Read `../../references/spec-context.md` when Step 4 investigates a feature or enhancement — draft-issue uses bounded relevant-spec discovery to understand surrounding contracts without loading every spec body.
+
 Interview the user to understand their need, then create a well-groomed GitHub issue with BDD acceptance criteria. The skill adapts its interview depth to issue complexity and plays back its understanding before drafting so the result is aligned with intent before a single byte lands in GitHub.
 
 ## Core Principles
@@ -130,7 +132,7 @@ Read `../../references/versioning.md` when you need the project's VERSION-file c
 
 **Process**: perform a targeted codebase investigation before the interview.
 
-**If Enhancement / Feature**: file discovery for `specs/*/requirements.md` and read related specs; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
+**If Enhancement / Feature**: read `../../references/spec-context.md`, run bounded relevant-spec discovery against project-root `specs/`, and read only threshold-qualified related specs before code investigation; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, surrounding spec contracts and ranking gaps when relevant, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
 
 **If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); a free-form `Other` answer is treated as corrective bug context. On "not quite" or `Other`, collect one clarification and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
 

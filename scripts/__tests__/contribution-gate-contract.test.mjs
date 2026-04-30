@@ -54,7 +54,7 @@ describe('contribution gate contract (issue #125)', () => {
     expect(initConfig).toContain('Contribution Gate status block');
     expect(upgradeProject).toContain('Read `../../references/contribution-gate.md` when analyzing or applying contribution-gate findings');
     expect(upgradeProject).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml — Managed non-destructive GitHub Actions contribution gate');
-    expect(upgradeProject).toContain('### Step 7b: Analyze Contribution Gate');
+    expect(upgradeProject).toContain('### Step 7c: Analyze Contribution Gate');
     expect(upgradeProcedures).toContain('Apply approved or unattended-managed findings from `../../references/contribution-gate.md`');
     expect(upgradeProcedures).toContain('Workflow: created | updated | already present | skipped');
   });

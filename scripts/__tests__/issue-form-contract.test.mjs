@@ -123,7 +123,7 @@ describe('managed GitHub issue form contract (issue #135)', () => {
     expect(initConfig).toContain('Issue Form status block');
     expect(upgradeProject).toContain('Read `../../references/issue-form.md` when analyzing or applying issue-form findings');
     expect(upgradeProject).toContain(`${FORM_RELATIVE_PATH} — Managed GitHub Issue Form for SDLC-ready issues`);
-    expect(upgradeProject).toContain('### Step 7c: Analyze Issue Form');
+    expect(upgradeProject).toContain('### Step 7d: Analyze Issue Form');
     expect(upgradeProcedures).toContain('Apply approved or unattended-managed findings from `../../references/issue-form.md`');
     expect(upgradeProcedures).toContain('Form: created | overwritten | already present | skipped');
     expect(readme).toContain(`installs \`${FORM_RELATIVE_PATH}\``);
