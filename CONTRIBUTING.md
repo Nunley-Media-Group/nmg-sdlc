@@ -46,3 +46,15 @@ Verification should cover the behavior promised by the spec:
 - Use `$nmg-sdlc:verify-code` before `$nmg-sdlc:open-pr`.
 
 Pull requests should reference the issue and spec, include a practical test plan, and leave human-reviewer comments for humans while `$nmg-sdlc:address-pr-comments` handles only eligible automated-review threads.
+
+## nmg-sdlc Contribution Workflow
+
+Before requesting review, confirm the pull request is ready for the managed nmg-sdlc contribution gate:
+
+- Link the GitHub issue in the PR body or spec frontmatter, using `Closes #N`, `Fixes #N`, or `**Issues**: #N`.
+- Link or update the relevant `specs/feature-*` or `specs/bug-*` artifacts, including `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` when generated.
+- Explain steering alignment against `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.
+- Summarize verification evidence from tests, exercise runs, `$nmg-sdlc:verify-code`, or a committed `verification-report.md`.
+- Include reviewer context for known gaps, intentionally deferred work, or follow-up issues.
+
+If the contribution gate fails, fix the missing evidence category instead of bypassing the workflow. Missing issue, spec, steering, verification, or guide evidence should be remediated in the PR body or committed artifacts before re-running the gate.

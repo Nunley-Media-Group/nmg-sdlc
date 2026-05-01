@@ -36,3 +36,9 @@ When making changes that affect how users interact with the plugin (new skills, 
 - Skills live in `skills/{skill-name}/SKILL.md`
 - All skills include an "Integration with SDLC Workflow" section
 - `specs/` files must be committed with their feature branches, not left as untracked local files
+
+<!-- nmg-sdlc-managed: spec-context -->
+## nmg-sdlc Spec Context
+
+For SDLC work, project-root `specs/` is the canonical BDD archive. Always identify the active spec first, then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default, and do not use legacy `.codex/specs/` as context.
+<!-- /nmg-sdlc-managed -->
