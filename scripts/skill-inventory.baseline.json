@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-30T19:19:58.377Z",
+  "generated_at": "2026-05-01T19:21:33.796Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -2963,6 +2963,12 @@
       "destination": "skills/verify-code/SKILL.md:38"
     },
     {
+      "id": "eccb792c372a",
+      "source_before": "skills/verify-code/SKILL.md:40",
+      "normalized": "after the active spec is loaded, read ../../references/spec-context.md and load ",
+      "destination": "skills/verify-code/SKILL.md:40"
+    },
+    {
       "id": "6f30be9e6ffc",
       "source_before": "skills/verify-code/SKILL.md:50",
       "normalized": "read all steering documents — these define project conventions used throughout v",
@@ -3288,6 +3294,12 @@
       "source_before": "skills/write-code/SKILL.md:58",
       "normalized": "load all active specification documents:",
       "destination": "skills/write-code/SKILL.md:58"
+    },
+    {
+      "id": "0bea0f680ad5",
+      "source_before": "skills/write-code/SKILL.md:60",
+      "normalized": "then read ../../references/spec-context.md and establish bounded neighboring con",
+      "destination": "skills/write-code/SKILL.md:60"
     },
     {
       "id": "293d40a69baa",
