@@ -105,6 +105,24 @@ Apply approved or unattended-managed findings from `../../references/contributio
    - Gaps: none | <comma-separated gaps>
    ```
 
+### Project AGENTS
+
+Apply approved or unattended-managed findings from `../../references/project-agents.md`:
+
+1. Verify `steering/product.md`, `steering/tech.md`, and `steering/structure.md` exist before writing AGENTS guidance.
+2. If `AGENTS.md` is missing, create it with the managed nmg-sdlc spec-context section.
+3. If `AGENTS.md` exists but lacks equivalent bounded spec-context guidance, append the managed section and preserve all existing content.
+4. If the managed section exists but is stale, replace only the bytes between `<!-- nmg-sdlc-managed: spec-context -->` and `<!-- /nmg-sdlc-managed -->`.
+5. If equivalent project-authored guidance is already present, leave the file unchanged and report `AGENTS.md: already present`.
+6. If markers are malformed, repair the orphan marker per the shared contract, refresh only that repaired managed section, and record the malformed-marker gap.
+7. Re-read changed files and emit the stable status block:
+
+   ```text
+   Project AGENTS:
+   - AGENTS.md: created | updated | already present | skipped (<reason>)
+   - Gaps: none | <comma-separated gaps>
+   ```
+
 ### Contribution gate
 
 Apply approved or unattended-managed findings from `../../references/contribution-gate.md`:
@@ -189,6 +207,7 @@ After applying changes, output a summary:
 - **product.md** — Added sections: "Product Principles"
 - **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
 - **Contribution Guide** — CONTRIBUTING.md: created; README.md link: added
+- **Project AGENTS** — AGENTS.md: created
 - **Contribution Gate** — Workflow: created at `.github/workflows/nmg-sdlc-contribution-gate.yml`
 - **Issue Form** — Form: created at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`
 
@@ -198,6 +217,7 @@ After applying changes, output a summary:
 ### Skipped (already up to date)
 - tech.md, structure.md, 42-add-auth/design.md
 - Contribution Guide: CONTRIBUTING.md already present; README.md link already present
+- Project AGENTS: AGENTS.md already present
 - Contribution Gate: Workflow already present
 - Issue Form: Form already present
 

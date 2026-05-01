@@ -21,6 +21,8 @@ Read `../../references/steering-schema.md` when you need to know which steering 
 
 Read `../../references/spec-frontmatter.md` when a frontmatter field drives behaviour (e.g., singular `**Issue**` + `**Related Spec**` signals the defect path).
 
+Read `../../references/spec-context.md` when Step 1 loads the active spec — verify-code uses bounded related specs during acceptance, architecture, blast-radius, and test-coverage review while keeping the active spec as the primary pass/fail source.
+
 ## Prerequisites
 
 1. Specs exist at `specs/{feature-name}/`.
@@ -34,6 +36,8 @@ Read `../../references/spec-frontmatter.md` when a frontmatter field drives beha
 ### Step 1: Load Specifications and Steering Docs
 
 Read all spec documents:
+
+After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
 
 ```
 specs/{feature-name}/

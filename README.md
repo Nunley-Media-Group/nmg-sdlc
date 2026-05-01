@@ -56,7 +56,7 @@ $nmg-sdlc:onboard-project
 - **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
 - **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
 
-After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation scope, verification evidence, PR readiness, and managed contribution-gate failure remediation while preserving any existing contributor policy.
+After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation scope, verification evidence, PR readiness, and managed contribution-gate failure remediation while preserving any existing contributor policy. Onboarding also creates or updates root `AGENTS.md` with a managed nmg-sdlc spec-context section so prompt-level requests like "look at the specs" use project-root `specs/` with bounded relevant-spec discovery instead of loading the full archive.
 
 The three steering documents written during greenfield bootstrap:
 
@@ -67,6 +67,12 @@ The three steering documents written during greenfield bootstrap:
 | `structure.md` | Code organization, layer architecture, naming |
 
 Review and customize these documents — they provide project-specific context for all other skills.
+
+## Spec Context
+
+nmg-sdlc treats project-root `specs/` as the canonical BDD archive. SDLC skills identify the active spec first, then scan compact metadata across neighboring specs — issue links, related-spec links, headings, acceptance criteria, functional requirements, affected paths, symbols, and component names — before loading only a capped ranked set of related specs. Legacy `.codex/specs/` is not used as context; projects still on that layout are blocked by the upgrade gate until artifacts are relocated.
+
+`$nmg-sdlc:draft-issue` and `$nmg-sdlc:write-spec` use this bounded discovery to avoid disconnected new issues or specs when an existing feature contract should be amended. `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` keep the active spec authoritative while consulting related specs only for surrounding constraints, blast radius, and coverage context.
 
 ## Workflow
 
@@ -258,7 +264,7 @@ The **classification matrix**:
 
 ### Project Upgrades
 
-`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it repairs stale versioned `pluginRoot` cache paths when a current installed nmg-sdlc root can be verified, while preserving valid custom plugin roots and unrelated runner settings. It can also create managed project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists. The managed contribution-gate workflow is another artifact: upgrade creates it when missing, replaces only older nmg-sdlc-managed versions, preserves unrelated workflows, and reports an unmanaged path collision instead of overwriting project-authored CI. The managed issue form at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is also reconciled: upgrade creates it when missing, reports current forms as already present, overwrites any existing file at that managed issue-form path when it differs from the canonical nmg-sdlc form, and preserves all unrelated issue templates.
+`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it repairs stale versioned `pluginRoot` cache paths when a current installed nmg-sdlc root can be verified, while preserving valid custom plugin roots and unrelated runner settings. It can also create managed project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists. Root `AGENTS.md` is another managed artifact: upgrade creates it when missing or appends/refreshes only the marked nmg-sdlc spec-context section when bounded `specs/` guidance is incomplete, preserving all project-authored instructions outside that section. The managed contribution-gate workflow is another artifact: upgrade creates it when missing, replaces only older nmg-sdlc-managed versions, preserves unrelated workflows, and reports an unmanaged path collision instead of overwriting project-authored CI. The managed issue form at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is also reconciled: upgrade creates it when missing, reports current forms as already present, overwrites any existing file at that managed issue-form path when it differs from the canonical nmg-sdlc form, and preserves all unrelated issue templates.
 
 **Spike research ADRs** are committed to `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` by `$nmg-sdlc:write-spec` Phase 0. The directory is created on demand (on the first spike); no pre-existing file or placeholder is required. `$nmg-sdlc:run-retro` scans this directory for ADRs older than 180 days and surfaces them as re-spike candidates in the retrospective output.
 
@@ -280,9 +286,9 @@ The `## Verification Gates` section in `tech.md` declares mandatory verification
 | `$nmg-sdlc:run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
 | `$nmg-sdlc:run-loop [#N]` | Run the full SDLC pipeline from within an active Codex session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
 | `$nmg-sdlc:end-loop` | Stop unattended mode and clear runner state |
-| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, can create or update `CONTRIBUTING.md` and the managed contribution-gate workflow, and refreshes the managed SDLC-ready GitHub issue form |
+| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, can create or update `CONTRIBUTING.md`, root `AGENTS.md` spec-context guidance, and the managed contribution-gate workflow, and refreshes the managed SDLC-ready GitHub issue form |
 | `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner and install the managed GitHub Actions contribution gate plus the SDLC-ready GitHub issue form |
-| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, contribution guide, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
+| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, contribution guide, AGENTS.md spec-context guidance, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
 
 ## Updating
 

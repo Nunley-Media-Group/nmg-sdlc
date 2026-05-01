@@ -10,6 +10,8 @@ Read `../../references/unattended-mode.md` when applying defaults without prompt
 
 Read `../../references/contribution-guide.md` when Step 2G.2 verifies that all three steering docs exist — the shared contract creates or updates `CONTRIBUTING.md`, preserves existing contribution content in enhancement mode, handles the README link idempotently, and returns status for the Step 5 summary.
 
+Read `../../references/project-agents.md` when Step 2G.2 verifies that all three steering docs exist — the shared contract creates or updates root `AGENTS.md` spec-context guidance, preserves existing project instructions, and returns status for the Step 5 summary.
+
 ## Step 2G.1 Intent + Tech-Selection Interview
 
 Read `references/interview.md` when conducting the interview — the round-by-round questions, default-sourcing priority chain, and unattended-mode default-application contract live there. Store answers as `interview_context` for 2G.2, 2G.4, and 2G.6.
@@ -62,6 +64,17 @@ After Step 2G.2 verifies all three steering docs exist, apply `../../references/
 4. Record `CONTRIBUTING.md` and README-link outcomes for Step 5.
 
 In unattended mode, auto-apply the non-destructive guide and README-link changes and log the outcomes. This step must run before milestone seeding and starter-issue generation so contributor expectations exist before new work is created.
+
+## Step 2G.2 Project AGENTS Postcondition
+
+After Step 2G.2 verifies all three steering docs exist, apply `../../references/project-agents.md`.
+
+1. Create root `AGENTS.md` when missing after steering exists.
+2. Append, repair, or refresh only the managed nmg-sdlc spec-context section when existing guidance is incomplete, malformed, or stale.
+3. Preserve project-authored instructions byte-for-byte outside the managed section.
+4. Record `AGENTS.md` status and gaps for Step 5.
+
+In unattended mode, auto-apply the non-destructive AGENTS.md changes and log the outcomes. This step must run before milestone seeding and starter-issue generation so prompt-level spec guidance exists before new work is created.
 
 ## Step 2G.2a Version File Initialization
 

@@ -15,6 +15,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 execution gate and forces Step 4 to skip the interactive plan review. The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
 
+Read `../../references/spec-context.md` when Step 2 resolves the active spec — write-code preserves active-spec-first loading and adds capped neighboring specs only when surrounding contracts can affect implementation scope.
+
 ## Prerequisites
 
 1. Specs exist at `specs/{feature-name}/` (created by `$nmg-sdlc:write-spec`).
@@ -53,7 +55,9 @@ Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT
 
 ### Step 2: Read Specs
 
-Load all specification documents:
+Load all active specification documents:
+
+Then read `../../references/spec-context.md` and establish bounded neighboring context. Fully load related specs only when the ranking reasons show their surrounding contracts can affect implementation scope, and cap related full-spec loading per the shared contract. The active spec remains authoritative; related specs provide constraints, compatibility notes, and blast-radius context, not replacement task sources.
 
 ```
 specs/{feature-name}/

@@ -1,0 +1,51 @@
+# File: specs/feature-add-bounded-relevant-spec-discovery-for-nmg-sdlc-projects/feature.gherkin
+#
+# Generated from: specs/feature-add-bounded-relevant-spec-discovery-for-nmg-sdlc-projects/requirements.md
+# Issue: #139
+
+Feature: Add Bounded Relevant-Spec Discovery for nmg-sdlc Projects
+  As a developer using nmg-sdlc across projects
+  I want every SDLC workflow to understand the active change and its surrounding spec context by default
+  So that implementations, reviews, issue drafts, and new specs are not produced in a silo
+
+  Scenario: SDLC always establishes spec context
+    Given a project uses nmg-sdlc
+    When an SDLC skill starts work on an issue, implementation, or verification
+    Then project-root "specs/" is treated as the canonical surrounding-context archive
+    And the workflow establishes the active spec plus relevant neighboring specs before making decisions
+
+  Scenario: Legacy spec locations are not used as context
+    Given a project still has legacy ".codex/specs/" or ".codex/steering/" artifacts
+    When an SDLC skill starts
+    Then the legacy-layout gate blocks the workflow
+    And the skill does not use legacy spec files as surrounding context
+
+  Scenario: Metadata-first discovery prevents context bloat
+    Given a project has many specs
+    When surrounding spec context is established
+    Then discovery scans compact metadata before full spec bodies
+    And only the active spec plus a capped ranked set of related specs are fully loaded
+
+  Scenario: Write-spec considers existing surrounding contracts
+    Given "$nmg-sdlc:write-spec" is writing an enhancement spec
+    When an existing feature spec relates through issue links, related-spec links, affected files, symbols, component names, title overlap, or strong keyword overlap
+    Then the skill considers amending the relevant existing contract before creating a disconnected new spec
+    And parent-link resolution remains the strongest signal before ranked metadata matching
+
+  Scenario: Ambiguous spec context requires a gate
+    Given relevant-spec discovery produces multiple plausible neighboring specs
+    When the run is interactive
+    Then ranked candidates and ranking reasons are presented for selection
+    And amendment or creation does not proceed until the gate is resolved
+
+  Scenario: Project guidance makes spec context the default
+    Given "$nmg-sdlc:onboard-project" or "$nmg-sdlc:upgrade-project" runs in a consumer project
+    When root "AGENTS.md" is missing or lacks nmg-sdlc spec-context guidance
+    Then the plugin creates or appends a managed section directing Codex to use bounded "specs/" discovery
+    And existing project-authored instructions are preserved
+
+  Scenario: Idempotent coverage and verification prove the balance
+    Given the feature is implemented
+    When verification runs
+    Then tests or exercise coverage prove ranking caps, ambiguous-candidate handling, AGENTS.md idempotency, active-spec-first behavior, and no full-archive loading by default
+    And the checks demonstrate enough surrounding context to be effective without loading unrelated spec bodies

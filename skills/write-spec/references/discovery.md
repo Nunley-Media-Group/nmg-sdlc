@@ -2,7 +2,7 @@
 
 **Read this when** the issue is **not** bug-labelled and `$nmg-sdlc:write-spec` needs to decide whether to *amend an existing feature spec* or *create a new one*. Bug-labelled issues skip discovery entirely — they always create a new `bug-{slug}/` and never amend.
 
-Discovery has two stages run in strict order: parent-link resolution first (deterministic, follows the GitHub sub-issue graph and body cross-references), then keyword-based matching as a fallback. The reason for ordering this way is that an explicit parent link is a stronger signal of intent than token overlap — a child issue should never get keyword-matched to the wrong feature when its parent edge already names the right one.
+Discovery has two stages run in strict order: parent-link resolution first (deterministic, follows the GitHub sub-issue graph and body cross-references), then the bounded metadata ranking contract from `../../references/spec-context.md` as a fallback. The reason for ordering this way is that an explicit parent link is a stronger signal of intent than token overlap — a child issue should never get matched to the wrong feature when its parent edge already names the right one.
 
 ## Step 0: Parent-Link Resolution
 
@@ -35,20 +35,19 @@ Run before keyword discovery. Only fall through to Step 1 when this stage produc
 
 Step 0 is stateless — it derives everything fresh from `gh` state on each invocation. It runs identically in interactive and unattended modes; the only difference is that unattended aborts emit the error to stderr and exit non-zero rather than prompting.
 
-## Step 1: Keyword-Based Discovery (fallback)
+## Step 1: Bounded Spec-Context Ranking (fallback)
 
-1. **Extract keywords** from the issue title: tokenize by spaces, then filter out stop words: `a`, `an`, `the`, `to`, `for`, `in`, `on`, `of`, `and`, `or`, `is`, `it`, `as`, `at`, `by`, `with`, `from`, `this`, `that`, `add`, `fix`, `update`, `implement`, `create`.
-2. **Search for existing feature specs**: Run file discovery for `specs/feature-*/requirements.md` to list candidates.
-3. **If no feature specs exist**, skip to the create-new-spec flow in the main workflow.
-4. **Score candidates**: For each candidate spec file, run text search using each extracted keyword against the file content. Count total keyword hits per candidate.
-5. **Rank and filter**: Sort candidates by total keyword hits. Filter to candidates with at least 2 keyword hits.
-6. **If one or more candidates found**:
-   - Read the top candidate's first `# ` heading and user story for context.
+1. Read `../../references/spec-context.md`.
+2. **Search for existing feature specs**: Run file discovery for `specs/feature-*/requirements.md` to list candidates. If no feature specs exist, skip to the create-new-spec flow in the main workflow.
+3. **Extract metadata first**: For each candidate, scan compact metadata only: slug/title, `**Issues**`, `**Related Spec**`, headings, AC/FR names, affected paths, symbols, component names, and strong title/body keywords from the issue.
+4. **Rank and filter**: Apply the shared ranking rules. Keep candidates only when they meet the threshold: at least one strong signal or at least two medium signals. Weak generic overlap is not enough.
+5. **If one or more candidates found**:
+   - Read only the top-ranked candidate summaries needed for the gate, capped at five presented candidates. Include ranking reasons for each candidate.
    - Present a `request_user_input` gate in Plan Mode:
-     - Option 1: "Amend existing spec: `feature-{slug}`" (with brief description from heading/user story).
+     - Option 1: "Amend existing spec: `feature-{slug}`" for the top threshold-qualified candidate, including ranking reasons.
      - Option 2: "Create new spec" (derives a new `feature-{slug}` from the current issue title).
      - Free-form `Other`: treat as an explicit spec directory to verify before proceeding, or as a corrected slug for create-new-spec if no matching directory exists.
-   - **If unattended mode** (`.codex/unattended-mode` exists): skip `request_user_input` entirely and proceed in amendment mode against the top-scored existing spec.
-7. **If no candidates found**: proceed to create a new spec without prompting.
+   - **If unattended mode** (`.codex/unattended-mode` exists): skip `request_user_input`. Proceed in amendment mode only when the deterministic top-ranked candidate meets the shared threshold; otherwise proceed to create-new-spec and record the ambiguity or no-threshold gap.
+6. **If no candidates meet threshold**: proceed to create a new spec without prompting and record `relatedSpecs: none`.
 
 The result determines whether subsequent phases operate in **amendment mode** (modifying an existing spec) or **creation mode** (writing a new spec from scratch).
