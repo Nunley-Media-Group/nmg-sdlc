@@ -10,6 +10,8 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.69.0] - 2026-04-30
+
 ### Added
 
 - Added bounded relevant-spec discovery for issue #139: SDLC skills now treat project-root `specs/` as active-plus-neighboring context, scan compact metadata before loading full spec bodies, and onboarding/upgrade manage root `AGENTS.md` guidance for prompt-level spec requests.
