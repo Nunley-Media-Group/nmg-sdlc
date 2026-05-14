@@ -272,6 +272,8 @@ The **classification matrix**:
 
 The `## Verification Gates` section in `tech.md` declares mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
 
+For skill exercise fixtures, `scripts/skill-exercise-runner.mjs` can run deterministic artifact/rubric checks without live Codex/API access; `RUN_EXERCISE_TESTS=1` remains the explicit path for live skill invocation.
+
 ## Skills Reference
 
 | Skill | Description |

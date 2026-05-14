@@ -1,6 +1,6 @@
 # Requirements: Route Skill Creation and Update Tasks Through /skill-creator
 
-**Issues**: #141
+**Issues**: #80
 **Date**: 2026-04-19
 **Status**: Draft
 **Author**: Rich Nunley
@@ -221,7 +221,7 @@ The only user-visible artifact is the warning string in AC5, which must appear v
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #141 | 2026-04-19 | Initial feature spec |
+| #80 | 2026-04-19 | Initial feature spec |
 
 ---
 

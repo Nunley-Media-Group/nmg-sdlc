@@ -1,7 +1,7 @@
 # File: specs/feature-route-skill-tasks-through-skill-creator/feature.gherkin
 #
 # Generated from: specs/feature-route-skill-tasks-through-skill-creator/requirements.md
-# Issue: #141
+# Issue: #80
 
 Feature: Route skill creation and update tasks through /skill-creator
   As a developer implementing or modifying a Codex skill definition through the SDLC pipeline

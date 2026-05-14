@@ -10,7 +10,7 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 | ID | Check | Pass Criteria | Maps To |
 |----|-------|---------------|---------|
 | D1 | SKILL.md line count | `wc -l skills/draft-issue/SKILL.md ≤ 320` | AC1 (issue #146) |
-| D2 | Frontmatter Codex compatibility | Frontmatter uses a `gpt-*` model and contains no legacy provider model terms | Codex compatibility |
+| D2 | Frontmatter Codex compatibility | Frontmatter either omits `model` or uses a `gpt-*` model, and contains no legacy provider model terms | Codex compatibility |
 | D3 | Pointer grammar | `grep -cE '^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when ' skills/draft-issue/SKILL.md` ≥ 1 and every reference-pointer line in the file matches the grammar | AC3 (issue #146) / AC7 (epic) |
 | D4 | Reference file budget | `ls skills/draft-issue/references/ | wc -l ≤ 6` | AC8 (epic) |
 | D5 | Every referenced file exists | Every path named in a pointer line resolves to a real file | Pointer correctness |
@@ -20,7 +20,9 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 
 ## Rubric-Graded Checks
 
-These require an opt-in `codex exec` exercise run that captures the skill's drafted issue body. The runner executes them only when it has captured an artifact; otherwise it emits a `skipped (no model artifact)` status and the overall exit code is still `0` as long as every deterministic check passes.
+These run through the evaluator-backed rubric path in `scripts/skill-exercise-runner.mjs`. In default CI mode, the runner grades deterministic fixture artifacts under `scripts/__fixtures__/skill-exercise/draft-issue/artifacts/` without live Codex or API access. When `RUN_EXERCISE_TESTS=1` is set and Codex is available, the runner captures live exercise output, extracts the authored issue artifact, and sends it through the same evaluator.
+
+Captured artifacts produce `pass` or `fail` for applicable criteria. A criterion may report `skipped` only with a specific reason such as `exercise-mode unavailable`, `artifact missing`, `unsupported interactive gate`, `criterion not applicable`, or `missing evaluator for skill <name>`. Captured artifacts must never report `rubric evaluation not yet implemented`.
 
 | ID | Check | Grade |
 |----|-------|-------|
@@ -31,9 +33,16 @@ These require an opt-in `codex exec` exercise run that captures the skill's draf
 | R5 | Root-Cause Analysis present (bug) | Body contains a `## Root Cause Analysis` heading with a non-empty paragraph and a `**User Confirmed**` line |
 | R6 | Out of Scope section | Body contains a `## Out of Scope` heading with at least one bullet |
 
+## Deterministic Fixture Artifacts
+
+| Fixture | Purpose |
+|---------|---------|
+| `draft-issue/artifacts/feature-pass.md` | Passing feature artifact for default non-live evaluation |
+| `draft-issue/artifacts/malformed-fail.md` | Negative artifact used by Jest to prove malformed structures fail with actionable details |
+
 ## Pre-Refactor Baseline
 
-The pre-refactor baseline for command-surface checks is derived from `git show main:skills/draft-issue/SKILL.md` at the merge-base of this branch, with legacy monorepo paths supported for older baselines. Baselines for model-authored artifacts (R1–R6) are captured only when the runner executes an opt-in `codex exec` exercise and reports `skipped (exercise-mode unavailable)` otherwise.
+The pre-refactor baseline for command-surface checks is derived from `git show main:skills/draft-issue/SKILL.md` at the merge-base of this branch, with legacy monorepo paths supported for older baselines. Model-authored artifacts (R1–R6) are evaluated from deterministic fixture artifacts by default, or from captured live Codex output when `RUN_EXERCISE_TESTS=1` is explicitly enabled.
 
 ## Invocation
 

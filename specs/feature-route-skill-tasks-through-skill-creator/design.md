@@ -1,6 +1,6 @@
 # Design: Route Skill Creation and Update Tasks Through /skill-creator
 
-**Issues**: #141
+**Issues**: #80
 **Date**: 2026-04-19
 **Status**: Draft
 **Author**: Rich Nunley
@@ -229,7 +229,7 @@ The `feature.gherkin` file in this spec enumerates the concrete scenarios.
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #141 | 2026-04-19 | Initial feature design |
+| #80 | 2026-04-19 | Initial feature design |
 
 ---
 

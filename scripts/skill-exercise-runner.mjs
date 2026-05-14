@@ -12,14 +12,15 @@
  *     count, frontmatter byte-identity, pointer grammar, file budget, audit
  *     script, slash-command surface). These cover the AC1/AC2/AC3/AC5/AC8
  *     bar from issue #146 and are the must-pass half of the rubric.
- *   - Rubric-graded checks require an opt-in Codex exercise run that captures
- *     the skill's drafted artifact. When exercise mode is unavailable, the runner reports
- *     `skipped (exercise-mode unavailable)` for those checks and the overall
- *     run still exits 0 as long as every deterministic check passed.
+ *   - Rubric-graded checks evaluate captured live output when opt-in exercise
+ *     mode is enabled, or deterministic fixture artifacts in default CI mode.
+ *     Missing artifacts produce explicit skip reasons; evaluated malformed
+ *     artifacts fail the run.
  *
  * Usage:
  *   node scripts/skill-exercise-runner.mjs --skill draft-issue
  *   node scripts/skill-exercise-runner.mjs --skill draft-issue --base origin/main
+ *   node scripts/skill-exercise-runner.mjs --skill draft-issue --artifact path/to/artifact.md
  *
  * Exit codes:
  *   0 — every deterministic check passed; rubric checks passed or were skipped
@@ -38,6 +39,35 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
 const POINTER_RE = /^Read `(\.\.\/\.\.\/)?references\/[^`]+\.md` when /;
 const MAX_FILES_PER_SKILL = 6;
+const ARTIFACT_BEGIN_RE = /^--- BEGIN NMG-SDLC ARTIFACT ---$/m;
+const ARTIFACT_END_RE = /^--- END NMG-SDLC ARTIFACT ---$/m;
+const ACTION_VERBS = new Set([
+  'add',
+  'automate',
+  'create',
+  'document',
+  'enable',
+  'enforce',
+  'fix',
+  'generate',
+  'implement',
+  'improve',
+  'prevent',
+  'refactor',
+  'remove',
+  'route',
+  'support',
+  'update',
+  'validate',
+]);
+const RUBRIC_CHECKS = [
+  { id: 'R1', name: 'title starts with an action verb' },
+  { id: 'R2', name: 'AC count meets threshold for classification' },
+  { id: 'R3', name: 'every AC contains Given/When/Then lines' },
+  { id: 'R4', name: 'User Story present (feature classification)' },
+  { id: 'R5', name: 'Root-Cause Analysis present (bug classification)' },
+  { id: 'R6', name: 'Out of Scope section with ≥ 1 bullet' },
+];
 
 function readFile(absPath) {
   return fs.readFileSync(absPath, 'utf8');
@@ -123,11 +153,13 @@ function deterministicChecks(skillName, baseRef) {
   const legacyModelPattern = ['op' + 'us', 'son' + 'net', 'hai' + 'ku'].join('|');
   const hasLegacyModel = new RegExp(`\\b(${legacyModelPattern})\\b`, 'i').test(frontmatter);
   const hasLegacyProviderTerm = new RegExp(`\\b${'cla'}${'ude'}\\b`, 'i').test(frontmatter);
+  const modelOk = !model || model.startsWith('gpt-');
+  const frontmatterOk = modelOk && !hasLegacyModel && !hasLegacyProviderTerm;
   results.push({
     id: 'D2',
     name: 'frontmatter is Codex-compatible',
-    status: model?.startsWith('gpt-') && !hasLegacyModel && !hasLegacyProviderTerm ? 'pass' : 'fail',
-    detail: model?.startsWith('gpt-') && !hasLegacyModel && !hasLegacyProviderTerm ? `model ${model}` : 'expected gpt-* model and no legacy provider terms',
+    status: frontmatterOk ? 'pass' : 'fail',
+    detail: frontmatterOk ? (model ? `model ${model}` : 'no model override and no legacy provider terms') : 'expected absent/gpt-* model and no legacy provider terms',
   });
 
   // D3: every reference pointer matches the AC7 grammar
@@ -226,19 +258,21 @@ function deterministicChecks(skillName, baseRef) {
 
 /**
  * Attempt the Codex exercise. When exercise mode is disabled or any prerequisite
- * is missing, return `null` and the runner reports every
- * rubric-graded check as `skipped (exercise-mode unavailable)`.
+ * is missing, return a named reason so the caller can either load the committed
+ * deterministic fixture artifact or report a specific skip reason.
  *
  * Exercise mode is opt-in because it invokes a live Codex subprocess and may
  * consume API quota. Set RUN_EXERCISE_TESTS=1 to enable it.
  */
 async function attemptCodexExercise(skillName, fixtureDir) {
-  if (process.env.RUN_EXERCISE_TESTS !== '1') return null;
+  if (process.env.RUN_EXERCISE_TESTS !== '1') {
+    return { output: null, reason: 'exercise-mode unavailable' };
+  }
 
   try {
     execFileSync('codex', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
   } catch {
-    return null;
+    return { output: null, reason: 'environment unavailable' };
   }
 
   const prompt = [
@@ -258,25 +292,201 @@ async function attemptCodexExercise(skillName, fixtureDir) {
   });
 
   const output = [proc.stdout, proc.stderr].filter(Boolean).join('\n').trim();
-  return output || null;
+  if (proc.error?.code === 'ETIMEDOUT') {
+    return { output, reason: 'timeout' };
+  }
+  if (/unsupported interactive gate|interactive gate unsupported|request_user_input is not supported/i.test(output)) {
+    return { output, reason: 'unsupported interactive gate' };
+  }
+  return { output: output || null, reason: output ? null : 'artifact missing' };
 }
 
-function rubricChecks(skillName, artifact) {
-  const checks = [
-    { id: 'R1', name: 'title starts with an action verb' },
-    { id: 'R2', name: 'AC count meets threshold for classification' },
-    { id: 'R3', name: 'every AC contains Given/When/Then lines' },
-    { id: 'R4', name: 'User Story present (feature classification)' },
-    { id: 'R5', name: 'Root-Cause Analysis present (bug classification)' },
-    { id: 'R6', name: 'Out of Scope section with ≥ 1 bullet' },
-  ];
+function skippedRubricChecks(detail) {
+  return RUBRIC_CHECKS.map((c) => ({ ...c, status: 'skipped', detail }));
+}
 
-  if (!artifact) {
-    return checks.map((c) => ({ ...c, status: 'skipped', detail: 'exercise-mode unavailable' }));
+function firstExistingArtifact(skillName, fixtureDir) {
+  const artifactDir = path.join(fixtureDir, 'artifacts');
+  const candidates = [
+    path.join(artifactDir, 'feature-pass.md'),
+    path.join(artifactDir, 'pass.md'),
+    path.join(artifactDir, `${skillName}-pass.md`),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+function extractArtifactFromOutput(output, fallbackReason = 'artifact missing') {
+  if (!output || !output.trim()) {
+    return { artifact: null, reason: fallbackReason };
+  }
+  if (/unsupported interactive gate|interactive gate unsupported|request_user_input is not supported/i.test(output)) {
+    return { artifact: null, reason: 'unsupported interactive gate' };
   }
 
-  // When exercise evaluation is wired, artifact will contain the drafted issue body.
-  return checks.map((c) => ({ ...c, status: 'skipped', detail: 'rubric evaluation not yet implemented' }));
+  const begin = output.search(ARTIFACT_BEGIN_RE);
+  const end = output.search(ARTIFACT_END_RE);
+  if (begin >= 0 && end > begin) {
+    const afterBegin = output.slice(begin).split(/\r?\n/).slice(1).join('\n');
+    const artifact = afterBegin.split(ARTIFACT_END_RE)[0].trim();
+    return artifact ? { artifact, reason: null } : { artifact: null, reason: 'artifact missing' };
+  }
+
+  const lines = output.split(/\r?\n/);
+  const start = lines.findIndex((line) => (
+    /^#\s+\S/.test(line)
+    || /^Title:\s*\S/i.test(line)
+    || /^##\s+(User Story|Root Cause Analysis|Acceptance Criteria)\b/i.test(line)
+  ));
+  if (start < 0) return { artifact: null, reason: 'artifact missing' };
+
+  let adjustedStart = start;
+  if (/^##\s+/.test(lines[start])) {
+    for (let i = start - 1; i >= Math.max(0, start - 4); i--) {
+      if (/^(#\s+\S|Title:\s*\S)/i.test(lines[i])) {
+        adjustedStart = i;
+        break;
+      }
+    }
+  }
+
+  const endIndex = lines.findIndex((line, index) => (
+    index > adjustedStart
+    && /^(Exercise report:|Summary:|\$ |Done\.|gh issue create\b)/.test(line)
+  ));
+  const artifactLines = lines.slice(adjustedStart, endIndex < 0 ? undefined : endIndex);
+  const artifact = artifactLines.join('\n').trim();
+  return artifact ? { artifact, reason: null } : { artifact: null, reason: 'artifact missing' };
+}
+
+function section(source, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = source.match(new RegExp(`^##\\s+${escaped}\\s*$([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'im'));
+  return match ? match[1].trim() : '';
+}
+
+function acBlocks(source) {
+  return [...source.matchAll(/^###\s+AC\d+\b[^\n]*\n([\s\S]*?)(?=^###\s+AC\d+\b|^##\s+|(?![\s\S]))/gim)]
+    .map((match) => match[0].trim());
+}
+
+function hasGwt(block, word) {
+  return new RegExp(`^\\s*(?:\\*\\*)?${word}(?:\\*\\*)?\\b`, 'im').test(block);
+}
+
+function parseDraftIssueArtifact(artifact) {
+  const titleMatch = artifact.match(/^#\s+(.+)$/m)
+    ?? artifact.match(/^Title:\s*(.+)$/mi)
+    ?? artifact.match(/gh issue create\b[^\n]*--title\s+"([^"]+)"/m);
+  const title = titleMatch ? titleMatch[1].trim() : '';
+  const rootCause = section(artifact, 'Root Cause Analysis');
+  const userStory = section(artifact, 'User Story');
+  const outOfScope = section(artifact, 'Out of Scope');
+  const blocks = acBlocks(artifact);
+  const isBug = Boolean(rootCause) || /^fix\b/i.test(title);
+
+  return {
+    title,
+    classification: isBug ? 'bug' : 'feature',
+    userStory,
+    rootCause,
+    outOfScope,
+    acBlocks: blocks,
+  };
+}
+
+function result(id, status, detail) {
+  const check = RUBRIC_CHECKS.find((c) => c.id === id);
+  return { ...check, status, detail };
+}
+
+function evaluateDraftIssueArtifact(artifact) {
+  if (!artifact) {
+    return skippedRubricChecks('artifact missing');
+  }
+
+  const parsed = parseDraftIssueArtifact(artifact);
+  const results = [];
+  const firstWord = parsed.title.match(/^([A-Za-z]+)\b/)?.[1]?.toLowerCase() ?? '';
+  results.push(result(
+    'R1',
+    ACTION_VERBS.has(firstWord) ? 'pass' : 'fail',
+    parsed.title
+      ? (ACTION_VERBS.has(firstWord) ? `title "${parsed.title}"` : `title must start with a recognized action verb; got "${parsed.title}"`)
+      : 'missing title'
+  ));
+
+  const requiredAcCount = parsed.classification === 'bug' ? 2 : 3;
+  results.push(result(
+    'R2',
+    parsed.acBlocks.length >= requiredAcCount ? 'pass' : 'fail',
+    `${parsed.acBlocks.length} AC block(s), expected at least ${requiredAcCount} for ${parsed.classification}`
+  ));
+
+  const malformedBlocks = parsed.acBlocks
+    .map((block, index) => ({ index: index + 1, block }))
+    .filter(({ block }) => !(hasGwt(block, 'Given') && hasGwt(block, 'When') && hasGwt(block, 'Then')))
+    .map(({ index }) => `AC${index}`);
+  results.push(result(
+    'R3',
+    parsed.acBlocks.length > 0 && malformedBlocks.length === 0 ? 'pass' : 'fail',
+    parsed.acBlocks.length === 0
+      ? 'no AC blocks found'
+      : (malformedBlocks.length ? `missing Given/When/Then in ${malformedBlocks.join(', ')}` : `${parsed.acBlocks.length} AC block(s) include Given/When/Then`)
+  ));
+
+  if (parsed.classification === 'bug') {
+    results.push(result('R4', 'skipped', 'criterion not applicable for bug classification'));
+  } else {
+    const missing = [];
+    if (!parsed.userStory) missing.push('## User Story');
+    if (!/\*\*As a\*\*/i.test(parsed.userStory)) missing.push('**As a**');
+    if (!/\*\*I want\*\*/i.test(parsed.userStory)) missing.push('**I want**');
+    if (!/\*\*So that\*\*/i.test(parsed.userStory)) missing.push('**So that**');
+    results.push(result(
+      'R4',
+      missing.length === 0 ? 'pass' : 'fail',
+      missing.length ? `missing ${missing.join(', ')}` : 'feature user story has As a / I want / So that'
+    ));
+  }
+
+  if (parsed.classification === 'bug') {
+    const hasParagraph = parsed.rootCause
+      .split(/\r?\n/)
+      .some((line) => line.trim() && !/^\*\*User Confirmed\*\*/i.test(line.trim()));
+    const hasUserConfirmed = /\*\*User Confirmed\*\*/i.test(parsed.rootCause);
+    results.push(result(
+      'R5',
+      hasParagraph && hasUserConfirmed ? 'pass' : 'fail',
+      hasParagraph && hasUserConfirmed
+        ? 'root-cause paragraph and **User Confirmed** line present'
+        : `missing ${[!hasParagraph && 'root-cause paragraph', !hasUserConfirmed && '**User Confirmed**'].filter(Boolean).join(', ')}`
+    ));
+  } else {
+    results.push(result('R5', 'skipped', 'criterion not applicable for feature classification'));
+  }
+
+  results.push(result(
+    'R6',
+    /^[-*]\s+\S/m.test(parsed.outOfScope) ? 'pass' : 'fail',
+    parsed.outOfScope ? 'out-of-scope bullet present' : 'missing ## Out of Scope section with at least one bullet'
+  ));
+
+  return results;
+}
+
+const RUBRIC_EVALUATORS = {
+  'draft-issue': evaluateDraftIssueArtifact,
+};
+
+function rubricChecks(skillName, artifact, options = {}) {
+  const evaluator = RUBRIC_EVALUATORS[skillName];
+  if (!evaluator) {
+    return skippedRubricChecks(`missing evaluator for skill ${skillName}`);
+  }
+  if (!artifact) {
+    return skippedRubricChecks(options.missingReason ?? 'artifact missing');
+  }
+  return evaluator(artifact);
 }
 
 function renderReport(results, { skill }) {
@@ -303,6 +513,7 @@ async function main(argv) {
       options: {
         skill: { type: 'string' },
         base: { type: 'string', default: 'origin/main' },
+        artifact: { type: 'string' },
         help: { type: 'boolean', default: false },
       },
       strict: true,
@@ -319,6 +530,7 @@ Usage: node scripts/skill-exercise-runner.mjs --skill <name> [--base <ref>]
 Options:
   --skill <name>    Skill to exercise (e.g., draft-issue)
   --base <ref>      Git ref for pre-refactor baseline comparison (default: origin/main)
+  --artifact <path> Evaluate this artifact file instead of live/default fixture output
   --help            Show this help
 `);
     return args.help ? 0 : 2;
@@ -331,8 +543,32 @@ Options:
   }
 
   const detResults = deterministicChecks(args.skill, args.base);
-  const artifact = await attemptCodexExercise(args.skill, fixtureDir);
-  const rubResults = rubricChecks(args.skill, artifact);
+  let artifact = null;
+  let missingReason = 'exercise-mode unavailable';
+
+  if (args.artifact) {
+    const artifactPath = path.resolve(REPO_ROOT, args.artifact);
+    try {
+      artifact = readFile(artifactPath);
+    } catch (err) {
+      console.error(`Artifact read error: ${err.message}`);
+      return 2;
+    }
+  } else {
+    const exercise = await attemptCodexExercise(args.skill, fixtureDir);
+    const extracted = extractArtifactFromOutput(exercise.output, exercise.reason ?? missingReason);
+    artifact = extracted.artifact;
+    missingReason = extracted.reason ?? missingReason;
+
+    if (!artifact) {
+      const fixtureArtifact = firstExistingArtifact(args.skill, fixtureDir);
+      if (fixtureArtifact) {
+        artifact = readFile(fixtureArtifact);
+      }
+    }
+  }
+
+  const rubResults = rubricChecks(args.skill, artifact, { missingReason });
 
   const results = [...detResults, ...rubResults];
   console.log(renderReport(results, { skill: args.skill }));
@@ -346,3 +582,12 @@ const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.
 if (isMainModule) {
   main(process.argv.slice(2)).then((code) => process.exit(code));
 }
+
+export {
+  acBlocks,
+  evaluateDraftIssueArtifact,
+  extractArtifactFromOutput,
+  main,
+  parseDraftIssueArtifact,
+  rubricChecks,
+};

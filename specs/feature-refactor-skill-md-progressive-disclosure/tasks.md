@@ -1,7 +1,7 @@
 # Tasks: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146, #83, #84
-**Date**: 2026-04-20
+**Issues**: #138, #145, #146, #83, #84, #141
+**Date**: 2026-05-06
 **Status**: Planning
 **Author**: Rich Nunley
 
@@ -18,7 +18,8 @@ The 5 phases below map 1:1 to the 4-PR rollout from the design, with Phase 5 (Te
 | 3: Bulk Refactor (3 skills) | 3 | [ ] | PR 3 |
 | 4: Remainder Refactor + Release | 7 | [ ] | PR 4 |
 | 5: Testing (BDD + Exercise Suite) | 3 | [ ] | threaded |
-| **Total** | **25** | | |
+| 6: Rubric Evaluation Automation | 5 | [x] | #141 |
+| **Total** | **30** | | |
 
 > **Skill-bundled-file authoring note:** `steering/structure.md` lists "Skill-bundled files must be authored via `/skill-creator`" as an architectural invariant. The bundle covers `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and per-skill subagent files under `agents/*.md`. For this content-moving refactor, **every** edit to any skill-bundled file (SKILL.md and the per-skill `references/*.md` files extracted alongside it) routes through `/skill-creator` per the invariant; the frontmatter is unchanged (AC5), so each `/skill-creator` session focuses on body restructuring or new-file authoring. There is no hand-edit fallback — if `/skill-creator` is unavailable, the workflow escalates and stops rather than silently editing a bundled file directly.
 
@@ -348,6 +349,67 @@ Each task follows this structure:## Phase 1: Setup (Additive Infrastructure) —
 
 ---
 
+## Phase 6: Rubric Evaluation Automation — Issue #141
+
+### T026: Add Explicit Rubric Evaluator Registry
+
+**File(s)**: `scripts/skill-exercise-runner.mjs`
+**Type**: Modify
+**Depends**: T012
+**Acceptance**:
+- [x] `rubricChecks(skillName, artifact)` dispatches to a skill-specific evaluator registry rather than returning placeholder skips for captured artifacts.
+- [x] `draft-issue` has an evaluator covering title shape, AC count, Given/When/Then AC structure, feature user story, bug root-cause section, and out-of-scope bullets.
+- [x] Evaluation results keep the existing `{ id, name, status, detail }` report shape.
+- [x] Captured artifacts never produce `skipped — rubric evaluation not yet implemented`.
+- [x] Unknown skills or missing evaluators return a named skip reason that identifies the missing evaluator.
+
+### T027: Add Artifact Extraction and Deterministic Fixture Inputs
+
+**File(s)**: `scripts/skill-exercise-runner.mjs`, `scripts/__fixtures__/skill-exercise/draft-issue/`
+**Type**: Modify + Create
+**Depends**: T026
+**Acceptance**:
+- [x] Runner extracts the authored issue/spec/PR-style artifact from captured Codex output while ignoring surrounding transcript text.
+- [x] Deterministic fixture artifacts exist for at least one passing feature issue body and one failing malformed issue body.
+- [x] Missing artifact, unsupported interactive gate, environment unavailable, and criterion-not-applicable states are distinguishable in result details.
+- [x] Fixture evaluation does not require `RUN_EXERCISE_TESTS=1`.
+
+### T028: Add Jest Coverage for Rubric Pass/Fail/Skip Behavior
+
+**File(s)**: `scripts/__tests__/skill-exercise-runner.test.mjs`
+**Type**: Create
+**Depends**: T026, T027
+**Acceptance**:
+- [x] Passing `draft-issue` artifact produces `pass` for all applicable rubric criteria.
+- [x] Malformed artifacts produce `fail` with details naming the missing structure.
+- [x] No-artifact and exercise-disabled paths produce specific skip reasons, not generic placeholders.
+- [x] A failed evaluated rubric criterion makes the runner return exit code 1.
+- [x] `cd scripts && npm test -- --runInBand` passes.
+
+### T029: Enforce Exercise Runner Through SDLC Verification Gates
+
+**File(s)**: `steering/tech.md`, `scripts/skill-exercise-runner.mjs`
+**Type**: Modify
+**Depends**: T026, T028
+**Acceptance**:
+- [x] `steering/tech.md` `## Verification Gates` requires `node scripts/skill-exercise-runner.mjs --skill <changed-skill>` for changed skills that have fixtures.
+- [x] The gate condition includes changes to `skills/**/SKILL.md`, `skills/**/references/**`, and `scripts/skill-exercise-runner.mjs`.
+- [x] The pass criteria require exit code 0 and no placeholder rubric skips for captured artifacts.
+- [x] Changed skills without fixtures are recorded as a named verification gap instead of silently passing the exercise layer.
+
+### T030: Update Rubric Documentation and BDD Coverage
+
+**File(s)**: `scripts/__fixtures__/skill-exercise/rubrics/draft-issue.md`, `specs/feature-refactor-skill-md-progressive-disclosure/feature.gherkin`
+**Type**: Modify
+**Depends**: T026, T027, T028, T029
+**Acceptance**:
+- [x] `draft-issue.md` documents the evaluator-backed pass/fail/skip semantics for every rubric criterion.
+- [x] Gherkin scenarios cover AC12–AC15.
+- [x] The feature file issue list includes #141.
+- [x] `git diff --check` passes.
+
+---
+
 ## Dependency Graph
 
 ```
@@ -381,9 +443,12 @@ Phase 5 (threaded)
   T023: runs as part of PR 1 (design artifact, not code)
   T024: extends through PRs 2, 3, 4 as each skill is added
   T025: gate for PR 4 merge
+
+Phase 6 (#141)
+  T012 ──▶ T026 ──▶ T027 ──▶ T028 ──▶ T029 ──▶ T030
 ```
 
-**Critical path**: T002 → T003 → T005 → T008 → T009 → T010 → T012 → T013 → T022 → T025
+**Critical path**: T002 → T003 → T005 → T008 → T009 → T010 → T012 → T026 → T027 → T028 → T029 → T030
 
 ---
 
@@ -397,6 +462,7 @@ Phase 5 (threaded)
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. Scope maps to existing tasks T009–T012 (extract variant content, refactor SKILL.md to ≤ 300 lines, regenerate audit baseline with inventory-removal justification, exercise test against fixture). No new tasks added — Phase 2 was pre-planned under #138. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. Scope maps to existing tasks T013 (write-spec ≤ 250), T014 (onboard-project ≤ 280), T015 (upgrade-project ≤ 250). No new tasks added — Phase 3 was pre-planned under #138. Applies the pilot pattern from #146 (T009–T012) and reuses the shared-reference scaffolding from #145 (T001). |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor + release. Scope maps to existing tasks T016 (start-issue ≤ 220), T017 (verify-code ≤ 220 + pointer-grammar migration), T018 (run-retro ≤ 180), T019 (open-pr ≤ 180), T020 (write-code ≤ 180), T021 (structure.md updates), T022 (version bump to 1.53.0 + CHANGELOG), and T025 (final verification pass across all 10 ACs). No new tasks added — Phase 4 was pre-planned under #138. Reuses the shared-reference scaffolding from #145 (T001) and applies the pilot pattern established in #146 (T009–T012). |
+| #141 | 2026-05-06 | Adds Phase 6 (T026–T030): evaluator-backed rubric checks, deterministic fixture artifacts, Jest pass/fail/skip coverage, SDLC verification-gate enforcement, and Gherkin coverage for AC12–AC15. |
 
 ---
 

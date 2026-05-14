@@ -1,7 +1,7 @@
 # File: specs/feature-refactor-skill-md-progressive-disclosure/feature.gherkin
 #
 # Generated from: specs/feature-refactor-skill-md-progressive-disclosure/requirements.md
-# Issues: #138, #145, #146, #83, #84
+# Issues: #138, #145, #146, #83, #84, #141
 
 Feature: Refactor SKILL.md via Progressive Disclosure
   As a nmg-sdlc plugin maintainer and Codex agent invoking these skills
@@ -130,3 +130,39 @@ Feature: Refactor SKILL.md via Progressive Disclosure
     When a comment containing `@codex` is posted on a PR or issue
     Then the workflow fires
     And Codex responds to the comment thread
+
+  # --- AC12-AC15: Rubric evaluation automation (#141) ---
+
+  # Added by issue #141
+  Scenario: Rubric evaluation produces pass and fail results
+    Given a changed skill has a fixture and rubric
+    When `scripts/skill-exercise-runner.mjs --skill draft-issue` evaluates captured output or fixture artifacts
+    Then each rubric criterion reports `pass`, `fail`, or a specific `skipped` reason
+    And no captured artifact reports `rubric evaluation not yet implemented`
+    And failed criteria include details naming the missing or malformed artifact structure
+
+  # Added by issue #141
+  Scenario: Deterministic exercise coverage runs without live Codex
+    Given a pull request changes `skills/draft-issue/SKILL.md`
+    And the `draft-issue` skill has a deterministic exercise fixture
+    When repository validation runs without `RUN_EXERCISE_TESTS=1`
+    Then deterministic artifact and rubric checks still run
+    And missing required issue, spec, or PR body structures fail the run
+    And the run does not require live Codex or OpenAI API access
+
+  # Added by issue #141
+  Scenario: Live exercise reuses the same rubric path
+    Given `RUN_EXERCISE_TESTS=1` is set
+    And `codex` is available
+    When the exercise runner invokes `draft-issue` against a disposable project
+    Then it captures the output artifact
+    And it evaluates the artifact through the same rubric evaluation path used by deterministic fixture checks
+    And any remaining skips identify environment, timeout, or unsupported interactive gate causes
+
+  # Added by issue #141
+  Scenario: Rubric skips are explicit and actionable
+    Given a rubric criterion cannot be evaluated
+    When the exercise runner renders the report
+    Then the skipped criterion names a specific reason
+    And supported reasons include `exercise-mode unavailable`, `artifact missing`, `unsupported interactive gate`, and `criterion not applicable`
+    And no captured artifact is reported with the placeholder reason `rubric evaluation not yet implemented`

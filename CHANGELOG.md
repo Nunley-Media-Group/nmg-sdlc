@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.70.0] - 2026-05-14
+
+### Added
+
+- Added deterministic rubric evaluation for skill exercise fixtures: `scripts/skill-exercise-runner.mjs` now grades captured or fixture-backed `draft-issue` artifacts with pass/fail/skip results, includes malformed-artifact regression coverage, and the verification gates require the runner for changed skills with fixtures.
+
 ## [1.69.0] - 2026-04-30
 
 ### Added
