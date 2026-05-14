@@ -365,7 +365,7 @@ This project is prompt-based: skills are Markdown instructions that Codex execut
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | SDLC runner tests | `scripts/__tests__/` directory exists | `cd scripts && npm test` | Exit code 0 |
-| Skill exercise test | Any `skills/**/SKILL.md` file changed | Load plugin and invoke changed skill against a test project (see Testing Standards → Test Project Pattern) | Skill produces expected output OR verification report explicitly notes manual exercise follow-up |
+| Skill exercise test | Any `skills/**/SKILL.md`, `skills/**/references/**`, or `scripts/skill-exercise-runner.mjs` file changed | For changed skills with fixtures, run `node scripts/skill-exercise-runner.mjs --skill <changed-skill>`; changed skills without fixtures are recorded as a named verification gap | Exit code 0 and no placeholder rubric skips for captured artifacts |
 | Skill inventory audit | Any `skills/**/SKILL.md` or `**/references/**` file changed | `node scripts/skill-inventory-audit.mjs --check` | Exit code 0 |
 | Prompt quality review | Any `skills/**/SKILL.md` file changed | Review against Prompt Quality Criteria below | All criteria satisfied |
 | Behavioral contract review | Any skill or script changed | Review against Contract Framework below | Preconditions, postconditions, invariants, and boundaries all addressed |

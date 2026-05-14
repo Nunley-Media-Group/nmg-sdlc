@@ -1,7 +1,7 @@
 # Design: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146, #83, #84
-**Date**: 2026-04-20
+**Issues**: #138, #145, #146, #83, #84, #141
+**Date**: 2026-05-06
 **Status**: Draft
 **Author**: Rich Nunley
 
@@ -286,6 +286,48 @@ For each refactored skill:
 
 Skills using `interactive user prompt` use the `canUseTool` callback to auto-select the first option (per `steering/tech.md` → "Automated Exercise Testing via Agent SDK"), keeping runs deterministic.
 
+### Rubric Evaluation Amendment (#141)
+
+Issue #141 turns the exercise runner from a structural harness with placeholder rubric skips into a deterministic evaluator. The implementation keeps `scripts/skill-exercise-runner.mjs` as the single entry point and adds an internal evaluator layer rather than introducing a separate rubric service or dependency.
+
+#### Evaluator Shape
+
+Each rubric criterion continues to render through the existing result contract:
+
+```js
+{ id, name, status: 'pass' | 'fail' | 'skipped', detail }
+```
+
+The change is that `rubricChecks(skillName, artifact)` must no longer return `skipped: rubric evaluation not yet implemented` when an artifact is present. Instead, it dispatches to a skill-specific evaluator registry:
+
+| Skill | Evaluator | Artifact Source | First Criteria Covered |
+|-------|-----------|-----------------|------------------------|
+| `draft-issue` | `evaluateDraftIssueArtifact()` | Captured live output or deterministic fixture artifact | title shape, AC count, Given/When/Then AC structure, feature user story, bug root-cause section, out-of-scope bullets |
+
+The registry is deliberately explicit. A generic natural-language rubric engine is rejected for this phase because it would either require model judgment in CI or become a brittle Markdown parser with unclear semantics. New skills add evaluators incrementally beside their fixtures and rubric docs.
+
+#### Artifact Extraction
+
+The runner extracts a candidate authored artifact from captured output before grading. For `draft-issue`, extraction accepts the dry-run issue body emitted by the fixture exercise and ignores surrounding command transcript lines. If no artifact can be extracted, criteria report `skipped` with `artifact missing`; they do not fail unless the criterion is deterministic and the fixture claims the artifact should exist.
+
+Live exercise and deterministic fixture checks feed the same evaluator:
+
+1. `RUN_EXERCISE_TESTS=1` captures Codex output, extracts the artifact, and evaluates it.
+2. Default CI uses committed fixture artifacts or mocked artifact strings in Jest tests to evaluate the same criteria without invoking Codex.
+3. Rendered reports distinguish `exercise-mode unavailable`, `artifact missing`, `unsupported interactive gate`, `criterion not applicable`, and true `fail` outcomes.
+
+#### SDLC Enforcement
+
+The enforcement point is `$nmg-sdlc:verify-code`, not a separate manual convention. `steering/tech.md` exposes a `## Verification Gates` table that `verify-code` extracts and runs. Issue #141 adds or tightens a gate so any change to `skills/**/SKILL.md`, `skills/**/references/**`, or `scripts/skill-exercise-runner.mjs` runs:
+
+```bash
+node scripts/skill-exercise-runner.mjs --skill <changed-skill>
+```
+
+for each changed skill that has a fixture. The pass criteria are exit code `0` and no placeholder rubric skip for captured artifacts. If a changed skill lacks a fixture, verification must record a named gap rather than silently treating the exercise layer as covered.
+
+CI enforcement stays deterministic: Jest tests cover positive and negative artifacts for every implemented evaluator criterion, and the default runner invocation avoids live Codex/API exercise unless `RUN_EXERCISE_TESTS=1` is explicitly set.
+
 ---
 
 ## Codex GitHub App Integration (satisfies AC10 + FR14)
@@ -364,6 +406,8 @@ A 5th PR is not planned — FR9 rides on PR 4. This section satisfies FR10.
 | **C: Staged 4-PR rollout** | Additive references first, then pilot, then bulk, then remainder. | Catches pattern flaws in the pilot; each PR is independently revertible; audit script lands before refactor begins. | Requires discipline to not touch unrefactored skills in interim PRs. | **Selected**. |
 | **D: One-shot audit (no permanent script)** | Run inventory check once on refactor PRs, delete afterwards. | Less tooling to maintain. | AC6's guarantee evaporates after merge; future skill edits can silently drop content. | Rejected — contradicts FR11 (resolved open question) and the retrospective learning that AI agent compliance is probabilistic. |
 | **E: Markdown-link pointer grammar** (`[text](path)`) | Use `verify-code`'s existing markdown-link style. | Consistent with existing skill. | Loses the `when {trigger}` clause; harder to grep; weaker disclosure-intent signal. | Rejected — AC7 specifies the uniform `Read ... when ...` grammar. `verify-code` updates its pointers during PR 4. |
+| **F: Generic rubric DSL / parser** | Parse rubric Markdown into a generic criteria language. | Could scale to many skills with less code later. | Hard to keep deterministic; either under-specified or complex enough to become its own product. | Rejected for #141 — use explicit evaluator functions first, then extract shared helpers only after multiple skills prove the shape. |
+| **G: Live Codex exercise required in CI** | Run `RUN_EXERCISE_TESTS=1` on every skill-changing PR. | Strongest end-to-end signal. | Cost, timeout, and auth instability would make CI noisy. | Rejected — deterministic artifact evaluation is mandatory in CI; live exercise remains explicit and auditable. |
 
 ---
 
@@ -391,6 +435,8 @@ A 5th PR is not planned — FR9 rides on PR 4. This section satisfies FR10.
 | Audit script | Canary fixture | `good/` fixture passes, `bad/` fixture exits 1 — fails loudly if extraction logic breaks |
 | Audit script | Baseline freshness | Fresh-baseline vs committed-baseline diff, ignoring PR-touched files |
 | Refactored skills | Exercise (Agent SDK) | Each refactored skill exercised against its fixture; outputs graded per rubric |
+| Rubric evaluators (#141) | Unit (Jest) | Positive and negative artifacts for each `draft-issue` rubric criterion, named skip reasons, non-zero exit when evaluated criteria fail |
+| SDLC enforcement (#141) | Steering gate + verify-code exercise | `steering/tech.md` Verification Gates invoke `node scripts/skill-exercise-runner.mjs --skill <changed-skill>` for changed skills with fixtures |
 | Frontmatter invariant | Structural | Diff script comparing frontmatter pre/post per skill (AC5) |
 | Pointer grammar | Structural | Regex check every pointer matches the grammar from AC7 |
 | Reference-file budget | Structural | `ls plugins/nmg-sdlc/skills/*/references/ | wc -l` ≤ 5 per skill |
@@ -405,6 +451,9 @@ A 5th PR is not planned — FR9 rides on PR 4. This section satisfies FR10.
 | AI agent rewrites a skill and silently drops a gate or step | **High** | **High** | Permanent audit script (FR11) runs in CI on every SKILL.md edit; canary fixture catches broken extraction logic; baseline regeneration is an explicit PR-body-documented act guarded by the workflow's `### Inventory Removals` lint. |
 | Audit script itself rots or is silently bypassed | Medium | High | Canary fixture + required-check branch protection + baseline-freshness diff + `/verify-code` local invocation form overlapping guards — bypassing one still leaves three. |
 | Exercise fixtures go stale or become too coupled to current prose | Medium | Medium | Grade prose against a rubric (not exact match); deterministic-artifact check catches structural drift cheaply. |
+| Rubric evaluator overfits to a single captured artifact shape (#141) | Medium | Medium | Add positive and negative fixture artifacts per criterion; extraction must ignore transcript noise but fail or skip with a named reason when the authored artifact is absent. |
+| Placeholder skips hide real artifact regressions (#141) | Medium | High | Ban `rubric evaluation not yet implemented` when an artifact is present; Jest tests assert captured bad artifacts produce `fail` and non-zero exit status. |
+| Deterministic CI gives a false sense of live-exercise coverage (#141) | Medium | Medium | Report live-exercise status separately from deterministic rubric status; `RUN_EXERCISE_TESTS=1` remains an explicit, auditable path with environment/timeout skip reasons. |
 | Pointer grammar is inconsistent across the refactor | Medium | Low | Regex check in CI enforces grammar (AC7 structural test). |
 | Shared-reference wording change unintentionally alters one consumer's semantics | Medium | Medium | AC9 preserves normative intent; PR review diffs each shared reference against every consuming skill's pre-refactor passages. |
 | Reference-file sprawl — too many per-skill files | Low | Medium | AC8 budget of ≤ 5; enforced structurally. |
@@ -429,6 +478,7 @@ None — both Phase-1 open questions were resolved and codified in requirements.
 | #146 | 2026-04-19 | Phase 2 child — draft-issue pilot. No design changes; the pilot scope was already captured in the Per-Skill Reference Extractions table (draft-issue row: `multi-issue.md`, `design-url.md`, `interview-depth.md`, `feature-template.md`, `bug-template.md`; ceiling ≤ 300) and in the Multi-PR Rollout (PR 2 row). This child issue validates the extraction pattern on the largest skill before Phases 3–4 fire. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec`, `onboard-project`, `upgrade-project`. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (write-spec → `discovery.md`, `amendment-mode.md`, `defect-variant.md`, `review-gates.md`; onboard-project → `greenfield.md`, `brownfield.md`, `interview.md`; upgrade-project → `detection.md`, `migration-steps.md`, `verification.md`) and in the Multi-PR Rollout (PR 3 row). Applies the pilot pattern established in #146. |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of the five smallest-delta skills plus release. No design changes; scope is pre-planned in the Per-Skill Reference Extractions table (start-issue → `dirty-tree.md`, `milestone-selection.md`; verify-code → `exercise-testing.md` [exists], `autofix-loop.md`, `defect-path.md`; run-retro → `learning-extraction.md`, `transferability.md`; open-pr → `version-bump.md`, `ci-monitoring.md`; write-code → `plan-mode.md`, `resumption.md`) and in the Multi-PR Rollout (PR 4 row). verify-code additionally migrates its existing `[text](path)` pointers to the AC7 grammar per the "Pointer Grammar" section. `steering/structure.md` gains the `references/` layer (FR12); plugin version bumps to 1.53.0 (FR9). Applies the pilot pattern established in #146; shared-reference scaffolding inherited from #145 (T001). |
+| #141 | 2026-05-06 | Adds deterministic rubric evaluation to the skill exercise runner, including explicit tradeoffs, evaluator risks, and `$nmg-sdlc:verify-code` enforcement through steering verification gates. |
 
 ---
 

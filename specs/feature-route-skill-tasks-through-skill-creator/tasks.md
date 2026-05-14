@@ -1,6 +1,6 @@
 # Tasks: Route Skill Creation and Update Tasks Through /skill-creator
 
-**Issues**: #141
+**Issues**: #80
 **Date**: 2026-04-19
 **Status**: Planning
 **Author**: Rich Nunley
@@ -121,7 +121,7 @@ Each task follows this structure:## Phase 1: Setup
 **Depends**: T002, T003, T004
 **Acceptance**:
 - [ ] A new bullet appears under `[Unreleased]` describing the feature at a user-visible level (e.g., "feat: route skill creation/update tasks through /skill-creator")
-- [ ] Entry references issue #141
+- [ ] Entry references issue #80
 - [ ] CHANGELOG conventions preserved (format, section ordering)
 
 **Notes**: Do not bump plugin.json or marketplace.json versions — that is `/open-pr`'s responsibility per `steering/tech.md`.
@@ -194,7 +194,7 @@ T002, T003, T004 can be executed in parallel once T001 completes.
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #141 | 2026-04-19 | Initial feature tasks |
+| #80 | 2026-04-19 | Initial feature tasks |
 
 ---
 

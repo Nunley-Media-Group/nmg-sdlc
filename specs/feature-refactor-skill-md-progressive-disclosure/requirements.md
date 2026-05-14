@@ -1,7 +1,7 @@
 # Requirements: Refactor SKILL.md via Progressive Disclosure
 
-**Issues**: #138, #145, #146, #83, #84
-**Date**: 2026-04-20
+**Issues**: #138, #145, #146, #83, #84, #141
+**Date**: 2026-05-06
 **Status**: Draft
 **Author**: Rich Nunley
 
@@ -128,6 +128,36 @@ Baseline line counts captured at issue authoring time:
 **Then** the workflow's check status is `failure` and the PR cannot be merged until a follow-up push triggers a passing Codex review
 **And** a passing review (`APPROVE` or `COMMENT` without blocking findings) sets the workflow's check status to `success`.
 
+### AC12: Rubric Evaluation Produces Pass/Fail Results (#141)
+
+**Given** a changed skill has a fixture and rubric
+**When** `scripts/skill-exercise-runner.mjs --skill <name>` evaluates captured output or fixture artifacts
+**Then** each rubric criterion reports `pass`, `fail`, or a specific `skipped` reason instead of the generic `rubric evaluation not yet implemented` result
+**And** any `fail` result includes enough detail for a maintainer to identify the missing or malformed artifact structure.
+
+### AC13: CI Can Enforce Deterministic Exercise Coverage (#141)
+
+**Given** a PR changes a skill with an available deterministic fixture
+**When** repository validation runs without `RUN_EXERCISE_TESTS=1`
+**Then** deterministic artifact/rubric checks still run
+**And** the run fails on missing required issue, spec, or PR-body structures covered by the rubric
+**And** the run does not require live Codex/API exercise to enforce those deterministic checks.
+
+### AC14: Live Exercise Reuses The Same Rubric Path (#141)
+
+**Given** `RUN_EXERCISE_TESTS=1` is set and `codex` is available
+**When** the exercise runner invokes a changed skill against a disposable project
+**Then** it captures the output artifact
+**And** it evaluates the artifact through the same rubric evaluation path used by deterministic fixture checks
+**And** it records whether any remaining skips are due to environment, timeout, or unsupported interactive gates.
+
+### AC15: Rubric Skips Are Explicit And Actionable (#141)
+
+**Given** a rubric criterion cannot be evaluated
+**When** the exercise runner renders the report
+**Then** the skipped criterion names the specific reason, such as `exercise-mode unavailable`, `artifact missing`, `unsupported interactive gate`, or `criterion not applicable`
+**And** no captured artifact is reported with the placeholder reason `rubric evaluation not yet implemented`.
+
 ### Generated Gherkin Preview
 
 ```gherkin
@@ -211,6 +241,10 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | FR12 | Update `steering/structure.md` to document the new `references/` layer (plugin-shared + per-skill) in the layer-architecture diagram. | Should |
 | FR13 | Update `README.md` only if the refactor changes how users interact with the plugin; if interaction surface is unchanged (per AC4/AC5), no README update is required. | Must |
 | FR14 | Add `.github/workflows/codex-review.yml` invoking `openai/codex-action@v1` on `pull_request` (`opened`, `synchronize`) and on `issue_comment` events containing `@codex`. The job must exit non-zero when Codex requests changes, and must be configured as a required status check on `main`. Ship in PR 1 so every subsequent refactor PR is gated on a passing Codex review. | Must |
+| FR15 | Implement artifact parsers and rubric evaluation for at least the existing `draft-issue` exercise fixture. | Must |
+| FR16 | Make skipped rubric checks explicit and actionable, with no generic placeholder skip when an artifact was captured. | Must |
+| FR17 | Add deterministic fixture/rubric evaluation that runs without live Codex/API exercise and fails on missing required issue/spec/PR body structures. | Must |
+| FR18 | Add tests proving rubric failures produce non-zero exit status when evaluation runs. | Must |
 
 ---
 
@@ -250,6 +284,9 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 - No changes to retrospective semantics or the `architecture-reviewer` agent.
 - No migration tooling for user projects — this is entirely plugin-internal.
 - No changes to existing templates under `plugins/nmg-sdlc/skills/*/templates/` beyond moving content between a skill's SKILL.md and its `references/`.
+- Issue #141 does not require live OpenAI/Codex exercise on every CI run.
+- Issue #141 does not create or mutate real GitHub issues during exercise tests.
+- Issue #141 does not replace the existing inventory audit.
 
 ---
 
@@ -282,6 +319,7 @@ Feature: Refactor SKILL.md via Progressive Disclosure
 | #146 | 2026-04-19 | Phase 2 child — scope is the `draft-issue` pilot (AC1 line target for one skill, AC2 exercise-test parity, AC5 frontmatter byte-identity, AC6 audit-clean-after-baseline-regen, AC7 pointer grammar, FR2/FR7/FR8). Maps to tasks T009–T012. No new ACs or FRs — child ACs narrow umbrella ACs to the draft-issue file only. |
 | #83 | 2026-04-19 | Phase 3 child — bulk refactor of `write-spec` (≤ 250), `onboard-project` (≤ 280), `upgrade-project` (≤ 250). Narrows umbrella AC1/AC2/AC5/AC6/AC7 to these three skills; narrows FR3/FR7/FR8. Maps to tasks T013–T015. No new ACs or FRs. Depends on #146 (pilot pattern) landing first. |
 | #84 | 2026-04-20 | Phase 4 child (final) — remainder refactor of `start-issue` (≤ 220), `verify-code` (≤ 220), `run-retro` (≤ 180), `open-pr` (≤ 180), `write-code` (≤ 180); update `steering/structure.md` to document `references/` layer; version bump to 1.53.0. Narrows umbrella AC1/AC2/AC5/AC6/AC7/AC8 to these five skills; narrows FR4/FR7/FR8 and incorporates FR9 and FR12. Maps to tasks T016–T022 plus T025 (Phase 5 final verification). No new ACs or FRs. Depends on #83 (Phase 3) landing first. Closes umbrella epic #77. |
+| #141 | 2026-05-06 | Automate skill exercise rubric evaluation so captured artifacts and deterministic fixtures produce pass/fail outcomes instead of placeholder skips. |
 
 ---
 
