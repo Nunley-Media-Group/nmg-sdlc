@@ -35,15 +35,15 @@ Classify the current guide state:
 | State | Detection | Action |
 |-------|-----------|--------|
 | Missing guide | `CONTRIBUTING.md` does not exist | Create the default guide |
-| Incomplete guide | Guide exists but lacks nmg-sdlc issue/spec/steering coverage, or lacks PR readiness and managed contribution-gate remediation coverage | Append or extend targeted nmg-sdlc guidance |
-| Complete guide | Guide has equivalent issue/spec/steering coverage plus PR readiness and contribution-gate remediation coverage | Report already present |
+| Incomplete guide | Guide exists but lacks nmg-sdlc issue/spec/steering coverage, PR readiness, evidence-consistency examples, validated exceptions, or managed contribution-gate remediation coverage | Append or extend targeted nmg-sdlc guidance |
+| Complete guide | Guide has equivalent issue/spec/steering coverage plus PR readiness, evidence-consistency examples, validated exceptions, and contribution-gate remediation coverage | Report already present |
 
 Equivalent issue/spec/steering coverage is present when either condition is true:
 
 - The guide contains `## nmg-sdlc Contribution Workflow`.
 - The guide has contributor workflow text that mentions GitHub issues, specs, and steering expectations near one another.
 
-Equivalent PR readiness and gate-remediation coverage is present when the guide mentions PR readiness or review readiness, verification evidence, and the managed contribution gate or its missing-evidence failure categories near one another.
+Equivalent PR readiness and gate-remediation coverage is present when the guide mentions PR readiness or review readiness, issue/spec correlation, changed-path evidence, specific verification results, validated exceptions, and the managed contribution gate or its broken-evidence failure categories near one another.
 
 Be conservative. If an existing guide has close equivalent coverage, report `already present` instead of duplicating a near-identical section.
 
@@ -84,15 +84,35 @@ The default guide must include concrete sections or bullets for:
 - PR readiness: include issue/spec links, verification summary, known gaps, and reviewer context before requesting review.
 - Contribution-gate remediation: fix missing issue, spec, steering, verification, or guide evidence rather than bypassing the workflow.
 
+## Evidence Consistency Guidance
+
+Generated or extended guidance must explain the version-2 evidence graph with concrete, stack-agnostic examples:
+
+- **Issue/spec identity**: the current PR should use an explicit reference such as `Closes #143`, and every selected spec directory must reference the same issue in `**Issues**: #143` or its current body. Issue numbers found only in quoted examples, hidden HTML comments, historical sections, or an unrelated spec do not correlate.
+- **Exact path evidence**: a task or verification entry may name `scripts/check-gate.mjs` exactly.
+- **Directory-prefix evidence**: a task may explicitly scope work to `scripts/__tests__/`; a basename such as `check-gate.mjs` is not sufficient because another directory can contain a similarly named file.
+- **Path-specific behavior evidence**: use a structured entry such as `Behavior for scripts/check-gate.mjs: rejects mismatched issue/spec sets` when behavior, rather than a file operation, is the useful trace.
+- **Command and outcome**: record both sides, for example `` `node scripts/check-gate.mjs` — passed (12 cases) ``. `Tests run` or `verification complete` alone is not specific evidence.
+- **Other accepted verification**: name a non-empty `verification-report.md`, record `AC9: passed`, or pair a changed path with a `passed`, `failed`, `verified`, or `covered` result.
+
+Document the reduced-evidence contracts without presenting them as bypasses:
+
+| Mode | Declaration and validation | Reduced checks | Still required | Invalidating paths |
+|------|----------------------------|----------------|----------------|--------------------|
+| Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
+| Spike/ADR | A PR/spec-correlated issue has the `spike` label and every change is documentation, a spec artifact, or `docs/decisions/*.md` | Relevant-path mapping and specific verification | Current issue/spec correlation, steering artifacts and alignment, guide discoverability, all other checks | Source, workflow, script, skill, template, shared reference, or any other implementation path |
+
+Tell contributors to remove an invalid exception or split invalidating implementation changes into a normally evidenced PR. A marker, label, or rationale never overrides incompatible changed paths.
+
 ## Existing Guide Update
 
 When `CONTRIBUTING.md` exists but lacks nmg-sdlc coverage:
 
 1. Preserve the file byte-for-byte outside the inserted section.
 2. If the file lacks the canonical heading, append one section named `## nmg-sdlc Contribution Workflow`.
-3. If the canonical heading exists but lacks PR readiness or contribution-gate remediation detail, append a focused subsection under that existing section instead of duplicating the heading.
+3. If the canonical heading exists but lacks PR readiness, evidence-consistency examples, validated exceptions, or contribution-gate remediation detail, append a focused subsection under that existing section instead of duplicating the heading.
 4. Include issue, spec, steering, implementation, verification, and PR expectations.
-5. Include a concrete PR readiness checklist and managed contribution-gate remediation guidance.
+5. Include a concrete PR readiness checklist, the evidence examples and exception matrix above, and managed contribution-gate remediation guidance.
 6. Include a short note that existing code and reconciled specs are context when the caller is in brownfield or upgrade mode.
 7. Do not rewrite headings, reformat custom project policies, delete sections, or move unrelated content.
 

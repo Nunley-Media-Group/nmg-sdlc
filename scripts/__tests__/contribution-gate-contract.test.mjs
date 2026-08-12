@@ -15,37 +15,60 @@ function workflowTemplate() {
   return match[1];
 }
 
-describe('contribution gate contract (issue #125)', () => {
-  test('shared reference defines managed path, marker, version, status, and collision rules', () => {
+describe('contribution gate contract (issues #125 and #143)', () => {
+  test('shared reference defines managed version 2, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 
     expect(contract).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
     expect(contract).toContain('# nmg-sdlc-managed: contribution-gate');
-    expect(contract).toContain('# nmg-sdlc-managed-version: 1');
+    expect(contract).toContain('# nmg-sdlc-managed-version: 2');
+    expect(contract).toContain('| Current numeric version | `2` |');
     expect(contract).toContain('Workflow: created | updated | already present | skipped');
     expect(contract).toContain('skipped (unmanaged file at path)');
     expect(contract).toContain('skipped (newer managed version)');
     expect(contract).toContain('Preserve every unrelated workflow under `.github/workflows/` byte-for-byte');
   });
 
-  test('workflow template is safe, stack-agnostic, and uses minimal permissions', () => {
+  test('version-2 template builds a bounded evidence graph and validates exceptions', () => {
+    const template = workflowTemplate();
+
+    expect(template).toContain('const MAX_SPEC_DIRECTORIES = 5');
+    expect(template).toContain('const MAX_DIAGNOSTIC_PATHS = 20');
+    expect(template).toContain('const SPEC_ARTIFACTS =');
+    expect(template).toContain('new Set()');
+    expect(template).toContain('resolveSpecDirectories');
+    expect(template).toContain('mismatchedSpecs');
+    expect(template).toContain('classifyChangedPath');
+    expect(template).toContain('Unmatched changed paths');
+    expect(template).toContain('hasSpecificVerification');
+    expect(template).toContain('Missing specific verification');
+    expect(template).toContain('SDLC-Exception');
+    expect(template).toContain('listLabelsOnIssue');
+    expect(template).toContain("label).toLowerCase() === 'spike'");
+  });
+
+  test('workflow keeps external text inert and retains minimal permissions', () => {
     const template = workflowTemplate();
 
     expect(template).toContain('on:\n  pull_request:');
     expect(template).toContain('permissions:\n  contents: read\n  pull-requests: read');
     expect(template).toContain('actions/github-script@v7');
-    expect(template).toContain('Missing issue evidence');
-    expect(template).toContain('Missing spec evidence');
-    expect(template).toContain('Missing steering evidence');
-    expect(template).toContain('Missing verification evidence');
-    expect(template).toContain('CONTRIBUTING.md');
+    expect(template).toContain('stripQuotedHistory');
+    expect(template).toContain('withoutComments');
+    expect(template).toContain('summarizePaths');
+    expect(template).toContain('See CONTRIBUTING.md');
     expect(template).not.toContain('pull_request_target');
     expect(template).not.toMatch(/\bsecrets\./);
     expect(template).not.toContain('actions/checkout');
+    expect(template).not.toMatch(/\b(?:eval|Function)\s*\(/);
     expect(template).not.toMatch(/\bnpm\s+install\b|\bpip\s+install\b|\bcargo\s+test\b/);
   });
 
-  test('init-config and upgrade-project reference the shared contribution-gate contract', () => {
+  test('dogfooded workflow exactly matches the canonical embedded template', () => {
+    expect(read('.github/workflows/nmg-sdlc-contribution-gate.yml')).toBe(`${workflowTemplate()}\n`);
+  });
+
+  test('init-config and upgrade-project still distribute the versioned shared contract', () => {
     const initConfig = read('skills/init-config/SKILL.md');
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
     const upgradeProcedures = read('skills/upgrade-project/references/upgrade-procedures.md');
@@ -59,16 +82,19 @@ describe('contribution gate contract (issue #125)', () => {
     expect(upgradeProcedures).toContain('Workflow: created | updated | already present | skipped');
   });
 
-  test('public docs and contribution guide describe generated gate behavior', () => {
+  test('public guidance describes correlation, path evidence, verification, and reduced modes', () => {
     const readme = read('README.md');
     const guide = read('references/contribution-guide.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(readme).toContain('installs `.github/workflows/nmg-sdlc-contribution-gate.yml`');
-    expect(readme).toContain('uses read-only GitHub token permissions');
+    expect(readme).toContain('cross-checks issue/spec identity');
+    expect(readme).toContain('validated documentation-only and spike/ADR');
     expect(readme).toContain('does not replace project CI or human review');
-    expect(guide).toContain('PR readiness checklist');
-    expect(guide).toContain('Contribution-gate remediation');
-    expect(changelog).toContain('managed GitHub Actions contribution gates for issue #125');
+    expect(guide).toContain('Issue/spec identity');
+    expect(guide).toContain('Directory-prefix evidence');
+    expect(guide).toContain('Command and outcome');
+    expect(guide).toContain('SDLC-Exception: docs-only');
+    expect(guide).toContain('Spike/ADR');
+    expect(changelog).toContain('issue #143');
   });
 });
