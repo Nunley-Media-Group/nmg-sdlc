@@ -1,4 +1,4 @@
-# nmg-plugins Code Structure Steering
+# nmg-sdlc Code Structure Steering
 
 This document defines code organization, naming conventions, and patterns.
 All code should follow these guidelines for consistency.
@@ -197,7 +197,7 @@ Read `references/{per-skill-name}.md` when {triggering-condition}.
   "version": "X.Y.Z",
   "description": "...",
   "author": { "name": "Nunley Media Group" },
-  "repository": "https://github.com/nunley-media-group/nmg-plugins"
+  "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc"
 }
 ```
 
@@ -216,16 +216,6 @@ import { parseArgs } from 'node:util';
 
 // 2. No external dependencies (zero-dependency scripts)
 ```
-
----
-
-## Design Tokens / UI Standards (if applicable)
-
-<!-- Pre-fill if design token files are found -->
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| [token] | [value] | [when to use] |
 
 ---
 

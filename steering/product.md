@@ -1,4 +1,4 @@
-# nmg-plugins Product Steering
+# nmg-sdlc Product Steering
 
 This document defines the product vision, target users, and success metrics.
 All feature development should align with these guidelines.
@@ -7,7 +7,7 @@ All feature development should align with these guidelines.
 
 ## Mission
 
-**nmg-plugins provides a BDD spec-driven development toolkit for Codex that transforms GitHub issues into verified, production-ready implementations through a structured SDLC workflow.**
+**nmg-sdlc provides a BDD spec-driven development toolkit for Codex that transforms GitHub issues into verified, production-ready implementations through a structured SDLC workflow.**
 
 ---
 
