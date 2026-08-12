@@ -1,7 +1,7 @@
 # Design: Add GitHub Actions Contribution Gates to Project Setup
 
-**Issues**: #125
-**Date**: 2026-04-27
+**Issues**: #125, #143
+**Date**: 2026-08-12
 **Status**: Draft
 **Author**: Codex
 
@@ -113,6 +113,39 @@ The workflow validates contribution readiness from safe inputs:
 
 The workflow should not execute project build/test commands by default. Project-specific CI stays in project-authored workflows. If a project declares steering-level verification gates, the contribution gate may require PR evidence that those gates were run, but arbitrary gate command execution remains the responsibility of project CI or `$nmg-sdlc:verify-code`.
 
+### Evidence Consistency Graph — Issue #143
+
+Managed workflow version 2 replaces independent keyword-presence verdicts with a bounded evidence graph. The generated `actions/github-script` step keeps all pull-request content as inert text and performs these stages in order:
+
+1. Extract normalized issue-number sets from the current pull-request title/body, prioritizing closing references and explicit issue fields without treating quoted historical examples as current evidence.
+2. Resolve candidate spec directories from changed spec artifacts and explicit `specs/feature-*` or `specs/bug-*` paths in the pull-request body. Deduplicate the directories and read only their expected requirements, design, tasks, and Gherkin artifacts within a documented cap.
+3. Extract issue references from each selected spec and require a non-empty intersection with the pull-request issue set. A number found in unrelated text or another spec does not create an edge.
+4. Classify changed paths as relevant implementation, evidence-only, documentation-only, or ADR/spec artifacts. For each relevant path, require an exact normalized path, an explicit containing-directory prefix, or path-specific behavior evidence in the selected tasks or verification source.
+5. Parse only the current verification section and committed verification artifacts for specific signals: a command paired with an outcome, a non-empty report, an acceptance-criterion result, or a changed-path-specific result. Generic verification words do not create an evidence edge.
+6. Validate any reduced-evidence exception against both metadata and paths. A `docs-only` marker requires a non-empty rationale and documentation-only changes. A spike/ADR reduction requires the correlated issue to carry the `spike` label and changes to remain within ADR, spec, or documentation artifacts.
+7. Emit one concise diagnostic per broken edge, including the mismatched issue/spec pair or unmatched changed paths, followed by the existing `CONTRIBUTING.md` remediation pointer.
+
+The evaluator uses pure internal helpers such as `extractIssueNumbers(text)`, `resolveSpecDirectories(prText, changedPaths)`, `classifyChangedPath(path)`, `hasSpecificVerification(evidence)`, and `validateException(evidence)`. They are implementation details inside the generated workflow rather than a public JavaScript API.
+
+### Version 2 Distribution
+
+`references/contribution-gate.md` remains the canonical workflow source. Its managed version advances from 1 to 2, and `.github/workflows/nmg-sdlc-contribution-gate.yml` in this repository stays byte-for-byte aligned with the embedded template for dogfooding. Existing `init-config` and `upgrade-project` contracts already create missing workflows and replace lower managed versions, so they distribute version 2 without new workflow branches; tests verify that integration and fail if their shared-reference pointers drift.
+
+### Issue #143 Components
+
+| File | Amendment |
+|------|-----------|
+| `references/contribution-gate.md` | Version-2 evidence graph, correlation rules, exception predicates, bounded reads, and diagnostics |
+| `.github/workflows/nmg-sdlc-contribution-gate.yml` | Dogfooded copy synchronized with the canonical version-2 template |
+| `references/contribution-guide.md` | Contributor examples for issue/spec mapping, path evidence, specific verification, and exceptions |
+| `scripts/__tests__/contribution-gate-contract.test.mjs` | Static version, safety, distribution, and template-synchronization assertions |
+| `scripts/__tests__/exercise-contribution-gate.test.mjs` | Mocked GitHub fixtures that execute the exact embedded evaluator |
+| `scripts/skill-inventory.baseline.json` | Refresh only when the shared-reference inventory reports intentional changes |
+| `README.md` | Public explanation of consistency checks and reduced-evidence paths |
+| `CHANGELOG.md` | Issue #143 entry under `[Unreleased]` |
+
+No edit to `skills/init-config/SKILL.md` or `skills/upgrade-project/SKILL.md` is expected unless implementation exposes wording drift: both already consume the versioned canonical contract.
+
 ---
 
 ## Database / Storage Changes
@@ -187,6 +220,10 @@ No graphical UI is introduced.
 | Require verification evidence instead of executing arbitrary gates | Check that PR/spec evidence documents verification and steering-gate results | Safe, stack-agnostic, consistent with nmg-sdlc workflow | Cannot prove language-specific tests passed without separate CI | Selected |
 | Overwrite occupied managed path | Replace any file at the approved path | Ensures gate exists | Can destroy user-authored workflow content | Rejected |
 | Skip unmanaged path collision with gap | Preserve unknown file and report remediation | Safe and deterministic | Requires human cleanup when path is occupied | Selected |
+| Continue independent regex presence checks | Tighten the existing patterns without correlating evidence sources | Smallest patch | Cosmetic or unrelated references can still combine into a false pass | Rejected for issue #143 |
+| Build a bounded evidence graph | Correlate issue identity, selected specs, relevant paths, and specific verification | Auditable, actionable, and resistant to quoted-text false positives | Requires more structured pull-request evidence and fixture coverage | Selected for issue #143 |
+| Trust an exception marker by itself | Let contributors declare docs-only or spike status in free text | Minimal contributor effort | Becomes an unvalidated bypass for implementation changes | Rejected for issue #143 |
+| Validate exception metadata and paths | Require rationale, compatible changed paths, and spike labels where applicable | Preserves lightweight workflows without weakening unrelated checks | Adds one issue metadata lookup for spike validation | Selected for issue #143 |
 
 ---
 
@@ -221,6 +258,11 @@ No graphical UI is introduced.
 | Workflow behavior | Fixture exercise | Evaluate compliant and non-compliant PR metadata/file sets and assert actionable pass/fail output |
 | Inventory | Audit | Run `node scripts/skill-inventory-audit.mjs --check`; regenerate `scripts/skill-inventory.baseline.json` if shared-reference inventory changes |
 | Compatibility | Audit | Run `npm --prefix scripts run compat` and `npm --prefix scripts test -- --runInBand` |
+| Evidence correlation | Exact-template fixture exercise | Run the embedded workflow script with mocked pull-request files, repository content, issue metadata, and GitHub API responses; cover matching and mismatched issue/spec sets |
+| Changed-path mapping | Exact-template fixture exercise | Cover exact file paths, explicit directory prefixes, path-specific behavior, evidence-only files, similarly named paths, and unmatched-path diagnostics |
+| Verification specificity | Exact-template fixture exercise | Cover command-plus-outcome, report, AC result, and path-specific passes plus generic-keyword and quoted-history failures |
+| Exceptions | Exact-template fixture exercise | Cover valid docs-only and spike/ADR reductions plus invalid rationale, label, and changed-path combinations |
+| Template synchronization | Static/unit | Extract the canonical YAML template and assert the dogfooded managed workflow is identical |
 
 ---
 
@@ -235,6 +277,11 @@ No graphical UI is introduced.
 | Workflow security regresses via `pull_request_target` or secrets | Low | High | Static tests assert forbidden constructs are absent |
 | Guide grows vague despite richer content | Medium | Medium | Tests assert concrete checklist terms and remediation pointers, not just generic "follow process" copy |
 | Skill-bundled file edits bypass skill-creator | Medium | High | Implementation tasks explicitly route shared references and skill files through `$skill-creator` per steering invariant |
+| Evidence matching rejects legitimate aliases or similarly structured paths | Medium | High | Normalize repository-relative paths, accept explicit directory prefixes, reject basename-only ambiguity, and cover similar-name fixtures |
+| Evidence matching accepts quoted or historical text | Medium | High | Restrict identity and verification extraction to current structured sources and test quoted-history counterexamples |
+| Large pull requests amplify GitHub API reads | Medium | Medium | Deduplicate spec directories, cap artifact reads, reuse fetched content, and fail with bounded actionable diagnostics |
+| Reduced-evidence exceptions become bypasses | Low | High | Validate the exception rationale, correlated issue label, and entire changed-path set while retaining issue, steering, and guide checks |
+| Canonical and dogfooded workflows drift | Medium | High | Exercise the exact embedded evaluator and assert byte-for-byte template synchronization |
 
 ---
 
@@ -249,6 +296,7 @@ None.
 | Issue | Date | Summary |
 |-------|------|---------|
 | #125 | 2026-04-27 | Initial feature spec |
+| #143 | 2026-08-12 | Designed version-2 evidence consistency graph and exceptions |
 
 ---
 
