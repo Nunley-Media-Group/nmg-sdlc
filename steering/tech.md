@@ -1,4 +1,4 @@
-# nmg-plugins Technical Steering
+# nmg-sdlc Technical Steering
 
 This document defines the technology stack, constraints, and integration standards.
 All technical decisions should align with these guidelines.
@@ -124,7 +124,7 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 |-------------|----------------|
 | GitHub authentication | `GITHUB_TOKEN` env var or gh CLI auth |
 | No secrets in code | Steering docs and specs committed to repo; no credentials |
-| Plugin permissions | Declared in SKILL.md `allowedTools` sections |
+| Plugin permissions | Governed by the Codex host and the active session; SKILL.md frontmatter declares only `name` and `description` |
 
 ---
 
@@ -151,10 +151,10 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 
 | Aspect | Best Practice |
 |--------|---------------|
-| Frontmatter | Use YAML frontmatter for `name`, `description`, `tools`, `disallowedTools`, `model`, `maxTurns`, `permissionMode` |
-| Tool access | Grant only necessary tools — use `disallowedTools` to deny inherited ones |
-| Focus | Each agent should excel at one specific task |
-| Description | Write detailed descriptions — Codex uses them to decide when to delegate |
+| Frontmatter | Use YAML frontmatter for `name` and `description` only |
+| Execution | Treat files under `agents/` as reusable prompt contracts included in built-in Codex subagent prompts, not installable custom-agent components |
+| Tool access | Inherit tool availability and permissions from the parent Codex session; the prompt contract does not declare execution-control fields |
+| Focus | Each prompt contract should cover one specific delegated task and define structured output |
 
 ### Plugin Manifests
 
@@ -222,8 +222,8 @@ This project MUST work on macOS, Windows, and Linux. All contributions must resp
 ### Plugin Interface
 
 Skills are defined as Markdown files (`SKILL.md`) with:
+- YAML frontmatter containing `name` and `description` only
 - Workflow steps (numbered, imperative)
-- `allowedTools` sections listing permitted tool patterns
 - Integration with SDLC Workflow section
 - Unattended-mode conditionals for headless operation
 
@@ -240,20 +240,6 @@ gh pr create --title "..." --body "..."
 gh pr checks <number>
 gh pr merge <number> --merge
 ```
-
----
-
-## Database Standards
-
-<!-- Pre-fill if database conventions are discoverable -->
-
-### Naming
-
-| Element | Convention | Example |
-|---------|------------|---------|
-| Tables | [convention] | [example] |
-| Columns | [convention] | [example] |
-| Primary keys | [convention] | [example] |
 
 ---
 
@@ -305,7 +291,7 @@ Then invoke each changed skill directly (e.g., `$nmg-sdlc:write-spec #42`) and v
 
 #### Test Project Pattern
 
-When verifying SDLC skill changes, exercise them against a **disposable test project** — not the nmg-plugins repo itself:
+When verifying SDLC skill changes, exercise them against a **disposable test project** — not the nmg-sdlc repo itself:
 
 1. **Scaffold** a temporary project directory with minimal structure:
    - `README.md`, a basic source file, and `.gitignore`
@@ -432,7 +418,7 @@ Every skill has implicit contracts. When verifying a skill change, check:
 
 ### Checklist Applicability
 
-The architecture-reviewer checklists were designed for runtime codebases. Apply them to nmg-plugins with these adjustments:
+The architecture-reviewer checklists were designed for runtime codebases. Apply them to nmg-sdlc with these adjustments:
 
 | Checklist | Applies To | Skip For | Reinterpretation |
 |-----------|-----------|----------|-----------------|

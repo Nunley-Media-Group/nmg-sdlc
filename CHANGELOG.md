@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.70.1] - 2026-08-12
+
+### Fixed
+
+- Corrected standalone `nmg-sdlc` steering identity, removed inapplicable database and UI placeholders, aligned skill and reusable-agent contract guidance with live files, and added focused regression coverage for issue #142.
+
 ## [1.70.0] - 2026-05-14
 
 ### Added
