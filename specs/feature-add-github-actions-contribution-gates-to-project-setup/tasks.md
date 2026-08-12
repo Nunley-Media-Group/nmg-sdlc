@@ -1,8 +1,8 @@
 # Tasks: Add GitHub Actions Contribution Gates to Project Setup
 
-**Issues**: #125
-**Date**: 2026-04-27
-**Status**: Planning
+**Issues**: #125, #143
+**Date**: 2026-08-12
+**Status**: Amended
 **Author**: Codex
 
 ---
@@ -15,7 +15,8 @@
 | Skill Contracts | 4 | [ ] |
 | Documentation | 2 | [ ] |
 | Testing | 4 | [ ] |
-| **Total** | 12 | |
+| Enhancement — Issue #143 | 7 | [ ] |
+| **Total** | 19 | |
 
 ---
 
@@ -192,6 +193,98 @@ Skill-bundled files include `skills/**`, shared `references/**`, and `agents/**`
 
 ---
 
+## Phase 5: Enhancement — Issue #143
+
+### T013: Define the version-2 evidence consistency graph
+
+**File(s)**: `references/contribution-gate.md`
+**Type**: Modify
+**Depends**: None
+**Acceptance**:
+- [ ] Route the shared-reference edit through `$skill-creator` as required by `steering/tech.md`.
+- [ ] Advance the managed workflow metadata and numeric contract from version 1 to version 2.
+- [ ] Correlate current pull-request issue references with issue references read from bounded, deduplicated spec directories.
+- [ ] Classify relevant implementation paths separately from evidence-only, documentation-only, and ADR/spec paths.
+- [ ] Require each relevant path to map through an exact normalized path, explicit containing-directory prefix, or path-specific behavior evidence.
+- [ ] Accept verification only from commands paired with outcomes, non-empty reports, acceptance-criterion results, or changed-path-specific results.
+- [ ] Validate docs-only and spike/ADR reduced-evidence paths against rationale, issue metadata, and the complete changed-path set while retaining all non-exempt checks.
+- [ ] Treat pull-request content and repository files as inert text, bound API reads, and emit concise category-specific diagnostics.
+
+### T014: Synchronize the dogfooded managed workflow
+
+**File(s)**: `.github/workflows/nmg-sdlc-contribution-gate.yml`
+**Type**: Modify
+**Depends**: T013
+**Acceptance**:
+- [ ] The repository workflow contains managed version 2.
+- [ ] The workflow is byte-for-byte identical to the canonical YAML template embedded in `references/contribution-gate.md`.
+- [ ] Existing minimal permissions, `pull_request` event safety, no-secret default, and no-untrusted-code-execution invariants remain intact.
+- [ ] No unrelated workflow is modified.
+
+### T015: Document structured evidence and validated exceptions
+
+**File(s)**: `references/contribution-guide.md`
+**Type**: Modify
+**Depends**: T013
+**Acceptance**:
+- [ ] Route the shared-reference edit through `$skill-creator` as required by `steering/tech.md`.
+- [ ] Explain how the pull-request issue must match the selected spec's issue frontmatter or body.
+- [ ] Show accepted exact-path, directory-prefix, and path-specific behavior evidence.
+- [ ] Show accepted verification commands with outcomes, report artifacts, acceptance-criterion results, and changed-path-specific results.
+- [ ] Document `SDLC-Exception: docs-only — <reason>` and spike/ADR predicates, reduced checks, invalidating paths, and remediation.
+- [ ] Preserve existing contribution-guide ownership, merge, and README-link idempotency rules.
+
+### T016: Extend static contract and distribution checks
+
+**File(s)**: `scripts/__tests__/contribution-gate-contract.test.mjs`
+**Type**: Modify
+**Depends**: T013, T014, T015
+**Acceptance**:
+- [ ] Assert managed version 2, issue/spec correlation, relevant-path mapping, specific-verification signals, and exception predicates.
+- [ ] Assert spec reads are bounded and deduplicated and all external text remains data rather than executable code.
+- [ ] Assert the dogfooded workflow exactly matches the canonical embedded template.
+- [ ] Assert existing `init-config` and `upgrade-project` pointers still distribute and reconcile the versioned shared contract.
+- [ ] Preserve static security, portability, lifecycle-status, and unmanaged-collision assertions.
+
+### T017: Exercise the exact embedded evaluator with mocked GitHub fixtures
+
+**File(s)**: `scripts/__tests__/exercise-contribution-gate.test.mjs`
+**Type**: Modify
+**Depends**: T013, T014
+**Acceptance**:
+- [ ] Execute the evaluator extracted from the canonical workflow template with mocked `github`, `context`, and `core` interfaces instead of maintaining a separate regex-only evaluator.
+- [ ] Cover matching and mismatched pull-request/spec issue sets, multiple spec directories, bounded reads, and quoted historical issue text.
+- [ ] Cover exact path, directory-prefix, and path-specific behavior mappings plus similarly named and unmatched paths.
+- [ ] Cover command-plus-outcome, non-empty report, acceptance-criterion result, and changed-path-specific verification passes plus generic-keyword failures.
+- [ ] Cover valid docs-only and spike/ADR reduced-evidence paths plus invalid rationale, issue-label, and source-change combinations.
+- [ ] Assert every failure names the broken evidence edge and points to actionable remediation.
+
+### T018: Update public documentation and release history
+
+**File(s)**: `README.md`, `CHANGELOG.md`
+**Type**: Modify
+**Depends**: T013, T015
+**Acceptance**:
+- [ ] README states that the managed gate cross-checks issue/spec identity, changed-path coverage, and specific verification evidence.
+- [ ] README documents the validated documentation-only and spike/ADR reduced-evidence paths without presenting them as unconditional bypasses.
+- [ ] `[Unreleased]` includes a concise issue #143 entry describing version-2 evidence consistency validation.
+- [ ] Public documentation still states that the gate is stack-agnostic and does not replace project CI or human review.
+
+### T019: Refresh inventory when required and verify the amendment
+
+**File(s)**: `scripts/skill-inventory.baseline.json`, `scripts/__tests__/contribution-gate-contract.test.mjs`, `scripts/__tests__/exercise-contribution-gate.test.mjs`
+**Type**: Modify
+**Depends**: T016, T017, T018
+**Acceptance**:
+- [ ] Refresh `scripts/skill-inventory.baseline.json` only when the audit reports intentional shared-reference inventory changes.
+- [ ] `node scripts/skill-inventory-audit.mjs --check` passes.
+- [ ] `npm --prefix scripts test -- --runInBand` passes or unrelated failures are documented.
+- [ ] `npm --prefix scripts run compat` passes.
+- [ ] `git diff --check` passes.
+- [ ] Verification evidence maps AC9 through AC12 to exact-template static or fixture coverage and confirms AC1 through AC8 remain protected.
+
+---
+
 ## Dependency Graph
 
 ```text
@@ -207,9 +300,23 @@ T004 --> T010
 T005 --> T010
 T001 --> T009 --> T011 --> T012
 T010 --> T012
+T013 --> T014
+T013 --> T015
+T013 --> T016
+T014 --> T016
+T015 --> T016
+T013 --> T017
+T014 --> T017
+T013 --> T018
+T015 --> T018
+T016 --> T019
+T017 --> T019
+T018 --> T019
 ```
 
-Critical path: T001 -> T004 -> T005 -> T010 -> T012.
+Historical critical path: T001 -> T004 -> T005 -> T010 -> T012.
+
+Issue #143 critical path: T013 -> T015 -> T016 -> T019.
 
 ---
 
@@ -218,6 +325,7 @@ Critical path: T001 -> T004 -> T005 -> T010 -> T012.
 | Issue | Date | Summary |
 |-------|------|---------|
 | #125 | 2026-04-27 | Initial feature spec |
+| #143 | 2026-08-12 | Added version-2 evidence consistency implementation plan |
 
 ---
 

@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.71.0] - 2026-08-12
+
+### Added
+
+- Strengthened the managed contribution gate for issue #143 with version-2 issue/spec correlation, changed-path traceability, specific verification evidence, exact-template evaluator fixtures, and validated documentation-only and spike/ADR reduced-evidence paths.
+
 ## [1.70.1] - 2026-08-12
 
 ### Fixed
