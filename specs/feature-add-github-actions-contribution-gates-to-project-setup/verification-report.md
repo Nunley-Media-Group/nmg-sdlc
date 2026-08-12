@@ -74,7 +74,7 @@ The version-2 managed workflow now correlates current PR issue evidence with bou
 | T016 | Extend static/distribution checks | Complete | Version, safety, distribution, and sync assertions pass |
 | T017 | Exercise exact embedded evaluator | Complete | The extracted evaluator runs with mocked GitHub/context/core interfaces |
 | T018 | Update public docs and release history | Complete | README and changelog assertions pass |
-| T019 | Verify amendment and inventory | Complete | All final validation commands pass; baseline unchanged by design |
+| T019 | Verify amendment and inventory | Complete | All final validation commands pass; CI freshness follow-up refreshed relocated source anchors with all 561 inventory IDs unchanged |
 
 ## Architecture Assessment
 
@@ -153,7 +153,7 @@ No `codex exec` skill exercise was required by Step 5a because neither `skills/*
 | Gate | Status | Evidence |
 |------|--------|----------|
 | SDLC runner tests | Pass | `npm test -- --runInBand --silent`: 19 suites and 430 tests passed |
-| Skill inventory audit | Pass | `node scripts/skill-inventory-audit.mjs --check`: 561 items mapped, clean |
+| Skill inventory audit | Pass | `node scripts/skill-inventory-audit.mjs --check`: 561 items mapped, clean; fresh-baseline comparison confirms no added, removed, or text-changed inventory IDs |
 | Behavioral contract review | Pass | Preconditions, postconditions, invariants, boundaries, security, and downstream distribution verified inline |
 
 **Gate Summary**: 3/3 applicable gates passed, 0 failed, 0 incomplete. The skill-exercise and prompt-quality gates were not applicable because their changed-path conditions did not match.
@@ -164,6 +164,8 @@ No `codex exec` skill exercise was required by Step 5a because neither `skills/*
 - `git diff --check` — passed
 - Ruby YAML parse of `.github/workflows/nmg-sdlc-contribution-gate.yml` — passed
 - Canonical template versus dogfooded workflow — byte-for-byte pass
+- Delivery version synchronization: `VERSION` and `.codex-plugin/plugin.json` both contain `1.71.0` — passed
+- `scripts/skill-inventory.baseline.json` freshness: 561 IDs before and after, with no additions, removals, or normalized-text changes — passed
 
 ## Fixes Applied
 
@@ -200,7 +202,9 @@ None.
 | `scripts/__tests__/contribution-gate-contract.test.mjs` | 0 | Static version, safety, distribution, and template-sync coverage |
 | `scripts/__tests__/contribution-guide-contract.test.mjs` | 0 | Contributor guidance and lifecycle contract coverage |
 | `scripts/__tests__/exercise-contribution-gate.test.mjs` | 1 coverage gap fixed | Exact evaluator, lifecycle, and adversarial coverage |
+| `scripts/skill-inventory.baseline.json` | 0 removals | Refreshed source line anchors after the managed contribution-gate contract expanded; all 561 IDs and normalized texts are unchanged |
 | `README.md`, `CHANGELOG.md` | 0 | Public interaction and release history synchronized |
+| `VERSION`, `.codex-plugin/plugin.json` | 0 | Delivery version synchronized at 1.71.0 and revalidated after CI path-evidence feedback |
 | `steering/product.md`, `steering/tech.md`, `steering/structure.md` | 0 | Verification framework and invariants applied |
 
 ## Recommendation
