@@ -1,7 +1,7 @@
 # Requirements: Creating PRs Skill
 
-**Issues**: #8, #128, #108
-**Date**: 2026-04-25
+**Issues**: #8, #128, #108, #148
+**Date**: 2026-08-13
 **Status**: Amended
 **Author**: Codex (retroactive)
 
@@ -20,6 +20,8 @@
 The `/open-pr` skill creates a GitHub pull request using `gh pr create` with a body that references the originating GitHub issue, links to the spec files in `specs/{feature-name}/`, and summarizes the implementation based on the tasks spec and verification report. The PR title and body are structured to give reviewers immediate context about what was built and why. In unattended mode, the skill outputs a completion signal for the orchestrator instead of suggesting next steps.
 
 Issue #128 extends the interactive branch so the skill can optionally monitor CI and auto-merge after the PR is created. The unattended path (driven by `scripts/sdlc-runner.mjs`) already polls `gh pr checks` and runs `gh pr merge`; this enhancement closes the parity gap so interactive users who opt in get the same hands-off result. The unattended branch is unchanged — the runner retains ownership of CI monitoring and merging when the sentinel file is present.
+
+Issue #148 closes the compatibility branch left by issue #108. The obsolete `$nmg-sdlc:commit-push` skill must be absent from repository, distributable, fresh-install, and upgraded active-installation skill surfaces; `$nmg-sdlc:open-pr` remains the only delivery workflow. Active contracts and validation must require hard removal while preserving truthful historical specifications and released changelog entries.
 
 ---
 
@@ -117,6 +119,48 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 **When** repository checks run
 **Then** tests or contract checks cover the new runner step order and `$nmg-sdlc:open-pr` commit/push responsibility, and README plus skill integration diagrams no longer reference `$nmg-sdlc:commit-push` as a separate step
 
+### AC16: Released Plugin Contains No Commit-push Skill
+
+**Given** an nmg-sdlc release is built from the repository
+**When** its distributable and installed skill surfaces are inspected
+**Then** no `commit-push` skill bundle, discovery metadata, alias, redirect, deprecation stub, or inventory entry exists
+
+### AC17: Fresh Installations Do Not Expose Commit-push
+
+**Given** a user freshly installs the release
+**When** Codex discovers plugin skills or receives a natural-language or explicit commit/push request
+**Then** `$nmg-sdlc:commit-push` cannot be listed, loaded, or executed
+**And** `$nmg-sdlc:open-pr` remains the plugin's only delivery workflow
+
+### AC18: Plugin Upgrades Remove Commit-push From the Active Installation
+
+**Given** an existing nmg-sdlc installation exposes an older `commit-push` skill
+**When** the installation upgrades to the release containing this change
+**Then** the active installed plugin no longer exposes the skill's files or discovery metadata
+**And** subsequent skill discovery cannot select or directly invoke `$nmg-sdlc:commit-push`
+
+### AC19: Validation Detects Stale Upgrade State
+
+**Given** release verification compares the repository, distributable package, and upgraded active installation
+**When** stale `commit-push` content remains in the active plugin surface
+**Then** verification fails
+**And** the failure identifies the active location and offending skill metadata or file
+
+### AC20: Open-pr Delivery Behavior Does Not Regress
+
+**Given** the compatibility skill has been removed
+**When** interactive or unattended delivery runs
+**Then** `$nmg-sdlc:open-pr` still owns staging, versioning, committing, rebasing, safe pushing, and pull-request creation
+**And** the runner has no separate `commitPush` step or bounce-back path
+
+### AC21: Active Contracts And Release Notes Require Hard Removal
+
+**Given** the current specifications, regression contracts, workflow documentation, and release notes
+**When** they are inspected after this change
+**Then** the active contract requires hard removal rather than allowing a deprecation stub
+**And** regression coverage enforces absence of the skill instead of excluding its directory
+**And** the CHANGELOG records the removal while truthful historical specifications and released entries remain intact
+
 ---
 
 ## Functional Requirements
@@ -140,6 +184,12 @@ Issue #128 extends the interactive branch so the skill can optionally monitor CI
 | FR15 | Preserve safe unattended-mode force-with-lease behavior after rebases | Must | Issue #108 |
 | FR16 | Update README, skill descriptions, integration diagrams, and references that mention `$nmg-sdlc:commit-push` | Must | Issue #108 |
 | FR17 | Add or update tests for runner step numbering, preconditions, state hydration, and `$nmg-sdlc:open-pr` delivery behavior | Must | Issue #108 |
+| FR18 | Remove `$nmg-sdlc:commit-push` completely from the distributable plugin skill surface | Must | Issue #148 supersedes FR13's deprecation allowance |
+| FR19 | Ensure fresh installations and upgrades to the release do not expose the skill in the active installation | Must | Issue #148 |
+| FR20 | Validate parity across the repository, distributable package, and upgraded active installation, with actionable failures for stale content | Must | Issue #148 |
+| FR21 | Amend the active open-pr specification and BDD contract to require hard removal | Must | Issue #148 |
+| FR22 | Preserve `$nmg-sdlc:open-pr` behavior and the runner's single delivery handoff | Must | Issue #148 |
+| FR23 | Record the removal in `CHANGELOG.md` without rewriting historical records | Must | Issue #148 |
 
 ---
 
@@ -210,6 +260,11 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 - Changing how `$nmg-sdlc:draft-issue`, `$nmg-sdlc:start-issue`, `$nmg-sdlc:write-spec`, `$nmg-sdlc:write-code`, `$nmg-sdlc:simplify`, `$nmg-sdlc:verify-code`, or `$nmg-sdlc:address-pr-comments` perform their core responsibilities
 - Removing git safety checks around rebases, force-with-lease, dirty runner artifacts, or version-file conflicts
 - Changing the version bump classification matrix itself
+- Reintroducing a standalone commit/push step
+- Deleting inactive caches belonging to older, versioned plugin releases
+- Purging truthful historical specifications or released CHANGELOG entries
+- Adding a README migration note beyond keeping the current workflow accurate
+- Changing generic Codex skill-selection behavior outside this plugin
 
 ---
 
@@ -235,6 +290,7 @@ Reference `structure.md` and `product.md` for project-specific design standards.
 | #8 | 2026-02-15 | Initial feature spec |
 | #128 | 2026-04-18 | Add interactive opt-in CI monitor + auto-merge path; preserve unattended branch behavior |
 | #108 | 2026-04-25 | Fold commit, version, rebase, and push responsibility into open-pr; remove commit-push as a separate workflow step |
+| #148 | 2026-08-13 | Require hard removal of commit-push from released, fresh-install, and upgraded active plugin surfaces |
 
 ---
 
