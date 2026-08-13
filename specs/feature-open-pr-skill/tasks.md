@@ -270,13 +270,13 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **File(s)**: `scripts/verify-plugin-surface.mjs`
 **Type**: Create
 **Depends**: T016
-**Status**: Pending
+**Status**: Complete
 **Acceptance**:
-- [ ] The zero-dependency Node.js CLI accepts `--root <plugin-root>` and `--label <surface>` as distinct arguments and uses `node:path` for cross-platform resolution
-- [ ] The validator requires a readable `.codex-plugin/plugin.json`, resolves its declared skills path inside the supplied root, and fails closed on missing, malformed, absolute, or traversal paths
-- [ ] A clean surface must contain a discoverable `open-pr` skill and no `commit-push` directory, `name: commit-push` frontmatter, alias, redirect, deprecation metadata, loader-facing token, or inventory destination
-- [ ] Validation excludes `specs/` and versioned CHANGELOG history so truthful historical records do not fail the active-surface check
-- [ ] Exit 0 identifies the validated label/root, exit 1 lists every offending relative path and metadata kind, and exit 2 identifies invalid arguments or unreadable/invalid roots without mutating them
+- [x] The zero-dependency Node.js CLI accepts `--root <plugin-root>` and `--label <surface>` as distinct arguments and uses `node:path` for cross-platform resolution
+- [x] The validator requires a readable `.codex-plugin/plugin.json`, resolves its declared skills path inside the supplied root, and fails closed on missing, malformed, absolute, or traversal paths
+- [x] A clean surface must contain a discoverable `open-pr` skill and no `commit-push` directory, `name: commit-push` frontmatter, alias, redirect, deprecation metadata, loader-facing token, or inventory destination
+- [x] Validation excludes `specs/` and versioned CHANGELOG history so truthful historical records do not fail the active-surface check
+- [x] Exit 0 identifies the validated label/root, exit 1 lists every offending relative path and metadata kind, and exit 2 identifies invalid arguments or unreadable/invalid roots without mutating them
 
 **Notes**: Do not auto-discover or delete cache roots. Callers supply the repository, staged-release, fresh-install, or selected active root they intend to prove.
 
@@ -285,69 +285,73 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 **File(s)**: `scripts/__tests__/plugin-surface-verification.test.mjs`
 **Type**: Create
 **Depends**: T017
-**Status**: Pending
+**Status**: Complete
 **Acceptance**:
-- [ ] Tests cover the clean repository and a staged release surface copied from the manifest-declared plugin tree
-- [ ] Fresh-install and upgraded-active-root fixtures pass when `open-pr` is present and every commit-push surface is absent
-- [ ] Stale directory, frontmatter-name, alias/redirect, deprecation-token, and inventory-entry fixtures each fail with exit 1 and name the selected root plus offending relative path/kind
-- [ ] Missing manifest, unsafe skills path, missing open-pr, unreadable root, and invalid CLI arguments fail with exit 2 and an actionable diagnostic
-- [ ] A clean selected current root passes even when a sibling inactive historical version root still contains the old bundle
-- [ ] Fixtures use temporary directories and clean them up without touching the developer's installed plugin cache
+- [x] Tests cover the clean repository and a staged release surface copied from the manifest-declared plugin tree
+- [x] Fresh-install and upgraded-active-root fixtures pass when `open-pr` is present and every commit-push surface is absent
+- [x] Stale directory, frontmatter-name, alias/redirect, deprecation-token, and inventory-entry fixtures each fail with exit 1 and name the selected root plus offending relative path/kind
+- [x] Missing manifest, unsafe skills path, missing open-pr, unreadable root, and invalid CLI arguments fail with exit 2 and an actionable diagnostic
+- [x] A clean selected current root passes even when a sibling inactive historical version root still contains the old bundle
+- [x] Fixtures use temporary directories and clean them up without touching the developer's installed plugin cache
 
 ### T019: Hard-delete the Compatibility Bundle and Tighten the Active Contract Scan
 
 **File(s)**: `skills/commit-push/SKILL.md`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`
 **Type**: Delete | Modify
 **Depends**: T018
-**Status**: Pending
+**Status**: Complete
 **Acceptance**:
-- [ ] Route the skill-bundle removal through `$skill-creator` as required by `steering/tech.md`, then delete the complete `skills/commit-push/` tree
-- [ ] The plugin manifest continues to discover `./skills/`; no alias, redirect, replacement stub, or manifest exception is added
-- [ ] The open-pr delivery contract test asserts `skills/commit-push/` is absent and scans every Markdown file in the active skill tree without excluding that path
-- [ ] Active skill content contains no `$nmg-sdlc:commit-push`, `commitPush`, or `DIVERGED: re-run commit-push` loader/workflow token
-- [ ] Existing tests still prove open-pr owns staging, versioning, committing, rebasing, safe pushing, push verification, and PR creation while the runner has no separate delivery step
+- [x] Route the skill-bundle removal through `$skill-creator` as required by `steering/tech.md`, then delete the complete `skills/commit-push/` tree
+- [x] The plugin manifest continues to discover `./skills/`; no alias, redirect, replacement stub, or manifest exception is added
+- [x] The open-pr delivery contract test asserts `skills/commit-push/` is absent and scans every Markdown file in the active skill tree without excluding that path
+- [x] Active skill content contains no `$nmg-sdlc:commit-push`, `commitPush`, or `DIVERGED: re-run commit-push` loader/workflow token
+- [x] Existing tests still prove open-pr owns staging, versioning, committing, rebasing, safe pushing, push verification, and PR creation while the runner has no separate delivery step
 
 ### T020: Gate Marketplace Dispatch and Record the Removal
 
 **File(s)**: `.github/workflows/sync-marketplace-pointer.yml`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: T019
-**Status**: Pending
+**Status**: Complete
 **Acceptance**:
-- [ ] The marketplace-pointer workflow runs `scripts/verify-plugin-surface.mjs` against the checked-out release source before reading metadata or dispatching version/SHA
-- [ ] A stale surface exits non-zero before repository dispatch and the workflow log identifies the release root plus offending path/kind
-- [ ] A clean surface preserves the existing version/SHA consistency check and nmg-plugins dispatch contract
-- [ ] `[Unreleased]` records the hard removal and open-pr-only delivery surface for issue #148
-- [ ] Released CHANGELOG entries, historical specs, and inactive versioned caches are not rewritten or deleted
-- [ ] README remains unchanged because its current workflow already exposes open-pr as the sole delivery command
+- [x] The marketplace-pointer workflow runs `scripts/verify-plugin-surface.mjs` against the checked-out release source before reading metadata or dispatching version/SHA
+- [x] A stale surface exits non-zero before repository dispatch and the workflow log identifies the release root plus offending path/kind
+- [x] A clean surface preserves the existing version/SHA consistency check and nmg-plugins dispatch contract
+- [x] `[Unreleased]` records the hard removal and open-pr-only delivery surface for issue #148
+- [x] Released CHANGELOG entries, historical specs, and inactive versioned caches are not rewritten or deleted
+- [x] README remains unchanged because its current workflow already exposes open-pr as the sole delivery command
 
 ### T021: Verify Repository and Release Contracts
 
 **File(s)**: `scripts/skill-inventory.baseline.json`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/plugin-surface-verification.test.mjs`
 **Type**: Verify | Modify if deterministic drift requires it
 **Depends**: T020
-**Status**: Pending
+**Status**: Complete
 **Acceptance**:
-- [ ] `node scripts/verify-plugin-surface.mjs --root . --label repository` exits 0
-- [ ] Focused plugin-surface and open-pr delivery tests pass, followed by the complete `scripts` test suite
-- [ ] `node scripts/skill-inventory-audit.mjs --check` and `node scripts/codex-compatibility-check.mjs` pass
-- [ ] A freshly generated inventory baseline contains no commit-push destination and matches the committed baseline; update the baseline only when the deterministic comparison differs
-- [ ] Repository search confirms no active skill, manifest, workflow, README, or current test exception exposes commit-push while allowed historical specs and released changelog entries remain
-- [ ] Local green evidence is recorded separately from marketplace synchronization and active-install verification
+- [x] `node scripts/verify-plugin-surface.mjs --root . --label repository` exits 0
+- [x] Focused plugin-surface and open-pr delivery tests pass, followed by the complete `scripts` test suite
+- [x] `node scripts/skill-inventory-audit.mjs --check` and `node scripts/codex-compatibility-check.mjs` pass
+- [x] A freshly generated inventory baseline contains no commit-push destination and matches the committed baseline; update the baseline only when the deterministic comparison differs
+- [x] Repository search confirms no active skill, manifest, workflow, README, or current test exception exposes commit-push while allowed historical specs and released changelog entries remain
+- [x] Local green evidence is recorded separately from marketplace synchronization and active-install verification
+
+**Local evidence (2026-08-13)**: Repository and active-path validation passed; focused contracts passed 23 tests; the complete scripts suite passed 483 tests with 17 intentional skips; inventory check mapped 569 items; a fresh 569-item baseline matched without commit-push content; Codex compatibility passed. Marketplace synchronization and selected active-install proof remain separate T022 evidence.
 
 ### T022: Exercise Fresh Install and Upgrade in Disposable Codex Profiles
 
 **File(s)**: `scripts/verify-plugin-surface.mjs`, disposable marketplace/profile roots, selected installed nmg-sdlc roots
 **Type**: Verify
 **Depends**: T021
-**Status**: Pending
+**Status**: Partial — External Gate
 **Acceptance**:
 - [ ] Use disposable Codex configuration/profile state; do not remove, overwrite, or upgrade the developer's primary nmg-sdlc installation
 - [ ] Fresh-install exercise adds the current release, confirms `codex plugin list --json` reports the expected nmg-sdlc version/SHA, and validates the selected installed root with exit 0
 - [ ] Upgrade exercise begins from the previous release where the old stub is demonstrably active, refreshes/upgrades to the issue #148 release, confirms the new version/SHA, and validates the newly selected active root with exit 0
 - [ ] Fresh Codex sessions prove direct `$nmg-sdlc:commit-push` invocation cannot load and a natural-language delivery request selects `$nmg-sdlc:open-pr`
-- [ ] A deliberately stale selected-root exercise fails with exit 1 and the exact active location plus offending skill metadata/file
-- [ ] Evidence distinguishes repository, staged release, fresh installation, upgraded active installation, and post-marketplace synchronization; any unavailable post-release proof remains an explicit external gate rather than a local pass
+- [x] A deliberately stale selected-root exercise fails with exit 1 and the exact active location plus offending skill metadata/file
+- [x] Evidence distinguishes repository, staged release, fresh installation, upgraded active installation, and post-marketplace synchronization; any unavailable post-release proof remains an explicit external gate rather than a local pass
+
+**External gate (2026-08-13)**: Codex CLI 0.147.0 rejects `--profile` for every `codex plugin` command, so the installed CLI provides no supported disposable profile boundary for marketplace mutation. Temporary fresh-install, upgraded-active-root, stale-active-root, and inactive-cache fixtures pass without touching the primary installation. After the issue #148 release is published, run the three unchecked marketplace/version/SHA and fresh-session discovery checks in an externally isolated Codex home.
 
 ---
 
