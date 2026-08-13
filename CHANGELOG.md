@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.73.0] - 2026-08-13
+
+### Removed
+
+- Hard-removed the obsolete `$nmg-sdlc:commit-push` compatibility skill for issue #148, added release and active-install surface validation, and retained `$nmg-sdlc:open-pr` as the sole delivery workflow.
+
 ## [1.72.0] - 2026-08-12
 
 ### Added

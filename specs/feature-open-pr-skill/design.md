@@ -1,7 +1,7 @@
 # Design: Creating PRs Skill
 
-**Issues**: #8, #128, #108
-**Date**: 2026-04-25
+**Issues**: #8, #128, #108, #148
+**Date**: 2026-08-13
 **Status**: Amended
 **Author**: Codex (retroactive)
 
@@ -16,6 +16,8 @@ The skill has `minimal Codex frontmatter` in its frontmatter, meaning it follows
 **Issue #128 extension:** After PR creation completes in interactive mode, the skill now offers an optional CI-monitor + auto-merge step that mirrors the unattended runner's semantics (`gh pr checks` polling → `gh pr merge --squash --delete-branch` → local branch cleanup). The unattended branch of the skill remains untouched — when `.codex/unattended-mode` exists, the runner retains full ownership of monitoring and merging.
 
 **Issue #108 extension:** The stage/commit/version/rebase/push handoff moves into `/open-pr` before PR creation. `/open-pr` becomes the single delivery command: it prepares the branch using the existing `$nmg-sdlc:commit-push` safety contract, creates or skips the commit as appropriate, reconciles with `origin/main`, pushes, and then creates the PR. The separate `$nmg-sdlc:commit-push` step is removed from the public workflow and from the runner step sequence.
+
+**Issue #148 extension:** The compatibility stub left by issue #108 is deleted from the manifest-discovered `skills/` tree. A reusable, path-explicit validator proves that repository, release-source, fresh-install, and upgraded active plugin roots expose no `commit-push` directory, frontmatter, alias, redirect, deprecation metadata, or inventory entry while preserving the existing `open-pr` delivery contract and truthful historical records.
 
 ---
 
@@ -277,6 +279,109 @@ No UI components. The new interactions are text-mode:
 
 ---
 
+## Issue #148: Hard Removal From Released and Active Plugin Surfaces
+
+### Architecture and Data Flow
+
+The Codex manifest already discovers every skill under `.codex-plugin/plugin.json`'s `"skills": "./skills/"` path. Hard removal therefore uses physical bundle deletion as the source-of-truth change; no alias, redirect, or manifest exception is introduced.
+
+```text
+Repository plugin root
+  ├── delete skills/commit-push/
+  ├── verify manifest-resolved skills surface
+  └── run open-pr delivery regression contracts
+        ↓
+sync-marketplace-pointer release gate
+  ├── verify pinned release source is clean
+  └── dispatch version + SHA to nmg-plugins
+        ↓
+Codex fresh install or marketplace upgrade
+  ├── confirm selected nmg-sdlc version + SHA with codex plugin list --json
+  ├── resolve the selected active plugin root
+  ├── run the same surface validator against that root
+  └── exercise explicit and natural-language delivery requests in a fresh session
+```
+
+The repository does not delete or rewrite older versioned cache roots. Verification targets the plugin root selected by Codex after a fresh install or upgrade; an older cache is relevant only if Codex still reports or loads it as active.
+
+### Component Changes
+
+| File | Type | Purpose |
+|------|------|---------|
+| `skills/commit-push/SKILL.md` | Delete | Remove the complete compatibility bundle from manifest discovery. The implementation routes this skill-surface change through `$skill-creator` as required by `steering/tech.md`. |
+| `scripts/verify-plugin-surface.mjs` | Create | Zero-dependency, cross-platform validator for an explicit plugin root. Validate the manifest shape, resolve the declared skills directory without path traversal, require `open-pr`, and report every stale commit-push directory, frontmatter name, loader-facing token, alias/redirect, or inventory destination. |
+| `scripts/__tests__/plugin-surface-verification.test.mjs` | Create | Cover the clean repository and staged-release surfaces, fresh-install and upgraded-active-root fixtures, stale directory/frontmatter/alias failures, path-specific diagnostics, malformed roots, and inactive historical-cache isolation. |
+| `scripts/__tests__/open-pr-delivery-contract.test.mjs` | Modify | Remove the compatibility-directory exclusion, assert `skills/commit-push/` is absent, scan the full active skill tree, and retain all open-pr and runner delivery invariants. |
+| `.github/workflows/sync-marketplace-pointer.yml` | Modify | Run the surface validator against the checked-out release source before reading metadata and dispatching its version/SHA to the marketplace. |
+| `CHANGELOG.md` | Modify | Add an `[Unreleased]` hard-removal entry; do not rewrite versioned entries. |
+| `specs/feature-open-pr-skill/{requirements.md,design.md,tasks.md,feature.gherkin}` | Modify | Append issue #148's active contract, architecture, implementation plan, and BDD scenarios. |
+
+The following files are verified but intentionally unchanged:
+
+- `.codex-plugin/plugin.json`: its existing directory discovery makes physical deletion sufficient; `$nmg-sdlc:open-pr` owns the later version bump.
+- `skills/open-pr/**` and `scripts/sdlc-runner.mjs`: delivery ownership is already consolidated and remains protected by regression tests.
+- `scripts/skill-inventory.baseline.json`: regenerate only if a fresh deterministic audit differs; the current baseline has no commit-push destination.
+- `README.md`: the current workflow already exposes open-pr as the sole delivery command, so no migration note is added.
+- Historical specs and versioned changelog entries: retained as truthful history.
+
+### Validator Interface
+
+```text
+node scripts/verify-plugin-surface.mjs --root <plugin-root> --label <surface>
+```
+
+| Exit | Meaning | Output contract |
+|------|---------|-----------------|
+| `0` | Selected plugin surface is clean | Identify the label and validated root. |
+| `1` | Stale active commit-push content exists | Identify the label, absolute root, and every offending relative path plus metadata kind. |
+| `2` | Arguments, manifest, skills path, or root are invalid/unreadable | Identify the invalid input without mutating it. |
+
+Paths are distinct process arguments and are resolved with `node:path`; repository-derived values are never interpolated into shell source. The validator reads only `.codex-plugin/plugin.json`, its manifest-declared skills tree, and the inventory baseline when present. It intentionally excludes `specs/` and versioned changelog entries from stale-surface matching.
+
+### Install and Upgrade Verification
+
+Current local Codex CLI help exposes `codex plugin add`, `codex plugin marketplace upgrade`, and `codex plugin list --json`. Release verification uses those observed interfaces in a disposable profile rather than mutating a developer's primary installation:
+
+1. **Fresh install:** install the current marketplace entry, confirm the reported nmg-sdlc version/SHA, validate the selected active root, start a fresh Codex session, prove `$nmg-sdlc:commit-push` cannot load, and prove a delivery request selects `$nmg-sdlc:open-pr`.
+2. **Upgrade:** install the previous release in the disposable profile, prove it exposes the old stub, refresh the marketplace and upgrade to the issue #148 release, confirm the new reported version/SHA, validate the newly selected active root, and repeat the fresh-session discovery checks.
+3. **Stale-active negative case:** seed or select a root containing the old bundle and prove the validator fails with that root and the exact offending directory or metadata file.
+
+Official OpenAI documentation search did not expose a public plugin-cache replacement contract during design. Consequently, version/SHA selection and active-root postconditions are verified directly instead of assuming that a successful upgrade command removed or ignored stale content.
+
+### Alternatives Considered
+
+| Option | Benefit | Cost / Risk | Decision |
+|--------|---------|-------------|----------|
+| Keep the deprecation stub | Existing explicit invocations receive a redirect | The skill remains discoverable and can intercept natural-language requests; violates issue #148 | Rejected |
+| Delete the bundle and validate repository source only | Smallest code change | Cannot distinguish a clean source from a stale selected installation | Rejected |
+| Delete the bundle and validate release plus selected active roots | Proves the surfaces the repository owns and the installation Codex actually selects | Requires a disposable live exercise in addition to CI | Selected |
+| Delete every older cache directory | Makes filesystem searches look clean | Destructive, host-specific, and erases intentionally inactive versioned caches | Rejected |
+| Rewrite all historical commit-push references | Removes every textual occurrence | Corrupts truthful specs and released changelog history | Rejected |
+
+### Testing Strategy
+
+| Layer | Coverage |
+|-------|----------|
+| BDD | Six new scenarios map AC16–AC21 one-to-one. |
+| Validator unit tests | Clean/stale repository, staged release, fresh install, selected upgrade root, malformed root, actionable output, and inactive-cache boundaries. |
+| Open-pr contract tests | Full skill-tree stale-reference scan, bundle absence, runner step absence, and unchanged staging/version/rebase/push/PR behavior. |
+| Inventory and compatibility checks | `node scripts/skill-inventory-audit.mjs --check` plus the existing Codex compatibility check; refresh the baseline only on deterministic drift. |
+| Release gate | Surface validation must pass before marketplace dispatch. |
+| Live exercise | Disposable fresh-install and old-to-new upgrade sessions verify version/SHA selection, active-root cleanliness, direct invocation failure, and natural-language routing to open-pr. |
+
+### Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Codex selects a different cached version than expected | Medium | High | Match `codex plugin list --json` version/SHA to the root before treating validation as active-install evidence. |
+| Static checks pass while host discovery remains stale | Medium | High | Require disposable fresh-install and upgrade exercises in fresh sessions after marketplace refresh. |
+| Inactive older caches produce false failures | Medium | Medium | Validate only repository/release roots and the explicitly selected active root; do not recursively scan or delete every cache version. |
+| Hard removal weakens open-pr delivery | Low | High | Retain the existing open-pr/runner regression suite and add AC20 coverage before release. |
+| Validator misses renamed alias or redirect metadata | Low | High | Inspect directory names, all skill frontmatter, manifest/loader-facing content, active skill text, and inventory destinations with fixture canaries for each shape. |
+| Marketplace pointer advances despite a stale release source | Low | High | Gate `.github/workflows/sync-marketplace-pointer.yml` with the validator before dispatch. |
+
+---
+
 ## Change History
 
 | Issue | Date | Summary |
@@ -284,6 +389,7 @@ No UI components. The new interactions are text-mode:
 | #8 | 2026-02-15 | Initial feature spec |
 | #128 | 2026-04-18 | Add interactive CI monitor + auto-merge design (Step 7); mirror runner polling cadence; document opt-in/opt-out and active unattended suppression |
 | #108 | 2026-04-25 | Consolidate commit, version, rebase, and push into open-pr; remove commit-push from the public runner workflow |
+| #148 | 2026-08-13 | Require hard removal plus release-source, fresh-install, and upgraded active-surface validation |
 
 ---
 

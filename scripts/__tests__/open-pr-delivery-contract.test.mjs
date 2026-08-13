@@ -18,7 +18,7 @@ function collectMarkdownFiles(dir) {
   });
 }
 
-describe('open-pr folded delivery contract (issue #108)', () => {
+describe('open-pr folded delivery contract (issues #108 and #148)', () => {
   it('runner configuration no longer exposes a commitPush step', () => {
     const runner = read('scripts/sdlc-runner.mjs');
     const config = read('scripts/sdlc-config.example.json');
@@ -41,12 +41,16 @@ describe('open-pr folded delivery contract (issue #108)', () => {
     expect(prBody).toContain('No additional commit needed');
   });
 
-  it('public workflow docs do not advertise commit-push as a pipeline step', () => {
+  it('hard-removes commit-push and scans the complete active skill tree', () => {
+    const manifest = JSON.parse(read('.codex-plugin/plugin.json'));
     const publicFiles = [
       'README.md',
-      ...collectMarkdownFiles('skills').filter((file) => !file.startsWith('skills/commit-push/')),
+      ...collectMarkdownFiles('skills'),
       ...collectMarkdownFiles('references'),
     ];
+
+    expect(manifest.skills).toBe('./skills/');
+    expect(fs.existsSync(path.join(repoRoot, 'skills', 'commit-push'))).toBe(false);
 
     for (const file of publicFiles) {
       const source = read(file);

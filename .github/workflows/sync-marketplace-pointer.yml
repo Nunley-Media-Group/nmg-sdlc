@@ -18,6 +18,9 @@ jobs:
       - name: Check out nmg-sdlc
         uses: actions/checkout@v4
 
+      - name: Verify release plugin surface
+        run: node scripts/verify-plugin-surface.mjs --root . --label release-source
+
       - name: Read plugin metadata
         id: plugin
         run: |
