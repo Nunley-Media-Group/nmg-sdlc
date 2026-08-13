@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-13T20:12:53.473Z",
+  "generated_at": "2026-08-13T21:06:11.151Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -1601,15 +1601,15 @@
     },
     {
       "id": "5132982b316c",
-      "source_before": "skills/run-retro/references/learning-extraction.md:57",
+      "source_before": "skills/run-retro/references/learning-extraction.md:59",
       "normalized": "the carried-forward learnings join the freshly analysed learnings from step 3 as",
-      "destination": "skills/run-retro/references/learning-extraction.md:57"
+      "destination": "skills/run-retro/references/learning-extraction.md:59"
     },
     {
       "id": "d0054c637126",
-      "source_before": "skills/run-retro/references/transferability.md:60",
+      "source_before": "skills/run-retro/references/transferability.md:66",
       "normalized": "the surviving classified, filtered learnings form the table rows that step 7 wri",
-      "destination": "skills/run-retro/references/transferability.md:60"
+      "destination": "skills/run-retro/references/transferability.md:66"
     },
     {
       "id": "483c7103c42d",
