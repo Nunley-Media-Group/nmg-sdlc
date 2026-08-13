@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-13T04:24:44.059Z",
+  "generated_at": "2026-08-13T18:21:41.059Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -359,7 +359,7 @@
         "skills/onboard-project/SKILL.md:166",
         "skills/open-pr/SKILL.md:110",
         "skills/run-retro/SKILL.md:170",
-        "skills/start-issue/SKILL.md:207",
+        "skills/start-issue/SKILL.md:216",
         "skills/upgrade-project/SKILL.md:283",
         "skills/verify-code/SKILL.md:188",
         "skills/write-code/SKILL.md:116",
@@ -1918,7 +1918,7 @@
       "normalized": "[if .codex/unattended-mode exists]: done. awaiting orchestrator.",
       "destination": "skills/run-retro/SKILL.md:167",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:202",
+        "skills/start-issue/SKILL.md:211",
         "skills/verify-code/SKILL.md:185",
         "skills/write-code/SKILL.md:113",
         "skills/write-spec/SKILL.md:243"
@@ -2220,27 +2220,27 @@
     },
     {
       "id": "028df70a6a71",
-      "source_before": "skills/start-issue/SKILL.md:20",
+      "source_before": "skills/start-issue/SKILL.md:22",
       "normalized": "the shared reference covers sentinel semantics; these skill-specific branches ap",
-      "destination": "skills/start-issue/SKILL.md:20"
+      "destination": "skills/start-issue/SKILL.md:22"
     },
     {
       "id": "0ab8a8d2f889",
-      "source_before": "skills/start-issue/SKILL.md:138",
+      "source_before": "skills/start-issue/SKILL.md:147",
       "normalized": "in unattended mode, skip this step entirely — the auto-pick rule in the unattend",
-      "destination": "skills/start-issue/SKILL.md:138"
+      "destination": "skills/start-issue/SKILL.md:147"
     },
     {
       "id": "29899a286cd3",
-      "source_before": "skills/start-issue/SKILL.md:201",
+      "source_before": "skills/start-issue/SKILL.md:210",
       "normalized": "[if .codex/unattended-mode does not exist]: next step: run $nmg-sdlc:write-spec ",
-      "destination": "skills/start-issue/SKILL.md:201"
+      "destination": "skills/start-issue/SKILL.md:210"
     },
     {
       "id": "4963cc48b604",
-      "source_before": "skills/start-issue/SKILL.md:205",
+      "source_before": "skills/start-issue/SKILL.md:214",
       "normalized": "this summary is the handoff contract for downstream skills like $nmg-sdlc:write-",
-      "destination": "skills/start-issue/SKILL.md:205"
+      "destination": "skills/start-issue/SKILL.md:214"
     },
     {
       "id": "a8c4e4453d16",
