@@ -1,0 +1,11 @@
+{
+  "branch": "145-add-lifecycle-status-command-for-active-sdlc-work",
+  "issue": 145,
+  "requiredSpecFiles": [
+    "requirements.md",
+    "design.md",
+    "tasks.md",
+    "feature.gherkin"
+  ],
+  "implementationPaths": []
+}

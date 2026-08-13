@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "schema": {
+    "project": "object",
+    "issue": "object-or-null",
+    "spec": "object-or-null",
+    "verification": "object-or-null",
+    "pullRequest": "object-or-null",
+    "stage": "string",
+    "completedArtifacts": "array",
+    "missingArtifacts": "array",
+    "gaps": "array",
+    "nextAction": "object"
+  },
+  "cases": {
+    "specified": {
+      "stage": "specified",
+      "issue": 145,
+      "branch": "145-add-lifecycle-status-command-for-active-sdlc-work",
+      "completedArtifacts": [
+        "issue branch",
+        "spec package"
+      ],
+      "missingArtifacts": [
+        "implementation",
+        "verification",
+        "pull request"
+      ],
+      "nextAction": "$nmg-sdlc:write-code #145"
+    },
+    "conflictingEvidence": {
+      "stage": "specified",
+      "gaps": [
+        "passing verification conflicts with absent implementation paths"
+      ],
+      "nextAction": "$nmg-sdlc:write-code #145"
+    },
+    "githubUnavailable": {
+      "stage": "started",
+      "issue": 145,
+      "gaps": [
+        "GitHub issue unavailable: offline"
+      ]
+    },
+    "observational": {
+      "prompted": false,
+      "nextActionExecuted": false,
+      "nextAction": "$nmg-sdlc:write-code #145"
+    },
+    "readOnly": {
+      "beforeHash": "9e6d50b5f05f/read-only-fixture",
+      "afterHash": "9e6d50b5f05f/read-only-fixture",
+      "unchanged": true,
+      "textStage": "specified",
+      "jsonStage": "specified",
+      "jsonStdoutOnly": true
+    }
+  }
+}

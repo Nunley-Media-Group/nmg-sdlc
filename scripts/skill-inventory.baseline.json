@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-12T23:17:11.807Z",
+  "generated_at": "2026-08-13T04:24:44.059Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -2253,6 +2253,54 @@
       "source_before": "skills/start-issue/references/stale-remote-branch.md:50",
       "normalized": "unattended-mode deterministic-default (per ../../../references/unattended-mode.m",
       "destination": "skills/start-issue/references/stale-remote-branch.md:50"
+    },
+    {
+      "id": "4e2ccb29efb3",
+      "source_before": "skills/status/SKILL.md:18",
+      "normalized": "accept $arguments only when it is empty or exactly --json after trimming surroun",
+      "destination": "skills/status/SKILL.md:18"
+    },
+    {
+      "id": "d1753b43c91a",
+      "source_before": "skills/status/SKILL.md:20",
+      "normalized": "for any other value, print this usage line and stop non-zero without inspecting ",
+      "destination": "skills/status/SKILL.md:20"
+    },
+    {
+      "id": "514a74601a23",
+      "source_before": "skills/status/SKILL.md:28",
+      "normalized": "resolve the project root with the read-only equivalent of:",
+      "destination": "skills/status/SKILL.md:28"
+    },
+    {
+      "id": "d96f1fe9c4f8",
+      "source_before": "skills/status/SKILL.md:34",
+      "normalized": "resolve the installed plugin root from this loaded skill's own source path: the ",
+      "destination": "skills/status/SKILL.md:34"
+    },
+    {
+      "id": "82d48ffd8cb4",
+      "source_before": "skills/status/SKILL.md:36",
+      "normalized": "if the project root cannot be identified or the bundled cli is missing, report t",
+      "destination": "skills/status/SKILL.md:36"
+    },
+    {
+      "id": "2b25f9e8ab57",
+      "source_before": "skills/status/SKILL.md:40",
+      "normalized": "invoke node.js without a shell using an argument array:",
+      "destination": "skills/status/SKILL.md:40"
+    },
+    {
+      "id": "2a8dc43119ab",
+      "source_before": "skills/status/SKILL.md:47",
+      "normalized": "use the second form only when $arguments is --json. pass the resolved paths as d",
+      "destination": "skills/status/SKILL.md:47"
+    },
+    {
+      "id": "b4b92533636d",
+      "source_before": "skills/status/SKILL.md:49",
+      "normalized": "stream the cli exit code, stdout, and stderr without adding interpretation. in j",
+      "destination": "skills/status/SKILL.md:49"
     },
     {
       "id": "3d576c42b996",

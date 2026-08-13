@@ -68,6 +68,14 @@ const RUBRIC_CHECKS = [
   { id: 'R5', name: 'Root-Cause Analysis present (bug classification)' },
   { id: 'R6', name: 'Out of Scope section with ≥ 1 bullet' },
 ];
+const STATUS_RUBRIC_CHECKS = [
+  { id: 'S1', name: 'schema-versioned status fields are stable' },
+  { id: 'S2', name: 'specified fixture infers artifacts and next command' },
+  { id: 'S3', name: 'conflicting evidence stops at the last safe stage' },
+  { id: 'S4', name: 'GitHub-unavailable fixture preserves local inference' },
+  { id: 'S5', name: 'status neither prompts nor executes the next action' },
+  { id: 'S6', name: 'text and JSON fixture runs preserve repository state' },
+];
 
 function readFile(absPath) {
   return fs.readFileSync(absPath, 'utf8');
@@ -90,10 +98,22 @@ function fmField(frontmatter, name) {
 
 function gitShow(ref, relPath) {
   try {
-    return execFileSync('git', ['show', `${ref}:${relPath}`], { cwd: REPO_ROOT, encoding: 'utf8' });
+    return execFileSync('git', ['show', `${ref}:${relPath}`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
   } catch {
     return null;
   }
+}
+
+function gitRefExists(ref) {
+  const result = spawnSync('git', ['cat-file', '-e', `${ref}^{commit}`], {
+    cwd: REPO_ROOT,
+    stdio: 'ignore',
+  });
+  return result.status === 0;
 }
 
 function toRepoRel(absPath) {
@@ -229,6 +249,8 @@ function deterministicChecks(skillName, baseRef) {
       status: nameStable && descStable ? 'pass' : 'fail',
       detail: !nameStable ? 'name changed' : (!descStable ? 'description changed' : null),
     });
+  } else if (gitRefExists(baseRef)) {
+    results.push({ id: 'D7', name: 'slash-command surface unchanged', status: 'pass', detail: 'new skill has no prior slash-command surface' });
   } else {
     results.push({ id: 'D7', name: 'slash-command surface unchanged', status: 'skipped', detail: `base ref ${baseRef} unreachable` });
   }
@@ -301,8 +323,8 @@ async function attemptCodexExercise(skillName, fixtureDir) {
   return { output: output || null, reason: output ? null : 'artifact missing' };
 }
 
-function skippedRubricChecks(detail) {
-  return RUBRIC_CHECKS.map((c) => ({ ...c, status: 'skipped', detail }));
+function skippedRubricChecks(detail, checks = RUBRIC_CHECKS) {
+  return checks.map((c) => ({ ...c, status: 'skipped', detail }));
 }
 
 function firstExistingArtifact(skillName, fixtureDir) {
@@ -311,6 +333,7 @@ function firstExistingArtifact(skillName, fixtureDir) {
     path.join(artifactDir, 'feature-pass.md'),
     path.join(artifactDir, 'pass.md'),
     path.join(artifactDir, `${skillName}-pass.md`),
+    path.join(artifactDir, `${skillName}-pass.json`),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
@@ -474,8 +497,92 @@ function evaluateDraftIssueArtifact(artifact) {
   return results;
 }
 
+function evaluateStatusArtifact(artifact) {
+  const statusResult = (id, status, detail) => ({
+    ...STATUS_RUBRIC_CHECKS.find((check) => check.id === id),
+    status,
+    detail,
+  });
+  let parsed;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch (error) {
+    return STATUS_RUBRIC_CHECKS.map((check) => ({
+      ...check,
+      status: 'fail',
+      detail: `invalid JSON artifact: ${error.message}`,
+    }));
+  }
+
+  const requiredFields = [
+    'project', 'issue', 'spec', 'verification', 'pullRequest', 'stage',
+    'completedArtifacts', 'missingArtifacts', 'gaps', 'nextAction',
+  ];
+  const schemaMissing = requiredFields.filter((field) => !(field in (parsed.schema ?? {})));
+  const specified = parsed.cases?.specified ?? {};
+  const conflict = parsed.cases?.conflictingEvidence ?? {};
+  const unavailable = parsed.cases?.githubUnavailable ?? {};
+  const observational = parsed.cases?.observational ?? {};
+  const readOnly = parsed.cases?.readOnly ?? {};
+
+  return [
+    statusResult(
+      'S1',
+      parsed.schemaVersion === 1 && schemaMissing.length === 0 ? 'pass' : 'fail',
+      parsed.schemaVersion !== 1
+        ? `expected schemaVersion 1, got ${parsed.schemaVersion ?? 'missing'}`
+        : (schemaMissing.length ? `missing fields: ${schemaMissing.join(', ')}` : 'schemaVersion 1 and all stable fields captured'),
+    ),
+    statusResult(
+      'S2',
+      specified.stage === 'specified'
+        && specified.issue === 145
+        && specified.branch === '145-add-lifecycle-status-command-for-active-sdlc-work'
+        && specified.completedArtifacts?.includes('spec package')
+        && specified.missingArtifacts?.includes('implementation')
+        && specified.nextAction === '$nmg-sdlc:write-code #145'
+        ? 'pass' : 'fail',
+      'specified stage, issue/branch, artifacts, and write-code action captured',
+    ),
+    statusResult(
+      'S3',
+      conflict.stage === 'specified'
+        && conflict.gaps?.some((gap) => /verification conflicts/i.test(gap))
+        && conflict.nextAction === '$nmg-sdlc:write-code #145'
+        ? 'pass' : 'fail',
+      'conflicting verification stops at specified with a named gap',
+    ),
+    statusResult(
+      'S4',
+      unavailable.stage === 'started'
+        && unavailable.issue === 145
+        && unavailable.gaps?.some((gap) => /GitHub.*unavailable/i.test(gap))
+        ? 'pass' : 'fail',
+      'local started-stage evidence remains usable with a named GitHub gap',
+    ),
+    statusResult(
+      'S5',
+      observational.prompted === false
+        && observational.nextActionExecuted === false
+        && observational.nextAction === '$nmg-sdlc:write-code #145'
+        ? 'pass' : 'fail',
+      'status reports but does not prompt or execute the next action',
+    ),
+    statusResult(
+      'S6',
+      readOnly.unchanged === true
+        && readOnly.beforeHash === readOnly.afterHash
+        && readOnly.textStage === readOnly.jsonStage
+        && readOnly.jsonStdoutOnly === true
+        ? 'pass' : 'fail',
+      'repository hash, mode conclusion, and JSON stdout boundary captured',
+    ),
+  ];
+}
+
 const RUBRIC_EVALUATORS = {
-  'draft-issue': evaluateDraftIssueArtifact,
+  'draft-issue': { checks: RUBRIC_CHECKS, evaluate: evaluateDraftIssueArtifact },
+  status: { checks: STATUS_RUBRIC_CHECKS, evaluate: evaluateStatusArtifact },
 };
 
 function rubricChecks(skillName, artifact, options = {}) {
@@ -484,9 +591,9 @@ function rubricChecks(skillName, artifact, options = {}) {
     return skippedRubricChecks(`missing evaluator for skill ${skillName}`);
   }
   if (!artifact) {
-    return skippedRubricChecks(options.missingReason ?? 'artifact missing');
+    return skippedRubricChecks(options.missingReason ?? 'artifact missing', evaluator.checks);
   }
-  return evaluator(artifact);
+  return evaluator.evaluate(artifact);
 }
 
 function renderReport(results, { skill }) {
@@ -586,6 +693,7 @@ if (isMainModule) {
 export {
   acBlocks,
   evaluateDraftIssueArtifact,
+  evaluateStatusArtifact,
   extractArtifactFromOutput,
   main,
   parseDraftIssueArtifact,
