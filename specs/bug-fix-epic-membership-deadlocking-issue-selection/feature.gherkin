@@ -1,0 +1,54 @@
+# Generated from: specs/bug-fix-epic-membership-deadlocking-issue-selection/requirements.md
+# Issue: #149
+# Type: Defect regression
+
+@regression @start-issue @run-loop @issue-149
+Feature: Epic membership does not deadlock issue selection
+  Epic membership was previously conflated with execution dependencies, causing
+  a ready child to be filtered while its coordination epic remained open.
+  Relationship roles must now be classified explicitly without removing the
+  identity that downstream epic consumers require.
+
+  @regression
+  Scenario: Bare interactive selection keeps a ready epic child actionable
+    Given an open epic and an open child linked by both a native parent and "Depends on" reference
+    And the child has no open sibling or non-epic prerequisite
+    When bare interactive start-issue resolves and filters the candidate set
+    Then the child remains actionable while the coordination epic is open
+    And closing the epic is not required to start the child
+
+  @regression
+  Scenario: Runner selection uses explicit epic semantics
+    Given an automatable epic child whose open coordination epic is not automatable
+    When manual selection and the SDLC runner evaluate the child's readiness
+    Then both selectors classify the epic relationship as non-blocking coordination
+    And the runner result does not depend on the epic being absent from its candidate pool
+
+  @regression
+  Scenario: Genuine dependencies still block an epic child
+    Given an epic child also depends on an open sibling or other non-epic issue
+    When manual selection or runner selection evaluates readiness
+    Then the child remains blocked by the genuine unresolved issue
+    And the diagnostic does not name the open coordination epic as a blocker
+
+  @regression
+  Scenario: Downstream epic discovery retains every supported link form
+    Given a child uses the current dual-link format, body-only fallback, or native-only link
+    When write-spec resolves its umbrella or open-pr resolves its epic siblings
+    Then the correct coordination epic is discovered
+    And umbrella amendment and sibling-aware version classification continue to work
+
+  @regression
+  Scenario: Ambiguous and non-epic parent identity fails safely
+    Given a relationship target is confirmed non-epic or its metadata lookup fails
+    When readiness is evaluated
+    Then the relationship remains an execution dependency and is not silently discarded
+    And a metadata failure emits an actionable warning naming the affected relationship
+
+  @regression
+  Scenario: Cross-skill regression preserves ordering and epic consumers
+    Given a disposable issue graph produced from the current draft-issue epic contract
+    When verification exercises bare start-issue, runner selection, parent-spec discovery, and release classification
+    Then the first child is selectable while the epic remains open
+    And later children remain ordered by real sibling dependencies
+    And automated coverage includes native-plus-body, body-only, native-only, non-epic, and metadata-failure cases

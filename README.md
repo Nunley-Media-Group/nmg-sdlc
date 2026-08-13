@@ -117,6 +117,8 @@ $nmg-sdlc:start-issue #42
 
 Selects an issue (or presents a picker if no number is given), creates a linked feature branch via `gh issue develop`, and sets the issue to "In Progress" in any associated GitHub Project.
 
+Bare discovery distinguishes coordination from execution dependencies before presenting or auto-selecting work. An open parent labeled `epic` remains available as parent identity but does not block its children; open siblings and other non-epic prerequisites still block, and an unresolvable relationship target fails safe with a named warning instead of silently making the child ready. Manual and unattended selection use the same rule.
+
 ### Step 1: Create an Issue
 
 ```bash
@@ -252,7 +254,7 @@ To stop an in-flight runner cleanly (signal the live PID and clear both runner a
 
 ### Default behaviors in unattended mode
 
-- **Issue selection**: picks the first open issue in the milestone, sorted by issue number ascending (oldest first)
+- **Issue selection**: picks the first unblocked `automatable` issue in topological order (issue number ascending breaks ties); open coordination epics do not block their children, while genuine prerequisites do
 - **Confirmations**: answers yes
 - **Review gates**: auto-approves all phases (requirements, design, tasks)
 - **Plan mode**: skipped — interactive plan review is never called; Codex designs the approach internally from specs

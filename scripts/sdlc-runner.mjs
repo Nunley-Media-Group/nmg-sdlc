@@ -2070,7 +2070,115 @@ function hasNonEscalatedIssues() {
 // Milestone + topological issue selection
 // ---------------------------------------------------------------------------
 
-const DEPENDENCY_BODY_RE = /(Depends on|Blocks):\s*#(\d+)\b/gi;
+const RELATIONSHIP_BODY_LINE_RE = /^\s*(Depends on|Blocks):\s*(#\d+(?:\s*,\s*#\d+)*)\s*$/gim;
+const RELATIONSHIP_ISSUE_RE = /#(\d+)\b/g;
+
+function issueLabels(issue) {
+  const raw = issue?.labels;
+  const labels = Array.isArray(raw) ? raw : raw?.nodes;
+  if (!Array.isArray(labels)) return null;
+  const names = [];
+  for (const label of labels) {
+    const name = typeof label === 'string' ? label : label?.name;
+    if (typeof name === 'string') names.push(name.toLowerCase());
+  }
+  return new Set(names);
+}
+
+function issuePullRequests(issue) {
+  const raw = issue?.closedByPullRequestsReferences;
+  if (Array.isArray(raw)) return raw;
+  return Array.isArray(raw?.nodes) ? raw.nodes : [];
+}
+
+function normalizeRelationshipTarget(issue, expectedNumber = null) {
+  if (!issue || typeof issue !== 'object') return null;
+  const number = Number(issue.number ?? expectedNumber);
+  const labels = issueLabels(issue);
+  if (!Number.isInteger(number) || number <= 0 || typeof issue.state !== 'string' || labels === null) {
+    return null;
+  }
+  return {
+    number,
+    state: issue.state,
+    labels,
+    closedByPullRequestsReferences: issuePullRequests(issue),
+  };
+}
+
+function addRelationship(relationships, child, target) {
+  if (!Number.isInteger(child) || child <= 0 || !Number.isInteger(target) || target <= 0 || child === target) {
+    return;
+  }
+  if (!relationships.has(child)) relationships.set(child, new Set());
+  relationships.get(child).add(target);
+}
+
+function parseBodyRelationships(issueNumber, body, relationships, candidateSet) {
+  if (typeof body !== 'string') return;
+  RELATIONSHIP_BODY_LINE_RE.lastIndex = 0;
+  for (const lineMatch of body.matchAll(RELATIONSHIP_BODY_LINE_RE)) {
+    const relation = lineMatch[1].toLowerCase();
+    RELATIONSHIP_ISSUE_RE.lastIndex = 0;
+    for (const issueMatch of lineMatch[2].matchAll(RELATIONSHIP_ISSUE_RE)) {
+      const target = Number(issueMatch[1]);
+      if (relation === 'depends on') {
+        addRelationship(relationships, issueNumber, target);
+      } else if (candidateSet.has(target)) {
+        addRelationship(relationships, target, issueNumber);
+      }
+    }
+  }
+}
+
+function nativeParentQuery(candidates) {
+  const fields = candidates.map((number) => `
+        issue${number}: issue(number: ${number}) {
+          number
+          parent {
+            number
+            state
+            labels(first: 100) { nodes { name } }
+            closedByPullRequestsReferences(first: 20) { nodes { state mergedAt } }
+          }
+        }`).join('');
+  return `query($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {${fields}
+    }
+  }`;
+}
+
+function fetchNativeParents(candidates, ghRunner) {
+  const repoRaw = ghRunner('repo view --json owner,name');
+  const repo = JSON.parse(repoRaw);
+  const owner = repo?.owner?.login;
+  const name = repo?.name;
+  if (typeof owner !== 'string' || typeof name !== 'string') {
+    throw new Error('gh repo view returned incomplete owner/name metadata');
+  }
+
+  const query = nativeParentQuery(candidates);
+  const raw = ghRunner([
+    'api graphql',
+    `-f query=${shellEscape(query)}`,
+    `-f owner=${shellEscape(owner)}`,
+    `-f name=${shellEscape(name)}`,
+  ].join(' '));
+  const parsed = JSON.parse(raw);
+  const repository = parsed?.data?.repository;
+  if (!repository || typeof repository !== 'object') {
+    throw new Error('GitHub GraphQL returned no repository data');
+  }
+
+  const parents = new Map();
+  for (const number of candidates) {
+    const parent = repository[`issue${number}`]?.parent;
+    if (parent && Number.isInteger(Number(parent.number)) && Number(parent.number) > 0) {
+      parents.set(number, parent);
+    }
+  }
+  return parents;
+}
 
 /**
  * Pick the alphabetically-first open milestone with open issues.
@@ -2092,24 +2200,30 @@ function selectMilestone(opts = {}) {
 }
 
 /**
- * Select the next ready issue from a milestone, respecting topological order
- * derived from `Depends on: #N` / `Blocks: #N` body cross-refs and the GitHub
- * sub-issue parent field.
+ * Select the next ready issue from a milestone after classifying supported
+ * body/native relationships as epic coordination or execution dependencies.
  *
  * @param {string|null} milestone  Milestone title, or null for repo-wide.
  * @param {object} opts
  * @param {(args: string) => string} [opts.ghRunner]  Injectable `gh` runner for tests.
  * @param {Set<number>} [opts.excluded]  Issue numbers to skip (e.g., escalated).
+ * @param {(message: string) => void} [opts.warn]  Injectable warning sink for tests.
  * @returns {{ issue: number|null, blockedIssues: Array<{issue: number, blockers: number[]}> }}
  *
- * An issue is "ready" when every `Depends on` / `Blocks` / parent link either
- * points outside the milestone pool (treated as satisfied) or points to an
- * issue that is CLOSED with at least one merged PR in
- * `closedByPullRequestsReferences`. Lowest-numbered ready issue wins.
+ * Confirmed epic targets are coordination-only. Every other known target is
+ * complete only when CLOSED with a merged PR; unknown target metadata fails
+ * safe as a named blocker. Lowest-numbered ready issue wins.
  */
 function selectNextIssueFromMilestone(milestone, opts = {}) {
   const ghRunner = opts.ghRunner || gh;
   const excluded = opts.excluded instanceof Set ? opts.excluded : new Set();
+  const warn = typeof opts.warn === 'function' ? opts.warn : log;
+  const emittedWarnings = new Set();
+  const emitWarning = (message) => {
+    if (emittedWarnings.has(message)) return;
+    emittedWarnings.add(message);
+    warn(message);
+  };
 
   const listCmd = [
     'issue list -s open',
@@ -2139,36 +2253,54 @@ function selectNextIssueFromMilestone(milestone, opts = {}) {
   for (const n of candidates) {
     try {
       const raw = ghRunner(
-        `issue view ${n} --json number,state,body,closedByPullRequestsReferences`
+        `issue view ${n} --json number,state,body,labels,closedByPullRequestsReferences`
       );
-      details.set(n, JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeRelationshipTarget(parsed, n);
+      if (!normalized) throw new Error('issue metadata was missing state or labels');
+      details.set(n, { ...normalized, body: typeof parsed.body === 'string' ? parsed.body : '' });
     } catch (err) {
       log(`Warning: could not fetch issue #${n} details: ${err.message}`);
-      details.set(n, { number: n, state: 'OPEN', body: '', parent: null, closedByPullRequestsReferences: [] });
+      details.set(n, null);
       fetchFailed.add(n);
     }
   }
 
-  const depMap = new Map(candidates.map((n) => [n, new Set()]));
-  for (const [n, d] of details) {
-    const deps = depMap.get(n) || new Set();
-    const body = typeof d.body === 'string' ? d.body : '';
-    for (const match of body.matchAll(DEPENDENCY_BODY_RE)) {
-      const relation = match[1].toLowerCase();
-      const dep = Number(match[2]);
-      if (!Number.isInteger(dep) || dep <= 0 || dep === n) continue;
-      if (relation === 'depends on') {
-        deps.add(dep);
-      } else if (relation === 'blocks' && depMap.has(dep)) {
-        depMap.get(dep).add(n);
+  const relationships = new Map(candidates.map((n) => [n, new Set()]));
+  const candidateSet = new Set(candidates);
+  for (const [number, detail] of details) {
+    parseBodyRelationships(number, detail?.body, relationships, candidateSet);
+  }
+
+  try {
+    const nativeParents = fetchNativeParents(candidates, ghRunner);
+    for (const [child, parent] of nativeParents) {
+      const target = Number(parent.number);
+      addRelationship(relationships, child, target);
+      if (!details.get(target)) {
+        details.set(target, normalizeRelationshipTarget(parent, target));
       }
     }
-    if (d.parent && typeof d.parent.number === 'number' && d.parent.number !== n) {
-      deps.add(d.parent.number);
+  } catch (err) {
+    emitWarning(`WARNING: Native dependency links unavailable; using body cross-refs only. ${err.message}`);
+  }
+
+  const targets = new Set();
+  for (const deps of relationships.values()) {
+    for (const target of deps) targets.add(target);
+  }
+  for (const target of [...targets].sort((a, b) => a - b)) {
+    if (details.get(target)) continue;
+    try {
+      const raw = ghRunner(
+        `issue view ${target} --json number,state,labels,closedByPullRequestsReferences`
+      );
+      details.set(target, normalizeRelationshipTarget(JSON.parse(raw), target));
+    } catch {
+      details.set(target, null);
     }
   }
 
-  const milestoneSet = new Set(candidates);
   const blockedIssues = [];
   const ready = [];
 
@@ -2177,15 +2309,17 @@ function selectNextIssueFromMilestone(milestone, opts = {}) {
       blockedIssues.push({ issue: n, blockers: [], reason: 'fetch-failed' });
       continue;
     }
-    const deps = depMap.get(n) || new Set();
+    const deps = relationships.get(n) || new Set();
     const blockers = [];
     for (const dep of deps) {
-      if (!milestoneSet.has(dep)) continue; // external — assumed satisfied
       const depDetails = details.get(dep);
-      if (!depDetails) { blockers.push(dep); continue; }
-      const prs = Array.isArray(depDetails.closedByPullRequestsReferences)
-        ? depDetails.closedByPullRequestsReferences
-        : [];
+      if (!depDetails) {
+        blockers.push(dep);
+        emitWarning(`WARNING: Could not confirm relationship metadata for child #${n} -> target #${dep}; treating #${dep} as a blocking execution dependency. Retry after GitHub metadata is available.`);
+        continue;
+      }
+      if (depDetails.labels.has('epic')) continue;
+      const prs = depDetails.closedByPullRequestsReferences;
       const isMerged = depDetails.state === 'CLOSED' &&
         prs.some((pr) => pr && (pr.state === 'MERGED' || pr.mergedAt != null));
       if (!isMerged) blockers.push(dep);

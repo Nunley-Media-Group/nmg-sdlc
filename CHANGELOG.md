@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.73.1] - 2026-08-13
+
+### Fixed
+
+- Fixed issue #149 by classifying confirmed epic membership as non-blocking coordination in both bare `$nmg-sdlc:start-issue` discovery and deterministic runner preselection, while retaining genuine and unknown dependencies as named blockers and preserving downstream epic identity.
+
 ## [1.73.0] - 2026-08-13
 
 ### Removed

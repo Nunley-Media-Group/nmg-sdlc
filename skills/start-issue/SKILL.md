@@ -15,6 +15,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/unattended-mode.md` when the workflow starts — the sentinel replaces every `request_user_input` gate call site in this skill with the unattended branch. Steps 2 and 3 confirmation gates are skipped when the sentinel is present; the auto-selection and direct-start rules below replace them.
 
+Read `../../references/epic-relationships.md` when Step 1a begins — it defines the supported relationship signals, target-metadata hydration, epic-membership classification, fail-safe fallback, and consumer-specific completion rules shared with the SDLC runner.
+
 ## Unattended-Mode Behaviour Specific to This Skill
 
 The shared reference covers sentinel semantics; these skill-specific branches apply when `.codex/unattended-mode` exists:
@@ -52,23 +54,28 @@ After the raw candidate set is produced (and the empty-result handler has not fi
 
 ## Step 1a: Dependency Resolution
 
-Filter out blocked issues and topologically order the remainder so parents appear before their descendants. This runs in **both** interactive and unattended mode, on the candidate set produced by Step 1. Emit a session note reporting the filtered count before presentation/auto-selection, even when the count is zero.
+Filter out blocked issues and topologically order the remainder so genuine prerequisites appear before their descendants. This runs in **both** interactive and unattended mode, on the candidate set produced by Step 1. Apply `../../references/epic-relationships.md` before blocked filtering: preserve confirmed coordination-epic identity, but exclude those pairs from blockers, blocked counts, and topological in-degree. Emit a session note reporting the filtered count before presentation/auto-selection, even when the count is zero.
 
-### Fetch Dependency Metadata (single GraphQL batch)
+### Fetch and Hydrate Relationship Metadata
 
-Issue a single `gh api graphql` call that requests `parent`, `subIssues`, `state`, and `body` for every candidate issue in one round-trip. Use one aliased field per issue number inside a single query (e.g. `issue127: issue(number: 127) { ... }`), passed as a `-f query='...'` argument to `gh api graphql`. The query shape per issue:
+Issue a single `gh api graphql` call that requests `parent`, `subIssues`, `state`, `labels`, and `body` for every candidate issue in one round-trip. Use one aliased field per issue number inside a single query (e.g. `issue127: issue(number: 127) { ... }`), passed as a `-f query='...'` argument to `gh api graphql`. Request `labels(first: 100) { nodes { name } }` for each candidate and native parent. The core query shape per issue is:
 
 ```graphql
 issue(number: N) {
   number
   state
-  parent { number state }                       # tracked-by link
+  labels(first: 100) { nodes { name } }
+  parent {
+    number
+    state
+    labels(first: 100) { nodes { name } }
+  }
   subIssues(first: 50) { nodes { number state } }
   body
 }
 ```
 
-Any parent whose `state` is not `CLOSED` (including `OPEN`) is treated as an unresolved dependency.
+Normalize native and body signals into deduplicated `(child, target)` pairs. After parsing the bodies, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls. Classify each pair from the target's live labels per the shared reference.
 
 If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — this is not a fallback condition.
 
@@ -83,15 +90,15 @@ Scan each issue body line-by-line, case-insensitive, line-anchored:
 
 Extract issue numbers with `#?(\d+)`. Normalize: `Blocks: #Y` on issue `X` is recorded as `Depends on: #X` on issue `Y`. Cross-repo references (`owner/repo#N`) are ignored.
 
-### Build Graph
+### Build and Classify the Graph
 
-Construct `parentsOf: Map<issue_number, Set<parent_number>>` by merging the native links (parent + inverse sub-issues) with the body-cross-ref data. An issue declared as a parent in both formats counts once (set deduplication).
+Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues) with body cross-refs. Classify each pair as `epic-membership` or `execution-dependency` from hydrated target metadata. Retain both roles for parent identity, but build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from execution dependencies only.
 
 Native link normalization: a `parent` entry on issue `C` with `{number: P}` adds `P` to `parentsOf[C]`; a `subIssues` entry on issue `P` with node `{number: C}` adds `P` to `parentsOf[C]` (inverse — the sub-issue's parent is `P`).
 
 ### Blocked Filter
 
-An issue `I` is **blocked** and dropped from the candidate set if any element of `parentsOf[I]` is not in `CLOSED` state. Parents that are missing, deleted, or cross-repo are treated as closed (fail-open) so typos or deleted refs do not halt the pipeline.
+An issue `I` is **blocked** and dropped from the candidate set if any confirmed execution dependency in `parentsOf[I]` is not `CLOSED`. A known target whose metadata is missing or failed remains in `parentsOf[I]` as unresolved and emits the shared actionable warning naming the child and target. A confirmed epic-membership target never blocks, even while the epic is open.
 
 ### Topological Sort (Kahn's algorithm)
 
@@ -120,6 +127,8 @@ If any candidate remains un-emitted after the queue drains, those nodes form a c
 |---------|----------|
 | GraphQL batch query fails (network/auth/preview unavailable) | Re-fetch bodies only via `gh issue view --json body` per issue; parse body cross-refs only; emit `WARNING: Native dependency links unavailable; using body cross-refs only.` |
 | Body fetch also fails | Skip dependency resolution entirely; emit `WARNING: Dependency resolution unavailable; preserving legacy ordering.`; preserve legacy issue-number-ascending ordering; do not abort |
+
+The body-only fallback still hydrates every known body target. A target lookup failure retains that relationship as blocking per the shared reference; it never silently becomes satisfied.
 
 ### Session Note
 
