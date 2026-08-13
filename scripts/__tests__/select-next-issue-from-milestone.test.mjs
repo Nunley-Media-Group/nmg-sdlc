@@ -1,285 +1,305 @@
 /**
- * Unit tests for selectNextIssueFromMilestone()
+ * Unit tests for selectNextIssueFromMilestone().
  *
- * Derived from: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
+ * Derived from:
+ * specs/bug-fix-epic-membership-deadlocking-issue-selection/
  * Issue: #149
- *
- * The function is pure — it takes an injectable `ghRunner` so tests feed
- * deterministic responses without touching the real GitHub CLI.
  */
-
-import { jest } from '@jest/globals';
 
 const runner = await import('../sdlc-runner.mjs');
 const { selectNextIssueFromMilestone } = runner;
 
-/**
- * Build a mock `ghRunner` that responds to `issue list` with the given list
- * and `issue view <N>` with per-issue details. Unknown commands throw.
- */
-function makeGhRunner({ list, details }) {
+function labels(value = []) {
+  return value.map((name) => ({ name }));
+}
+
+function issuePayload(number, detail = {}, includeBody = true) {
+  const payload = {
+    number,
+    state: detail.state || 'OPEN',
+    labels: detail.omitLabels ? undefined : labels(detail.labels || []),
+    closedByPullRequestsReferences: detail.prs || [],
+  };
+  if (includeBody) payload.body = detail.body || '';
+  return payload;
+}
+
+function graphIssue(number, parentNumber, details) {
+  if (!parentNumber) return { number, parent: null };
+  const parent = details[parentNumber];
+  if (!parent) return { number, parent: { number: parentNumber } };
+  return {
+    number,
+    parent: {
+      number: parentNumber,
+      state: parent.state || 'OPEN',
+      labels: parent.omitLabels ? undefined : { nodes: labels(parent.labels || []) },
+      closedByPullRequestsReferences: { nodes: parent.prs || [] },
+    },
+  };
+}
+
+function makeGhRunner({
+  list,
+  details,
+  parents = {},
+  failViews = [],
+  graphqlError = null,
+  seen = [],
+}) {
   return (cmd) => {
+    seen.push(cmd);
     if (cmd.startsWith('issue list')) {
-      return JSON.stringify(list.map((n) => ({ number: n })));
+      return JSON.stringify(list.map((number) => ({ number })));
+    }
+    if (cmd === 'repo view --json owner,name') {
+      return JSON.stringify({ owner: { login: 'example' }, name: 'repo' });
+    }
+    if (cmd.startsWith('api graphql')) {
+      if (graphqlError) throw new Error(graphqlError);
+      const repository = {};
+      for (const number of list) {
+        repository[`issue${number}`] = graphIssue(number, parents[number], details);
+      }
+      return JSON.stringify({ data: { repository } });
     }
     const viewMatch = cmd.match(/^issue view (\d+)\b/);
     if (viewMatch) {
-      const n = Number(viewMatch[1]);
-      const d = details[n];
-      if (!d) throw new Error(`unexpected view for #${n}`);
-      return JSON.stringify({
-        number: n,
-        state: d.state || 'OPEN',
-        body: d.body || '',
-        parent: d.parent || null,
-        closedByPullRequestsReferences: d.prs || [],
-      });
+      const number = Number(viewMatch[1]);
+      if (failViews.includes(number) || !details[number]) {
+        throw new Error(`metadata unavailable for #${number}`);
+      }
+      return JSON.stringify(issuePayload(number, details[number], /\bbody\b/.test(cmd)));
     }
     throw new Error(`unexpected gh call: ${cmd}`);
   };
 }
 
+function select(fixture, milestone = 'M1') {
+  const warnings = [];
+  const ghRunner = makeGhRunner(fixture);
+  const result = selectNextIssueFromMilestone(milestone, {
+    ghRunner,
+    excluded: fixture.excluded,
+    warn: (message) => warnings.push(message),
+  });
+  return { result, warnings };
+}
+
 describe('selectNextIssueFromMilestone', () => {
-  test('returns lowest-numbered issue when all candidates are ready', () => {
-    const ghRunner = makeGhRunner({
+  test('returns the lowest-numbered ready issue', () => {
+    const { result } = select({
       list: [42, 7, 100],
+      details: { 7: {}, 42: {}, 100: {} },
+    });
+    expect(result).toEqual({ issue: 7, blockedIssues: [] });
+  });
+
+  test('deduplicates native-plus-body epic membership and keeps the child ready', () => {
+    const seen = [];
+    const { result } = select({
+      list: [20],
       details: {
-        7: {},
-        42: {},
-        100: {},
+        10: { labels: ['epic'] },
+        20: { body: 'Depends on: #10' },
+      },
+      parents: { 20: 10 },
+      seen,
+    });
+    expect(result.issue).toBe(20);
+    expect(result.blockedIssues).toEqual([]);
+    expect(seen.filter((cmd) => cmd.startsWith('issue view 10'))).toHaveLength(0);
+  });
+
+  test('body-only epic membership is non-blocking outside the automatable pool', () => {
+    const { result } = select({
+      list: [20],
+      details: {
+        10: { labels: ['epic'] },
+        20: { body: 'Depends on: #10' },
       },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(7);
+    expect(result.issue).toBe(20);
     expect(result.blockedIssues).toEqual([]);
   });
 
-  test('returns null and blockedIssues when every candidate is blocked', () => {
-    const ghRunner = makeGhRunner({
-      list: [1, 2],
-      details: {
-        1: { body: 'Depends on: #2' },
-        2: { body: 'Depends on: #1' },
-      },
+  test('native-only epic membership is non-blocking', () => {
+    const { result } = select({
+      list: [20],
+      details: { 10: { labels: ['epic'] }, 20: {} },
+      parents: { 20: 10 },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
+    expect(result.issue).toBe(20);
+    expect(result.blockedIssues).toEqual([]);
+  });
+
+  test('confirmed non-epic native parent remains a blocker', () => {
+    const { result } = select({
+      list: [20],
+      details: { 10: { labels: ['bug'] }, 20: {} },
+      parents: { 20: 10 },
+    });
     expect(result.issue).toBeNull();
-    expect(result.blockedIssues).toEqual([
-      { issue: 1, blockers: [2] },
-      { issue: 2, blockers: [1] },
+    expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
+  });
+
+  test('open sibling blocks while the coordination epic is omitted from diagnostics', () => {
+    const { result } = select({
+      list: [20, 30],
+      details: {
+        10: { labels: ['epic'] },
+        20: {},
+        30: { body: 'Depends on: #10\nDepends on: #20' },
+      },
+      parents: { 20: 10, 30: 10 },
+    });
+    expect(result.issue).toBe(20);
+    expect(result.blockedIssues).toEqual([{ issue: 30, blockers: [20] }]);
+  });
+
+  test('known target metadata failure blocks and emits one actionable warning', () => {
+    const { result, warnings } = select({
+      list: [20],
+      details: { 20: { body: 'Depends on: #10' } },
+    });
+    expect(result.issue).toBeNull();
+    expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
+    expect(warnings).toEqual([
+      'WARNING: Could not confirm relationship metadata for child #20 -> target #10; treating #10 as a blocking execution dependency. Retry after GitHub metadata is available.',
     ]);
   });
 
-  test('skips blocked issue and returns next ready issue', () => {
-    const ghRunner = makeGhRunner({
-      list: [10, 20],
+  test('malformed target labels fail safe as unknown metadata', () => {
+    const { result, warnings } = select({
+      list: [20],
       details: {
-        10: { body: 'Depends on: #20' }, // blocked (20 is open)
-        20: {}, // ready
+        10: { omitLabels: true },
+        20: { body: 'Depends on: #10' },
       },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(20);
-    expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [20] }]);
+    expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
+    expect(warnings[0]).toContain('child #20 -> target #10');
   });
 
-  test('treats CLOSED+merged dependency as satisfied', () => {
-    const ghRunner = makeGhRunner({
-      list: [10, 20],
+  test('closed dependency with a merged PR is satisfied outside the pool', () => {
+    const { result } = select({
+      list: [20],
       details: {
-        10: { body: 'Depends on: #20' },
-        20: { state: 'CLOSED', prs: [{ state: 'MERGED', mergedAt: '2026-04-19T00:00:00Z' }] },
+        10: { state: 'CLOSED', prs: [{ state: 'MERGED', mergedAt: '2026-08-13T00:00:00Z' }] },
+        20: { body: 'Depends on: #10' },
       },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    // 20 is CLOSED so it wouldn't be in list anymore; this test covers the
-    // case where it still appears (edge case where the gh list includes a
-    // just-closed issue). Both should be ready.
-    expect(result.issue).toBe(10);
+    expect(result.issue).toBe(20);
     expect(result.blockedIssues).toEqual([]);
   });
 
-  test('treats in-pool CLOSED-without-merged-PR dependency as NOT satisfied', () => {
-    const ghRunner = makeGhRunner({
-      list: [10, 20],
+  test('closed dependency without a merged PR remains blocking', () => {
+    const { result } = select({
+      list: [20],
       details: {
-        10: { body: 'Depends on: #20' },
-        20: { state: 'CLOSED', prs: [] }, // closed but no merged PR — #10 still blocked
+        10: { state: 'CLOSED', prs: [] },
+        20: { body: 'Depends on: #10' },
       },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    // #20 has no deps so it's ready on its own; #10 is blocked because #20 closed without a merged PR.
-    expect(result.issue).toBe(20);
-    expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [20] }]);
+    expect(result.issue).toBeNull();
+    expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
   });
 
-  test('dependency outside milestone pool is treated as external/satisfied', () => {
-    const ghRunner = makeGhRunner({
-      list: [10],
+  test('parses multiple Depends on targets and sorts blockers', () => {
+    const { result } = select({
+      list: [30],
       details: {
-        10: { body: 'Depends on: #999' }, // #999 not in pool
-      },
-    });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(10);
-    expect(result.blockedIssues).toEqual([]);
-  });
-
-  test('GitHub sub-issue parent field counts as a dependency', () => {
-    const ghRunner = makeGhRunner({
-      list: [10, 20],
-      details: {
-        10: { parent: { number: 20 } }, // parent is 20, in-pool, not merged → blocked
+        10: {},
         20: {},
+        30: { body: 'Depends on: #20, #10' },
       },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(20);
-    expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [20] }]);
+    expect(result.blockedIssues).toEqual([{ issue: 30, blockers: [10, 20] }]);
   });
 
-  test('"Blocks:" body lines order blockers before blocked issues', () => {
-    const ghRunner = makeGhRunner({
+  test('normalizes Blocks lines in the correct direction', () => {
+    const { result } = select({
       list: [10, 20],
-      details: {
-        10: { body: 'Blocks: #20' }, // 10 blocks 20 → 20 depends on 10
-        20: {},
-      },
+      details: { 10: { body: 'Blocks: #20' }, 20: {} },
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
     expect(result.issue).toBe(10);
     expect(result.blockedIssues).toEqual([{ issue: 20, blockers: [10] }]);
   });
 
-  test('excluded issues are filtered before dependency graph is built', () => {
-    const ghRunner = makeGhRunner({
-      list: [10, 20],
+  test('GraphQL failure degrades to body relationships with a warning', () => {
+    const { result, warnings } = select({
+      list: [20],
       details: {
-        10: {},
-        20: {},
+        10: { labels: ['epic'] },
+        20: { body: 'Depends on: #10' },
       },
-    });
-    const result = selectNextIssueFromMilestone('M1', {
-      ghRunner,
-      excluded: new Set([10]),
+      graphqlError: 'GraphQL unavailable',
     });
     expect(result.issue).toBe(20);
-    expect(result.blockedIssues).toEqual([]);
+    expect(warnings[0]).toMatch(/^WARNING: Native dependency links unavailable; using body cross-refs only\./);
   });
 
-  test('self-references in Depends on body are ignored', () => {
-    const ghRunner = makeGhRunner({
-      list: [10],
-      details: {
-        10: { body: 'Depends on: #10' }, // self-ref → ignored
-      },
+  test('candidate fetch failure excludes it from the ready set', () => {
+    const { result } = select({
+      list: [10, 20],
+      details: { 10: {}, 20: {} },
+      failViews: [10],
     });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(10);
-    expect(result.blockedIssues).toEqual([]);
-  });
-
-  test('empty milestone returns {issue:null, blockedIssues:[]}', () => {
-    const ghRunner = makeGhRunner({ list: [], details: {} });
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBeNull();
-    expect(result.blockedIssues).toEqual([]);
-  });
-
-  test('throws when gh issue list fails', () => {
-    const ghRunner = () => { throw new Error('gh auth failed'); };
-    expect(() => selectNextIssueFromMilestone('M1', { ghRunner }))
-      .toThrow(/Failed to list milestone issues/);
-  });
-
-  test('per-issue fetch failure excludes the issue from the ready set', () => {
-    let call = 0;
-    const ghRunner = (cmd) => {
-      if (cmd.startsWith('issue list')) return JSON.stringify([{ number: 10 }, { number: 20 }]);
-      call++;
-      if (call === 1) throw new Error('gh rate-limited');
-      return JSON.stringify({ number: 20, state: 'OPEN', body: '', parent: null, closedByPullRequestsReferences: [] });
-    };
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    // #10 fetch failed → treated as blocked (not ready); #20 ready.
     expect(result.issue).toBe(20);
     expect(result.blockedIssues).toEqual([{ issue: 10, blockers: [], reason: 'fetch-failed' }]);
   });
 
-  test('milestone name with quotes is single-quoted-escaped in list command', () => {
-    const seen = [];
-    const ghRunner = (cmd) => {
-      seen.push(cmd);
-      if (cmd.startsWith('issue list')) return '[]';
-      throw new Error('unexpected');
-    };
-    selectNextIssueFromMilestone("Sprint 'Q2'", { ghRunner });
-    // shellEscape wraps in single quotes and escapes embedded single quotes via '\''
-    expect(seen[0]).toContain(`'Sprint '\\''Q2'\\'''`);
+  test('excluded issues are removed before graph construction', () => {
+    const { result } = select({
+      list: [10, 20],
+      details: { 10: {}, 20: {} },
+      excluded: new Set([10]),
+    });
+    expect(result.issue).toBe(20);
   });
 
-  test('null milestone omits -m flag for repo-wide selection', () => {
-    const seen = [];
-    const ghRunner = (cmd) => {
-      seen.push(cmd);
-      if (cmd.startsWith('issue list')) return '[]';
-      throw new Error('unexpected');
-    };
-    selectNextIssueFromMilestone(null, { ghRunner });
-    expect(seen[0]).not.toContain('-m');
-    expect(seen[0]).toContain('--label automatable');
+  test('self-references and cross-repository references are ignored', () => {
+    const { result } = select({
+      list: [10],
+      details: { 10: { body: 'Depends on: #10\nDepends on: owner/repo#20' } },
+    });
+    expect(result.issue).toBe(10);
+    expect(result.blockedIssues).toEqual([]);
   });
 
-  // @regression
-  test('issue view commands do not request the unsupported parent field', () => {
+  test('empty milestone returns no issue, blockers, or warnings', () => {
+    const { result } = select({ list: [], details: {} });
+    expect(result).toEqual({ issue: null, blockedIssues: [] });
+  });
+
+  test('throws when issue listing fails', () => {
+    expect(() => selectNextIssueFromMilestone('M1', {
+      ghRunner: () => { throw new Error('gh auth failed'); },
+      warn: () => {},
+    })).toThrow(/Failed to list milestone issues/);
+  });
+
+  test('milestone quotes are shell-escaped and null milestone omits the flag', () => {
+    const quotedSeen = [];
+    select({ list: [], details: {}, seen: quotedSeen }, "Sprint 'Q2'");
+    expect(quotedSeen[0]).toContain(`'Sprint '\\''Q2'\\'''`);
+
+    const repoSeen = [];
+    select({ list: [], details: {}, seen: repoSeen }, null);
+    expect(repoSeen[0]).not.toContain('-m');
+    expect(repoSeen[0]).toContain('--label automatable');
+  });
+
+  // @regression — issue #91
+  test('never requests parent through gh issue view --json', () => {
     const seen = [];
-    const ghRunner = (cmd) => {
-      seen.push(cmd);
-      if (cmd.startsWith('issue list')) {
-        return JSON.stringify([{ number: 10 }, { number: 20 }]);
-      }
-      const viewMatch = cmd.match(/^issue view (\d+)\b/);
-      if (viewMatch) {
-        return JSON.stringify({
-          number: Number(viewMatch[1]),
-          state: 'OPEN',
-          body: '',
-          closedByPullRequestsReferences: [],
-        });
-      }
-      throw new Error(`unexpected gh call: ${cmd}`);
-    };
-    selectNextIssueFromMilestone('M1', { ghRunner });
+    select({ list: [10], details: { 10: {} }, seen });
     const viewCommands = seen.filter((cmd) => /^issue view \d+/.test(cmd));
     expect(viewCommands.length).toBeGreaterThan(0);
     for (const cmd of viewCommands) {
-      expect(cmd).not.toContain('parent');
+      const fields = cmd.match(/--json (\S+)/)?.[1]?.split(',') || [];
+      expect(fields).not.toContain('parent');
     }
-  });
-
-  // @regression
-  test('returns a non-null ready issue when gh rejects --json queries containing "parent"', () => {
-    const ghRunner = (cmd) => {
-      if (cmd.startsWith('issue list')) {
-        return JSON.stringify([{ number: 10 }, { number: 20 }]);
-      }
-      const viewMatch = cmd.match(/^issue view (\d+) --json (\S+)/);
-      if (viewMatch) {
-        const fields = viewMatch[2];
-        if (fields.split(',').includes('parent')) {
-          throw new Error('Unknown JSON field: "parent"');
-        }
-        return JSON.stringify({
-          number: Number(viewMatch[1]),
-          state: 'OPEN',
-          body: '',
-          closedByPullRequestsReferences: [],
-        });
-      }
-      throw new Error(`unexpected gh call: ${cmd}`);
-    };
-    const result = selectNextIssueFromMilestone('M1', { ghRunner });
-    expect(result.issue).toBe(10);
-    expect(result.blockedIssues).toEqual([]);
+    expect(seen.some((cmd) => cmd.startsWith('api graphql'))).toBe(true);
   });
 });
