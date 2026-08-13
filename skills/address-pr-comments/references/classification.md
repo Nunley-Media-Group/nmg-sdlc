@@ -2,7 +2,7 @@
 
 **Consumed by**: `address-pr-comments` Step 3. Runs per round after `references/fetch-threads.md` returns one or more eligible threads.
 
-Every thread receives exactly one classification and a one-sentence rationale before Step 4 routes it. The rationale is not decorative — it is surfaced in the reply body when the thread is fixed, and in the `ESCALATION:` sentinel when the thread is escalated in unattended mode. Reviewers and runner operators read it to understand the skill's call without re-reading the comment.
+Every thread receives exactly one classification and a one-sentence rationale before Step 4 routes it. The rationale is surfaced in the reply body when the thread is fixed and in the user decision when judgment is required.
 
 ## Classifications
 

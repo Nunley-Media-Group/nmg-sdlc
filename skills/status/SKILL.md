@@ -1,6 +1,6 @@
 ---
 name: status
-description: "Inspect and report the current manual nmg-sdlc lifecycle state without mutation. Use when the user asks for SDLC status, where active work stands, the current issue or stage, the next SDLC command, session context recovery, or machine-readable lifecycle status. Accepts no arguments or --json. Do not use to run automated-loop diagnostics, verify, deliver, or merge work."
+description: "Inspect and report the current manual nmg-sdlc lifecycle state without mutation. Use when the user asks for SDLC status, where active work stands, the current issue or stage, the next SDLC command, session context recovery, or machine-readable lifecycle status. Accepts no arguments or --json. Do not use to verify, deliver, or merge work."
 ---
 
 # Status
@@ -51,8 +51,6 @@ Stream the CLI exit code, stdout, and stderr without adding interpretation. In J
 ## Read-Only Boundary
 
 Do not write, delete, stage, commit, checkout, push, signal, verify, deliver, merge, or mutate GitHub state. Dirty worktrees are evidence to report, not conditions to repair. The bundled CLI may use only read-only local and GitHub queries.
-
-Automated-loop integration is out of scope ahead of its milestone-2 removal. Do not inspect runner source, state, sentinels, logs, configuration, or PIDs, and do not recommend resume, cleanup, or `$nmg-sdlc:end-loop` actions.
 
 ## Integration with SDLC Workflow
 

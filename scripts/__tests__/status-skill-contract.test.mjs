@@ -51,11 +51,12 @@ describe('status skill contract', () => {
     expect(source.split('\n').length).toBeLessThan(300);
   });
 
-  it('makes automated-loop integration explicitly out of scope', () => {
-    expect(source).toContain('Automated-loop integration is out of scope');
-    expect(source).toContain('milestone-2 removal');
-    expect(source).toContain('Do not inspect runner source, state, sentinels, logs, configuration, or PIDs');
-    expect(source).toContain('do not recommend resume, cleanup, or `$nmg-sdlc:end-loop` actions');
+  it('keeps a stable manual-only evidence boundary', () => {
+    expect(source).toContain('Report the strongest lifecycle conclusion supported by current repository, spec, verification, and read-only GitHub evidence');
+    expect(source).toContain('Dirty worktrees are evidence to report, not conditions to repair');
+    for (const removedToken of ['sdlc-config.json', 'sdlc-state.json', 'unattended-mode', 'end-loop', 'process.kill']) {
+      expect(source).not.toContain(removedToken);
+    }
   });
 
   it('is auto-discovered by the plugin manifest', () => {

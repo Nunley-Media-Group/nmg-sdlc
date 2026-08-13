@@ -53,7 +53,7 @@ function ensureIssueForm(projectDir) {
 }
 
 describe('managed issue form exercise coverage (issue #135)', () => {
-  test('init-style setup creates the form and rerun is idempotent', () => {
+  test('onboarding-style setup creates the form and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     const first = ensureIssueForm(project);
@@ -64,7 +64,7 @@ describe('managed issue form exercise coverage (issue #135)', () => {
     expect(second).toEqual(expectedStatus('already present'));
   });
 
-  test('init-style setup overwrites only the managed target path and preserves unrelated issue templates', () => {
+  test('onboarding-style setup overwrites only the managed target path and preserves unrelated issue templates', () => {
     const project = scaffoldProject();
     const target = issueFormPath(project);
     const unrelated = path.join(project, '.github/ISSUE_TEMPLATE/bug-report.yml');

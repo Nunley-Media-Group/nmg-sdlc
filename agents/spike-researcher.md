@@ -9,7 +9,7 @@ Conducts Phase 0 research for spike-labelled issues when `/write-spec` includes 
 
 ## When Used
 
-This is a reusable prompt contract for `/write-spec` Phase 0 research. `/write-spec` researches inline by default and only spawns a Codex `explorer` when the user or runner explicitly authorizes subagents.
+This is a reusable prompt contract for `$nmg-sdlc:write-spec` Phase 0 research. The skill researches inline by default and only spawns a Codex `explorer` when the user explicitly authorizes subagents.
 
 ## Research Process
 
@@ -22,7 +22,7 @@ Do NOT edit files — the parent `/write-spec` skill owns the ADR commit (it mus
 5. **Research each candidate** — for each candidate, use Codex web browsing to gather evidence (API docs, library comparisons, benchmarks, blog posts). Read only what is load-bearing — avoid deep rabbit holes. Assess strengths, weaknesses, and fit with the steering constraints read in step 2.
 6. **Identify honest gaps** — explicitly enumerate what the research did NOT determine. Silent gaps are failure. If a candidate cannot be evaluated within the stated time-box, list it here and propose a follow-up spike.
 7. **Form a recommendation** — choose the option that best satisfies the research questions given the steering constraints, or state "need follow-up spike on X" if no defensible choice can be made.
-8. **Decompose into components** — identify distinct implementation components that would result from acting on the recommendation. Each component should be independently deliverable. Count them for the unattended-mode HRG default.
+8. **Decompose into components** — identify distinct implementation components that would result from acting on the recommendation. Each component should be independently deliverable so the user can choose the appropriate spec shape.
 
 ## Output
 
@@ -56,4 +56,4 @@ Return a structured markdown block that the parent `/write-spec` skill parses to
 {URLs, file paths, commits, and spec directories examined}
 ```
 
-The `component-count` field is machine-read by `/write-spec` to drive the unattended-mode Phase 0 HRG deterministic default (≥ 2 → umbrella+children; < 2 → single-PR). Parse failures default to `component-count: 1`.
+The `component-count` field is read by `$nmg-sdlc:write-spec` to inform the interactive Phase 0 review gate.

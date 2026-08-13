@@ -6,15 +6,15 @@ The greenfield branch sets up everything an empty project needs to enter the SDL
 
 Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster and read-timing referenced by 2G.2 live there.
 
-Read `../../references/unattended-mode.md` when applying defaults without prompts — the sentinel and gate semantics referenced throughout the seven sub-steps below live there.
-
 Read `../../references/contribution-guide.md` when Step 2G.2 verifies that all three steering docs exist — the shared contract creates or updates `CONTRIBUTING.md`, preserves existing contribution content in enhancement mode, handles the README link idempotently, and returns status for the Step 5 summary.
 
 Read `../../references/project-agents.md` when Step 2G.2 verifies that all three steering docs exist — the shared contract creates or updates root `AGENTS.md` spec-context guidance, preserves existing project instructions, and returns status for the Step 5 summary.
 
+Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds. Apply both managed assets before milestone and starter-issue creation, and retain their status blocks for Step 5.
+
 ## Step 2G.1 Intent + Tech-Selection Interview
 
-Read `references/interview.md` when conducting the interview — the round-by-round questions, default-sourcing priority chain, and unattended-mode default-application contract live there. Store answers as `interview_context` for 2G.2, 2G.4, and 2G.6.
+Read `references/interview.md` when conducting the interview — the round-by-round questions and existing-value sourcing rules live there. Store answers as `interview_context` for 2G.2, 2G.4, and 2G.6.
 
 ## Step 2G.2 Steering Bootstrap or Enhancement
 
@@ -36,8 +36,7 @@ Extract template content from the ` ```markdown ... ``` ` fenced block in each t
 **Enhancement mode** (all three steering files already exist):
 
 1. For each section that has a corresponding interview answer differing from the existing value:
-   - In interactive mode, present the diff through a `request_user_input` gate (one section at a time); predefined choices apply or skip, and a free-form `Other` answer is treated as replacement section text before re-presenting the gate.
-   - In unattended mode, auto-apply and log the diff for Step 5.
+   - Present the diff through a `request_user_input` gate (one section at a time); predefined choices apply or skip, and a free-form `Other` answer is treated as replacement section text before re-presenting the gate.
 2. Use targeted edits so unrelated sections in the steering files are preserved.
 3. Do not delete content the interview did not address.
 
@@ -63,7 +62,7 @@ After Step 2G.2 verifies all three steering docs exist, apply `../../references/
 3. Detect existing README links before inserting anything.
 4. Record `CONTRIBUTING.md` and README-link outcomes for Step 5.
 
-In unattended mode, auto-apply the non-destructive guide and README-link changes and log the outcomes. This step must run before milestone seeding and starter-issue generation so contributor expectations exist before new work is created.
+This step must run before milestone seeding and starter-issue generation so contributor expectations exist before new work is created.
 
 ## Step 2G.2 Project AGENTS Postcondition
 
@@ -74,7 +73,16 @@ After Step 2G.2 verifies all three steering docs exist, apply `../../references/
 3. Preserve project-authored instructions byte-for-byte outside the managed section.
 4. Record `AGENTS.md` status and gaps for Step 5.
 
-In unattended mode, auto-apply the non-destructive AGENTS.md changes and log the outcomes. This step must run before milestone seeding and starter-issue generation so prompt-level spec guidance exists before new work is created.
+This step must run before milestone seeding and starter-issue generation so prompt-level spec guidance exists before new work is created.
+
+## Step 2G.2 Managed GitHub Assets Postcondition
+
+After steering verification succeeds, apply `../../references/contribution-gate.md` followed by `../../references/issue-form.md`.
+
+1. Create or refresh the marked contribution workflow without overwriting an unmarked path collision.
+2. Create or replace only the approved managed issue-form target.
+3. Preserve unrelated workflows and issue templates byte-for-byte.
+4. Record both stable status blocks and all gaps for Step 5.
 
 ## Step 2G.2a Version File Initialization
 
@@ -162,7 +170,7 @@ All candidates seed into the `v1` milestone at `$nmg-sdlc:draft-issue` invocatio
 Generation rules:
 
 - Mine `interview_context.success_criteria` for distinct functional concerns.
-- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate; a free-form `Other` answer is parsed as a custom keep/drop list before re-rendering the cut (auto-cut in unattended mode, with the cut list logged for Step 5).
+- Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate; a free-form `Other` answer is parsed as a custom keep/drop list before re-rendering the cut.
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 
@@ -192,8 +200,6 @@ Set up auth
 
 `request_user_input` gate: `[1] Approve and proceed`, `[2] Adjust (return to candidate generation)`, `[3] Proceed without DAG (seed standalone)`. A free-form `Other` answer is treated as edge-adjustment instructions, then the DAG is rebuilt and the gate is re-presented.
 
-In unattended mode: auto-accept option 1 and log the full DAG for Step 5.
-
 Emit: `DAG: N edges inferred, cycle detected? = no | yes (skipped wiring)`.
 
 ## Step 2G.6 Starter-Issue Seeding Loop with Autolinking
@@ -221,9 +227,4 @@ For each candidate:
 
 Emit per candidate: `Seeded: <title> = #<num> (parents: #X #Y, blocks: #Z) | failed (<reason>)`.
 
-## Step 3G Greenfield — Optional Init-Config
-
-1. In interactive mode, `request_user_input` gate whether to run `$nmg-sdlc:init-config` now for unattended-runner setup. Options: `[1] Yes — run $nmg-sdlc:init-config now`, `[2] No — skip, I'll run it later`. The choices are exhaustive; a free-form `Other` answer is treated as "No" with the text recorded in the summary.
-2. In unattended mode, auto-yes without prompting. Log the auto-decision.
-3. If yes, invoke `$nmg-sdlc:init-config` (delegated) and record its exit status.
-4. Jump to Step 5 (Summary). Greenfield does not reconcile specs.
+After the seeding loop, jump to Step 5 (Summary). Greenfield does not reconcile specs.

@@ -111,17 +111,15 @@ describe('extractClauses', () => {
     expect(clauses.map((c) => c.text)).toEqual(['- tracked']);
   });
 
-  test('captures unattended-mode mentions even outside tracked sections', () => {
+  test('does not capture arbitrary lines outside tracked sections', () => {
     const source = [
       '## Background',
-      'When `.codex/unattended-mode` exists the skill skips prompts.',
+      'This background line is not inventory-tracked.',
       '## Input',
       '- tracked',
     ].join('\n');
     const clauses = extractClauses(source);
-    const texts = clauses.map((c) => c.text);
-    expect(texts).toContain('When `.codex/unattended-mode` exists the skill skips prompts.');
-    expect(texts).toContain('- tracked');
+    expect(clauses.map((c) => c.text)).toEqual(['- tracked']);
   });
 
   test('skips fenced code blocks', () => {

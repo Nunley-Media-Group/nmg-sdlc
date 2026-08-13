@@ -9,7 +9,7 @@ Executes implementation tasks from BDD specifications when `/write-code` include
 
 ## When Used
 
-This is a reusable prompt contract for `/write-code` worker delegation. `/write-code` executes inline by default and only spawns a Codex `worker` when the user or runner explicitly authorizes subagents.
+This is a reusable prompt contract for `$nmg-sdlc:write-code` worker delegation. The skill executes inline by default and only spawns a Codex `worker` when the user explicitly authorizes subagents.
 
 ## Execution Process
 
@@ -18,14 +18,14 @@ This is a reusable prompt contract for `/write-code` worker delegation. `/write-
 3. **Execute tasks sequentially**: For each task in `tasks.md`:
    - Read the task requirements and acceptance criteria
    - **Classify the task** using the SKILL-BUNDLED FILE DETECTOR below
-   - If skill-bundled, route through `/skill-creator` per the Skill-Creator Probe Contract below
+   - If skill-bundled, route through `$skill-creator` per the Skill-Creator Probe Contract below
    - Otherwise, implement the code changes following `design.md` architecture decisions
    - Follow conventions from steering documents
    - Self-check against the task's acceptance criteria
    - Run relevant tests if specified in `tech.md`
 4. **Report completion**: Return a summary of completed tasks, files created/modified
 
-## Routing Skill-Bundled Tasks Through /skill-creator
+## Routing Skill-Bundled Tasks Through $skill-creator
 
 `steering/tech.md` declares an architectural invariant: any time a **skill-bundled file** is created or edited, the work MUST be driven through `/skill-creator`. The bundle covers `SKILL.md`, every file inside the skill directory (`references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), shared `references/*.md` at the plugin/repo root, and prompt contracts under `agents/*.md`. This prompt contract enforces that invariant for every task it processes. Cache the probe result for the duration of the run.
 
@@ -48,12 +48,12 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - File discovery finds `~/.codex/skills/skill-creator/SKILL.md`
    - File discovery finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
-2. **If available**: invoke `/skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `/skill-creator` author or update the file — never edit a skill-bundled file directly.
-3. **If unavailable**: do NOT silently fall back to direct editing. The hand-edit escape hatch was removed because it consistently produced drift from skill-creator's best practices. Stop the task and surface the missing dependency in the completion report — `/skill-creator is required for skill-bundled file edits but is not installed.` In unattended mode, emit `ESCALATION: /skill-creator is required for skill-bundled file edits — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
+2. **If available**: invoke `$skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `$skill-creator` author or update the file — never edit a skill-bundled file directly.
+3. **If unavailable**: do NOT silently fall back to direct editing. Stop the task and surface the missing dependency in the completion report — `$skill-creator is required for skill-bundled file edits but is not installed.`
 
-Cache the probe result for the duration of the run so the escalation is emitted at most once per run. The probe is a filesystem/system-reminder check, not a Codex interactive gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the run.
 
-If `/skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to the next task.
+If `$skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to the next task.
 
 ## Implementation Rules
 
@@ -61,8 +61,8 @@ If `/skill-creator` is available but errors or reports failures, surface those a
 - One task at a time — maintains focus and traceability
 - Test after each task — catches issues early
 - Reference steering docs — ensures consistency with project conventions
-- Do NOT call interactive plan review — this runs in a headless context
-- Skill-bundled file tasks must be routed through `/skill-creator` (see Routing Skill-Bundled Tasks above); when `/skill-creator` is unavailable, escalate and stop — there is no hand-edit fallback
+- Do NOT call interactive plan review — the parent skill already obtained approval
+- Skill-bundled file tasks must be routed through `$skill-creator` (see Routing Skill-Bundled Tasks above); when `$skill-creator` is unavailable, stop — there is no hand-edit fallback
 
 ## Bug Fix Implementation
 

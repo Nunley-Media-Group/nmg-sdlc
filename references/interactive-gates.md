@@ -2,7 +2,7 @@
 
 **Consumed by**: every interactive nmg-sdlc skill.
 
-Read `prompt-config.md` before a manual-mode gate calls `request_user_input` — it ensures Codex prompt feature flags are enabled, stops with close-and-reopen instructions after any config repair, and keeps `.codex/unattended-mode` bypass behavior separate.
+Read `prompt-config.md` before a gate calls `request_user_input` — it ensures Codex prompt feature flags are enabled and stops with close-and-reopen instructions after any config repair.
 
 Treat every "interactive prompt", "`request_user_input` gate", "menu", "review gate", "plan approval", or "ask the user" instruction as a Plan Mode input gate. User input must be collected with `request_user_input`; after all necessary input has been received, emit one decision-complete `<proposed_plan>` and treat that accepted plan as approval to execute. Do not add a second "proceed?" confirmation gate.
 
@@ -41,20 +41,9 @@ Good `request_user_input` shape:
 
 For review gates, include the artifact summary in the Plan Mode discussion before calling `request_user_input` so the user can decide without opening files. If a user decision discovers new required work, keep that work in the same plan before execution.
 
-## Unattended Mode
-
-When `.codex/unattended-mode` exists, never call `request_user_input`, never emit text asking for a reply, and never stop for a Plan Mode input gate. Follow the consuming skill's declared unattended-mode branch:
-
-- **Pre-approved**: proceed automatically and log the auto-decision.
-- **Deterministic default**: apply the documented default and log it.
-- **Escalation**: emit the documented `ESCALATION:` line and stop or skip as specified.
-
-Because unattended mode bypasses the manual gate, it also bypasses the prompt-config preflight. Do not repair `~/.codex/config.toml` solely to skip a gate in an unattended run.
-
 ## Prohibited Patterns
 
 - Do not mention or attempt to call any legacy prompt widget.
 - Do not ask a long questionnaire and then keep going before the user answers.
 - Do not hand-render numbered menus for decisions that can be represented with `request_user_input`.
 - Do not ask for final execution approval after a `<proposed_plan>` has been accepted.
-- Do not prompt in unattended mode.

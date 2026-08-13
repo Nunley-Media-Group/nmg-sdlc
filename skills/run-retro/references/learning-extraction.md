@@ -52,6 +52,8 @@ Rather than re-analysing every spec, extract learnings from the existing `retros
 - **Do NOT carry forward** the learning if **any** of its evidence spec paths correspond to specs in the "new", "modified", or "deleted" sets — those learnings will be re-derived from fresh analysis.
 - If the existing `retrospective.md` does not exist (first run), there are no carried-forward learnings.
 
+Carry-forward preserves analysis work, not authority. Step 6 must still reject a carried-forward learning whose Learning or Recommendation conflicts with the current `steering/product.md`, `steering/tech.md`, or `steering/structure.md` contract.
+
 ## Output
 
 The carried-forward learnings join the freshly analysed learnings from Step 3 as input to Step 4's cross-cutting pattern aggregation.

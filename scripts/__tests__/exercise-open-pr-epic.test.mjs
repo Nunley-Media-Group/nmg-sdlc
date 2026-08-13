@@ -127,11 +127,9 @@ describeRunner('exercise: /open-pr sibling-aware bump', () => {
     projects.push(bareRepo, clone);
   }, 300_000);
 
-  test('Scenario E (AC7a) — epic CLOSED while child OPEN escalates in unattended mode', async () => {
+  test('Scenario E (AC7a) — epic CLOSED while child OPEN requires user confirmation', async () => {
     const dir = scaffoldProject();
     projects.push(dir);
-    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.codex', 'unattended-mode'), '');
 
     const messages = await runSkill({
       cwd: dir,
@@ -179,17 +177,15 @@ describeRunner('exercise: /open-pr folded delivery preparation', () => {
     expect(blob).toMatch(/No additional commit needed|already clean/i);
   }, 300_000);
 
-  test('unattended mode — open-pr does not prompt for force-push or CI monitoring', async () => {
-    const dir = scaffoldProject({ onBranch: '300-folded-delivery-unattended' });
+  test('manual delivery never asks for an unsafe force push', async () => {
+    const dir = scaffoldProject({ onBranch: '300-folded-delivery-manual' });
     projects.push(dir);
-    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.codex', 'unattended-mode'), '');
 
     const messages = await runSkill({
       cwd: dir,
       prompt: '/nmg-sdlc:open-pr #300',
     });
     const blob = JSON.stringify(messages);
-    expect(blob).not.toMatch(/Force-push with lease|monitor CI and auto-merge/i);
+    expect(blob).not.toMatch(/Force-push without lease/i);
   }, 300_000);
 });

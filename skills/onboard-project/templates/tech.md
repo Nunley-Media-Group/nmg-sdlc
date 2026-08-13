@@ -65,7 +65,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 
 ### Version Bump Classification
 
-The `$nmg-sdlc:open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
+The `$nmg-sdlc:open-pr` skill reads this table to classify version bumps. Modify this table to change the classification rules — no skill changes are needed.
 
 <!-- TODO: Add or modify label→bump mappings to match your project's labeling conventions. -->
 
@@ -76,7 +76,7 @@ The `$nmg-sdlc:open-pr` skill and the `sdlc-runner.mjs` deterministic bump postc
 
 **Default**: If an issue's labels do not match any row, the bump type is **minor**.
 
-**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `$nmg-sdlc:open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
+**Major bumps require explicit confirmation.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in via `$nmg-sdlc:open-pr #N --major` and approve the major-version gate.
 
 **Breaking changes use minor bumps.** A `### Changed (BREAKING)` sub-section in a CHANGELOG version entry does NOT override the bump type. Communicate the breaking nature via a `**BREAKING CHANGE:**` bold prefix on the affected bullet, and (recommended) add a `### Migration Notes` sub-section to the entry. Example:
 

@@ -91,16 +91,6 @@ body:
         - "Won't"
     validations:
       required: true
-  - type: dropdown
-    id: automation-suitability
-    attributes:
-      label: Automation Suitability
-      description: Should downstream SDLC stages be allowed to run hands-off after specifications exist?
-      options:
-        - "Yes"
-        - "No"
-    validations:
-      required: true
   - type: textarea
     id: additional-notes
     attributes:

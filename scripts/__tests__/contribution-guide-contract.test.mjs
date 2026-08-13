@@ -10,7 +10,7 @@ function read(relativePath) {
 }
 
 describe('contribution guide contract (issues #109 and #143)', () => {
-  test('shared reference defines generation, preservation, README, steering, mode, and status rules', () => {
+  test('shared reference defines generation, preservation, README, steering, lifecycle, and status rules', () => {
     const contract = read('references/contribution-guide.md');
 
     expect(contract).toContain('CONTRIBUTING.md: created | updated | already present | skipped');
@@ -20,7 +20,8 @@ describe('contribution guide contract (issues #109 and #143)', () => {
     expect(contract).toContain('steering/structure.md');
     expect(contract).toContain('Never overwrite an existing `CONTRIBUTING.md`');
     expect(contract).toContain('Never create a `README.md`');
-    expect(contract).toContain('Do not call `request_user_input`');
+    expect(contract).toContain('`onboard-project` applies this contract as part of lifecycle setup after steering exists.');
+    expect(contract).toContain('`upgrade-project` presents missing-guide creation');
     expect(contract).toContain('## nmg-sdlc Contribution Workflow');
     expect(contract).toContain('PR readiness, evidence-consistency examples, validated exceptions, or managed contribution-gate remediation coverage');
     expect(contract).toContain('append a focused subsection under that existing section instead of duplicating the heading');
@@ -42,26 +43,23 @@ describe('contribution guide contract (issues #109 and #143)', () => {
     expect(brownfield).toContain('existing code and reconciled or source-backfilled specs are part of contribution context');
   });
 
-  test('upgrade-project allows only managed non-destructive file creation for CONTRIBUTING.md', () => {
+  test('upgrade-project applies only managed contribution-guide findings', () => {
     const skill = read('skills/upgrade-project/SKILL.md');
     const procedures = read('skills/upgrade-project/references/upgrade-procedures.md');
 
-    expect(skill).toContain('Read `../../references/contribution-guide.md` when analyzing or applying contribution-guide findings');
-    expect(skill).toContain('CONTRIBUTING.md                     — Managed non-destructive contribution guide');
-    expect(skill).toContain('Create only managed non-destructive files');
-    expect(skill).not.toContain('Never create files');
-    expect(skill).toContain('never create a missing `README.md`');
-    expect(skill).toContain('Contribution Guide (Step 7a)');
-    expect(procedures).toContain('Apply approved or unattended-managed findings from `../../references/contribution-guide.md`');
-    expect(procedures).toContain('CONTRIBUTING.md: created | updated | already present | skipped');
+    expect(skill).toContain('`../../references/contribution-guide.md`');
+    expect(skill).toContain('CONTRIBUTING.md and README.md');
+    expect(skill).toContain('### Step 5: Analyze Managed Repository Assets');
+    expect(procedures).toContain('Follow `../../references/contribution-guide.md`');
+    expect(procedures).toContain('never create a README just for the link');
   });
 
   test('public docs and changelog describe onboarding and upgrade behavior', () => {
     const readme = read('README.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(readme).toContain('After steering exists, onboarding also ensures a root `CONTRIBUTING.md`');
-    expect(readme).toContain('`CONTRIBUTING.md` is one of those artifacts');
+    expect(readme).toContain('After steering exists, onboarding manages these repository artifacts directly');
+    expect(readme).toContain('`CONTRIBUTING.md` plus an idempotent README link');
     expect(changelog).toContain('Added shared contribution-guide generation for issue #109');
   });
 });

@@ -78,14 +78,14 @@ Ranking reasons must be human-readable and specific enough to audit, for example
 
 ## No-Match And Ambiguity Behavior
 
-| Condition | Interactive mode | Unattended mode |
-|-----------|------------------|-----------------|
-| Active spec missing when required by caller | Use the caller's missing-spec gate | Use the caller's missing-spec abort |
-| No related specs meet threshold | Proceed with active spec only; report `relatedSpecs: none` | Same |
-| One threshold-qualified related spec | Load it up to the cap and record reasons | Same |
-| Multiple plausible candidates below clear top rank | Present ranked candidates and reasons through the caller's existing `request_user_input` gate | Select only the deterministic top-ranked candidate if it meets threshold; otherwise proceed active-only and record the ambiguity gap |
-| Broken related-spec link | Ignore the broken target as a loaded spec; record `broken related-spec link: <path>` in gaps | Same |
-| Legacy `.codex/specs/` exists | Abort through `legacy-layout-gate.md` before this contract | Same |
+| Condition | Behavior |
+|-----------|----------|
+| Active spec missing when required by caller | Use the caller's missing-spec gate |
+| No related specs meet threshold | Proceed with active spec only; report `relatedSpecs: none` |
+| One threshold-qualified related spec | Load it up to the cap and record reasons |
+| Multiple plausible candidates below clear top rank | Present ranked candidates and reasons through the caller's existing `request_user_input` gate |
+| Broken related-spec link | Ignore the broken target as a loaded spec; record `broken related-spec link: <path>` in gaps |
+| Legacy `.codex/specs/` exists | Abort through `legacy-layout-gate.md` before this contract |
 
 ## Load Contract By Skill
 

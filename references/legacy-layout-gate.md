@@ -25,10 +25,10 @@ Replace `{current-skill}` with the consuming skill's slash-command name (e.g., `
 
 ## Invariants
 
-- The gate fires in **both** interactive and unattended mode — the legacy layout is a hard block for Edit/Write, not a user-preference question. Do not silently proceed, do not prompt, and do not attempt a workaround.
-- The message is reasoning-first (the *why* precedes the *how*) and omits a rigid `ERROR:` prefix. No downstream parser depends on the old prefix — the SDLC runner detects failures from exit code and sentinel output, not from this string.
+- The gate always fires before the consuming workflow — the legacy layout is a hard block for Edit/Write, not a user-preference question. Do not silently proceed, prompt, or attempt a workaround.
+- The message is reasoning-first (the *why* precedes the *how*) and omits a rigid `ERROR:` prefix.
 - `$nmg-sdlc:upgrade-project` is the **only** skill that resolves this gate. It runs its own legacy-layout detection in Step 1.5 and performs the relocation (`git mv .codex/steering → steering`, `git mv .codex/specs → specs`, and cross-reference rewrites). All other consumers abort.
 
-## Runtime artifacts stay under `.codex/`
+## Upgrade state stays under `.codex/`
 
-The gate checks only `steering/` and `specs/` subtrees. Runtime artifacts — `.codex/unattended-mode`, `.codex/sdlc-state.json`, `.codex/upgrade-exclusions.json` — are **not** part of the legacy layout and remain under `.codex/`. They are read/written by the SDLC runner and the upgrade-exclusions write-back directly, not by Edit/Write, so the directory protection does not affect them.
+The gate checks only `steering/` and `specs/` subtrees. `.codex/upgrade-exclusions.json` is not part of the legacy layout and remains under `.codex/` because the upgrade-exclusions write-back accesses it directly, so directory protection does not affect it.

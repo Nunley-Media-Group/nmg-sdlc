@@ -1,81 +1,37 @@
 # Milestone Selection and Issue Fetching
 
-**Consumed by**: `start-issue` Step 1 (when no issue number was supplied as an argument).
+**Consumed by**: `start-issue` Step 1 when no issue number was supplied.
 
-Step 1 of `$nmg-sdlc:start-issue` produces the candidate issue set that Step 1a then orders and filters. Milestone selection is deterministic — the same repo state always yields the same candidates — and it adapts to interactive vs. unattended mode through explicit branches rather than hidden defaults so the runner can predict the skill's behaviour exactly.
+## Fetch Viable Milestones
 
-## Fetch viable milestones
-
-Fetch milestones that have at least one open issue, sorted alphabetically:
+Fetch milestones with at least one open issue, sorted alphabetically:
 
 ```bash
-gh api repos/{owner}/{repo}/milestones --jq '[.[] | select(.open_issues > 0) | {title: .title, open_issues: .open_issues}] | sort_by(.title)'
+gh api 'repos/{owner}/{repo}/milestones?state=open&sort=due_on&direction=asc' \
+  --jq '[.[] | select(.open_issues > 0)] | sort_by(.title)'
 ```
 
-If this call fails (network error, auth failure, no milestones endpoint), treat the result as zero viable milestones and fall back to all open issues. The failure is recoverable — milestones are an organisational aid, not a prerequisite.
+If milestone discovery fails, stop with the GitHub diagnostic rather than silently broadening scope.
 
-## Select milestone and fetch issues
+## Choose Scope
 
-Apply deterministic selection based on the number of viable milestones returned above.
+| Result | Action |
+|--------|--------|
+| No viable milestones | Fetch up to 10 open issues across the repository. |
+| One viable milestone | Fetch up to 10 open issues from that milestone. |
+| Multiple viable milestones | Present up to five milestones through `request_user_input`; treat free-form `Other` text as an explicit milestone title to verify. |
 
-### Zero viable milestones
-
-Fall back to all open issues:
+Use these issue queries:
 
 ```bash
-# Interactive mode:
 gh issue list -s open -L 10 --json number,title,labels
-# Unattended mode:
-gh issue list -s open --label automatable -L 10 --json number,title,labels
-```
-
-### One viable milestone
-
-Auto-select it and fetch its issues:
-
-```bash
-# Interactive mode:
 gh issue list -s open -m "<milestone>" -L 10 --json number,title,labels
-# Unattended mode:
-gh issue list -s open -m "<milestone>" --label automatable -L 10 --json number,title,labels
 ```
 
-### Multiple viable milestones
+Do not filter on coordination or suitability labels. Step 1a owns dependency filtering after the candidate set is fetched.
 
-- **Interactive mode**: present the filtered milestone list via `request_user_input` gate (option label: milestone title; description: "N open issues"), then fetch issues from the selected milestone. A free-form `Other` answer is treated as an explicit milestone title to verify before fetching issues.
-- **Unattended mode**: select the first milestone alphabetically and fetch its issues with `--label automatable`. Do not call `request_user_input`, do not ask for a milestone choice, and do not emit text asking the user to reply.
+## Empty Result
 
-## Unattended-mode empty-result handling
+If the selected scope has no open issues, report `No open issues found in {scope}.` and stop before branch creation. Do not silently switch to a different milestone after the user has selected one.
 
-After fetching issues in unattended mode, if the result is an empty array (`[]`), run a diagnostic before giving up — the point is to distinguish "no work exists" from "work exists but nobody tagged it automatable" because the remediation differs.
-
-1. **Diagnostic query** — count total open issues in the same scope, **without** the `--label automatable` filter. Match the scope of the original query:
-
-   - Original query was milestone-scoped (`-m "<milestone>"`):
-     ```bash
-     gh issue list -s open -m "<milestone>" --json number --jq 'length'
-     ```
-   - Original query was repo-wide (no milestone):
-     ```bash
-     gh issue list -s open --json number --jq 'length'
-     ```
-
-2. **Output based on the total open count:**
-
-   - **Total open > 0**:
-     ```
-     No automatable issues found (N open issues exist without the automatable label).
-     Consider adding the automatable label to issues that should be picked up automatically.
-     Done. Awaiting orchestrator.
-     ```
-   - **Total open = 0**:
-     ```
-     No automatable issues found. 0 open issues in scope.
-     Done. Awaiting orchestrator.
-     ```
-
-3. Exit immediately — do NOT create a branch, do NOT fall back to non-automatable issues. The `automatable` label is the opt-in signal for runner-driven pickup; falling back to issues without it would silently violate the invariant that unattended mode never processes human-judgement-required work.
-
-## Output
-
-The (possibly empty) candidate set is the input to Step 1a's dependency resolution. Step 1a runs even when the candidate set has a single issue — the session-note line (`Filtered N blocked issues from selection.`) is emitted unconditionally for observability.
+The resulting candidate set is the input to Step 1a dependency resolution. Step 1a emits `Filtered N blocked issues from selection.` even when `N` is zero.

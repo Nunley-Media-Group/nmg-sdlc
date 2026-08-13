@@ -6,9 +6,19 @@ All notable changes to this project will be documented in this file.
 
 This project uses semantic versioning with a deliberate convention: **bug fixes bump patch, enhancements bump minor — even when an enhancement introduces a breaking change**. Breaking changes are not auto-promoted to a major bump; instead, they are called out prominently in the changelog entry (look for `(BREAKING)` next to the section heading and migration notes inline).
 
-Major-version bumps are reserved for explicit, manual maintenance milestones and are never produced automatically by `/open-pr` or the SDLC runner.
+Major-version bumps are reserved for explicit maintenance milestones and require the user to request and approve `--major` through `$nmg-sdlc:open-pr`.
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-08-13
+
+### Changed (BREAKING)
+
+- **BREAKING CHANGE:** Removed `$nmg-sdlc:run-loop`, `$nmg-sdlc:end-loop`, and `$nmg-sdlc:init-config` together with the Node runner, runner configuration template, sentinel/state contract, automation eligibility behavior, and every active headless workflow branch. The supported lifecycle is now the explicit manual issue-to-review pipeline.
+
+### Migration Notes
+
+- Run `$nmg-sdlc:upgrade-project` in existing consumer projects to review and approve ownership-aware removal of `sdlc-config.json`, `.codex/unattended-mode`, `.codex/sdlc-state.json`, and exact managed ignore entries. Managed contribution-gate and issue-form assets remain supported through onboarding and upgrade. Existing GitHub labels and issue history are left unchanged.
 
 ## [1.73.1] - 2026-08-13
 

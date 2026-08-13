@@ -60,17 +60,11 @@ Be conservative. If project-authored guidance is close and clearly covers the sa
 6. If only the closing marker exists, insert the missing opening marker immediately before that orphan closing marker before refreshing that repaired section; do not pair the orphan closing marker with any later appended opening marker.
 7. Re-read the file after writing and verify exactly one complete managed section exists unless equivalent project-authored guidance was already present.
 
-## Mode Behavior
-
-Interactive mode:
+## Lifecycle Behavior
 
 - `onboard-project` applies this contract as part of lifecycle setup after steering exists.
 - `upgrade-project` presents missing, incomplete, stale, or malformed `AGENTS.md` guidance as a non-destructive managed-artifact finding through its existing approval flow.
 
-Unattended mode:
-
-- Do not call `request_user_input`.
-- Auto-apply missing file creation, section append, and section refresh because they are non-destructive managed-artifact changes.
 - Record every applied, already-present, or skipped outcome in the final summary.
 
 ## Summary Status

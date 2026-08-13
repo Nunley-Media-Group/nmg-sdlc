@@ -42,7 +42,6 @@ describe('bundled simplify contract', () => {
 
     const surfaces = new Map([
       ['README.md', read('README.md')],
-      ['scripts/sdlc-runner.mjs', read('scripts/sdlc-runner.mjs')],
       ['specs/feature-add-simplify-step-to-sdlc-pipeline/design.md#106', amendmentSlice(
         'specs/feature-add-simplify-step-to-sdlc-pipeline/design.md',
         '## Amendment: Bundled `$nmg-sdlc:simplify` Skill (#106)',
@@ -84,7 +83,6 @@ describe('bundled simplify contract', () => {
 
     const requiredMentions = [
       'README.md',
-      'scripts/sdlc-runner.mjs',
       'specs/feature-add-simplify-step-to-sdlc-pipeline/design.md#106',
       'specs/feature-add-simplify-step-to-sdlc-pipeline/requirements.md#106',
       'specs/feature-add-simplify-step-to-sdlc-pipeline/feature.gherkin#106',

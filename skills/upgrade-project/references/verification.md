@@ -1,82 +1,85 @@
-# Config, CHANGELOG, and VERSION Verification
+# V2 Cleanup, CHANGELOG, and VERSION Analysis
 
-**Read this when** the workflow reaches Steps 5, 6, and 7 — they analyze the SDLC runner config (`sdlc-config.json`), the changelog (`CHANGELOG.md`), and the `VERSION` file in that order. None of these steps can abort the run — they record findings for the Step 8 presentation gate.
+**Read this when** `upgrade-project` analyzes obsolete runner artifacts or release documents. Every finding is informational until the normal findings gate approves an exact change.
 
-## Step 5: Analyze SDLC Runner Config
+## V2 Runner Artifact Cleanup Analysis
 
-If `sdlc-config.json` exists in the project root:
+Candidate discovery is closed-world. Inspect only:
 
-1. **Read both files** — the project's `sdlc-config.json` and the template `sdlc-config.example.json`. If either file cannot be parsed as valid JSON, skip config analysis entirely and note the parse error in the summary (e.g., `Config analysis skipped — sdlc-config.json is not valid JSON`).
-2. **Compare root-level keys** — identify keys present in the template but absent from the project config.
-3. **Compare `steps.*` keys** — identify missing step entries (e.g., a new step added to the template).
-4. **Compare step sub-keys** — for each step that exists in both, identify missing sub-keys (e.g., `skill`, `timeoutMin`).
-5. **Record missing keys at all levels** with their template default values.
-6. **Analyze plugin-root path freshness** before generic drift:
-   - Determine the selected runner root using the runner's precedence: `pluginRoot` wins when non-empty; otherwise `pluginsPath` resolves to `{pluginsPath}/plugins/nmg-sdlc`.
-   - A valid root contains `.codex-plugin/plugin.json`, `skills/`, and `scripts/sdlc-runner.mjs`. Valid custom roots are preserved and are not drift.
-   - If the selected root is missing or fails the shape check and the selected path is a versioned nmg-sdlc cache root (`.../.codex/plugins/cache/nmg-plugins/nmg-sdlc/{semver}`), resolve the current installed nmg-sdlc root using the same discovery priority as `$nmg-sdlc:init-config`: newest valid versioned cache first, then this source checkout if valid.
-   - When a verified replacement exists, record a **Runner Config Path Refresh** finding with: selected field (`pluginRoot` or `pluginsPath`), configured value, resolved stale root, missing artifact, replacement root, and affected JSON field(s). If `pluginRoot` was selected, the affected field is `pluginRoot`. If only `pluginsPath` was selected, add or refresh `pluginRoot` to the replacement root and preserve `pluginsPath`; this uses the runner's existing precedence without rewriting legacy values. This is a non-destructive semantic repair, not generic scalar drift.
-   - When no verified replacement exists, record a gap instead of a change: `Runner config path refresh skipped — <field> points at <stale-root>, but no current installed nmg-sdlc plugin root containing .codex-plugin/plugin.json, skills/, and scripts/sdlc-runner.mjs could be verified.`
-   - If `pluginRoot` is valid and `pluginsPath` is stale, do not report the stale `pluginsPath`; pluginRoot precedence means it is not selected by the runner.
-7. **Compare scalar values for drift** — after identifying missing keys and stale path-refresh findings, perform a second pass over keys that exist in **both** the project config and the template:
-   - **Root-level scalars** (e.g., `model`, `effort`, `maxRetriesPerStep`, `maxBounceRetries`, `maxLogDiskUsageMB`): compare values directly.
-   - **Step sub-key scalars** (e.g., `steps.createPR.timeoutMin`, `steps.verify.timeoutMin`, `steps.implement.model`): for each step present in both configs, compare each sub-key value.
-   - **Skip non-scalars**: if both values are objects, recurse into sub-keys (for `steps.*` nesting — max two levels deep: `steps.{stepName}.{subKey}`); if one is an object and the other a scalar, record as drift (type mismatch); arrays and complex nested objects not present in the template are excluded.
-   - **Skip user additions**: keys present in the project config but absent from the template are not drift candidates.
-8. **Record each drifted value** with:
-   - Dotted key path (e.g., `steps.createPR.timeoutMin`).
-   - Current project value.
-   - Template default value.
+1. `sdlc-config.json`
+2. `.codex/unattended-mode`
+3. `.codex/sdlc-state.json`
+4. exact owned entries inside a recognized `.gitignore` block
 
-**Important:** Never overwrite existing values. Only add keys that are entirely absent. Config value drift is reported separately and requires explicit per-value user approval before any values are updated (see Step 8 Part C in SKILL.md).
+### Exact file candidates
 
-**Exception:** Runner Config Path Refresh findings may update the unusable selected path field because the old value cannot run the SDLC loop and the replacement has passed shape validation. Preserve every unrelated config value.
+For each of the three paths, inspect path metadata without reading file contents or following symlinks:
 
-## Step 6: Analyze CHANGELOG.md
+- Absent (`ENOENT`) → record `already clean`.
+- Regular file at the exact project-root-relative path → record an exact deletion candidate.
+- Symlink, directory, socket, device, or other non-regular object → record `preserved (unmanaged)` and a gap naming the exact path and object type.
+- Metadata inspection failure other than absence → record `failed (<reason>)`; do not broaden the search.
 
-Check whether the project has a `CHANGELOG.md` and ensure it follows the [Keep a Changelog](https://keepachangelog.com/) format.
+Do not parse configuration values. For `.codex/sdlc-state.json`, never read, print, interpret, execute, kill, or signal any content. Its presence alone is sufficient for an exact deletion proposal.
 
-### If no CHANGELOG.md exists
+### Recognized `.gitignore` blocks
 
-Generate one from git history:
+Recognize only these exact header lines:
 
-1. **Parse git tags**: Run `git tag --sort=-v:refname` to list version tags (e.g., `v1.0.0`, `v1.1.0`).
-2. **Parse commits between tags**: For each pair of consecutive tags, run `git log {older_tag}..{newer_tag} --pretty=format:"%s"` to get commit messages.
-3. **Classify by conventional commit type**:
-   - `feat:` → `### Added`
-   - `fix:` → `### Fixed`
-   - `refactor:`, `chore:`, `docs:`, `style:`, `perf:`, `test:` → `### Changed`
-   - Commits without a conventional prefix → `### Changed`
-4. **Build the CHANGELOG**: Use Keep a Changelog format with version headings from git tags and an `[Unreleased]` section for commits after the latest tag.
-5. **If no git tags exist**: Group all commits under a `## [0.1.0]` version heading (with today's date) and leave the `[Unreleased]` section empty.
+```text
+# SDLC runner config
+# SDLC runner artifacts
+```
 
-### If CHANGELOG.md exists
+A recognized block begins at one of those headers and ends at the next blank line, the next comment header, or end of file. Within that bounded block, the only owned entries are these exact lines:
 
-Reconcile it with the Keep a Changelog format:
+```text
+sdlc-config.json
+.codex/sdlc-state.json
+.codex/unattended-mode
+```
 
-1. **Check for `[Unreleased]` section**: If missing, add one after the preamble.
-2. **Check version headings**: Compare git tags against CHANGELOG version headings. Identify any tagged versions missing from the CHANGELOG.
-3. **Check categories**: Ensure entries are grouped under standard categories (`### Added`, `### Changed`, `### Fixed`, `### Removed`, etc.). Flag any non-standard categories.
-4. **Check preamble**: Ensure the file starts with a title (`# Changelog`) and a brief description.
-5. **Preserve manual entries**: Any entries that do not correspond to conventional commits must be preserved exactly as-is.
+Record each exact owned line inside the block as a removal candidate. Matching lines outside a recognized block are user-owned: preserve them and report `.gitignore managed entries: preserved (unmanaged)`. Unknown lines inside a recognized block are also preserved. Remove a recognized header only when removing owned entries would otherwise leave its block empty; preserve the header when any unknown line remains.
 
-Record findings (missing sections, malformed headings, reconciliation needed) for the Step 9 summary.
+If `.gitignore` is absent, record `already clean`. If it cannot be read, record the exact failure and do not edit it.
 
-## Step 7: Analyze VERSION File
+### Findings gate payload
 
-Ensure the project has a `VERSION` file that reflects the current version.
+Before mutation, render:
 
-1. **Determine expected version**:
-   - If CHANGELOG.md has versioned headings (from Step 6 or pre-existing), use the latest version heading as the expected version.
-   - If no CHANGELOG.md versions exist but git tags are present, use the latest semver git tag.
-   - If neither exists, default to `0.1.0`.
-2. **Check for VERSION file**:
-   - If `VERSION` does not exist: record a finding to create it with the expected version.
-   - If `VERSION` exists: read it and compare to the expected version. If they differ, record a finding to update it.
-   - If they match: no action needed.
+```text
+Runner Artifact Cleanup proposal:
+- Delete file: <exact path>
+- Remove .gitignore line <line-number>: <exact text> (block: <exact header>)
+- Preserve unmanaged: <exact path or line>
+- Failures: none | <exact path and reason>
+```
 
-Record findings for the Step 9 summary.
+The user may approve the exact batch, decline it, or narrow it. Re-render the narrowed batch before acceptance. No remote metadata operation is part of cleanup.
 
-## Why these three live together
+## CHANGELOG Analysis
 
-Steps 5–7 share the same shape: read a project file (or note its absence), compare against an authoritative source (template, git tags, CHANGELOG), record findings, and never apply changes without going through Step 8's approval gate. Grouping them in one reference keeps the SKILL.md skeleton focused on the higher-level orchestration (which steps run, in what order) while the file-by-file logic lives here for whoever is auditing or extending one of these analyses.
+Check whether `CHANGELOG.md` follows Keep a Changelog while preserving all manual entries.
+
+When absent, propose a new changelog derived from semver tags and conventional commit subjects. With no tags, place current history under `0.1.0` and retain an empty `[Unreleased]` section.
+
+When present:
+
+1. Propose an `[Unreleased]` section when missing.
+2. Compare semver tags with version headings and report omissions.
+3. Report non-standard category headings without rewriting their content automatically.
+4. Propose a title/preamble only when missing.
+5. Preserve existing entries byte-for-byte unless the user explicitly approves a scoped reconciliation.
+
+## VERSION Analysis
+
+Determine the expected version from the latest changelog version heading, then the latest semver tag, then `0.1.0`.
+
+- Missing `VERSION` → propose creation with the expected version.
+- Different valid value → propose updating it.
+- Matching value → no finding.
+- Read or parse failure → report the exact path and preserve it.
+
+## Output Contract
+
+Analysis returns exact proposed changes, already-current states, preserved unmanaged paths, and failures. None of these categories may abort unrelated managed-asset analysis, and none may be applied before the findings gate.

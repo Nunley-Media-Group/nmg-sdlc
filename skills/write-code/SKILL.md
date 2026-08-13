@@ -13,8 +13,6 @@ Read the specifications for the current branch's issue, enter plan mode to desig
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Implementing against a mixed layout silently writes against the wrong paths.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves the Step 5 execution gate and forces Step 4 to skip the interactive plan review. The interactive-vs-unattended branches in Steps 4 and 5 reference this shared semantics.
-
 Read `../../references/spec-context.md` when Step 2 resolves the active spec — write-code preserves active-spec-first loading and adds capped neighboring specs only when surrounding contracts can affect implementation scope.
 
 ## Prerequisites
@@ -51,7 +49,7 @@ If any label is `spike`, print exactly:
 Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
 ```
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, do NOT enter plan mode, do NOT delegate to a worker, do NOT touch any file. The abort fires in both interactive and unattended modes.
+Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter plan mode, delegate to a worker, or touch any file.
 
 ### Step 2: Read Specs
 
@@ -67,18 +65,7 @@ specs/{feature-name}/
 └── feature.gherkin    — BDD test scenarios
 ```
 
-If specs do not exist:
-
-- **Unattended mode**: output and stop:
-
-  ```
-  No specs found for issue #N. The `$nmg-sdlc:write-spec` step must run first.
-
-  [Missing: no spec directory found for this issue, or required files (requirements.md, design.md, tasks.md, feature.gherkin) are absent]
-
-  Done. Awaiting orchestrator.
-  ```
-- **Interactive mode**: present a `request_user_input` gate with the message `"No specs found. Run $nmg-sdlc:write-spec #N first."`; the only predefined action is to stop, and any free-form `Other` answer is treated as a corrected spec path or issue number to re-check before stopping.
+If specs do not exist, present a `request_user_input` gate with the message `"No specs found. Run $nmg-sdlc:write-spec #N first."`; the only predefined action is to stop, and any free-form `Other` answer is treated as a corrected spec path or issue number to re-check before stopping.
 
 ### Step 3: Read Steering Documents
 
@@ -92,7 +79,7 @@ steering/
 
 ### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
 
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 (interactive plan review in interactive mode, internal design in unattended), Step 5 (inline execution by default, optional Codex `worker` delegation only when the user or runner explicitly authorizes subagents), the Implementation Rules table, the deviation-handling ladder, Step 5a (SKILL-BUNDLED FILE DETECTOR + Skill-Creator Probe Contract — no hand-edit fallback), and Step 5b (bundled `$nmg-sdlc:simplify` invocation).
+Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 plan review, Step 5 inline execution by default, optional Codex `worker` delegation only when the user authorizes subagents, the Implementation Rules table, the deviation-handling ladder, Step 5a skill-bundled routing, and Step 5b bundled `$nmg-sdlc:simplify` invocation.
 
 ### Resuming Partial Implementation
 
@@ -109,8 +96,7 @@ Tasks completed: [X/Y]
 Files created: [list]
 Files modified: [list]
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:verify-code #N` to verify implementation and update the issue.
-[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
+Next step: Run `$nmg-sdlc:verify-code #N` to verify implementation and update the issue.
 ```
 
 ---

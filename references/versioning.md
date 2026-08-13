@@ -27,13 +27,7 @@ $nmg-sdlc:open-pr #N --major
 
 The `--major` flag forces bump type `major` (`X.Y.Z → (X+1).0.0`) regardless of the classified type. When the flag is absent, `$nmg-sdlc:open-pr` can only produce a patch or minor bump.
 
-**Unattended-mode escalation.** When `.codex/unattended-mode` exists AND `--major` is present, `$nmg-sdlc:open-pr` prints:
-
-```
-ESCALATION: --major flag requires human confirmation — unattended mode cannot apply a major version bump
-```
-
-…and exits non-zero without reading or writing any version file. A major-version bump is a deliberate release decision that a headless runner cannot make on a human's behalf.
+When `--major` is present, `$nmg-sdlc:open-pr` presents the proposed major bump through its normal interactive version gate before reading or writing any version file. A major-version bump is always a deliberate release decision.
 
 ## Manifest update
 

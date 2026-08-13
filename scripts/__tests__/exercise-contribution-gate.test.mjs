@@ -171,7 +171,7 @@ function normalScenario({
 }
 
 describe('contribution gate lifecycle coverage (issues #125 and #143)', () => {
-  test('init-style setup creates version 2 and rerun is idempotent', () => {
+  test('onboarding-style setup creates version 2 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });

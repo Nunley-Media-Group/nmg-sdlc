@@ -130,17 +130,11 @@ When `README.md` exists:
 
 When `README.md` is absent, do not create it. Report `README.md link: skipped (README missing)` and add that to the caller's gaps list.
 
-## Mode Behavior
-
-Interactive mode:
+## Lifecycle Behavior
 
 - `onboard-project` applies this contract as part of lifecycle setup after steering exists.
 - `upgrade-project` presents missing-guide creation, missing nmg-sdlc section insertion, and README-link insertion as non-destructive managed-artifact findings through its existing Step 8 approval flow.
 
-Unattended mode:
-
-- Do not call `request_user_input`.
-- Auto-apply missing-guide creation, missing nmg-sdlc section insertion, and README-link insertion because they are non-destructive managed-artifact changes.
 - Record every applied or skipped outcome in the final summary.
 
 ## Summary Status

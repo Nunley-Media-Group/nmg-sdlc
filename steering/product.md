@@ -1,7 +1,6 @@
 # nmg-sdlc Product Steering
 
-This document defines the product vision, target users, and success metrics.
-All feature development should align with these guidelines.
+This document defines the product vision, target users, and success metrics. All feature development should align with these guidelines.
 
 ---
 
@@ -17,26 +16,29 @@ All feature development should align with these guidelines.
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Codex daily | Skills must integrate seamlessly with Codex's tool system |
-| Works from GitHub issues | Workflow must be issue-driven with branch linking |
+| Uses Codex daily | Skills integrate with Codex-native tools and prompts |
+| Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
-| Values quality gates | Verification step catches drift before PR |
+| Values review authority | Every material decision waits for explicit user input |
+| Values quality gates | Verification catches implementation drift before delivery |
 
-### Secondary: SDLC Runner (Automation)
+### Secondary: Team Reviewer or Maintainer
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Headless execution | Skills must detect `.codex/unattended-mode` and skip Plan Mode `request_user_input` gates |
-| Deterministic orchestration | Runner script drives steps sequentially with preconditions |
-| Log-based reporting | Status updates flow to console and log files |
+| Reviews specs and pull requests | Outputs expose acceptance criteria, evidence, and changed-path scope |
+| Maintains project conventions | Steering documents remain the project-specific authority |
+| Adopts existing codebases | Onboarding and upgrade preserve history and project-authored content |
 
 ---
 
 ## Core Value Proposition
 
-1. **Structured SDLC workflow** — Transforms vague requirements into verified implementations via issue → spec → implement → verify → PR pipeline
-2. **Stack-agnostic BDD** — Works with any language/framework; steering docs customize to the project
-3. **Full automation support** — The SDLC runner enables hands-off development cycles
+1. **Structured manual workflow** — issue → spec → implement → simplify → verify → PR → review cleanup.
+2. **Stack-agnostic BDD** — any language or framework can supply its conventions through steering docs.
+3. **Explicit human authority** — review and scope gates never select an answer without the user.
+4. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
+5. **Safe project adoption** — managed repository assets are additive and upgrade cleanup is ownership-aware.
 
 ---
 
@@ -44,12 +46,13 @@ All feature development should align with these guidelines.
 
 | Principle | Description |
 |-----------|-------------|
-| Stack-agnostic | Never assume a specific language, framework, or tool — let steering docs provide specifics |
-| OS-agnostic | Must work on macOS, Windows, and Linux — no platform-specific assumptions |
-| Process over tooling | Provide the workflow structure; project steering provides the technical details |
-| Human gates by default | Interactive review at each phase; unattended mode is opt-in for automation |
-| Spec as source of truth | All implementation and verification traces back to spec documents |
-| Dogfooding | The SDLC develops itself — changes to skills are verified by exercising them in Codex |
+| Stack-agnostic | Never assume a language, framework, or tool; project steering provides specifics |
+| OS-agnostic | Support macOS, Windows, and Linux without hardcoded platform assumptions |
+| Process over tooling | Skills define lifecycle structure; projects define technical choices |
+| Human gates | Every surviving decision point waits for explicit user input |
+| Spec as source of truth | Implementation and verification trace back to approved spec documents |
+| Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
+| Dogfooding | Skill changes are verified through contracts and executable exercises |
 
 ---
 
@@ -57,123 +60,107 @@ All feature development should align with these guidelines.
 
 | Metric | Target | Why It Matters |
 |--------|--------|----------------|
-| Spec-to-implementation fidelity | Zero drift findings on first verify | Validates the spec-driven approach works |
-| Skill adoption | All SDLC steps used end-to-end | Proves the workflow is complete and practical |
-| Automation reliability | SDLC runner completes full cycles without manual intervention | Validates headless operation |
-| Exercise verification | Changed skills verified by invocation against a test project | Validates that skill changes produce correct behavior, not just correct text |
+| Spec-to-implementation fidelity | Zero unresolved drift on first verify | Validates the spec-driven approach |
+| Pipeline continuity | Every manual stage works end to end | Proves the workflow is practical |
+| Gate integrity | No decision proceeds without explicit user input | Preserves user authority |
+| Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
+| Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
+| Cleanup idempotence | Repeated v2 cleanup produces no additional diff | Makes migration predictable |
 
 ---
 
 ## Feature Prioritization
 
-### Must Have (MVP)
-- Issue creation with BDD acceptance criteria (`$nmg-sdlc:draft-issue`)
-- 3-phase spec writing: requirements, design, tasks (`$nmg-sdlc:write-spec`)
-- Spec-driven implementation with plan mode (`$nmg-sdlc:write-code`)
-- Verification against specs with architecture review (`$nmg-sdlc:verify-code`)
-- PR creation linking issue and specs (`$nmg-sdlc:open-pr`)
-- Project initialization and steering bootstrap (`$nmg-sdlc:onboard-project`)
+### Must Have
+
+- Issue grooming with BDD acceptance criteria (`$nmg-sdlc:draft-issue`)
+- Linked branch and status management (`$nmg-sdlc:start-issue`)
+- Human-reviewed requirements, design, tasks, and Gherkin (`$nmg-sdlc:write-spec`)
+- Spec-driven implementation planning (`$nmg-sdlc:write-code`)
+- Behavior-preserving simplification (`$nmg-sdlc:simplify`)
+- Verification, architecture review, and exercise evidence (`$nmg-sdlc:verify-code`)
+- Versioned PR delivery (`$nmg-sdlc:open-pr`)
+- Review-thread cleanup (`$nmg-sdlc:address-pr-comments`)
+- Safe project adoption and managed assets (`$nmg-sdlc:onboard-project`, `$nmg-sdlc:upgrade-project`)
+- Read-only lifecycle diagnostics (`$nmg-sdlc:status`)
 
 ### Should Have
-- Issue branch linking and status management (`$nmg-sdlc:start-issue`)
-- Defect-specific spec templates (bug label detection)
-- Automation mode support (`$nmg-sdlc:run-loop`)
 
-### Could Have
-- SDLC runner config generation (`$nmg-sdlc:init-config`)
+- Defect-specific spec variants and retrospective learning
+- Manual epic/sub-issue relationships
+- Managed contribution gate and structured GitHub issue form
+- Historical spec reconciliation for brownfield projects
 
-### Won't Have (Now)
-- Multi-repo orchestration
+### Won't Have
+
+- Multi-repository orchestration
 - Non-GitHub issue trackers
-- Visual dashboard for spec status
+- A visual workflow dashboard
+- A plugin-owned background execution service
 
 ---
 
 ## Key User Journeys
 
-### Journey 1: Manual SDLC Cycle
+### Journey 1: Issue to Review-Clean PR
 
-```
-1. Developer runs $nmg-sdlc:draft-issue to capture a feature need
-2. Runs $nmg-sdlc:start-issue #N to create branch and set status
-3. Runs $nmg-sdlc:write-spec #N — reviews requirements, design, tasks at each gate
-4. Runs $nmg-sdlc:write-code #N — approves plan, watches execution
-5. Runs $nmg-sdlc:verify-code #N — reviews findings, confirms fixes
-6. Runs $nmg-sdlc:open-pr #N — reviews PR before submission
-```
-
-### Journey 2: Automated SDLC Cycle (Runner)
-
-```
-1. Runner picks oldest open issue from milestone
-2. Runs each skill sequentially via codex exec subprocesses
-3. Auto-approves all gates (unattended mode enabled)
-4. Logs status updates at each step
-5. Creates PR, monitors CI, merges on green
-6. Loops to next issue
+```text
+1. Draft and approve a groomed issue.
+2. Select or start the issue on a linked branch.
+3. Approve requirements, design, and implementation tasks.
+4. Approve the implementation plan and execute the tasks.
+5. Simplify and verify every acceptance criterion.
+6. Approve versioning and open the pull request.
+7. Resolve review findings until the PR is review-clean.
 ```
 
-### Journey 3: Dogfooding — Developing the SDLC with the SDLC
+### Journey 2: Adopt or Upgrade a Project
 
-This project uses its own SDLC toolkit to develop itself. The verification step is unique because skills are Markdown instructions, not executable code:
-
-```
-1. Developer creates issue for a skill enhancement
-2. Runs $nmg-sdlc:write-spec — spec defines expected skill behavior as ACs
-3. Runs $nmg-sdlc:write-code — modifies SKILL.md files and templates
-4. Runs $nmg-sdlc:verify-code — must exercise the changed skill:
-   a. Scaffold a disposable test project
-   b. Load the modified plugin: codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"
-   c. Invoke the changed skill against the test project
-   d. For GitHub-integrated skills: evaluate what WOULD be created (dry-run)
-   e. Confirm output matches spec ACs
-5. Runs $nmg-sdlc:open-pr — PR includes verification evidence
+```text
+1. Detect greenfield, brownfield, or initialized state.
+2. Create or reconcile root steering/spec documents.
+3. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form.
+4. For upgrades, present exact owned cleanup findings before deletion.
+5. Report changed, preserved, declined, already-current, and failed outcomes.
 ```
 
-The key difference from Journey 1: traditional "run tests" is replaced by "exercise the skill in Codex and evaluate the output."
+### Journey 3: Dogfood a Skill Change
+
+```text
+1. Define behavior in a feature or defect spec.
+2. Route skill-bundled edits through $skill-creator.
+3. Run static contract tests and plugin-surface validation.
+4. Exercise changed skills in a disposable project.
+5. Record local evidence separately from published-install evidence.
+```
 
 ---
 
 ## Intent Verification
 
-Each product principle translates to a verifiable behavioral contract. `$nmg-sdlc:verify-code` should check these when evaluating whether a change serves the product mission.
-
-### Principle → Postcondition Mapping
-
 | Product Principle | Behavioral Contract | Verification Check |
-|-------------------|--------------------|--------------------|
-| **Stack-agnostic** | Skills must not contain language, framework, or tool-specific instructions | text search changed skill files for technology names (e.g., "React", "Python", "npm") that aren't Codex tool names |
-| **OS-agnostic** | No platform-specific paths, commands, or assumptions | text search for hardcoded separators, Bash-only syntax, macOS/Windows/Linux-specific commands |
-| **Spec as source of truth** | Every implementation change traces to a requirement in the spec | Each modified file must map to a task in `tasks.md` or an AC in `requirements.md` |
-| **Human gates by default** | Interactive approval exists at every decision point | Skills contain `request_user_input` gates, guarded by unattended-mode checks |
-| **Process over tooling** | Skills define workflow structure; project details live in steering docs | Skills reference steering docs for conventions, not hardcode them |
-| **Dogfooding** | Skill changes are verified by exercise, not just by reading | Changed skills must be loaded via `codex exec --cd` and invoked against a test project |
+|-------------------|---------------------|--------------------|
+| Stack-agnostic | Skill instructions defer project details to steering | Review changed contracts for hardcoded technology assumptions |
+| OS-agnostic | Paths and commands are cross-platform or explicitly scoped | Review path handling and platform dependencies |
+| Human gates | Decision points call `request_user_input` and wait | Exercise every changed decision branch |
+| Spec as source of truth | Changed paths map to approved tasks or acceptance criteria | Compare diff with `tasks.md` and `requirements.md` |
+| Preserve project ownership | Managed paths and overwrite predicates are exact | Run collision, preservation, and repeat-run fixtures |
+| Dogfooding | Skill behavior is exercised, not inferred from text alone | Record fixture or live exercise evidence |
 
 ### Skill Pipeline Contracts
 
-The SDLC pipeline is a chain. Each skill's output is a contract with the next:
-
-```
-$nmg-sdlc:draft-issue
-  Postcondition: GitHub issue exists with BDD acceptance criteria
-  ↓ (issue # feeds into)
-$nmg-sdlc:start-issue #N
-  Postcondition: Feature branch exists, issue status = In Progress
-  ↓ (branch context feeds into)
-$nmg-sdlc:write-spec #N
-  Postcondition: specs/{feature}/ contains requirements.md, design.md, tasks.md, feature.gherkin
-  ↓ (spec files feed into)
-$nmg-sdlc:write-code #N
-  Postcondition: Code changes implement all tasks
-  ↓ (implementation feeds into)
-$nmg-sdlc:verify-code #N
-  Postcondition: Verification report posted to issue; all ACs pass or deferred items documented
-  ↓ (verified implementation feeds into)
-$nmg-sdlc:open-pr #N
-  Postcondition: PR created linking issue, specs, and verification report
+```text
+draft-issue        → GitHub issue with BDD acceptance criteria
+start-issue        → linked branch and In Progress status
+write-spec         → approved requirements, design, tasks, Gherkin
+write-code         → implementation covering approved tasks
+simplify           → behavior-preserving cleanup
+verify-code        → acceptance/evidence report and scoped fixes
+open-pr            → pushed versioned PR linking issue and specs
+address-pr-comments→ review-clean PR or explicit remaining blocker
 ```
 
-When verifying a change to any skill, confirm it preserves these contracts — the postconditions of the changed skill must still satisfy the preconditions of its downstream consumer.
+Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
 
 ---
 
@@ -181,9 +168,10 @@ When verifying a change to any skill, confirm it preserves these contracts — t
 
 | Attribute | Do | Don't |
 |-----------|-----|-------|
-| Technical | Use precise terminology (BDD, Gherkin, SOLID) | Oversimplify or use vague language |
-| Concise | Keep skill output focused and actionable | Add verbose explanations or filler |
-| Process-oriented | Reference workflow steps and spec documents | Assume ad-hoc development |
+| Technical | Use precise terms such as BDD, Gherkin, and mergeability | Use vague claims |
+| Concise | Keep outputs focused and actionable | Add filler or ritual |
+| Evidence-led | Distinguish observed state from inference | Overstate completion |
+| Collaborative | Present choices and consequences clearly | Seize user authority |
 
 ---
 
@@ -191,13 +179,13 @@ When verifying a change to any skill, confirm it preserves these contracts — t
 
 | Data | Usage | Shared |
 |------|-------|--------|
-| GitHub issues/PRs | Read/write via `gh` CLI for workflow | Only within the user's GitHub org |
-| Source code | Analyzed locally by Codex | Never transmitted beyond OpenAI API |
-| Steering docs | Local project context | Committed to repo at user's discretion |
+| GitHub issues/PRs | Read or write only for the requested workflow | Only within the user's authorized GitHub scope |
+| Source code | Analyzed in the active Codex environment | Per the user's Codex service configuration |
+| Steering/spec docs | Project context and committed history | At the user's discretion |
 
 ---
 
 ## References
 
-- Technical spec: `steering/tech.md`
-- Code structure: `steering/structure.md`
+- Technical standards: `steering/tech.md`
+- Repository structure: `steering/structure.md`

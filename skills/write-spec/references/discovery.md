@@ -30,10 +30,10 @@ Run before keyword discovery. Only fall through to Step 1 when this stage produc
      ERROR: Parent spec for #P not found — run '$nmg-sdlc:write-spec #P' and seal the spec before starting child work.
      ```
 
-     Do not create any spec files for the child. Exit non-zero in unattended mode (escalate via runner sentinel).
+     Do not create any spec files for the child. Stop after reporting the missing parent spec.
    - **No candidates at all** → fall through to Step 1.
 
-Step 0 is stateless — it derives everything fresh from `gh` state on each invocation. It runs identically in interactive and unattended modes; the only difference is that unattended aborts emit the error to stderr and exit non-zero rather than prompting.
+Step 0 is stateless and derives everything fresh from `gh` state on each invocation.
 
 ## Step 1: Bounded Spec-Context Ranking (fallback)
 
@@ -47,7 +47,6 @@ Step 0 is stateless — it derives everything fresh from `gh` state on each invo
      - Option 1: "Amend existing spec: `feature-{slug}`" for the top threshold-qualified candidate, including ranking reasons.
      - Option 2: "Create new spec" (derives a new `feature-{slug}` from the current issue title).
      - Free-form `Other`: treat as an explicit spec directory to verify before proceeding, or as a corrected slug for create-new-spec if no matching directory exists.
-   - **If unattended mode** (`.codex/unattended-mode` exists): skip `request_user_input`. Proceed in amendment mode only when the deterministic top-ranked candidate meets the shared threshold; otherwise proceed to create-new-spec and record the ambiguity or no-threshold gap.
 6. **If no candidates meet threshold**: proceed to create a new spec without prompting and record `relatedSpecs: none`.
 
 The result determines whether subsequent phases operate in **amendment mode** (modifying an existing spec) or **creation mode** (writing a new spec from scratch).

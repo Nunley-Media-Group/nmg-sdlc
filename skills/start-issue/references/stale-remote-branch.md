@@ -2,9 +2,7 @@
 
 **Consumed by**: `start-issue` Step 3.5 (before `gh issue develop --checkout` in Step 4).
 
-When the runner re-picks an issue that already has a remote feature branch from an earlier cycle, the remote tip can reflect work against a now-outdated `main`. Step 4's `gh issue develop --checkout` checks out that stale tip, and the later `$nmg-sdlc:open-pr` delivery rebase-plus-push can collide with the remote. This step detects that state and deletes the stale remote branch before a fresh cycle rebuilds local.
-
-The probe runs in **both** interactive and unattended modes — the difference is only whether deletion requires confirmation.
+When an issue already has a remote feature branch from earlier work, the remote tip can reflect work against an outdated `main`. Step 4's `gh issue develop --checkout` can check out that stale tip, and later delivery can collide with the remote. This step detects that state and offers to delete the stale remote branch before rebuilding locally.
 
 ---
 
@@ -47,26 +45,6 @@ git merge-base --is-ancestor {remote-tip-sha} origin/main
 
 ### 4. Delete the stale remote branch
 
-Unattended-mode deterministic-default (per `../../../references/unattended-mode.md`): delete without prompting and do not call `request_user_input`. Interactive mode: confirm first.
-
-#### Unattended mode (`.codex/unattended-mode` exists)
-
-This branch is non-interactive. Do not ask the user to confirm deletion, do not emit text asking the user to reply, and do not call `request_user_input`.
-
-```bash
-git push origin --delete {branch}
-```
-
-Log exactly:
-
-```
-Reconciled stale remote branch {branch} (tip {short-sha} not ancestor of origin/main)
-```
-
-Proceed to Step 4 — `gh issue develop --checkout` will now create a fresh branch against current `origin/main`.
-
-#### Interactive mode
-
 Present a `request_user_input` gate with two options:
 
 - `[1] Delete stale branch and proceed` — issue `git push origin --delete {branch}`, log the "Reconciled stale remote branch" line, and proceed to Step 4.
@@ -95,5 +73,5 @@ The probe runs before Step 4, and Step 4's branch creation uses `gh issue develo
 |------|-----------|
 | Remote branch exists but `git ls-remote` returns it with a tag-like suffix | Match strictly on the full ref name; ignore tags |
 | Multiple remote branches match (e.g. `249-foo` and `249-foo-v2`) | Take the branch whose name the `gh issue view` linked-branches query reports; ignore others |
-| `git fetch origin main` fails (network/auth) | Skip the probe entirely; emit `WARNING: stale-remote probe skipped (fetch failed)` and proceed to Step 4. Do not abort — the runner's dirty-tree check still fires before branch creation. |
+| `git fetch origin main` fails (network/auth) | Skip the probe entirely; emit `WARNING: stale-remote probe skipped (fetch failed)` and proceed to Step 4. The dirty-tree check still fires before branch creation. |
 | The remote branch exists AND is reachable from `origin/main` | Skip silently — the branch has been merged and the remote hasn't been cleaned up yet; it is not stale for our purposes |

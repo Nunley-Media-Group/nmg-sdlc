@@ -2,8 +2,6 @@
 
 **Read this when** Step 4 has finished analyzing existing spec files and the workflow needs to migrate any spec directories that still use the legacy `{issue#}-{slug}` naming convention or the legacy singular `**Issue**` frontmatter. The five sub-steps below run in order; Step 4f also runs independently for feature specs that have already been renamed but retain legacy frontmatter.
 
-Read `../../references/unattended-mode.md` when applying solo renames automatically — Step 4d below is the only sub-step whose interactive-vs-unattended branch flips on the sentinel.
-
 ## Step 4b: Detect Legacy Spec Directories
 
 Identify spec directories that use the legacy `{issue#}-{slug}` naming convention and need migration to `feature-{slug}` or `bug-{slug}`.
@@ -40,14 +38,7 @@ For each group (and solo migration candidates):
 1. Show the source directories and proposed target name.
 2. Show a brief summary of each source spec's content (first heading, issue number, status).
 
-**If `.codex/unattended-mode` exists:**
-
-- **Solo renames** (type `"rename"` or `"rename-bug"` — single directory → `feature-{slug}/` or `bug-{slug}/`): non-destructive. Execute the rename automatically — proceed to Step 4e to apply `git mv`, frontmatter updates, and cross-reference updates without `request_user_input` gate. Do NOT record solo renames as skipped operations.
-- **Consolidation groups** (type `"consolidation"` — multiple directories merged into one): destructive. Skip `request_user_input` gate and record each group as a skipped operation (affected paths: source directories, reason: `"Destructive operation requires interactive approval"`).
-
-After processing all groups, proceed to Step 4f.
-
-**If `.codex/unattended-mode` does NOT exist:** Present a `request_user_input` gate for each group:
+Present a `request_user_input` gate for each group:
 
 - Option 1: `"Consolidate into feature-{slug}/"` (or `"Rename to feature-{slug}/"` / `"Rename to bug-{slug}/"` for solo specs).
 - Option 2: `"Skip — leave as-is"`.
@@ -91,6 +82,8 @@ After consolidation (or independently, for feature specs that already use `featu
 4. For files missing `## Change History`: propose adding the section before `## Validation Checklist` with a single entry: `| #N | [original date from **Date** field] | Initial feature spec |`.
 5. Present findings alongside other migration proposals in Step 8.
 6. Apply on user confirmation using Codex editing.
+
+V2 runner-artifact cleanup is a separate findings category. Never fold a cleanup deletion into spec-directory migration approval, and never treat a spec directory as a cleanup candidate.
 
 This step runs on ALL feature-variant specs in `feature-*/` directories, catching specs that were created by newer `$nmg-sdlc:write-spec` but somehow have stale frontmatter, renamed from legacy directories but not yet updated, or already in the new naming convention from a prior partial migration.
 

@@ -50,12 +50,8 @@ const TRACKED_H3 = /^### (Step \d+[a-z]?|Human Review Gate)\b/;
  *     and any `### Step N` / `### Human Review Gate` sub-heading.
  *   - Lines inside fenced code blocks are ignored.
  *   - Table header and separator rows are ignored.
- *   - In addition, any line containing `unattended-mode` (case-insensitive)
- *     is emitted regardless of whether it sits inside a tracked section.
- *
  * Each emitted clause carries `{ line, text, heading }` where `heading` is the
- * nearest enclosing tracked H2 or H3 heading (null for unattended-mode lines
- * outside any tracked section).
+ * nearest enclosing tracked H2 or H3 heading.
  */
 export function extractClauses(source) {
   const lines = source.split('\n');
@@ -74,13 +70,7 @@ export function extractClauses(source) {
       inFence = !inFence;
       continue;
     }
-    if (inFence) {
-      // Config examples inside fences frequently show the unattended-mode sentinel — keep them.
-      if (/unattended-mode/i.test(line)) {
-        out.push({ line: i + 1, text: line, heading: currentH3 || currentH2 || null });
-      }
-      continue;
-    }
+    if (inFence) continue;
 
     const h1 = line.match(/^# (.+?)\s*$/);
     if (h1) {
@@ -119,8 +109,7 @@ export function extractClauses(source) {
     // Skip Markdown table header separators: `|---|---|`
     if (/^\|?\s*-{3,}\s*(\|\s*-{3,}\s*)+\|?$/.test(trimmed)) continue;
 
-    const isUnattended = /unattended-mode/i.test(trimmed);
-    if (tracked || isUnattended) {
+    if (tracked) {
       out.push({
         line: i + 1,
         text: trimmed,

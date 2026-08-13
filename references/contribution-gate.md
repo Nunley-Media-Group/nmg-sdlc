@@ -1,6 +1,6 @@
 # Contribution Gate Contract
 
-**Consumed by**: `init-config` during runner setup, and `upgrade-project` when analyzing or applying managed project artifacts.
+**Consumed by**: `onboard-project` for new projects and `upgrade-project` when analyzing or applying managed project artifacts.
 
 Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions contribution gate in consumer projects. The gate is project content, not plugin metadata: keep it additive, stack-agnostic, safe for public repositories, and non-destructive toward project-authored workflows.
 
@@ -349,19 +349,11 @@ Classify the approved workflow path before writing:
 
 Preserve every unrelated workflow under `.github/workflows/` byte-for-byte. Do not move, delete, sort, or reformat project-authored workflows.
 
-## Mode Behavior
+## Lifecycle Behavior
 
-Interactive mode:
-
-- `init-config` applies the gate during setup without a separate prompt because the workflow is a managed setup artifact.
+- `onboard-project` applies the gate after steering exists because the workflow is a managed setup artifact.
 - `upgrade-project` presents missing or outdated managed workflow findings in its normal non-destructive upgrade batch.
 - Path collisions are reported as gaps and left for manual remediation.
-
-Unattended mode:
-
-- Do not call `request_user_input`.
-- Auto-apply missing workflow creation and outdated managed workflow replacement.
-- Leave future-version workflows and unmanaged path collisions unchanged.
 - Record every created, updated, already-present, or skipped outcome in the final summary.
 
 ## Output

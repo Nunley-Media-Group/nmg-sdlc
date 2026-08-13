@@ -14,12 +14,12 @@ describe('prompt config contract', () => {
   it('documents automatic config management and restart behavior in README', () => {
     const source = read('README.md');
 
-    expect(source).toContain('automatically checks `~/.codex/config.toml`');
+    expect(source).toContain('nmg-sdlc checks `~/.codex/config.toml`');
     expect(source).toContain('default_mode_request_user_input = true');
     expect(source).toContain('ask_user_questions = true');
     expect(source).toContain('suppress_unstable_features_warning = true');
     expect(source).toContain('close and reopen Codex');
-    expect(source).toContain('separate from `.codex/unattended-mode`');
+    expect(source).toContain('Before a gate opens');
   });
 
   it('names every required prompt setting in the shared reference', () => {
@@ -40,12 +40,12 @@ describe('prompt config contract', () => {
     expect(source).toContain('close and reopen Codex');
   });
 
-  it('keeps unattended mode as a separate bypass contract', () => {
+  it('requires prompt-config preflight for every interactive gate', () => {
     const promptConfig = read('references/prompt-config.md');
     const interactiveGates = read('references/interactive-gates.md');
 
-    expect(promptConfig).toContain('`.codex/unattended-mode` remains separate');
-    expect(promptConfig).toContain('unattended branches do not need prompt-config setup');
-    expect(interactiveGates).toContain('Do not repair `~/.codex/config.toml` solely to skip a gate in an unattended run');
+    expect(promptConfig).toContain('Run this preflight before every `request_user_input` call');
+    expect(interactiveGates).toContain('Run the prompt-config preflight from `prompt-config.md`. If it changes config or fails, stop before the original gate.');
+    expect(`${promptConfig}\n${interactiveGates}`).not.toMatch(/unattended[- ]mode/i);
   });
 });
