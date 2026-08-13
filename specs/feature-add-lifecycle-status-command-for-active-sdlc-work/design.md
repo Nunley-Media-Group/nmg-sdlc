@@ -47,7 +47,7 @@ The automated SDLC runner is scheduled for removal in milestone 2. The status im
 
 1. The status skill resolves the git project root and installed plugin root from its own location.
 2. The skill validates `$ARGUMENTS` as empty or `--json`, then invokes `node <plugin-root>/scripts/sdlc-status.mjs --project <project-root>` with the optional JSON flag.
-3. The CLI collects local evidence without mutation: branch, worktree status, commits relative to the base branch, strict spec match, required spec files, and verification report.
+3. The CLI collects local evidence without mutation: branch, worktree status, commits relative to the base branch, strict spec match, required spec files, and verification report plus its latest Git commit.
 4. The CLI performs optional read-only `gh` probes for issue, pull request, and checks. Each probe returns a value or a named gap.
 5. Evidence is normalized into a snapshot independent of rendering.
 6. The inference engine derives the strongest consistent manual SDLC stage and exact next action.
@@ -134,9 +134,15 @@ Next: $nmg-sdlc:write-code #145
 
 1. Current local git state and directly observed artifact existence.
 2. Live read-only GitHub issue, pull-request, and check state.
-3. Valid local verification report content tied to the strict active spec.
+3. Valid local verification report content tied to the strict active spec and an immutable report commit in the current branch history.
 
 Lower-precedence sources enrich higher-precedence evidence but cannot override a direct contradiction. A contradiction becomes a gap and stage advancement stops at the last consistent boundary.
+
+### Verification Freshness
+
+A `Pass` string alone is not delivery evidence. The collector resolves the latest commit containing the strict active spec's `verification-report.md`, verifies that commit is an ancestor of `HEAD`, and compares the current working tree to that checkpoint. The report is current only when the report itself is unchanged and no implementation path has changed since the checkpoint. Documentation-only changes after verification do not invalidate it. An uncommitted report, divergent report commit, modified report, implementation change, or failed Git provenance probe produces a named gap and keeps the lifecycle at `implemented`.
+
+This design avoids a self-referential hash inside the report and preserves the existing verification-report producer. All provenance commands (`git log`, `git merge-base --is-ancestor`, and `git diff`) are read-only.
 
 ### Manual Lifecycle Stages
 
@@ -208,7 +214,7 @@ Runner source, tests, state, configuration, and artifacts are deliberately absen
 
 | Layer | Type | Coverage |
 |-------|------|----------|
-| Evidence collectors | Unit with injected adapters | Clean/dirty git, spec/report matching, GitHub success/failure. |
+| Evidence collectors | Unit with injected adapters | Clean/dirty git, spec/report matching, committed-current and stale/uncommitted report provenance, GitHub success/failure. |
 | Inference engine | Table-driven unit | Idle, started, specified, implemented, verified, open PR, complete, unknown, and conflicts. |
 | Renderers | Unit | Stable text ordering, valid schema-versioned JSON, null/array stability, stdout purity. |
 | Read-only boundary | Integration | Before/after git/filesystem snapshots and command-spy rejection of mutating operations. |
@@ -236,3 +242,4 @@ Automated-loop support is intentionally excluded because the runner is scheduled
 |-------|------|---------|
 | #145 | 2026-08-12 | Initial feature design |
 | #145 | 2026-08-12 | Removed automated-runner integration ahead of milestone-2 removal |
+| #145 | 2026-08-12 | Added read-only Git provenance for verification freshness |

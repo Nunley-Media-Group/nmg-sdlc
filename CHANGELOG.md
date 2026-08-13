@@ -10,9 +10,11 @@ Major-version bumps are reserved for explicit, manual maintenance milestones and
 
 ## [Unreleased]
 
+## [1.72.0] - 2026-08-12
+
 ### Added
 
-- Added the read-only `$nmg-sdlc:status [--json]` manual-lifecycle diagnostic for issue #145, with conservative local/GitHub evidence inference and stable schema-versioned output; automated-runner integration is explicitly excluded ahead of milestone-2 runner removal.
+- Added the read-only `$nmg-sdlc:status [--json]` manual-lifecycle diagnostic for issue #145, with conservative local/GitHub evidence inference, commit-proven verification freshness, and stable schema-versioned output; automated-runner integration is explicitly excluded ahead of milestone-2 runner removal.
 
 ## [1.71.0] - 2026-08-12
 

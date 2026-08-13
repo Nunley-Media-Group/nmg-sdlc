@@ -51,6 +51,10 @@ function boundedMessage(value) {
   return singleLine.length > 240 ? `${singleLine.slice(0, 237)}...` : singleLine;
 }
 
+function toGitPath(filePath) {
+  return filePath.split(path.sep).join('/');
+}
+
 export function parseIssueBranch(branch) {
   if (typeof branch !== 'string') return null;
   const match = branch.match(/^(\d+)-(.+)$/)
@@ -124,26 +128,72 @@ export function checkRequiredSpecFiles(featureDir, adapters = {}) {
   });
 }
 
-function collectVerification(projectRoot, spec, adapters, gaps) {
+function collectVerification(projectRoot, spec, untrackedImplementationPaths, adapters, gaps) {
   if (!spec) return null;
   const reportPath = path.join(projectRoot, spec.path, 'verification-report.md');
   if (!adapters.fs.existsSync(reportPath)) return null;
+  const relativeReportPath = toGitPath(path.relative(projectRoot, reportPath));
   try {
     const content = readBounded(adapters.fs, reportPath);
     const match = content.match(/Implementation Status(?:\*\*)?\s*:?\s*(?:\*\*)?\s*(Pass|Partial|Fail)\b/i);
     if (!match) {
       gaps.push('verification report lacks an explicit Implementation Status');
-      return { path: path.relative(projectRoot, reportPath), status: 'unknown', current: false };
+      return { path: relativeReportPath, status: 'unknown', current: false, commit: null };
     }
     const status = match[1].toLowerCase();
-    return {
-      path: path.relative(projectRoot, reportPath),
-      status,
-      current: status === 'pass',
-    };
+    const verification = { path: relativeReportPath, status, current: false, commit: null };
+    if (status !== 'pass') return verification;
+
+    const commitResult = adapters.run(
+      'git',
+      ['log', '-1', '--format=%H', '--', relativeReportPath],
+      { cwd: projectRoot },
+    );
+    const commit = commitResult.ok ? commitResult.stdout.trim() : '';
+    if (!/^[0-9a-f]{40}$/i.test(commit)) {
+      gaps.push('verification report is not committed; freshness cannot be proven');
+      return verification;
+    }
+    verification.commit = commit;
+
+    const ancestryResult = adapters.run(
+      'git',
+      ['merge-base', '--is-ancestor', commit, 'HEAD'],
+      { cwd: projectRoot },
+    );
+    if (!ancestryResult.ok) {
+      gaps.push('verification report commit is not in the current branch history');
+      return verification;
+    }
+
+    const diffResult = adapters.run(
+      'git',
+      ['diff', '--name-only', '-z', commit, '--'],
+      { cwd: projectRoot },
+    );
+    if (!diffResult.ok) {
+      gaps.push(`verification freshness unavailable: ${boundedMessage(commandFailure(diffResult))}`);
+      return verification;
+    }
+    const changedSinceVerification = diffResult.stdout.split('\0').filter(Boolean);
+    if (changedSinceVerification.includes(relativeReportPath)) {
+      gaps.push('verification report has uncommitted changes; freshness cannot be proven');
+      return verification;
+    }
+    const staleImplementationPaths = [...new Set([
+      ...changedSinceVerification.filter(isImplementationPath),
+      ...untrackedImplementationPaths,
+    ])].sort();
+    if (staleImplementationPaths.length > 0) {
+      gaps.push(`verification report predates implementation changes: ${staleImplementationPaths.join(', ')}`);
+      return verification;
+    }
+
+    verification.current = true;
+    return verification;
   } catch (error) {
     gaps.push(`verification report unavailable: ${boundedMessage(error.message)}`);
-    return { path: path.relative(projectRoot, reportPath), status: 'unknown', current: false };
+    return { path: relativeReportPath, status: 'unknown', current: false, commit: null };
   }
 }
 
@@ -294,6 +344,10 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
 
   const changedPaths = [...new Set([...branchPaths, ...worktreePaths])].sort();
   const implementationPaths = changedPaths.filter(isImplementationPath);
+  const untrackedImplementationPaths = statusLines
+    .filter((line) => line.startsWith('?? '))
+    .map(parseStatusPath)
+    .filter(isImplementationPath);
   const github = collectGithub(projectRoot, branch, issueNumber, adapters, gaps);
   let featureDir = null;
   try {
@@ -320,7 +374,13 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     }
   }
 
-  const verification = collectVerification(projectRoot, spec, adapters, gaps);
+  const verification = collectVerification(
+    projectRoot,
+    spec,
+    untrackedImplementationPaths,
+    adapters,
+    gaps,
+  );
   return {
     project: {
       root: projectRoot,
@@ -486,7 +546,7 @@ export function renderText(status) {
     ? `${status.spec.path} (${status.spec.complete ? 'complete' : `missing ${status.spec.missingFiles.join(', ')}`})`
     : 'unknown';
   const verification = status.verification
-    ? `${status.verification.status} (${status.verification.path})`
+    ? `${status.verification.status}, ${status.verification.current ? 'current' : 'not current'} (${status.verification.path})`
     : 'unknown';
   const pullRequest = status.pullRequest
     ? `#${status.pullRequest.number} ${status.pullRequest.state} (checks: ${status.pullRequest.checks})`

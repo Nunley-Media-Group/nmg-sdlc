@@ -47,6 +47,7 @@ The automated SDLC runner is scheduled for removal in milestone 2. This feature 
 **When** the lifecycle-status command infers the stage
 **Then** it uses the remaining bounded evidence, labels unavailable facts as unknown, and lists material evidence gaps
 **And** it does not advance the reported stage beyond the strongest consistent evidence
+**And** a passing verification report advances the stage only when its Git commit is in the current branch history and no implementation path has changed since that report commit
 
 ### AC4: Never Prompt
 
@@ -69,10 +70,10 @@ The automated SDLC runner is scheduled for removal in milestone 2. This feature 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
 | FR1 | Add a first-class `$nmg-sdlc:status` command that is read-only for every invocation. | Must | The skill delegates deterministic inspection to a bundled zero-dependency Node.js CLI. |
-| FR2 | Infer the active issue, branch, manual lifecycle stage, completed artifacts, missing artifacts, and next action from bounded local and GitHub evidence. | Must | Prefer direct local and live GitHub evidence over assumptions. |
+| FR2 | Infer the active issue, branch, manual lifecycle stage, completed artifacts, missing artifacts, and next action from bounded local and GitHub evidence. | Must | Prefer direct local and live GitHub evidence over assumptions; validate passing reports against their Git commit provenance. |
 | FR3 | Guarantee that status collection does not write, delete, stage, commit, checkout, push, signal, or invoke a mutating GitHub operation. | Must | Dirty worktrees are reportable inputs, not cleanup triggers. |
 | FR4 | Produce concise human-readable output containing the exact recommended nmg-sdlc command and the evidence supporting it. | Must | Unknown or conflicting evidence is surfaced as a gap. |
-| FR5 | Degrade safely when optional local artifacts or GitHub metadata are absent, malformed, unsupported, or unreachable. | Must | Recoverable probe failures must not turn into false stage completion. |
+| FR5 | Degrade safely when optional local artifacts or GitHub metadata are absent, malformed, stale, unsupported, or unreachable. | Must | Uncommitted or implementation-stale reports and recoverable probe failures must not turn into false stage completion. |
 | FR6 | Support `--json` output with a schema-versioned, stable automation contract. | Should | JSON is the only stdout content in machine-readable mode. |
 | FR7 | Document the command, output contract, evidence precedence, and read-only boundary. | Should | README is the public capability reference. |
 | FR8 | Keep runner integration outside the status implementation. | Must | No runner state, logs, sentinel, PID, resume, cleanup, or runner-file modifications. |
@@ -122,7 +123,7 @@ The automated SDLC runner is scheduled for removal in milestone 2. This feature 
 | `project` | object | Repository root, branch, cleanliness, and changed paths. |
 | `issue` | object or null | Number, title/state when known, and evidence source. |
 | `spec` | object or null | Strictly matched spec directory and required-file status. |
-| `verification` | object or null | Report location/status and whether it supports delivery readiness. |
+| `verification` | object or null | Report location/status, the immutable Git commit that contains the report when available, and whether no implementation path has changed since that checkpoint. |
 | `pullRequest` | object or null | Number/state/check state when available. |
 | `stage` | string | Conservative manual lifecycle conclusion. |
 | `completedArtifacts` | array | Evidence-backed completed artifacts or transitions. |
@@ -189,3 +190,4 @@ None.
 |-------|------|---------|
 | #145 | 2026-08-12 | Initial feature spec |
 | #145 | 2026-08-12 | Amended to make automated-runner integration explicitly out of scope ahead of milestone-2 removal |
+| #145 | 2026-08-12 | Required commit-proven verification freshness without adding runner integration |

@@ -14,8 +14,8 @@
 | Backend | 3 | [x] |
 | Skill | 1 | [x] |
 | Integration | 1 | [x] |
-| Testing | 3 | [x] |
-| **Total** | **8** | |
+| Testing | 4 | [x] |
+| **Total** | **9** | |
 
 Skill-bundled files under `skills/status/` must be authored through `$skill-creator`. There is no direct-edit fallback.
 
@@ -144,6 +144,19 @@ The automated SDLC runner is scheduled for removal in milestone 2. No task may m
 - [x] Run `node scripts/codex-compatibility-check.mjs` and `git diff --check` successfully.
 - [x] Verify the final diff contains no runner source/test changes or runner inspection path and records `$skill-creator` routing.
 
+### T009: Prove Verification Freshness from Git Provenance
+
+**File(s)**: `scripts/sdlc-status.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `README.md`, `CHANGELOG.md`, active spec files
+**Type**: Modify
+**Depends**: T006
+**Acceptance**:
+
+- [x] Resolve the latest commit containing the active `verification-report.md` using read-only Git commands.
+- [x] Treat a passing report as current only when its commit is in the current branch history, the report is unchanged, and no implementation path changed after that commit.
+- [x] Keep documentation-only commits after verification current.
+- [x] Treat uncommitted reports and post-verification implementation changes as named gaps and retain the `implemented` stage.
+- [x] Add no automated-runner source, test, state, sentinel, log, configuration, PID, resume, or cleanup behavior.
+
 ---
 
 ## Dependency Graph
@@ -152,9 +165,10 @@ The automated SDLC runner is scheduled for removal in milestone 2. No task may m
 T001 → T002 → T003 → T004 → T005
                   │      └──→ T007 ──┐
                   └──→ T006 ─────────┼──→ T008
+                         └──→ T009 ───┘
 ```
 
-**Critical path**: T001 → T002 → T003 → T004 → T007 → T008
+**Critical path**: T001 → T002 → T003 → T004 → T007 → T008; verification hardening: T006 → T009
 
 ---
 
@@ -164,3 +178,4 @@ T001 → T002 → T003 → T004 → T005
 |-------|------|---------|
 | #145 | 2026-08-12 | Initial feature tasks |
 | #145 | 2026-08-12 | Removed runner integration tasks ahead of milestone-2 runner removal |
+| #145 | 2026-08-12 | Added and completed commit-proven verification freshness hardening |

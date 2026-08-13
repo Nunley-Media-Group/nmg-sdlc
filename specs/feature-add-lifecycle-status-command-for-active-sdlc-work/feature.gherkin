@@ -22,11 +22,12 @@ Feature: Lifecycle status for active SDLC work
 
   Scenario: Degrade safely when optional evidence is unavailable
     Given the repository has enough local evidence to identify an issue branch
-    And optional spec, verification, pull request, CI, or GitHub evidence is absent or unavailable
+    And optional spec, verification, pull request, CI, or GitHub evidence is absent, stale, or unavailable
     When the developer runs the lifecycle-status command
     Then available evidence still appears in the result
     And unavailable facts are labelled unknown and material gaps are listed
     And the reported stage does not advance beyond the strongest consistent evidence
+    And a stale passing report remains not current while its report commit stays visible as provenance
 
   Scenario: Produce status without prompting or acting
     Given a repository has any supported manual lifecycle state

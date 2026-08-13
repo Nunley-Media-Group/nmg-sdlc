@@ -11,156 +11,135 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 4 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 4 |
 | Security | 5 |
 | Performance | 4 |
 | Testability | 5 |
-| Error Handling | 4 |
-| **Overall** | **4.3** |
+| Error Handling | 5 |
+| **Overall** | **4.7** |
 
-**Implementation Status**: Partial
-**Total Issues**: 3 remaining, 1 fixed
+**Implementation Status**: Pass
+**Total Issues**: 0 remaining, 2 fixed
+**Verification Checkpoint**: The delivery commit containing this report is the immutable checkpoint; `$nmg-sdlc:status` derives that commit from Git history and rejects later implementation changes.
 
-The manual lifecycle status command, stable JSON contract, read-only collectors, conservative stage inference, documentation, and test suite are implemented. A post-review fix now treats closed issue or closed-unmerged-PR evidence as an `unknown` lifecycle requiring manual repair. Verification remains Partial because a passing local verification report has no commit/HEAD identity, so `collectVerification()` cannot prove that the report is current after later implementation changes. The branch also contains an unrelated committed `CONTRIBUTING.md` change that is outside issue #145.
+The manual lifecycle status command, stable JSON contract, read-only collectors, conservative stage inference, documentation, and test suite satisfy the approved amended spec. Verification freshness is now commit-proven: a passing report is current only when its report commit is in the active branch history, the report is unchanged, and no implementation path changed afterward. Documentation-only follow-up commits remain valid.
+
+Per the project owner's explicit direction, automated-runner integration remains intentionally out of scope ahead of milestone-2 runner removal. No runner source, tests, state, sentinel, log, configuration, PID, resume, or cleanup behavior was added. The committed `CONTRIBUTING.md` change is an intentional SDLC-upgrade artifact and is not a delivery blocker for issue #145.
 
 ## Spec Context
 
 - activeSpec: `specs/feature-add-lifecycle-status-command-for-active-sdlc-work/`
-- relatedSpecs: `specs/feature-refactor-skill-md-progressive-disclosure/` (reasons: changed `scripts/skill-exercise-runner.mjs`; status evaluator must preserve deterministic pass/fail/no-placeholder-skip contracts)
-- metadataOnlyCount: 84
-- scannedSpecCount: 86
-- loadedSpecCount: 2
-- gaps: the historical progressive-disclosure spec also lists issue #145; active title/branch and current changed paths disambiguate the lifecycle-status spec as primary
+- relatedSpecs: `specs/feature-refactor-skill-md-progressive-disclosure/` (changed status exercise infrastructure must preserve deterministic pass/fail and no-placeholder-skip contracts)
+- activeSource: approved amended spec, including the milestone-2 runner-removal boundary
+- gaps: none
 
 ## Acceptance Criteria Verification
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Infer the current manual SDLC stage | Pass | `scripts/sdlc-status.mjs`; table-driven stage tests; live `codex exec` exercise inferred `specified` from a dirty disposable project and recommended `$nmg-sdlc:write-code #42` |
-| AC2 | Remain read-only | Partial | Before/after filesystem, refs, and status snapshots pass; command spies reject mutations; live exercise left the fixture unchanged. A stale `Pass` report can still be labelled current because reports do not identify the verified commit. |
-| AC3 | Handle partial and unavailable context | Pass | GitHub-unavailable, missing artifact, CI-state, verification-conflict, and closed-lifecycle cases degrade to gaps or manual repair without false completion. |
-| AC4 | Never prompt or act | Pass | `skills/status/SKILL.md` is non-interactive; the live exercise invoked only read-only git/GitHub probes and the bundled CLI. |
-| AC5 | Provide stable automation output | Pass | JSON schema version 1, stable top-level fields, JSON-only stdout, invalid invocation handling, deterministic fixture rubric S1-S6, and live JSON output all passed. |
+| AC1 | Infer the current manual SDLC stage | Pass | `scripts/sdlc-status.mjs`; all eight stages covered by table-driven tests; strict spec and GitHub evidence collectors pass. |
+| AC2 | Remain read-only | Pass | Before/after filesystem, refs, and status snapshots pass; command spies reject mutations; freshness uses only `git log`, `git merge-base --is-ancestor`, and `git diff`. |
+| AC3 | Handle partial, stale, and unavailable context | Pass | Missing sources, GitHub failures, conflicting evidence, uncommitted reports, stale reports, closed lifecycle contradictions, and CI states degrade conservatively with named gaps. |
+| AC4 | Never prompt or act | Pass | `skills/status/SKILL.md` is non-interactive and delegates only to the read-only CLI; contract and exercise tests pass. |
+| AC5 | Provide stable automation output | Pass | JSON schema version 1, stable top-level fields, additive `verification.commit`, JSON-only stdout, deterministic fixtures, and renderer tests pass. |
 
-## Original Issue Alignment
+## Scope Alignment
 
-The live GitHub issue still asks for runner interruption/state handling in AC2. The approved amended spec deliberately removes runner integration ahead of milestone-2 removal. Verification uses the amended spec as the primary pass/fail source and records the stale issue body as a traceability gap; this report comment documents the divergence without silently treating the original runner criterion as implemented.
+The live GitHub issue predates the approved spec amendment and still mentions runner-interruption behavior. The owner confirmed that the amended spec is authoritative and that runner integration must not be implemented because the runner is scheduled for removal in milestone 2. This is an intentional scope decision, not a traceability defect.
+
+`CONTRIBUTING.md` was generated by an SDLC upgrade. The owner explicitly approved retaining and overlooking it for issue-scope review; it remains committed and is excluded from lifecycle implementation-path classification.
 
 ## Task Completion
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Bounded manual-lifecycle evidence collection | Complete | Read-only git/GitHub adapters, strict branch/issue spec discovery, required file checks, and named gaps are present. |
-| T002 | Conservative lifecycle inference | Complete | All eight stages are covered; closed lifecycle contradictions were fixed during verification. |
-| T003 | CLI and renderers | Complete | `--project`, `--json`, `--help`, stable output, import safety, and non-zero hard errors are tested. |
-| T004 | Status skill through `$skill-creator` | Complete with provenance gap | Skill contract and compatibility checks pass; repository contents do not independently prove the authoring-session routing. |
-| T005 | README and CHANGELOG integration | Complete | Status is documented as a diagnostic utility and `[Unreleased]` records issue #145. |
-| T006 | Unit and integration tests | Complete | 23 focused status tests pass within 461 total tests. |
-| T007 | Skill contract and exercise coverage | Complete | Deterministic rubric: 14 pass, 0 fail, 0 skipped; explicit live `codex exec` source-tree exercise also passed. |
-| T008 | Verification gates | Complete | All extracted gates and compatibility/diff checks pass. |
+| T001 | Bounded manual-lifecycle evidence collection | Complete | Read-only local and GitHub collectors with named gaps. |
+| T002 | Conservative lifecycle inference | Complete | Eight stages, conflict handling, and exact next actions covered. |
+| T003 | CLI and renderers | Complete | Text/JSON output, argument handling, import safety, and non-git errors pass. |
+| T004 | Status skill through `$skill-creator` | Complete | Skill contract, compatibility, and exercise checks pass. |
+| T005 | README and CHANGELOG integration | Complete | Public behavior, freshness, and runner exclusion documented. |
+| T006 | Unit and integration tests | Complete | Full suite passes with focused freshness regressions. |
+| T007 | Skill contract and exercise coverage | Complete | 14 pass, 0 fail, 0 skipped. |
+| T008 | Inventory and verification gates | Complete | All extracted gates and compatibility/diff checks pass. |
+| T009 | Commit-proven verification freshness | Complete | Current, documentation-only, stale-implementation, and uncommitted-report cases pass. |
 
 ## Architecture Assessment
 
-### SOLID Compliance
-
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 4 | Collection, inference, rendering, and CLI entry are separated into functions, though the zero-dependency CLI remains one 550-line module. |
-| Open/Closed | 4 | Evidence adapters and pure inference are extensible; lifecycle changes still modify the central inference function. |
-| Liskov Substitution | 5 | Injected filesystem and command adapters are substitutable in tests. |
-| Interface Segregation | 4 | Adapter surface is intentionally small (`fs`, `run`). |
-| Dependency Inversion | 5 | External commands and filesystem access are isolated behind injected adapters. |
+| Single Responsibility | 4 | Collection, inference, rendering, and CLI entry remain separated functions in one zero-dependency module. |
+| Open/Closed | 4 | Injected adapters and pure inference remain extensible; lifecycle changes still touch the central inference module. |
+| Liskov Substitution | 5 | Filesystem and command adapters remain substitutable in tests. |
+| Interface Segregation | 4 | Adapter surface remains intentionally small (`fs`, `run`). |
+| Dependency Inversion | 5 | Git, GitHub, and filesystem access remain isolated behind adapters. |
 
-The skill delegates deterministic behavior to the script, and the script preserves the steering contract: Node.js ESM, built-ins only, `node:path`, argument arrays, no runner coupling, and no mutation.
+The freshness design uses the commit that last changed the active verification report instead of embedding a self-referential hash in that report. It validates ancestry and current implementation state without altering Git objects, refs, the index, or the working tree.
 
-## Security Assessment
+## Security and Performance
 
-- External repository and GitHub values are passed as child-process arguments, never interpolated into shell source.
-- File reads are capped; error details are single-line and bounded.
-- GitHub probes are limited to `gh issue view`, `gh pr list`, and `gh pr checks`.
-- No secrets, credentials, or full issue bodies are emitted.
-
-**Score**: 5/5
-
-## Performance Assessment
-
-- Local reads are targeted and capped; GitHub subprocesses have 30-second timeouts.
-- Synchronous subprocesses are acceptable for the short-lived CLI but execute sequentially.
-- Spec metadata discovery reads bounded requirement prefixes but can still scale linearly with the number of spec directories.
-
-**Score**: 4/5
-
-## Testability and Error Handling
-
-- Pure inference/render functions and injected adapters support deterministic unit tests.
-- Disposable git repositories verify collection and mutation-free behavior.
-- Optional probe failures become named gaps; invalid invocation and non-git projects return non-zero with actionable stderr.
-- No custom error hierarchy is needed for this CLI, but report freshness cannot be classified reliably without stronger report metadata.
-
-**Testability**: 5/5
-**Error Handling**: 4/5
+- Repository and GitHub values are passed as child-process arguments, never interpolated into shell source.
+- Freshness commands use bounded, read-only Git forms and NUL-delimited changed paths.
+- Git paths are normalized cross-platform with `node:path` semantics.
+- File reads remain capped and diagnostics remain single-line and bounded.
+- Spec discovery remains bounded; GitHub subprocesses retain 30-second timeouts.
 
 ## Test Coverage
 
 | Acceptance Criterion | Gherkin Scenario | Automated Evidence | Result |
 |---------------------|------------------|--------------------|--------|
-| AC1 | Yes | Stage table, collectors, live exercise | Pass |
-| AC2 | Yes | Snapshot/read-only tests and live exercise | Partial: freshness gap |
-| AC3 | Yes | Optional failure and conflict cases | Pass |
-| AC4 | Yes | Skill contract and live execution trace | Pass |
-| AC5 | Yes | Renderer/CLI tests and deterministic rubric | Pass |
+| AC1 | Yes | Stage table and evidence collectors | Pass |
+| AC2 | Yes | Mutation-free snapshots and command spies | Pass |
+| AC3 | Yes | Current/stale/uncommitted report and optional-source cases | Pass |
+| AC4 | Yes | Skill contract and exercise trace | Pass |
+| AC5 | Yes | Renderer, CLI, schema, and stdout-purity tests | Pass |
 
+- Full tests: 21 suites passed, 3 skipped; 463 tests passed, 17 skipped; 0 failures
+- Focused status tests: 25 passed; 0 failures
 - BDD scenarios: 5/5 acceptance criteria covered, plus one explicit runner-out-of-scope guard
-- Step definitions: executable behavior is covered through Jest integration tests and exercise fixtures; Gherkin remains a design/verification artifact per `steering/tech.md`
-- Full test execution: 21/24 suites passed, 3 skipped; 461/478 tests passed, 17 skipped; 0 failures
 
 ## Exercise Test Results
 
 | Field | Value |
 |-------|-------|
 | Skill exercised | `status` |
-| Deterministic method | `node scripts/skill-exercise-runner.mjs --skill status` |
-| Deterministic result | 14 pass, 0 fail, 0 skipped |
-| Live method | `codex exec` in a disposable read-only-sandbox project, explicitly loading this branch's `skills/status/SKILL.md` because installed 1.71.0 predates the new skill |
-| Live result | JSON-only output; stage `specified`; dirty spec fixture preserved; GitHub unavailable recorded as named gaps; next action `$nmg-sdlc:write-code #42` |
+| Method | `node scripts/skill-exercise-runner.mjs --skill status` |
+| Result | 14 pass, 0 fail, 0 skipped |
 | Prompt handling | N/A — status never prompts |
-| Cleanup | Disposable project moved to Trash after recursive deletion was rejected by command policy |
+| Runner integration | None; static guard remains green |
 
 ## Steering Doc Verification Gates
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| SDLC runner tests | Pass | `cd scripts && npm test -- --runInBand`: 461 passed, 17 skipped, 0 failed |
-| Skill exercise test | Pass | Status deterministic rubric: 14 passed, 0 failed, 0 skipped; live source-tree exercise passed |
-| Skill inventory audit | Pass | 569 inventory items mapped |
-| Prompt quality review | Pass | 65-line skill; unambiguous arguments, runtime path resolution, JSON boundary, no prompt, correct reference pointer, and integration section |
-| Behavioral contract review | Pass | Preconditions, outputs, read-only invariants, unavailable-evidence handling, and no-runner boundaries are addressed; freshness limitation remains documented |
+| SDLC runner tests | Pass | `cd scripts && npm test -- --runInBand`: 463 passed, 17 skipped, 0 failed. |
+| Skill exercise test | Pass | Status deterministic rubric: 14 passed, 0 failed, 0 skipped. |
+| Skill inventory audit | Pass | 569 inventory items mapped. |
+| Prompt quality review | Pass | Status skill remains concise, non-interactive, argument-safe, and correctly delegated. |
+| Behavioral contract review | Pass | Preconditions, postconditions, read-only invariants, freshness, unavailable evidence, and runner exclusion are covered. |
 
 **Gate Summary**: 5/5 passed, 0 failed, 0 incomplete
 
 Additional checks:
 
 - `node scripts/codex-compatibility-check.mjs` — Pass
-- `git diff --check main...HEAD` and `git diff --check` — Pass
-- Direct text and JSON CLI execution on the active repository — Pass (`implemented`, issue #145, complete spec, no PR)
+- `git diff --check` — Pass
+- Direct text and JSON CLI execution on the active repository — Pass
+- Runner-related changed-file scan — none
 
 ## Fixes Applied
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| Medium | Reliability | `scripts/sdlc-status.mjs` | Closed issue or closed-unmerged-PR evidence added a gap but still advanced to a delivery recommendation. | Stage now becomes `unknown` with a manual-repair action; two regression cases added. | direct |
+| Medium | Reliability | `scripts/sdlc-status.mjs` | Closed issue or closed-unmerged-PR evidence could still advance to delivery. | Closed lifecycle contradictions now require manual repair. | direct |
+| High | Reliability | `scripts/sdlc-status.mjs` | A `Pass` string alone was treated as current after later implementation changes. | Resolve the report commit, prove ancestry, verify the report is unchanged, and reject implementation changes after the checkpoint; added current, documentation-only, stale, and uncommitted regressions. | direct |
 
-The bundled `$nmg-sdlc:simplify` pass reviewed the two modified files and found no further worthwhile behavior-preserving cleanup.
+The bundled `$nmg-sdlc:simplify` review found no further worthwhile behavior-preserving cleanup after cross-platform Git-path normalization.
 
 ## Remaining Issues
 
-| Severity | Category | Location | Issue | Reason Not Fixed |
-|----------|----------|----------|-------|------------------|
-| High | Reliability | `scripts/sdlc-status.mjs` / verification report contract | Any report containing `Implementation Status: Pass` is marked `current: true` without a verified commit/HEAD identity, so later code changes can be misreported as `verified`. | A reliable fix requires a broader `$nmg-sdlc:verify-code` report schema that records verified commit identity and status-side validation; timestamp heuristics would be unsafe. |
-| Medium | Scope | `CONTRIBUTING.md`, commit `1ce6bb7` | The branch includes an unrelated contribution-evidence documentation commit not mapped to issue #145 or its tasks. | Preserved as user-owned committed work; split or rebase it before opening the issue #145 PR. |
-| Medium | Traceability | GitHub issue #145 | The issue body still requires runner interruption handling while the approved amended spec explicitly excludes it. | Verification comments can document the mismatch, but rewriting the issue contract is outside this verification pass. |
+None.
 
 ## Recommendation
 
-**Needs fixes before PR.** The implementation and all gates are green, but delivery should wait until verification-report freshness has a commit-linked contract and the unrelated `CONTRIBUTING.md` commit is removed from this feature branch or delivered separately. The issue/spec runner-scope divergence should also be reconciled for reviewer clarity.
+**Ready for PR.** All acceptance criteria and verification gates pass. The amended spec's no-runner boundary and the owner-approved SDLC-upgrade `CONTRIBUTING.md` artifact are intentional and non-blocking.

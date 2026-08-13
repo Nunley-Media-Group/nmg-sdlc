@@ -210,6 +210,64 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('specified');
   });
 
+  it('trusts a passing verification report only while its committed implementation snapshot is current', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      '# Verification Report\n\n**Implementation Status**: Pass\n',
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'feat: add verified fixture'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const current = collectEvidence(root, { run: localRun });
+    expect(current.verification).toMatchObject({
+      status: 'pass',
+      current: true,
+      commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
+    expect(inferLifecycle(current).stage).toBe('verified');
+
+    fs.writeFileSync(path.join(root, 'README.md'), '# Fixture\n\nDocumentation update.\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'docs: update fixture'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const afterDocumentation = collectEvidence(root, { run: localRun });
+    expect(afterDocumentation.verification).toMatchObject({ status: 'pass', current: true });
+
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 2;\n');
+
+    const stale = collectEvidence(root, { run: localRun });
+    expect(stale.verification).toMatchObject({
+      status: 'pass',
+      current: false,
+      commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
+    expect(stale.gaps).toContain('verification report predates implementation changes: src/index.js');
+    expect(inferLifecycle(stale).stage).toBe('implemented');
+    expect(renderText(inferLifecycle(stale))).toContain('Verification: pass, not current');
+  });
+
+  it('does not trust an uncommitted passing verification report', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      '# Verification Report\n\n**Implementation Status**: Pass\n',
+    );
+
+    const evidence = collectEvidence(root, { run: localRun });
+    expect(evidence.verification).toMatchObject({ status: 'pass', current: false, commit: null });
+    expect(evidence.gaps).toContain('verification report is not committed; freshness cannot be proven');
+    expect(inferLifecycle(evidence).stage).toBe('implemented');
+  });
+
   it('recovers the issue and strict spec match from a pull-request-linked branch', () => {
     execFileSync('git', ['branch', '-m', 'feature/status-fixture'], { cwd: root });
     const run = (command, args, options) => {

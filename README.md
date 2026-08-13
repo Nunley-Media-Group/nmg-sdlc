@@ -87,7 +87,7 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines bounded local git, matching spec, verification-report, and optional read-only GitHub issue/PR/check evidence. It reports the inferred stage, completed and missing artifacts, material evidence gaps, and the exact existing command that owns the next mutation.
+Status combines bounded local git, matching spec, verification-report, and optional read-only GitHub issue/PR/check evidence. A passing report counts as current only when the commit containing that report is in the active branch history, the report is unchanged, and no implementation path changed afterward; documentation-only follow-up commits do not invalidate it. Uncommitted or stale reports become named gaps instead of advancing the lifecycle. Status reports the inferred stage, completed and missing artifacts, material evidence gaps, and the exact existing command that owns the next mutation.
 
 Human output keeps the stage first and next action last:
 
@@ -103,7 +103,7 @@ Missing: implementation, verification, pull request
 Next: $nmg-sdlc:write-code #145
 ```
 
-JSON mode emits only a valid JSON document with `schemaVersion: 1` and stable top-level fields: `project`, `issue`, `spec`, `verification`, `pullRequest`, `stage`, `completedArtifacts`, `missingArtifacts`, `gaps`, and `nextAction`. Optional probes that are absent, malformed, unsupported, or unreachable become `unknown`, `null`, or a named gap instead of corrupting output or overstating progress.
+JSON mode emits only a valid JSON document with `schemaVersion: 1` and stable top-level fields: `project`, `issue`, `spec`, `verification`, `pullRequest`, `stage`, `completedArtifacts`, `missingArtifacts`, `gaps`, and `nextAction`. When available, `verification.commit` contains the immutable Git checkpoint used for freshness validation. Optional probes that are absent, malformed, stale, unsupported, or unreachable become `unknown`, `null`, or a named gap instead of corrupting output or overstating progress.
 
 Status never prompts. It does not change branches, modify GitHub state, verify code, create a PR, deliver, or merge; it only recommends the command that owns that work.
 
