@@ -61,7 +61,7 @@ The live GitHub issue predates the approved spec amendment and still mentions ru
 | T005 | README and CHANGELOG integration | Complete | Public behavior, freshness, and runner exclusion documented. |
 | T006 | Unit and integration tests | Complete | Full suite passes with focused freshness regressions. |
 | T007 | Skill contract and exercise coverage | Complete | 14 pass, 0 fail, 0 skipped. |
-| T008 | Inventory and verification gates | Complete | All extracted gates and compatibility/diff checks pass. |
+| T008 | Inventory and verification gates | Complete | All extracted gates and compatibility/diff checks pass; the committed inventory baseline includes the eight intentional `skills/status/SKILL.md` clauses. |
 | T009 | Commit-proven verification freshness | Complete | Current, documentation-only, stale-implementation, and uncommitted-report cases pass. |
 
 ## Architecture Assessment
@@ -114,7 +114,7 @@ The freshness design uses the commit that last changed the active verification r
 |------|--------|----------|
 | SDLC runner tests | Pass | `cd scripts && npm test -- --runInBand`: 463 passed, 17 skipped, 0 failed. |
 | Skill exercise test | Pass | Status deterministic rubric: 14 passed, 0 failed, 0 skipped. |
-| Skill inventory audit | Pass | 569 inventory items mapped. |
+| Skill inventory audit | Pass | 569 inventory items mapped; baseline freshness matches with 8 additions and 0 removals. |
 | Prompt quality review | Pass | Status skill remains concise, non-interactive, argument-safe, and correctly delegated. |
 | Behavioral contract review | Pass | Preconditions, postconditions, read-only invariants, freshness, unavailable evidence, and runner exclusion are covered. |
 
@@ -124,6 +124,7 @@ Additional checks:
 
 - `node scripts/codex-compatibility-check.mjs` — Pass
 - `git diff --check` — Pass
+- `VERSION` and `.codex-plugin/plugin.json` — verified in lock-step at `1.72.0`
 - Direct text and JSON CLI execution on the active repository — Pass
 - Runner-related changed-file scan — none
 
