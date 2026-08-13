@@ -58,7 +58,7 @@ Skip any efficiency change that would require new dependencies, alter ordering g
 
 Run the review inline by default.
 
-Use Codex `explorer` subagents only when the user or runner explicitly authorizes delegation. When authorized, spawn three bounded read-only explorers in parallel:
+Use Codex `explorer` subagents only when the user explicitly authorizes delegation. When authorized, spawn three bounded read-only explorers in parallel:
 
 | Explorer | Scope | Output |
 |----------|-------|--------|

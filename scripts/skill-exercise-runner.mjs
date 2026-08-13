@@ -10,7 +10,7 @@
  * Two evaluation classes:
  *   - Deterministic checks run structurally against the plugin tree (line
  *     count, frontmatter byte-identity, pointer grammar, file budget, audit
- *     script, slash-command surface). These cover the AC1/AC2/AC3/AC5/AC8
+ *     script, loader-facing skill metadata). These cover the AC1/AC2/AC3/AC5/AC8
  *     bar from issue #146 and are the must-pass half of the rubric.
  *   - Rubric-graded checks evaluate captured live output when opt-in exercise
  *     mode is enabled, or deterministic fixture artifacts in default CI mode.
@@ -238,21 +238,24 @@ function deterministicChecks(skillName, baseRef) {
     });
   }
 
-  // D7: slash-command surface (`name`, `description`) byte-identical
+  // D7: surviving command name is stable and its current description remains valid.
+  // Contract migrations may intentionally update trigger descriptions, so byte identity
+  // is not a universal invariant.
   if (baseSource != null) {
     const baseFm = extractFrontmatter(baseSource);
     const nameStable = fmField(baseFm, 'name') === fmField(frontmatter, 'name');
-    const descStable = fmField(baseFm, 'description') === fmField(frontmatter, 'description');
+    const description = fmField(frontmatter, 'description') || '';
+    const descriptionValid = description.length > 0 && Array.from(description).length <= 1024;
     results.push({
       id: 'D7',
-      name: 'slash-command surface unchanged (name + description)',
-      status: nameStable && descStable ? 'pass' : 'fail',
-      detail: !nameStable ? 'name changed' : (!descStable ? 'description changed' : null),
+      name: 'loader-facing skill metadata is valid',
+      status: nameStable && descriptionValid ? 'pass' : 'fail',
+      detail: !nameStable ? 'name changed' : (!descriptionValid ? 'description missing or exceeds 1024 characters' : null),
     });
   } else if (gitRefExists(baseRef)) {
-    results.push({ id: 'D7', name: 'slash-command surface unchanged', status: 'pass', detail: 'new skill has no prior slash-command surface' });
+    results.push({ id: 'D7', name: 'loader-facing skill metadata is valid', status: 'pass', detail: 'new skill has no prior command name' });
   } else {
-    results.push({ id: 'D7', name: 'slash-command surface unchanged', status: 'skipped', detail: `base ref ${baseRef} unreachable` });
+    results.push({ id: 'D7', name: 'loader-facing skill metadata is valid', status: 'skipped', detail: `base ref ${baseRef} unreachable` });
   }
 
   // D8: references > 300 lines include a TOC within first 30 lines

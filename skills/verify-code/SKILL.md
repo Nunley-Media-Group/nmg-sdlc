@@ -13,8 +13,6 @@ Verify the implementation against specifications, fix any findings, review archi
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Verification against a mixed layout produces misleading results.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` gate call site in this skill so the runner proceeds through all steps without blocking.
-
 Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
 
 Read `../../references/steering-schema.md` when you need to know which steering doc to read for which step — steering docs are required inputs to this skill, not optional references.
@@ -95,7 +93,7 @@ Check each acceptance criterion against actual code:
 
 ### Step 4: Architecture Review
 
-Run the architecture review inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded prompt to evaluate the implementation against all five checklists and return structured scores and findings.
+Run the architecture review inline by default. If the user explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded prompt to evaluate the implementation against all five checklists and return structured scores and findings.
 
 When using a subagent, assume it has no useful conversation context — it only sees the prompt you give it. Include the steering doc content in the subagent prompt:
 
@@ -179,10 +177,9 @@ Remaining issues: [count]
 
 GitHub issue #N updated with verification report.
 
-[If `.codex/unattended-mode` does NOT exist AND passing]: Next step: Run `$nmg-sdlc:open-pr #N` to create a pull request.
-[If `.codex/unattended-mode` does NOT exist AND remaining issues]: Deferred items documented — review before creating a PR.
-[If `.codex/unattended-mode` does NOT exist AND failing]: Critical issues remain — address the items above before creating a PR.
-[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
+[If passing]: Next step: Run `$nmg-sdlc:open-pr #N` to create a pull request.
+[If remaining issues]: Deferred items documented — review before creating a PR.
+[If failing]: Critical issues remain — address the items above before creating a PR.
 ```
 
 ---

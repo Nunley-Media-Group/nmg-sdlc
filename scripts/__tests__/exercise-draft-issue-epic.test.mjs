@@ -93,19 +93,16 @@ describeRunner('exercise: /draft-issue Epic branch', () => {
     expect(blob).toMatch(/Depends on: #\{?\d+|askId/);
   }, 300_000);
 
-  test('unattended mode never auto-selects Epic without explicit Type: epic signal', async () => {
+  test('multi-phase wording does not select Epic without explicit user classification', async () => {
     const cwd = scaffoldTestProject();
     projects.push(cwd);
-    fs.mkdirSync(path.join(cwd, '.codex'), { recursive: true });
-    fs.writeFileSync(path.join(cwd, '.codex', 'unattended-mode'), '');
 
     const messages = await runSkill({
       cwd,
       prompt: '/nmg-sdlc:draft-issue "add dark mode in phases with multiple PRs across UI, settings, and persistence"',
     });
     const blob = JSON.stringify(messages);
-    // In unattended mode the classifier defaults to Feature unless Type: epic is present.
-    // Check that no Epic body markers were emitted.
+    // The classifier waits for explicit issue-type input; prose alone is not authority.
     expect(blob).not.toMatch(/## Delivery Phases/);
   }, 300_000);
 });

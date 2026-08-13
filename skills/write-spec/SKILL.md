@@ -40,8 +40,6 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
 
-Read `../../references/unattended-mode.md` when the workflow starts — every Human Review Gate in this skill is pre-approved (no `request_user_input`, no inline summary) when the `.codex/unattended-mode` sentinel exists.
-
 Read `../../references/steering-schema.md` when you need each steering doc's purpose, read-timing, or discovery rules.
 
 Read `../../references/feature-naming.md` when deriving a `feature-{slug}` / `bug-{slug}` slug or locating an existing spec for an issue.
@@ -94,7 +92,7 @@ Extract the user story, acceptance criteria, functional requirements, and out-of
 
 1. Read the issue via `gh issue view #N` and apply Defect Detection (above).
 2. Read `steering/product.md` for user context and product vision.
-3. If `steering/retrospective.md` exists, read it and apply relevant learnings when drafting acceptance criteria — read each learning as a transferable principle and adapt it to the current feature's domain. Example: a learning like "When specifying features that interact with external systems via session-scoped protocols, include ACs for state persistence across invocations" applied to a connection-pool feature becomes: "Given a connection is checked out and used for a query / When the connection is returned to the pool / Then any session-level state (temp tables, variables) is reset before reuse."
+3. If `steering/retrospective.md` exists, read it and apply relevant learnings when drafting acceptance criteria. First reject any Learning or Recommendation that conflicts with the current `steering/product.md`, `steering/tech.md`, or `steering/structure.md`; treat Evidence paths as historical traceability only. Read each surviving learning as a transferable principle and adapt it to the current feature's domain. Example: a learning like "When specifying features that interact with external systems via session-scoped protocols, include ACs for state persistence across invocations" applied to a connection-pool feature becomes: "Given a connection is checked out and used for a query / When the connection is returned to the pool / Then any session-level state (temp tables, variables) is reset before reuse."
 4. Read `references/interview.md` when Phase 1 has read the issue and steering docs and is about to enter amendment or creation mode.
 5. **In amendment mode**: follow `references/amendment-mode.md` § Phase 1.
 6. **In creation mode**:
@@ -126,7 +124,7 @@ Read `references/review-gates.md` when this gate fires — § Phase 1 contains t
 1. Read steering docs for project architecture and conventions.
 2. Explore the codebase to understand existing patterns:
    - Use file search and text search to find related code.
-   - Do deeper investigation inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded read-only question.
+   - Do deeper investigation inline by default. If the user explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded read-only question.
 3. **In amendment mode**: follow `references/amendment-mode.md` § Phase 2.
 4. **In creation mode**:
    1. Draft `design.md` content from [templates/design.md](templates/design.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
@@ -192,10 +190,9 @@ After the Phase 3 approval gate, detect a multi-PR delivery trigger. The trigger
 
 The umbrella spec is not itself a shipping change, so sealing commits the spec without a version bump and (optionally) creates child issues — bypassing `$nmg-sdlc:open-pr`'s normal version-bump path.
 
-#### 3b.1 Offer Seal (interactive) or Auto-Execute (unattended)
+#### 3b.1 Offer Seal
 
-- **Interactive mode.** Ask through `request_user_input` in Plan Mode: `Seal and transition` (commit `specs/{feature-name}/`, push, offer child issue creation) or `Do not seal` (the user will handle child-issue creation manually). Include the selected seal behavior in the `<proposed_plan>` and auto-execute after acceptance.
-- **Unattended mode.** Auto-execute the seal per 3b.2 (deterministic-default gate per `../../references/unattended-mode.md`).
+Ask through `request_user_input` in Plan Mode: `Seal and transition` (commit `specs/{feature-name}/`, push, offer child issue creation) or `Do not seal` (the user will handle child-issue creation manually). Include the selected seal behavior in the `<proposed_plan>` and auto-execute after acceptance.
 
 #### 3b.2 Idempotency Check and Seal Commit
 
@@ -214,8 +211,7 @@ The umbrella spec is not itself a shipping change, so sealing commits the spec w
 
 #### 3b.3 Offer Child-Issue Creation
 
-- **Interactive mode.** After a successful seal, ask through `request_user_input` in Plan Mode whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input. Include the selected child-issue action in the `<proposed_plan>` and auto-execute after acceptance.
-- **Unattended mode.** Auto-execute child creation (no prompt).
+After a successful seal, ask through `request_user_input` in Plan Mode whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input. Include the selected child-issue action in the `<proposed_plan>` and auto-execute after acceptance.
 
 #### 3b.4 After-Seal Next-Step Hint
 
@@ -239,8 +235,7 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 - tasks.md — Phased implementation tasks
 - feature.gherkin — BDD test scenarios
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:write-code #N` to plan and execute implementation.
-[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
+Next step: Run `$nmg-sdlc:write-code #N` to plan and execute implementation.
 ```
 
 ---

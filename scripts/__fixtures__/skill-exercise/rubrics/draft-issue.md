@@ -15,7 +15,7 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 | D4 | Reference file budget | `ls skills/draft-issue/references/ | wc -l ≤ 6` | AC8 (epic) |
 | D5 | Every referenced file exists | Every path named in a pointer line resolves to a real file | Pointer correctness |
 | D6 | Audit passes | `node scripts/skill-inventory-audit.mjs --check` exits 0 | AC5 (issue #146) / AC6 (epic) |
-| D7 | Slash-command surface | `name:` and `description:` frontmatter fields are byte-identical to the pre-refactor baseline | AC4 (epic) |
+| D7 | Loader-facing metadata | The surviving `name:` is stable and `description:` is non-empty and at most 1024 characters; intentional trigger-description migrations are allowed | AC4 (epic) |
 | D8 | References > 300 lines have a TOC | Any `draft-issue/references/*.md` over 300 lines includes a Markdown TOC within the first 30 lines | AC8 (epic) |
 
 ## Rubric-Graded Checks

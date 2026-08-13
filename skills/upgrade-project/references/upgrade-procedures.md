@@ -1,230 +1,151 @@
 # Upgrade Procedures Reference
 
-Detailed reference material for the upgrade-project skill.
-
----
+Detailed apply rules for findings already accepted through `upgrade-project`'s interactive plan. Never apply an unapproved category or path.
 
 ## Relevance Heuristic Table
 
-Use this table to determine whether a missing template section is relevant to the project. For each missing heading, check if it matches a keyword (case-insensitive substring match against the heading text). If it matches, run file discovery with the associated patterns **one at a time, stopping at the first match** — if any pattern returns results, the section is relevant (include it) and skip remaining patterns. If **none** return results, the section is irrelevant — exclude it.
+For each missing steering heading, match heading keywords case-insensitively and check the associated patterns one at a time, stopping on the first match.
 
-| Heading Keyword | Codebase Evidence (File discovery patterns) |
-|----------------|----------------------------------|
-| `Database` | `**/migrations/**`, `**/schema.*`, `**/*database*`, `**/*prisma*`, `**/*knexfile*`, `**/sequelize*`, `**/typeorm*`, `**/drizzle*`, `**/*.sql`, `**/models/**` |
-| `API / Interface Standards` | `**/routes/**`, `**/controllers/**`, `**/api/**`, `**/endpoints/**`, `**/*router*`, `**/swagger*`, `**/openapi*` |
-| `Design Tokens` or `UI Standards` | `**/components/**`, `**/*.css`, `**/*.scss`, `**/*.styled.*`, `**/theme*`, `**/tokens*`, `**/*.tsx`, `**/*.vue`, `**/*.svelte` |
+| Heading Keyword | Codebase Evidence |
+|----------------|-------------------|
+| `Database` | `**/migrations/**`, `**/schema.*`, `**/*database*`, `**/*.sql`, `**/models/**` |
+| `API / Interface Standards` | `**/routes/**`, `**/controllers/**`, `**/api/**`, `**/endpoints/**`, `**/*router*`, `**/openapi*` |
+| `Design Tokens` or `UI Standards` | `**/components/**`, `**/*.css`, `**/*.scss`, `**/theme*`, `**/tokens*`, `**/*.tsx`, `**/*.vue`, `**/*.svelte` |
 
-**Conservative default:** If a missing heading does not match any keyword in this table, include it in the proposal. The table is a filter for known-irrelevant sections, not a whitelist.
-
----
+If a known heading has no matching evidence, filter it from the proposal. Include unknown headings conservatively so the user decides.
 
 ## Exclusion File Schema
 
-The `.codex/upgrade-exclusions.json` file stores section headings the user has previously declined:
+`.codex/upgrade-exclusions.json` stores steering sections the user explicitly declined:
 
 ```json
 {
   "excludedSections": {
-    "tech.md": ["Database Standards", "API / Interface Standards"],
+    "tech.md": ["Database Standards"],
     "structure.md": ["Design Tokens / UI Standards (if applicable)"]
   }
 }
 ```
 
-- Keys are steering doc filenames (not full paths)
-- Values are arrays of exact heading text (without the `## ` prefix)
-- Only sections explicitly declined by the user are stored
-- Stale entries (for headings removed from templates) are harmless
+Preserve existing entries. Add only newly declined exact heading text; never infer a decline from silence or timeout.
 
----
+## Apply Markdown Findings
 
-## Step 9: Apply Changes
+For each approved steering or spec section:
 
-If the user approves:
+1. Re-read the target.
+2. Insert the template section after its predecessor in template order.
+3. Match the target's separator style.
+4. Re-read and confirm the exact heading exists once.
 
-### Markdown files (steering docs and specs)
+For each approved Related Spec correction, replace only the `**Related Spec**:` line. For approved frontmatter changes, follow `../../references/spec-frontmatter.md`. Directory consolidation and rename behavior remains in `migration-steps.md` and must use only its separately approved source/target set.
 
-For each file with missing sections:
-
-1. Read the file
-2. For each missing section (in template order):
-   - Find the predecessor section's heading in the file
-   - Locate the end of the predecessor section (the line before the next `## ` heading, or end of file)
-   - Use Codex editing to insert the missing section content (including `---` separator and `## ` heading) after the predecessor section
-3. After all insertions, re-read the file to verify the new headings are present
-
-**Insertion format:** Insert a blank line, then `---`, then a blank line, then the full section content from the template (heading + body). Match the separator style used in the rest of the file.
-
-### Related Spec corrections
-
-For each defect spec with an approved Related Spec correction (from Step 4a findings):
-
-1. Read the defect spec's `requirements.md`
-2. Use Codex editing to replace the `**Related Spec**:` line with the corrected value (the resolved feature spec path, or `N/A`)
-
-### JSON config
-
-For the `sdlc-config.json`:
-
-1. Read the current file
-2. For each missing root-level key, add it with the template default value
-3. For each missing step entry, add it with the template default values
-4. For each existing step with missing sub-keys, add the missing sub-keys
-5. Write the updated JSON (preserve existing values, only add missing keys)
-6. Use Codex editing to add the missing keys — do not overwrite the entire file
-
-### Runner Config Path Refresh
-
-Apply approved or unattended-managed Runner Config Path Refresh findings from `verification.md` separately from generic value drift:
-
-1. Read `sdlc-config.json` as JSON.
-2. For each approved path-refresh finding, verify the replacement root still contains `.codex-plugin/plugin.json`, `skills/`, and `scripts/sdlc-runner.mjs`.
-3. If the selected stale field was `pluginRoot`, replace only `pluginRoot` with the verified replacement root.
-4. If the selected stale field was `pluginsPath`, add or replace `pluginRoot` with the verified replacement root and leave `pluginsPath` unchanged. The runner's existing precedence makes `pluginRoot` the selected path without destroying legacy config.
-5. Preserve every unrelated key and value, including project path, model, effort, timeouts, retries, cleanup, log settings, and user-added fields.
-6. Write the updated JSON with 2-space indentation.
-7. Re-read `sdlc-config.json` and verify the selected runner root now passes the plugin-root shape check.
-8. If the replacement root no longer validates, skip the edit and record the no-replacement gap instead of writing a partial config.
+## Apply Managed Repository Assets
 
 ### Contribution guide
 
-Apply approved or unattended-managed findings from `../../references/contribution-guide.md`:
+Follow `../../references/contribution-guide.md`:
 
-1. Verify `steering/product.md`, `steering/tech.md`, and `steering/structure.md` exist before writing guide content.
-2. If `CONTRIBUTING.md` is missing, create the root guide using the shared reference's default structure and steering-derived, stack-agnostic expectations.
-3. If `CONTRIBUTING.md` exists but lacks nmg-sdlc issue/spec/steering coverage, append only `## nmg-sdlc Contribution Workflow` and preserve all existing content.
-4. If equivalent guide coverage is already present, leave the file unchanged and report `CONTRIBUTING.md: already present`.
-5. If `README.md` exists without a `CONTRIBUTING.md` link, insert a concise link in an existing setup/contribution section or append a small `## Contributing` section.
-6. If `README.md` is missing, do not create it; report `README.md link: skipped (README missing)`.
-7. Re-read changed files and emit the stable status block:
-
-   ```text
-   Contribution Guide:
-   - CONTRIBUTING.md: created | updated | already present | skipped (<reason>)
-   - README.md link: added | already present | skipped (README missing)
-   - Gaps: none | <comma-separated gaps>
-   ```
+1. Require all three steering docs.
+2. Create a missing `CONTRIBUTING.md` or append only the missing managed workflow section.
+3. Preserve existing project policy.
+4. Add an idempotent README link when a README exists; never create a README just for the link.
+5. Re-read changed files and emit the shared stable status block.
 
 ### Project AGENTS
 
-Apply approved or unattended-managed findings from `../../references/project-agents.md`:
+Follow `../../references/project-agents.md`:
 
-1. Verify `steering/product.md`, `steering/tech.md`, and `steering/structure.md` exist before writing AGENTS guidance.
-2. If `AGENTS.md` is missing, create it with the managed nmg-sdlc spec-context section.
-3. If `AGENTS.md` exists but lacks equivalent bounded spec-context guidance, append the managed section and preserve all existing content.
-4. If the managed section exists but is stale, replace only the bytes between `<!-- nmg-sdlc-managed: spec-context -->` and `<!-- /nmg-sdlc-managed -->`.
-5. If equivalent project-authored guidance is already present, leave the file unchanged and report `AGENTS.md: already present`.
-6. If markers are malformed, repair the orphan marker per the shared contract, refresh only that repaired managed section, and record the malformed-marker gap.
-7. Re-read changed files and emit the stable status block:
-
-   ```text
-   Project AGENTS:
-   - AGENTS.md: created | updated | already present | skipped (<reason>)
-   - Gaps: none | <comma-separated gaps>
-   ```
+1. Create a missing root `AGENTS.md` with the managed spec-context section.
+2. Insert or refresh only the marked managed section.
+3. Preserve all project-authored bytes outside the managed section.
+4. Repair malformed markers only as the shared contract permits.
+5. Re-read and emit the shared stable status block.
 
 ### Contribution gate
 
-Apply approved or unattended-managed findings from `../../references/contribution-gate.md`:
+Follow `../../references/contribution-gate.md`:
 
-1. Inspect `.github/workflows/nmg-sdlc-contribution-gate.yml`.
-2. If the workflow is missing, create `.github/workflows/` and write the shared contract's workflow template.
-3. If the workflow contains the nmg-sdlc managed marker and has an older numeric managed version, replace only that workflow with the current template.
-4. If the workflow contains the current managed marker/version, leave it unchanged and report `Workflow: already present`.
-5. If the workflow contains a future managed version, leave it unchanged and report `Workflow: skipped (newer managed version)`.
-6. If the approved path exists without the managed marker, leave it unchanged and report `Workflow: skipped (unmanaged file at path)`.
-7. Preserve unrelated workflows under `.github/workflows/` byte-for-byte.
-8. Re-read the workflow when present and emit the stable status block:
-
-   ```text
-   Contribution Gate:
-   - Workflow: created | updated | already present | skipped (<reason>)
-   - Path: .github/workflows/nmg-sdlc-contribution-gate.yml
-   - Gaps: none | <comma-separated gaps>
-   ```
+1. Create a missing marked workflow at `.github/workflows/nmg-sdlc-contribution-gate.yml`.
+2. Replace an older marked managed version with the current template.
+3. Preserve a current or future managed version according to the shared contract.
+4. Preserve an unmarked path collision and report it.
+5. Preserve every unrelated workflow byte-for-byte.
 
 ### Issue form
 
-Apply approved or unattended-managed findings from `../../references/issue-form.md`:
+Follow `../../references/issue-form.md`:
 
-1. Read the canonical `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` from the plugin root.
-2. Inspect `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` in the target project.
-3. If the form is missing, create `.github/ISSUE_TEMPLATE/` and write the canonical template.
-4. If the form exists and matches the canonical template, leave it unchanged and report `Form: already present`.
-5. If the form exists and differs from the canonical template, replace only that approved target path and report `Form: overwritten`.
-6. If the canonical template cannot be read, leave the target unchanged and report `Form: skipped (canonical template unavailable)`.
-7. If the target cannot be written, record `Form: skipped (write failed)` with the actionable filesystem gap.
-8. Preserve unrelated issue templates under `.github/ISSUE_TEMPLATE/` and unrelated workflows under `.github/workflows/` byte-for-byte.
-9. Re-read the form when present and emit the stable status block:
+1. Read the canonical plugin issue form.
+2. Create a missing target or replace only `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` when it differs.
+3. Preserve every unrelated issue template and workflow byte-for-byte.
+4. Re-read and emit the shared stable status block.
 
-   ```text
-   Issue Form:
-   - Form: created | overwritten | already present | skipped (<reason>)
-   - Path: .github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml
-   - Gaps: none | <comma-separated gaps>
-   ```
+## Apply V2 Runner Artifact Cleanup
 
-### Config value drift updates
+Apply only the exact deletion batch accepted in the final plan.
 
-For each user-selected drifted value from Step 9 Part C (interactive mode only; this section is skipped entirely in unattended mode):
+### Exact file deletion
 
-1. Read the current `sdlc-config.json`
-2. For each selected drifted value, locate the key in the JSON and use Codex editing to replace the old value with the template default value
-3. Preserve JSON formatting — use 2-space indentation per project JSON standards
-4. After each individual value update, re-read the file to verify the update was applied correctly
-5. If a value cannot be found in the file (e.g., the key path changed), skip it and note the failure in the output summary
+For each approved path among `sdlc-config.json`, `.codex/unattended-mode`, and `.codex/sdlc-state.json`:
 
-**Example edit for a step sub-key drift:**
-```
-Old: "timeoutMin": 15
-New: "timeoutMin": 30
-```
+1. Re-check path metadata with `lstat` semantics; do not follow symlinks.
+2. If absent, record `already clean`.
+3. If it is no longer a regular file, preserve it as unmanaged and report the object type.
+4. Delete only that exact regular file.
+5. Re-check absence. On failure, record `failed (<reason>)` for that path and do not retry with recursive or broader deletion.
 
-**Example edit for a root-level drift:**
-```
-Old: "maxRetriesPerStep": 2
-New: "maxRetriesPerStep": 3
-```
+Never read any of the three file contents. In particular, never inspect, print, execute, kill, or signal anything referenced by `.codex/sdlc-state.json`.
 
-### Persist declined sections
+### `.gitignore` edit
 
-After applying approved changes, persist any newly declined steering doc sections:
+1. Re-read `.gitignore`; if the read fails, do not edit it.
+2. Reconfirm each approved line still has the exact text, line location, and recognized block header from the accepted proposal.
+3. Remove only exact approved owned entries within that block.
+4. Preserve matching entries outside recognized blocks and preserve all unknown block lines.
+5. Remove the recognized header only if its block becomes empty after the approved removals.
+6. Collapse at most the single blank line made redundant by removing an empty managed block; do not reformat other whitespace.
+7. Re-read and verify all unrelated lines are byte-for-byte unchanged.
 
-1. Read `.codex/upgrade-exclusions.json` from the project root (or start with `{ "excludedSections": {} }` if it doesn't exist)
-2. For each steering doc section that was **proposed but not selected** by the user in Step 9 Part A, add the heading text to the `excludedSections` array for that file
-3. Write the updated JSON to `.codex/upgrade-exclusions.json` using Codex editing
+If concurrent edits invalidate an approved line's location or ownership context, stop editing `.gitignore` and report a stale-finding gap. Never rediscover a wider deletion set during apply.
 
-**Important:** Only add newly declined sections. Do not remove existing entries — they represent prior user decisions.
+### Idempotence check
 
-### Output summary
+Re-run the cleanup analysis after apply. All removed exact paths and owned managed entries must report `already clean`; preserved unmanaged matches must remain unchanged. A second application must produce no diff.
 
-After applying changes, output a summary:
+## Persist Declined Steering Sections
 
-```
+After applying approved changes:
+
+1. Read `.codex/upgrade-exclusions.json`, or start with `{ "excludedSections": {} }`.
+2. Add each explicitly declined steering heading to its file's array.
+3. Preserve all existing entries and unrelated keys.
+4. Write formatted JSON with 2-space indentation and verify it parses.
+
+## Output Summary
+
+Report:
+
+```text
 ## Upgrade Complete
 
 ### Changes Applied
-- **product.md** — Added sections: "Product Principles"
-- **sdlc-config.json** — Added keys: "cleanup", "steps.merge"
-- **Contribution Guide** — CONTRIBUTING.md: created; README.md link: added
-- **Project AGENTS** — AGENTS.md: created
-- **Contribution Gate** — Workflow: created at `.github/workflows/nmg-sdlc-contribution-gate.yml`
-- **Issue Form** — Form: created at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`
+- <exact file and change>
 
-### Declined (will be skipped in future runs)
-- **product.md** — "Brand Voice" (saved to .codex/upgrade-exclusions.json)
+### Declined
+- <exact finding preserved by user choice>
 
-### Skipped (already up to date)
-- tech.md, structure.md, 42-add-auth/design.md
-- Contribution Guide: CONTRIBUTING.md already present; README.md link already present
-- Project AGENTS: AGENTS.md already present
-- Contribution Gate: Workflow already present
-- Issue Form: Form already present
+### Skipped (already current)
+- <exact artifact>
 
-### Filtered by relevance (no codebase evidence)
-- **tech.md** — "Database Standards", "API / Interface Standards"
+### Preserved (unmanaged)
+- <exact path or .gitignore line>
 
-### Recommendations
-- Review added sections and customize placeholder content
-- To re-propose a declined section, remove it from .codex/upgrade-exclusions.json
+### Filtered by relevance
+- <file and heading>
+
+### Failures
+- <exact path and reason>
 ```
+
+Append the shared managed-asset status blocks and the exact Runner Artifact Cleanup block from `SKILL.md`. Recommend reviewing inserted template placeholders and explain that declined steering sections can be re-proposed by removing their exact entry from `.codex/upgrade-exclusions.json`.

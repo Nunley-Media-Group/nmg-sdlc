@@ -4,8 +4,8 @@
  * Validate one explicitly selected nmg-sdlc plugin surface.
  *
  * Exit codes:
- *   0 - the selected surface is valid and contains no commit-push exposure
- *   1 - the selected surface is readable but contains stale commit-push content
+ *   0 - the selected surface is valid and contains no removed plugin exposure
+ *   1 - the selected surface is readable but contains stale removed content
  *   2 - arguments or the selected plugin root are invalid
  */
 
@@ -17,6 +17,39 @@ import { fileURLToPath } from 'node:url';
 const TEXT_EXTENSIONS = new Set(['.json', '.md', '.txt', '.yaml', '.yml']);
 const MANIFEST_PATH = path.join('.codex-plugin', 'plugin.json');
 const INVENTORY_PATH = path.join('scripts', 'skill-inventory.baseline.json');
+const REMOVED_SKILL_NAMES = new Set(['commit-push', 'end-loop', 'init-config', 'run-loop']);
+const REMOVED_PATHS = [
+  'skills/commit-push',
+  'skills/end-loop',
+  'skills/init-config',
+  'skills/run-loop',
+  'references/unattended-mode.md',
+  'scripts/sdlc-runner.mjs',
+  'scripts/sdlc-config.example.json',
+  'scripts/__tests__/sdlc-runner.test.mjs',
+  'scripts/__tests__/runner-config-contract.test.mjs',
+  'scripts/__tests__/select-next-issue-from-milestone.test.mjs',
+];
+const ACTIVE_TEXT_FILES = [
+  'README.md',
+  '.gitignore',
+  'steering/product.md',
+  'steering/tech.md',
+  'steering/structure.md',
+  'steering/retrospective.md',
+  '.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml',
+  'scripts/package.json',
+  'scripts/package-lock.json',
+];
+const ACTIVE_TEXT_DIRECTORIES = [
+  'references',
+  'agents',
+  'scripts/__fixtures__/skill-exercise',
+];
+const REMOVED_COMMAND_PATTERN = /\$nmg-sdlc:(?:commit-push|end-loop|init-config|run-loop)\b/i;
+const REMOVED_FRONTMATTER_PATTERN = /\b(?:commit-push|end-loop|init-config|run-loop)\b/i;
+const REMOVED_RUNTIME_PATTERN = /(?:\.codex\/(?:unattended-mode|sdlc-state\.json)|\bsdlc-config\.json\b|\bsdlc-runner\.mjs\b)/i;
+const AUTOMATION_CONTRACT_PATTERN = /(?:\bautomatable\b|(?<![\/.-])\bunattended\b|Done\. Awaiting orchestrator\.)/i;
 
 class SurfaceInputError extends Error {}
 
@@ -32,12 +65,15 @@ function relativePath(root, target) {
 function requireReadableDirectory(directory, description) {
   let stat;
   try {
-    stat = fs.statSync(directory);
+    stat = fs.lstatSync(directory);
     fs.accessSync(directory, fs.constants.R_OK);
   } catch (error) {
     throw new SurfaceInputError(`${description} is not readable: ${directory} (${error.message})`);
   }
 
+  if (stat.isSymbolicLink()) {
+    throw new SurfaceInputError(`${description} must not be a symbolic link: ${directory}`);
+  }
   if (!stat.isDirectory()) {
     throw new SurfaceInputError(`${description} is not a directory: ${directory}`);
   }
@@ -45,10 +81,27 @@ function requireReadableDirectory(directory, description) {
 
 function readRequiredFile(filePath, description) {
   try {
+    const stat = fs.lstatSync(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new SurfaceInputError(`${description} must not be a symbolic link: ${filePath}`);
+    }
+    if (!stat.isFile()) {
+      throw new SurfaceInputError(`${description} is not a regular file: ${filePath}`);
+    }
     fs.accessSync(filePath, fs.constants.R_OK);
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
+    if (error instanceof SurfaceInputError) throw error;
     throw new SurfaceInputError(`${description} is not readable: ${filePath} (${error.message})`);
+  }
+}
+
+function lstatOptional(filePath, description) {
+  try {
+    return fs.lstatSync(filePath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw new SurfaceInputError(`${description} could not be inspected: ${filePath} (${error.message})`);
   }
 }
 
@@ -115,32 +168,65 @@ function addViolation(violations, kind, file, detail = '') {
   violations.push({ key, kind, file, detail });
 }
 
+function isMigrationDocumentation(file) {
+  return file === 'README.md' || file.startsWith('skills/upgrade-project/');
+}
+
+function activeInspectionSource(source, file) {
+  if (file !== 'steering/retrospective.md') return source;
+
+  return source.split(/\r?\n/).map((line) => {
+    if (!line.startsWith('|')) return line;
+    const pipes = [];
+    for (let index = 0; index < line.length; index += 1) {
+      if (line[index] !== '|') continue;
+      let backslashes = 0;
+      while (line[index - backslashes - 1] === '\\') backslashes += 1;
+      if (backslashes % 2 === 0) pipes.push(index);
+    }
+    if (pipes.length < 4) return line;
+    const contentEnd = line.trimEnd().length - 1;
+    const evidenceBoundary = pipes.at(pipes.at(-1) === contentEnd ? -2 : -1);
+    return evidenceBoundary === undefined ? line : line.slice(0, evidenceBoundary + 1);
+  }).join('\n');
+}
+
 function inspectLoaderFacingText(source, file, violations) {
   const frontmatter = readFrontmatter(source);
-  if (/^name:\s*["']?commit-push["']?\s*$/im.test(frontmatter)) {
+  if (/^name:\s*["']?(?:commit-push|end-loop|init-config|run-loop)["']?\s*$/im.test(frontmatter)) {
     addViolation(violations, 'frontmatter-name', file);
   }
-  if (/\bcommit-push\b/i.test(frontmatter)) {
+  if (REMOVED_FRONTMATTER_PATTERN.test(frontmatter)
+    || AUTOMATION_CONTRACT_PATTERN.test(frontmatter)
+    || REMOVED_RUNTIME_PATTERN.test(frontmatter)) {
     addViolation(violations, 'frontmatter-token', file);
   }
 
   const loaderMetadata = Array.from(source.matchAll(
     /^[ \t]*(?:aliases?|redirect(?:s|[-_]to)?)[ \t]*:[ \t]*([^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)/gim,
   ));
-  if (loaderMetadata.some((match) => /\bcommit-push\b/i.test(match[1]))
-    || /\b(?:alias|redirect)\b[^\n]{0,120}\bcommit-push\b/i.test(source)) {
+  if (loaderMetadata.some((match) => REMOVED_FRONTMATTER_PATTERN.test(match[1]))
+    || /\b(?:alias|redirect)\b[^\n]{0,120}\b(?:commit-push|end-loop|init-config|run-loop)\b/i.test(source)) {
     addViolation(violations, 'alias-or-redirect', file);
   }
 
-  if (/\b(?:deprecated|deprecation|compatibility stub)\b[^\n]{0,160}\bcommit-push\b/i.test(source)
-    || /\bcommit-push\b[^\n]{0,160}\b(?:deprecated|deprecation|compatibility stub)\b/i.test(source)) {
+  if (/\b(?:deprecated|deprecation|compatibility stub)\b[^\n]{0,160}\b(?:commit-push|end-loop|init-config|run-loop)\b/i.test(source)
+    || /\b(?:commit-push|end-loop|init-config|run-loop)\b[^\n]{0,160}\b(?:deprecated|deprecation|compatibility stub)\b/i.test(source)) {
     addViolation(violations, 'deprecation-token', file);
   }
 
-  if (/\$nmg-sdlc:commit-push\b/.test(source)
+  if (REMOVED_COMMAND_PATTERN.test(source)
     || /\bcommitPush\b/.test(source)
     || /DIVERGED:\s*re-run\s+commit-push\b/i.test(source)) {
     addViolation(violations, 'loader-workflow-token', file);
+  }
+
+  if (AUTOMATION_CONTRACT_PATTERN.test(source)) {
+    addViolation(violations, 'automation-contract-token', file);
+  }
+
+  if (!isMigrationDocumentation(file) && REMOVED_RUNTIME_PATTERN.test(source)) {
+    addViolation(violations, 'runtime-contract-token', file);
   }
 }
 
@@ -164,7 +250,7 @@ function walkSkillsTree(root, skillsRoot, violations) {
       }
 
       if (entry.isDirectory()) {
-        if (entry.name.toLowerCase() === 'commit-push') {
+        if (REMOVED_SKILL_NAMES.has(entry.name.toLowerCase())) {
           addViolation(violations, 'skill-directory', relative);
         }
         walk(absolute);
@@ -187,11 +273,70 @@ function walkSkillsTree(root, skillsRoot, violations) {
   walk(skillsRoot);
 }
 
+function inspectOptionalActiveFile(root, portable, violations) {
+  const absolute = path.join(root, ...portable.split('/'));
+  const stat = lstatOptional(absolute, 'active surface path');
+  if (stat === null) return;
+  if (stat.isSymbolicLink()) {
+    addViolation(violations, 'unsupported-symlink', portable);
+    return;
+  }
+  if (!stat.isFile()) return;
+
+  const source = readRequiredFile(absolute, 'active surface file');
+  if (!source.includes('\0')) {
+    inspectLoaderFacingText(activeInspectionSource(source, portable), portable, violations);
+  }
+}
+
+function walkOptionalActiveDirectory(root, portable, violations) {
+  const directory = path.join(root, ...portable.split('/'));
+  const stat = lstatOptional(directory, 'active surface directory');
+  if (stat === null) return;
+  if (stat.isSymbolicLink()) {
+    addViolation(violations, 'unsupported-symlink', portable);
+    return;
+  }
+  if (!stat.isDirectory()) {
+    throw new SurfaceInputError(`active surface directory is not a directory: ${directory}`);
+  }
+
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+  } catch (error) {
+    throw new SurfaceInputError(`could not inspect active surface directory ${directory}: ${error.message}`);
+  }
+
+  for (const entry of entries) {
+    const relative = `${portable}/${entry.name}`;
+    if (entry.isSymbolicLink()) {
+      addViolation(violations, 'unsupported-symlink', relative);
+    } else if (entry.isDirectory()) {
+      walkOptionalActiveDirectory(root, relative, violations);
+    } else if (entry.isFile() && TEXT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+      inspectOptionalActiveFile(root, relative, violations);
+    }
+  }
+}
+
+function inspectRemovedPaths(root, violations) {
+  for (const portable of REMOVED_PATHS) {
+    const absolute = path.join(root, ...portable.split('/'));
+    if (lstatOptional(absolute, 'removed surface path') !== null) {
+      addViolation(violations, 'removed-path', portable);
+    }
+  }
+}
+
 function inspectInventoryValue(value, jsonPath, file, violations) {
   if (typeof value === 'string') {
-    if (/skills[\\/]commit-push(?:[\\/]|$)/i.test(value)
-      || /\$nmg-sdlc:commit-push\b/.test(value)
-      || /\bcommitPush\b/.test(value)) {
+    if (/skills[\\/](?:commit-push|end-loop|init-config|run-loop)(?:[\\/]|$)/i.test(value)
+      || REMOVED_COMMAND_PATTERN.test(value)
+      || /\bcommitPush\b/.test(value)
+      || REMOVED_RUNTIME_PATTERN.test(value)
+      || AUTOMATION_CONTRACT_PATTERN.test(value)) {
       addViolation(violations, 'inventory-entry', file, `${jsonPath}=${value}`);
     }
     return;
@@ -228,11 +373,14 @@ export function validatePluginSurface(rootArgument, label) {
   }
 
   const violations = [];
+  inspectRemovedPaths(root, violations);
   inspectLoaderFacingText(manifestSource, toPortablePath(MANIFEST_PATH), violations);
   walkSkillsTree(root, skillsRoot, violations);
+  ACTIVE_TEXT_FILES.forEach((file) => inspectOptionalActiveFile(root, file, violations));
+  ACTIVE_TEXT_DIRECTORIES.forEach((directory) => walkOptionalActiveDirectory(root, directory, violations));
 
   const inventoryFile = path.join(root, INVENTORY_PATH);
-  if (fs.existsSync(inventoryFile)) {
+  if (lstatOptional(inventoryFile, 'skill inventory baseline') !== null) {
     const inventorySource = readRequiredFile(inventoryFile, 'skill inventory baseline');
     const inventory = parseJson(inventorySource, inventoryFile, 'skill inventory baseline');
     inspectInventoryValue(inventory, '', toPortablePath(INVENTORY_PATH), violations);

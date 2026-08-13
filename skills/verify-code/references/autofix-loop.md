@@ -36,11 +36,9 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - file discovery finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
 2. **If available**: invoke `$skill-creator` to apply the fix, passing the finding summary, the target file path, the existing file content, and a pointer to `steering/` for project conventions. Let `$skill-creator` update the file — never edit a skill-bundled file directly.
-3. **If unavailable**: there is no hand-edit fallback — skill-bundled files must route through `$skill-creator`.
-   - **Interactive mode**: surface the missing dependency to the user — `$skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run $nmg-sdlc:verify-code.` Stop the workflow.
-   - **Unattended mode**: emit `ESCALATION: $skill-creator is required for skill-bundled file fixes — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
+3. **If unavailable**: there is no hand-edit fallback — surface the missing dependency to the user: `$skill-creator is required to fix skill-bundled findings but is not installed. Install it and re-run $nmg-sdlc:verify-code.` Stop the workflow.
 
-Cache the probe result for the duration of the verify-code run so the escalation is emitted at most once per run. The probe is a filesystem / system-reminder check, not a `request_user_input` gate — unattended-mode behaviour is preserved.
+Cache the probe result for the duration of the verify-code run so the missing-dependency message is emitted at most once per run. The probe is a filesystem / system-reminder check, not a `request_user_input` gate.
 
 If `$skill-creator` is available but errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
 
@@ -55,8 +53,6 @@ If at least one fix was applied in 6a, run bundled `$nmg-sdlc:simplify` over the
 Invoke `$nmg-sdlc:simplify` on the files touched by fixes in 6a. Apply any returned behavior-preserving changes before proceeding to 6b.
 
 If `$nmg-sdlc:simplify` errors or reports failures, record those as additional findings to fix in the current 6a cycle — do not silently swallow them.
-
-Unattended-mode behaviour is preserved — this sub-step is not a `request_user_input` gate.
 
 ## 6b. Run Tests After Fixes
 

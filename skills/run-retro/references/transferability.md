@@ -45,6 +45,12 @@ Classify each learning into exactly one of three pattern types:
 
 **Heuristic**: if the defect could have been prevented by a better-written feature spec (more ACs, tighter boundary definitions, deeper domain analysis), it produces a learning. Otherwise, exclude it.
 
+### Current-contract check
+
+Read `steering/product.md`, `steering/tech.md`, and `steering/structure.md`. Exclude any learning whose **Learning** or **Recommendation** would require, restore, advertise, or optimize a capability that those current steering documents reject or retire. Apply this check to fresh and carried-forward learnings alike.
+
+Evidence paths remain historical traceability. A retired capability named only in an evidence path does not make an otherwise current-compatible learning invalid, and it must never be treated as proof that the capability is still supported.
+
 ### Abstraction-level check
 
 Each surviving learning must sit at the right level of generality:

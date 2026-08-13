@@ -58,9 +58,9 @@ describe('bounded spec context contract (issue #139)', () => {
     expect(greenfield).toContain('## Step 2G.2 Project AGENTS Postcondition');
     expect(brownfield).toContain('Read `../../references/project-agents.md` when Step 2B confirms');
     expect(brownfield).toContain('record AGENTS.md outcomes for Step 5');
-    expect(upgrade).toContain('Read `../../references/project-agents.md` when analyzing or applying project-AGENTS findings');
-    expect(upgrade).toContain('AGENTS.md                           — Managed non-destructive nmg-sdlc spec-context guidance');
-    expect(procedures).toContain('Apply approved or unattended-managed findings from `../../references/project-agents.md`');
+    expect(upgrade).toContain('`../../references/project-agents.md`');
+    expect(upgrade).toContain('AGENTS.md                               — managed bounded spec-context section');
+    expect(procedures).toContain('Follow `../../references/project-agents.md`');
   });
 
   test('public docs and changelog describe bounded spec context and managed AGENTS behavior', () => {
@@ -68,8 +68,8 @@ describe('bounded spec context contract (issue #139)', () => {
     const changelog = read('CHANGELOG.md');
 
     expect(readme).toContain('## Spec Context');
-    expect(readme).toContain('bounded relevant-spec discovery');
-    expect(readme).toContain('Root `AGENTS.md` is another managed artifact');
+    expect(readme).toContain('Project-root `specs/` is the canonical BDD archive');
+    expect(readme).toContain('spec-context section in root `AGENTS.md`');
     expect(changelog).toContain('bounded relevant-spec discovery for issue #139');
   });
 });

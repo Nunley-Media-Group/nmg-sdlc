@@ -2,27 +2,23 @@
 
 **Consumed by**: `write-code` Steps 4 (Design Implementation Approach), 5 (Execute Tasks), and 5a (Route Skill-Bundled Tasks Through `$skill-creator`).
 
-Steps 4 and 5 turn the loaded specs and steering docs into running code. Interactive mode enters Plan Mode before any file is touched, collects any missing implementation decisions with `request_user_input`, emits one decision-complete `<proposed_plan>`, and auto-executes after that plan is accepted. Unattended mode skips that approval and designs the approach internally. Step 5a's skill-routing contract applies on every execution path — skill-bundled edits go through `$skill-creator` or escalate.
+Steps 4 and 5 turn the loaded specs and steering docs into running code. Enter Plan Mode before any file is touched, collect missing implementation decisions with `request_user_input`, emit one decision-complete `<proposed_plan>`, and auto-execute after that plan is accepted. Step 5a routes every skill-bundled edit through `$skill-creator`.
 
 ## Step 4: Design Implementation Approach
 
-**Unattended mode** (`.codex/unattended-mode` exists): skip Plan Mode entirely because there is no user to approve the plan. Design the approach internally, covering the points below, then go straight to Step 5. Do not call `request_user_input`.
+Enter Plan Mode and gather unresolved implementation choices with `request_user_input` before editing files. When all required input has been received, emit a decision-complete `<proposed_plan>` and treat the accepted plan as approval to edit; do not ask for a separate execution confirmation.
 
-**Interactive mode**: enter Plan Mode and gather any unresolved implementation choices with `request_user_input` before editing files. When all required input has been received, emit a decision-complete `<proposed_plan>` and treat the accepted plan as approval to edit; do not ask for a separate execution confirmation.
-
-The implementation approach (whether internal or in plan mode) should:
+The implementation approach should:
 
 1. **Map tasks to files** — take each task from `tasks.md` and map it to actual files in the codebase. Use file discovery and text search to find existing code to build on. Reference `structure.md` for directory conventions.
 2. **Identify reuse** — find existing code patterns to follow: similar features already implemented, shared utilities, base classes, common patterns.
 3. **Propose implementation order** — based on task dependencies.
 4. **Flag any deviations** — if the codebase has evolved since specs were written.
-5. **Present the plan** for user approval (interactive only) as the final `<proposed_plan>` after required input has been collected.
+5. **Present the plan** for user approval as the final `<proposed_plan>` after required input has been collected.
 
 ## Step 5: Execute Tasks
 
-**Unattended mode**: the runner handles implementation directly via its code phase — proceed to execute tasks inline using the approach designed in your thinking.
-
-**Interactive mode**: after the `<proposed_plan>` is accepted, execute tasks inline by default. If the user explicitly authorized subagents during Plan Mode, spawn a Codex `worker` subagent for implementation and include the Step 5a skill-routing contract in the delegation prompt so the worker classifies and routes skill-bundled tasks:
+After the `<proposed_plan>` is accepted, execute tasks inline by default. If the user explicitly authorized subagents during Plan Mode, spawn a Codex `worker` subagent for implementation and include the Step 5a skill-routing contract in the delegation prompt so the worker classifies and routes skill-bundled tasks:
 
 ```
 Spawn a Codex worker with this bounded task:
@@ -95,9 +91,7 @@ Detection is deliberately conservative — any single signal triggers routing (f
    - file discovery finds `~/.codex/plugins/**/skills/skill-creator/SKILL.md`
    - The available-skills list in your system reminder advertises a skill named `skill-creator` (or `*:skill-creator`)
 2. **If available**: invoke `$skill-creator` for the task, passing task context (title, acceptance criteria), the target file path, existing file content (for edits), and a pointer to `steering/` for project conventions. Let `$skill-creator` author or update the file — never edit a skill-bundled file directly.
-3. **If unavailable**: there is no hand-edit fallback — skill-bundled files must route through `$skill-creator`.
-   - **Interactive mode**: surface the missing dependency to the user — `$skill-creator is required to author skill-bundled files but is not installed. Install it (e.g., via the official skill-creator plugin) and re-run.` Stop the workflow.
-   - **Unattended mode**: emit `ESCALATION: $skill-creator is required for skill-bundled file edits — install it before re-running` and exit non-zero so the SDLC runner reports the escalation.
+3. **If unavailable**: surface the missing dependency to the user — `$skill-creator is required to author skill-bundled files but is not installed. Install it and re-run.` Stop the workflow; there is no hand-edit fallback.
 
 If `$skill-creator` is available but errors or reports failures, surface those as additional findings and address them before proceeding to Step 5b.
 
@@ -114,5 +108,3 @@ git diff main...HEAD --name-only
 Apply any behavior-preserving fixes it returns in-place. Only proceed to Step 6 once `$nmg-sdlc:simplify` has either applied worthwhile cleanup fixes or reported that the changed files are already clean.
 
 If `$nmg-sdlc:simplify` errors or reports failures, surface those as additional findings and address them before proceeding to Step 6.
-
-Unattended-mode behaviour is preserved — this sub-step is not a `request_user_input` gate.

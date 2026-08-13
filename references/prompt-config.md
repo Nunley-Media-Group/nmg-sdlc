@@ -2,7 +2,7 @@
 
 **Consumed by**: every interactive nmg-sdlc gate before it calls `request_user_input`.
 
-Interactive nmg-sdlc gates require Codex's user-question surface to be enabled before the gate is presented. Run this preflight only on manual-mode paths. `.codex/unattended-mode` remains separate and continues to bypass manual gates per `references/unattended-mode.md`; unattended branches do not need prompt-config setup before skipping `request_user_input`.
+nmg-sdlc gates require Codex's user-question surface to be enabled before the gate is presented. Run this preflight before every `request_user_input` call.
 
 ## Required Settings
 

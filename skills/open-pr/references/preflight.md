@@ -4,23 +4,20 @@
 
 Before `gh pr create`, `$nmg-sdlc:open-pr` prepares the branch for delivery. Dirty eligible work is committed, local divergence is rebased, safe pushes happen here, and clean already-pushed branches continue without a redundant commit.
 
-## Step 1a: Filter Runner Artifacts
+## Step 1a: Inspect the Delivery Scope
 
-Read `../../../references/dirty-tree.md` when Step 1a runs — use its filtering rule for SDLC runtime artifacts:
+Read `../../../references/dirty-tree.md` when Step 1a runs:
 
 - run `git status --porcelain`;
-- remove rows whose path ends with `.codex/sdlc-state.json` or `.codex/unattended-mode`;
-- treat the remaining rows as eligible delivery changes.
-
-Never publish `.codex/sdlc-state.json` or `.codex/unattended-mode`. If only those runtime artifacts are dirty, record `eligible_dirty = false` and continue.
+- compare every dirty path with the implementation/specification scope approved for this delivery;
+- stop for user direction when unrelated dirty changes overlap or cannot be separated safely.
 
 ## Step 1b: Stage Eligible Changes
 
-If eligible changes exist, stage them with normal git staging while preserving the runtime-artifact filter:
+If eligible changes exist, stage the approved tree:
 
 ```bash
 git add -A
-git reset -- .codex/sdlc-state.json .codex/unattended-mode
 ```
 
 Then inspect `git diff --cached --name-only`. If the staged set is empty, record `eligible_dirty = false`; otherwise record `eligible_dirty = true`.
@@ -34,7 +31,7 @@ Run `open-pr` Steps 2 and 3 before creating the delivery commit:
 - update `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, and stack-specific files declared in `steering/tech.md`;
 - stage those version artifacts with the eligible delivery changes.
 
-If the version computation requires a human-only decision, use the gate defined by `references/version-bump.md`; in unattended mode, use its documented deterministic default or escalation path.
+Use the explicit version gate defined by `references/version-bump.md` before writing version artifacts.
 
 ## Step 1d: Create or Skip the Delivery Commit
 
@@ -44,10 +41,7 @@ After staging, inspect `git diff --cached --name-only`.
 - **Only version artifacts are staged**: commit with `chore: bump version to {new_version}`.
 - **No staged files exist**: set `delivery_commit_created = false`, print `No additional commit needed — branch already clean.`, and continue to ancestry/push verification.
 
-If the branch has no commits ahead of `main` after this step, stop:
-
-- **Interactive mode**: print `No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
-- **Unattended mode**: emit `ESCALATION: open-pr — No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
+If the branch has no commits ahead of `main` after this step, stop with `No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
 
 ## Step 1e: Fetch and Rebase if Behind
 
@@ -70,10 +64,7 @@ If the rebase pulls in a sibling version bump, re-run Step 1c against the post-r
 
 ### Rebase Conflicts
 
-If rebase conflicts touch `VERSION`, `.codex-plugin/plugin.json`, `CHANGELOG.md`, or stack-specific version files:
-
-- **Interactive mode**: print `ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run $nmg-sdlc:open-pr. Force-push never overwrites unresolved conflicts.` and stop.
-- **Unattended mode**: emit `ESCALATION: open-pr — rebase conflict in version file(s): {file-list}. Resolve manually and re-run.` and exit non-zero.
+If rebase conflicts touch `VERSION`, `.codex-plugin/plugin.json`, `CHANGELOG.md`, or stack-specific version files, print `ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run $nmg-sdlc:open-pr. Force-push never overwrites unresolved conflicts.` and stop.
 
 ## Step 1f: Push Safely
 
@@ -92,10 +83,7 @@ Branch on remote state and `rebased`:
    git push --force-with-lease=HEAD:{EXPECTED_SHA}
    ```
 
-The `EXPECTED_SHA` value is captured before the rebase. If the lease rejects the push, stop rather than overwriting remote work:
-
-- **Interactive mode**: print the rejection and stop for manual investigation.
-- **Unattended mode**: emit `ESCALATION: open-pr — force-with-lease rejected because the remote branch advanced. Re-run after fetching the latest remote state.`
+The `EXPECTED_SHA` value is captured before the rebase. If the lease rejects the push, print the rejection and stop for user investigation rather than overwriting remote work.
 
 ## Step 1g: Verify Delivery State
 

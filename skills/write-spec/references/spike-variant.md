@@ -29,12 +29,12 @@ Execute in order — Plan Mode input gates must fire before new ADR writes, comm
 3. **Idempotency check**: file discovery for `docs/decisions/*-<slug>-gap-analysis.md` where `<slug>` matches the slug that would be generated from the issue title (derive the slug the same way step 6 does before globbing).
    - Match found → load the existing ADR and skip to step 7 (HRG). The researcher is NOT re-invoked. Re-scoped spikes that trigger a later `$nmg-sdlc:write-spec #N` see the existing ADR and present the HRG using the already-committed findings. To force fresh research, delete the existing ADR under `docs/decisions/` before re-running.
    - No match → proceed to step 4.
-4. **Run the research pass**: perform the research inline by default. If the user or runner explicitly authorizes subagents, spawn a Codex `explorer` subagent with:
+4. **Run the research pass**: perform the research inline by default. If the user explicitly authorizes subagents, spawn a Codex `explorer` subagent with:
    - Input: issue body, the three steering docs, and any Candidate Set from the issue.
    - Output contract: the structured markdown block defined in `agents/spike-researcher.md` § Output.
 5. **Receive the research output**.
-6. **Draft the ADR**: prepare `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` content where `<slug>` is derived from the issue title. Do not write, commit, push, comment, or edit GitHub resources until the interactive HRG decision has been captured in Plan Mode. In unattended mode, apply the deterministic default below before executing the write.
-7. **Present the HRG** (interactive) OR apply the deterministic default (unattended — see below).
+6. **Draft the ADR**: prepare `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` content where `<slug>` is derived from the issue title. Do not write, commit, push, comment, or edit GitHub resources until the interactive HRG decision has been captured in Plan Mode.
+7. **Present the HRG** and wait for the user's explicit selection.
 8. **Write and commit the ADR** after the HRG decision is included in the accepted `<proposed_plan>`. If step 3 found an existing ADR, skip this write/commit because the ADR is already the research artifact for this run. For a newly drafted ADR, ensure `docs/decisions/` exists (`mkdir -p docs/decisions`) before writing. Use forward slashes for cross-platform compatibility.
     ```bash
     git add docs/decisions/
@@ -74,24 +74,6 @@ options:
 - Print: `Re-scope complete. Re-run $nmg-sdlc:write-spec #{N} to revisit with the refined scope.` and exit.
 - The previously committed ADR remains in `docs/decisions/` as a record of the first research pass. Later spike runs append new dated ADRs rather than rewriting this one.
 
-## Unattended deterministic default
-
-Follow the deterministic-default gate pattern in `../../references/unattended-mode.md`. When `.codex/unattended-mode` exists, do NOT call `request_user_input` — apply the default below and emit a one-line divergence note.
-
-| `component-count` (from researcher output) | Default scope shape |
-|---|---|
-| `>= 2` | **Umbrella+Children** |
-| `< 2` (including parse failure — defaults to 1) | **Single-PR** |
-
-**Never auto-select `Re-scope+Redraft`** — that option requires human judgment about whether the research is unsalvageable, and unattended mode must not make that call. If the researcher's honest gaps warrant a re-scope, the human selects it on the next interactive re-run.
-
-**Divergence-note format** (exactly one of):
-
-```
-Unattended mode: Phase 0 HRG applied deterministic default (umbrella+children)
-Unattended mode: Phase 0 HRG applied deterministic default (single-PR)
-```
-
 ## No-code invariant
 
 The spike variant must NEVER produce:
@@ -106,7 +88,6 @@ The ADR is the sole deliverable of `$nmg-sdlc:write-spec` on a spike issue. Any 
 ## Cross-references
 
 - `references/umbrella-mode.md` — umbrella and child issue conventions (triggered by HRG option [2]).
-- `../../references/unattended-mode.md` — deterministic-default gate semantics (governs the HRG in headless runs).
 - `agents/spike-researcher.md` — the Phase 0 research prompt contract, including the structured output contract this file consumes.
 - `skills/open-pr/references/version-bump.md` § Spike handling — the label-driven version-bump skip that matches this variant.
 - `steering/tech.md` § Version Bump Classification — the `spike → skip` row that declares the version policy.

@@ -4,10 +4,6 @@
 
 The summaries exist because reviewers should not have to switch context to a separate file to evaluate a phase. Inline summaries make the review gate honest — what the user sees here is what they're approving.
 
-## Unattended-mode behavior
-
-In unattended mode (`.codex/unattended-mode` present), all three gates are **pre-approved**: do NOT call `request_user_input`, do NOT render the inline summary, and proceed directly from each phase to the next. The shared semantics live in `../../references/unattended-mode.md`.
-
 ## Phase 1 — Requirements Review Gate
 
 Render this exact structure:

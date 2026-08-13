@@ -11,4 +11,4 @@ The status exercise evaluates the committed JSON artifact against six determinis
 | S5 | Status reports its next action without prompting or executing that action. |
 | S6 | Text and JSON runs preserve repository state, agree on stage, and keep JSON stdout pure. |
 
-Automated-runner evidence and behavior are outside this exercise because they are outside the issue #145 status contract.
+Retired orchestration evidence and behavior are outside this exercise because they are outside the issue #145 status contract.

@@ -70,7 +70,40 @@ afterEach(() => {
   }
 });
 
-describe('plugin surface verification (issue #148)', () => {
+describe('plugin surface verification (issues #148 and #151)', () => {
+  it('maps exactly ten valid Gherkin scenarios one-to-one to AC1 through AC10', () => {
+    const specRoot = path.join(repoRoot, 'specs', 'feature-remove-the-automated-sdlc-loop-and-unattended-mode');
+    const requirements = fs.readFileSync(path.join(specRoot, 'requirements.md'), 'utf8');
+    const gherkin = fs.readFileSync(path.join(specRoot, 'feature.gherkin'), 'utf8');
+    const acceptanceCriteria = [...requirements.matchAll(/^### (AC\d+): (.+)$/gm)]
+      .map((match) => ({ id: match[1], title: match[2] }));
+    const scenarios = [...gherkin.matchAll(/^  Scenario: (.+)\n((?:    .+\n?)+)/gm)]
+      .map((match) => ({ title: match[1], steps: match[2] }));
+    const expectedScenarioTitles = [
+      'Fresh install has no automated loop surface',
+      'Skills use interactive contracts only',
+      'Automation eligibility is absent from issue workflows',
+      'Active product surfaces describe only the manual pipeline',
+      'Managed repository assets remain available',
+      'Upgrade removes only known obsolete runner artifacts',
+      'Existing GitHub labels and issue history are not mutated',
+      'Historical records remain truthful and intact',
+      'Conflicting backlog is reconciled',
+      'Manual pipeline and migration are verified',
+    ];
+
+    expect(acceptanceCriteria.map(({ id }) => id)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `AC${index + 1}`),
+    );
+    expect(scenarios.map(({ title }) => title)).toEqual(expectedScenarioTitles);
+    expect(scenarios).toHaveLength(acceptanceCriteria.length);
+    for (const scenario of scenarios) {
+      expect(scenario.steps).toMatch(/^    Given /m);
+      expect(scenario.steps).toMatch(/^    When /m);
+      expect(scenario.steps).toMatch(/^    Then /m);
+    }
+  });
+
   it('gates marketplace dispatch on release-source validation', () => {
     const workflow = fs.readFileSync(
       path.join(repoRoot, '.github', 'workflows', 'sync-marketplace-pointer.yml'),
@@ -212,6 +245,70 @@ describe('plugin surface verification (issue #148)', () => {
         });
       },
     },
+    {
+      name: 'removed automation skill directory',
+      kind: 'removed-path',
+      relativePath: 'skills/run-loop',
+      mutate(root) {
+        write(root, 'skills/run-loop/SKILL.md', '# Removed skill\n');
+      },
+    },
+    {
+      name: 'removed automation command',
+      kind: 'loader-workflow-token',
+      relativePath: 'skills/manual-helper/SKILL.md',
+      mutate(root) {
+        write(root, 'skills/manual-helper/SKILL.md', [
+          '---',
+          'name: manual-helper',
+          'description: "Manual helper."',
+          '---',
+          '',
+          'Run $nmg-sdlc:init-config to continue.',
+          '',
+        ].join('\n'));
+      },
+    },
+    {
+      name: 'sentinel contract',
+      kind: 'automation-contract-token',
+      relativePath: 'references/gates.md',
+      mutate(root) {
+        write(root, 'references/gates.md', 'When unattended mode is active, skip the prompt.\n');
+      },
+    },
+    {
+      name: 'automation eligibility metadata',
+      kind: 'automation-contract-token',
+      relativePath: '.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml',
+      mutate(root) {
+        write(root, '.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml', 'name: automatable\n');
+      },
+    },
+    {
+      name: 'runner runtime contract outside migration docs',
+      kind: 'runtime-contract-token',
+      relativePath: 'agents/manual.md',
+      mutate(root) {
+        write(root, 'agents/manual.md', 'Read .codex/sdlc-state.json before continuing.\n');
+      },
+    },
+    {
+      name: 'broken active-file symlink',
+      kind: 'unsupported-symlink',
+      relativePath: 'README.md',
+      mutate(root) {
+        fs.symlinkSync('missing-readme.md', path.join(root, 'README.md'));
+      },
+    },
+    {
+      name: 'broken removed-path symlink',
+      kind: 'removed-path',
+      relativePath: 'scripts/sdlc-runner.mjs',
+      mutate(root) {
+        fs.symlinkSync('missing-runner.mjs', path.join(root, 'scripts/sdlc-runner.mjs'));
+      },
+    },
   ])('reports $name with the selected root, path, and metadata kind', ({ kind, relativePath, mutate }) => {
     const root = scaffoldSurface();
     mutate(root);
@@ -240,6 +337,54 @@ describe('plugin surface verification (issue #148)', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`selected-current (${currentRoot})`);
+  });
+
+  it('allows exact obsolete artifact names only in upgrade migration documentation', () => {
+    const root = scaffoldSurface();
+    write(root, 'skills/upgrade-project/references/v2-cleanup.md', [
+      'Propose deleting sdlc-config.json, .codex/unattended-mode, and .codex/sdlc-state.json.',
+      '',
+    ].join('\n'));
+
+    const result = runValidator(root, 'upgrade-migration');
+
+    expect(result.status).toBe(0);
+  });
+
+  it('does not treat historical specs, released changelog entries, or negative fixtures as active support', () => {
+    const root = scaffoldSurface();
+    write(root, 'specs/feature-historical/requirements.md', 'Run $nmg-sdlc:run-loop.\n');
+    write(root, 'CHANGELOG.md', '## [1.0.0]\n\nAdded unattended mode.\n');
+    write(root, 'scripts/__fixtures__/audit-canary/bad/SKILL.md', 'name: run-loop\n');
+
+    const result = runValidator(root, 'historical-boundary');
+
+    expect(result.status).toBe(0);
+  });
+
+  it('scans retrospective guidance while treating its evidence paths as historical', () => {
+    const root = scaffoldSurface();
+    write(root, 'steering/retrospective.md', [
+      '| Learning | Recommendation | Evidence (defect specs) |',
+      '|---|---|---|',
+      '| Current gap | Check the safe branch \\| in unattended work. | specs/bug-old/ |',
+      '| Malformed row | unattended work |',
+      '',
+    ].join('\n'));
+
+    const stale = runValidator(root, 'retrospective-guidance');
+    expect(stale.status).toBe(1);
+    expect(combinedOutput(stale)).toContain('- automation-contract-token: steering/retrospective.md');
+
+    write(root, 'steering/retrospective.md', [
+      '| Learning | Recommendation | Evidence (defect specs) |',
+      '|---|---|---|',
+      '| Verify explicit decisions | Wait for the user before mutation. | specs/bug-unattended-run-loop/, .codex/unattended-mode |',
+      '',
+    ].join('\n'));
+
+    const historical = runValidator(root, 'retrospective-evidence');
+    expect(historical.status).toBe(0);
   });
 
   it.each([

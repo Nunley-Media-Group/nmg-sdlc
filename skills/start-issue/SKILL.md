@@ -13,17 +13,7 @@ Select a GitHub issue to work on, create a linked feature branch, and set the is
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel replaces every `request_user_input` gate call site in this skill with the unattended branch. Steps 2 and 3 confirmation gates are skipped when the sentinel is present; the auto-selection and direct-start rules below replace them.
-
-Read `../../references/epic-relationships.md` when Step 1a begins — it defines the supported relationship signals, target-metadata hydration, epic-membership classification, fail-safe fallback, and consumer-specific completion rules shared with the SDLC runner.
-
-## Unattended-Mode Behaviour Specific to This Skill
-
-The shared reference covers sentinel semantics; these skill-specific branches apply when `.codex/unattended-mode` exists:
-
-- **Argument supplied** (`$nmg-sdlc:start-issue #N`): skip Steps 2–3 (selection and confirmation), read issue details only as data needed for branch naming/output, then go directly to Step 3.5 and Step 4. Do not call `request_user_input`.
-- **No argument**: select the first unblocked `automatable` issue from Step 1a's topologically-ordered output (ties broken by issue number ascending), drawn from the first viable milestone alphabetically — or from all open issues if no viable milestone exists. `request_user_input` gate is never called.
-- Only issues with the `automatable` label are eligible. Every `gh issue list` command gains `--label automatable`. If no automatable issues exist, run the diagnostic per `references/milestone-selection.md` and exit without creating a branch.
+Read `../../references/epic-relationships.md` when Step 1a begins — it defines the supported relationship signals, target-metadata hydration, epic-membership classification, fail-safe fallback, and completion rules shared by the manual epic consumers.
 
 ## Workflow Overview
 
@@ -33,7 +23,7 @@ $nmg-sdlc:start-issue [#N]
     ├─ 1.  Fetch milestones & issues
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
     ├─ 2.  Present issue selection (`request_user_input` gate)
-    ├─ 3.  Confirm selected issue (interactive only; detail load only in unattended)
+    ├─ 3.  Confirm selected issue and load its details
     ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
          ├─ Precondition: working tree must be clean
@@ -44,17 +34,17 @@ $nmg-sdlc:start-issue [#N]
 
 ## Step 1: Identify Issue
 
-If an argument was provided (e.g., `$nmg-sdlc:start-issue #42`), use that issue number. In interactive mode, skip to Step 3 using that issue number. In unattended mode, skip selection and confirmation, read issue details only as data, then proceed to Step 3.5 and Step 4.
+If an argument was provided (e.g., `$nmg-sdlc:start-issue #42`), use that issue number and skip to Step 3.
 
 Otherwise, discover available issues.
 
-Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, auto-selection vs. `request_user_input` gate, the `--label automatable` gating in unattended mode, and the empty-result diagnostic that halts the run when no automatable issues exist.
+Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, the `request_user_input` milestone gate, and empty-result handling.
 
-After the raw candidate set is produced (and the empty-result handler has not fired), proceed to Step 1a before any presentation or auto-selection.
+After the raw candidate set is produced, proceed to Step 1a before presentation.
 
 ## Step 1a: Dependency Resolution
 
-Filter out blocked issues and topologically order the remainder so genuine prerequisites appear before their descendants. This runs in **both** interactive and unattended mode, on the candidate set produced by Step 1. Apply `../../references/epic-relationships.md` before blocked filtering: preserve confirmed coordination-epic identity, but exclude those pairs from blockers, blocked counts, and topological in-degree. Emit a session note reporting the filtered count before presentation/auto-selection, even when the count is zero.
+Filter out blocked issues and topologically order the remainder so genuine prerequisites appear before their descendants. Apply `../../references/epic-relationships.md` before blocked filtering: preserve confirmed coordination-epic identity, but exclude those pairs from blockers, blocked counts, and topological in-degree. Emit a session note reporting the filtered count before presentation, even when the count is zero.
 
 ### Fetch and Hydrate Relationship Metadata
 
@@ -119,7 +109,6 @@ If any candidate remains un-emitted after the queue drains, those nodes form a c
    ```
 2. Append the cycle members to the output list in issue-number ascending order.
 3. Continue.
-4. In unattended mode, this warning is informational only — the runner does not escalate based on cycles.
 
 ### Fallback Chain
 
@@ -132,7 +121,7 @@ The body-only fallback still hydrates every known body target. A target lookup f
 
 ### Session Note
 
-Before presentation (interactive) or auto-selection (unattended), emit exactly one line to stdout:
+Before presenting the issue selection, emit exactly one line to stdout:
 
 ```
 Filtered N blocked issues from selection.
@@ -140,16 +129,14 @@ Filtered N blocked issues from selection.
 
 Emit the line even when `N == 0` — it confirms dependency resolution ran.
 
-The topologically-ordered, blocked-filtered list is what Step 2 and the unattended auto-pick consume.
+The topologically ordered, blocked-filtered list is what Step 2 presents.
 
 ## Step 2: Present Issue Selection
 
-In unattended mode, skip this step entirely — the auto-pick rule in the Unattended-Mode Behaviour section replaces it.
-
-Interactive mode uses `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically-ordered, blocked-filtered list (not the raw Step 1 fetch).
+Use a `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically ordered, blocked-filtered list (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
-- Each option description: labels (comma-separated), or "No labels" if none. If the issue has the `automatable` label, append `(automatable)` to the description.
+- Each option description: labels (comma-separated), or "No labels" if none.
 - Include a final option: **"Enter issue number manually"** with description "Type a specific issue number".
 - If more than 4 issues exist, show the first 4.
 
@@ -159,17 +146,15 @@ If the user selects "Enter issue number manually", they type their issue number 
 
 Read the full issue details via `gh issue view #N` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, and milestone.
 
-In unattended mode, this is a data-loading step only. Do not ask "Ready to start working on this issue?", do not emit text asking the user to reply, and do not call `request_user_input`; proceed directly to Step 3.5 after issue details are available.
-
-In interactive mode, ask: "Ready to start working on this issue?" If the user says no, return to Step 2.
+Ask through `request_user_input`: "Ready to start working on this issue?" If the user says no, return to Step 2.
 
 ## Step 3.5: Reconcile Stale Remote Branch
 
-Read `references/stale-remote-branch.md` when the selected issue number is known and before `gh issue develop --checkout` runs — the reference covers branch-name derivation, remote existence probe, ancestor-of-main check, and the deletion path (auto-delete under unattended mode, interactive confirm otherwise). The probe is skipped when no remote branch exists.
+Read `references/stale-remote-branch.md` when the selected issue number is known and before `gh issue develop --checkout` runs — the reference covers branch-name derivation, remote existence probe, ancestor-of-main check, and the deletion confirmation. The probe is skipped when no remote branch exists.
 
 ## Step 4: Create Feature Branch & Link to Issue
 
-Read `../../references/dirty-tree.md` when Step 4 begins — the reference covers the `git status --porcelain` filter for SDLC-runner artifacts and the abort messaging (interactive vs. unattended) when the filtered output is non-empty. Branch creation must not proceed against a dirty tree.
+Read `../../references/dirty-tree.md` when Step 4 begins — the reference covers the `git status --porcelain` check and abort message when the output is non-empty. Branch creation must not proceed against a dirty tree.
 
 ### Create Branch
 
@@ -207,8 +192,7 @@ Milestone: [milestone or "none"]
 Labels: [labels or "none"]
 Status: In Progress
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: Run `$nmg-sdlc:write-spec #N` to create specifications for this issue.
-[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
+Next step: Run `$nmg-sdlc:write-spec #N` to create specifications for this issue.
 ```
 
 This summary is the handoff contract for downstream skills like `$nmg-sdlc:write-spec` and `$nmg-sdlc:write-code`.

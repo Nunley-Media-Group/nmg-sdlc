@@ -1,6 +1,6 @@
 # Epic Relationship Roles
 
-**Consumed by**: `start-issue` dependency resolution and `scripts/sdlc-runner.mjs` milestone preselection.
+**Consumed by**: `start-issue` dependency resolution, `write-spec` parent-spec discovery, and `open-pr` sibling-aware delivery.
 
 Epic membership is coordination metadata, not an execution prerequisite. Both selectors must normalize the supported GitHub signals into child/target pairs, hydrate the target's live metadata, classify the pair, and only then perform blocked filtering or topological ordering.
 
@@ -17,7 +17,7 @@ Accept only positive same-repository issue numbers. Ignore self-references and c
 
 ## Hydration and Classification
 
-Hydrate every unique target referenced by a supported signal, including targets outside the selector's candidate or `automatable` pool. Request the target's live state and labels; the runner also requests closing pull-request metadata for execution-dependency completion. Derive this metadata fresh on every selection run and never persist it in `.codex/sdlc-state.json`.
+Hydrate every unique target referenced by a supported signal, including targets outside the current candidate window. Request the target's live state and labels, and derive this metadata fresh on every selection run.
 
 Classify each deduplicated pair with this decision table:
 
@@ -37,12 +37,9 @@ WARNING: Could not confirm relationship metadata for child #C -> target #T; trea
 
 Replace `C` and `T` with the affected issue numbers. Emit at most one warning per deduplicated pair.
 
-## Consumer Completion Rules
+## Completion Rule
 
-- `start-issue`: a confirmed execution dependency is unresolved while its target state is not `CLOSED`. Unknown metadata is always unresolved.
-- `sdlc-runner.mjs`: a confirmed execution dependency is complete only when its target is `CLOSED` and `closedByPullRequestsReferences` contains a merged pull request. Unknown metadata is always unresolved.
-
-These consumer-specific completion rules do not change role classification. In both consumers an open coordination epic is non-blocking, while an open sibling or other confirmed non-epic target remains a named blocker.
+A confirmed execution dependency is unresolved while its target state is not `CLOSED`. Unknown metadata is always unresolved. An open coordination epic is non-blocking, while an open sibling or other confirmed non-epic target remains a named blocker.
 
 ## Fetch and Fallback Boundaries
 

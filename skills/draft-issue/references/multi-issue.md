@@ -234,7 +234,6 @@ DraftState {
   depthOverridden: boolean
   anythingMissed: string | null
   interviewAnswers: map<round, text>
-  automatable: boolean
   understanding: { persona, outcome, acOutline, scopeIn, scopeOut }
   understandingConfirmed: boolean
   draft: string  // may contain "Depends on: <askId>" placeholders
@@ -331,11 +330,9 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 3. **Child body requirements** (enforced during Step 6 for each child):
    - The body MUST contain a `Depends on: #{epic-number}` line (the epic is the parent of every child).
    - Any intra-epic prerequisite from the Delivery Phases `Depends On` column MUST produce an additional `Depends on: #{sibling-number}` line (resolved via Step 10.3 placeholder rewriting once siblings exist).
-4. **Child labels:** apply `enhancement` (NOT `epic`) to every child. If Step 5b flagged the epic as automatable, propagate the `automatable` label to children.
+4. **Child labels:** apply `enhancement` (NOT `epic`) to every child.
 5. **GitHub sub-issue link:** after each child is created, also run `gh issue edit <child> --add-parent <epic>` (gated on `session.subIssueSupported` — the `--add-parent` flag uses the same gh capability as `--add-sub-issue`). Per-edge failures append to `session.autolinkDegradationNotes`.
 6. **Update the epic's Child Issues checklist in place.** After all children are created, rewrite the epic's body (`gh issue edit <epic> --body-file <updated>`) to replace `#{askId-N}` placeholders in the Child Issues checklist and Delivery Phases table with the real child issue numbers.
-
-**Unattended-mode rule.** `$nmg-sdlc:draft-issue` as a whole does not honor unattended-mode (the skill header states this). The Epic child-creation flow is therefore always interactive — each child pass through Steps 2–9 may prompt as needed. Nothing about this sub-step introduces a new `request_user_input` gate call site beyond those already present in the Per-Issue Loop.
 
 ### Output
 

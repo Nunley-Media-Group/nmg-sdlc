@@ -1,478 +1,297 @@
 # nmg-sdlc Technical Steering
 
-This document defines the technology stack, constraints, and integration standards.
-All technical decisions should align with these guidelines.
+This document defines the technical architecture, development standards, verification gates, and integration boundaries for nmg-sdlc.
 
 ---
 
 ## Architecture Overview
 
-```
-Codex CLI
-    ↓ (plugin system)
-nmg-sdlc Plugin
-    ├── Skills (SKILL.md files — prompt-based workflows)
-    ├── Agents (Markdown prompt contracts for optional Codex delegation)
-    └── Templates (spec, steering, checklist files)
+nmg-sdlc is a prompt-driven Codex plugin with deterministic validators and exercise tooling:
 
-SDLC Runner (automation layer)
-    ├── run-loop Skill (in-session)
-    └── sdlc-runner.mjs (Node.js orchestrator)
-        └── Spawns `codex exec` subprocesses per SDLC step
+```text
+Codex plugin manifest
+        │
+        ▼
+Manual skill pipeline
+draft → start → spec → implement → simplify → verify → deliver → review cleanup
+        │
+        ├── project steering and bounded spec context
+        ├── managed repository assets
+        └── GitHub issue/PR evidence
+
+Contract scripts
+        ├── prompt configuration repair
+        ├── lifecycle status inspection
+        ├── skill inventory audit
+        ├── plugin-surface validation
+        └── deterministic exercise fixtures
 ```
+
+Every workflow decision is interactive. Scripts may inspect or validate contracts, but do not select product scope or advance the delivery lifecycle on the user's behalf.
 
 ---
 
 ## Technology Stack
 
-| Layer | Technology | Version |
-|-------|------------|---------|
-| Plugin host | Codex CLI | Latest |
-| Skill definitions | Markdown (SKILL.md) | N/A |
-| Automation runner | Node.js (ESM) | v24+ |
-| Issue tracker | GitHub Issues + Projects | gh CLI |
-| Automation runner | Node.js (sdlc-runner.mjs) | v24+ |
+| Component | Technology | Minimum |
+|-----------|------------|---------|
+| Skill and reference contracts | Markdown + YAML frontmatter | Codex plugin-compatible |
+| BDD specifications | Gherkin | Gherkin 6+ |
+| Contract and inspection scripts | Node.js ESM | Node.js 20+ |
+| Test suite | Jest ESM | Jest 29+ |
+| GitHub integration | `gh` CLI / GraphQL where required | Authenticated current CLI |
+| Plugin packaging | `.codex-plugin/plugin.json` | Current Codex plugin schema |
 
-### External Services
-
-| Service | Purpose | Notes |
-|---------|---------|-------|
-| GitHub API | Issue/PR management, branch creation | Via `gh` CLI; requires `GITHUB_TOKEN`. Sub-issue parent queries (`gh issue view --json parent`) require `gh` >= 2.62.0. If an older `gh` is installed, parent-link resolution in `$nmg-sdlc:write-spec` and `$nmg-sdlc:open-pr` degrades gracefully — the `parent` field is absent from the JSON response, so resolution falls back to body-cross-ref parsing (`Depends on: #N`, `Blocks: #N`) with a logged warning. |
-| Console/Log | Status updates from SDLC runner | Via log files in `<tmpdir>/sdlc-logs/` |
-| OpenAI API | Powers Codex sessions | Underlying LLM for all skills |
-
-### Automated Review
-
-The `$nmg-sdlc:address-pr-comments` skill reads this section to decide which PR review threads it may address. Treat threads whose author satisfies either predicate below as in-scope; all other threads (including human reviewers) are out of scope and left untouched.
-
-| Predicate | Default | Description |
-|-----------|---------|-------------|
-| `bots` | `true` | When `true`, any thread whose first comment has `author.__typename == "Bot"` is eligible |
-| `logins` | `["codex[bot]"]` | Explicit GitHub login allow-list (in addition to the Bot typename rule); add a login here to opt a new reviewer in |
-
-Modify the defaults above to change the eligibility rules — no skill or script changes are needed. The skill fails closed: if this section is missing or malformed, `$nmg-sdlc:address-pr-comments` treats every thread as out of scope and exits with the no-reviewer message.
+Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a development dependency isolated to `scripts/`.
 
 ---
 
 ## Versioning
 
-The `VERSION` file at the project root is the single source of truth for the current version. Stack-specific files are kept in sync via `$nmg-sdlc:open-pr`.
+`VERSION` is the single version source. Stack-specific files are synchronized during `$nmg-sdlc:open-pr`.
 
 | File | Path | Notes |
 |------|------|-------|
-| `.codex-plugin/plugin.json` | `version` | Codex plugin manifest version |
+| `.codex-plugin/plugin.json` | `version` | Plugin manifest version |
 
 ### Version Bump Classification
 
-The `$nmg-sdlc:open-pr` skill and the `sdlc-runner.mjs` deterministic bump postcondition both read this table to classify version bumps. Modify this table to change the classification rules — no skill or script changes are needed.
-
 | Label | Bump Type | Description |
 |-------|-----------|-------------|
-| `bug` | patch | Bug fix — backwards-compatible |
-| `enhancement` | minor | New feature — backwards-compatible |
-| `spike` | skip | Research-only PR — no release, no bump |
+| `bug` | patch | Backwards-compatible defect fix |
+| `enhancement` | minor | Backwards-compatible capability |
+| `spike` | skip | Research ADR only |
 
-The `skip` verdict is a special value — not a placeholder. When `skip` is the classified bump type, `$nmg-sdlc:open-pr` skips Steps 2 and 3 entirely and produces a PR with no version change. The spike-skip logic is implemented in `skills/open-pr/references/version-bump.md` § Spike handling; this row makes the classification discoverable in the canonical table.
+Default unmatched issues to minor. Major bumps are never inferred: the user must pass `$nmg-sdlc:open-pr #N --major` and approve the displayed major-version gate.
 
-**Default**: If an issue's labels do not match any row, the bump type is **minor**.
+`$nmg-sdlc:open-pr` reads this table, updates `VERSION`, the manifest, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
 
-**Major bumps are manual-only.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in explicitly via `$nmg-sdlc:open-pr #N --major`; the SDLC runner will not apply a major bump. In unattended mode, `--major` escalates and exits without bumping — major-version bumps are a deliberate release decision that a headless runner cannot make on a human's behalf.
-
-**Breaking changes use minor bumps.** A `### Changed (BREAKING)` sub-section in a CHANGELOG version entry does NOT override the bump type. Communicate the breaking nature via a `**BREAKING CHANGE:**` bold prefix on the affected bullet, and (recommended) add a `### Migration Notes` sub-section to the entry. Example:
-
-```markdown
-## [1.50.0] - 2026-04-19
-
-### Changed (BREAKING)
-
-- **BREAKING CHANGE:** Renamed `foo()` to `bar()`; update callers accordingly.
-
-### Migration Notes
-
-Replace any calls to `foo(x)` with `bar(x)` — the signature is otherwise unchanged.
-```
+Breaking changes still use the accepted bump unless the user explicitly chooses major. Mark them under `### Changed (BREAKING)` and provide migration notes.
 
 ---
 
-## Technical Constraints
+## Codex Plugin Standards
 
-### Performance
+Before introducing a new Codex-facing feature or changing model/tool behavior, verify current official Codex documentation.
 
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| Skill execution | Reasonable for task complexity | Skills are interactive; no hard time limits in manual mode |
-| Runner step timeout | Per-step config (5–30 min) | Prevents runaway automation sessions |
+### Skill Bundles
 
-### Cross-Platform Compatibility
+**Authoring rule:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` prompt contract must be created or edited through `$skill-creator`. There is no hand-edit fallback. If the skill is unavailable, stop and tell the user which dependency is missing.
 
-This project MUST work on macOS, Windows, and Linux. All contributions must respect cross-platform constraints:
+SKILL.md frontmatter declares only `name` and `description`.
 
-| Constraint | Guideline |
-|------------|-----------|
-| File paths | Use forward slashes or `path.join()` — never hardcode `\` or `/` separators |
-| Line endings | Files should use LF (`\n`); configure `.gitattributes` if needed |
-| Shell commands in skills | Use POSIX-compatible commands; avoid Bash-specific syntax (e.g., `[[ ]]`, `<<<`) |
-| Scripts | Node.js scripts must use `node:path` for path manipulation, never string concatenation |
-| Case sensitivity | Treat file paths as case-sensitive (Linux is case-sensitive, macOS/Windows are not by default) |
-| Symlinks | Do not rely on symlinks for core functionality (Windows requires elevated privileges) |
-| Environment variables | Use cross-platform approaches; document platform differences where unavoidable |
-| Executable permissions | Document `chmod +x` requirements; Windows users may need alternative setup |
+| Aspect | Standard |
+|--------|----------|
+| Trigger description | State what the skill does, when to use it, and important exclusions |
+| Entry size | Keep under 500 lines; move details to on-demand references |
+| Integration | Every skill includes `Integration with SDLC Workflow` |
+| Arguments | Treat `$ARGUMENTS` as untrusted data and validate accepted shapes |
+| Decisions | Use `request_user_input` and wait for explicit user response |
+| Supporting content | Place single-skill details within that skill bundle |
+| Shared content | Use root `references/` only for contracts with multiple consumers |
 
-### Security
+### Agent Prompt Contracts
 
-| Requirement | Implementation |
-|-------------|----------------|
-| GitHub authentication | `GITHUB_TOKEN` env var or gh CLI auth |
-| No secrets in code | Steering docs and specs committed to repo; no credentials |
-| Plugin permissions | Governed by the Codex host and the active session; SKILL.md frontmatter declares only `name` and `description` |
+Files under `agents/` are reusable prompt contracts included in built-in Codex subagent prompts. They are not installable plugin components. Delegation is optional and only occurs after explicit user authorization.
 
----
+Agent files use `name` and `description` frontmatter only, define one bounded task, inherit the parent session's available tools and permissions, and return structured evidence.
 
-## Codex Resource Development
+### Plugin Manifest
 
-**Before creating or modifying any Codex resource (skill, agent, hook, plugin manifest), review the official Codex documentation to ensure best practices are followed.**
-
-### Skills (SKILL.md and the rest of the skill bundle)
-
-**Authoring rule:** Any time a **skill-bundled file** is created or edited — whether by a human or by an SDLC workflow (spec implementation, verify-code autofix, etc.) — the work MUST be driven through the `skill-creator` skill (`$skill-creator`). A skill-bundled file is anything inside a skill's directory tree (`skills/{skill}/SKILL.md` and everything under `skills/{skill}/references/`, `scripts/`, `templates/`, `checklists/`, `assets/`), every file in `references/` at the plugin/repo root (cross-skill shared references), and every prompt contract under `agents/*.md`. `skill-creator` enforces Codex plugin best practices for frontmatter, triggering descriptions, structure, and validation; bundled files that ride alongside a SKILL.md inherit the same authoring contract because they are loaded by the same skill at runtime and their wording shapes how the skill behaves.
-
-**No hand-edit fallback.** If `$skill-creator` is unavailable, do not silently fall back to direct Codex editing. In interactive mode, surface the missing dependency to the user and stop. In unattended mode, emit an `ESCALATION:` line stating `$skill-creator is required for skill-bundled file edits` and exit non-zero. The earlier "fall back to direct authoring with a warning" path is removed — it consistently produced silent drift from skill-creator's best practices.
-
-| Aspect | Best Practice |
-|--------|---------------|
-| Authoring tool | **Always use `$skill-creator` for creation and edits** — never hand-edit SKILL.md |
-| Frontmatter | Use YAML frontmatter for `name` and `description` only; put UI metadata in `agents/openai.yaml` when needed |
-| Size | Keep under 500 lines — move detailed reference material to separate files |
-| Arguments | Use `$ARGUMENTS` placeholder to capture user input |
-| Supporting files | Place templates, examples, and scripts alongside SKILL.md in the skill directory |
-| Dynamic context | Use `` !`command` `` syntax to inject shell output before Codex processes the skill |
-
-### Agents (.md files)
-
-| Aspect | Best Practice |
-|--------|---------------|
-| Frontmatter | Use YAML frontmatter for `name` and `description` only |
-| Execution | Treat files under `agents/` as reusable prompt contracts included in built-in Codex subagent prompts, not installable custom-agent components |
-| Tool access | Inherit tool availability and permissions from the parent Codex session; the prompt contract does not declare execution-control fields |
-| Focus | Each prompt contract should cover one specific delegated task and define structured output |
-
-### Plugin Manifests
-
-| Aspect | Best Practice |
-|--------|---------------|
-| plugin.json location | Codex manifest goes inside `.codex-plugin/`; all other components stay at plugin root |
-| Component paths | Must be relative, starting with `./` (no absolute or traversing paths) |
-| Versioning | Semver (MAJOR.MINOR.PATCH); update `.codex-plugin/plugin.json` and any stack-specific version files |
-| Testing | Use `codex exec --cd ./my-plugin` during development |
+| Aspect | Standard |
+|--------|----------|
+| Location | `.codex-plugin/plugin.json` |
+| Component paths | Relative paths beginning with `./`; no traversal |
+| Repository | `https://github.com/Nunley-Media-Group/nmg-sdlc` |
+| Version | Semver synchronized with `VERSION` by delivery |
+| Validation | Parse JSON and verify all declared component roots exist |
 
 ---
 
 ## Coding Standards
 
-### Markdown (Skills, Templates, Steering)
+### Markdown
 
-```markdown
-# GOOD patterns
-- Use ATX-style headings (# not ===)
-- Tables for structured data
-- Code blocks with language hints
-- Clear section hierarchy: H1 > H2 > H3
-- TODO comments with <!-- TODO: --> for user-customizable sections
+- Use ATX headings and a clear H1 → H2 → H3 hierarchy.
+- Use tables for repeated structured mappings.
+- Use language-tagged code fences.
+- Keep instructions imperative, testable, and free of ambiguous defaults.
+- Avoid inline HTML except managed comments.
+- Preserve truthful historical specs and released changelog entries.
 
-# BAD patterns
-- Inline HTML (except comments)
-- Deeply nested lists (prefer tables)
-- Ambiguous placeholder text
-```
+### JavaScript
 
-### JavaScript (Runner Scripts)
+- Use ESM imports and `node:` built-ins.
+- Use `node:path` for cross-platform paths.
+- Prefer argument arrays over shell interpolation.
+- Validate CLI arguments at entry and provide stable exit codes.
+- Distinguish read/parse failures from contract violations.
+- Do not follow symlinks when enforcing a root or deletion boundary.
+- Avoid synchronous I/O in repeated hot paths; bounded CLI startup inspection may use it when clarity improves.
 
-```javascript
-// GOOD patterns
-- ESM imports (import/from)
-- Node.js built-in modules (node:child_process, node:fs, node:path)
-- parseArgs for CLI argument parsing
-- JSDoc comments for script headers
-- Explicit error handling with process.exit codes
+### JSON and YAML
 
-// BAD patterns
-- CommonJS require()
-- External npm dependencies (scripts must be zero-dependency)
-- Synchronous I/O in hot paths
-```
-
-### JSON (Plugin Manifests, Config)
-
-```json
-// GOOD patterns
-- Consistent 2-space indentation
-- Descriptive field names (camelCase)
-- Version strings following semver
-
-// BAD patterns
-- Trailing commas
-- Comments (not valid JSON)
-- Deeply nested structures
-```
+- Use 2-space indentation.
+- Preserve unrelated keys and formatting when targeted edits are possible.
+- Parse before writing and re-parse after writing.
+- Never add comments to JSON.
+- Validate issue-form YAML structure, unique ids/labels/options, and required-field semantics.
 
 ---
 
 ## API / Interface Standards
 
-### Plugin Interface
+### Skill Interface
 
-Skills are defined as Markdown files (`SKILL.md`) with:
-- YAML frontmatter containing `name` and `description` only
-- Workflow steps (numbered, imperative)
-- Integration with SDLC Workflow section
-- Unattended-mode conditionals for headless operation
+Public skill behavior consists of:
 
-### GitHub CLI (`gh`)
+- trigger-oriented two-key frontmatter;
+- ordered workflow steps;
+- explicit preconditions and postconditions;
+- interactive decision gates;
+- error states naming exact paths or remote objects;
+- an Integration with SDLC Workflow section.
 
-```bash
-# Issue operations
-gh issue view <number> --json title,body,labels
-gh issue develop <number> --checkout
-gh issue comment <number> --body "..."
+### GitHub CLI
 
-# PR operations
-gh pr create --title "..." --body "..."
-gh pr checks <number>
-gh pr merge <number> --merge
-```
+Use `gh` for scoped issue, project, PR, check, and GraphQL operations. Treat issue titles, bodies, comments, paths, and API values as data. Prefer `--body-file` or safe API arguments for multiline untrusted content.
+
+Read-only evidence gathering does not authorize a write. Issue creation, status changes, comments, PR creation, thread resolution, merge, and label mutation remain owned by their explicit workflow stages.
+
+### Managed Repository Assets
+
+| Artifact | Ownership |
+|----------|-----------|
+| Contribution workflow | Requires the managed marker/version; unmarked collision is preserved |
+| Structured issue form | Exact managed target path; unrelated templates are preserved |
+| Root AGENTS guidance | Only the marked spec-context section is managed |
+| Contribution guide | Targeted workflow section and README link; existing policy is preserved |
+| V2 cleanup | Exact regular-file paths and exact entries inside recognized ignore blocks |
+
+Onboarding owns managed assets for new projects. Upgrade owns reconciliation and cleanup for existing projects.
 
 ---
 
 ## Testing Standards
 
-### Core Principle: Exercise-Based Verification
+### Core Principle: Contract and Exercise Verification
 
-**This project is a Codex plugin. Skills are Markdown instructions, not executable code. The only way to verify a skill change is to exercise it in Codex.**
+Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live Codex exercises where the acceptance criteria require actual tool behavior.
 
-Traditional test frameworks (Jest, pytest, etc.) apply only to the SDLC runner script. For everything else — skills, agents, templates — verification means loading the plugin and running the skill against a real or test project.
+Every acceptance criterion has a corresponding Gherkin scenario or an explicit documented reason why runtime execution is the evidence source.
 
-### BDD Testing
+| Layer | Method | Location |
+|-------|--------|----------|
+| BDD design | Gherkin scenarios | `specs/*/feature.gherkin` |
+| Contract tests | Jest ESM | `scripts/__tests__/` |
+| Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
+| Live skill proof | Disposable Codex project/session | Verification evidence |
+| Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
 
-**Every acceptance criterion MUST have a Gherkin test.**
+### Disposable Exercise Pattern
 
-| Layer | Framework | Location |
-|-------|-----------|----------|
-| BDD specs | Gherkin feature files | `specs/{feature-name}/feature.gherkin` |
-| Runner tests | Jest (ESM) | `scripts/__tests__/` |
+1. Create a temporary project with only the files required by the skill.
+2. Initialize git and, when necessary, a disposable GitHub repository or dry-run fixture.
+3. Load the changed plugin root.
+4. Invoke the changed skill and answer every gate explicitly.
+5. Compare filesystem, command, and rendered-output artifacts with the approved spec.
+6. Remove the temporary project after capturing evidence.
 
-Gherkin specs serve as **design artifacts and verification criteria** — they define the expected behavior that exercise-based testing validates.
+Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
-```gherkin
-# specs/{feature-name}/feature.gherkin
-Feature: [Feature name from issue title]
-  As a [developer/automation agent]
-  I want [capability]
-  So that [benefit]
+### Verification Evidence Boundaries
 
-  Scenario: [Acceptance criterion]
-    Given [precondition]
-    When [action]
-    Then [expected outcome]
-```
+- Local source tests prove the source tree only.
+- A staged-release fixture proves the packaged candidate only.
+- A clean installed root plus fresh session proves discovery behavior.
+- An actual consumer-project upgrade proves cleanup and preservation behavior.
+- GitHub checks and mergeability are separate from local test success.
 
-### Plugin Exercise Testing
-
-#### Loading the Plugin for Development
-
-```bash
-codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"
-```
-
-Then invoke each changed skill directly (e.g., `$nmg-sdlc:write-spec #42`) and verify:
-- The skill loads without errors
-- Workflow steps execute in the expected order
-- Output artifacts (files, GitHub comments, PR bodies) match downstream skill expectations
-- Interactive gates appear in manual mode (or are skipped when `.codex/unattended-mode` exists)
-
-#### Test Project Pattern
-
-When verifying SDLC skill changes, exercise them against a **disposable test project** — not the nmg-sdlc repo itself:
-
-1. **Scaffold** a temporary project directory with minimal structure:
-   - `README.md`, a basic source file, and `.gitignore`
-   - `steering/` with minimal `product.md`, `tech.md`, `structure.md`
-   - Initialized git repo (`git init`) for branch/commit operations
-   - A GitHub repo if the skill under test needs issue/PR operations (or use dry-run evaluation — see below)
-2. **Load** the modified plugin: `codex exec --cd /path/to/test-project "$nmg-sdlc:skill-name args"`
-3. **Exercise** the changed skill against the test project
-4. **Evaluate** the output against the spec's acceptance criteria
-5. **Clean up** the test project after verification
-
-#### Dry-Run Evaluation for GitHub-Integrated Skills
-
-For skills that create GitHub resources (`$nmg-sdlc:draft-issue`, `$nmg-sdlc:open-pr`, `$nmg-sdlc:start-issue`):
-
-| Instead of... | Do this... |
-|---------------|------------|
-| Creating a real GitHub issue | Generate the issue title, body, and labels; evaluate the content against ACs |
-| Creating a real PR | Generate the PR title, body, and branch diff; evaluate completeness |
-| Setting issue status | Verify the `gh` commands that WOULD be invoked are correctly formed |
-
-This avoids polluting real repositories during verification while still validating that the skill produces correct output. **The content and structure of what the skill would create is the testable artifact.**
-
-#### Automated Exercise Testing via Codex
-
-Use `codex exec` for non-interactive smoke tests. Skills that normally request user input must be given enough context up front and instructed to choose deterministic defaults:
-
-```bash
-codex exec \
-  --cd /path/to/test-project \
-  --full-auto \
-  "Exercise the skill: $nmg-sdlc:skill-name args"
-```
-
-This tests the non-interactive execution path. For full interactive paths, run the skill manually in Codex and record the transcript as verification evidence.
-
-### Validation Approach Summary
-
-| Type | Method | Applies To | Conversational Gate Handling |
-|------|--------|------------|-----------------|
-| Codex exec smoke test | `codex exec --cd <test-project>` | Quick verification | Provide deterministic context up front |
-| Manual Codex exercise | Interactive Codex session | Skills with interactive gates | Full support |
-| Spec verification | `$nmg-sdlc:verify-code` skill — behavioral contract checking | All changes | N/A |
-| Architecture review | Inline review by default; optional Codex `explorer` delegation when explicitly authorized — 5 checklists scored 1–5 | Code structure, scripts | N/A |
-| Runner unit tests | Jest (`npm test` in `scripts/`) | `sdlc-runner.mjs` | N/A |
-| Structural validation | Verify `.codex-plugin/plugin.json` schema and file existence | Plugin manifest | N/A |
-| Prompt quality review | Unambiguous instructions, complete workflow paths, correct tool references | SKILL.md files | N/A |
+Never infer a stronger layer from a weaker one.
 
 ---
 
 ## Verification Gates
 
-Declare mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
-
-This project is prompt-based: skills are Markdown instructions that Codex executes. Traditional code quality metrics (test coverage, cyclomatic complexity) don't apply to most of the codebase. The gates below combine automated tests (for the runner script) with contract-based review (for skills and templates). Verification uses **Design by Contract** — each skill and component has preconditions, postconditions, invariants, and behavioral boundaries that `$nmg-sdlc:verify-code` checks.
+`$nmg-sdlc:verify-code` enforces applicable gates as hard requirements:
 
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
-| SDLC runner tests | `scripts/__tests__/` directory exists | `cd scripts && npm test` | Exit code 0 |
-| Skill exercise test | Any `skills/**/SKILL.md`, `skills/**/references/**`, or `scripts/skill-exercise-runner.mjs` file changed | For changed skills with fixtures, run `node scripts/skill-exercise-runner.mjs --skill <changed-skill>`; changed skills without fixtures are recorded as a named verification gap | Exit code 0 and no placeholder rubric skips for captured artifacts |
-| Skill inventory audit | Any `skills/**/SKILL.md` or `**/references/**` file changed | `node scripts/skill-inventory-audit.mjs --check` | Exit code 0 |
-| Prompt quality review | Any `skills/**/SKILL.md` file changed | Review against Prompt Quality Criteria below | All criteria satisfied |
-| Behavioral contract review | Any skill or script changed | Review against Contract Framework below | Preconditions, postconditions, invariants, and boundaries all addressed |
+| Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
+| Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
+| Codex compatibility | Codex-facing contracts changed | `node scripts/codex-compatibility-check.mjs` | Exit 0 |
+| Active plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
+| Skill creator validation | Skill-bundled files changed | Validate each affected skill through `$skill-creator` tooling | All bundles valid |
+| Skill exercise | Changed skill has a deterministic fixture | `node scripts/skill-exercise-runner.mjs --skill <name>` | Exit 0 and rubric satisfied |
+| Prompt quality | Skill contract changed | Review against Prompt Quality Criteria | Every criterion satisfied |
+| Git hygiene | Any tracked text changed | `git diff --check` | Exit 0 |
 
-### Condition Evaluation Rules
+### Condition Evaluation
 
-- `Always` — gate always applies
-- `{path} directory exists` — gate applies only when the directory is present (`test -d {path}`)
-- `{glob} file changed` — gate applies only when matching files are in the diff
-
-### Pass Criteria Evaluation Rules
-
-- `Exit code 0` — the Action command must exit with code 0
-- `{file} file generated` — the named file must exist after the Action command completes (artifact verification)
-- `output contains "{text}"` — stdout or stderr must contain the specified text
-- Textual criteria (e.g., "reviewer confirms ...") are evaluated by `$nmg-sdlc:verify-code` against the verification report
-
-### Self-Verification (Dogfooding)
-
-This project develops the SDLC toolkit itself. When `$nmg-sdlc:verify-code` runs for changes to SDLC skills, it MUST go beyond static analysis:
-
-1. **Read the changed skill** — verify prompt quality (unambiguous, complete, correct tool refs)
-2. **Check behavioral contracts** — preconditions, postconditions, invariants per the tables below
-3. **Exercise the skill** — if feasible within the verification session, load the plugin and invoke the changed skill against a test project (see Testing Standards → Test Project Pattern)
-4. **Evaluate output** — for GitHub-integrated skills, evaluate what WOULD be created rather than creating real artifacts (see Testing Standards → Dry-Run Evaluation)
-
-If exercise testing is not feasible during automated verification (time or tool constraints), `$nmg-sdlc:verify-code` should explicitly note this in the verification report and recommend manual exercise testing as a follow-up.
+- Evaluate changed-file conditions against the actual scoped diff.
+- A missing applicable fixture is a named verification gap, not an implicit pass.
+- A command pass must include exit status and relevant output summary.
+- Published-install acceptance criteria remain incomplete until the published artifact exists.
 
 ### Contract Framework
 
-| Contract Type | Question It Answers |
-|---------------|-------------------|
-| **Preconditions** | What must be true before the skill/component runs? |
-| **Postconditions** | What must be true after successful execution? |
-| **Invariants** | What must remain true throughout execution? |
-| **Behavioral boundaries** | What must the skill/component NOT do? |
+| Contract | Question |
+|----------|----------|
+| Preconditions | What must exist or be true before the component runs? |
+| Postconditions | What exact artifacts or state must exist afterward? |
+| Invariants | What remains true throughout execution? |
+| Boundaries | What must the component never do? |
 
-### Skill-Level Contracts
+### Skill-Level Invariants
 
-Every skill has implicit contracts. When verifying a skill change, check:
-
-#### Preconditions (Step 0 / Prerequisites)
-- Required files exist (specs, steering docs, issues)
-- Required tools are available (`gh` CLI, git)
-- Correct branch / working directory state
-
-#### Postconditions (Step N / Output)
-- Output files created in the correct location and format
-- GitHub issue/PR updated with expected content
-- No orphaned files or partial state left behind
-- Downstream skills can consume the output (e.g., `$nmg-sdlc:write-spec` output feeds `$nmg-sdlc:write-code`)
-
-#### Invariants (Throughout Execution)
-- Stack-agnostic: no project-specific technology hardcoded in skill instructions
-- Steering docs used as the abstraction layer for project-specific details
-- Unattended-mode gates: Plan Mode `request_user_input` gates present unless `.codex/unattended-mode` exists
-- Cross-platform: no platform-specific paths, commands, or assumptions
-
-#### Behavioral Boundaries
-- Skills must not modify files outside their declared scope
-- Skills must not commit, push, or merge unless that is their explicit purpose
-- Skills must not skip interactive gates in manual mode
-- Skills must not introduce dependencies on external services not declared in tech.md
-
-### Checklist Applicability
-
-The architecture-reviewer checklists were designed for runtime codebases. Apply them to nmg-sdlc with these adjustments:
-
-| Checklist | Applies To | Skip For | Reinterpretation |
-|-----------|-----------|----------|-----------------|
-| SOLID | Scripts (sdlc-runner.mjs) | Markdown skills | For skills: SRP = one skill does one workflow step; DIP = skills reference steering docs, not hardcoded details |
-| Security | Scripts | Markdown templates | Focus: no secrets in committed files, safe `gh` CLI patterns, no shell injection in skill commands |
-| Performance | Runner script | Skills, templates | Focus: runner timeouts configured, no blocking operations |
-| Testability | All — reinterpret | N/A | For skills: steps can be followed manually with predictable results; scenarios are independent; templates produce valid output |
-| Error Handling | Scripts | Markdown skills | Focus: runner exit codes, graceful failures with meaningful stderr |
+- Stack-specific details come from project steering.
+- User decisions wait for explicit `request_user_input` responses.
+- Skills do not mutate beyond their declared stage.
+- Dirty unrelated work is preserved.
+- Skill-bundled edits route through `$skill-creator`.
+- Active spec context is bounded; historical specs are preserved.
+- Remote writes require the owning workflow and exact target.
 
 ### Prompt Quality Criteria
 
-For Markdown skills, the "code quality" equivalent is prompt quality. The Prompt Quality Review gate above is satisfied when every row of this table is addressed:
+| Criterion | Check |
+|-----------|-------|
+| Unambiguous instructions | Each step has one testable interpretation |
+| Complete paths | Success, empty, failure, and user-decline branches are covered |
+| Correct tool references | Codex-native tools and safe argument handling are used |
+| Logical ordering | Every step depends only on previously available evidence |
+| Gate integrity | Decisions wait for explicit user input |
+| Output chain | Postconditions satisfy the downstream skill's preconditions |
+| Cross-reference validity | Every referenced file exists in the packaged surface |
+| Historical boundary | Active claims do not rewrite or load historical records as capability |
 
-| Criterion | What to Check |
-|-----------|---------------|
-| **Unambiguous instructions** | Each step has one clear interpretation; no room for Codex to guess |
-| **Complete workflow paths** | Happy path, error/edge cases, and unattended mode all covered |
-| **Correct tool references** | Skills use Codex-native language from `references/codex-tooling.md` and do not name legacy-only tools |
-| **Logical step ordering** | Dependencies flow forward; no step references information from a later step |
-| **Gate integrity** | Decision points present `request_user_input` gates in Plan Mode (or unattended-mode bypass) |
-| **Template-output chain** | Output format matches what downstream skills expect as input |
-| **Cross-reference validity** | Links to templates, checklists, and other skills resolve correctly |
+### Checklist Applicability
 
-### Script Verification
-
-For `sdlc-runner.mjs` and other runtime scripts:
-
-| Contract | Check |
-|----------|-------|
-| Preconditions | Required env vars documented; input validation at entry point |
-| Postconditions | Non-zero exit on failure; meaningful stdout/stderr; no partial state on error |
-| Invariants | Zero external dependencies (`node:*` only); cross-platform paths via `node:path` |
-| Boundaries | No network calls beyond declared services; idempotent re-runs |
+| Checklist | Runtime scripts | Markdown contracts |
+|-----------|-----------------|--------------------|
+| SOLID | Module responsibility and dependency direction | One workflow responsibility; shared rules referenced, not duplicated |
+| Security | Input/path validation, no shell injection, safe deletion | Exact scope, no secret requests, safe command examples |
+| Performance | Bounded scans, concurrency where safe | Progressive disclosure and bounded context loading |
+| Testability | Deterministic inputs, stable diagnostics | Steps produce observable artifacts and independent scenarios |
+| Error handling | Stable exit codes and exact errors | Named gaps, preservation, and non-overstated completion |
 
 ---
 
 ## Environment Variables
 
-### Required
+### Required When Applicable
 
-| Variable | Description |
-|----------|-------------|
-| `GITHUB_TOKEN` | GitHub access for `gh` CLI operations and private marketplace updates |
+| Variable | Purpose |
+|----------|---------|
+| `GITHUB_TOKEN` | Authenticated GitHub operations and private marketplace access |
 
-### Optional
-
-| Variable | Description |
-|----------|-------------|
-| `OPENCLAW_DISCORD_CHANNEL` | Discord channel ID for automation status updates |
+No optional environment variable may change interactive gate behavior or broaden mutation scope.
 
 ---
 
 ## References
 
-- AGENTS.md for project overview
-- `steering/product.md` for product direction
-- `steering/structure.md` for code organization
+- Product direction: `steering/product.md`
+- Repository organization: `steering/structure.md`
+- Project instructions: `AGENTS.md`
+- Public workflow: `README.md`

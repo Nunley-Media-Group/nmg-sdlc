@@ -29,8 +29,6 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 - The user has an idea but hasn't formalized it yet
 - You need a trackable GitHub issue before writing specs
 
-`$nmg-sdlc:draft-issue` does not honor `.codex/unattended-mode`. Issue drafting requires interactive input.
-
 ## Workflow Overview
 
 ```
@@ -46,8 +44,7 @@ Interview the user to understand their need, then create a well-groomed GitHub i
 │  Step 3:  Assign Milestone                                   │
 │  Step 4:  Investigate Codebase  →  investigation signals     │
 │  Step 5:  Interview the User (adaptive depth)                │
-│  Step 5b: Automation Eligibility Label                       │
-│  Step 5c: Playback and Confirm  ◀── Human Review Gate        │
+│  Step 5b: Playback and Confirm  ◀── Human Review Gate        │
 │  Step 6:  Synthesize into Issue Body                         │
 │  Step 7:  Present Draft for Review  ◀── Human Review Gate    │
 │  Step 8:  Create the Issue                                   │
@@ -148,28 +145,7 @@ Read `references/interview-depth.md` when entering the interview phase — the r
 
 **Output**: `depth`, `depthOverridden`, `interviewAnswers`, `anythingMissed`.
 
-### Step 5b: Automation Eligibility
-
-**Skip this step when `classification === 'spike'`.** Spike issues are never automation-eligible — `automatable` does not apply. Proceed to Step 5c with `automatable = false`.
-
-Present a `request_user_input` gate:
-
-```
-question: "Is this issue suitable for hands-off automation?"
-body: |
-  The `automatable` label tells the downstream SDLC pipeline
-  ($nmg-sdlc:write-spec, $nmg-sdlc:write-code, $nmg-sdlc:verify-code, $nmg-sdlc:open-pr) that it can
-  progress this issue without human judgment at the review gates.
-  It does NOT affect $nmg-sdlc:draft-issue itself — issue drafting always
-  requires interactive human input.
-options:
-  - "Yes — suitable for hands-off automation"
-  - "No — requires human judgment"
-```
-
-**Output**: `automatable` ∈ {`true`, `false`}.
-
-### Step 5c: Playback and Confirm
+### Step 5b: Playback and Confirm
 
 Play back a structured understanding block whose length is proportional to `depth` — matching friction to stakes. Core-depth uses a one-line confirm (persona, outcome, in-scope bullets, out-of-scope bullets). Extended-depth uses a structured block with labelled fields — Persona, Outcome, ACs (numbered one-line outline), Scope in, Scope out:
 
@@ -247,18 +223,15 @@ On `[2]` or a free-form `Other` answer, treat the text as the requested change, 
 
 1. `gh label list` — enumerate existing labels.
 2. Create missing labels via `gh label create "label-name" --description "..." --color "hex"`.
-3. If Step 5b answered "Yes", ensure the `automatable` label exists (`gh label list --search automatable --json name --jq '.[].name'`; lazily create with color `0E8A16` if absent).
-4. Determine labels by classification:
+3. Determine labels by classification:
    - Feature → `enhancement`
    - Bug → `bug`
    - Epic → `epic` + `enhancement` (BOTH; lazily create the `epic` label with color `5319E7` if absent)
    - Spike → `spike` (lazily create with color `0052CC` if absent)
-   - `automatable` applies to Feature/Bug when Step 5b answered "Yes" — epics and spikes do NOT receive `automatable`; epic children inherit it per iteration.
-5. Create the issue (include `--milestone` only when Step 3 assigned one):
+4. Create the issue (include `--milestone` only when Step 3 assigned one):
    ```
    gh issue create --title "..." --body "..." --label "label1,label2" --milestone "v{N}"
    ```
-6. If `automatable` was intended, verify with `gh issue view #N --json labels --jq '.labels[].name'`. If missing, warn in Step 9: `"Warning: automatable label was not applied — verify manually."`
 
 **Output**: `issueNumber`, `issueUrl`, `appliedLabels`.
 
@@ -270,7 +243,6 @@ Render the final status block:
 Issue #N created: [title]
 URL: [issue URL]
 Labels: [labels applied]
-[If automatable verification failed]: Warning: automatable label was not applied — verify manually.
 ```
 
 In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode, Step 9 ends with `"Next step: Run $nmg-sdlc:start-issue #N …"` and Steps 10/11 render as a trivial summary.

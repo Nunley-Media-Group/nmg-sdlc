@@ -4,38 +4,37 @@ Stack-agnostic BDD spec-driven development toolkit for Codex, by Nunley Media Gr
 
 ## Overview
 
-The **nmg-sdlc** plugin brings structured software delivery to Codex. It covers the entire development lifecycle — issue grooming with acceptance criteria, three-phase specification writing, plan-mode implementation, bundled simplification, automated verification, integrated versioning, PR creation, and closing the PR review loop — but the core flow is seven commands: `$nmg-sdlc:start-issue` → `$nmg-sdlc:write-spec` → `$nmg-sdlc:write-code` → `$nmg-sdlc:simplify` → `$nmg-sdlc:verify-code` → `$nmg-sdlc:open-pr` → `$nmg-sdlc:address-pr-comments`. The read-only `$nmg-sdlc:status` utility is available throughout that flow to recover the active issue, stage, evidence gaps, and exact next manual command. Each command runs in a fresh context window with only the artifacts it needs — specs, steering docs, and issue metadata — keeping token usage small and efficient across the entire lifecycle. Architecture review runs inline by default and may use Codex `explorer` delegation when explicitly authorized, scoring every implementation across five quality checklists (SOLID principles, security, performance, testability, and error handling). Steering documents (`product.md`, `tech.md`, `structure.md`) let teams encode project-specific conventions that guide every step. A retrospective system (`$nmg-sdlc:run-retro`) analyzes past defect specs to identify recurring gaps and produces actionable learnings in `retrospective.md` — which `$nmg-sdlc:write-spec` and `$nmg-sdlc:write-code` automatically consume, so lessons from previous cycles directly improve future specs and implementations. For Codex plugin projects, exercise-based verification goes beyond static checks — it scaffolds a temporary workspace, installs the plugin, and runs the changed skills end-to-end to validate they actually work. The entire workflow runs interactively with human review gates or fully headless through the built-in SDLC runner.
+The nmg-sdlc plugin provides a manual, GitHub issue-driven delivery workflow with explicit human review gates:
 
-It provides a GitHub issue-driven workflow. Projects first run `$nmg-sdlc:onboard-project` (once per project lifetime) to bootstrap steering docs and — for existing codebases — reconcile specs from closed issues; afterward the per-feature cycle kicks in:
-
+```text
+$nmg-sdlc:draft-issue
+  → $nmg-sdlc:start-issue
+  → $nmg-sdlc:write-spec
+  → $nmg-sdlc:write-code
+  → $nmg-sdlc:simplify
+  → $nmg-sdlc:verify-code
+  → $nmg-sdlc:open-pr
+  → $nmg-sdlc:address-pr-comments
 ```
-Setup (once)         Step 1               Step 2                   Step 3                  Step 4                     Step 5                         Step 6                    Step 7                Step 8
-$nmg-sdlc:onboard-project  →  $nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #42  →  $nmg-sdlc:write-spec #42  →  $nmg-sdlc:write-code #42  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #42  →  $nmg-sdlc:open-pr #42  →  $nmg-sdlc:address-pr-comments #42
-Greenfield bootstrap Interview user,      Select issue, create     Read issue, create      Read specs, enter plan     Clean changed code             Verify implementation,    Create PR with        Close the PR review loop:
-or brownfield spec   create groomed       linked branch, set       specs (requirements/    mode, create plan,         changed code             review architecture,      summary referencing   read automated-reviewer
-reconciliation       GitHub issue         status to In Progress    design/tasks)           then execute               reuse/quality/efficiency update issue              specs and issue       threads, fix via
-                                                                                                                                                                                                $nmg-sdlc:write-code + $nmg-sdlc:verify-code,
-                                                                                                                                                                                                loop until review-clean
-```
 
-`$nmg-sdlc:simplify` is bundled with this plugin. `$nmg-sdlc:write-code` invokes it before signalling completion, `$nmg-sdlc:verify-code` re-runs it after each batch of fixes, and the unattended runner executes it as the dedicated step between implementation and verification.
+The read-only `$nmg-sdlc:status` utility is available throughout the lifecycle. Project steering documents (`steering/product.md`, `steering/tech.md`, and `steering/structure.md`) encode product and engineering conventions. `$nmg-sdlc:run-retro` analyzes past defect specs and writes reusable learnings to `steering/retrospective.md`.
 
-At any stage, run `$nmg-sdlc:status` for a compact human summary or `$nmg-sdlc:status --json` for schema-versioned automation output. Status observes the workflow but never advances it.
+Every decision point waits for explicit user input. Skills inspect only the active spec plus a bounded set of relevant neighboring specs, which keeps context focused while preserving cross-feature constraints.
 
 ## Installation
 
-This plugin is packaged for Codex via `.codex-plugin/plugin.json` and distributed through the [nmg-plugins marketplace](https://github.com/Nunley-Media-Group/nmg-plugins):
+This plugin is packaged through `.codex-plugin/plugin.json` and distributed through the [nmg-plugins marketplace](https://github.com/Nunley-Media-Group/nmg-plugins):
 
 ```bash
-# Add the marketplace
 codex plugin marketplace add Nunley-Media-Group/nmg-plugins
+codex plugin marketplace upgrade nmg-plugins
 ```
 
-For auto-updates from a private repo, ensure `GITHUB_TOKEN` is set with read access to both the marketplace and plugin repositories.
+For private repositories, configure `GITHUB_TOKEN` with read access to both the marketplace and plugin repositories.
 
 ## First-Time Setup
 
-Interactive nmg-sdlc gates use Codex `request_user_input` Plan Mode prompts. Before a manual gate opens, nmg-sdlc automatically checks `~/.codex/config.toml` and ensures:
+Interactive gates use Codex `request_user_input` prompts. Before a gate opens, nmg-sdlc checks `~/.codex/config.toml` for:
 
 ```toml
 suppress_unstable_features_warning = true
@@ -45,294 +44,171 @@ default_mode_request_user_input = true
 ask_user_questions = true
 ```
 
-If the first run has to add or update any of those settings, it stops before the original prompt and tells you to close and reopen Codex, then retry the same command. This prompt-mode setup is separate from `.codex/unattended-mode`, which is only the SDLC runner's headless-session sentinel.
+If nmg-sdlc repairs these settings, close and reopen Codex before retrying the original command.
 
-Run `$nmg-sdlc:onboard-project` in your project — it is the single entry point for adopting nmg-sdlc:
+Run onboarding once from the project root:
 
 ```bash
 $nmg-sdlc:onboard-project
 ```
 
-- **Greenfield projects** (no code yet): runs an intent + tech-selection interview (vision, personas, success criteria, language, framework, test tooling, deployment target) through Plan Mode input gates, bootstraps `steering/product.md`, `tech.md`, and `structure.md` from the interview answers, seeds the `v1` GitHub milestone, generates 3–7 starter issues via a `$nmg-sdlc:draft-issue` loop with dependency-aware autolinking, then offers to run `$nmg-sdlc:init-config` for the unattended runner and managed GitHub Actions contribution gate.
-- **Greenfield-Enhancement (re-run)**: when steering files already exist but `specs/` does not, the same Step 2G pipeline runs in enhancement mode — steering files are edited in place (no overwrites), and milestones or issues already seeded by a prior run (detected via the `seeded-by-onboard` label) are skipped.
-- **Brownfield projects** (existing code with closed GitHub issues but no specs): bootstraps steering docs if missing, then reconciles one `specs/{feature,bug}-{slug}/` directory per closed issue — or per consolidated group — using the issue body, merged PR body, PR diff, commit messages, and current implementation as evidence.
-- **Already-initialized projects**: offers to delegate to `$nmg-sdlc:upgrade-project` rather than duplicating work.
+- Greenfield projects receive a seven-question product/technology interview, root steering docs, `VERSION` and manifest initialization, a `v1` milestone, and 3–7 starter issues.
+- Greenfield-enhancement projects preserve existing steering content and propose targeted updates.
+- Brownfield projects reconcile specs from closed issues, merged PR evidence, and the current source tree. With no closed issues, source-tree backfill is deterministic.
+- Already-initialized projects can delegate current-contract reconciliation to `$nmg-sdlc:upgrade-project`.
 
-After steering exists, onboarding also ensures a root `CONTRIBUTING.md` and links it from an existing `README.md`. The generated guide explains GitHub issue quality, BDD spec expectations, steering docs, implementation scope, verification evidence, PR readiness, and managed contribution-gate failure remediation while preserving any existing contributor policy. Onboarding also creates or updates root `AGENTS.md` with a managed nmg-sdlc spec-context section so prompt-level requests like "look at the specs" use project-root `specs/` with bounded relevant-spec discovery instead of loading the full archive.
+After steering exists, onboarding manages these repository artifacts directly:
 
-The managed contribution gate cross-checks issue/spec identity, requires non-trivial changed paths to map to tasks or verification evidence, and rejects generic verification keywords unless they are paired with a command outcome, report, acceptance-criterion result, or path-specific result. It supports validated documentation-only and spike/ADR reduced-evidence paths, but only when their rationale, correlated issue metadata, and complete changed-path set satisfy the documented predicates. These reductions retain issue, steering, guide, and other non-exempt checks; they are not unconditional bypasses. The gate remains stack-agnostic, uses read-only GitHub token permissions, and does not replace project CI or human review.
+- `CONTRIBUTING.md` plus an idempotent README link.
+- A bounded nmg-sdlc spec-context section in root `AGENTS.md`.
+- `.github/workflows/nmg-sdlc-contribution-gate.yml`.
+- `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
 
-The three steering documents written during greenfield bootstrap:
-
-| Document | Purpose |
-|----------|---------|
-| `product.md` | Product vision, target users, feature priorities |
-| `tech.md` | Tech stack, testing standards, coding conventions |
-| `structure.md` | Code organization, layer architecture, naming |
-
-Review and customize these documents — they provide project-specific context for all other skills.
+The contribution gate checks issue/spec identity, task or verification evidence for changed paths, steering context, and documented exception predicates. It uses read-only GitHub token permissions and does not replace project CI or human review. The issue form captures issue type, context, current state, Given/When/Then acceptance criteria, functional requirements, scope boundaries, priority, and optional notes.
 
 ## Spec Context
 
-nmg-sdlc treats project-root `specs/` as the canonical BDD archive. SDLC skills identify the active spec first, then scan compact metadata across neighboring specs — issue links, related-spec links, headings, acceptance criteria, functional requirements, affected paths, symbols, and component names — before loading only a capped ranked set of related specs. Legacy `.codex/specs/` is not used as context; projects still on that layout are blocked by the upgrade gate until artifacts are relocated.
+Project-root `specs/` is the canonical BDD archive. Skills first resolve the active spec, then scan compact metadata across neighboring specs and load only a capped, ranked relevant set. Legacy `.codex/specs/` projects must run `$nmg-sdlc:upgrade-project` before other pipeline skills.
 
-`$nmg-sdlc:draft-issue` and `$nmg-sdlc:write-spec` use this bounded discovery to avoid disconnected new issues or specs when an existing feature contract should be amended. `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` keep the active spec authoritative while consulting related specs only for surrounding constraints, blast radius, and coverage context.
+Feature packages contain:
+
+```text
+specs/feature-<slug>/
+├── requirements.md
+├── design.md
+├── tasks.md
+└── feature.gherkin
+```
+
+Defect packages use `specs/bug-<slug>/` and retain links to the affected feature contract when applicable.
 
 ## Workflow
 
-### Lifecycle Status (Read-Only Utility)
+### Draft an Issue
+
+```bash
+$nmg-sdlc:draft-issue "add user authentication"
+```
+
+Classifies the request, investigates relevant code, interviews the user, drafts BDD acceptance criteria, and presents an inline approval gate before creating the issue. Multi-part requests may be split into dependency-aware child issues after explicit graph approval.
+
+### Start an Issue
+
+```bash
+$nmg-sdlc:start-issue #42
+```
+
+With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do.
+
+### Write Specs
+
+```bash
+$nmg-sdlc:write-spec #42
+```
+
+Creates human-reviewed requirements, technical design, tasks, and Gherkin scenarios. Feature work may amend an existing related feature spec; defect work uses a focused defect package. Spike issues produce a gap-analysis ADR under `docs/decisions/` and require the user to choose the resulting scope shape.
+
+### Implement
+
+```bash
+$nmg-sdlc:write-code #42
+```
+
+Reads the active and relevant specs, presents a decision-complete implementation plan, waits for approval, executes tasks sequentially, and runs simplification before reporting completion.
+
+### Simplify
+
+```bash
+$nmg-sdlc:simplify
+```
+
+Reviews changed files for behavior-preserving improvements across reuse, code quality, and efficiency. Risky or behavior-changing refactors are skipped and reported.
+
+### Verify
+
+```bash
+$nmg-sdlc:verify-code #42
+```
+
+Checks every acceptance criterion, exercises plugin changes where applicable, reviews SOLID/security/performance/testability/error handling, applies safe scoped fixes, and posts a verification report to the issue.
+
+Skill-bundled fixes route through `$skill-creator`. Optional Codex subagents are used only when the user explicitly authorizes delegation.
+
+### Open a Pull Request
+
+```bash
+$nmg-sdlc:open-pr #42
+```
+
+Inspects and stages the approved delivery tree, presents the version decision, updates version artifacts, commits, rebases safely, pushes, and creates a spec-linked pull request. After creation, the user may opt into CI monitoring and squash merge; merge occurs only when required checks pass and GitHub reports a clean merge state.
+
+### Address Review Comments
+
+```bash
+$nmg-sdlc:address-pr-comments #42
+```
+
+Reads unresolved automated-reviewer threads, classifies them as clear fix, ambiguous, or disagreement, applies and verifies clear fixes, and asks the user to decide ambiguous or disputed findings. Successful threads are replied to and resolved; the loop stops when review-clean or when its round cap is reached.
+
+## Lifecycle Status
 
 ```bash
 $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines bounded local git, matching spec, verification-report, and optional read-only GitHub issue/PR/check evidence. A passing report counts as current only when the commit containing that report is in the active branch history, the report is unchanged, and no implementation path changed afterward; documentation-only follow-up commits do not invalidate it. Uncommitted or stale reports become named gaps instead of advancing the lifecycle. Status reports the inferred stage, completed and missing artifacts, material evidence gaps, and the exact existing command that owns the next mutation.
+Status combines read-only git, spec, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields. Status never prompts or mutates local or remote state.
 
-Human output keeps the stage first and next action last:
+## Project Upgrades and V2 Cleanup
+
+`$nmg-sdlc:upgrade-project` relocates legacy steering/spec trees, reconciles current templates and frontmatter, preserves manual changelog content, and applies the same managed contribution assets as onboarding.
+
+For existing projects, its v2 migration proposes deletion of only these obsolete exact paths when they are regular files:
 
 ```text
-SDLC status: specified
-Issue: #145 Add lifecycle status command for active SDLC work (OPEN)
-Branch: 145-add-lifecycle-status-command-for-active-sdlc-work (clean)
-Spec: specs/feature-add-lifecycle-status-command-for-active-sdlc-work (complete)
-Verification: unknown
-Pull request: unknown
-Completed: issue branch, spec package
-Missing: implementation, verification, pull request
-Next: $nmg-sdlc:write-code #145
+sdlc-config.json
+.codex/unattended-mode
+.codex/sdlc-state.json
 ```
 
-JSON mode emits only a valid JSON document with `schemaVersion: 1` and stable top-level fields: `project`, `issue`, `spec`, `verification`, `pullRequest`, `stage`, `completedArtifacts`, `missingArtifacts`, `gaps`, and `nextAction`. When available, `verification.commit` contains the immutable Git checkpoint used for freshness validation. Optional probes that are absent, malformed, stale, unsupported, or unreachable become `unknown`, `null`, or a named gap instead of corrupting output or overstating progress.
+It can also remove those exact ignore entries only when they occur inside a recognized `# SDLC runner config` or `# SDLC runner artifacts` block. Matching rules outside those blocks, unknown lines, unrelated files, workflows, issue templates, specs, and configuration are preserved. The findings gate lists every proposed deletion and supports narrowing or declining the batch. The state file's contents are never read or acted upon. Repeating the migration is safe and reports an already-clean state.
 
-Status never prompts. It does not change branches, modify GitHub state, verify code, create a PR, deliver, or merge; it only recommends the command that owns that work.
+Existing GitHub labels and issue label assignments are not migration targets.
 
-Automated-loop integration is explicitly out of scope for this status surface because the runner is scheduled for removal in milestone 2. Status does not read runner source, state, sentinels, logs, configuration, or PIDs, and it does not recommend runner resume, cleanup, or `$nmg-sdlc:end-loop` actions.
+## Versioning
 
-### Quick Start: Start an Issue
+`VERSION` is the single version source. `$nmg-sdlc:open-pr` reads `steering/tech.md` for label-to-bump rules and stack-specific version paths, then presents the proposed bump before writing:
 
-```bash
-$nmg-sdlc:start-issue #42
-```
+| Issue label | Default bump |
+|-------------|--------------|
+| `bug` | Patch |
+| `enhancement` | Minor |
+| `spike` | Skip |
 
-Selects an issue (or presents a picker if no number is given), creates a linked feature branch via `gh issue develop`, and sets the issue to "In Progress" in any associated GitHub Project.
+Major bumps require an explicit `--major` request and user confirmation. `[Unreleased]` changelog entries roll into the accepted version during delivery.
 
-Bare discovery distinguishes coordination from execution dependencies before presenting or auto-selecting work. An open parent labeled `epic` remains available as parent identity but does not block its children; open siblings and other non-epic prerequisites still block, and an unresolvable relationship target fails safe with a named warning instead of silently making the child ready. Manual and unattended selection use the same rule.
+## Verification Gates
 
-### Step 1: Create an Issue
+`steering/tech.md` may declare project-specific verification gates with applicability conditions, commands, and success predicates. `$nmg-sdlc:verify-code` treats applicable gates as mandatory evidence.
 
-```bash
-$nmg-sdlc:draft-issue "add user authentication"
-```
-
-**Interactive-only** (v1.41.0+) — `$nmg-sdlc:draft-issue` always runs the full interactive workflow regardless of `.codex/unattended-mode`. Classifies the issue type (Bug or Enhancement/Feature), investigates the codebase for relevant context, then interviews you with adaptive depth (core 3-round or extended 4-round with NFR/edge-case probing). Assigns the issue to a version milestone. Plays back its understanding before drafting (Step 5c), then renders a structured inline summary with `[1] Approve / [2] Revise` review menu before creating the issue.
-
-**Multi-issue mode (v1.46.0)**: Step 1b heuristically detects multi-part asks (conjunction markers, bullet lists, distinct component mentions) and proposes a split with per-ask summaries and a `high`/`medium`/`low` confidence indicator. A split-confirm menu (`[1] Approve / [2] Adjust / [3] Collapse`) lets you recover from false-positive splits. Step 1d infers a dependency DAG with a graph-confirm menu before any drafting begins. Each planned issue runs the full Steps 2–9 independently; created issues are autolinked via `gh issue edit --add-sub-issue` (availability probe + body cross-ref fallback). Batch abandonment at any review gate preserves already-created issues with no rollback.
-
-### Step 2: Write Specs
-
-```bash
-$nmg-sdlc:write-spec #42
-```
-
-Reads the GitHub issue and creates three specification documents through human-gated phases:
-
-1. **SPECIFY** — Requirements with BDD acceptance criteria
-2. **PLAN** — Technical design with architecture decisions
-3. **TASKS** — Phased implementation tasks with dependencies
-
-Output: `specs/{feature-name}/requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`
-
-The `{feature-name}` is the issue number + kebab-case slug of the title (e.g., `42-add-precipitation-overlay`), matching the branch name format.
-
-### Step 3: Implement
-
-```bash
-$nmg-sdlc:write-code #42
-```
-
-Reads the specs, enters plan mode to design the implementation approach, then executes tasks sequentially after your approval.
-
-### Step 4: Simplify
-
-```bash
-$nmg-sdlc:simplify
-```
-
-Reviews changed files for behavior-preserving cleanup opportunities across reuse, code quality, and efficiency. It uses git diffs first, falls back to recently edited or conversation-mentioned files when the worktree is clean, applies worthwhile fixes in place, and reports skipped risky changes.
-
-### Step 5: Verify
-
-```bash
-$nmg-sdlc:verify-code #42
-```
-
-Verifies the implementation against the spec:
-- Checks each acceptance criterion against actual code
-- Runs architecture review inline by default, with optional Codex `explorer` delegation only when explicitly authorized, scoring five checklists 1–5:
-
-| Checklist | Focus |
-|-----------|-------|
-| SOLID Principles | Single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion |
-| Security | OWASP-aligned input validation, authentication, authorization, data protection |
-| Performance | Query efficiency, caching, lazy loading, resource management |
-| Testability | Dependency injection, mock-friendly boundaries, deterministic behavior |
-| Error Handling | Error hierarchy, propagation, recovery, logging |
-
-- Checks BDD test coverage
-- Fixes findings under ~20 lines of change; defers architectural changes or out-of-scope modifications
-- Posts verification report as a comment on the GitHub issue
-
-### Step 6: Create PR
-
-```bash
-$nmg-sdlc:open-pr #42
-```
-
-Stages eligible non-runner work, determines the version bump (patch for bugs, minor for enhancements; major bumps are always manual via the `--major` opt-in), updates the `VERSION` file, rolls `CHANGELOG.md` entries from `[Unreleased]` to a versioned heading, updates any stack-specific version files declared in `tech.md`, commits, rebases safely when needed, pushes, and then creates a pull request with:
-- Summary from the spec
-- Acceptance criteria checklist
-- Test plan
-- Version bump details
-- `Closes #42` to auto-close the issue on merge
-
-### Step 7: Close the PR Review Loop
-
-```bash
-$nmg-sdlc:address-pr-comments #42
-```
-
-Reads the automated reviewer's unresolved threads on the open PR via GitHub GraphQL, classifies each as `clear-fix` / `ambiguous` / `disagreement`, invokes `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code` to apply clear-fix changes, verifies postconditions (commit SHA changed, referenced file touched, no regressions) before replying and resolving each thread, pushes with plain `git push` (never force), polls for the reviewer to re-run (30 s / 30 min, mirroring `$nmg-sdlc:open-pr` Step 7), and loops until the PR is review-clean or a configurable round cap is reached. Ambiguous and disagreement threads prompt the user in interactive mode and emit `ESCALATION: address-pr-comments — …` sentinels in unattended mode. Automated-reviewer identity is configured in `steering/tech.md` → Automated Review.
-
-## Unattended Mode
-
-The plugin supports fully automated operation through a deterministic Node.js runner (`scripts/sdlc-runner.mjs`) that drives the full development cycle — issue selection, spec writing, implementation, verification, PR creation, CI monitoring, and merge — looping continuously until no open issues remain.
-
-### Setup
-
-#### 1. Generate a project config
-
-From within the target project (must have a `.codex/` directory):
-
-```bash
-$nmg-sdlc:init-config
-```
-
-This writes `sdlc-config.json` to the project root, adds it to `.gitignore`, installs `.github/workflows/nmg-sdlc-contribution-gate.yml` when the approved path is absent or already nmg-sdlc-managed, and installs `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` so manually created GitHub issues capture the same SDLC-ready fields as `$nmg-sdlc:draft-issue`. The config specifies the project path, plugin root, per-step timeouts, model/effort choices, and which nmg-sdlc skills to inject. Codex plugin installs may use a versioned `pluginRoot` under `~/.codex/plugins/cache/...`; after plugin upgrades, run `$nmg-sdlc:upgrade-project` to refresh stale cache roots instead of creating a temporary config. The generated workflow runs on pull requests, checks for issue/spec/steering/verification evidence, uses read-only GitHub token permissions, requires no repository secrets by default, and does not replace project CI or human review. The generated issue form requires issue type, user story or bug/spike context, Given/When/Then acceptance criteria, functional requirements, scope boundaries, priority, and automation suitability.
-
-#### 2. Launch the runner
-
-From within a Codex session:
-
-```bash
-$nmg-sdlc:run-loop
-```
-
-Or run directly:
-
-```bash
-node scripts/sdlc-runner.mjs --config /path/to/sdlc-config.json
-```
-
-Available flags: `--resume`, `--dry-run`, `--step N`, `--issue N`.
-
-### Unattended-mode flag
-
-> **Not to be confused with Codex's native Auto Mode.** Codex (since v2.1.83) ships its own "Auto Mode" — a permission feature that auto-approves safe tool calls via a classifier. This plugin's `.codex/unattended-mode` flag is independent: it signals that the SDLC runner is driving the session headlessly and causes skills to skip interactive gates. The two features are orthogonal — you can run either, both, or neither.
-
-The runner creates `.codex/unattended-mode` automatically. When this file exists, skills skip Plan Mode `request_user_input` gates. You can also toggle it manually:
-
-```bash
-# Enable unattended mode
-mkdir -p .codex && touch .codex/unattended-mode
-
-# Disable unattended mode
-rm .codex/unattended-mode
-```
-
-To stop an in-flight runner cleanly (signal the live PID and clear both runner artifacts in one step), use `$nmg-sdlc:end-loop` — the explicit counterpart to `$nmg-sdlc:run-loop`.
-
-### Default behaviors in unattended mode
-
-- **Issue selection**: picks the first unblocked `automatable` issue in topological order (issue number ascending breaks ties); open coordination epics do not block their children, while genuine prerequisites do
-- **Confirmations**: answers yes
-- **Review gates**: auto-approves all phases (requirements, design, tasks)
-- **Plan mode**: skipped — interactive plan review is never called; Codex designs the approach internally from specs
-- **Skill output**: all "Next step" suggestions suppressed; skills output `Done. Awaiting orchestrator.` instead
-
-### Safety net
-
-`$nmg-sdlc:verify-code` runs fully autonomously (even outside unattended mode) and validates the implementation against specs. It serves as the quality gate — catching deviations, running architecture review, and auto-fixing findings.
-
-## Customization
-
-The plugin provides the **process**. Your project provides **specifics** via steering docs:
-
-| What to Customize | Where | Example |
-|---|---|---|
-| BDD framework | `tech.md` → Testing Standards | pytest-bdd, jest-cucumber, SpecFlow |
-| Feature file location | `tech.md` | `tests/features/*.feature` |
-| Step definition patterns | `tech.md` | Framework-specific code examples |
-| Directory layout | `structure.md` | Project's actual paths |
-| Design tokens / branding | `structure.md` | Project's design system |
-| Target users | `product.md` | User personas and constraints |
-| API conventions | `tech.md` | REST, GraphQL, gRPC |
-
-The `agents/*.md` files in this repo are reusable prompt contracts for optional Codex delegation. They are loaded by skills when a workflow explicitly asks for a built-in Codex `worker` or `explorer`; they are not standalone plugin components in `.codex-plugin/plugin.json`.
-
-### Versioning
-
-The plugin includes an integrated versioning system built on a `VERSION` file (plain text semver at the project root). When `VERSION` exists, skills automatically:
-
-- **`$nmg-sdlc:draft-issue`** — Assigns issues to a milestone derived from the major version (e.g., `v1`), creating the milestone if needed. As of v1.41.0, this skill is **interactive-only** and does not participate in unattended-mode workflows.
-- **`$nmg-sdlc:open-pr`** — Classifies the version bump from issue labels, updates `VERSION`, rolls `CHANGELOG.md` entries to a versioned heading, and updates stack-specific files.
-
-The **classification matrix**:
-
-| Issue Label | Bump Type | Example |
-|-------------|-----------|---------|
-| `bug` | Patch | 1.5.1 → 1.5.2 |
-| `enhancement` | Minor | 1.5.1 → 1.6.0 |
-| `spike` | Skip | No bump — research-only PR |
-
-**Stack-specific files** (e.g., `package.json`, `Cargo.toml`) are declared in `tech.md`'s `## Versioning` section. The `$nmg-sdlc:open-pr` skill reads this mapping to update all version files in a single commit. Run `$nmg-sdlc:upgrade-project` to bootstrap `CHANGELOG.md` and `VERSION` from git history if they don't exist yet.
-
-### Project Upgrades
-
-`$nmg-sdlc:upgrade-project` keeps existing managed artifacts aligned with the current plugin contract. In addition to relocating legacy `.codex/steering/` and `.codex/specs/` trees and reconciling steering/spec/config/version files, it repairs stale versioned `pluginRoot` cache paths when a current installed nmg-sdlc root can be verified, while preserving valid custom plugin roots and unrelated runner settings. It can also create managed project files declared by the current contract. `CONTRIBUTING.md` is one of those artifacts: upgrade creates it when missing, appends only a targeted nmg-sdlc workflow section when existing coverage is incomplete, and adds an idempotent README link when `README.md` already exists. Root `AGENTS.md` is another managed artifact: upgrade creates it when missing or appends/refreshes only the marked nmg-sdlc spec-context section when bounded `specs/` guidance is incomplete, preserving all project-authored instructions outside that section. The managed contribution-gate workflow is another artifact: upgrade creates it when missing, replaces only older nmg-sdlc-managed versions with the current evidence-consistency evaluator, preserves unrelated workflows, and reports an unmanaged path collision instead of overwriting project-authored CI. The managed issue form at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` is also reconciled: upgrade creates it when missing, reports current forms as already present, overwrites any existing file at that managed issue-form path when it differs from the canonical nmg-sdlc form, and preserves all unrelated issue templates.
-
-**Spike research ADRs** are committed to `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md` by `$nmg-sdlc:write-spec` Phase 0. The directory is created on demand (on the first spike); no pre-existing file or placeholder is required. `$nmg-sdlc:run-retro` scans this directory for ADRs older than 180 days and surfaces them as re-spike candidates in the retrospective output.
-
-### Verification Gates
-
-The `## Verification Gates` section in `tech.md` declares mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
-
-For skill exercise fixtures, `scripts/skill-exercise-runner.mjs` can run deterministic artifact/rubric checks without live Codex/API access; `RUN_EXERCISE_TESTS=1` remains the explicit path for live skill invocation.
+For plugin skills, `scripts/skill-exercise-runner.mjs` supports deterministic artifact/rubric exercises. Set `RUN_EXERCISE_TESTS=1` only when live skill invocation is intended.
 
 ## Skills Reference
 
-| Skill | Description |
-|-------|-------------|
-| `$nmg-sdlc:start-issue [#N]` | Select a GitHub issue, create a linked feature branch, and set the issue to In Progress |
-| `$nmg-sdlc:draft-issue [description]` | Interview user about a feature need, assign to version milestone, create groomed GitHub issue with BDD acceptance criteria |
-| `$nmg-sdlc:write-spec #N` | Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown |
-| `$nmg-sdlc:write-code #N` | Read specs for current branch, enter plan mode, then execute implementation tasks sequentially |
-| `$nmg-sdlc:verify-code #N` | Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue |
-| `$nmg-sdlc:open-pr #N` | Stage eligible work, apply the version bump, commit, rebase safely, push, and create a PR with spec-driven summary |
-| `$nmg-sdlc:address-pr-comments [#N] [--max-rounds=K]` | Close the PR review loop: read automated-reviewer threads, apply fixes via `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code`, reply and resolve until review-clean |
-| `$nmg-sdlc:run-retro` | Batch-analyze defect specs to identify spec-writing gaps and produce `steering/retrospective.md` with actionable learnings |
-| `$nmg-sdlc:run-loop [#N]` | Run the full SDLC pipeline from within an active Codex session — processes a specific issue or loops over all open issues via `sdlc-runner.mjs` |
-| `$nmg-sdlc:end-loop` | Stop unattended mode and clear runner state |
-| `$nmg-sdlc:status [--json]` | Read-only manual lifecycle diagnostics: infer the active issue, stage, evidence gaps, and exact next command; emit stable JSON when requested |
-| `$nmg-sdlc:upgrade-project` | Upgrade an existing project to current plugin standards — relocates legacy `.codex/steering/` and `.codex/specs/`, reconciles managed artifacts, can create or update `CONTRIBUTING.md`, root `AGENTS.md` spec-context guidance, and the managed contribution-gate workflow, and refreshes the managed SDLC-ready GitHub issue form |
-| `$nmg-sdlc:init-config` | Generate an `sdlc-config.json` for the SDLC runner and install the managed GitHub Actions contribution gate plus the SDLC-ready GitHub issue form |
-| `$nmg-sdlc:onboard-project [--dry-run]` | Initialize a project for the SDLC — greenfield bootstrap (interview, steering, contribution guide, AGENTS.md spec-context guidance, `VERSION` + stack-native manifest init at `0.1.0`, `v1` milestone seeding, 3–7 starter issues), greenfield-enhancement re-run, or brownfield spec reconciliation (always includes the current source tree; when a manifest declares a version, `VERSION` mirrors it — otherwise seeds `0.1.0`; with zero closed issues, deterministically backfills specs from the source tree) |
-
-## Updating
-
-```bash
-codex plugin marketplace upgrade nmg-plugins
-```
+| Skill | Purpose |
+|-------|---------|
+| `$nmg-sdlc:onboard-project` | Initialize greenfield or brownfield projects and install managed repository assets |
+| `$nmg-sdlc:draft-issue` | Create a groomed GitHub issue with BDD acceptance criteria |
+| `$nmg-sdlc:start-issue [#N]` | Select and start ready work on a linked branch |
+| `$nmg-sdlc:write-spec #N` | Create or amend requirements, design, tasks, and Gherkin specs |
+| `$nmg-sdlc:write-code #N` | Plan and implement the approved spec |
+| `$nmg-sdlc:simplify` | Apply behavior-preserving cleanup to changed code |
+| `$nmg-sdlc:verify-code #N` | Verify implementation, fix scoped findings, and update the issue |
+| `$nmg-sdlc:open-pr #N` | Version, commit, rebase, push, and create a pull request |
+| `$nmg-sdlc:address-pr-comments [#N]` | Close the automated-reviewer feedback loop |
+| `$nmg-sdlc:status [--json]` | Report manual lifecycle state without mutation |
+| `$nmg-sdlc:upgrade-project` | Reconcile current contracts, managed assets, and v2 cleanup |
+| `$nmg-sdlc:run-retro` | Derive spec-writing learnings from defect history |
 
 ## License
 

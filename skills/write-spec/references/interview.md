@@ -4,17 +4,7 @@
 
 ## When to skip the step entirely
 
-### 1. Unattended mode
-
-Follow the pre-approved-gate pattern in `../../references/unattended-mode.md`. When the `.codex/unattended-mode` sentinel exists, do not call `request_user_input`; emit the one-line divergence note and proceed:
-
-```
-Unattended mode: skipping gap-detection interview — proceeding from issue body only
-```
-
-Everything below applies only when the sentinel is absent.
-
-### 2. Adaptive skip (no gaps detected)
+### Adaptive skip (no gaps detected)
 
 Run gap detection (below). If zero signals fire, skip the interview without calling `request_user_input`. A well-specified issue should not introduce friction — the interview exists to fill gaps, not to ritualize them.
 
@@ -97,10 +87,6 @@ When the user selects `[2] Defer to spike` on a feature issue's Unresolved Open 
 5. **Record the gap as resolved-via-spike** in the interview session state so the residual-capture step in procedure step 5 does NOT re-record it in `## Open Questions` (the placeholder line already captures it).
 6. **Continue the interview** with the next gap. Creating a spike does not abort the current interview run.
 
-## Unattended-mode behavior for Defer-to-Spike
-
-The `Defer to spike` option is **never auto-selected** in unattended mode. The top-of-file unattended-mode rule already skips the interview entirely when `.codex/unattended-mode` exists (every gap becomes a residual item in `## Open Questions`). Spike creation requires explicit human selection.
-
 ## Amendment-mode rule
 
 When Spec Discovery resolved an existing feature spec (amendment mode):
@@ -113,10 +99,9 @@ When Spec Discovery resolved an existing feature spec (amendment mode):
 
 | Condition | Behavior |
 |-----------|----------|
-| `.codex/unattended-mode` exists | Emit bypass note; skip gap detection and every `request_user_input` call |
-| Sentinel absent, zero gaps detected | Skip interview; proceed directly to draft |
-| Sentinel absent, 1–3 gaps detected | Ask one `request_user_input` question per gap; thread answers into the draft |
-| Sentinel absent, more than 3 gaps | Ask the first 3 in probe order; record the rest in `## Open Questions` |
+| Zero gaps detected | Skip interview; proceed directly to draft |
+| 1–3 gaps detected | Ask one `request_user_input` question per gap; thread answers into the draft |
+| More than 3 gaps | Ask the first 3 in probe order; record the rest in `## Open Questions` |
 | User chooses "Skip" for a gap | Record the gap verbatim in `## Open Questions` |
 | User chooses "Defer to spike" (feature + Unresolved OQ only) | Create spike issue, add `Depends on: #S` to parent body, thread `See spike #S for resolution` into the draft |
 | Amendment mode | Detect gaps in the new issue only; append answer-shaped content without touching approved sections |

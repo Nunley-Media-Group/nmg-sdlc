@@ -13,11 +13,9 @@ Batch-analyze defect specs to identify recurring spec-writing gaps and produce `
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
-Read `../../references/unattended-mode.md` when the workflow starts — the sentinel pre-approves every `request_user_input` gate call site so the runner can drive a retro without stopping for user input.
-
 Read `../../references/spec-frontmatter.md` when you need the defect-spec schema or the `**Related Spec**` field conventions — Step 2's chain resolution depends on `**Related Spec**` pointing at either a feature spec (terminating) or another defect spec (recursive).
 
-Read `references/edge-cases.md` when any input file is missing, malformed, or unexpectedly shaped (no defects found, broken `**Related Spec**` chain, malformed state file, deleted spec) — the reference covers every graceful-degradation path so the retrospective never halts the runner.
+Read `references/edge-cases.md` when any input file is missing, malformed, or unexpectedly shaped (no defects found, broken `**Related Spec**` chain, deleted spec) — the reference covers every graceful-degradation path so the retrospective can report a clear result without corrupting existing analysis.
 
 ---
 
@@ -120,7 +118,7 @@ Read `references/learning-extraction.md` when Step 2 has produced at least one e
 
 ### Steps 4–6: Aggregate, Classify, Filter
 
-Read `references/transferability.md` when the combined set of fresh + carried-forward learnings is ready — the reference covers cross-cutting pattern aggregation (Step 4), classification into one of three pattern types (Step 5), scope filtering with the abstraction-level check (Step 6), and the evidence-path format used in the final output table.
+Read `references/transferability.md` when the combined set of fresh + carried-forward learnings is ready — the reference covers cross-cutting pattern aggregation (Step 4), classification into one of three pattern types (Step 5), filtering against the current product contract and abstraction level (Step 6), and the evidence-path format used in the final output table. Read `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before applying that filter.
 
 ### Step 7: Write Retrospective Document
 
@@ -163,8 +161,7 @@ Learnings generated: [total] ([new_count] new, [carried_count] carried forward)
 Written to steering/retrospective.md
 State saved to steering/retrospective-state.json
 
-[If `.codex/unattended-mode` does NOT exist]: Next step: This document will be read automatically by `$nmg-sdlc:write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `$nmg-sdlc:draft-issue` or `$nmg-sdlc:start-issue` to continue the SDLC workflow.
-[If `.codex/unattended-mode` exists]: Done. Awaiting orchestrator.
+Next step: This document will be read automatically by `$nmg-sdlc:write-spec` during Phase 1 on the next spec-writing run — no action needed. Run `$nmg-sdlc:draft-issue` or `$nmg-sdlc:start-issue` to continue the SDLC workflow.
 ```
 
 ---

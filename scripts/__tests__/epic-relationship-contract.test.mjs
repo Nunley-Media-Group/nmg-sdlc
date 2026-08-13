@@ -1,10 +1,9 @@
 /**
  * Cross-skill contract coverage for issue #149.
  *
- * The relationship graph is intentionally produced and consumed by Markdown
- * skills as well as deterministic runner code. These assertions keep their
- * identity signals and role semantics aligned without making tests execute
- * prompt content.
+ * The relationship graph is produced and consumed by the surviving manual
+ * skill pipeline. These assertions keep identity signals and role semantics
+ * aligned without executing prompt content.
  */
 
 import fs from 'node:fs';
@@ -23,7 +22,6 @@ describe('epic relationship contract', () => {
   const draftIssue = read('skills/draft-issue/references/multi-issue.md');
   const writeSpec = read('skills/write-spec/references/discovery.md');
   const openPr = read('skills/open-pr/references/version-bump.md');
-  const runner = read('scripts/sdlc-runner.mjs');
   const gherkin = read('specs/bug-fix-epic-membership-deadlocking-issue-selection/feature.gherkin');
 
   test('canonical decision table is fail-safe and excludes only confirmed epics', () => {
@@ -47,16 +45,12 @@ describe('epic relationship contract', () => {
     expect(startIssue).toContain('target lookup failure retains that relationship as blocking');
   });
 
-  test('runner uses GraphQL for native parents and supported issue-view metadata', () => {
-    expect(runner).toContain("repo view --json owner,name");
-    expect(runner).toContain('api graphql');
-    expect(runner).toMatch(/parent \{\s*number\s*state\s*labels/s);
-    expect(runner).toContain('--json number,state,body,labels,closedByPullRequestsReferences');
-    expect(runner).toContain("depDetails.labels.has('epic')");
-
-    const issueViewFields = [...runner.matchAll(/issue view \$\{[^}]+\} --json ([^`\n]+)/g)]
-      .flatMap((match) => match[1].split(','));
-    expect(issueViewFields).not.toContain('parent');
+  test('shared contract is limited to manual consumers', () => {
+    expect(shared).toContain('start-issue');
+    expect(shared).toContain('write-spec');
+    expect(shared).toContain('open-pr');
+    expect(shared).not.toMatch(/sdlc-(?:runner|state|config)/i);
+    expect(shared).not.toMatch(/unattended[- ]mode/i);
   });
 
   test('write-spec and open-pr retain the same parent identity consumers', () => {
@@ -71,7 +65,7 @@ describe('epic relationship contract', () => {
     expect(openPr).toContain("siblingClass = 'intermediate'");
   });
 
-  test('all six active acceptance criteria retain one-to-one regression scenarios', () => {
+  test('the historical issue #149 regression spec remains intact', () => {
     const scenarios = [...gherkin.matchAll(/^  Scenario:/gm)];
     const regressionTags = [...gherkin.matchAll(/^  @regression$/gm)];
     expect(scenarios).toHaveLength(6);

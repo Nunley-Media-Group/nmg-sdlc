@@ -53,11 +53,14 @@ describe('Plan Mode input gate contract', () => {
     expect(source).toContain('free-form `Other` affordance');
   });
 
-  it('forbids request_user_input in unattended mode', () => {
-    const source = read('references/unattended-mode.md');
-
-    expect(source).toContain('Do NOT call `request_user_input`');
-    expect(source).toContain('skip the call entirely');
+  it('has one interactive contract and no plugin bypass reference', () => {
+    expect(fs.existsSync(path.join(REPO_ROOT, 'references', 'unattended-mode.md'))).toBe(false);
+    for (const relativePath of activeInstructionFiles()) {
+      const source = read(relativePath);
+      const withoutExactCleanupPath = source.replaceAll('.codex/unattended-mode', '<exact-v2-cleanup-path>');
+      expect(`${relativePath}\n${withoutExactCleanupPath}`).not.toMatch(/unattended[- ]mode/i);
+      expect(`${relativePath}\n${source}`).not.toContain('Done. Awaiting orchestrator.');
+    }
   });
 
   it('points every skill entrypoint at the Plan Mode input gate contract', () => {

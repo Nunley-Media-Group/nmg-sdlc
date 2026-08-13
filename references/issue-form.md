@@ -1,6 +1,6 @@
 # Managed Issue Form Contract
 
-**Consumed by**: `init-config` during runner setup, and `upgrade-project` when analyzing or applying managed project artifacts.
+**Consumed by**: `onboard-project` for new projects and `upgrade-project` when analyzing or applying managed project artifacts.
 
 Use this reference to install or reconcile the nmg-sdlc-managed GitHub Issue Form in consumer projects. The form is project content, not plugin metadata: it must be additive, stack-agnostic, schema-valid for GitHub Issue Forms, and destructive only at the approved nmg-sdlc-owned target path.
 
@@ -54,23 +54,15 @@ The form must capture these sections in the resulting GitHub issue body:
 | Functional Requirements | Yes |
 | Scope Boundaries | Yes |
 | Priority | Yes |
-| Automation Suitability | Yes |
 | Additional Notes | No |
 
 Acceptance criteria guidance must use Given/When/Then examples so `$nmg-sdlc:write-spec` can translate each criterion into a Gherkin scenario.
 
-## Mode Behavior
+## Lifecycle Behavior
 
-Interactive mode:
-
-- `init-config` applies the form during setup without a separate prompt because the form is a managed setup artifact.
+- `onboard-project` applies the form after steering exists because the form is a managed setup artifact.
 - `upgrade-project` presents missing or differing issue-form findings in its normal non-destructive managed-artifact batch.
 - Differing files at the approved issue-form path are replaced after approval and reported as `overwritten`.
-
-Unattended mode:
-
-- Do not call `request_user_input`.
-- Auto-apply missing form creation and differing target-path replacement.
 - Record every created, overwritten, already-present, or skipped outcome in the final summary.
 
 ## Output

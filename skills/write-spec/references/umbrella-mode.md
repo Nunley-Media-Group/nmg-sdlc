@@ -15,7 +15,6 @@ The umbrella+children shape is triggered when ANY of the following is true:
 | `design.md` contains a `## Multi-PR Rollout` heading | Phase 3 Seal-Spec Flow |
 | Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive) | Phase 3 Seal-Spec Flow |
 | Phase 0 HRG (interactive) selects "Umbrella+Children" | Spike Phase 0 |
-| Phase 0 HRG (unattended) applies deterministic default with `component-count >= 2` | Spike Phase 0 via `references/spike-variant.md` |
 
 ---
 

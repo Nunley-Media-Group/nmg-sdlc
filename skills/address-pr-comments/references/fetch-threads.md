@@ -62,7 +62,7 @@ Human-reviewer threads are out of scope for this skill. They stay unresolved on 
 
 ## Short-Circuit Exits
 
-Both exits below return code zero. The stdout messages are distinct so the SDLC runner can log the difference between "the reviewer ran and found nothing to flag" and "the reviewer never ran at all" — operators rely on that distinction when diagnosing why a PR did not go through the loop.
+Both exits below return code zero. The stdout messages distinguish "the reviewer ran and found nothing to flag" from "the reviewer never ran at all" so the user can diagnose why no review work was performed.
 
 | Condition | Exit message | AC |
 |-----------|--------------|-----|
@@ -73,7 +73,7 @@ These messages apply only when the short-circuit fires on round 1 (initial fetch
 
 ## Error Handling
 
-GraphQL or network failures exit non-zero with the `gh` stderr surfaced verbatim — retry semantics are the SDLC runner's responsibility, not this skill's. Example exit line: `GraphQL fetch failed on round {N}: {gh stderr}`.
+GraphQL or network failures exit non-zero with the `gh` stderr surfaced verbatim. Report the failure and stop so the user can retry the skill after access recovers. Example exit line: `GraphQL fetch failed on round {N}: {gh stderr}`.
 
 ## > 100 Threads Fallback
 

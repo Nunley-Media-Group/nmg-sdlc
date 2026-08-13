@@ -1,6 +1,6 @@
 # Per-Thread Fix Loop
 
-**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `$nmg-sdlc:address-pr-comments` — no `codex exec` subprocesses — so sub-skill output (including any `ESCALATION:` lines emitted by `$nmg-sdlc:write-code` or `$nmg-sdlc:verify-code`) lands in the same transcript and can be observed inline.
+**Consumed by**: `address-pr-comments` Step 4 when the current thread's classification is `clear-fix`. Every step below runs inside the session that invoked `$nmg-sdlc:address-pr-comments`; do not spawn subprocesses.
 
 ## Why a postcondition gate
 
@@ -29,7 +29,7 @@ $nmg-sdlc:write-code
 
 **Classification**: clear-fix — {rationale}
 
-**Requested change**: apply the minimal code change needed to address this reviewer finding. Do not refactor surrounding code; do not add features. If after reading the file you determine the reviewer's premise is incorrect or the change cannot be made without spec-level decisions, emit an ESCALATION: line naming the ambiguity — this skill will treat it as per-thread escalation rather than a hard exit.
+**Requested change**: apply the minimal code change needed to address this reviewer finding. Do not refactor surrounding code or add features. If the reviewer's premise is incorrect or the change requires a spec-level decision, report that blocker without changing code.
 
 **Commit message**: use exactly `fix: address review finding on {path}:{line}`. Omit the `:{line}` segment when `line` is null.
 ```
@@ -55,9 +55,9 @@ Before posting any reply or resolving any thread, verify every item in the table
 | Commit SHA moved forward | `git rev-parse HEAD` changed from the SHA captured before the sub-skill invocation | Silently no-op delegations produce "success" but no commit; this catches them. |
 | Fix commit touches the referenced file | `git diff {prior_sha}..HEAD --name-only` includes `path` (skip this check when `path` is null — the reviewer did not name a file) | A commit that does not touch the reviewer's file is addressing something else; do not claim it fixed the thread. |
 | `$nmg-sdlc:verify-code` reported no regressions | Read `$nmg-sdlc:verify-code`'s report output; treat a non-pass overall status (e.g. `Fail` / `Partial`) or any remaining-issue bullet flagged as a regression against a prior AC as a failure for this check | Regressions introduced by the fix attempt must not be silently published as a "resolved" thread. |
-| No sub-skill `ESCALATION:` line | `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` both can emit `ESCALATION:` lines; scan their stdout | Sub-skill escalations map to per-thread escalation — the reviewer's comment is not yet addressable in this invocation. |
+| No sub-skill blocker | Review both sub-skill results for a reported blocker or unresolved decision | A blocked sub-skill means the reviewer's comment is not yet addressable in this invocation. |
 
-If every postcondition holds, proceed to Reply and Resolve below. If any fails, the thread joins the in-process skipped-set, the skill prints the same unattended-mode-style escalation sentinel defined in `references/escalation.md` (with the classification kept as `clear-fix` and the rationale updated to name the failed postcondition), and the loop continues to the next thread. This treatment is intentional: a sub-skill soft failure here is a per-thread issue, not a whole-invocation issue — other threads in the round may still be fixable.
+If every postcondition holds, proceed to Reply and Resolve below. If any fails, route the thread through the decision gate in `references/escalation.md`, preserving `clear-fix` and updating the rationale to name the failed postcondition. Other threads in the round may still be fixable.
 
 ## Reply and Resolve
 
@@ -101,7 +101,7 @@ Confirm the mutation response has `isResolved: true`. If the mutation fails (e.g
 
 ## Commit Message Convention
 
-Every fix commit in this loop MUST use the exact prefix `fix: address review finding on {path}:{line}`. When the thread has no file context (`path` is null), use `fix: address review finding on PR #{pr_number} thread {short_thread_id}`. The commit message tail may contain free-form explanation, but the prefix stays exact — runner logs and `$nmg-sdlc:run-retro` both parse it.
+Every fix commit in this loop MUST use the exact prefix `fix: address review finding on {path}:{line}`. When the thread has no file context (`path` is null), use `fix: address review finding on PR #{pr_number} thread {short_thread_id}`. The commit message tail may contain free-form explanation, but the prefix stays exact for retrospective parsing.
 
 ## Force-push prohibition
 

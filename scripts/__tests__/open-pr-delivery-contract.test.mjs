@@ -18,14 +18,11 @@ function collectMarkdownFiles(dir) {
   });
 }
 
-describe('open-pr folded delivery contract (issues #108 and #148)', () => {
-  it('runner configuration no longer exposes a commitPush step', () => {
-    const runner = read('scripts/sdlc-runner.mjs');
-    const config = read('scripts/sdlc-config.example.json');
-
-    expect(runner).not.toContain("'commitPush'");
-    expect(config).not.toContain('"commitPush"');
-    expect(runner).toContain('open-pr delivery step owns staging eligible non-runner work');
+describe('open-pr folded delivery contract (issues #108, #148, and #151)', () => {
+  it('keeps delivery in open-pr and removes obsolete runtime assets', () => {
+    expect(fs.existsSync(path.join(repoRoot, 'scripts', 'sdlc-runner.mjs'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'scripts', 'sdlc-config.example.json'))).toBe(false);
+    expect(read('skills/open-pr/SKILL.md')).toContain('Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR');
   });
 
   it('open-pr delivery docs cover dirty, clean, rebase, safe-push, and push verification paths', () => {
@@ -34,7 +31,8 @@ describe('open-pr folded delivery contract (issues #108 and #148)', () => {
     const prBody = read('skills/open-pr/references/pr-body.md');
 
     expect(openPr).toContain('Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR');
-    expect(preflight).toContain('git reset -- .codex/sdlc-state.json .codex/unattended-mode');
+    expect(preflight).toContain('compare every dirty path with the implementation/specification scope approved for this delivery');
+    expect(preflight).not.toContain('git reset -- .codex/');
     expect(preflight).toContain('No additional commit needed');
     expect(preflight).toContain('git push --force-with-lease=HEAD:{EXPECTED_SHA}');
     expect(preflight).toContain('git log origin/{branch}..HEAD --oneline');

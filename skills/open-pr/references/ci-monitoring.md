@@ -1,12 +1,8 @@
 # Interactive CI Monitor + Auto-Merge (Step 7)
 
-**Consumed by**: `open-pr` Step 7. Runs **only** when `.codex/unattended-mode` does NOT exist — in unattended mode the SDLC runner owns CI monitoring and merging, so the skill must not poll, prompt, or merge.
+**Consumed by**: `open-pr` Step 7.
 
 ## Entry gate
-
-If `.codex/unattended-mode` exists, Step 7 is actively suppressed — do NOT present a `request_user_input` gate for CI monitoring, do NOT poll `gh pr checks`, do NOT invoke `gh pr merge`. Return after Step 6 with `Done. Awaiting orchestrator.` and stop.
-
-Otherwise:
 
 1. **Present** a `request_user_input` gate:
 
@@ -29,7 +25,7 @@ Otherwise:
 
 ## Polling constants
 
-Mirror `scripts/sdlc-runner.mjs`'s polling constants so interactive and unattended runs share behaviour:
+Use these polling constants:
 
 | Constant | Value |
 |----------|-------|

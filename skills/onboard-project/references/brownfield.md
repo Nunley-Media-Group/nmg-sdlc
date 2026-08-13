@@ -2,11 +2,11 @@
 
 **Read this when** Step 1 detects `brownfield` (existing code and closed issues but no specs). The brownfield branch reverse-engineers one spec directory per reconciled feature from the historical record: closed GitHub issues, merged PR diffs, commit messages, and the current implementation.
 
-Read `../../references/unattended-mode.md` when applying auto-accept defaults — the consolidation gate (Step 3B.4) and any other `request_user_input` gate site reads sentinel semantics from there.
-
 Read `../../references/contribution-guide.md` when Step 2B confirms that all three steering docs exist — the shared contract creates or updates `CONTRIBUTING.md`, preserves existing contribution policy, reflects brownfield code/spec context, handles the README link idempotently, and returns status for the Step 5 summary.
 
 Read `../../references/project-agents.md` when Step 2B confirms that all three steering docs exist — the shared contract creates or updates root `AGENTS.md` spec-context guidance, preserves existing project instructions, and returns status for the Step 5 summary.
+
+Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds. Apply and report both managed assets before reconciliation begins.
 
 ## Step 2B Preflight
 
@@ -27,8 +27,9 @@ Seed `VERSION` at the project root before the steering bootstrap delegation and 
 2. If `steering/` is missing or incomplete (fewer than all three of `product.md`, `tech.md`, `structure.md`), run the absorbed steering bootstrap (Step 2G.1 → 2G.2 from `references/greenfield.md`) first to establish the steering docs, then return to Step 2B. Skip Step 2G.2a (VERSION init is already satisfied by 2B.0a above) and 2G.3–2G.6 (milestone and starter-issue seeding are greenfield-only and not appropriate for brownfield). After steering bootstrap returns, re-verify all three files exist before continuing. If still incomplete, record a gap and abort.
 3. Apply `../../references/contribution-guide.md` after steering verification succeeds. The guide must mention that existing code and reconciled or source-backfilled specs are part of contribution context, preserve existing guides through targeted insertion only, add an idempotent README link when possible, and record contribution-guide outcomes for Step 5. Missing README is a gap, not an abort.
 4. Apply `../../references/project-agents.md` after steering verification succeeds. The guidance must make project-root `specs/` the canonical BDD archive for prompt-level spec requests, preserve existing `AGENTS.md` content outside the managed section, repair malformed managed markers without consuming project-authored text, and record AGENTS.md outcomes for Step 5.
-5. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No `request_user_input` gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
-6. Read the four `$nmg-sdlc:write-spec` template files from `../write-spec/templates/`:
+5. Apply `../../references/contribution-gate.md` and `../../references/issue-form.md`. Preserve unrelated project assets and record both outcomes for Step 5.
+6. **Brownfield-no-issues → source-backfill** — if mode detection found zero closed issues, emit `brownfield-no-issues: backfilling from source tree` and proceed to Step 3B in source-backfill mode. No `request_user_input` gate — routing is deterministic. In source-backfill mode, the reconciliation loop synthesizes specs using evidence from `current_source_tree` only (PR-based evidence rows are marked `N/A — source-backfill` in each `design.md`'s Evidence Sources table).
+7. Read the four `$nmg-sdlc:write-spec` template files from `../write-spec/templates/`:
    - `requirements.md` — contains both the full feature variant and the lightweight "Defect Requirements Variant" (search for the `# Defect Requirements Variant` heading to locate the defect section)
    - `design.md`
    - `tasks.md` — contains both the phased feature task layout and the flat "Defect Tasks Variant"
@@ -36,7 +37,7 @@ Seed `VERSION` at the project root before the steering bootstrap delegation and 
 
    Store their contents in memory for synthesis. Reading templates at runtime — rather than embedding their structure here — keeps this skill aligned with future `$nmg-sdlc:write-spec` template changes automatically. When synthesizing a defect spec, use the Defect variant sections from `requirements.md` and `tasks.md`; for feature specs, use the full variants.
 
-6. Proceed to Step 3B.
+8. Proceed to Step 3B.
 
 ## Step 3B Reconciliation Loop
 
@@ -98,7 +99,7 @@ Feature specs emit to `specs/feature-{slug}/`; defect specs emit to `specs/bug-{
 
 After all issues are classified:
 
-1. Group issues that share a non-trivial label (excluding pipeline-mechanical labels: `enhancement`, `bug`, `automatable`, `good-first-issue`).
+1. Group issues that share a non-trivial label (excluding pipeline-mechanical labels: `enhancement`, `bug`, `good-first-issue`).
 2. Additionally group by Jaccard overlap ≥ 0.3 on title tokens, after stop-word filtering (`the`, `a`, `an`, `add`, `fix`, `update`, `remove`, `for`, `to`, `of`, `and`, `or`).
 3. Merge overlapping groups transitively (if A groups with B and B groups with C, A/B/C form one group).
 4. For each group with ≥ 2 issues, present a consolidation proposal via `request_user_input` gate:
@@ -110,8 +111,7 @@ After all issues are classified:
    [2] No — produce one spec per issue
    ```
 
-5. In unattended mode, auto-accept consolidation (option 1) and log each auto-decision for the summary.
-6. Single-issue "groups" (no consolidation candidates) proceed directly to synthesis with no prompt.
+5. Single-issue "groups" (no consolidation candidates) proceed directly to synthesis with no prompt.
 
 ### 3B.5 Per-Spec Synthesis
 

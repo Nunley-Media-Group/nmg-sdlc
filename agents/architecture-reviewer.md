@@ -9,7 +9,7 @@ Systematically evaluates code architecture quality using the verification checkl
 
 ## When Used
 
-This is a reusable prompt contract for `/verify-code` architecture review. `/verify-code` reviews inline by default and only spawns a Codex `explorer` when the user or runner explicitly authorizes subagents.
+This is a reusable prompt contract for `/verify-code` architecture review. `/verify-code` reviews inline by default and only spawns a Codex `explorer` when the user explicitly authorizes subagents.
 
 ## Review Process
 

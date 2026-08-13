@@ -68,18 +68,18 @@ describe('contribution gate contract (issues #125 and #143)', () => {
     expect(read('.github/workflows/nmg-sdlc-contribution-gate.yml')).toBe(`${workflowTemplate()}\n`);
   });
 
-  test('init-config and upgrade-project still distribute the versioned shared contract', () => {
-    const initConfig = read('skills/init-config/SKILL.md');
+  test('onboarding and upgrade distribute the versioned shared contract', () => {
+    const onboarding = read('skills/onboard-project/SKILL.md');
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
     const upgradeProcedures = read('skills/upgrade-project/references/upgrade-procedures.md');
 
-    expect(initConfig).toContain('Read `../../references/contribution-gate.md` when runner config setup reaches managed project artifact creation');
-    expect(initConfig).toContain('Contribution Gate status block');
-    expect(upgradeProject).toContain('Read `../../references/contribution-gate.md` when analyzing or applying contribution-gate findings');
-    expect(upgradeProject).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml — Managed non-destructive GitHub Actions contribution gate');
-    expect(upgradeProject).toContain('### Step 7c: Analyze Contribution Gate');
-    expect(upgradeProcedures).toContain('Apply approved or unattended-managed findings from `../../references/contribution-gate.md`');
-    expect(upgradeProcedures).toContain('Workflow: created | updated | already present | skipped');
+    expect(onboarding).toContain('Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds');
+    expect(onboarding).toContain('**Contribution Gate**');
+    expect(upgradeProject).toContain('`../../references/contribution-gate.md`');
+    expect(upgradeProject).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
+    expect(upgradeProject).toContain('### Step 5: Analyze Managed Repository Assets');
+    expect(upgradeProcedures).toContain('Follow `../../references/contribution-gate.md`');
+    expect(upgradeProcedures).toContain('unmarked path collision');
   });
 
   test('public guidance describes correlation, path evidence, verification, and reduced modes', () => {
@@ -87,8 +87,8 @@ describe('contribution gate contract (issues #125 and #143)', () => {
     const guide = read('references/contribution-guide.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(readme).toContain('cross-checks issue/spec identity');
-    expect(readme).toContain('validated documentation-only and spike/ADR');
+    expect(readme).toContain('checks issue/spec identity');
+    expect(readme).toContain('documented exception predicates');
     expect(readme).toContain('does not replace project CI or human review');
     expect(guide).toContain('Issue/spec identity');
     expect(guide).toContain('Directory-prefix evidence');
