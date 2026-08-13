@@ -397,15 +397,23 @@ export function inferLifecycle(evidence) {
       };
     }
   } else {
+    const issueClosed = String(evidence.issue?.state).toUpperCase() === 'CLOSED';
     if (prState === 'CLOSED') gaps.push('pull request is closed without merged delivery evidence');
-    if (String(evidence.issue?.state).toUpperCase() === 'CLOSED') {
+    if (issueClosed) {
       gaps.push('issue is closed without a merged pull request');
     }
     if (verificationPass && !implementationPresent) {
       gaps.push('passing verification conflicts with absent implementation paths');
     }
 
-    if (verificationPass && implementationPresent) {
+    if (prState === 'CLOSED' || issueClosed) {
+      stage = 'unknown';
+      nextAction = {
+        command: 'Manual repair: reconcile closed lifecycle evidence',
+        reason: 'Closed issue or pull-request evidence conflicts with an incomplete delivery lifecycle.',
+        manualRepairRequired: true,
+      };
+    } else if (verificationPass && implementationPresent) {
       stage = 'verified';
       nextAction = {
         command: phaseCommand('open-pr', issueNumber),

@@ -167,6 +167,22 @@ describe('lifecycle inference', () => {
     expect(status.gaps).toContain('passing verification conflicts with absent implementation paths');
   });
 
+  test.each([
+    ['closed issue', { issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' } }],
+    ['closed unmerged pull request', { pullRequest: { number: 50, state: 'CLOSED', url: null, checks: 'absent' } }],
+  ])('requires manual repair for %s evidence', (_name, override) => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: { path: 'specs/feature/verification-report.md', status: 'pass', current: true },
+      ...override,
+    }));
+    expect(status.stage).toBe('unknown');
+    expect(status.nextAction).toMatchObject({ manualRepairRequired: true });
+    expect(status.nextAction.command).toContain('Manual repair');
+  });
+
 });
 
 describe('bounded evidence collection and read-only safety', () => {
