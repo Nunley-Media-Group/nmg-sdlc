@@ -1,10 +1,12 @@
 import { describe, expect, test } from '@jest/globals';
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
   evaluateDraftIssueArtifact,
+  evaluateStatusArtifact,
   extractArtifactFromOutput,
   rubricChecks,
 } from '../skill-exercise-runner.mjs';
@@ -13,6 +15,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const runner = path.join(repoRoot, 'scripts', 'skill-exercise-runner.mjs');
 const passArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'draft-issue', 'artifacts', 'feature-pass.md');
 const failArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'draft-issue', 'artifacts', 'malformed-fail.md');
+const statusArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'status', 'artifacts', 'status-pass.json');
 
 describe('skill exercise rubric evaluator', () => {
   test('passing draft-issue feature artifact passes all applicable criteria', () => {
@@ -162,5 +165,20 @@ Done.`);
 
     expect(proc.stdout).toContain('R1');
     expect(proc.stdout).not.toContain('rubric evaluation not yet implemented');
+  });
+
+  test('status fixture passes every lifecycle rubric without placeholder skips', () => {
+    const artifact = fs.readFileSync(statusArtifact, 'utf8');
+    const results = evaluateStatusArtifact(artifact);
+    expect(results).toHaveLength(6);
+    expect(results.every((result) => result.status === 'pass')).toBe(true);
+
+    const proc = spawnSync(process.execPath, [runner, '--skill', 'status', '--artifact', statusArtifact, '--base', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    expect(proc.status).toBe(0);
+    expect(proc.stdout).toContain('S6');
+    expect(proc.stdout).not.toContain('[skipped]');
   });
 });

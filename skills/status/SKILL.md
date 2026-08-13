@@ -1,0 +1,65 @@
+---
+name: status
+description: "Inspect and report the current manual nmg-sdlc lifecycle state without mutation. Use when the user asks for SDLC status, where active work stands, the current issue or stage, the next SDLC command, session context recovery, or machine-readable lifecycle status. Accepts no arguments or --json. Do not use to run automated-loop diagnostics, verify, deliver, or merge work."
+---
+
+# Status
+
+Read `../../references/codex-tooling.md` when the workflow starts — it maps inspection and shell wording to Codex-native, argument-safe behavior.
+
+Report the strongest lifecycle conclusion supported by current repository, spec, verification, and read-only GitHub evidence. Delegate deterministic inspection to the bundled status CLI and pass its output through unchanged.
+
+This skill is observational and never presents a `request_user_input` gate or requests confirmation.
+
+## Workflow
+
+### Step 1: Validate Arguments
+
+Accept `$ARGUMENTS` only when it is empty or exactly `--json` after trimming surrounding whitespace.
+
+For any other value, print this usage line and stop non-zero without inspecting or modifying the project:
+
+```text
+Usage: $nmg-sdlc:status [--json]
+```
+
+### Step 2: Resolve Runtime Paths
+
+Resolve the project root with the read-only equivalent of:
+
+```bash
+git rev-parse --show-toplevel
+```
+
+Resolve the installed plugin root from this loaded skill's own source path: the plugin root is two parent directories above `skills/status/SKILL.md`. Do not use the target project's configured plugin path when locating the status CLI. Verify that `<plugin-root>/scripts/sdlc-status.mjs` exists before invoking it.
+
+If the project root cannot be identified or the bundled CLI is missing, report the specific path failure and stop non-zero.
+
+### Step 3: Invoke the Read-Only CLI
+
+Invoke Node.js without a shell using an argument array:
+
+```text
+process.execPath, [statusCli, "--project", projectRoot]
+process.execPath, [statusCli, "--project", projectRoot, "--json"]
+```
+
+Use the second form only when `$ARGUMENTS` is `--json`. Pass the resolved paths as distinct arguments; never concatenate, interpolate, or execute repository-derived values as shell source.
+
+Stream the CLI exit code, stdout, and stderr without adding interpretation. In JSON mode, stdout must contain only the CLI's JSON document.
+
+## Read-Only Boundary
+
+Do not write, delete, stage, commit, checkout, push, signal, verify, deliver, merge, or mutate GitHub state. Dirty worktrees are evidence to report, not conditions to repair. The bundled CLI may use only read-only local and GitHub queries.
+
+Automated-loop integration is out of scope ahead of its milestone-2 removal. Do not inspect runner source, state, sentinels, logs, configuration, or PIDs, and do not recommend resume, cleanup, or `$nmg-sdlc:end-loop` actions.
+
+## Integration with SDLC Workflow
+
+Status is a diagnostic utility available at every point; it does not add or renumber a delivery stage:
+
+```text
+$nmg-sdlc:status [--json]
+        │
+        └── reports current evidence and recommends the existing owning command
+```

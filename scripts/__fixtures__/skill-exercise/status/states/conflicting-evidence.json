@@ -1,0 +1,9 @@
+{
+  "branch": "145-add-lifecycle-status-command-for-active-sdlc-work",
+  "issue": 145,
+  "specComplete": true,
+  "implementationPaths": [],
+  "verificationStatus": "pass",
+  "expectedStage": "specified",
+  "expectedGap": "passing verification conflicts with absent implementation paths"
+}
