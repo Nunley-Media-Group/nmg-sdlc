@@ -307,6 +307,22 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 
+  it('emits nullable coordination when active issue lookup fails', () => {
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') return { ok: false, status: 1, stdout: '', stderr: 'offline' };
+      throw new Error(`unexpected GitHub command: ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.issue).toMatchObject({ number: 42, coordination: null });
+    expect(JSON.parse(JSON.stringify(evidence.issue))).toHaveProperty('coordination', null);
+    expect(evidence.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('GitHub issue unavailable'),
+    ]));
+  });
+
   it('reports the active issue durable coordination identity from fresh GitHub evidence', () => {
     const parent = {
       number: 10,
@@ -324,13 +340,20 @@ describe('bounded evidence collection and read-only safety', () => {
       parent,
       subIssues: { nodes: [] },
     };
+    const issueViewActive = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: 'Depends on: #10',
+      labels: [{ name: 'epic-child-of-10' }],
+    };
     const run = (command, args, options) => {
       if (command !== 'gh') return localRun(command, args, options);
       if (args[0] === 'pr' && args[1] === 'list') {
         return { ok: true, status: 0, stdout: '[]', stderr: '' };
       }
       if (args[0] === 'issue' && args[1] === 'view') {
-        return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+        return { ok: true, status: 0, stdout: JSON.stringify(issueViewActive), stderr: '' };
       }
       if (args[0] === 'repo' && args[1] === 'view') {
         return { ok: true, status: 0, stdout: JSON.stringify({ nameWithOwner: 'example/project' }), stderr: '' };
@@ -504,6 +527,117 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(evidence.issue.coordination).toMatchObject({ role: 'unverifiable', identity: 'unverifiable' });
     expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
       expect.stringContaining('fallback limit of 8'),
+    ]));
+  });
+
+  it('classifies a successful bounded fallback without incomplete authority', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: 'Depends on: #10',
+      labels: [],
+    };
+    const target = {
+      number: 10,
+      state: 'OPEN',
+      body: '- [ ] #42',
+      labels: [{ name: 'epic' }],
+    };
+    let issueViews = 0;
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') {
+        issueViews += 1;
+        const response = args[2] === '42' ? active : target;
+        return { ok: true, status: 0, stdout: JSON.stringify(response), stderr: '' };
+      }
+      if (args[0] === 'repo') return { ok: false, status: 1, stdout: '', stderr: 'offline' };
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(issueViews).toBe(2);
+    expect(evidence.issue.coordination).toMatchObject({
+      role: 'unverifiable',
+      parentNumber: 10,
+      identity: 'unverifiable',
+      nativeAuthority: 'checklist-fallback',
+      degraded: true,
+    });
+    expect(evidence.issue.coordination.gaps).not.toEqual(expect.arrayContaining([
+      expect.stringContaining('fallback limit'),
+    ]));
+    expect(evidence.issue.coordination.gaps).not.toEqual(expect.arrayContaining([
+      expect.stringContaining('pagination is incomplete'),
+    ]));
+  });
+
+  it('bounds aggregate relationship pagination requests', () => {
+    const targetNumbers = Array.from({ length: 41 }, (_, index) => index + 100);
+    const issueViewActive = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: targetNumbers.map((number) => `Depends on: #${number}`).join('\n'),
+      labels: [],
+    };
+    const active = {
+      ...issueViewActive,
+      labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      parent: null,
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const repository = { active };
+    for (const number of targetNumbers) {
+      repository[`target${number}`] = {
+        number,
+        state: 'OPEN',
+        body: '',
+        labels: { nodes: [], pageInfo: { hasNextPage: true, endCursor: `labels-${number}` } },
+        subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      };
+    }
+    let followUps = 0;
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') return { ok: true, status: 0, stdout: JSON.stringify(issueViewActive), stderr: '' };
+      if (args[0] === 'repo') return { ok: true, status: 0, stdout: '{"nameWithOwner":"example/project"}', stderr: '' };
+      if (args[0] === 'api') {
+        const cursor = args.find((argument) => argument.startsWith('cursor='));
+        if (cursor) {
+          followUps += 1;
+          return {
+            ok: true,
+            status: 0,
+            stdout: JSON.stringify({
+              data: {
+                repository: {
+                  issue: {
+                    labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                  },
+                },
+              },
+            }),
+            stderr: '',
+          };
+        }
+        return { ok: true, status: 0, stdout: JSON.stringify({ data: { repository } }), stderr: '' };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(followUps).toBe(40);
+    expect(evidence.issue.coordination).toMatchObject({
+      role: 'unverifiable',
+      identity: 'unverifiable',
+      nativeAuthority: 'incomplete',
+    });
+    expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('pagination request budget exhausted'),
     ]));
   });
 

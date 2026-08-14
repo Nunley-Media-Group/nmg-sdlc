@@ -307,6 +307,8 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
     }
     const labeledIdentityIncomplete = matchingLabels.length === 1
       && (nativeSignals.length === 0 || bodySignals.length === 0);
+    const legacyIdentityIncomplete = matchingLabels.length === 0
+      && (nativeSignals.length === 0 || bodySignals.length === 0);
     if (childLabelTargets.length > 1 || otherLabels.length > 0 || labeledIdentityIncomplete) {
       result.role = 'inconsistent';
       result.identity = result.role;
@@ -318,6 +320,20 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
         result.gaps.push(`issue #${active} has no native relationship to labeled epic #${parentNumber}`);
       }
       if (bodySignals.length === 0) result.gaps.push(`issue #${active} has no supported body relationship to labeled epic #${parentNumber}`);
+      return result;
+    }
+    if (legacyIdentityIncomplete) {
+      result.role = 'unverifiable';
+      result.parentNumber = parentNumber;
+      result.identity = 'unverifiable';
+      result.consistency = 'unverifiable';
+      result.degraded = true;
+      if (nativeSignals.length === 0) {
+        result.gaps.push(`issue #${active} cannot be treated as a legacy child of epic #${parentNumber} without an agreeing native relationship`);
+      }
+      if (bodySignals.length === 0) {
+        result.gaps.push(`issue #${active} cannot be treated as a legacy child of epic #${parentNumber} without an agreeing body relationship`);
+      }
       return result;
     }
 

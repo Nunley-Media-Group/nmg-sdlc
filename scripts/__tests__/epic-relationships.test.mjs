@@ -93,6 +93,25 @@ describe('epic relationship classification', () => {
     expect(result.gaps).toContain('issue #20 is missing label epic-child-of-10');
   });
 
+  test.each([
+    ['native-only', issue(10, { labels: ['epic'], subIssues: [20] }), issue(20, {
+      parent: issue(10, { labels: ['epic'] }),
+    }), 'agreeing body relationship'],
+    ['body-only', issue(10, { labels: ['epic'] }), issue(20, {
+      body: 'Depends on: #10',
+    }), 'agreeing native relationship'],
+  ])('does not assign legacy identity from %s evidence', (_name, parent, child, gap) => {
+    const result = classifyEpicRelationships({ issues: [parent, child], activeIssueNumber: 20 });
+    expect(result).toMatchObject({
+      role: 'unverifiable',
+      parentNumber: 10,
+      identity: 'unverifiable',
+      consistency: 'unverifiable',
+      degraded: true,
+    });
+    expect(result.gaps).toEqual(expect.arrayContaining([expect.stringContaining(gap)]));
+  });
+
   test('does not authorize legacy identity when native discovery is unavailable', () => {
     const parent = issue(10, {
       labels: ['epic'],

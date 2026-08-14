@@ -81,7 +81,7 @@ describe('epic relationship contract', () => {
     expect(startIssue).toContain('Read `../../references/epic-relationships.md` when Step 1a begins');
     expect(startIssue).toContain('`parentNumber`, `identity`, `consistency`, `nativeAuthority`, `degraded`, `coordinationPairs`, `executionDependencies`');
     expect(startIssue).toContain('Build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from `executionDependencies` only');
-    expect(startIssue).toContain('Page every candidate `subIssues` connection');
+    expect(startIssue).toContain('Page every candidate and native-parent `subIssues` connection');
     expect(startIssue).toContain('Add `P` to `parentsOf[C]` only when the classified pair appears in `executionDependencies`');
     expect(startIssue).toContain('A confirmed `role = epic-child` parent never blocks');
     expect(startIssue).toContain('For `inconsistent`, `ambiguous`, or `unverifiable`, stop');
@@ -127,11 +127,14 @@ describe('epic relationship contract', () => {
     expect(upgrade).toContain('freshly revalidated recovery contract');
     expect(recovery).toContain('Do not mutate GitHub during audit');
     expect(recovery).toContain('Silence, timeout');
-    expect(recovery).toContain('Re-fetch the exact parent and children');
+    expect(recovery).toContain('Re-fetch the exact approved parent and children');
     expect(recovery).toContain('Abort on drift');
     expect(recovery).toContain('gh issue edit P --add-sub-issue C');
     expect(recovery).toContain('Body relationship missing');
-    expect(recovery).toContain('it must propose no further mutation');
+    expect(recovery).toContain('persist that exact `OWNER/REPO` as `AUDITED_REPO`');
+    expect(recovery).toContain('server-enforced compare-and-set');
+    expect(recovery).toContain('require it to propose no further mutation for those records');
+    expect(recovery).toContain('do not fail proof of the approved set');
   });
 
   test('historical issue #149 and current issue #160 regression specs remain intact', () => {

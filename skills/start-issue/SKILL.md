@@ -64,8 +64,13 @@ issue(number: N) {
     parent {
       number
       state
+      body
       labels(first: 100) {
         nodes { name }
+        pageInfo { hasNextPage endCursor }
+      }
+      subIssues(first: 50) {
+        nodes { number state }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -77,7 +82,7 @@ issue(number: N) {
 }
 ```
 
-Page every candidate `subIssues` connection and every candidate/native-parent `labels` connection by `endCursor` until `hasNextPage` is false, with a maximum of 10 follow-up pages per connection. Merge each page into the same issue record before normalization. If a cursor is absent, a follow-up request fails, a response is malformed, or the bound is exceeded, mark the affected candidate `unverifiable` with exact connection/issue evidence and stop before presentation; never treat a partial native set as complete.
+Page every candidate and native-parent `subIssues` connection and every candidate/native-parent `labels` connection by `endCursor` until `hasNextPage` is false, with a maximum of 10 follow-up pages per connection. A nested native-parent response is covered only after its body, labels, and complete `subIssues` set have been hydrated into the same parent record. Merge each page before normalization. If a cursor is absent, a follow-up request fails, a response is malformed, or the bound is exceeded, mark the affected candidate `unverifiable` with exact connection/issue evidence and stop before presentation; never treat a partial native set as complete.
 
 Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference.
 

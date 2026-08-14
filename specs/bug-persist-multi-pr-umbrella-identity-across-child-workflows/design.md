@@ -95,7 +95,7 @@ The module does not execute `gh`, mutate issue metadata, or cache results. Calle
 | Evidence | Classification | Behavior |
 |----------|----------------|----------|
 | Parent has `epic`, child has matching `epic-child-of-N`, and every available native/body identity signal agrees with both required signal classes present | `epic-child` / `durable` | Continue with `consistency = consistent`, `nativeAuthority = native`, and exclude the parent from blockers. |
-| Native discovery completed; parent has `epic` and a supported native/body relationship agrees, but the child label is absent | `epic-child` / `legacy` | Continue with a named repair recommendation; do not erase backward compatibility. |
+| Native discovery completed; parent has `epic` and agreeing native plus body relationships, but the child label is absent | `epic-child` / `legacy` | Continue with a named repair recommendation; do not erase backward compatibility. |
 | Child label points at a confirmed non-epic target, labels disagree with native/body parent, a required native/body signal is missing while its source is available, or more than one child label exists | `inconsistent` | Stop before branch/spec/code/delivery mutation and report exact signals. |
 | More than one confirmed epic parent remains after deduplication | `ambiguous` | Stop and name each candidate. |
 | Required target metadata cannot be hydrated | `unverifiable` for claimed coordination; execution dependencies remain blocking | Fail closed with bounded diagnostics. |

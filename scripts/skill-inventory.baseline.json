@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T07:25:48.987Z",
+  "generated_at": "2026-08-14T07:51:36.138Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -286,7 +286,7 @@
         "skills/onboard-project/SKILL.md:149",
         "skills/open-pr/SKILL.md:97",
         "skills/run-retro/SKILL.md:167",
-        "skills/start-issue/SKILL.md:234",
+        "skills/start-issue/SKILL.md:239",
         "skills/verify-code/SKILL.md:195",
         "skills/write-code/SKILL.md:116",
         "skills/write-spec/SKILL.md:129",
@@ -1901,9 +1901,9 @@
     },
     {
       "id": "4963cc48b604",
-      "source_before": "skills/start-issue/SKILL.md:232",
+      "source_before": "skills/start-issue/SKILL.md:237",
       "normalized": "this summary is the handoff contract for downstream skills like $nmg-sdlc:write-",
-      "destination": "skills/start-issue/SKILL.md:232"
+      "destination": "skills/start-issue/SKILL.md:237"
     },
     {
       "id": "4e2ccb29efb3",

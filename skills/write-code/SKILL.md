@@ -55,7 +55,7 @@ Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter 
 
 ### Step 1.75: Canonical Parent-Spec Gate
 
-Before reading the active spec or entering implementation planning, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
+Before reading the active spec or entering implementation planning, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`. Fully hydrate the native parent's body, labels, and paginated `subIssues` connection before deriving identity or sibling authority; a partial parent record makes the result `unverifiable`.
 
 - `role = ordinary` or `epic` → continue unchanged.
 - `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before spec loading or planning and report the shared pairs/signals/gaps.

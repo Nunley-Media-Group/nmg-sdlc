@@ -26,8 +26,8 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 | **Overall** | **5.0** |
 
 **Status**: Pass (defect fix)
-**Total Issues Found During Review**: 38
-**Issues Fixed**: 38
+**Total Issues Found During Review**: 50
+**Issues Fixed**: 50
 **Review Findings Rejected After Verification**: 2
 **Remaining Issues**: 0
 
@@ -42,7 +42,7 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 | AC3 | Genuine dependencies still block | Pass | `scripts/epic-relationships.mjs:185` separates coordination from execution dependencies; unit and lifecycle tests prove an open non-epic sibling blocks while parent #108 does not. |
 | AC4 | Canonical specs are not resealed per child | Pass | Write-spec retains the canonical parent gate and child no-reseal handoff; the fresh-session exercise asserts the normal `$nmg-sdlc:write-code #N` next stage and absence of child sealing. |
 | AC5 | Sibling discovery uses authoritative relationships | Pass | `scripts/epic-relationships.mjs` reconciles native/checklist sets; `skills/open-pr/references/version-bump.md:37` pages native `subIssues` to exhaustion; status pages both labels and sub-issues for every hydrated active, parent, and alias issue; unit/status tests cover native-only, checklist-only, alias pagination, and fallback states. |
-| AC6 | Existing umbrellas can be recovered safely | Pass | Upgrade Step 3.6 is defined at `skills/upgrade-project/SKILL.md:96`; `skills/upgrade-project/references/epic-identity-recovery.md` requires exact per-parent approval, evidence re-fetch, drift abort, narrow commands, and a clean second audit. |
+| AC6 | Existing umbrellas can be recovered safely | Pass | Upgrade Step 3.6 is defined at `skills/upgrade-project/SKILL.md:96`; `skills/upgrade-project/references/epic-identity-recovery.md` binds apply to the audited repository, exhaustively hydrates referenced targets, requires exact per-parent approval, aborts on drift, permits body writes only through proven server-enforced compare-and-set, and scopes idempotence proof to the approved mutation set. |
 | AC7 | Complete lifecycle is exercised | Pass | `scripts/__tests__/exercise-persisted-umbrella-identity.test.mjs:64` runs independent phase evaluations with multiple children, a real dependency, and stale checklist metadata; all scenarios pass. |
 
 ## Reproduction and Regression Evidence
@@ -82,7 +82,7 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 |------|-------|----------|
 | SOLID | 5/5 | Pure normalization/classification is isolated in one module; status owns hydration only; prompt skills reference rather than duplicate the decision table. |
 | Security | 5/5 | Positive issue-number validation, GraphQL variables for repository names, argument arrays rather than shell interpolation, no secrets, and exact approval-gated remote writes. |
-| Performance | 5/5 | Target hydration is capped at 100, fallback is capped at 8 with five-second calls, duplicate pairs are collapsed, and incomplete native pagination fails closed. |
+| Performance | 5/5 | Target hydration is capped at 100, aggregate pagination follow-ups are capped at 40, fallback is capped at 8 with five-second calls, duplicate pairs are collapsed, and incomplete native pagination fails closed. |
 | Testability | 5/5 | Pure exported functions, injected status adapters, deterministic GitHub-shaped fixtures, independent phase copies, and no network in required tests. |
 | Error Handling | 5/5 | Ambiguous/inconsistent/unverifiable states are explicit; unknown dependencies stay blocking; API degradation, pagination, partial repair, and concurrent drift have named outcomes. |
 
@@ -105,10 +105,10 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 ### Coverage Summary
 
 - Feature file: 11 regression scenarios cover all 7 acceptance criteria, including legacy, conflict, ambiguity, native degradation, and partial writes.
-- Focused final suite: 63/63 relationship/status/canonical-readiness contract tests passed after final hardening.
-- Full final suite: 254 passed, 12 intentional opt-in live-Codex skips, 0 failures (28 suites passed, 3 opt-in suites skipped).
-- New direct classifier coverage: durable, legacy, ordinary, real dependency, stale nested stub, incomplete labeled tuples, inconsistent label, unknown target, multiple parents, native authority, and report-only checklist fallback.
-- New status coverage: explicit shared fields in text/JSON, incomplete active/parent/alias pagination, 100-target query bound, 8-target fallback bound, read-only behavior, and unchanged lifecycle inference.
+- Focused final suite: 59/59 relationship/status/recovery contract tests passed after CodeRabbit hardening; the broader canonical-readiness checks also pass in the full suite.
+- Full final suite: 259 passed, 12 intentional opt-in live-Codex skips, 0 failures (28 suites passed, 3 opt-in suites skipped).
+- New direct classifier coverage: durable, fully evidenced legacy, native-only/body-only fail-closed states, ordinary, real dependency, stale nested stub, incomplete labeled tuples, inconsistent label, unknown target, multiple parents, native authority, and report-only checklist fallback.
+- New status coverage: explicit shared fields in text/JSON, nullable coordination on lookup failure, production-shaped `gh issue view` labels, incomplete active/parent/alias pagination, 100-target query bound, 40-request aggregate pagination bound, successful and over-limit fallback paths, read-only behavior, and unchanged lifecycle inference.
 
 ---
 
@@ -129,13 +129,13 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 254 passed, 12 intentional skips, 0 failures. |
+| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 259 passed, 12 intentional skips, 0 failures. |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean, 439 items mapped. |
 | Codex compatibility | Pass | `node scripts/codex-compatibility-check.mjs`: passed. |
 | Active plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed. |
 | Skill creator validation | Pass | `quick_validate.py` passed for draft-issue, start-issue, write-spec, write-code, verify-code, status, open-pr, and upgrade-project. |
 | Skill exercises | Pass | Registered draft-issue and status runner fixtures pass; specialized umbrella Jest fixtures pass. |
-| Prompt quality | Pass | Instructions cover success, legacy, ambiguity, API failure, pagination, user decline, partial write, concurrent drift, and post-apply proof with safe argument forms and valid references. |
+| Prompt quality | Pass | Instructions cover success, fully evidenced legacy, ambiguity, API failure, complete target hydration, repository drift, user decline, partial write, server-enforced body concurrency, approved-set proof, and safe argument forms with valid references. |
 | Git hygiene | Pass | JavaScript syntax checks and `git diff --check` pass. |
 
 **Gate Summary**: 8/8 passed, 0 failed, 0 incomplete.
@@ -158,13 +158,20 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 | High | Selection completeness | start-issue relationship hydration | Candidate sub-issue and label connections could be truncated, and native pairs were described as directly populating blockers before coordination classification. | Added bounded cursor pagination with fail-closed evidence and made `parentsOf` derive only from classified execution dependencies. | skill-creator |
 | High | Producer relationship integrity | draft-issue multi-issue batch | Ordinary DAG edges were eligible for native parent writes even though GitHub provides one native parent and those edges are execution prerequisites. | Reserved native parent writes for synthesized epic membership, kept ordinary DAG edges in body dependencies, and required a fresh complete edge-set comparison. | skill-creator |
 | High | Producer sequencing | draft-issue multi-issue batch | The native-link phase could run before epic fan-out populated its membership queue, and queue ownership was absent from the formal state model. | Reordered the batch into prepare, probe, write, body resolution, and complete re-fetch phases; initialized the queue explicitly and assigned one append owner. | skill-creator |
-| High | Native authority | classifier and shared contract | Native discovery failure could still produce legacy or epic identity, and checklist fallback could appear mutation-capable. | Native failure now yields `unverifiable`; fallback is report-only and blocks completion, versioning, delivery, and all consuming mutation. | direct + skill-creator |
+| High | Native authority | classifier and shared contract | Native discovery failure could still produce legacy or epic identity, and checklist fallback could appear mutation-capable. | Native failure now yields `unverifiable`; fallback is report-only and blocks completion, versioning, delivery, and all consuming mutations. | direct + skill-creator |
 | High | Nested dependency integrity | draft-issue epic fan-out | Child prerequisites had no child-scoped DAG after preserving the outer immutable session DAG. | Added a step-local per-epic child DAG used for deterministic child ordering, sibling body placeholders, and final edge verification without mutating the outer graph. | skill-creator |
 | High | Audit and entry completeness | upgrade-project and write-spec | Partial issue-graph pages could look clean, and canonical parent-spec proof could outlive conflicting child identity fields. | Upgrade now proves full paginated graph hydration; write-spec uses an explicit identity/consistency/authority matrix before accepting canonical parent readiness. | skill-creator |
 | High | Non-happy-path coverage | requirements, Gherkin, and contracts | Legacy, conflict, degradation, ambiguity, unverifiability, and partial writes were not all explicit lifecycle scenarios. | Expanded AC7 with four regression scenarios and contract assertions for exact evidence preservation, safe stopping, no replacement child, and idempotent rerun. | direct |
 | High | Nested producer inputs | draft-issue Step 6 and multi-issue flow | The child-scoped DAG and epic membership source were not explicitly distinct at the nested Per-Issue Loop boundary. | Added read-only `activeDag` plus separate `coordinationParentNumber` inputs, aligned body generation and placeholder resolution, corrected step references, and removed an unused output field. | skill-creator |
 | High | Nested batch isolation | draft-issue multi-issue flow | Reused plan IDs could cross-resolve between outer and child batches, child fan-out could overwrite the outer plan, and abandoned endpoints were counted as missing concrete edges. | Added collision-safe `scopeId`, child-local plans/DAGs, same-scope placeholder lookup, independent per-epic summary inputs, and planned-marker accounting distinct from concrete edges. | skill-creator |
 | Low | Documentation / evidence | tasks, verification, and upgrade reporting | One unchanged exercise path remained in task scope, task/report metadata and one evidence anchor were stale, a command fence was untyped, and preserved unverifiable findings were unnamed. | Removed the unchanged path, marked tasks complete, refreshed the evidence anchor, typed the Bash fences, and added the exact preserved-unverifiable outcome. | direct + skill-creator |
+| High | Legacy identity correctness | classifier, shared contract, specs | An unlabeled native-only or body-only pair could still become non-blocking `legacy` identity. | Legacy now requires agreeing native and body relationships; native-only and body-only cases fail closed with explicit gaps and direct tests. | CodeRabbit + direct + skill-creator |
+| High | Parent hydration completeness | start-issue and write-code | A nested native parent omitted body and complete sub-issues but could still appear authoritative. | Native parents now hydrate body, labels, and paginated sub-issues before identity or sibling derivation; partial records are unverifiable. | CodeRabbit + skill-creator |
+| Medium | Status schema integrity | status CLI and tests | Failed issue lookup omitted the documented nullable `coordination` field. | Branch- and PR-derived issue shells initialize `coordination: null`; success replaces it with the classifier result, and JSON serialization is covered. | CodeRabbit + direct |
+| High | Recovery repository and graph integrity | upgrade recovery | Apply could rely on ambient repository context or partial pages/targets. | Audit persists `AUDITED_REPO`, apply revalidates it, all commands are repository-qualified, and any incomplete page or target makes the overall audit unverifiable with no repair proposal. | CodeRabbit + skill-creator |
+| High | Recovery concurrency and proof scope | upgrade recovery | Unconditional full-body writes could overwrite concurrent edits, while unapproved siblings could fail an otherwise correct approved repair. | Automated body repair now requires proven server-enforced compare-and-set after immediate evidence comparison; post-apply proof is limited to the approved parent, children, and evidence tuples, with remaining findings reported separately. | CodeRabbit + skill-creator |
+| Medium | Pagination performance and diagnostics | status CLI and tests | Per-connection bounds still allowed excessive aggregate calls, external pagination errors were unbounded, and fallback happy-path fidelity was incomplete. | Added a shared 40-request budget, bounded pagination messages, production-shaped label fixtures, and regression coverage for successful bounded fallback and exact budget exhaustion. | CodeRabbit + direct |
+| Low | Evidence wording | verification report | One review row used a singular noun for multiple consuming operations. | Corrected “all consuming mutation” to “all consuming mutations.” | CodeRabbit + direct |
 
 ---
 

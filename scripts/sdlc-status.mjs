@@ -231,6 +231,7 @@ const GRAPHQL_ISSUE_FIELDS = `
 const MAX_COORDINATION_TARGETS = 100;
 const MAX_FALLBACK_TARGETS = 8;
 const MAX_CONNECTION_PAGES = 10;
+const MAX_HYDRATION_REQUESTS = 40;
 
 function markCoordinationUnverifiable(result, message, nativeAuthority = 'incomplete') {
   return {
@@ -244,13 +245,17 @@ function markCoordinationUnverifiable(result, message, nativeAuthority = 'incomp
   };
 }
 
-function hydrateConnectionPages(projectRoot, owner, name, issue, connection, adapters) {
+function hydrateConnectionPages(projectRoot, owner, name, issue, connection, adapters, budget) {
   const fields = connection === 'labels' ? 'nodes { name }' : 'nodes { number state }';
   for (let page = 0; issue?.[connection]?.pageInfo?.hasNextPage === true; page += 1) {
     const cursor = issue[connection].pageInfo.endCursor;
     if (page >= MAX_CONNECTION_PAGES || typeof cursor !== 'string' || !cursor) {
       return { ok: false, reason: `${connection} pagination exceeded its safe bound or lacked an end cursor` };
     }
+    if (budget.remaining <= 0) {
+      return { ok: false, reason: 'pagination request budget exhausted' };
+    }
+    budget.remaining -= 1;
     const query = `query($owner: String!, $name: String!, $cursor: String!) {
       repository(owner: $owner, name: $name) {
         issue(number: ${issue.number}) {
@@ -283,15 +288,16 @@ function hydrateConnectionPages(projectRoot, owner, name, issue, connection, ada
 
 function hydrateGraphConnections(projectRoot, owner, name, issues, adapters) {
   const unique = new Map();
+  const budget = { remaining: MAX_HYDRATION_REQUESTS };
   for (const issue of issues) {
     if (Number.isInteger(issue?.number) && !unique.has(issue.number)) unique.set(issue.number, issue);
   }
   for (const issue of unique.values()) {
-    const labels = hydrateConnectionPages(projectRoot, owner, name, issue, 'labels', adapters);
+    const labels = hydrateConnectionPages(projectRoot, owner, name, issue, 'labels', adapters, budget);
     if (!labels.ok) return { ok: false, reason: `issue #${issue.number} labels: ${labels.reason}` };
   }
   for (const issue of unique.values()) {
-    const subIssues = hydrateConnectionPages(projectRoot, owner, name, issue, 'subIssues', adapters);
+    const subIssues = hydrateConnectionPages(projectRoot, owner, name, issue, 'subIssues', adapters, budget);
     if (!subIssues.ok) return { ok: false, reason: `issue #${issue.number} sub-issues: ${subIssues.reason}` };
   }
   return { ok: true, issues: [...unique.values()] };
@@ -363,7 +369,7 @@ function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
               nativeAvailable: true,
             });
             if (hydration.ok) return result;
-            const message = `GitHub relationship pagination is incomplete: ${hydration.reason}`;
+            const message = `GitHub relationship pagination is incomplete: ${boundedMessage(hydration.reason)}`;
             gaps.push(message);
             return markCoordinationUnverifiable(result, message);
           }
@@ -414,7 +420,13 @@ function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
 
 function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   let issue = issueNumber
-    ? { number: issueNumber, title: null, state: 'unknown', source: 'branch' }
+    ? {
+      number: issueNumber,
+      title: null,
+      state: 'unknown',
+      source: 'branch',
+      coordination: null,
+    }
     : null;
   let pullRequest = null;
 
@@ -437,6 +449,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
               title: closingIssue.title ?? null,
               state: closingIssue.state ?? 'unknown',
               source: 'pullRequest',
+              coordination: null,
             };
           }
           pullRequest = {

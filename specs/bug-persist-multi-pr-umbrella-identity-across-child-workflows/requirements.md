@@ -95,7 +95,7 @@ The defect normally appears as incorrect lifecycle routing rather than an except
 
 Additional AC7 regression examples cover these non-happy paths:
 
-- A legacy record is recognized only after native discovery completes, retains every available signal, and names the exact upgrade repair.
+- A legacy record is recognized only after native discovery completes and both native and body relationships agree; it retains every available signal and names the exact upgrade repair.
 - Conflicting, ambiguous, or unverifiable identity stops before mutation and reports the complete observed evidence without reclassification.
 - Native discovery degradation preserves checklist evidence for reporting but cannot authorize completion, versioning, delivery, or another lifecycle mutation.
 - A partial producer write preserves every created issue and surviving signal, never creates a replacement child, and converges idempotently after an exact approved repair and rerun.

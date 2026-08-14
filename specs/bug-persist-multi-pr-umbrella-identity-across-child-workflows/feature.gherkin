@@ -65,7 +65,7 @@ Feature: Persist umbrella identity across child workflows
 
   @regression
   Scenario: Legacy identity requires complete native discovery
-    Given an existing child has a confirmed epic target and agreeing relationship evidence but lacks its matching child label
+    Given an existing child has a confirmed epic target and agreeing native plus body relationship evidence but lacks its matching child label
     When native discovery completes successfully and every page is consumed
     Then the relationship is retained as legacy with every observed signal
     And the exact missing-label repair is reported without rewriting metadata

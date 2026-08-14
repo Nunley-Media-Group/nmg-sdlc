@@ -15,7 +15,7 @@ A newly created umbrella relationship is complete only when all four records agr
 | Native GitHub relationship | Child `C` has parent `P`, equivalently parent `P` lists sub-issue `C` |
 | Body representation | Child contains line-anchored `Depends on: #P`; parent checklist lists `#C` when that representation is maintained |
 
-The producer must re-fetch the written records and classify them before handoff. Do not retain `P` only in session state. After native discovery succeeds and every page is consumed, existing records that have a confirmed `epic` target and an agreeing native or body relationship but lack the child label remain supported as `legacy`; report the exact missing label and route repair through `$nmg-sdlc:upgrade-project`. Native discovery failure never produces a `legacy` result.
+The producer must re-fetch the written records and classify them before handoff. Do not retain `P` only in session state. After native discovery succeeds and every page is consumed, existing records that have a confirmed `epic` target plus agreeing native and body relationships but lack the child label remain supported as `legacy`; report the exact missing label and route repair through `$nmg-sdlc:upgrade-project`. Native-only or body-only evidence is not legacy identity and fails closed with explicit gaps. Native discovery failure never produces a `legacy` result.
 
 ## Supported Signals
 
@@ -63,7 +63,7 @@ Apply this decision order after normalization:
 | Evidence | Result | Behavior |
 |----------|--------|----------|
 | Confirmed `epic` target, one matching `epic-child-of-P`, an agreeing native relationship, and an agreeing body relationship | `epic-child` / `durable` | Set `consistency = consistent`; preserve parent identity and exclude only `P` from blockers and topological in-degree. |
-| Native discovery completed successfully; confirmed `epic` target and agreeing native/body signal, but no child label | `epic-child` / `legacy` | Continue with a named repair recommendation; preserve backward compatibility. |
+| Native discovery completed successfully; confirmed `epic` target and agreeing native plus body relationships, but no child label | `epic-child` / `legacy` | Continue with a named repair recommendation; preserve backward compatibility. |
 | More than one confirmed epic target | `ambiguous` | Stop before mutation and name every deduplicated child/target pair. |
 | Multiple child labels; a child label that disagrees with the confirmed native/body parent; a matching label missing an available native or body record; or a label targeting a confirmed non-epic issue | `inconsistent` | Stop before mutation and report every conflicting or missing signal. |
 | A claimed coordination target cannot be hydrated | `unverifiable` | Stop before mutation; never infer readiness. |
@@ -82,7 +82,7 @@ WARNING: Could not confirm relationship metadata for child #C -> target #T; trea
 
 A confirmed execution dependency is unresolved while its target state is not `CLOSED`; unknown metadata is always unresolved. An open coordination parent is non-blocking. `inconsistent`, `ambiguous`, or `unverifiable` coordination results stop `start-issue`, `write-spec`, `write-code`, `verify-code`, and `open-pr` before their first branch, spec, code, verification, version, or PR mutation. `status` reports the result without mutation.
 
-`legacy` is deliberately non-blocking when the confirmed parent and native/body relationship agree. Include `$nmg-sdlc:upgrade-project` as the repair action, but do not rewrite metadata during the consuming lifecycle stage.
+`legacy` is deliberately non-blocking when the confirmed parent and both native and body relationships agree. Include `$nmg-sdlc:upgrade-project` as the repair action, but do not rewrite metadata during the consuming lifecycle stage.
 
 ## Sibling Reconciliation
 
