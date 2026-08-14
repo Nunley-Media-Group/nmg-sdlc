@@ -39,12 +39,13 @@ Feature: Require deliverable dependencies in multi-PR child plans
     Given an existing umbrella contains cross-child task or artifact references
     When the supported initialized-project audit runs
     Then it reports each unrepresentable checkpoint and both supported repair shapes
+    And legacy prose alone does not gate start-issue or status before an approved structured repair
 
   @SCN006 @regression
-  Scenario: Approved repairs are exact and idempotent
-    Given an operator approves one exact whole-issue dependency repair
-    When the repair is applied and the audit runs again
-    Then the issue and spec relationships change once and the second audit proposes no mutation
+  Scenario: Approved manual repairs are exact and idempotent
+    Given an operator approves one exact manual whole-issue dependency repair handoff
+    When the operator applies the line-level repair and the audit runs again
+    Then the issue and spec relationships change once and the second audit proposes no edit
 
   @SCN007 @regression
   Scenario: Every ready independent branch can consume its prerequisites

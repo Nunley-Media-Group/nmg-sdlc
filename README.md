@@ -93,7 +93,7 @@ Feature specs use `issue-scope.json` to assign every AC, FR, task, and stable `@
 $nmg-sdlc:draft-issue "add user authentication"
 ```
 
-Classifies the request, investigates relevant code, interviews the user, drafts BDD acceptance criteria, and presents an inline approval gate before creating the issue. Multi-part requests may be split into dependency-aware child issues after explicit graph approval. Cross-child task or artifact prerequisites must resolve to an extracted baseline issue or a whole-issue dependency; prose-only midpoint checkpoints are not schedulable.
+Classifies the request, investigates relevant code, interviews the user, drafts BDD acceptance criteria, and presents an inline approval gate before creating the issue. Multi-part requests may be split into dependency-aware child issues after explicit graph approval. Cross-child task or artifact prerequisites must resolve to an extracted baseline issue or a whole-issue dependency; prose-only midpoint checkpoints are not schedulable. Baseline extraction stops the current flow for a separately reviewed issue/spec plan; a later approved plan carries the baseline ask and structured prerequisite records into drafting.
 
 ### Start an Issue
 
@@ -162,7 +162,7 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, deliverable availability, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, nullable `issue.coordination` and `issue.deliverableDependencies` results, and the resolver result under `spec.scope`. Missing, invalid, cross-issue, unmerged-deliverable, or unrepresentable dependency evidence cannot advance the lifecycle. Status never prompts or mutates local or remote state.
+Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, deliverable availability, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, nullable `issue.coordination` and `issue.deliverableDependencies` results, and the resolver result under `spec.scope`. Missing, invalid, cross-issue, unmerged-deliverable, or unrepresentable dependency evidence cannot advance the lifecycle; an active issue whose body cannot be hydrated is deliverable-unverifiable and blocked. Legacy free-form checkpoint heuristics remain upgrade-audit findings and do not gate status before approved structured repair. Status never prompts or mutates local or remote state.
 
 ## Project Upgrades and V2 Cleanup
 
@@ -170,7 +170,7 @@ Status combines read-only git, normalized active issue scope, verification-repor
 
 The upgrade audit also reconciles umbrella identity. Native sub-issue relationships are authoritative; supported body checklists remain report-only fallback and drift evidence when native discovery fails and cannot authorize lifecycle mutation. Legacy identity requires agreeing native and body relationships. Deterministic repairs are bound to the audited repository, require their own exact per-parent approval, and are revalidated immediately before writing. Automated full-body repair is allowed only through a proven server-enforced compare-and-set operation, and post-apply proof is scoped to the approved records while remaining findings are reported separately.
 
-The same audit reports cross-child task/artifact checkpoints that lack a deliverable boundary. It can apply an exact approved whole-issue dependency/body repair after fresh drift checks and proves a second audit is a no-op. Extracting an independently reviewable baseline remains a separate issue/spec workflow; ambiguous or incomplete ownership and closing-PR evidence stays report-only.
+The same audit reports cross-child task/artifact checkpoints that lack a deliverable boundary. It can render an exact approved manual whole-issue line-edit handoff after revalidating canonical ownership, body/spec digests, labels/states, native relationships, default branch, and closing-PR/merge evidence. It never performs an unconditional full-body overwrite without a documented server-enforced compare-and-set. After operator confirmation it verifies the result and proves a second audit is a no-op. Extracting an independently reviewable baseline remains a separate issue/spec workflow; ambiguous or incomplete ownership and closing-PR evidence stays report-only.
 
 For existing projects, its v2 migration proposes deletion of only these obsolete exact paths when they are regular files:
 

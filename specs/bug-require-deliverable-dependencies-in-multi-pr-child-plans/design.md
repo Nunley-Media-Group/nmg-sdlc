@@ -47,9 +47,9 @@ Add a shared deliverable-dependency contract and a zero-dependency pure classifi
 
 Every record must have a matching whole-issue execution dependency such as `Depends on: #122`. The classifier combines those records with normalized execution dependencies, live target metadata, the repository default branch, and the target issue's `closedByPullRequestsReferences`. It returns `ready` only when every owner has a merged closing pull request targeting the default branch; otherwise it returns `blocked`, `repair_required`, or `unverifiable` with exact gaps. The existing epic parent remains coordination-only and never satisfies or blocks a deliverable record unless it is separately named as an execution dependency.
 
-During planning, an intermediate checkpoint is not representable. The recommended repair is a whole-issue dependency because it preserves the existing issue/spec split with the smallest safe change. Baseline extraction remains available when real parallelism justifies a separate independently reviewable issue and pull request. The planner must resolve this before child creation and must keep task ownership, structured records, and `Depends on:` edges consistent.
+During planning, an intermediate checkpoint is not representable. The recommended repair is a whole-issue dependency because it preserves the existing issue/spec split with the smallest safe change. Baseline extraction remains available when real parallelism justifies a separate independently reviewable issue and pull request, but the current planning flow stops and returns that proposal instead of revising its split or creating the baseline ask automatically. A later invocation may consume the separately approved baseline plan and must persist `boundary: "baseline"` records before drafting. The planner must resolve this before child creation and must keep task ownership, structured records, and `Depends on:` edges consistent.
 
-`$nmg-sdlc:upgrade-project` becomes the supported existing-plan audit. It scans bounded canonical umbrella specs and their native-authoritative children, inventories task ownership and structured records, and flags bounded legacy lines that combine sibling references with task/artifact/checkpoint language. Legacy matches are findings, never silent authority. After one exact approved whole-issue repair, it re-fetches bodies and relationships, aborts on drift, writes through temporary body files, re-runs the classifier, and proves a second audit is a no-op. Baseline extraction is proposed as a separate reviewed issue/spec action rather than performed implicitly.
+`$nmg-sdlc:upgrade-project` becomes the supported existing-plan audit. It scans bounded canonical umbrella specs and their native-authoritative children, inventories task ownership and structured records, and flags bounded legacy lines that combine sibling references with task/artifact/checkpoint language. Legacy matches are findings, never silent authority, and do not gate `start-issue` or `status` before approved structured repair. The audit captures canonical ownership, bodies/digests, labels/states, native relationships, default branch, and closing-PR/merge evidence. Because GitHub exposes no documented server-enforced issue-body compare-and-set, it renders an exact approved manual line-edit handoff instead of executing an unconditional full-body overwrite. After operator confirmation it re-fetches all evidence, re-runs the classifier, and proves a second audit is a no-op. Baseline extraction is proposed as a separate reviewed issue/spec action rather than performed implicitly.
 
 ### Result Contract
 
@@ -80,12 +80,12 @@ Stable meanings:
 | `none` | The child declares no cross-child deliverable prerequisite. | Preserve ordinary readiness behavior. |
 | `ready` | Every declared owner has a matching execution edge and a merged closing PR to the default branch. | The deliverable contract does not block the child. |
 | `blocked` | The graph is consistent, but at least one required owner has no merged default-branch delivery yet. | Exclude from start selection and report the owner/PR gap in status. |
-| `repair_required` | A prerequisite lacks its whole-issue edge or the plan/spec/body mappings disagree. | Stop lifecycle progress and route to the approved initialized-project repair. |
+| `repair_required` | A prerequisite lacks its whole-issue edge or the plan/spec/body mappings disagree. | Stop lifecycle progress and route to the approved initialized-project manual repair handoff. |
 | `unverifiable` | Required issue, relationship, default-branch, pagination, or closing-PR evidence is unavailable or malformed. | Fail closed without inferring readiness. |
 
 ### Validation Rules
 
-1. Parse only positive same-repository owner numbers from exact line-anchored deliverable bullets; ignore self-references and deduplicate identical owner/description pairs.
+1. Parse only positive same-repository owner numbers from exact line-anchored deliverable bullets; ignore recognized cross-repository records, reject self-references, and deduplicate only case-sensitive exact owner/description repeats.
 2. Require a normalized execution dependency for every declared owner. Coordination membership alone is not an execution edge.
 3. Hydrate every owner and fully page `closedByPullRequestsReferences`; incomplete or malformed evidence is `unverifiable`.
 4. Treat a deliverable as available only when a closing pull request is `MERGED`, targets the live repository default branch, and supplies a merge commit. `CLOSED` issue state alone is insufficient.
@@ -103,7 +103,7 @@ Stable meanings:
 | `skills/write-spec/references/umbrella-mode.md` and `skills/write-spec/SKILL.md` | Hand the approved task/artifact ownership map into child planning and reject midpoint-only Delivery Phases. | Connects the canonical spec to the issue graph. |
 | `skills/start-issue/SKILL.md` | Hydrate deliverable owners and merged closing PRs; filter blocked/repair/unverifiable candidates before selection and explicit starts. | Makes readiness truthful before branch creation. |
 | `scripts/sdlc-status.mjs` and `skills/status/SKILL.md` | Expose `issue.deliverableDependencies`, add blocked/repair lifecycle handling, and render exact evidence in JSON/text. | Keeps diagnostics aligned with start. |
-| `skills/upgrade-project/SKILL.md` and a focused recovery reference | Audit existing umbrellas and apply only an approved, drift-free, idempotent whole-issue repair. | Provides the supported repair path without broad GitHub mutation. |
+| `skills/upgrade-project/SKILL.md` and a focused recovery reference | Audit existing umbrellas and render only an approved, fully revalidated, idempotent manual whole-issue repair handoff. | Provides the supported recovery path without an unconditional full-body GitHub overwrite. |
 | `scripts/__tests__/`, `scripts/__fixtures__/` | Add classifier, contract, status, audit, and independent-branch regression coverage. | Proves all seven acceptance criteria without production mutation. |
 | `README.md`, `CHANGELOG.md`, inventory baseline | Document the new contract and keep the packaged surface current. | Keeps public workflow and validators aligned. |
 
@@ -112,7 +112,7 @@ All edits under `skills/` and `references/` are routed through `$skill-creator`.
 ### Blast Radius
 
 - **Direct impact**: multi-issue/epic planning, umbrella child creation, issue selection, active lifecycle status, initialized-project audit/repair, GraphQL relationship hydration, tests, and public documentation.
-- **Compatibility impact**: ordinary issues and epic membership remain unchanged. Existing children without structured deliverable records preserve ordinary behavior until the explicit audit identifies a bounded legacy checkpoint candidate.
+- **Compatibility impact**: ordinary issues and epic membership remain unchanged. Existing children without structured deliverable records preserve ordinary behavior even when the explicit audit identifies a bounded legacy checkpoint candidate; heuristics do not become a pre-repair start/status gate. If the active issue body itself cannot be hydrated, status fails closed because it cannot prove that no structured prerequisite exists.
 - **Failure-mode change**: a declared deliverable with missing, inconsistent, or unavailable merge evidence now blocks rather than falling through as ready.
 - **Risk level**: Medium-high because the change intentionally tightens readiness and adds bounded GitHub evidence hydration across several manual lifecycle stages.
 
@@ -125,8 +125,9 @@ All edits under `skills/` and `references/` are routed through `$skill-creator`.
 | Epic membership is mistaken for an execution dependency. | Low | Reuse the shared epic classifier and require deliverable owners in `executionDependencies`, never `coordinationPairs` alone. |
 | A manually closed prerequisite is treated as delivered. | Low | Require one merged closing PR targeting the live default branch and test manual closure explicitly. |
 | A legitimate no-dependency child is blocked by prose heuristics. | Medium | Start/status parse only structured records; legacy heuristics are report-only audit candidates until approved. |
-| Existing valid whole-issue DAGs are rewritten unnecessarily. | Low | Normalize and compare existing body edges before proposing a repair; prove second-run no-op. |
-| Baseline extraction causes hidden issue/spec mutations. | Low | Keep extraction guidance separate; automatic repair supports only the exact approved whole-issue body/graph change. |
+| Existing valid whole-issue DAGs are rewritten unnecessarily. | Low | Normalize and compare existing body edges before proposing a manual repair handoff; prove second-run no-op. |
+| Baseline extraction causes hidden issue/spec mutations. | Low | Stop the current flow with a separately reviewed extraction proposal; a later approved plan must persist the baseline prerequisite record before drafting. |
+| Concurrent issue-body edits are overwritten between revalidation and write. | Low | Never execute an issue-body overwrite without a documented server-enforced compare-and-set; render line-level manual instructions and verify after operator confirmation. |
 | GraphQL pagination or API failure produces false readiness. | Low | Bound and fully consume required connections; return `unverifiable` on any incomplete evidence. |
 | Status and start disagree. | Low | Use the same result contract, fixtures, and cross-contract assertions for both consumers. |
 | Independent child branches predate the prerequisite merge. | Medium | Start only after merged default-branch evidence; retain stale-branch reconciliation and exercise creation from the refreshed default branch. |
@@ -159,7 +160,7 @@ All edits under `skills/` and `references/` are routed through `$skill-creator`.
 - [x] Structured records and whole-issue execution edges have distinct roles
 - [x] Availability requires merged default-branch delivery rather than issue closure
 - [x] New-plan prevention and existing-plan audit/repair are both specified
-- [x] Repair is exact, approval-gated, drift-checked, and idempotent
+- [x] Repair is an exact approval-gated, fully revalidated manual handoff with post-edit idempotence proof
 - [x] Legacy heuristics cannot silently mutate or block ordinary work
 - [x] Independent-branch exercise covers the actual availability boundary
 - [x] Skill and shared-reference edits are routed through `$skill-creator`

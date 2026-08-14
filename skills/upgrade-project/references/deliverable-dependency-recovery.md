@@ -1,6 +1,6 @@
 # Deliverable Dependency Audit and Recovery
 
-Use this reference only from `$nmg-sdlc:upgrade-project` Step 3.7 and Step 8. The shared semantics live in `../../../references/deliverable-dependencies.md`; this file owns initialized-project evidence collection and the one supported automatic repair.
+Use this reference only from `$nmg-sdlc:upgrade-project` Step 3.7 and Step 8. The shared semantics live in `../../../references/deliverable-dependencies.md`; this file owns initialized-project evidence collection and the exact manual repair handoff.
 
 ## Audit Inputs
 
@@ -22,7 +22,7 @@ Apply bounds of 50 children per umbrella, 100 tasks per canonical spec, 50 struc
    - a confirmed sibling issue reference; and
    - `T[0-9]+` or one of `artifact`, `baseline`, `checkpoint`, `after`, `consume`, `requires` (case-insensitive).
 4. Exclude code fences, quoted historical examples, cross-repository references, the coordination-parent line, and self-references.
-5. Corroborate the sibling as the unique owner of the named task/artifact. Without corroboration, report `ambiguous` and do not propose mutation.
+5. Corroborate the sibling as the unique owner of the named task/artifact. Without corroboration, report `ambiguous` and do not propose an edit.
 
 Normalize each finding as:
 
@@ -46,7 +46,7 @@ Recommend whole-issue repair unless the issue/spec explicitly requires parallel 
 
 ## Exact Proposal
 
-Offer a whole-issue repair only when one consumer/owner pair and description are unambiguous. Render:
+Offer a manual whole-issue repair handoff only when one consumer/owner pair and description are unambiguous. Render:
 
 ```text
 Downstream issue: #C
@@ -59,33 +59,32 @@ Expected post-state: blocked until #P has a merged closing PR to <default>, othe
 
 If a `Depends on:` line already exists, normalize by adding `#P` once to the existing same-purpose line; never create duplicate targets. If only a `Blocks:` representation exists on the owner, preserve it and add the consumer's explicit `Depends on:` line so the structured record and local issue body remain auditable.
 
-Ask through the parent skill's `request_user_input` gate. Approval applies only to the displayed issue, owner, description, body digest, relationship set, and exact added/normalized lines.
+Ask through the parent skill's `request_user_input` gate. Approval applies only to the displayed issue, owner, description, canonical ownership entry and spec digest, body digests, labels/states, native relationship set, default branch, closing-PR/merge evidence, and exact added/normalized lines. It authorizes rendering the manual handoff, not an automated GitHub write.
 
 ## Fresh Revalidation
 
-Immediately before mutation:
+Immediately before rendering the manual handoff:
 
-1. Re-fetch consumer and owner bodies, labels, states, native parent/sub-issues, default branch, and fully paged closing PRs.
+1. Re-fetch consumer and owner bodies, labels, states, native parent/sub-issues, default branch, and fully paged closing PR/merge evidence.
 2. Recompute SHA-256 body digests and normalized relationship pairs.
-3. Re-read the canonical task ownership entry.
+3. Re-read the canonical task/artifact ownership entry and its source spec digest.
 4. Compare every field with the approved snapshot.
 
-Abort only the changed repair on any drift. Do not silently recompute a new proposal under the old approval.
+Abort only the changed handoff on any drift. Do not silently recompute a new proposal under the old approval.
 
-## Apply
+## Manual Apply and Verification
 
-1. Build the complete new consumer body in a secure temporary file.
-2. Preserve original newline style and every unrelated line. Insert the structured bullet under an existing `## Deliverable Dependencies` section, or add that section immediately before trailing relationship lines. Normalize `Depends on:` targets in numeric order without changing the coordination-parent target.
-3. Run `gh issue edit C --body-file <temporary-file>`.
-4. Remove the temporary file after the command returns.
-5. Re-fetch consumer and owner evidence and run the shared classifier.
+1. Render the exact structured bullet, the exact existing or new section location, and the normalized `Depends on:` target set. Preserve every unrelated line and the coordination-parent target.
+2. State that the operator must edit the latest body manually in GitHub after confirming the displayed snapshot still matches. Do not call `gh issue edit`, emit a full-body replacement command, or imply that approval closes the revalidation-to-write race.
+3. After the operator reports completion, re-fetch the consumer body, labels/states, native relationships, default branch, owner closing PR/merge evidence, and canonical ownership.
+4. Run the shared classifier and compare every unrelated field with the approved snapshot.
 
-Success requires `blocked` or `ready`, the exact structured record, one execution edge, unchanged coordination identity, and no repair gap. A partial write is reported exactly; never add another owner or create a replacement child to compensate.
+Success requires `blocked` or `ready`, the exact structured record, one execution edge, unchanged coordination identity and unrelated body content, and no repair gap. A partial manual edit is reported exactly; never add another owner or create a replacement child to compensate.
 
 ## Idempotence Proof
 
-Run Step 3.7 again from fresh GitHub and canonical-spec evidence. The repaired pair must produce no mutation proposal and no body diff. Report the second result as `already consistent`; otherwise mark the repair failed with the exact remaining drift.
+Run Step 3.7 again from fresh GitHub and canonical-spec evidence. The repaired pair must produce no edit proposal and no body diff. Report the second result as `already consistent`; otherwise mark the manual repair incomplete with the exact remaining drift.
 
 ## Output
 
-For every finding report consumer, owner, task/artifact, structured record, execution edge, merged PR/base evidence, result, mutation outcome, and gaps. Never claim a manually closed issue or non-default-base merge is available.
+For every finding report consumer, owner, task/artifact, structured record, execution edge, merged PR/base evidence, result, manual handoff or post-edit outcome, and gaps. Never claim a manually closed issue or non-default-base merge is available.

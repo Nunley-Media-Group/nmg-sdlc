@@ -20,6 +20,8 @@
 5. Evaluate child B through `$nmg-sdlc:start-issue` or `$nmg-sdlc:status` while child A remains open and its pull request is unmerged.
 6. Observe that child B can appear ready even though its required baseline is unavailable from the branch point.
 
+Legacy free-form checkpoint prose is a separate compatibility case: before an audit converts it into an approved structured record and execution edge, `start-issue` and `status` do not gate on the heuristic match alone. The initialized-project audit reports it without silently making it authoritative.
+
 ### Environment
 
 | Factor | Value |
@@ -39,7 +41,7 @@ Deterministic whenever a child plan relies on a sibling-owned task or artifact t
 
 | | Description |
 |---|-------------|
-| **Expected** | Every cross-child prerequisite resolves to a deliverable issue whose closing pull request is merged into the default branch. The spec, issue bodies, execution-dependency graph, readiness result, and audit output all describe that same whole-issue ordering. |
+| **Expected** | Every cross-child prerequisite resolves to a deliverable issue and matching execution edge. A valid graph may remain `blocked` while its owner is open; merged default-branch closing-PR evidence is required before the downstream child is reported `ready`. The spec, issue bodies, execution-dependency graph, readiness result, and audit output all describe that same whole-issue ordering. |
 | **Actual** | A child can depend on prose describing a midpoint task checkpoint inside an open sibling. GitHub models no task-level edge, so the child is reported ready although no independent branch can consume the baseline. |
 
 ### Error Output
@@ -74,7 +76,7 @@ No deterministic error is currently required. The defect presents as false readi
 
 **Given** a required baseline has not been merged into the default branch available to a child
 **When** `$nmg-sdlc:start-issue` or `$nmg-sdlc:status` evaluates that child
-**Then** the child is not reported ready
+**Then** a structured prerequisite is not reported ready, while legacy prose alone remains audit-only and does not gate either consumer before approved repair
 
 ### AC5: Existing Plans Can Be Audited
 
@@ -84,8 +86,8 @@ No deterministic error is currently required. The defect presents as false readi
 
 ### AC6: Repairs Are Idempotent and Approval-Gated
 
-**Given** an operator approves one exact proposed dependency repair
-**When** the repair is applied and the audit runs again
+**Given** an operator approves one exact manual dependency-repair handoff
+**When** the operator applies the line-level repair and the audit runs again
 **Then** issue and spec relationships change once, remain consistent, and no further mutation occurs without a new approved difference
 
 ### AC7: Independent Branch Delivery Is Exercised
@@ -104,7 +106,7 @@ No deterministic error is currently required. The defect presents as false readi
 | FR2 | Require every prerequisite to resolve to a separate baseline issue or to the whole issue that owns it, with a matching execution-dependency edge. | Must |
 | FR3 | Validate task ownership, child-body records, issue dependency edges, and default-branch merge evidence as one consistent plan. | Must |
 | FR4 | Make start and status fail closed when a required deliverable edge is missing, its metadata is unverifiable, or its closing pull request has not merged to the default branch. | Must |
-| FR5 | Extend the initialized-project audit with exact, approval-gated, drift-checked, idempotent whole-issue dependency repairs and baseline-extraction guidance. | Must |
+| FR5 | Extend the initialized-project audit with exact, approval-gated, drift-checked, idempotent manual whole-issue repair handoffs and baseline-extraction guidance; never perform an unconditional full-body overwrite without a documented server-enforced compare-and-set. | Must |
 | FR6 | Add deterministic contract and lifecycle exercises for valid, blocked, missing-edge, manually-closed, wrong-base, legacy-checkpoint, repaired, and independent-branch states. | Must |
 
 ---
@@ -116,6 +118,7 @@ No deterministic error is currently required. The defect presents as false readi
 - Automatically merging prerequisite pull requests
 - Inferring dependencies between unrelated issues
 - Automatically extracting a baseline into a new issue without a separately reviewed spec change
+- Automatically overwriting a GitHub issue body when the selected API provides no documented server-enforced compare-and-set precondition
 - Changing PathCast implementation content or mutating its issue graph as part of this plugin delivery
 - Treating an issue's manually closed state, without a merged default-branch delivery, as proof that its artifact is available
 
@@ -136,5 +139,5 @@ No deterministic error is currently required. The defect presents as false readi
 - [x] All seven issue acceptance criteria are retained in Given/When/Then form
 - [x] Spec, body, graph, readiness, audit, and repair responsibilities are explicit
 - [x] Baseline extraction and whole-issue waiting are the only supported boundaries
-- [x] Existing-plan repair is approval-gated, drift-checked, and idempotent
+- [x] Existing-plan repair is a manual approval-gated, drift-checked, idempotent handoff without unconditional full-body overwrite
 - [x] Out-of-scope boundaries preserve independent branches and prohibit task-level GitHub objects

@@ -80,7 +80,8 @@ An unanswered gate authorizes nothing. Apply only the user's approved boundary a
 - Hydrate the repository default branch and fully page closing-PR evidence for every owner.
 - Run the classifier after epic/execution relationship classification.
 - `start-issue` excludes `blocked`, `repair_required`, and `unverifiable` candidates. An explicit issue start reruns the same check before stale-branch handling, checkout, branch creation, or project mutation.
-- `status` exposes the result as `issue.deliverableDependencies`. `blocked` recommends waiting for named merged deliverables; `repair_required` recommends `$nmg-sdlc:upgrade-project`; `unverifiable` requests evidence recovery. None may advance an otherwise later lifecycle stage.
+- `status` exposes the result as `issue.deliverableDependencies`. `blocked` recommends waiting for named merged deliverables; `repair_required` recommends `$nmg-sdlc:upgrade-project`; `unverifiable` requests evidence recovery. When active-issue hydration fails, status uses an `unverifiable` sentinel because it cannot prove the body contains no structured record. None may advance an otherwise later lifecycle stage.
+- Bounded legacy prose remains audit-only and does not block `start-issue` or `status` before it is converted into an approved structured record plus execution edge. This preserves ordinary behavior without treating heuristics as authority.
 
 ## Existing-Plan Audit
 
@@ -90,19 +91,19 @@ An unanswered gate authorizes nothing. Apply only the user's approved boundary a
 2. Inventory task ownership from the canonical spec and explicit child `Task ownership:` records. Inspect structured deliverable bullets first.
 3. Detect bounded legacy candidates when one child line contains a sibling issue reference plus a task ID or artifact/checkpoint phrase (`baseline`, `artifact`, `checkpoint`, `after`, `consume`, `requires`). Treat candidates as findings only; never convert prose directly into authority.
 4. Compare each candidate with task ownership, structured records, execution edges, and closing-PR evidence. Report consumer, owner, exact source line/task/artifact, current availability, and both supported remedies.
-5. A partial graph, incomplete pagination, missing canonical spec, ambiguous ownership, or conflicting evidence makes the affected audit `unverifiable`; it cannot produce a clean result or mutation proposal.
+5. A partial graph, incomplete pagination, missing canonical spec, ambiguous ownership, or conflicting evidence makes the affected audit `unverifiable`; it cannot produce a clean result or manual edit proposal.
 
-### Approval-Gated Whole-Issue Repair
+### Approval-Gated Manual Whole-Issue Repair
 
-Automatic repair is limited to an exact whole-issue change. Baseline extraction requires a separately reviewed issue/spec amendment.
+GitHub issue-body updates provide no documented server-enforced compare-and-set precondition. The upgrade workflow therefore produces an exact manual whole-issue repair handoff but does not execute an unconditional full-body overwrite. Baseline extraction also requires a separately reviewed issue/spec amendment.
 
 1. Present the exact downstream issue, owner, structured bullet to add, and normalized `Depends on:` line. Preserve all unrelated body text and metadata.
-2. Ask for approval through the consuming workflow's interactive gate and stop until the user answers.
-3. Immediately re-fetch the exact bodies, labels, parent/sub-issue records, default branch, and closing-PR evidence. Compare body digests and relationship sets with the approved snapshot; abort only the drifted repair.
-4. Write with a temporary `--body-file`. Do not create a native parent for an execution dependency and do not rewrite the coordination parent.
-5. Re-fetch, require the classifier to return `blocked` or `ready` with no repair gap, then run the audit again. A second run must propose no mutation.
+2. Ask for approval through the consuming workflow's interactive gate and stop until the user answers. Approval authorizes only the displayed manual handoff, not an automated GitHub mutation.
+3. Immediately re-fetch the canonical ownership entry, exact bodies, labels, issue states, native parent/sub-issue records, default branch, fully paged closing-PR/merge evidence, body digests, and normalized relationship sets. Compare every field with the approved snapshot; abort only the drifted handoff.
+4. Render line-level manual edit instructions against the revalidated body. Do not call `gh issue edit`, replace the full body, create a native parent for an execution dependency, or rewrite the coordination parent.
+5. After the operator reports the manual edit applied, re-fetch every field, require the classifier to return `blocked` or `ready` with no repair gap, then run the audit again. A second run must propose no edit.
 
-Preserve partial writes exactly. Never add another owner, create a replacement child, infer baseline extraction, or mutate an unrelated issue to compensate.
+Preserve any externally observed partial edit exactly. Never add another owner, create a replacement child, infer baseline extraction, or mutate an unrelated issue to compensate.
 
 ## Verification Matrix
 

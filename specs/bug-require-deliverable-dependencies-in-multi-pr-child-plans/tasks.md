@@ -44,19 +44,19 @@
 
 - [x] Audit bounded canonical umbrella specs and native-authoritative children for structured records, task ownership, DAG edges, and bounded legacy checkpoint candidates.
 - [x] Report every unrepresentable checkpoint with owner, downstream child, task/artifact evidence, current edge state, and both supported remedies.
-- [x] Offer automatic mutation only for one exact whole-issue body/graph repair; route baseline extraction to a separately reviewed issue/spec change.
-- [x] Re-fetch exact issue bodies, labels, relationships, default branch, and closing-PR evidence immediately before mutation and abort the affected repair on drift.
-- [x] Apply approved body changes through temporary files, preserve unrelated prose and metadata, re-fetch/classify after writing, and prove the second audit is a no-op.
-- [x] Partial or unverifiable graphs remain report-only and never produce a clean audit result or mutation proposal.
+- [x] Offer only one exact manual whole-issue body/graph repair handoff; route baseline extraction to a separately reviewed issue/spec change.
+- [x] Re-fetch canonical ownership/spec digest, exact issue bodies/digests, labels/states, native relationships, default branch, and closing-PR/merge evidence immediately before rendering the handoff and abort it on any drift.
+- [x] Never execute an unconditional full-body overwrite without a documented server-enforced compare-and-set; render exact line edits, preserve unrelated prose/metadata, re-fetch/classify after operator confirmation, and prove the second audit is a no-op.
+- [x] Partial or unverifiable graphs remain report-only and never produce a clean audit result or manual edit proposal.
 
 ## T004: Add Regression, Exercise, Documentation, and Delivery Evidence
 
-**Files**: `scripts/__tests__/deliverable-dependencies.test.mjs`, `scripts/__tests__/deliverable-dependency-contract.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__fixtures__/deliverable-dependencies/`, `README.md`, `CHANGELOG.md`, `scripts/skill-inventory.baseline.json`, `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/verification-report.md`
+**Files**: `scripts/__tests__/deliverable-dependencies.test.mjs`, `scripts/__tests__/deliverable-dependency-contract.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__fixtures__/deliverable-dependencies/`, `scripts/__fixtures__/skill-exercise/status/`, `scripts/skill-exercise-runner.mjs`, `README.md`, `CHANGELOG.md`, `scripts/skill-inventory.baseline.json`, `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/verification-report.md`
 **Type**: Create / Modify / Verify
 **Depends on**: T003
 **Acceptance**:
 
-- [x] Cover valid ready, owner open, missing edge, coordination-only edge, manually closed owner, wrong-base closer, missing merge commit, incomplete pagination, legacy audit, approved repair, drift, and second-run no-op states.
+- [x] Cover valid ready, owner open, missing edge, coordination-only edge, manually closed owner, wrong-base closer, missing merge commit, incomplete pagination, cross-repository records, case-distinct descriptions, complete early-error schemas, failed active-issue hydration, legacy audit without pre-repair gating, approved manual repair, drift, and second-run no-op states.
 - [x] Exercise independent child branches from a refreshed default branch and prove every reported-ready child can read its prerequisite from a merged deliverable.
 - [x] Contract-test draft, write-spec, start, status, and upgrade consumers against the same exact body/result contract.
 - [x] Map all seven #163 acceptance criteria to exactly one stable `@SCN...` regression scenario and record verification evidence by task and criterion.

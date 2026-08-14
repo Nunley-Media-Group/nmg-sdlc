@@ -37,6 +37,8 @@ describe('deliverable dependency consumer contracts', () => {
     expect(draftIssue).toContain('#### Deliverable-boundary validation');
     expect(draftIssue).toContain('stop before the graph gate');
     expect(draftIssue).toContain('clear all edges only when the plan has no cross-child deliverable prerequisites');
+    expect(draftIssue).toContain('do not revise `session.proposedSplit` or create an ask inside this flow');
+    expect(draftIssue).toContain('boundary: "baseline"');
     expect(draftIssueSkill).toContain('activeDeliverablePrerequisites');
     expect(draftIssueSkill).toContain('- Requires deliverable from <ownerAskId>: <task/artifact description>');
     expect(writeSpec).toContain('inventory every task ID and named artifact assigned to each Delivery Phase');
@@ -53,10 +55,12 @@ describe('deliverable dependency consumer contracts', () => {
     expect(statusCli).toContain('Deliverables: ${deliverables}');
   });
 
-  it('owns exact approval-gated and idempotent existing-plan repair', () => {
+  it('owns exact approval-gated and idempotent manual existing-plan repair', () => {
     expect(upgrade).toContain('### Step 3.7: Audit Deliverable Dependencies');
     expect(upgrade).toContain('references/deliverable-dependency-recovery.md');
-    expect(recovery).toContain('Approval applies only to the displayed issue, owner, description, body digest');
+    expect(recovery).toContain('It authorizes rendering the manual handoff, not an automated GitHub write.');
+    expect(recovery).toContain('Do not call `gh issue edit`');
+    expect(recovery).toContain('canonical task/artifact ownership entry and its source spec digest');
     expect(recovery).toContain('Run Step 3.7 again from fresh GitHub and canonical-spec evidence.');
     expect(recovery).toContain('Baseline extraction requires `$nmg-sdlc:draft-issue`');
   });

@@ -48,7 +48,7 @@ The reproduction is closed by one shared fail-closed classifier and consistent p
 | AC3 | Keep spec ownership, child records, and execution edges consistent | Pass | Planning postcondition in `references/deliverable-dependencies.md:67` and cross-consumer contract test at `scripts/__tests__/deliverable-dependency-contract.test.mjs:36` |
 | AC4 | Report ready only after merged default-branch delivery | Pass | Classifier in `scripts/deliverable-dependencies.mjs:175`, start/status behavior in `references/deliverable-dependencies.md:77`, and fail-closed unit coverage in `scripts/__tests__/deliverable-dependencies.test.mjs:87` |
 | AC5 | Audit existing prose-only plans | Pass | Bounded candidate discovery and report-only ambiguity rules in `skills/upgrade-project/references/deliverable-dependency-recovery.md:20` |
-| AC6 | Apply only approved, drift-free, idempotent repairs | Pass | Exact proposal, fresh revalidation, apply, and second-run proof in `skills/upgrade-project/references/deliverable-dependency-recovery.md:47`, `:64`, `:75`, and `:85`; contract assertions at `scripts/__tests__/deliverable-dependency-contract.test.mjs:56` |
+| AC6 | Apply only approved, drift-free, idempotent manual repairs | Pass | Exact proposal, full snapshot revalidation, manual line-edit handoff, post-edit verification, and second-run proof in `skills/upgrade-project/references/deliverable-dependency-recovery.md`; contract assertions in `scripts/__tests__/deliverable-dependency-contract.test.mjs` |
 | AC7 | Exercise independent branch availability | Pass | Disposable Git exercise proves blocked-before-merge and readable-after-merge behavior in `scripts/__tests__/deliverable-dependency-contract.test.mjs:70` |
 
 ## Task Completion
@@ -57,7 +57,7 @@ The reproduction is closed by one shared fail-closed classifier and consistent p
 |------|-------------|--------|-------|
 | T001 | Add the shared contract and classifier | Complete | Bounded parser, stable statuses/reason codes, merged-default-branch proof, and shared reference implemented. |
 | T002 | Enforce planning and readiness boundaries | Complete | Draft, write-spec, start, status, and status CLI consume one contract; epic coordination identity remains separate. |
-| T003 | Add initialized-project audit and repair | Complete | Audit is bounded; mutation is exact, approval-scoped, drift-checked, and idempotent. |
+| T003 | Add initialized-project audit and repair | Complete | Audit is bounded; the manual handoff is exact, approval-scoped, fully revalidated, post-edit checked, and idempotent without an unconditional full-body overwrite. |
 | T004 | Add regression, exercise, docs, and evidence | Complete | Seven scenarios, focused/full tests, branch exercise, README, changelog, and inventory updates are present. |
 
 ---
@@ -69,14 +69,14 @@ The reproduction is closed by one shared fail-closed classifier and consistent p
 - **Shared callers**: `draft-issue`, `write-spec`, `start-issue`, `status`, and `upgrade-project` consume the same record/result contract.
 - **Public contract**: `status` adds `issue.deliverableDependencies`; ordinary issues retain `status: none` and their prior readiness behavior.
 - **Data behavior**: issue closure alone no longer implies artifact availability. Malformed, incomplete, or contradictory GitHub evidence fails closed.
-- **Mutation boundary**: planning and status paths are non-mutating at failure; upgrade permits only the exact preapproved whole-issue repair and preserves all unrelated body/coordination data.
+- **Mutation boundary**: planning and status paths are non-mutating at failure; upgrade renders only an exact preapproved manual line-edit handoff and never performs an unconditional issue-body overwrite without documented server-side compare-and-set.
 
 ### Review Scores
 
 | Area | Score | Notes |
 |------|-------|-------|
 | SOLID | 5 | The pure classifier owns parsing/classification; each skill reference owns only its lifecycle stage; shared semantics are not duplicated. |
-| Security | 5 | Inputs are bounded and validated, issue numbers are positive integers, GraphQL values use arguments, multiline writes use temporary body files, and issue text is never executed. |
+| Security | 5 | Inputs are bounded and validated, issue numbers are positive integers, GraphQL values use arguments, issue text is never executed, and recovery avoids the revalidation-to-full-body-write race. |
 | Performance | 5 | Body, requirement, page, issue, and request counts are bounded; no new runtime dependency or unbounded scan was introduced. |
 | Testability | 5 | Pure inputs, stable result codes, injected status adapters, fixtures, and a disposable Git repository cover success and failure states deterministically. |
 | Error Handling | 5 | Missing targets, malformed states/merges, incomplete pagination, drift, and partial graphs return named fail-closed gaps without silent fallback. |
@@ -100,9 +100,9 @@ The reproduction is closed by one shared fail-closed classifier and consistent p
 ### Coverage Summary
 
 - Defect feature: 7 stable `@SCN... @regression` scenarios for 7 acceptance criteria
-- Focused suites: 4 suites and 68 tests passed
-- Full suite: 33 suites passed, 3 environment/live-only suites skipped; 321 tests passed, 12 intentional skips, 0 failures
-- Regression states: no requirement, ready, open owner, missing edge, coordination-only evidence, manual closure, unmerged/wrong-base PR, malformed merge evidence, incomplete pagination, audit/repair contracts, and independent branch availability
+- Review-focused suites: 5 suites and 78 tests passed
+- Full suite: 33 suites passed, 3 environment/live-only suites skipped; 322 tests passed, 12 intentional skips, 0 failures
+- Regression states: no requirement, ready, open owner, missing edge, coordination-only evidence, manual closure, unmerged/wrong-base PR, malformed merge evidence, incomplete pagination, cross-repository records, case-distinct descriptions, complete early-error schemas, failed issue hydration, manual audit/repair contracts, and independent branch availability
 
 ## Exercise Test Results
 
@@ -121,7 +121,7 @@ The generic skill-exercise runner has no fixture directories for `write-spec`, `
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test`: 33 suites passed; 321 tests passed; 12 intentional skips; 0 failures |
+| Contract tests | Pass | `cd scripts && npm test`: 33 suites passed; 322 tests passed; 12 intentional skips; 0 failures |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean, 453 items mapped |
 | Codex compatibility | Pass | `node scripts/codex-compatibility-check.mjs`: passed |
 | Active plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed |
@@ -140,6 +140,14 @@ The generic skill-exercise runner has no fixture directories for `write-spec`, `
 |----------|----------|----------|----------------|-------------|---------|
 | Medium | Error Handling | `scripts/deliverable-dependencies.mjs` | A connection object without explicit pagination metadata, or an owner with an unknown state, could leave evidence completeness ambiguous. | Require `pageInfo.hasNextPage` to be boolean and owner state to be `OPEN` or `CLOSED`; return `unverifiable` otherwise and add focused regressions. | direct |
 | Low | Compatibility | `skills/draft-issue/references/multi-issue.md` | An established exact invariant sentence used by the epic contract suite was lost during the planning-contract extension. | Restored the invariant verbatim while retaining the new deliverable-boundary rules. | `skill-creator` |
+| Low | Parsing | `scripts/deliverable-dependencies.mjs` | Recognized cross-repository prerequisite bullets were treated as malformed local records. | Ignore bounded owner/repository and GitHub issue forms before local-record validation; add regression coverage. | direct |
+| Low | Data Integrity | `scripts/deliverable-dependencies.mjs` | Case-folded deduplication removed case-distinct artifact descriptions. | Deduplicate only unchanged case-sensitive owner/description pairs and test both values. | direct |
+| High | Result Contract | `scripts/deliverable-dependencies.mjs` | Early error paths returned raw requirement objects without stable availability fields. | Normalize every parsed requirement before any return and assert complete schemas for default-branch, relationship, and self-reference errors. | direct |
+| High | Fail-Closed Status | `scripts/sdlc-status.mjs` | Failed active-issue hydration left deliverables nullable and could advance an issue whose body actually declared prerequisites. | Initialize an `unverifiable` sentinel, block lifecycle inference, and update deterministic status tests/exercises. | direct |
+| High | Planning Boundary | `skills/draft-issue/references/multi-issue.md` | Baseline extraction could revise the active split without a separate reviewed plan or guaranteed structured record. | Stop with a separate draft/spec proposal; later approved plans must persist `boundary: "baseline"` records before drafting. | `skill-creator` |
+| High | Concurrency Safety | `skills/upgrade-project/references/deliverable-dependency-recovery.md` | Revalidation followed by unconditional full-body edit left a compare-and-set race. | Capture the full ownership/body/label/state/relationship/default/merge snapshot and render a manual line-edit handoff; verify only after operator confirmation. | `skill-creator` |
+| Low | Compatibility Contract | `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/` | Legacy audit heuristics did not explicitly state their pre-repair readiness behavior. | Clarified that legacy prose remains audit-only and does not gate start/status until approved structured repair. | direct |
+| Low | Specification Accuracy | `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/requirements.md` | Expected behavior implied an open owner made the plan invalid rather than truthfully blocked. | State that merged evidence gates `ready`; a valid graph may remain `blocked`. | direct |
 
 ## Remaining Issues
 
@@ -160,7 +168,7 @@ None.
 | `scripts/deliverable-dependencies.mjs` and status integration | 0 remaining | Parser, classifier, GraphQL hydration, lifecycle projection |
 | Planning/start/status/upgrade skill contracts | 0 remaining | Shared semantics and stage-specific behavior |
 | Deliverable dependency references | 0 remaining | Authoring, audit, repair, bounds, and idempotence |
-| Jest tests and fixtures | 0 remaining | 68 focused and 321 full-suite passes |
+| Jest tests and fixtures | 0 remaining | 78 review-focused and 322 full-suite passes |
 | README, changelog, inventory, and #163 spec | 0 remaining | Public behavior and delivery evidence synchronized |
 
 ## Recommendation

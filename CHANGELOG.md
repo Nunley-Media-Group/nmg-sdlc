@@ -14,7 +14,7 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ### Fixed
 
-- Fixed issue #163 by rejecting prose-only cross-child task checkpoints, requiring structured deliverable records plus whole-issue dependency edges, proving prerequisite availability from merged default-branch closing pull requests, and adding fail-closed start/status behavior with approval-gated idempotent audit repair.
+- Fixed issue #163 by rejecting prose-only cross-child task checkpoints, requiring structured deliverable records plus whole-issue dependency edges, proving prerequisite availability from merged default-branch closing pull requests, failing closed when active-issue evidence is unavailable, and adding approval-gated idempotent manual audit-repair handoffs without unconditional full-body overwrites.
 
 ## [2.0.5] - 2026-08-14
 

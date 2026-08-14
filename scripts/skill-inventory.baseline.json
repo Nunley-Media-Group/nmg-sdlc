@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T10:06:29.140Z",
+  "generated_at": "2026-08-14T10:40:43.345Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -2254,9 +2254,9 @@
       "destination": "skills/upgrade-project/SKILL.md:158"
     },
     {
-      "id": "052ce5acb13a",
+      "id": "1050064c38d0",
       "source_before": "skills/upgrade-project/SKILL.md:159",
-      "normalized": "each deterministic deliverable-dependency mutation set: approve the exact downst",
+      "normalized": "each deterministic deliverable-dependency manual handoff: approve the exact down",
       "destination": "skills/upgrade-project/SKILL.md:159"
     },
     {
@@ -2345,9 +2345,9 @@
     },
     {
       "id": "755b3781cde4",
-      "source_before": "skills/upgrade-project/references/deliverable-dependency-recovery.md:91",
+      "source_before": "skills/upgrade-project/references/deliverable-dependency-recovery.md:90",
       "normalized": "for every finding report consumer, owner, task/artifact, structured record, exec",
-      "destination": "skills/upgrade-project/references/deliverable-dependency-recovery.md:91"
+      "destination": "skills/upgrade-project/references/deliverable-dependency-recovery.md:90"
     },
     {
       "id": "a566f0c0f7a4",
