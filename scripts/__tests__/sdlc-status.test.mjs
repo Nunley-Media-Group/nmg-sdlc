@@ -318,7 +318,13 @@ describe('bounded evidence collection and read-only safety', () => {
       issueNumber: 42,
       requirements: [],
     });
-    expect(inferLifecycle(evidence).stage).toBe('blocked');
+    expect(inferLifecycle(evidence)).toMatchObject({
+      stage: 'blocked',
+      nextAction: {
+        command: '$nmg-sdlc:status',
+        manualRepairRequired: true,
+      },
+    });
   });
 
   it('exposes the cumulative fixture active slice in JSON and text evidence', () => {
@@ -484,7 +490,13 @@ describe('bounded evidence collection and read-only safety', () => {
       reasonCode: 'deliverable_evidence_unavailable',
       issueNumber: 42,
     });
-    expect(inferLifecycle(evidence).stage).toBe('blocked');
+    expect(inferLifecycle(evidence)).toMatchObject({
+      stage: 'blocked',
+      nextAction: {
+        command: '$nmg-sdlc:status',
+        manualRepairRequired: true,
+      },
+    });
     expect(evidence.gaps).toEqual(expect.arrayContaining([
       expect.stringContaining('GitHub issue unavailable'),
     ]));

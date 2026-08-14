@@ -148,6 +148,7 @@ The generic skill-exercise runner has no fixture directories for `write-spec`, `
 | High | Concurrency Safety | `skills/upgrade-project/references/deliverable-dependency-recovery.md` | Revalidation followed by unconditional full-body edit left a compare-and-set race. | Capture the full ownership/body/label/state/relationship/default/merge snapshot and render a manual line-edit handoff; verify only after operator confirmation. | `skill-creator` |
 | Low | Compatibility Contract | `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/` | Legacy audit heuristics did not explicitly state their pre-repair readiness behavior. | Clarified that legacy prose remains audit-only and does not gate start/status until approved structured repair. | direct |
 | Low | Specification Accuracy | `specs/bug-require-deliverable-dependencies-in-multi-pr-child-plans/requirements.md` | Expected behavior implied an open owner made the plan invalid rather than truthfully blocked. | State that merged evidence gates `ready`; a valid graph may remain `blocked`. | direct |
+| Low | Recovery Coverage | `scripts/__tests__/sdlc-status.test.mjs` and `scripts/skill-exercise-runner.mjs` | GitHub-unavailable regressions proved the blocked stage but did not pin its non-mutating recovery action. | Assert `$nmg-sdlc:status` with `manualRepairRequired: true` in both status tests and the S4 exercise fixture/rubric. | direct |
 
 ## Remaining Issues
 

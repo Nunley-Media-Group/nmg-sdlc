@@ -560,8 +560,10 @@ function evaluateStatusArtifact(artifact) {
       unavailable.stage === 'blocked'
         && unavailable.issue === 145
         && unavailable.gaps?.some((gap) => /GitHub.*unavailable/i.test(gap))
+        && unavailable.nextAction === '$nmg-sdlc:status'
+        && unavailable.manualRepairRequired === true
         ? 'pass' : 'fail',
-      'active-issue delivery evidence remains blocked with a named GitHub gap',
+      'active-issue delivery evidence remains blocked with a named GitHub gap and status recovery action',
     ),
     statusResult(
       'S5',

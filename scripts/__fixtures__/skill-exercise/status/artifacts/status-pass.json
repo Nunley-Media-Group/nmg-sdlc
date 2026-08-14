@@ -40,7 +40,9 @@
       "issue": 145,
       "gaps": [
         "GitHub issue unavailable: offline"
-      ]
+      ],
+      "nextAction": "$nmg-sdlc:status",
+      "manualRepairRequired": true
     },
     "observational": {
       "prompted": false,
