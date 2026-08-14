@@ -12,6 +12,10 @@ import {
   renderText,
   runCli,
 } from '../sdlc-status.mjs';
+import {
+  inspectIssueSpecScope,
+  ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
+} from '../issue-spec-scope.mjs';
 
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
@@ -355,6 +359,57 @@ describe('bounded evidence collection and read-only safety', () => {
     const status = inferLifecycle(evidence);
     expect(status.stage).toBe('specified');
     expect(renderText(status)).toContain('Scope: scoped (delivery: AC AC1, AC2');
+  });
+
+  it('reads the complete resolver-valid cumulative scope and preserves the resolver size limit', () => {
+    fs.rmSync(path.join(root, 'specs'), { recursive: true, force: true });
+    fs.cpSync(
+      path.join(scriptsRoot, '__fixtures__', 'cumulative-issue-scope', 'specs'),
+      path.join(root, 'specs'),
+      { recursive: true },
+    );
+    execFileSync('git', ['branch', '-m', '20-cumulative-scope'], { cwd: root });
+
+    const specPath = 'specs/feature-cumulative-scope';
+    const specDir = path.join(root, specPath);
+    const tasksPath = path.join(specDir, 'tasks.md');
+    const manifestPath = path.join(specDir, 'issue-scope.json');
+    fs.appendFileSync(
+      tasksPath,
+      `\n${'x'.repeat(70 * 1024)}\n\n### T005: Active Task After The Aggregate Default Bound\n`,
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.issues['20'].owned.tasks.push('T005');
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    expect(ISSUE_SPEC_MARKDOWN_LIMIT_BYTES).toBe(256 * 1024);
+    expect(fs.statSync(tasksPath).size).toBeGreaterThan(64 * 1024);
+    expect(fs.statSync(tasksPath).size).toBeLessThanOrEqual(ISSUE_SPEC_MARKDOWN_LIMIT_BYTES);
+    const direct = inspectIssueSpecScope({ projectRoot: root, specPath, issueNumber: 20 });
+    expect(direct).toMatchObject({
+      status: 'scoped',
+      reasonCode: 'active_issue_scope_resolved',
+      gaps: [],
+    });
+    expect(direct.inventory.tasks).toContain('T005');
+    expect(direct.delivery.tasks).toContain('T005');
+
+    const aggregate = collectEvidence(root, { run: localRunWithHydratedIssue });
+    expect(aggregate.spec.scope).toEqual(direct);
+    expect(inferLifecycle(aggregate)).toMatchObject({
+      stage: 'specified',
+      nextAction: { command: '$nmg-sdlc:write-code #20' },
+    });
+
+    fs.writeFileSync(tasksPath, 'x'.repeat(ISSUE_SPEC_MARKDOWN_LIMIT_BYTES + 1));
+    const oversized = collectEvidence(root, { run: localRunWithHydratedIssue });
+    expect(oversized.spec.scope).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'spec_read_failed',
+      gaps: [expect.stringContaining(
+        `exceeds the ${ISSUE_SPEC_MARKDOWN_LIMIT_BYTES}-byte inspection limit`,
+      )],
+    });
   });
 
   it('trusts a passing verification report only while its committed implementation snapshot is current', () => {

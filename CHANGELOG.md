@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.7] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #169 by aligning aggregate status scope reads with the resolver's existing 256 KiB Markdown limit, preserving narrower unrelated reads and oversized-document failure, and adding a deterministic late-identifier lifecycle regression.
+
 ## [2.0.6] - 2026-08-14
 
 ### Fixed
