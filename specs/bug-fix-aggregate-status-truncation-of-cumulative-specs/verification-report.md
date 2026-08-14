@@ -131,6 +131,7 @@ No unrelated refactor, format churn, dependency, or feature behavior appears in 
 | Medium | Regression coverage | `scripts/__tests__/sdlc-status.test.mjs:364-413` | Existing cumulative fixtures were too small to reveal adapter truncation. | Added a disposable late-task parity test plus unchanged oversized failure proof. | direct |
 | Low | Static contract | `scripts/__tests__/issue-scope-contract.test.mjs:93-107` | The full suite hardcoded the former one-symbol resolver import. | Updated the contract to require both the resolver and its canonical limit import. | direct |
 | Low | Reuse | `scripts/__tests__/sdlc-status.test.mjs:385-410` | The regression initially duplicated the 262,144-byte literal. | Simplify reused and pinned the exported constant in test setup and diagnostics. | direct |
+| Low | BDD traceability | `specs/bug-fix-aggregate-status-truncation-of-cumulative-specs/feature.gherkin` | SCN001's prose implied normalized equality but did not explicitly name matching classification. | Added the explicit classification-parity assertion already enforced by the complete-object Jest comparison. | direct |
 
 ## Remaining Issues
 

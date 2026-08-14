@@ -16,6 +16,7 @@ Feature: Aggregate status truncates resolver-valid cumulative specs
     And a manifest-owned task identifier occurs after byte 65,536
     When direct scope inspection and aggregate lifecycle status inspect the active issue
     Then both results include the late task in the same inventory and delivery slice
+    And both results report matching classifications
     And both scope results are scoped with no gaps
 
   @SCN002 @regression
