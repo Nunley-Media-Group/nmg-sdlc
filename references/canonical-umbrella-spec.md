@@ -1,6 +1,6 @@
 # Canonical Umbrella Specifications
 
-**Consumed by**: `write-spec` sealing and parent discovery, `start-issue` child readiness, `write-code` child readiness, and `upgrade-project` seal audit and recovery.
+**Consumed by**: `write-spec` sealing and parent discovery, `start-issue` child readiness, `write-code` child readiness, `open-pr` child delivery readiness, and `upgrade-project` seal audit and recovery.
 
 A sealed umbrella specification is canonical only when refreshed `origin` default-branch content proves it. A seal commit, current-worktree copy, feature-branch copy, or pull-request state is supporting evidence, never a substitute for the default-branch tree.
 
@@ -56,6 +56,7 @@ Resolve the child's confirmed coordination parent through `references/epic-relat
 - in `start-issue` after issue confirmation and before stale-branch reconciliation, dirty-tree handling, branch creation, or project status mutation;
 - in `write-spec` before amendment mode or child-spec writes;
 - in `write-code` before implementation planning, delegation, or edits.
+- in `open-pr` before sibling completion classification, version artifact edits, commits, pushes, or pull-request mutation.
 
 Parent readiness proves the canonical baseline path, not equality with a child branch that may contain approved child-scoped amendments. An issue with no confirmed coordination parent keeps its existing single-PR or keyword-fallback behavior.
 

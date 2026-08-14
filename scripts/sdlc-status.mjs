@@ -12,6 +12,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import {
+  classifyEpicRelationships,
+  epicChildLabelTargets,
+  parseBodyRelationships,
+} from './epic-relationships.mjs';
+
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
   'design.md',
@@ -208,9 +214,219 @@ function classifyChecks(checks) {
   return 'unknown';
 }
 
+const GRAPHQL_ISSUE_FIELDS = `
+  number
+  state
+  body
+  labels(first: 100) {
+    nodes { name }
+    pageInfo { hasNextPage endCursor }
+  }
+  subIssues(first: 100) {
+    nodes { number state }
+    pageInfo { hasNextPage endCursor }
+  }
+`;
+
+const MAX_COORDINATION_TARGETS = 100;
+const MAX_FALLBACK_TARGETS = 8;
+const MAX_CONNECTION_PAGES = 10;
+const MAX_HYDRATION_REQUESTS = 40;
+
+function markCoordinationUnverifiable(result, message, nativeAuthority = 'incomplete') {
+  return {
+    ...result,
+    role: 'unverifiable',
+    identity: 'unverifiable',
+    consistency: 'unverifiable',
+    nativeAuthority,
+    degraded: true,
+    gaps: [...result.gaps, message],
+  };
+}
+
+function hydrateConnectionPages(projectRoot, owner, name, issue, connection, adapters, budget) {
+  const fields = connection === 'labels' ? 'nodes { name }' : 'nodes { number state }';
+  for (let page = 0; issue?.[connection]?.pageInfo?.hasNextPage === true; page += 1) {
+    const cursor = issue[connection].pageInfo.endCursor;
+    if (page >= MAX_CONNECTION_PAGES || typeof cursor !== 'string' || !cursor) {
+      return { ok: false, reason: `${connection} pagination exceeded its safe bound or lacked an end cursor` };
+    }
+    if (budget.remaining <= 0) {
+      return { ok: false, reason: 'pagination request budget exhausted' };
+    }
+    budget.remaining -= 1;
+    const query = `query($owner: String!, $name: String!, $cursor: String!) {
+      repository(owner: $owner, name: $name) {
+        issue(number: ${issue.number}) {
+          ${connection}(first: 100, after: $cursor) {
+            ${fields}
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }`;
+    const response = adapters.run(
+      'gh',
+      ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `cursor=${cursor}`],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (!response.ok) return { ok: false, reason: commandFailure(response) };
+    try {
+      const next = JSON.parse(response.stdout)?.data?.repository?.issue?.[connection];
+      if (!next || !Array.isArray(next.nodes) || !next.pageInfo) {
+        return { ok: false, reason: `${connection} pagination response was malformed` };
+      }
+      issue[connection].nodes.push(...next.nodes);
+      issue[connection].pageInfo = next.pageInfo;
+    } catch (error) {
+      return { ok: false, reason: error.message };
+    }
+  }
+  return { ok: true };
+}
+
+function hydrateGraphConnections(projectRoot, owner, name, issues, adapters) {
+  const unique = new Map();
+  const budget = { remaining: MAX_HYDRATION_REQUESTS };
+  for (const issue of issues) {
+    if (Number.isInteger(issue?.number) && !unique.has(issue.number)) unique.set(issue.number, issue);
+  }
+  for (const issue of unique.values()) {
+    const labels = hydrateConnectionPages(projectRoot, owner, name, issue, 'labels', adapters, budget);
+    if (!labels.ok) return { ok: false, reason: `issue #${issue.number} labels: ${labels.reason}` };
+  }
+  for (const issue of unique.values()) {
+    const subIssues = hydrateConnectionPages(projectRoot, owner, name, issue, 'subIssues', adapters, budget);
+    if (!subIssues.ok) return { ok: false, reason: `issue #${issue.number} sub-issues: ${subIssues.reason}` };
+  }
+  return { ok: true, issues: [...unique.values()] };
+}
+
+function relationshipCandidates(issue) {
+  const body = parseBodyRelationships(issue?.body);
+  return [...new Set([...body.dependsOn, ...epicChildLabelTargets(issue)])]
+    .filter((number) => number !== issue?.number)
+    .sort((left, right) => left - right);
+}
+
+function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
+  const fallbackIssues = [activeIssue];
+  const candidates = relationshipCandidates(activeIssue);
+  if (candidates.length > MAX_COORDINATION_TARGETS) {
+    const message = `issue #${activeIssue.number} has more than ${MAX_COORDINATION_TARGETS} relationship targets; bounded coordination classification is unverifiable`;
+    gaps.push(message);
+    const result = classifyEpicRelationships({
+      issues: fallbackIssues,
+      activeIssueNumber: activeIssue.number,
+      nativeAvailable: false,
+    });
+    return markCoordinationUnverifiable(result, message);
+  }
+  try {
+    const repoResult = adapters.run(
+      'gh',
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (repoResult.ok) {
+      const nameWithOwner = JSON.parse(repoResult.stdout)?.nameWithOwner;
+      const [owner, name, extra] = String(nameWithOwner ?? '').split('/');
+      if (owner && name && !extra) {
+        const aliases = candidates
+          .map((number) => `target${number}: issue(number: ${number}) { ${GRAPHQL_ISSUE_FIELDS} }`)
+          .join('\n');
+        const query = `query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            active: issue(number: ${activeIssue.number}) {
+              ${GRAPHQL_ISSUE_FIELDS}
+              parent { ${GRAPHQL_ISSUE_FIELDS} }
+            }
+            ${aliases}
+          }
+        }`;
+        const graphResult = adapters.run(
+          'gh',
+          ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`],
+          { cwd: projectRoot, timeout: 30_000 },
+        );
+        if (graphResult.ok) {
+          const repository = JSON.parse(graphResult.stdout)?.data?.repository;
+          if (repository?.active) {
+            const graphIssues = [repository.active, repository.active.parent]
+              .concat(candidates.map((number) => repository[`target${number}`]))
+              .filter(Boolean);
+            const hydration = hydrateGraphConnections(
+              projectRoot,
+              owner,
+              name,
+              graphIssues,
+              adapters,
+            );
+            const result = classifyEpicRelationships({
+              issues: hydration.issues ?? graphIssues,
+              activeIssueNumber: activeIssue.number,
+              nativeAvailable: true,
+            });
+            if (hydration.ok) return result;
+            const message = `GitHub relationship pagination is incomplete: ${boundedMessage(hydration.reason)}`;
+            gaps.push(message);
+            return markCoordinationUnverifiable(result, message);
+          }
+          gaps.push('GitHub coordination response malformed: active issue missing');
+        } else {
+          gaps.push(`GitHub native coordination unavailable: ${boundedMessage(commandFailure(graphResult))}`);
+        }
+      } else {
+        gaps.push('GitHub repository response malformed: nameWithOwner missing');
+      }
+    } else {
+      gaps.push(`GitHub repository unavailable for coordination: ${boundedMessage(commandFailure(repoResult))}`);
+    }
+  } catch (error) {
+    gaps.push(`GitHub coordination metadata malformed: ${boundedMessage(error.message)}`);
+  }
+
+  if (candidates.length > MAX_FALLBACK_TARGETS) {
+    const message = `native coordination is unavailable and ${candidates.length} targets exceed the bounded fallback limit of ${MAX_FALLBACK_TARGETS}`;
+    gaps.push(message);
+    const result = classifyEpicRelationships({
+      issues: fallbackIssues,
+      activeIssueNumber: activeIssue.number,
+      nativeAvailable: false,
+    });
+    return markCoordinationUnverifiable(result, message);
+  }
+
+  for (const number of candidates) {
+    try {
+      const targetResult = adapters.run(
+        'gh',
+        ['issue', 'view', String(number), '--json', 'number,state,labels,body'],
+        { cwd: projectRoot, timeout: 5_000 },
+      );
+      if (targetResult.ok) fallbackIssues.push(JSON.parse(targetResult.stdout));
+      else gaps.push(`GitHub coordination target #${number} unavailable: ${boundedMessage(commandFailure(targetResult))}`);
+    } catch (error) {
+      gaps.push(`GitHub coordination target #${number} malformed: ${boundedMessage(error.message)}`);
+    }
+  }
+  return classifyEpicRelationships({
+    issues: fallbackIssues,
+    activeIssueNumber: activeIssue.number,
+    nativeAvailable: false,
+  });
+}
+
 function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   let issue = issueNumber
-    ? { number: issueNumber, title: null, state: 'unknown', source: 'branch' }
+    ? {
+      number: issueNumber,
+      title: null,
+      state: 'unknown',
+      source: 'branch',
+      coordination: null,
+    }
     : null;
   let pullRequest = null;
 
@@ -233,6 +449,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
               title: closingIssue.title ?? null,
               state: closingIssue.state ?? 'unknown',
               source: 'pullRequest',
+              coordination: null,
             };
           }
           pullRequest = {
@@ -271,7 +488,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   if (issue?.number) {
     const issueResult = adapters.run(
       'gh',
-      ['issue', 'view', String(issue.number), '--json', 'number,title,state'],
+      ['issue', 'view', String(issue.number), '--json', 'number,title,state,body,labels'],
       { cwd: projectRoot, timeout: 30_000 },
     );
     if (issueResult.ok) {
@@ -280,11 +497,13 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
         if (!Number.isInteger(parsed.number) || parsed.number <= 0) {
           gaps.push('GitHub issue response malformed: missing positive issue number');
         } else {
+          const coordination = collectCoordination(projectRoot, parsed, adapters, gaps);
           issue = {
             number: parsed.number,
             title: parsed.title ?? null,
             state: parsed.state ?? 'unknown',
             source: issue.source,
+            coordination,
           };
         }
       } catch (error) {
@@ -551,9 +770,13 @@ export function renderText(status) {
   const pullRequest = status.pullRequest
     ? `#${status.pullRequest.number} ${status.pullRequest.state} (checks: ${status.pullRequest.checks})`
     : 'unknown';
+  const coordination = status.issue?.coordination
+    ? `${status.issue.coordination.role} (${status.issue.coordination.identity}; consistency: ${status.issue.coordination.consistency}; authority: ${status.issue.coordination.nativeAuthority}; degraded: ${status.issue.coordination.degraded ? 'yes' : 'no'})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
+    : 'unknown';
   const lines = [
     `SDLC status: ${status.stage}`,
     `Issue: ${issue}`,
+    `Coordination: ${coordination}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,
     `Verification: ${verification}`,

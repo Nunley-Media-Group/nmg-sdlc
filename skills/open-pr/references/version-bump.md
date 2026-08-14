@@ -31,14 +31,15 @@ Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line a
 
 Before presenting to the user, determine whether the current issue is an epic child and whether the bump should be downgraded to a patch:
 
-1. Read `../../references/epic-relationships.md`. Parse the current issue's supported body signals and query its native parent through GitHub GraphQL; never request `parent` through `gh issue view --json`.
-2. Hydrate each deduplicated target's live labels/state and classify it. If no target is confirmed as `epic-membership`, skip to Step 5 with the classification from step 4 and `siblingClass = 'non-epic'`. If more than one target is confirmed as an epic parent, stop as ambiguous and name every child/target pair. Otherwise use the one confirmed epic target as `E`.
-3. Otherwise enumerate siblings: read the parent's Child Issues checklist (regex `^\s*-\s*\[[x ]\]\s*#(\d+)`) and collect all referenced issue numbers. Exclude the current issue number from the sibling list.
-4. For each sibling, query `gh issue view #C --json state,closedByPullRequestsReferences`. Classify each sibling as **complete** when `state === 'CLOSED'` AND at least one entry in `closedByPullRequestsReferences` has `state === 'MERGED'` (or `mergedAt != null`); otherwise **incomplete**.
-5. **Downgrade rule:**
+1. Read `../../references/epic-relationships.md`. Parse the current issue's supported label/body signals and query native parent/sub-issue data through GitHub GraphQL; never request `parent` through `gh issue view --json`.
+2. Hydrate each deduplicated target and derive the shared result. For `ordinary` or `epic`, skip to Step 5 with `siblingClass = 'non-epic'`. For `inconsistent`, `ambiguous`, or `unverifiable`, stop before version or PR mutation and report the pairs/signals/gaps. For `epic-child`, use `E = parentNumber` and report any `identity = legacy` repair recommendation.
+3. Read `../../references/canonical-umbrella-spec.md` and resolve the helper from the installed plugin root. Run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue E --json` against refreshed default-branch evidence. Continue only for `canonical` or `canonical_marker_lost` (and report marker loss); for `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before sibling classification, version artifacts, commits, pushes, or PR mutation with the exact `reasonCode`, path/tree/ref evidence, and gaps.
+4. Enumerate and page the parent's GraphQL `subIssues` to exhaustion as the authoritative set. An unconsumed page stops before version mutation. Parse the supported Child Issues checklist and derive `nativeOnly` and `checklistOnly`; report both discrepancy lists. If native discovery fails, retain checklist fallback for reporting only, classify coordination as `unverifiable`, and stop before version or PR mutation. Exclude the current issue only after successful native reconciliation.
+5. For each sibling, query `gh issue view #C --json state,closedByPullRequestsReferences`. Classify each sibling as **complete** when `state === 'CLOSED'` AND at least one entry in `closedByPullRequestsReferences` has `state === 'MERGED'` (or `mergedAt != null`); otherwise **incomplete**.
+6. **Downgrade rule:**
    - Every sibling complete → this is the final child. Keep the classified bump (`siblingClass = 'final'`).
    - At least one sibling incomplete → this is an intermediate child. Force `bump_type = 'patch'`, recompute the proposed version, and set `siblingClass = 'intermediate'`.
-6. **Epic-closure warning.** Also query `gh issue view #E --json state`. If the epic itself is `CLOSED` while the current child is `OPEN`, warn:
+7. **Epic-closure warning.** Also query `gh issue view #E --json state`. If the epic itself is `CLOSED` while the current child is `OPEN`, warn:
    - Present a `request_user_input` gate to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). These choices are exhaustive; a free-form `Other` answer is treated as abort guidance and the skill exits without creating the PR.
 
 Record `siblingClass` (one of `non-epic`, `intermediate`, `final`) and `epicParentNumber` (the resolved epic issue number, or null) for Step 3 and Step 4 use.

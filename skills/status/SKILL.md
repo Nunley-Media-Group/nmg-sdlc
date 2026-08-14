@@ -9,6 +9,8 @@ Read `../../references/codex-tooling.md` when the workflow starts — it maps in
 
 Report the strongest lifecycle conclusion supported by current repository, spec, verification, and read-only GitHub evidence. Delegate deterministic inspection to the bundled status CLI and pass its output through unchanged.
 
+Read `../../references/epic-relationships.md` when an active issue is present. The bundled CLI hydrates the same label/body/native evidence, uses `scripts/epic-relationships.mjs`, and exposes the shared result as the issue's nullable `coordination` field without changing lifecycle-stage inference.
+
 This skill is observational and never presents a `request_user_input` gate or requests confirmation.
 
 ## Workflow

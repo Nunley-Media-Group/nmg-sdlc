@@ -91,8 +91,8 @@ describe('canonical umbrella-spec contracts', () => {
     for (const source of [relationships, startIssue, writeSpec, discovery, writeCode, openPrVersioning]) {
       expect(source).not.toMatch(/gh issue view[^\n`]*--json parent/);
     }
-    expect(relationships).toContain('Discover native parents through GitHub GraphQL');
-    expect(openPrVersioning).toContain('query its native parent through GitHub GraphQL');
+    expect(relationships).toContain('Discover native parents and sub-issues through GitHub GraphQL');
+    expect(openPrVersioning).toContain('query native parent/sub-issue data through GitHub GraphQL');
   });
 
   test('upgrade recovery requires exact approval, revalidation, and default preservation', () => {

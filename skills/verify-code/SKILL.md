@@ -31,6 +31,16 @@ Read `../../references/spec-context.md` when Step 1 loads the active spec — ve
 
 ## Workflow
 
+### Step 0.75: Coordination Identity Gate
+
+Resolve the issue number from the explicit argument or active issue branch before loading specs. Read `../../references/epic-relationships.md`, hydrate the issue's label/body/native evidence, and derive the shared result.
+
+- `role = ordinary` or `epic` → continue unchanged.
+- `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before loading evidence, running tests, writing a report, or commenting on GitHub; report the exact pairs/signals/gaps.
+- `role = epic-child` → record `P = parentNumber`, report any `identity = legacy` repair recommendation, and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+
+Continue only for `canonical` or `canonical_marker_lost`. Other canonical statuses stop before verification mutation with the exact parent/status/path/tree/ref evidence and route publication to `$nmg-sdlc:write-spec #P` or metadata recovery to `$nmg-sdlc:upgrade-project`.
+
 ### Step 1: Load Specifications and Steering Docs
 
 Read all spec documents:
