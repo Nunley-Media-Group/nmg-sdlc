@@ -13,6 +13,8 @@ Read `../../references/issue-spec-scope.md` when interpreting the `spec.scope` f
 
 Read `../../references/epic-relationships.md` when an active issue is present. The bundled CLI hydrates the same label/body/native evidence, uses `scripts/epic-relationships.mjs`, and exposes the shared result as the issue's nullable `coordination` field without changing lifecycle-stage inference.
 
+Read `../../references/deliverable-dependencies.md` when an active issue is present. The CLI parses structured cross-child prerequisites, hydrates fully paged closing-PR evidence, and exposes `issue.deliverableDependencies`. `blocked`, `repair_required`, or `unverifiable` stops lifecycle advancement even when later local artifacts exist; issue closure alone never proves a prerequisite available.
+
 This skill is observational and never presents a `request_user_input` gate or requests confirmation.
 
 ## Workflow

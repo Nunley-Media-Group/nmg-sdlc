@@ -93,7 +93,7 @@ Feature specs use `issue-scope.json` to assign every AC, FR, task, and stable `@
 $nmg-sdlc:draft-issue "add user authentication"
 ```
 
-Classifies the request, investigates relevant code, interviews the user, drafts BDD acceptance criteria, and presents an inline approval gate before creating the issue. Multi-part requests may be split into dependency-aware child issues after explicit graph approval.
+Classifies the request, investigates relevant code, interviews the user, drafts BDD acceptance criteria, and presents an inline approval gate before creating the issue. Multi-part requests may be split into dependency-aware child issues after explicit graph approval. Cross-child task or artifact prerequisites must resolve to an extracted baseline issue or a whole-issue dependency; prose-only midpoint checkpoints are not schedulable.
 
 ### Start an Issue
 
@@ -101,7 +101,7 @@ Classifies the request, investigates relevant code, interviews the user, drafts 
 $nmg-sdlc:start-issue #42
 ```
 
-With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do. New umbrellas persist an `epic` parent label, a matching `epic-child-of-N` child label, the native relationship, and body fallback so every fresh lifecycle command reconstructs the same identity.
+With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do. New umbrellas persist an `epic` parent label, a matching `epic-child-of-N` child label, the native relationship, and body fallback so every fresh lifecycle command reconstructs the same identity. A structured `Requires deliverable` record is ready only when its matching whole-issue dependency has a closing pull request merged into the live default branch; issue closure alone is insufficient.
 
 ### Write Specs
 
@@ -162,13 +162,15 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, a nullable `issue.coordination` result, and the resolver result under `spec.scope`. Missing, invalid, or cross-issue scope evidence routes to `$nmg-sdlc:write-spec #N` or re-verification rather than advancing the lifecycle. Status never prompts or mutates local or remote state.
+Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, deliverable availability, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, nullable `issue.coordination` and `issue.deliverableDependencies` results, and the resolver result under `spec.scope`. Missing, invalid, cross-issue, unmerged-deliverable, or unrepresentable dependency evidence cannot advance the lifecycle. Status never prompts or mutates local or remote state.
 
 ## Project Upgrades and V2 Cleanup
 
 `$nmg-sdlc:upgrade-project` relocates legacy steering/spec trees, reconciles current templates and frontmatter, preserves manual changelog content, and applies the same managed contribution assets as onboarding. It also audits bounded local and `origin/*` refs for sealed multi-PR specs that never reached the refreshed default branch. Canonical and history-marker-loss states are report-only. A single unambiguous stranded tree can be restored to an absent worktree path only after exact-path approval; an already byte-identical path is a no-op. Recovery remains unstaged for the normal reviewed `$nmg-sdlc:write-spec #N` publication flow. Divergent default-branch content always wins, while ambiguous or unverifiable findings are preserved for manual resolution.
 
 The upgrade audit also reconciles umbrella identity. Native sub-issue relationships are authoritative; supported body checklists remain report-only fallback and drift evidence when native discovery fails and cannot authorize lifecycle mutation. Legacy identity requires agreeing native and body relationships. Deterministic repairs are bound to the audited repository, require their own exact per-parent approval, and are revalidated immediately before writing. Automated full-body repair is allowed only through a proven server-enforced compare-and-set operation, and post-apply proof is scoped to the approved records while remaining findings are reported separately.
+
+The same audit reports cross-child task/artifact checkpoints that lack a deliverable boundary. It can apply an exact approved whole-issue dependency/body repair after fresh drift checks and proves a second audit is a no-op. Extracting an independently reviewable baseline remains a separate issue/spec workflow; ambiguous or incomplete ownership and closing-PR evidence stays report-only.
 
 For existing projects, its v2 migration proposes deletion of only these obsolete exact paths when they are regular files:
 

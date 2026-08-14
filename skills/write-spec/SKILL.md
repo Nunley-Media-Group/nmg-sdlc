@@ -48,6 +48,8 @@ Read `../../references/spec-frontmatter.md` when writing or amending any spec fi
 
 Read `../../references/issue-spec-scope.md` when creating a feature spec, amending a cumulative feature spec, or validating the completed package. It defines the versioned `issue-scope.json` authority, stable `@SCN...` identifiers, and fail-closed resolver contract shared by downstream lifecycle consumers.
 
+Read `../../references/deliverable-dependencies.md` when a multi-PR design assigns a task or artifact to one child and another child consumes it. Every such prerequisite must resolve to an extracted baseline issue or a whole-issue dependency before sealing or child creation.
+
 Read `../../references/spec-context.md` when Spec Discovery needs related existing specs — parent-link resolution remains first, then bounded metadata ranking decides whether to amend an existing feature spec or create a new one.
 
 Read `../../references/canonical-umbrella-spec.md` when the canonical parent-spec gate resolves a confirmed coordination epic or when the Phase 3 Seal-Spec Flow runs. Resolve the installed plugin root from this skill's path and invoke its status helper against the project root.
@@ -224,6 +226,8 @@ Run this flow only when the Canonical Parent-Spec Gate recorded no coordination 
 
 The umbrella spec is not itself a shipping change. Sealing commits the exact spec without a version bump, publishes it through a spec-only pull request to the repository default branch, and blocks child transition until refreshed remote content is canonical. This flow bypasses `$nmg-sdlc:open-pr` because that skill owns versioned implementation delivery.
 
+Before offering seal, inventory every task ID and named artifact assigned to each Delivery Phase. Detect every reference from one phase/child to another phase/child's task or artifact. Render an explicit ownership/prerequisite map and require each prerequisite to use one of the shared contract's supported deliverable boundaries. Recommend a whole-issue dependency unless an independently reviewable baseline and material parallelism justify extraction. Return to the Tasks Review Gate for any ownership or boundary change; a prose-only midpoint checkpoint stops sealing.
+
 #### 3b.1 Offer Seal
 
 Ask through `request_user_input` in Plan Mode: `Seal and publish` (commit `specs/{feature-name}/`, push, and create or reuse a spec-only publication PR) or `Do not seal` (leave the approved spec uncommitted for now). Include the selected behavior in the `<proposed_plan>` and auto-execute after acceptance.
@@ -298,6 +302,7 @@ The approved create-children action also owns durable identity persistence:
 2. Pass `N` as the live parent number into the batch flow. Require each child to receive `epic-child-of-N`, the native parent link, and `Depends on: #N` per `references/umbrella-mode.md`; do not rely on an earlier session variable after the write.
 3. Re-fetch the parent and every created child, derive the shared result from `../../references/epic-relationships.md`, and require each child to be `role = epic-child`, `parentNumber = N`, `identity = durable`, `consistency = consistent`, and `nativeAuthority = native`. Also require the matching coordination pair to retain a native signal and a body signal before reporting successful handoff.
 4. If a label, relationship, or body write partially fails, stop with the exact surviving metadata and repair action. Do not create a replacement child or claim the batch is ready.
+5. Pass the approved task/artifact ownership and deliverable-prerequisite map into `$nmg-sdlc:draft-issue` batch mode. Require one structured `Requires deliverable` record and matching whole-issue `Depends on:` edge per cross-child prerequisite. Re-fetch and run the shared deliverable classifier; `repair_required` or `unverifiable` stops handoff, while `blocked` is the truthful expected state until the owner merges.
 
 #### 3b.5 Canonical Next-Step Hint
 

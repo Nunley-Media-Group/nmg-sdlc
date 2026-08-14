@@ -166,7 +166,7 @@ Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] 
 
 ### Step 6: Synthesize into Issue Body
 
-**Input**: confirmed `understanding`; `classification`; `investigation.summary`; current iteration's `planId` and `scopeId`; read-only `activeDag` (the outer `session.dag`, or the Step 10-local child DAG during epic fan-out); and nullable `coordinationParentNumber` supplied only for an epic child.
+**Input**: confirmed `understanding`; `classification`; `investigation.summary`; current iteration's `planId` and `scopeId`; read-only `activeDag` (the outer `session.dag`, or the Step 10-local child DAG during epic fan-out); read-only `activeDeliverablePrerequisites` from the approved graph; and nullable `coordinationParentNumber` supplied only for an epic child.
 
 Choose the template based on `classification`:
 
@@ -176,6 +176,8 @@ Read `references/multi-issue.md` when `classification === 'epic'` — the Epic C
 Read `references/spike-template.md` when `classification === 'spike'` — the spike template replaces User Story / Acceptance Criteria with Research Questions, Candidate Set, Time-box, Expected Output Shape, and Honest-Gap Protocol. Spike issues do not carry acceptance criteria (the deliverable is an ADR, not a working feature).
 
 **Body cross-ref placeholders (batch mode)**: when `activeDag` has edges touching the current iteration's `planId`, append scope-bound placeholder lines at the end of the body — `Depends on: <A1>, <A2>` / `Blocks: <A4>`. The `<askId>` tokens are resolved to real `#N` references in Step 10 using only created records with the same `scopeId`. Do not read the outer `session.dag` or resolve an identically named plan ID from another scope when a child-scoped DAG is active. On the ordinary single-issue path, no DAG placeholders are added.
+
+**Deliverable prerequisite placeholders (batch mode)**: read `../../references/deliverable-dependencies.md`. For every approved `activeDeliverablePrerequisites` record consumed by this iteration, append `- Requires deliverable from <ownerAskId>: <task/artifact description>`. Its owner must also be a parent of this iteration in `activeDag`, so the existing `Depends on:` placeholder carries the matching whole-issue execution edge. A prose-only task checkpoint stops before drafting.
 
 **Epic membership body signal**: when `coordinationParentNumber` is non-null, append a separate line-anchored `Depends on: #P` record for that exact epic. This coordination signal is not inserted into `activeDag`, `dependsOn`, or `blocks`; those fields remain genuine execution dependencies.
 

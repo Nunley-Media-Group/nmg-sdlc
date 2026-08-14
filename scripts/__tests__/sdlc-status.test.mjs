@@ -200,6 +200,50 @@ describe('lifecycle inference', () => {
     ]));
   });
 
+  it('stops lifecycle progression for blocked and repair-required deliverables', () => {
+    const blocked = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: {
+        number: 42,
+        title: 'Feature',
+        state: 'OPEN',
+        source: 'branch',
+        deliverableDependencies: {
+          status: 'blocked',
+          reasonCode: 'deliverable_not_merged',
+          requirements: [{ ownerIssue: 10, available: false }],
+          gaps: ['deliverable owner #10 has no merged closing pull request to main'],
+        },
+      },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+    }));
+    expect(blocked).toMatchObject({
+      stage: 'blocked',
+      nextAction: { command: '$nmg-sdlc:status', manualRepairRequired: false },
+    });
+    expect(renderText(blocked)).toContain('Deliverables: blocked (#10:unavailable)');
+
+    const repair = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature' },
+      issue: {
+        number: 42,
+        title: 'Feature',
+        state: 'OPEN',
+        source: 'branch',
+        deliverableDependencies: {
+          status: 'repair_required',
+          reasonCode: 'deliverable_execution_edge_missing',
+          requirements: [{ ownerIssue: 10, available: false }],
+          gaps: ['deliverable owner #10 lacks a whole-issue execution dependency'],
+        },
+      },
+    }));
+    expect(repair).toMatchObject({
+      stage: 'blocked',
+      nextAction: { command: '$nmg-sdlc:upgrade-project' },
+    });
+  });
+
   test.each([
     ['closed issue', { issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' } }],
     ['closed unmerged pull request', { pullRequest: { number: 50, state: 'CLOSED', url: null, checks: 'absent' } }],
@@ -475,6 +519,89 @@ describe('bounded evidence collection and read-only safety', () => {
     const status = inferLifecycle(evidence);
     expect(status.stage).toBe('specified');
     expect(renderText(status)).toContain('Coordination: epic-child (durable; consistency: consistent; authority: native; degraded: no) parent #10');
+  });
+
+  it('hydrates merged default-branch evidence for a structured deliverable requirement', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: '- Requires deliverable from #122: schema baseline\n\nDepends on: #122',
+      labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      parent: null,
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const relationshipTarget = {
+      number: 122,
+      state: 'CLOSED',
+      body: '',
+      labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const deliverableTarget = {
+      number: 122,
+      state: 'CLOSED',
+      closedByPullRequestsReferences: {
+        nodes: [{
+          number: 200,
+          state: 'MERGED',
+          mergedAt: '2026-08-14T10:00:00Z',
+          baseRefName: 'main',
+          mergeCommit: { oid: 'a'.repeat(40) },
+        }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    };
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ ...active, labels: [] }),
+          stderr: '',
+        };
+      }
+      if (args[0] === 'repo') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({
+            nameWithOwner: 'example/project',
+            defaultBranchRef: { name: 'main' },
+          }),
+          stderr: '',
+        };
+      }
+      if (args[0] === 'api') {
+        const query = args.find((argument) => argument.startsWith('query=')) ?? '';
+        const repository = query.includes('closedByPullRequestsReferences')
+          ? { target122: deliverableTarget }
+          : { active, target122: relationshipTarget };
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ data: { repository } }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected GitHub command: ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'ready',
+      reasonCode: 'deliverables_available',
+      defaultBranch: 'main',
+      requirements: [{
+        ownerIssue: 122,
+        executionEdge: true,
+        available: true,
+        mergedPullRequest: { number: 200, baseRefName: 'main' },
+      }],
+    });
+    expect(inferLifecycle(evidence).stage).toBe('specified');
   });
 
   it('fails coordination closed when native sibling pagination is incomplete', () => {

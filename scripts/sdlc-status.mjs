@@ -17,6 +17,10 @@ import {
   epicChildLabelTargets,
   parseBodyRelationships,
 } from './epic-relationships.mjs';
+import {
+  inspectDeliverableDependencies,
+  parseDeliverableRequirements,
+} from './deliverable-dependencies.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 
 export const REQUIRED_SPEC_FILES = [
@@ -316,6 +320,7 @@ const MAX_COORDINATION_TARGETS = 100;
 const MAX_FALLBACK_TARGETS = 8;
 const MAX_CONNECTION_PAGES = 10;
 const MAX_HYDRATION_REQUESTS = 40;
+const MAX_DELIVERABLE_REQUESTS = 60;
 
 function markCoordinationUnverifiable(result, message, nativeAuthority = 'incomplete') {
   return {
@@ -502,6 +507,138 @@ function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
   });
 }
 
+const CLOSING_PULL_REQUEST_FIELDS = `
+  nodes {
+    number
+    state
+    mergedAt
+    baseRefName
+    mergeCommit { oid }
+  }
+  pageInfo { hasNextPage endCursor }
+`;
+
+function collectDeliverableDependencies(projectRoot, activeIssue, coordination, adapters, gaps) {
+  const parsed = parseDeliverableRequirements(activeIssue?.body);
+  const relationshipEvidenceComplete = coordination !== null
+    && !['inconsistent', 'ambiguous', 'unverifiable'].includes(coordination?.role)
+    && coordination?.nativeAuthority !== 'incomplete';
+  if (parsed.requirements.length === 0 || parsed.gaps.length > 0) {
+    return inspectDeliverableDependencies({
+      issueNumber: activeIssue?.number,
+      body: activeIssue?.body,
+      defaultBranch: parsed.requirements.length === 0 ? null : undefined,
+      targets: [],
+      executionDependencies: coordination?.executionDependencies ?? [],
+      relationshipEvidenceComplete,
+    });
+  }
+
+  let nameWithOwner;
+  let defaultBranch;
+  try {
+    const repoResult = adapters.run(
+      'gh',
+      ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (!repoResult.ok) {
+      gaps.push(`GitHub repository unavailable for deliverable dependencies: ${boundedMessage(commandFailure(repoResult))}`);
+    } else {
+      const repository = JSON.parse(repoResult.stdout);
+      nameWithOwner = repository?.nameWithOwner;
+      defaultBranch = repository?.defaultBranchRef?.name;
+    }
+  } catch (error) {
+    gaps.push(`GitHub repository metadata malformed for deliverable dependencies: ${boundedMessage(error.message)}`);
+  }
+
+  const [owner, name, extra] = String(nameWithOwner ?? '').split('/');
+  const ownerNumbers = [...new Set(parsed.requirements.map((requirement) => requirement.ownerIssue))]
+    .sort((left, right) => left - right);
+  const targets = [];
+  if (owner && name && !extra && defaultBranch) {
+    const aliases = ownerNumbers.map((number) => `
+      target${number}: issue(number: ${number}) {
+        number
+        state
+        closedByPullRequestsReferences(first: 100) { ${CLOSING_PULL_REQUEST_FIELDS} }
+      }
+    `).join('\n');
+    const query = `query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) { ${aliases} }
+    }`;
+    const graphResult = adapters.run(
+      'gh',
+      ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (!graphResult.ok) {
+      gaps.push(`GitHub deliverable metadata unavailable: ${boundedMessage(commandFailure(graphResult))}`);
+    } else {
+      try {
+        const repository = JSON.parse(graphResult.stdout)?.data?.repository;
+        for (const number of ownerNumbers) {
+          const target = repository?.[`target${number}`];
+          if (target) targets.push(target);
+        }
+      } catch (error) {
+        gaps.push(`GitHub deliverable metadata malformed: ${boundedMessage(error.message)}`);
+      }
+    }
+  }
+
+  let remainingRequests = MAX_DELIVERABLE_REQUESTS;
+  for (const target of targets) {
+    const closingPullRequests = target.closedByPullRequestsReferences;
+    for (let page = 0; closingPullRequests?.pageInfo?.hasNextPage === true; page += 1) {
+      const cursor = closingPullRequests.pageInfo.endCursor;
+      if (page >= MAX_CONNECTION_PAGES || remainingRequests <= 0 || typeof cursor !== 'string' || !cursor) {
+        gaps.push(`issue #${target.number} closing pull-request pagination exceeded its safe bound or request budget`);
+        break;
+      }
+      remainingRequests -= 1;
+      const query = `query($owner: String!, $name: String!, $cursor: String!) {
+        repository(owner: $owner, name: $name) {
+          issue(number: ${target.number}) {
+            closedByPullRequestsReferences(first: 100, after: $cursor) { ${CLOSING_PULL_REQUEST_FIELDS} }
+          }
+        }
+      }`;
+      const nextResult = adapters.run(
+        'gh',
+        ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `cursor=${cursor}`],
+        { cwd: projectRoot, timeout: 30_000 },
+      );
+      if (!nextResult.ok) {
+        gaps.push(`issue #${target.number} closing pull-request pagination failed: ${boundedMessage(commandFailure(nextResult))}`);
+        break;
+      }
+      try {
+        const next = JSON.parse(nextResult.stdout)?.data?.repository?.issue?.closedByPullRequestsReferences;
+        if (!next || !Array.isArray(next.nodes) || !next.pageInfo) {
+          gaps.push(`issue #${target.number} closing pull-request pagination response was malformed`);
+          break;
+        }
+        closingPullRequests.nodes.push(...next.nodes);
+        closingPullRequests.pageInfo = next.pageInfo;
+      } catch (error) {
+        gaps.push(`issue #${target.number} closing pull-request pagination was malformed: ${boundedMessage(error.message)}`);
+        break;
+      }
+    }
+  }
+
+  return inspectDeliverableDependencies({
+    issueNumber: activeIssue?.number,
+    body: activeIssue?.body,
+    defaultBranch,
+    targets,
+    executionDependencies: coordination?.executionDependencies ?? [],
+    relationshipEvidenceComplete,
+  });
+}
+
 function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   let issue = issueNumber
     ? {
@@ -510,6 +647,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
       state: 'unknown',
       source: 'branch',
       coordination: null,
+      deliverableDependencies: null,
     }
     : null;
   let pullRequest = null;
@@ -534,6 +672,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
               state: closingIssue.state ?? 'unknown',
               source: 'pullRequest',
               coordination: null,
+              deliverableDependencies: null,
             };
           }
           pullRequest = {
@@ -582,12 +721,20 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
           gaps.push('GitHub issue response malformed: missing positive issue number');
         } else {
           const coordination = collectCoordination(projectRoot, parsed, adapters, gaps);
+          const deliverableDependencies = collectDeliverableDependencies(
+            projectRoot,
+            parsed,
+            coordination,
+            adapters,
+            gaps,
+          );
           issue = {
             number: parsed.number,
             title: parsed.title ?? null,
             state: parsed.state ?? 'unknown',
             source: issue.source,
             coordination,
+            deliverableDependencies,
           };
         }
       } catch (error) {
@@ -751,10 +898,31 @@ export function inferLifecycle(evidence) {
     && evidence.verification.current === true;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
+  const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
+  const deliverableBlocked = ['blocked', 'repair_required', 'unverifiable'].includes(deliverableStatus);
   let stage;
   let nextAction;
 
-  if (scopeBlocked) {
+  if (deliverableBlocked) {
+    const deliverableGaps = evidence.issue.deliverableDependencies.gaps?.length
+      ? evidence.issue.deliverableDependencies.gaps.join('; ')
+      : evidence.issue.deliverableDependencies.reasonCode;
+    gaps.push(`deliverable dependencies ${deliverableStatus}: ${deliverableGaps}`);
+    stage = 'blocked';
+    nextAction = deliverableStatus === 'repair_required'
+      ? {
+        command: '$nmg-sdlc:upgrade-project',
+        reason: 'The active issue has an unrepresentable or inconsistent cross-child deliverable dependency that requires an approved initialized-project repair.',
+        manualRepairRequired: false,
+      }
+      : {
+        command: '$nmg-sdlc:status',
+        reason: deliverableStatus === 'blocked'
+          ? 'The active issue is waiting for every declared prerequisite to merge through a closing pull request into the repository default branch.'
+          : 'Required deliverable dependency evidence is incomplete or unverifiable; restore GitHub evidence before advancing.',
+        manualRepairRequired: deliverableStatus === 'unverifiable',
+      };
+  } else if (scopeBlocked) {
     const scopeGaps = evidence.spec.scope.gaps?.length
       ? evidence.spec.scope.gaps.join('; ')
       : evidence.spec.scope.reasonCode;
@@ -890,10 +1058,14 @@ export function renderText(status) {
   const coordination = status.issue?.coordination
     ? `${status.issue.coordination.role} (${status.issue.coordination.identity}; consistency: ${status.issue.coordination.consistency}; authority: ${status.issue.coordination.nativeAuthority}; degraded: ${status.issue.coordination.degraded ? 'yes' : 'no'})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
     : 'unknown';
+  const deliverables = status.issue?.deliverableDependencies
+    ? `${status.issue.deliverableDependencies.status} (${status.issue.deliverableDependencies.requirements.map((requirement) => `#${requirement.ownerIssue}:${requirement.available ? 'available' : 'unavailable'}`).join(', ') || 'none'})`
+    : 'unknown';
   const lines = [
     `SDLC status: ${status.stage}`,
     `Issue: ${issue}`,
     `Coordination: ${coordination}`,
+    `Deliverables: ${deliverables}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,
     `Scope: ${scope}`,
