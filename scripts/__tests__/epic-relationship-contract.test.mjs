@@ -131,6 +131,7 @@ describe('epic relationship contract', () => {
     expect(recovery).toContain('Abort on drift');
     expect(recovery).toContain('gh issue edit P --add-sub-issue C');
     expect(recovery).toContain('Body relationship missing');
+    expect(recovery).toContain('Confirmed `epic` parent with one unambiguous approved coordination-child set');
     expect(recovery).toContain('persist that exact `OWNER/REPO` as `AUDITED_REPO`');
     expect(recovery).toContain('server-enforced compare-and-set');
     expect(recovery).toContain('require it to propose no further mutation for those records');

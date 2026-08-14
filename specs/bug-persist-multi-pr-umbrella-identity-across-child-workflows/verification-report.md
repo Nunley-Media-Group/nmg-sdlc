@@ -26,8 +26,8 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 | **Overall** | **5.0** |
 
 **Status**: Pass (defect fix)
-**Total Issues Found During Review**: 50
-**Issues Fixed**: 50
+**Total Issues Found During Review**: 52
+**Issues Fixed**: 52
 **Review Findings Rejected After Verification**: 2
 **Remaining Issues**: 0
 
@@ -169,7 +169,8 @@ The original failure was reproduced from the pre-fix contracts: parent identity 
 | High | Parent hydration completeness | start-issue and write-code | A nested native parent omitted body and complete sub-issues but could still appear authoritative. | Native parents now hydrate body, labels, and paginated sub-issues before identity or sibling derivation; partial records are unverifiable. | CodeRabbit + skill-creator |
 | Medium | Status schema integrity | status CLI and tests | Failed issue lookup omitted the documented nullable `coordination` field. | Branch- and PR-derived issue shells initialize `coordination: null`; success replaces it with the classifier result, and JSON serialization is covered. | CodeRabbit + direct |
 | High | Recovery repository and graph integrity | upgrade recovery | Apply could rely on ambient repository context or partial pages/targets. | Audit persists `AUDITED_REPO`, apply revalidates it, all commands are repository-qualified, and any incomplete page or target makes the overall audit unverifiable with no repair proposal. | CodeRabbit + skill-creator |
-| High | Recovery concurrency and proof scope | upgrade recovery | Unconditional full-body writes could overwrite concurrent edits, while unapproved siblings could fail an otherwise correct approved repair. | Automated body repair now requires proven server-enforced compare-and-set after immediate evidence comparison; post-apply proof is limited to the approved parent, children, and evidence tuples, with remaining findings reported separately. | CodeRabbit + skill-creator |
+| High | Recovery concurrency and proof scope | upgrade recovery | Unconditional full-body writes could overwrite concurrent edits, while unapproved siblings could fail an otherwise correct approved repair. | Automated body repair now requires a proven server-enforced compare-and-set after immediate evidence comparison; post-apply proof is limited to the approved parent, children, and evidence tuples, with remaining findings reported separately. | CodeRabbit + skill-creator |
+| High | Checklist repair identity | upgrade recovery | An ordinary issue with native sub-issues and a Child Issues section could satisfy the stale-checklist repair threshold. | Checklist repair now requires a confirmed `epic` parent and one unambiguous approved coordination-child set; non-umbrella checklist content is manual-only or unverifiable. | CodeRabbit + skill-creator |
 | Medium | Pagination performance and diagnostics | status CLI and tests | Per-connection bounds still allowed excessive aggregate calls, external pagination errors were unbounded, and fallback happy-path fidelity was incomplete. | Added a shared 40-request budget, bounded pagination messages, production-shaped label fixtures, and regression coverage for successful bounded fallback and exact budget exhaustion. | CodeRabbit + direct |
 | Low | Evidence wording | verification report | One review row used a singular noun for multiple consuming operations. | Corrected “all consuming mutation” to “all consuming mutations.” | CodeRabbit + direct |
 
