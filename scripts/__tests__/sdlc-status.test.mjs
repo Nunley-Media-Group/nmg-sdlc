@@ -57,6 +57,24 @@ function localRun(command, args, options = {}) {
   };
 }
 
+function localRunWithHydratedIssue(command, args, options = {}) {
+  if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+    return {
+      ok: true,
+      status: 0,
+      stdout: JSON.stringify({
+        number: Number(args[2]),
+        title: 'Status fixture',
+        state: 'OPEN',
+        body: '',
+        labels: [],
+      }),
+      stderr: '',
+    };
+  }
+  return localRun(command, args, options);
+}
+
 function makeRepository() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-status-'));
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
@@ -273,7 +291,7 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('collects a complete matching spec and degrades when GitHub is unavailable', () => {
+  it('collects a complete matching spec and blocks when active-issue GitHub evidence is unavailable', () => {
     const evidence = collectEvidence(root, { run: localRun });
     expect(evidence.project.branch).toBe('42-status-fixture');
     expect(evidence.project.dirty).toBe(true);
@@ -294,7 +312,13 @@ describe('bounded evidence collection and read-only safety', () => {
       expect.stringContaining('GitHub issue unavailable'),
       expect.stringContaining('GitHub pull request unavailable'),
     ]));
-    expect(inferLifecycle(evidence).stage).toBe('specified');
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'deliverable_evidence_unavailable',
+      issueNumber: 42,
+      requirements: [],
+    });
+    expect(inferLifecycle(evidence).stage).toBe('blocked');
   });
 
   it('exposes the cumulative fixture active slice in JSON and text evidence', () => {
@@ -306,7 +330,7 @@ describe('bounded evidence collection and read-only safety', () => {
     );
     execFileSync('git', ['branch', '-m', '20-cumulative-scope'], { cwd: root });
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.spec.scope).toMatchObject({
       status: 'scoped',
       issueNumber: 20,
@@ -340,7 +364,7 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const current = collectEvidence(root, { run: localRun });
+    const current = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(current.verification).toMatchObject({
       status: 'pass',
       current: true,
@@ -355,12 +379,12 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const afterDocumentation = collectEvidence(root, { run: localRun });
+    const afterDocumentation = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(afterDocumentation.verification).toMatchObject({ status: 'pass', current: true });
 
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 2;\n');
 
-    const stale = collectEvidence(root, { run: localRun });
+    const stale = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(stale.verification).toMatchObject({
       status: 'pass',
       current: false,
@@ -379,7 +403,7 @@ describe('bounded evidence collection and read-only safety', () => {
       `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
     );
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.verification).toMatchObject({ status: 'pass', current: false, commit: null });
     expect(evidence.gaps).toContain('verification report is not committed; freshness cannot be proven');
     expect(inferLifecycle(evidence).stage).toBe('implemented');
@@ -399,7 +423,7 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.verification).toMatchObject({ status: 'pass', current: false, scopeMatch: false });
     expect(evidence.gaps).toContain('verification report issue scope does not match the active issue');
     expect(inferLifecycle(evidence).stage).toBe('implemented');
@@ -444,7 +468,7 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 
-  it('emits nullable coordination when active issue lookup fails', () => {
+  it('emits nullable coordination and unverifiable deliverables when active issue lookup fails', () => {
     const run = (command, args, options) => {
       if (command !== 'gh') return localRun(command, args, options);
       if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
@@ -455,6 +479,12 @@ describe('bounded evidence collection and read-only safety', () => {
     const evidence = collectEvidence(root, { run });
     expect(evidence.issue).toMatchObject({ number: 42, coordination: null });
     expect(JSON.parse(JSON.stringify(evidence.issue))).toHaveProperty('coordination', null);
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'deliverable_evidence_unavailable',
+      issueNumber: 42,
+    });
+    expect(inferLifecycle(evidence).stage).toBe('blocked');
     expect(evidence.gaps).toEqual(expect.arrayContaining([
       expect.stringContaining('GitHub issue unavailable'),
     ]));
@@ -880,7 +910,7 @@ describe('bounded evidence collection and read-only safety', () => {
     const before = worktreeSnapshot(root);
     let textOutput = '';
     let jsonOutput = '';
-    const common = { adapters: { run: localRun }, stderr: { write: () => {} } };
+    const common = { adapters: { run: localRunWithHydratedIssue }, stderr: { write: () => {} } };
 
     expect(runCli(['--project', root], {
       ...common,

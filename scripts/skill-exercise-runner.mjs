@@ -72,7 +72,7 @@ const STATUS_RUBRIC_CHECKS = [
   { id: 'S1', name: 'schema-versioned status fields are stable' },
   { id: 'S2', name: 'specified fixture infers artifacts and next command' },
   { id: 'S3', name: 'conflicting evidence stops at the last safe stage' },
-  { id: 'S4', name: 'GitHub-unavailable fixture preserves local inference' },
+  { id: 'S4', name: 'GitHub-unavailable active issue fails closed' },
   { id: 'S5', name: 'status neither prompts nor executes the next action' },
   { id: 'S6', name: 'text and JSON fixture runs preserve repository state' },
 ];
@@ -557,11 +557,11 @@ function evaluateStatusArtifact(artifact) {
     ),
     statusResult(
       'S4',
-      unavailable.stage === 'started'
+      unavailable.stage === 'blocked'
         && unavailable.issue === 145
         && unavailable.gaps?.some((gap) => /GitHub.*unavailable/i.test(gap))
         ? 'pass' : 'fail',
-      'local started-stage evidence remains usable with a named GitHub gap',
+      'active-issue delivery evidence remains blocked with a named GitHub gap',
     ),
     statusResult(
       'S5',

@@ -36,7 +36,7 @@
       "nextAction": "$nmg-sdlc:write-code #145"
     },
     "githubUnavailable": {
-      "stage": "started",
+      "stage": "blocked",
       "issue": 145,
       "gaps": [
         "GitHub issue unavailable: offline"

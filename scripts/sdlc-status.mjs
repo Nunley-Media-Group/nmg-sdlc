@@ -639,6 +639,17 @@ function collectDeliverableDependencies(projectRoot, activeIssue, coordination, 
   });
 }
 
+function unavailableDeliverableDependencies(issueNumber) {
+  return {
+    status: 'unverifiable',
+    reasonCode: 'deliverable_evidence_unavailable',
+    issueNumber,
+    defaultBranch: null,
+    requirements: [],
+    gaps: ['active issue deliverable dependency evidence is unavailable'],
+  };
+}
+
 function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   let issue = issueNumber
     ? {
@@ -647,7 +658,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
       state: 'unknown',
       source: 'branch',
       coordination: null,
-      deliverableDependencies: null,
+      deliverableDependencies: unavailableDeliverableDependencies(issueNumber),
     }
     : null;
   let pullRequest = null;
@@ -672,7 +683,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
               state: closingIssue.state ?? 'unknown',
               source: 'pullRequest',
               coordination: null,
-              deliverableDependencies: null,
+              deliverableDependencies: unavailableDeliverableDependencies(closingIssue.number),
             };
           }
           pullRequest = {
