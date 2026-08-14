@@ -1,5 +1,6 @@
 const REQUIREMENT_PREFIX = /^\s*-\s*Requires deliverable from\b/i;
 const REQUIREMENT_PATTERN = /^\s*-\s*Requires deliverable from\s+#([1-9]\d*):\s*(\S(?:.*\S)?)\s*$/i;
+const CROSS_REPOSITORY_REQUIREMENT_PATTERN = /^\s*-\s*Requires deliverable from\s+(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*|https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/issues\/[1-9]\d*):\s*\S(?:.*\S)?\s*$/i;
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_REQUIREMENTS = 50;
 const MAX_DESCRIPTION_LENGTH = 512;
@@ -53,6 +54,7 @@ export function parseDeliverableRequirements(body) {
   const seen = new Set();
   for (const line of text.split(/\r?\n/)) {
     if (!REQUIREMENT_PREFIX.test(line)) continue;
+    if (CROSS_REPOSITORY_REQUIREMENT_PATTERN.test(line)) continue;
     const match = line.match(REQUIREMENT_PATTERN);
     if (!match) {
       gaps.push(`malformed deliverable requirement: ${line.trim().slice(0, MAX_DESCRIPTION_LENGTH)}`);
@@ -64,7 +66,7 @@ export function parseDeliverableRequirements(body) {
       gaps.push(`invalid deliverable requirement: ${line.trim().slice(0, MAX_DESCRIPTION_LENGTH)}`);
       continue;
     }
-    const key = `${ownerIssue}:${description.toLowerCase()}`;
+    const key = `${ownerIssue}:${description}`;
     if (seen.has(key)) continue;
     seen.add(key);
     requirements.push({ ownerIssue, description });
@@ -182,7 +184,14 @@ export function inspectDeliverableDependencies({
 }) {
   const activeIssueNumber = positiveIssueNumber(issueNumber);
   const parsed = parseDeliverableRequirements(body);
-  const result = baseResult(activeIssueNumber, defaultBranch, parsed.requirements);
+  const dependencyNumbers = new Set(executionDependencyNumbers(executionDependencies));
+  const result = baseResult(activeIssueNumber, defaultBranch, parsed.requirements.map((requirement) => ({
+    ...requirement,
+    executionEdge: dependencyNumbers.has(requirement.ownerIssue),
+    ownerState: 'UNKNOWN',
+    mergedPullRequest: null,
+    available: false,
+  })));
 
   if (activeIssueNumber === null) {
     return {
@@ -228,7 +237,6 @@ export function inspectDeliverableDependencies({
     };
   }
 
-  const dependencyNumbers = new Set(executionDependencyNumbers(executionDependencies));
   const missingEdges = uniqueSorted(parsed.requirements
     .map((requirement) => requirement.ownerIssue)
     .filter((ownerIssue) => !dependencyNumbers.has(ownerIssue)));
@@ -237,13 +245,7 @@ export function inspectDeliverableDependencies({
       ...result,
       status: 'repair_required',
       reasonCode: 'deliverable_execution_edge_missing',
-      requirements: parsed.requirements.map((requirement) => ({
-        ...requirement,
-        executionEdge: dependencyNumbers.has(requirement.ownerIssue),
-        ownerState: 'UNKNOWN',
-        mergedPullRequest: null,
-        available: false,
-      })),
+      requirements: result.requirements,
       gaps: missingEdges.map((number) => `deliverable owner #${number} lacks a whole-issue execution dependency`),
     };
   }
@@ -253,7 +255,7 @@ export function inspectDeliverableDependencies({
   const gaps = [];
   let blocked = false;
   let unverifiable = false;
-  for (const requirement of parsed.requirements) {
+  for (const requirement of result.requirements) {
     const target = targetByNumber.get(requirement.ownerIssue);
     if (!target) {
       unverifiable = true;

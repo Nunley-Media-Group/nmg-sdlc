@@ -46,6 +46,7 @@ describe('deliverable requirement parsing', () => {
     const result = parseDeliverableRequirements([
       '- Requires deliverable from #122: T054 baseline',
       '- Requires deliverable from #122: T054 baseline',
+      '- Requires deliverable from #122: T054 Baseline',
       '- Requires deliverable from #122: schema artifact',
       'Requires deliverable from #999: not a supported bullet',
     ].join('\n'));
@@ -53,8 +54,22 @@ describe('deliverable requirement parsing', () => {
     expect(result).toEqual({
       requirements: [
         { ownerIssue: 122, description: 'T054 baseline' },
+        { ownerIssue: 122, description: 'T054 Baseline' },
         { ownerIssue: 122, description: 'schema artifact' },
       ],
+      gaps: [],
+    });
+  });
+
+  it('ignores supported cross-repository prerequisite records', () => {
+    const result = parseDeliverableRequirements([
+      '- Requires deliverable from org/repo#122: external baseline',
+      '- Requires deliverable from https://github.com/org/repo/issues/123: external schema',
+      '- Requires deliverable from #124: local artifact',
+    ].join('\n'));
+
+    expect(result).toEqual({
+      requirements: [{ ownerIssue: 124, description: 'local artifact' }],
       gaps: [],
     });
   });
@@ -159,16 +174,44 @@ describe('deliverable dependency classification', () => {
   });
 
   it('requires a valid default branch and rejects self-owned prerequisites', () => {
-    expect(inspect({ defaultBranch: null })).toMatchObject({
+    const defaultBranch = inspect({ defaultBranch: null });
+    expect(defaultBranch).toMatchObject({
       status: 'unverifiable',
       reasonCode: 'default_branch_unverifiable',
+      requirements: [{
+        ownerIssue: 122,
+        executionEdge: true,
+        ownerState: 'UNKNOWN',
+        mergedPullRequest: null,
+        available: false,
+      }],
     });
-    expect(inspect({
+    const relationships = inspect({ relationshipEvidenceComplete: false });
+    expect(relationships).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'execution_relationships_unverifiable',
+      requirements: [{
+        ownerIssue: 122,
+        executionEdge: true,
+        ownerState: 'UNKNOWN',
+        mergedPullRequest: null,
+        available: false,
+      }],
+    });
+    const selfReference = inspect({
       issueNumber: 122,
       body: '- Requires deliverable from #122: self\nDepends on: #122',
-    })).toMatchObject({
+    });
+    expect(selfReference).toMatchObject({
       status: 'repair_required',
       reasonCode: 'deliverable_owner_self_reference',
+      requirements: [{
+        ownerIssue: 122,
+        executionEdge: true,
+        ownerState: 'UNKNOWN',
+        mergedPullRequest: null,
+        available: false,
+      }],
     });
   });
 });
