@@ -98,7 +98,9 @@ describe('active issue scope prompt contract', () => {
       '$nmg-sdlc:write-spec #N',
     ]);
     expectFragments('scripts/sdlc-status.mjs', [
-      "import { inspectIssueSpecScope } from './issue-spec-scope.mjs';",
+      'inspectIssueSpecScope,',
+      'ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,',
+      "from './issue-spec-scope.mjs';",
       "['repair_required', 'unverifiable']",
       'verification report issue scope does not match the active issue',
       '`Scope: ${scope}`',

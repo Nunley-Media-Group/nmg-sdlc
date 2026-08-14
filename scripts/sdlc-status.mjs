@@ -21,7 +21,10 @@ import {
   inspectDeliverableDependencies,
   parseDeliverableRequirements,
 } from './deliverable-dependencies.mjs';
-import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
+import {
+  inspectIssueSpecScope,
+  ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
+} from './issue-spec-scope.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -839,7 +842,11 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
             issueNumber: activeIssueNumber,
           },
           {
-            readFile: (filePath) => readBounded(adapters.fs, filePath),
+            readFile: (filePath) => readBounded(
+              adapters.fs,
+              filePath,
+              ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
+            ),
             lstat: (filePath) => adapters.fs.lstatSync(filePath),
             realpath: (filePath) => adapters.fs.realpathSync(filePath),
           },

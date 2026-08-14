@@ -1,0 +1,34 @@
+# File: specs/bug-fix-aggregate-status-truncation-of-cumulative-specs/feature.gherkin
+#
+# Generated from: specs/bug-fix-aggregate-status-truncation-of-cumulative-specs/requirements.md
+# Issue: #169
+# Type: Defect regression
+
+@regression
+Feature: Aggregate status truncates resolver-valid cumulative specs
+  Aggregate status previously supplied a 65,536-byte reader to a scope resolver
+  whose canonical Markdown contract permits complete documents up to 262,144 bytes.
+  The scope-specific adapter now reads the same complete bounded content as direct inspection.
+
+  @SCN001 @regression
+  Scenario: Aggregate status reads a valid mapped identifier after 65,536 bytes
+    Given a cumulative spec document larger than 65,536 bytes and no larger than 262,144 bytes
+    And a manifest-owned task identifier occurs after byte 65,536
+    When direct scope inspection and aggregate lifecycle status inspect the active issue
+    Then both results include the late task in the same inventory and delivery slice
+    And both scope results are scoped with no gaps
+
+  @SCN002 @regression
+  Scenario: Unrelated reader bounds and the resolver maximum remain unchanged
+    Given status discovery and verification reads retain their existing explicit or default bounds
+    When the aggregate scope adapter uses the resolver-specific Markdown limit
+    Then unrelated status reads do not inherit the broader scope limit
+    And a scope document above 262,144 bytes fails closed with the existing size diagnostic
+
+  @SCN003 @regression
+  Scenario: Correct scope parity advances the lifecycle beyond specification repair
+    Given a resolver-valid cumulative fixture maps a late task to the active issue
+    When aggregate status infers the lifecycle from the complete scope result
+    Then the scope status matches direct inspection as scoped
+    And the next action is $nmg-sdlc:write-code for the active issue
+    And the next action is not $nmg-sdlc:write-spec

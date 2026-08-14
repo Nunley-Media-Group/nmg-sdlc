@@ -13,7 +13,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const SPEC_PATH = /^specs\/[a-z0-9][a-z0-9-]*$/;
-const MARKDOWN_LIMIT_BYTES = 256 * 1024;
+export const ISSUE_SPEC_MARKDOWN_LIMIT_BYTES = 256 * 1024;
 const MANIFEST_LIMIT_BYTES = 128 * 1024;
 const GROUP_CATEGORIES = Object.freeze({
   owned: Object.freeze(['acceptanceCriteria', 'functionalRequirements', 'tasks', 'scenarios']),
@@ -543,8 +543,8 @@ export function inspectIssueSpecScope(options, adapters = {}) {
       if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
         throw new Error('must be a regular file and not a symbolic link');
       }
-      if (fileStat.size > MARKDOWN_LIMIT_BYTES) {
-        throw new Error(`exceeds the ${MARKDOWN_LIMIT_BYTES}-byte inspection limit`);
+      if (fileStat.size > ISSUE_SPEC_MARKDOWN_LIMIT_BYTES) {
+        throw new Error(`exceeds the ${ISSUE_SPEC_MARKDOWN_LIMIT_BYTES}-byte inspection limit`);
       }
       documents[key] = readFile(filePath);
     } catch (error) {
