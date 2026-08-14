@@ -57,6 +57,24 @@ function localRun(command, args, options = {}) {
   };
 }
 
+function localRunWithHydratedIssue(command, args, options = {}) {
+  if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+    return {
+      ok: true,
+      status: 0,
+      stdout: JSON.stringify({
+        number: Number(args[2]),
+        title: 'Status fixture',
+        state: 'OPEN',
+        body: '',
+        labels: [],
+      }),
+      stderr: '',
+    };
+  }
+  return localRun(command, args, options);
+}
+
 function makeRepository() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-status-'));
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
@@ -200,6 +218,50 @@ describe('lifecycle inference', () => {
     ]));
   });
 
+  it('stops lifecycle progression for blocked and repair-required deliverables', () => {
+    const blocked = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: {
+        number: 42,
+        title: 'Feature',
+        state: 'OPEN',
+        source: 'branch',
+        deliverableDependencies: {
+          status: 'blocked',
+          reasonCode: 'deliverable_not_merged',
+          requirements: [{ ownerIssue: 10, available: false }],
+          gaps: ['deliverable owner #10 has no merged closing pull request to main'],
+        },
+      },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+    }));
+    expect(blocked).toMatchObject({
+      stage: 'blocked',
+      nextAction: { command: '$nmg-sdlc:status', manualRepairRequired: false },
+    });
+    expect(renderText(blocked)).toContain('Deliverables: blocked (#10:unavailable)');
+
+    const repair = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature' },
+      issue: {
+        number: 42,
+        title: 'Feature',
+        state: 'OPEN',
+        source: 'branch',
+        deliverableDependencies: {
+          status: 'repair_required',
+          reasonCode: 'deliverable_execution_edge_missing',
+          requirements: [{ ownerIssue: 10, available: false }],
+          gaps: ['deliverable owner #10 lacks a whole-issue execution dependency'],
+        },
+      },
+    }));
+    expect(repair).toMatchObject({
+      stage: 'blocked',
+      nextAction: { command: '$nmg-sdlc:upgrade-project' },
+    });
+  });
+
   test.each([
     ['closed issue', { issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' } }],
     ['closed unmerged pull request', { pullRequest: { number: 50, state: 'CLOSED', url: null, checks: 'absent' } }],
@@ -229,7 +291,7 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('collects a complete matching spec and degrades when GitHub is unavailable', () => {
+  it('collects a complete matching spec and blocks when active-issue GitHub evidence is unavailable', () => {
     const evidence = collectEvidence(root, { run: localRun });
     expect(evidence.project.branch).toBe('42-status-fixture');
     expect(evidence.project.dirty).toBe(true);
@@ -250,7 +312,19 @@ describe('bounded evidence collection and read-only safety', () => {
       expect.stringContaining('GitHub issue unavailable'),
       expect.stringContaining('GitHub pull request unavailable'),
     ]));
-    expect(inferLifecycle(evidence).stage).toBe('specified');
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'deliverable_evidence_unavailable',
+      issueNumber: 42,
+      requirements: [],
+    });
+    expect(inferLifecycle(evidence)).toMatchObject({
+      stage: 'blocked',
+      nextAction: {
+        command: '$nmg-sdlc:status',
+        manualRepairRequired: true,
+      },
+    });
   });
 
   it('exposes the cumulative fixture active slice in JSON and text evidence', () => {
@@ -262,7 +336,7 @@ describe('bounded evidence collection and read-only safety', () => {
     );
     execFileSync('git', ['branch', '-m', '20-cumulative-scope'], { cwd: root });
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.spec.scope).toMatchObject({
       status: 'scoped',
       issueNumber: 20,
@@ -296,7 +370,7 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const current = collectEvidence(root, { run: localRun });
+    const current = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(current.verification).toMatchObject({
       status: 'pass',
       current: true,
@@ -311,12 +385,12 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const afterDocumentation = collectEvidence(root, { run: localRun });
+    const afterDocumentation = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(afterDocumentation.verification).toMatchObject({ status: 'pass', current: true });
 
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 2;\n');
 
-    const stale = collectEvidence(root, { run: localRun });
+    const stale = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(stale.verification).toMatchObject({
       status: 'pass',
       current: false,
@@ -335,7 +409,7 @@ describe('bounded evidence collection and read-only safety', () => {
       `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
     );
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.verification).toMatchObject({ status: 'pass', current: false, commit: null });
     expect(evidence.gaps).toContain('verification report is not committed; freshness cannot be proven');
     expect(inferLifecycle(evidence).stage).toBe('implemented');
@@ -355,7 +429,7 @@ describe('bounded evidence collection and read-only safety', () => {
       stdio: 'ignore',
     });
 
-    const evidence = collectEvidence(root, { run: localRun });
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
     expect(evidence.verification).toMatchObject({ status: 'pass', current: false, scopeMatch: false });
     expect(evidence.gaps).toContain('verification report issue scope does not match the active issue');
     expect(inferLifecycle(evidence).stage).toBe('implemented');
@@ -400,7 +474,7 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 
-  it('emits nullable coordination when active issue lookup fails', () => {
+  it('emits nullable coordination and unverifiable deliverables when active issue lookup fails', () => {
     const run = (command, args, options) => {
       if (command !== 'gh') return localRun(command, args, options);
       if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
@@ -411,6 +485,18 @@ describe('bounded evidence collection and read-only safety', () => {
     const evidence = collectEvidence(root, { run });
     expect(evidence.issue).toMatchObject({ number: 42, coordination: null });
     expect(JSON.parse(JSON.stringify(evidence.issue))).toHaveProperty('coordination', null);
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'deliverable_evidence_unavailable',
+      issueNumber: 42,
+    });
+    expect(inferLifecycle(evidence)).toMatchObject({
+      stage: 'blocked',
+      nextAction: {
+        command: '$nmg-sdlc:status',
+        manualRepairRequired: true,
+      },
+    });
     expect(evidence.gaps).toEqual(expect.arrayContaining([
       expect.stringContaining('GitHub issue unavailable'),
     ]));
@@ -475,6 +561,89 @@ describe('bounded evidence collection and read-only safety', () => {
     const status = inferLifecycle(evidence);
     expect(status.stage).toBe('specified');
     expect(renderText(status)).toContain('Coordination: epic-child (durable; consistency: consistent; authority: native; degraded: no) parent #10');
+  });
+
+  it('hydrates merged default-branch evidence for a structured deliverable requirement', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: '- Requires deliverable from #122: schema baseline\n\nDepends on: #122',
+      labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      parent: null,
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const relationshipTarget = {
+      number: 122,
+      state: 'CLOSED',
+      body: '',
+      labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const deliverableTarget = {
+      number: 122,
+      state: 'CLOSED',
+      closedByPullRequestsReferences: {
+        nodes: [{
+          number: 200,
+          state: 'MERGED',
+          mergedAt: '2026-08-14T10:00:00Z',
+          baseRefName: 'main',
+          mergeCommit: { oid: 'a'.repeat(40) },
+        }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    };
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ ...active, labels: [] }),
+          stderr: '',
+        };
+      }
+      if (args[0] === 'repo') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({
+            nameWithOwner: 'example/project',
+            defaultBranchRef: { name: 'main' },
+          }),
+          stderr: '',
+        };
+      }
+      if (args[0] === 'api') {
+        const query = args.find((argument) => argument.startsWith('query=')) ?? '';
+        const repository = query.includes('closedByPullRequestsReferences')
+          ? { target122: deliverableTarget }
+          : { active, target122: relationshipTarget };
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ data: { repository } }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected GitHub command: ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.issue.deliverableDependencies).toMatchObject({
+      status: 'ready',
+      reasonCode: 'deliverables_available',
+      defaultBranch: 'main',
+      requirements: [{
+        ownerIssue: 122,
+        executionEdge: true,
+        available: true,
+        mergedPullRequest: { number: 200, baseRefName: 'main' },
+      }],
+    });
+    expect(inferLifecycle(evidence).stage).toBe('specified');
   });
 
   it('fails coordination closed when native sibling pagination is incomplete', () => {
@@ -753,7 +922,7 @@ describe('bounded evidence collection and read-only safety', () => {
     const before = worktreeSnapshot(root);
     let textOutput = '';
     let jsonOutput = '';
-    const common = { adapters: { run: localRun }, stderr: { write: () => {} } };
+    const common = { adapters: { run: localRunWithHydratedIssue }, stderr: { write: () => {} } };
 
     expect(runCli(['--project', root], {
       ...common,

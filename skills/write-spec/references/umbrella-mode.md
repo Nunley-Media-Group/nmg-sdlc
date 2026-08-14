@@ -66,6 +66,8 @@ Capture the umbrella issue number `U` for use in child issue creation below.
 
 Each child issue carries one independently-deployable unit of work from the Delivery Phases table (feature path) or the Decomposition section of the spike-researcher output (spike path).
 
+Read `../../../references/deliverable-dependencies.md` before finalizing the child plan. Inventory the task IDs and named artifacts owned by each child. A child that consumes a sibling-owned item must wait for that whole issue or for an extracted baseline issue; it cannot start at a midpoint inside the sibling.
+
 **Child issue body template:**
 
 ```markdown
@@ -96,8 +98,15 @@ See {docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md OR specs/{feature-name}/de
 
 {What this child does NOT cover}
 
+## Deliverable Dependencies
+
+- Requires deliverable from #{owner-child}: {task IDs and/or artifact description}
+
 Depends on: #{U}
+Depends on: #{owner-child}
 ```
+
+Omit the Deliverable Dependencies section and sibling `Depends on:` line when the child has no cross-child prerequisite. Keep the coordination-parent line separate; it does not satisfy a sibling execution dependency.
 
 **Required body line** (machine-read by `open-pr` epic-child downgrade rule):
 
@@ -133,11 +142,13 @@ gh issue edit #{U} --add-sub-issue #{child-N}
 
 Before this sequence begins for a multi-PR feature, the Phase 3 flow must prove the approved umbrella spec canonical on the freshly fetched remote default branch through `../../references/canonical-umbrella-spec.md`. A seal commit or open publication PR is not enough.
 
-1. Create the umbrella issue (no child numbers yet — use placeholder checklist rows if needed).
-2. Create each child issue in dependency order (leaves first). Capture each `#{child-N}`.
-3. Update the umbrella's child checklist with the real issue numbers (edit the body).
-4. Run the autolink loop: for each child, `gh issue edit #{U} --add-sub-issue #{child-N}` (probe first).
-5. Re-fetch `U` and every child, then classify each child through `../../../references/epic-relationships.md`. Require `role = epic-child`, `parentNumber = U`, `identity = durable`, `consistency = consistent`, `nativeAuthority = native`, and matching native plus body signals. Session state may cache the just-observed number for the current action, but every later command must re-resolve it from GitHub.
+1. Validate the approved task/artifact ownership map and deliverable boundaries. Stop on every prose-only midpoint checkpoint.
+2. Create the umbrella issue (no child numbers yet — use placeholder checklist rows if needed).
+3. Create each child issue in topological dependency order (prerequisite owners before consumers). Capture each `#{child-N}`.
+4. Update the umbrella's child checklist with the real issue numbers (edit the body).
+5. Run the autolink loop: for each child, `gh issue edit #{U} --add-sub-issue #{child-N}` (probe first).
+6. Re-fetch `U` and every child, then classify each child through `../../../references/epic-relationships.md`. Require `role = epic-child`, `parentNumber = U`, `identity = durable`, `consistency = consistent`, `nativeAuthority = native`, and matching native plus body signals. Session state may cache the just-observed number for the current action, but every later command must re-resolve it from GitHub.
+7. Run the deliverable classifier for every child with a structured prerequisite. Require `ready` or truthfully `blocked`; `repair_required` or `unverifiable` is a partial handoff and cannot produce a start hint.
 
 If canonical proof is pending, divergent, ambiguous, or unverifiable, stop before Step 1 and report the publication PR or recovery evidence. On rerun after merge, re-fetch and reclassify; do not trust cached status or commit-message ancestry.
 
@@ -152,5 +163,6 @@ This reference gives `$nmg-sdlc:write-spec` a single production recipe. The *mac
 | Canonical status, PR marker, and child-readiness rules | `references/canonical-umbrella-spec.md` |
 | Phase 3 Seal-Spec Flow (trigger, exact seal, publication PR, canonical recheck) | `skills/write-spec/SKILL.md` § 3b |
 | Epic Coordination template and multi-issue batch mode | `skills/draft-issue/references/multi-issue.md` |
+| Cross-child prerequisite, readiness, audit, and repair rules | `references/deliverable-dependencies.md` |
 | Epic-child sibling-aware version downgrade | `skills/open-pr/references/version-bump.md` § 4a |
 | Spike Phase 0 HRG menu and deterministic default | `skills/write-spec/references/spike-variant.md` |

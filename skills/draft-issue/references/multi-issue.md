@@ -128,7 +128,17 @@ Runs only when `session.proposedSplit` is non-null after Step 1c.
 2. **Shared component — precursor** — if two asks mention the same top-level component and one ask's summary contains foundational language (`"add"`, `"create"`, `"introduce"`, `"scaffold"`) while the other contains modification language (`"update"`, `"enhance"`, `"extend"`, `"wire"`), the scaffolding ask is the parent.
 3. **AC/FR overlap** — if segments describe the same acceptance criterion with differing scope (one broader, one narrower), the narrower ask depends on the broader one.
 
-Normalize the result to a DAG. On cycle detection, drop the lowest-priority edge (last rule applied wins tie-breaks) and emit a visible note: `"Graph cycle detected — dropped edge A{X} → A{Y}."`
+#### Deliverable-boundary validation
+
+Read `../../../references/deliverable-dependencies.md`. Before rendering the graph:
+
+1. Inventory task IDs and named artifacts owned by each planned ask. When the batch comes from `write-spec`, use its approved task/artifact ownership map; otherwise use explicit task/artifact statements in each ask and the investigation summary.
+2. Detect references from one ask to another ask's task or artifact, including explicit `after`, `requires`, `consume`, `baseline`, and `checkpoint` language.
+3. Classify each reference as a whole-issue wait or a separately reviewed baseline-extraction proposal. Recommend a whole-issue wait unless the baseline is independently reviewable and parallel delivery materially requires another issue/PR.
+4. For a whole-issue wait, add the owner-to-consumer DAG edge and store `{owner, consumer, description, boundary: "whole-issue"}` in the current scope's deliverable prerequisite list. For extraction, stop before the graph gate and return the proposed baseline ownership, consumers, and task/artifact scope for a separate `$nmg-sdlc:draft-issue` plus `$nmg-sdlc:write-spec` review; do not revise `session.proposedSplit` or create an ask inside this flow. When a later invocation consumes that separately approved plan, require the baseline ask to exist, add its owner-to-consumer edges, and store one `{owner, consumer, description, boundary: "baseline"}` record per consumer before drafting.
+5. If any reference still points to a midpoint inside a broader child, stop before the graph gate. Do not represent it as schedulable prose.
+
+Normalize the result to a DAG. A deliverable-boundary edge is mandatory and may not be dropped to break a cycle; return the conflicting plan to boundary resolution instead. For a cycle containing only heuristic non-deliverable edges, drop the lowest-priority edge (last rule applied wins tie-breaks) and emit a visible note: `"Graph cycle detected — dropped edge A{X} → A{Y}."`
 
 #### Render
 
@@ -139,6 +149,9 @@ Proposed dependency graph:
   A1 ──▶ A4
 
 (A1 is the root; A3 and A4 are leaves.)
+
+Deliverable boundaries:
+  A2 requires A1 — T054 validated schema/register baseline (whole-issue dependency)
 ```
 
 Present a `request_user_input` gate:
@@ -151,13 +164,14 @@ options:
   - "[3] Flatten — no dependencies between issues"
 ```
 
-- **`[1] Approve`** — proceed to the Per-Issue Loop.
-- **`[2] Adjust edges`** — use the free-form `Other` answer for `"Describe the edge to add or remove, e.g., 'A2 depends on A4' or 'remove A1 → A3'"`; apply; re-render; re-present the `request_user_input` gate.
-- **`[3] Flatten`** — clear all edges (`session.dag = []`); proceed.
+- **`[1] Approve`** — proceed only when every displayed cross-child prerequisite has a deliverable boundary.
+- **`[2] Adjust edges`** — use the free-form `Other` answer for `"Describe the edge to add or remove, e.g., 'A2 depends on A4' or 'remove A1 → A3'"`; apply only when every deliverable prerequisite remains represented, then re-render and re-present the gate. Removing a required edge first requires an approved baseline extraction or ownership change.
+- **`[3] Flatten`** — clear all edges only when the plan has no cross-child deliverable prerequisites. Otherwise explain which required edges prevent flattening and re-present the gate.
 
 ### Output
 
 - `session.dag` — ordered list of `{parent: askId, child: askId}` pairs; empty on flatten
+- `session.deliverablePrerequisites` — ordered scope-bound records `{owner, consumer, description, boundary}` approved with the graph
 
 ### Human Review Gate
 
@@ -175,9 +189,10 @@ The confirmed split + DAG drives a loop over Steps 2–9. Each iteration runs th
 |-------|--------|-----------|
 | `session.productContext` | Step 1 | Step 4 investigation |
 | `session.dag` | Step 1d | Step 6 and Step 10.4 body cross-ref placeholders |
+| `session.deliverablePrerequisites` | Step 1d | Step 6 structured records and Step 10.5 graph verification |
 | `session.coordinationMembershipEdges` | Initialized empty; Step 10.1 epic fan-out is the sole append owner | Steps 10.2-10.3 native umbrella membership |
 
-Iterations **must not mutate** `session.productContext` or `session.dag`. They may read `session.coordinationMembershipEdges`, but only the Step 10.1 epic fan-out operation may append an exact created parent/child pair. Everything else — classification, milestone, investigation, interview answers, depth, understanding, draft, review counter — lives in a per-iteration `DraftState`.
+Iterations **must not mutate** `session.productContext`, `session.dag`, or the approved deliverable prerequisite records. They may read `session.coordinationMembershipEdges`, but only the Step 10.1 epic fan-out operation may append an exact created parent/child pair. Everything else — classification, milestone, investigation, interview answers, depth, understanding, draft, review counter — lives in a per-iteration `DraftState`.
 
 ### Loop ordering
 
@@ -214,6 +229,7 @@ SessionState {
   } | null
 
   dag: [{ parent: askId, child: askId }]
+  deliverablePrerequisites: [{ scopeId, owner: askId, consumer: askId, description, boundary }]
   coordinationMembershipEdges: [{ scopeId, parent: issueNumber, child: issueNumber }]  // initialized []
 
   subIssueSupported: boolean | null
@@ -231,6 +247,7 @@ DraftState {
   scopeId: string  // outer or epic-<created-epic-issue-number>
   planId: askId
   activeDag: [{ parent: askId, child: askId }]  // read-only outer or child-scoped graph
+  activeDeliverablePrerequisites: [{ owner: askId, consumer: askId, description, boundary }]  // read-only, current scope
   coordinationParentNumber: issueNumber | null  // separate from execution dependencies
   description: string  // per-ask summary + sourceText (or original description on single-issue path)
   classification: 'feature' | 'bug' | 'epic'
@@ -297,6 +314,7 @@ Runs after the Per-Issue Loop (or immediately after Step 9 on the single-issue p
 - `session.dag` (from Step 1d)
 - `session.coordinationMembershipEdges` (initialized empty; populated only by Step 10.1 epic fan-out)
 - Step 10-local `childDagsByEpic`, `childPlansByEpic`, and `childBatchSummaries` maps (initialized empty; never replace `session.proposedSplit` or `session.dag`)
+- Step 10-local `childDeliverablesByEpic` map populated from the approved Delivery Phases/task ownership input
 
 ### Process
 
@@ -305,9 +323,9 @@ Runs after the Per-Issue Loop (or immediately after Step 9 on the single-issue p
 For every successfully created iteration whose `classification === 'epic'`, after the epic issue itself exists:
 
 1. **Parse Delivery Phases** from the epic body (already synthesized in Step 6). Each row yields a planned child with a short summary and optional sibling prerequisites (the `Depends On` column).
-2. **Build a child-local plan and DAG.** Set `scopeId = epic-<created-epic-issue-number>`. Convert the Delivery Phases into a step-local `childPlan`, and convert their prerequisites into `childDag`; validate every endpoint against that child plan and topologically order it with the same deterministic rules as Step 1d. Store them in `childPlansByEpic[scopeId]` and `childDagsByEpic[scopeId]` for Steps 10.1, 10.4, 10.5, and summary accounting. Never replace or mutate the outer `session.proposedSplit` or `session.dag`.
-3. **Enter batch mode for the children.** Iterate `childPlan` directly, set each child's draft classification (Feature unless the row summary starts with `bug:`), and run the Per-Issue Loop starting at Step 2. Pass `scopeId`, the matching `childDag` as read-only `activeDag`, and the created epic issue number as the separate `coordinationParentNumber` for every child; nested Steps 2-9 must not read or mutate the outer plan or DAG.
-4. **Enforce child body identity.** Step 6 writes `Depends on: #{epic-number}` from `coordinationParentNumber`. Each intra-epic prerequisite separately produces `Depends on: #{sibling-number}` from `activeDag`; the epic signal never becomes an ordinary DAG edge or execution dependency.
+2. **Build a child-local plan, DAG, and deliverable map.** Set `scopeId = epic-<created-epic-issue-number>`. Convert the Delivery Phases into a step-local `childPlan`, combine its prerequisites with the approved task/artifact ownership inventory, and run the Step 1d deliverable-boundary validation before child creation. A baseline-extraction proposal stops this child batch for separate draft/spec review; it never revises `childPlan` in place. Store the valid graph in `childDagsByEpic[scopeId]` and the approved prerequisite records, including `boundary: "baseline"` records from any already approved extracted-baseline ask, in `childDeliverablesByEpic[scopeId]`. Validate every endpoint and topologically order it with the same deterministic rules as Step 1d. Never replace or mutate the outer `session.proposedSplit` or `session.dag`. Never replace the approved outer or child-scoped deliverable list.
+3. **Enter batch mode for the children.** Iterate `childPlan` directly, set each child's draft classification (Feature unless the row summary starts with `bug:`), and run the Per-Issue Loop starting at Step 2. Pass `scopeId`, the matching `childDag` as read-only `activeDag`, matching prerequisites as `activeDeliverablePrerequisites`, and the created epic issue number as the separate `coordinationParentNumber` for every child; nested Steps 2-9 must not read or mutate the outer plan, DAG, or deliverable records.
+4. **Enforce child body identity and deliverables.** Step 6 writes `Depends on: #{epic-number}` from `coordinationParentNumber`. Each intra-epic prerequisite separately produces `Depends on: #{sibling-number}` from `activeDag`; every cross-child task/artifact prerequisite also writes its structured `Requires deliverable` record. The epic signal never becomes an ordinary DAG edge or execution dependency.
 5. **Persist labels.** Lazily create `epic-child-of-<epic>` with color `BFD4F2`, then apply it plus `enhancement` (not `epic`) to every child. Each child has exactly one `epic-child-of-N` label.
 6. **Populate the native queue.** Append exactly one `{scopeId, parent: epic.issueNumber, child: child.issueNumber}` entry per created child to `session.coordinationMembershipEdges`. This operation is the queue's sole append owner. It does not run `gh issue edit`; sibling prerequisites stay body-only execution dependencies.
 7. **Prepare the epic checklist.** Replace child placeholders in the epic's Child Issues checklist and Delivery Phases table with the captured issue numbers in the pending Step 10.4 body content.
@@ -348,6 +366,8 @@ gh issue edit <issue.number> --body-file <updated-body>
 
 Body cross-refs are written **unconditionally** — independent of `session.subIssueSupported` and independent of whether any `--add-sub-issue` call succeeded.
 
+Resolve `- Requires deliverable from <askId>: description` placeholders through the same same-scope map. A created owner becomes `#N`; an uncreated owner retains `(planned but not created)` and the handoff remains partial. Never resolve an owner from another scope.
+
 For an epic, this step also writes the prepared Child Issues checklist and Delivery Phases replacements to the epic body with the same temporary-body-file discipline.
 
 #### 10.5 Re-Fetch and Verify the Complete Expected Edge Set
@@ -355,6 +375,7 @@ For an epic, this step also writes the prepared Child Issues checklist and Deliv
 Re-fetch every issue affected by `session.dag`, `childDagsByEpic`, or `session.coordinationMembershipEdges`. Normalize the complete body, label, parent, and inverse sub-issue evidence through `../../../references/epic-relationships.md`.
 
 - For each outer or child-scoped DAG pair, first inspect same-scope creation records. When both endpoints were created, require one concrete supported body pair and an `executionDependencies` entry rather than a native parent assignment. When either endpoint was not created, require the surviving affected body to retain `(planned but not created)` and classify the edge as planned/abandoned rather than missing concrete evidence.
+- For each approved deliverable prerequisite, require the concrete structured record, the same owner/consumer execution-dependency pair, and agreement with the task/artifact ownership inventory. Invoke the shared classifier; only `ready` or truthfully `blocked` is graph-consistent. `repair_required` or `unverifiable` makes the batch a partial handoff.
 - Require every queued epic membership to be `role = epic-child`, have its expected `parentNumber`, `identity = durable`, `consistency = consistent`, `nativeAuthority = native`, and matching native plus body signals.
 - Require the observed pair set to contain every expected edge with no missing, duplicate, or conflicting target before the batch summary reports success.
 - If `session.nativeLinkComplete` is false or re-fetch yields `nativeAuthority = checklist-fallback`/`incomplete`, return `native-degraded partial handoff`, preserve the exact created issues and body/label evidence, and direct recovery to `$nmg-sdlc:upgrade-project`. Never treat fallback evidence as successful creation, completion, or permission to continue another lifecycle mutation.
@@ -401,6 +422,7 @@ Created N of M planned issues
 Autolinking:
   - Native epic memberships wired: <count> / <total coordinationMembershipEdges>
   - Concrete execution-dependency body cross-refs written: <count> / <edges whose same-scope endpoints both exist>
+  - Deliverable prerequisites represented: <count> / <approved cross-child prerequisites>
   - Planned markers retained: <count> / <edges with an abandoned or uncreated same-scope endpoint>
   [If degraded]: Native membership incomplete — exact surviving labels, bodies, and edges listed below.
 

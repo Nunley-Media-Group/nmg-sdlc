@@ -15,6 +15,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/epic-relationships.md` when Step 1a begins — it defines the durable label/native/body tuple, shared result fields, target hydration, fail-safe classification, sibling reconciliation, and completion rules used by every manual epic consumer.
 
+Read `../../references/deliverable-dependencies.md` when Step 1a begins. Structured cross-child prerequisites add owner targets and merged-default-branch evidence to readiness; they never replace epic identity or ordinary execution-dependency direction.
+
 Read `../../references/canonical-umbrella-spec.md` after a selected issue is confirmed and relationship classification identifies a coordination epic. Resolve the helper from the installed plugin root, not the consumer project.
 
 ## Workflow Overview
@@ -86,6 +88,8 @@ Page every candidate and native-parent `subIssues` connection and every candidat
 
 Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference.
 
+Also parse exact `Requires deliverable` records before applying the target bound. Add every declared owner to the hydration set. Query the live repository default branch and fully page each owner's `closedByPullRequestsReferences` with PR number, state, merge time, base name, and merge-commit OID. Body-only fallback cannot prove merged deliverable availability: a candidate with structured requirements becomes `unverifiable` when this GraphQL evidence is unavailable.
+
 If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — this is not a fallback condition.
 
 ### Parse Body Cross-Refs
@@ -102,6 +106,8 @@ Extract issue numbers with `#?(\d+)`. Normalize: `Blocks: #Y` on issue `X` is re
 ### Build and Classify the Graph
 
 Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues), body cross-refs, and child labels. Derive `role`, `parentNumber`, `identity`, `consistency`, `nativeAuthority`, `degraded`, `coordinationPairs`, `executionDependencies`, and `gaps` exactly as specified by the shared reference. Build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from `executionDependencies` only. Stop selection before presentation when a candidate has `inconsistent`, `ambiguous`, or `unverifiable` coordination identity; name the candidate and exact gaps instead of silently reclassifying it.
+
+Run the deliverable classifier for every candidate after relationship classification. Preserve `none` and `ready`. Drop `blocked` candidates from selection and count them with other blocked issues. Stop selection before presentation for `repair_required` or `unverifiable`, naming the candidate, owner, reason code, and gaps; direct repair-required plans to `$nmg-sdlc:upgrade-project`. Never report a structured prerequisite ready from issue closure alone.
 
 Native link normalization happens before classification: a `parent` entry on issue `C` with `{number: P}` adds pair `(C, P)`; a `subIssues` entry on issue `P` with node `{number: C}` adds the same inverse pair `(C, P)`. Deduplicate those signals with body and label evidence. Add `P` to `parentsOf[C]` only when the classified pair appears in `executionDependencies`; never add a confirmed `coordinationPairs` entry to `parentsOf`.
 
@@ -173,7 +179,8 @@ After confirmation and before stale-branch reconciliation, re-resolve the select
 
 1. Read the selected issue body and labels and use GitHub GraphQL for its native parent. Hydrate each deduplicated target's live state and labels. Never request `parent` through `gh issue view --json`.
 2. Derive the shared result. For `ordinary` or `epic`, continue unchanged. For `inconsistent`, `ambiguous`, or `unverifiable`, stop and report the exact pairs/signals/gaps. For `epic-child`, record `P = parentNumber`; report but do not block on `identity = legacy`.
-3. For `P`, run:
+3. Re-resolve structured deliverable owners, the default branch, fully paged closing-PR evidence, and normalized execution dependencies. `blocked` stops before stale-branch handling and names the unmerged owners. `repair_required` stops with `$nmg-sdlc:upgrade-project` as the repair action. `unverifiable` stops with the exact missing evidence. Only `none` or `ready` may continue.
+4. For `P`, run:
 
    ```bash
    node <plugin-root>/scripts/umbrella-spec-status.mjs \
@@ -182,8 +189,8 @@ After confirmation and before stale-branch reconciliation, re-resolve the select
      --json
    ```
 
-4. Continue only for `canonical` or `canonical_marker_lost`. Report marker loss as supporting provenance information, not a failure.
-5. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop with the exact parent, status, `reasonCode`, path/tree/ref evidence, and this next step: publish the parent through `$nmg-sdlc:write-spec #P`, or audit an affected initialized project with `$nmg-sdlc:upgrade-project`.
+5. Continue only for `canonical` or `canonical_marker_lost`. Report marker loss as supporting provenance information, not a failure.
+6. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop with the exact parent, status, `reasonCode`, path/tree/ref evidence, and this next step: publish the parent through `$nmg-sdlc:write-spec #P`, or audit an affected initialized project with `$nmg-sdlc:upgrade-project`.
 
 This gate runs before dirty-tree handling, branch creation/switching, remote-branch deletion, or project-status mutation. A failure leaves Git and GitHub unchanged.
 

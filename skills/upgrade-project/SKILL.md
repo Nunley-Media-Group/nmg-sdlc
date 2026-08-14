@@ -18,6 +18,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 5. Interactive v2 cleanup of exact obsolete runner artifacts.
 6. Read-only sealed umbrella-spec audit and explicitly approved recovery preparation.
 7. Read-only umbrella-identity audit and explicitly approved GitHub metadata repair.
+8. Read-only cross-child deliverable audit and explicitly approved manual whole-issue dependency repair handoff.
 
 `$nmg-sdlc:upgrade-project` is the only skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md`. It reads current templates at runtime so newly introduced sections can be proposed without rewriting existing content.
 
@@ -26,7 +27,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 - Inspect before proposing; list exact paths and exact `.gitignore` lines before any deletion.
 - Never delete, move, or overwrite project-authored content merely because its name resembles an nmg-sdlc artifact.
 - Never parse, display, execute, or signal content from `.codex/sdlc-state.json`.
-- Never mutate repository settings, secrets, branch protection, issue state, or unrelated GitHub metadata. Umbrella label, parent-link, and checklist mutations are allowed only through the separately approved, freshly revalidated recovery contract.
+- Never mutate repository settings, secrets, branch protection, issue state, or unrelated GitHub metadata. Umbrella identity and deliverable-dependency body mutations are allowed only through their separately approved, freshly revalidated recovery contracts.
 - Preserve unrelated workflows and issue templates byte-for-byte.
 - A repeated run must produce no additional diff and report the cleanup state as already clean.
 
@@ -40,6 +41,7 @@ specs/*/{requirements,design,tasks}.md  — current spec sections and frontmatte
 specs/*/                                 — legacy directory naming/consolidation
 bounded refs/heads/* and refs/remotes/origin/* — sealed umbrella-spec evidence (Git trees only)
 current-repository GitHub issue graph         — umbrella labels, native relationships, and supported body representations
+canonical umbrella task ownership + child bodies — cross-child deliverable records and bounded legacy checkpoint candidates
 .codex/upgrade-exclusions.json          — previously declined steering sections
 CHANGELOG.md and VERSION                — release-document consistency
 CONTRIBUTING.md and README.md           — managed contribution guidance
@@ -101,6 +103,14 @@ Prove graph completeness before a clean audit result: every requested issue/labe
 
 The audit is read-only. It must not add labels, change parent links, rewrite bodies, close/reopen issues, or infer repair approval. Only deterministic repairs meeting the recovery reference's evidence threshold become proposals; all other findings remain preserved for manual resolution.
 
+### Step 3.7: Audit Deliverable Dependencies
+
+Read `../../references/deliverable-dependencies.md` and `references/deliverable-dependency-recovery.md`. Reuse only complete native-authoritative umbrella identity results from Step 3.6 and canonical parent specs from Step 3.5. Inventory task/artifact ownership across confirmed children, parse exact structured requirement records, normalize whole-issue execution dependencies, and fully page every required owner's `closedByPullRequestsReferences` against the live repository default branch.
+
+Detect bounded legacy candidates only when a child body line contains a confirmed sibling reference plus a task ID or artifact/checkpoint phrase defined by the shared contract. Legacy prose is report-only evidence until task ownership and the user-approved repair make the pair exact. Record valid-ready, valid-blocked, missing-edge, plan-drift, legacy-candidate, ambiguous, and unverifiable findings with the downstream child, owner, task/artifact text, body line, edge state, and merged-delivery evidence.
+
+This audit is read-only. Incomplete pagination, noncanonical specs, degraded sibling authority, ambiguous ownership, or missing target metadata prevents a clean result and prevents a manual repair handoff. Only one exact whole-issue body/graph edit meeting the recovery reference's threshold may be offered. Because GitHub exposes no documented server-enforced issue-body compare-and-set, this skill never executes the full-body write. Baseline extraction is guidance for a separately reviewed issue/spec change, not an automatic mutation.
+
 ### Step 4: Analyze Release Documents
 
 Read `references/verification.md` for `CHANGELOG.md` and `VERSION` analysis. Preserve all manual release notes.
@@ -130,6 +140,7 @@ Show a per-file summary grouped as:
 - Related Spec Links and Frontmatter
 - Sealed Umbrella Specs
 - Umbrella Identity
+- Deliverable Dependencies
 - CHANGELOG and VERSION
 - Contribution Guide
 - Project AGENTS
@@ -145,8 +156,9 @@ Use `request_user_input` gates:
 2. Each spec consolidation/deletion group: apply or preserve.
 3. Each `stranded_recoverable` sealed-spec finding: approve that exact path/tree/source identity, preserve it, or narrow and re-present. No other sealed status is recoverable.
 4. Each deterministic umbrella-identity mutation set: approve that exact parent/children/evidence/commands set, preserve it, or narrow and re-present. Ambiguous or unverifiable findings are never offered as executable repairs.
-5. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
-6. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
+5. Each deterministic deliverable-dependency manual handoff: approve the exact downstream issue, owner, structured bullet, normalized `Depends on:` line, canonical ownership, labels/states, native relationships, default branch, closing-PR/merge evidence, and body/spec/relationship digests; preserve it; or narrow and re-present. Approval never authorizes an unconditional body overwrite. Baseline extraction, ambiguous ownership, and unverifiable findings are never offered as in-place repairs.
+6. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
+7. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
 
 No mutation occurs until the user has accepted a decision-complete plan.
 
@@ -157,6 +169,8 @@ Read `references/upgrade-procedures.md` and apply only the accepted findings. Re
 Route approved sealed-spec findings through `references/sealed-spec-recovery.md`, including its fresh reclassification and exact-source checks.
 
 Route approved umbrella-identity findings through `references/epic-identity-recovery.md`, including exact-evidence re-fetch, drift comparison, narrowly scoped GitHub commands, and post-apply idempotence audit.
+
+Route approved deliverable-dependency findings through `references/deliverable-dependency-recovery.md`, including full snapshot re-fetch, body/spec-digest and relationship drift comparison, exact manual line-edit instructions, post-edit classification after operator confirmation, and second-audit no-op proof. Do not run an issue-body mutation command.
 
 Managed contribution-gate and issue-form reconciliation is independent of cleanup approval. Declining cleanup must not suppress approved asset reconciliation; cleanup approval must not broaden asset ownership.
 
@@ -188,6 +202,15 @@ For a prepared recovery, direct the user to `$nmg-sdlc:write-spec #N` for normal
 Before the sealed-spec block, emit:
 
 ```text
+Deliverable Dependencies:
+- child #C requires #P (<task/artifact>): ready | blocked | manual repair required | already consistent | preserved (baseline extraction) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
+- Execution/body/spec agreement: clean | drift (<exact child/owner pairs>)
+- Gaps: none | <comma-separated exact records and failures>
+```
+
+Before the deliverable-dependencies block, emit:
+
+```text
 Umbrella Identity:
 - parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
 - Native/checklist reconciliation: clean | degraded | drift (<exact issue numbers>)
@@ -210,6 +233,8 @@ Umbrella Identity:
 | Default/source spec trees diverge | Preserve default as canonical and never overwrite it |
 | Approved umbrella issue evidence changed | Stop that exact metadata repair before mutation and report the changed labels, body digest, or relationship set |
 | Umbrella repair target is ambiguous or unverifiable | Preserve every record and do not offer executable repair commands |
+| Deliverable audit graph/spec/closing-PR evidence is incomplete | Preserve every finding as unverifiable and do not claim a clean audit |
+| Approved deliverable ownership, body, label/state, relationship, default-branch, or closing-PR evidence changed | Stop that exact manual handoff and report every changed snapshot field |
 
 ## Integration with SDLC Workflow
 
