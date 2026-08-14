@@ -114,6 +114,8 @@ All seven ACs have exactly one `@regression` scenario in `feature.gherkin` and d
 | Prompt quality | Pass | Instructions are ordered, exact, fail-closed, cover success/failure/recovery/decline, preserve gate integrity, reference existing packaged paths, and keep the entrypoint at 326 lines. |
 | Git hygiene | Pass | Script syntax checks and `git diff --check` exit 0. |
 
+Delivery preparation verified `VERSION` and `.codex-plugin/plugin.json` are both valid and synchronized at `2.0.4`; these exact version artifacts are owned by `$nmg-sdlc:open-pr` and are covered by T004.
+
 ---
 
 ## Fixes Applied During Verification

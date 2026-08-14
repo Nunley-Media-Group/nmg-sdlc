@@ -54,13 +54,14 @@
 
 ## T004: Document and Verify the Complete Defect Fix
 
-**Files**: `README.md`, `CHANGELOG.md`, `scripts/skill-inventory.baseline.json`, `specs/bug-prevent-spec-only-publication-from-closing-umbrella-issues/verification-report.md`, affected skill/reference/script/test paths
+**Files**: `README.md`, `CHANGELOG.md`, `VERSION`, `.codex-plugin/plugin.json`, `scripts/skill-inventory.baseline.json`, `specs/bug-prevent-spec-only-publication-from-closing-umbrella-issues/verification-report.md`, affected skill/reference/script/test paths
 **Type**: Modify / Verify
 **Depends on**: T003
 **Acceptance**:
 
 - [x] README explains the dedicated publication branch, pre-merge non-closing proof, post-merge umbrella-state proof, and exact recovery gate without changing ordinary delivery guidance.
 - [x] CHANGELOG records issue #161 under `[Unreleased]`; release artifacts are bumped only by `$nmg-sdlc:open-pr` at delivery.
+- [x] `$nmg-sdlc:open-pr` updates `VERSION` and `.codex-plugin/plugin.json` in lockstep to the accepted patch release and verifies both parse as the same semantic version.
 - [x] `$skill-creator` validation passes for every changed skill bundle and shared-reference consumer.
 - [x] Focused classifier, publication-contract, and exercise suites pass, followed by the full Jest suite with intentional live skips identified.
 - [x] Skill inventory, Codex compatibility, active plugin-surface, Git hygiene, and `git diff --check` gates pass; baseline regeneration records only intentional line-anchor changes and truthful inventory removals.
