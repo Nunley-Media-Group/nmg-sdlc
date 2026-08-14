@@ -22,6 +22,7 @@ describe('epic relationship contract', () => {
   const draftIssue = read('skills/draft-issue/references/multi-issue.md');
   const writeSpec = read('skills/write-spec/references/discovery.md');
   const openPr = read('skills/open-pr/references/version-bump.md');
+  const writeCode = read('skills/write-code/SKILL.md');
   const gherkin = read('specs/bug-fix-epic-membership-deadlocking-issue-selection/feature.gherkin');
 
   test('canonical decision table is fail-safe and excludes only confirmed epics', () => {
@@ -45,24 +46,29 @@ describe('epic relationship contract', () => {
     expect(startIssue).toContain('target lookup failure retains that relationship as blocking');
   });
 
-  test('shared contract is limited to manual consumers', () => {
+  test('shared contract covers every surviving manual consumer', () => {
     expect(shared).toContain('start-issue');
     expect(shared).toContain('write-spec');
+    expect(shared).toContain('write-code');
     expect(shared).toContain('open-pr');
     expect(shared).not.toMatch(/sdlc-(?:runner|state|config)/i);
     expect(shared).not.toMatch(/unattended[- ]mode/i);
   });
 
   test('write-spec and open-pr retain the same parent identity consumers', () => {
-    expect(writeSpec).toContain('Depends on: #NNN');
-    expect(writeSpec).toContain('Blocks: #NNN');
-    expect(writeSpec).toContain('gh issue view #N --json parent');
-    expect(writeSpec).toContain('`**Issues**` frontmatter');
+    expect(writeSpec).toContain('`Depends on:`');
+    expect(writeSpec).toContain('`Blocks:`');
+    expect(writeSpec).toContain('GitHub GraphQL');
+    expect(writeSpec).not.toContain('gh issue view #N --json parent');
+    expect(writeSpec).toContain('canonical `specPath`');
 
-    expect(openPr).toContain('Depends on: #E');
-    expect(openPr).toContain('gh issue view #N --json parent');
-    expect(openPr).toContain("parent is not labelled `epic`");
+    expect(openPr).toContain('supported body signals');
+    expect(openPr).toContain('native parent through GitHub GraphQL');
+    expect(openPr).not.toContain('gh issue view #N --json parent');
     expect(openPr).toContain("siblingClass = 'intermediate'");
+
+    expect(writeCode).toContain('Canonical Parent-Spec Gate');
+    expect(writeCode).toContain('--parent-issue P --json');
   });
 
   test('the historical issue #149 regression spec remains intact', () => {

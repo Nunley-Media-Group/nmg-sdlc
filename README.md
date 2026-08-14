@@ -108,6 +108,8 @@ $nmg-sdlc:write-spec #42
 
 Creates human-reviewed requirements, technical design, tasks, and Gherkin scenarios. Feature work may amend an existing related feature spec; defect work uses a focused defect package. Spike issues produce a gap-analysis ADR under `docs/decisions/` and require the user to choose the resulting scope shape.
 
+For multi-PR umbrella work, sealing publishes only the approved spec directory through a dedicated pull request to the repository's detected default branch. That pull request does not bump a version or close the umbrella issue, and it is never merged automatically. Re-run `$nmg-sdlc:write-spec #N` after the pull request merges: refreshed default-branch spec content is the canonical proof, so squash or rebase merges remain valid even when the original seal commit is no longer in default-branch history. Child creation and downstream start, spec, and code entry points remain blocked until that canonical proof succeeds.
+
 ### Implement
 
 ```bash
@@ -161,7 +163,7 @@ Status combines read-only git, spec, verification-report, issue, PR, and check e
 
 ## Project Upgrades and V2 Cleanup
 
-`$nmg-sdlc:upgrade-project` relocates legacy steering/spec trees, reconciles current templates and frontmatter, preserves manual changelog content, and applies the same managed contribution assets as onboarding.
+`$nmg-sdlc:upgrade-project` relocates legacy steering/spec trees, reconciles current templates and frontmatter, preserves manual changelog content, and applies the same managed contribution assets as onboarding. It also audits bounded local and `origin/*` refs for sealed multi-PR specs that never reached the refreshed default branch. Canonical and history-marker-loss states are report-only. A single unambiguous stranded tree can be restored to an absent worktree path only after exact-path approval; an already byte-identical path is a no-op. Recovery remains unstaged for the normal reviewed `$nmg-sdlc:write-spec #N` publication flow. Divergent default-branch content always wins, while ambiguous or unverifiable findings are preserved for manual resolution.
 
 For existing projects, its v2 migration proposes deletion of only these obsolete exact paths when they are regular files:
 
@@ -207,7 +209,7 @@ For plugin skills, `scripts/skill-exercise-runner.mjs` supports deterministic ar
 | `$nmg-sdlc:open-pr #N` | Version, commit, rebase, push, and create a pull request |
 | `$nmg-sdlc:address-pr-comments [#N]` | Close the automated-reviewer feedback loop |
 | `$nmg-sdlc:status [--json]` | Report manual lifecycle state without mutation |
-| `$nmg-sdlc:upgrade-project` | Reconcile current contracts, managed assets, and v2 cleanup |
+| `$nmg-sdlc:upgrade-project` | Reconcile current contracts, audit sealed specs, recover approved stranded specs, and perform v2 cleanup |
 | `$nmg-sdlc:run-retro` | Derive spec-writing learnings from defect history |
 
 ## License

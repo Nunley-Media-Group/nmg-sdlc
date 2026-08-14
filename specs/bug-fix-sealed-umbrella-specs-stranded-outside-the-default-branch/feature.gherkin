@@ -1,0 +1,68 @@
+# Generated from: specs/bug-fix-sealed-umbrella-specs-stranded-outside-the-default-branch/requirements.md
+# Issue: #157
+# Type: Defect regression
+
+@regression @write-spec @upgrade-project @issue-157
+Feature: Sealed umbrella specs become canonical before child work
+  Sealed umbrella specifications were previously stranded on feature branches,
+  while independent child branches trusted worktree presence and history-only
+  commit markers. Publication and recovery must now use refreshed default-branch
+  content as the canonical contract without broadening mutation scope.
+
+  @regression
+  Scenario: Sealing publishes the exact approved spec before child transition
+    Given all review gates are approved for an umbrella spec that triggers multi-PR sealing
+    When the user approves sealing and transition
+    Then the exact approved spec directory is delivered through a spec-only pull request targeting the default branch
+    And no version, changelog, manifest, marketplace, or unrelated worktree path is changed
+    And child work remains blocked until refreshed remote state proves the merged default branch contains the canonical parent spec
+
+  @regression
+  Scenario: Every child entry point fails closed on an uncanonical parent spec
+    Given a child issue has a supported body or native relationship to an umbrella issue
+    And refreshed default-branch state does not prove a unique canonical parent spec
+    When start-issue, write-spec, or write-code would begin child work
+    Then the workflow stops before branch, status, spec, plan, delegation, or code mutation
+    And the diagnostic identifies the parent and an actionable publication or recovery next step
+
+  @regression
+  Scenario: Canonical identity survives squash and rebase history
+    Given a spec-only publication is merged without preserving the original seal commit as an ancestor
+    And the refreshed default branch contains the exact published spec tree
+    When sealing or parent readiness is checked again
+    Then the specification is recognized as canonical with its history marker lost
+    And no duplicate seal commit or publication pull request is created
+
+  @regression
+  Scenario: Upgrade classifies every affected seal state before mutation
+    Given initialized disposable projects represent canonical, marker-lost, recoverable-stranded, divergent, ambiguous, and unverifiable seal evidence
+    When upgrade-project analyzes their specification and bounded Git state
+    Then each relevant exact spec path is assigned the matching seal classification
+    And the finding includes the available default branch, tree identity, and source-ref evidence
+    And no recovery mutation occurs before explicit approval of an exact finding
+
+  @regression
+  Scenario: Upgrade safely prepares one unambiguous stranded spec
+    Given the refreshed default branch lacks a spec path
+    And all bounded recoverable sources for that path have one full tree identity
+    And the user explicitly approves that exact recovery finding
+    When upgrade-project revalidates and applies the recovery
+    Then only the missing spec directory is restored from the approved full source object ID without staging
+    And unrelated dirty files, project-authored content, release artifacts, branches, the index, and GitHub state are unchanged
+
+  @regression
+  Scenario: A divergent default-branch spec is never overwritten
+    Given the refreshed default branch contains a spec at the canonical path
+    And a sealed source ref contains different content at the same path
+    When upgrade-project analyzes or applies approved cleanup
+    Then the default-branch copy remains canonical and unchanged
+    And the differing source is reported as noncanonical with exact evidence
+    And no local or remote branch is deleted
+
+  @regression
+  Scenario: Publication and recovery are idempotent and preserve existing workflows
+    Given disposable repositories cover independent child branches, publication states, history-marker loss, recovery classifications, and already-clean projects
+    When the changed contracts and exercises run twice
+    Then canonical states proceed and unsafe or ambiguous states fail closed
+    And the second seal, publication, or upgrade run creates no additional diff, recovery, or pull request
+    And existing single-PR specification, managed-asset upgrade, legacy-layout migration, and explicit human-gate behavior still pass

@@ -2,6 +2,8 @@
 
 Detailed apply rules for findings already accepted through `upgrade-project`'s interactive plan. Never apply an unapproved category or path.
 
+Approved sealed umbrella-spec recovery is not a template or consolidation edit. Route each exact finding through `sealed-spec-recovery.md`; never restore it with the generic Markdown procedures below.
+
 ## Relevance Heuristic Table
 
 For each missing steering heading, match heading keywords case-insensitively and check the associated patterns one at a time, stopping on the first match.

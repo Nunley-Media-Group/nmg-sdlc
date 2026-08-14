@@ -2,38 +2,25 @@
 
 **Read this when** the issue is **not** bug-labelled and `$nmg-sdlc:write-spec` needs to decide whether to *amend an existing feature spec* or *create a new one*. Bug-labelled issues skip discovery entirely — they always create a new `bug-{slug}/` and never amend.
 
-Discovery has two stages run in strict order: parent-link resolution first (deterministic, follows the GitHub sub-issue graph and body cross-references), then the bounded metadata ranking contract from `../../references/spec-context.md` as a fallback. The reason for ordering this way is that an explicit parent link is a stronger signal of intent than token overlap — a child issue should never get matched to the wrong feature when its parent edge already names the right one.
+Discovery has two stages run in strict order: the top-level workflow's confirmed, canonical epic-parent result first, then the bounded metadata ranking contract from `../../references/spec-context.md` as a fallback. The reason for ordering this way is that a confirmed coordination parent is stronger than token overlap, but a genuine execution dependency must not be mistaken for an umbrella.
 
 ## Step 0: Parent-Link Resolution
 
 Run before keyword discovery. Only fall through to Step 1 when this stage produces no candidates.
 
-1. **Extract body cross-refs.** Run `gh issue view #N --json body` and parse the body for all `Depends on: #NNN` and `Blocks: #NNN` lines using the case-insensitive regex `/(?:Depends on|Blocks):\s*#(\d+)\b/gi`. Collect each match as a candidate parent issue number.
-2. **Query the GitHub sub-issue parent field.** Run `gh issue view #N --json parent`. If the `parent` object is non-null and has a numeric `number`, add that number to the candidate set. If `gh` does not support `--json parent` (older `gh` versions), treat the field as null and log a single-line warning: `parent-link resolution: gh version does not expose sub-issue parent field — falling back to body cross-refs only`.
-3. **Deduplicate** the candidate set; preserve insertion order for determinism.
-4. **Cycle detection.** Maintain a visited-set of issue numbers seeded with the current issue. When resolving transitively (a candidate parent that itself has a parent), abort with a cycle-detected error if the same issue number reappears. If `#A` lists `Depends on: #B` and `#B` lists `Depends on: #A`, writing the spec for either issue aborts with:
+1. **Consume the current gate result.** The top-level Canonical Parent-Spec Gate already normalized `Depends on:`, `Blocks:`, and native GitHub GraphQL signals through `../../references/epic-relationships.md`, hydrated targets, rejected ambiguous parents/cycles, and proved refreshed default-branch readiness. Never replace that result with worktree-only evidence or unsupported parent fields in `gh` JSON output.
+2. **Handle parent identity.** No recorded canonical epic parent falls through to Step 1. A recorded parent continues below.
+3. **Preserve cycle diagnostics.** If top-level relationship resolution encounters a cycle, it aborts before discovery with:
 
    ```
    ERROR: cycle detected in parent-link graph — #A and #B depend on each other. Break the cycle by removing one of the Depends on: lines and re-run $nmg-sdlc:write-spec.
    ```
 
-5. **Match candidates to spec directories.** For each candidate `#P`:
-   - file discovery `specs/*/requirements.md` to enumerate spec directories.
-   - For each match, read the file's `**Issues**` frontmatter field (format: `**Issues**: #A, #B, #C`).
-   - If `#P` appears in the Issues list, record that spec directory as the resolved parent spec.
+4. **Enter amendment mode.** Use the recorded canonical `specPath`. Require that exact directory in the current worktree; if it is absent, stop and instruct the user to refresh/rebase from the proven default commit. Do not synthesize a child-local replacement. If present, append the current issue number to `**Issues**`, add the Change History row, and follow `references/amendment-mode.md`.
 
-6. **Handle the three outcomes:**
-   - **Match found** → enter **amendment mode** against the matched spec directory. Append the current issue number to the spec's `**Issues**` frontmatter (comma-separated), add a Change History row with today's date and a one-line summary, and skip directly to Phase 1 using the existing spec as the working document. The amendment-branch steps live in `references/amendment-mode.md`.
-   - **Candidate found but no matching spec directory** → abort with the loud failure:
+The canonical check proves the baseline path on the refreshed default branch. The current child branch may contain approved child-scoped amendments and does not need to equal the baseline tree.
 
-     ```
-     ERROR: Parent spec for #P not found — run '$nmg-sdlc:write-spec #P' and seal the spec before starting child work.
-     ```
-
-     Do not create any spec files for the child. Stop after reporting the missing parent spec.
-   - **No candidates at all** → fall through to Step 1.
-
-Step 0 is stateless and derives everything fresh from `gh` state on each invocation.
+Step 0 consumes only evidence derived fresh by this invocation's top-level gate.
 
 ## Step 1: Bounded Spec-Context Ranking (fallback)
 
