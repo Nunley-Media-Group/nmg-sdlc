@@ -4,7 +4,7 @@
  * Read-only GitHub semantic classifier for umbrella spec publications.
  *
  * It verifies the exact publication marker and dedicated head ref, inspects
- * closingIssuesReferences, and walks issue ClosedEvent timeline pages.
+ * closingIssuesReferences, and walks issue close/reopen timeline pages.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -49,7 +49,7 @@ query UmbrellaPublicationStatus(
       number
       state
       url
-      timelineItems(first: 100, after: $cursor, itemTypes: [CLOSED_EVENT]) {
+      timelineItems(first: 100, after: $cursor, itemTypes: [CLOSED_EVENT, REOPENED_EVENT]) {
         nodes {
           __typename
           ... on ClosedEvent {
@@ -63,6 +63,10 @@ query UmbrellaPublicationStatus(
                 repository { nameWithOwner }
               }
             }
+          }
+          ... on ReopenedEvent {
+            createdAt
+            actor { login }
           }
         }
         pageInfo { hasNextPage endCursor }
@@ -216,8 +220,10 @@ export function classifyPublicationEvidence(options, payload) {
     issueUrl: issue.url ?? null,
     issueState: String(issue.state ?? 'UNKNOWN').toUpperCase(),
     closingIssueNumbers: [],
+    timelineEvents: [],
     publicationClosedEvents: [],
     otherClosedEvents: [],
+    activeClosure: null,
     dedicatedHead: pullRequest.headRefName === expected.head,
     recovered: false,
   };
@@ -244,11 +250,13 @@ export function classifyPublicationEvidence(options, payload) {
 
   const timeline = issue.timelineItems;
   if (!timeline || !Array.isArray(timeline.nodes) || timeline.pageInfo?.hasNextPage) {
-    gaps.push('issue ClosedEvent timeline is missing or truncated');
+    gaps.push('issue close/reopen timeline is missing or truncated');
   } else {
-    for (const event of timeline.nodes) {
-      if (event?.__typename !== 'ClosedEvent') continue;
+    for (const [index, event] of timeline.nodes.entries()) {
+      if (!['ClosedEvent', 'ReopenedEvent'].includes(event?.__typename)) continue;
       const item = {
+        type: event.__typename,
+        index,
         createdAt: event.createdAt ?? null,
         actor: event.actor?.login ?? null,
         closerType: event.closer?.__typename ?? null,
@@ -259,14 +267,33 @@ export function classifyPublicationEvidence(options, payload) {
       const publicationCloser = item.closerType === 'PullRequest'
         && item.closerNumber === expected.pullRequestNumber
         && sameRepository(item.closerRepository, expected.repository);
-      (publicationCloser ? evidence.publicationClosedEvents : evidence.otherClosedEvents).push(item);
+      item.publicationCloser = publicationCloser;
+      evidence.timelineEvents.push(item);
+      if (item.type === 'ClosedEvent') {
+        (publicationCloser ? evidence.publicationClosedEvents : evidence.otherClosedEvents).push(item);
+      }
     }
   }
   if (gaps.length > 0) return invalid('evidence_mismatch', expected, gaps, evidence);
 
+  evidence.timelineEvents.sort((left, right) => {
+    const chronological = String(left.createdAt ?? '').localeCompare(String(right.createdAt ?? ''));
+    return chronological || left.index - right.index;
+  });
+  for (const event of evidence.timelineEvents) {
+    if (event.type === 'ReopenedEvent') evidence.activeClosure = null;
+    else if (event.type === 'ClosedEvent') evidence.activeClosure = event;
+  }
+
   const closesUmbrella = evidence.closingIssueNumbers.includes(expected.issueNumber);
-  const publicationClosed = evidence.publicationClosedEvents.length > 0;
+  const publicationClosed = evidence.activeClosure?.publicationCloser === true;
   const merged = pullRequest.merged === true || evidence.pullRequestState === 'MERGED';
+
+  if (evidence.issueState === 'OPEN' && evidence.activeClosure !== null) {
+    return invalid('issue_state_timeline_mismatch', expected, [
+      'issue is open but the latest close/reopen timeline event is a closure',
+    ], evidence);
+  }
 
   if (!merged && evidence.pullRequestState === 'OPEN') {
     if (evidence.issueState !== 'OPEN') {
@@ -287,7 +314,7 @@ export function classifyPublicationEvidence(options, payload) {
     if (publicationClosed && evidence.issueState === 'CLOSED') {
       return result('publication_closed_umbrella', 'publication_pr_closed_umbrella', expected, evidence);
     }
-    if (publicationClosed && evidence.issueState === 'OPEN') {
+    if (!publicationClosed && evidence.issueState === 'OPEN' && evidence.publicationClosedEvents.length > 0) {
       evidence.recovered = true;
       return result('merged_safe', 'publication_closure_recovered', expected, evidence);
     }
@@ -361,7 +388,7 @@ export function inspectUmbrellaPublication(options, adapters = createAdapters())
     cursor = timeline.pageInfo.endCursor;
     if (!cursor) return invalid('timeline_cursor_missing', expected, ['timeline has another page but no end cursor']);
   }
-  return invalid('timeline_page_limit_exceeded', expected, [`more than ${MAX_TIMELINE_PAGES * 100} ClosedEvent nodes`]);
+  return invalid('timeline_page_limit_exceeded', expected, [`more than ${MAX_TIMELINE_PAGES * 100} close/reopen timeline nodes`]);
 }
 
 function parseCli(argv) {

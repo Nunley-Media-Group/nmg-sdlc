@@ -68,7 +68,9 @@ describe('canonical umbrella-spec contracts', () => {
     expect(shared).toContain('`pending_safe`');
     expect(shared).toContain('`publication_closed_umbrella`');
     expect(publicationHelper).toContain('closingIssuesReferences(first: 100)');
-    expect(publicationHelper).toContain('itemTypes: [CLOSED_EVENT]');
+    expect(publicationHelper).toContain('itemTypes: [CLOSED_EVENT, REOPENED_EVENT]');
+    expect(publicationHelper).toContain('evidence.activeClosure = null');
+    expect(publicationHelper).toContain("evidence.activeClosure?.publicationCloser === true");
     expect(publicationHelper).toContain("result('closing_relationship'");
     expect(publicationHelper).toContain("result('publication_closed_umbrella'");
     expect(umbrellaMode).toContain('the freshly fetched remote default branch');

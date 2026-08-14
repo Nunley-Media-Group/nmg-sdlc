@@ -82,14 +82,14 @@ node <plugin-root>/scripts/umbrella-publication-status.mjs \
   --json
 ```
 
-The helper validates the exact marker, dedicated head, base, and head commit; reads `closingIssuesReferences`; and walks the issue's bounded `ClosedEvent` timeline through GitHub GraphQL. It performs no Git or GitHub mutation.
+The helper validates the exact marker, dedicated head, base, and head commit; reads `closingIssuesReferences`; and walks the issue's bounded `ClosedEvent` / `ReopenedEvent` timeline through GitHub GraphQL. It processes those events chronologically and attributes recovery only to the currently active closure interval. A reopen clears the preceding closure; a later unrelated close becomes active and cannot authorize publication recovery. It performs no Git or GitHub mutation.
 
 | Status | Evidence | Consumer behavior |
 |--------|----------|-------------------|
 | `pending_safe` | Exact marked open PR uses the dedicated head, umbrella is open, and its closing references exclude the umbrella. | Report `publication_pending` and the normal review/merge handoff. |
 | `merged_safe` | Exact marked PR merged and the umbrella is currently open; no unexplained closing relationship remains. `evidence.recovered` identifies an approved prior reopen. | Combine with fresh canonical Git-tree proof before child transition. |
 | `closing_relationship` | The open PR includes the umbrella in `closingIssuesReferences`, or a merged PR retains an unexplained closing relationship. | Lifecycle error. Do not report pending/success or encourage merge. |
-| `publication_closed_umbrella` | The exact marked merged PR is the umbrella's `ClosedEvent` closer and the issue remains closed. | Lifecycle error. Offer only the exact recovery gate below. |
+| `publication_closed_umbrella` | The exact marked merged PR is the repository-qualified closer of the umbrella's currently active `ClosedEvent` and the issue remains closed. | Lifecycle error. Offer only the exact recovery gate below. |
 | `closed_unrelated` | The umbrella is closed without exact evidence that this marked PR closed it. | Fail closed; never reopen through publication recovery. |
 | `unverifiable` | Required repository, marker, head/base/commit, closing-reference, issue, or timeline evidence is incomplete or inconsistent. | Fail closed with `reasonCode`, `gaps`, and evidence. |
 
@@ -99,7 +99,7 @@ For diagnosis and recovery only, a merged historical exact-marker PR may have th
 
 ## Exact Reopen Recovery
 
-Recovery is available only for `publication_closed_umbrella`. Render the exact issue, PR, marker, dedicated head, merge time, and matching `ClosedEvent` closer. Ask for approval to reopen that exact issue; approval for another action, silence, or a general continuation request is not approval.
+Recovery is available only for `publication_closed_umbrella`. Render the exact issue, PR, marker, dedicated head, merge time, and repository-qualified currently active `ClosedEvent` closer. A historical publication closure cleared by `ReopenedEvent`, a later unrelated active closure, or a same-number PR from another repository never qualifies. Ask for approval to reopen that exact issue; approval for another action, silence, or a general continuation request is not approval.
 
 After exact approval, run `gh issue reopen N`, refetch through the helper, and continue only when it returns `merged_safe` with `evidence.recovered = true` and the canonical tree check still passes. Never reopen `closed_unrelated`, `closing_relationship`, or `unverifiable` state. Ordinary implementation PR closure remains owned by `$nmg-sdlc:open-pr` and is unchanged by this contract.
 

@@ -79,6 +79,14 @@ function closedEvent({ pr = 200, repository = 'example/project' } = {}) {
   };
 }
 
+function reopenedEvent() {
+  return {
+    __typename: 'ReopenedEvent',
+    createdAt: '2026-08-14T12:00:02Z',
+    actor: { login: 'reopen-user' },
+  };
+}
+
 describe('umbrella publication GitHub semantic classifier', () => {
   test('accepts an exact dedicated-head open PR with no closing relationship', () => {
     const result = classifyPublicationEvidence(options, payload());
@@ -145,13 +153,46 @@ describe('umbrella publication GitHub semantic classifier', () => {
       merged: true,
       issueState: 'OPEN',
       closing: [161],
-      events: [closedEvent()],
+      events: [closedEvent(), reopenedEvent()],
       head: '161-historical-linked-head',
     }));
 
     expect(result.status).toBe('merged_safe');
     expect(result.reasonCode).toBe('publication_closure_recovered');
     expect(result.evidence.recovered).toBe(true);
+    expect(result.evidence.activeClosure).toBeNull();
+  });
+
+  test('attributes only the active closure after publication close, reopen, and unrelated close', () => {
+    const laterUnrelatedClose = closedEvent({ pr: 199 });
+    laterUnrelatedClose.createdAt = '2026-08-14T12:00:03Z';
+    const result = classifyPublicationEvidence(options, payload({
+      prState: 'MERGED',
+      merged: true,
+      issueState: 'CLOSED',
+      closing: [161],
+      events: [closedEvent(), reopenedEvent(), laterUnrelatedClose],
+      head: '161-historical-linked-head',
+    }));
+
+    expect(result.status).toBe('closed_unrelated');
+    expect(result.reasonCode).toBe('umbrella_closed_by_other_cause');
+    expect(result.evidence.publicationClosedEvents).toHaveLength(1);
+    expect(result.evidence.activeClosure.closerNumber).toBe(199);
+  });
+
+  test('does not attribute a same-number pull request from another repository', () => {
+    const result = classifyPublicationEvidence(options, payload({
+      prState: 'MERGED',
+      merged: true,
+      issueState: 'CLOSED',
+      events: [closedEvent({ repository: 'other/project' })],
+      head: '161-historical-linked-head',
+    }));
+
+    expect(result.status).toBe('closed_unrelated');
+    expect(result.evidence.publicationClosedEvents).toHaveLength(0);
+    expect(result.evidence.activeClosure.closerRepository).toBe('other/project');
   });
 
   test('fails closed on marker, base, commit, or truncated evidence mismatches', () => {
@@ -174,10 +215,10 @@ describe('umbrella publication GitHub semantic classifier', () => {
       timelineHasNextPage: true,
       timelineEndCursor: 'cursor-1',
     }));
-    expect(truncatedTimeline.gaps).toContain('issue ClosedEvent timeline is missing or truncated');
+    expect(truncatedTimeline.gaps).toContain('issue close/reopen timeline is missing or truncated');
   });
 
-  test('walks ClosedEvent pages before classifying a merged closure', () => {
+  test('walks close/reopen timeline pages before classifying a merged closure', () => {
     const first = payload({
       prState: 'MERGED',
       merged: true,

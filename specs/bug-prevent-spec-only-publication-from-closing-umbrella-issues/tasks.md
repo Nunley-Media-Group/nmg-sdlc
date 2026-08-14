@@ -15,9 +15,9 @@
 **Acceptance**:
 
 - [x] Validate positive issue/PR identifiers, exact repository identity, full umbrella marker, expected dedicated head ref, detected default base, and bounded GraphQL result shapes.
-- [x] Read the PR's state, merge evidence, head/base refs, body marker, and `closingIssuesReferences`, then read the umbrella's state and paginated `ClosedEvent` timeline without mutating GitHub.
+- [x] Read the PR's state, merge evidence, head/base refs, body marker, and `closingIssuesReferences`, then read the umbrella's state and paginated `ClosedEvent` / `ReopenedEvent` timeline without mutating GitHub.
 - [x] Return stable `pending_safe`, `merged_safe`, `closing_relationship`, `publication_closed_umbrella`, `closed_unrelated`, and `unverifiable` statuses with exact reason codes and evidence.
-- [x] Attribute recovery only when the exact marked merged publication PR is the exact umbrella's timeline closer; incomplete or unrelated evidence fails closed.
+- [x] Process close/reopen events chronologically and attribute recovery only when the exact marked merged publication PR from the same repository owns the currently active closure; a reopen clears it, and later unrelated, cross-repository, incomplete, or ambiguous evidence fails closed.
 - [x] Extend the shared canonical contract with deterministic unlinked publication-ref naming, collision checks, pre-merge proof, post-merge proof, and exact approval-gated reopen/revalidation behavior.
 - [x] Keep the helper zero-dependency, deterministic apart from its bounded read-only `gh` queries, and free of branch, PR, issue, worktree, index, or ref mutation.
 
@@ -44,7 +44,7 @@
 **Depends on**: T002
 **Acceptance**:
 
-- [x] Unit tests use a stubbed `gh` executable or injectable command boundary to cover safe pending/merged, pre-merge closing reference, exact PR-caused closure, unrelated closure, pagination, invalid marker/head/base/commit, and incomplete evidence.
+- [x] Unit tests use a stubbed `gh` executable or injectable command boundary to cover safe pending/merged, pre-merge closing reference, exact active PR-caused closure, publication-close/reopen/unrelated-close ordering, cross-repository same-number closure, pagination, invalid marker/head/base/commit, and incomplete evidence.
 - [x] Contract tests assert dedicated unlinked ref creation, no issue-linked publication head, semantic pre/post checks, approval-gated exact recovery, ordinary delivery passthrough, and retained exact-scope safety.
 - [x] Disposable Git fixtures prove the dedicated publication ref contains the exact seal commit/tree and does not modify or replace the linked source branch.
 - [x] The opt-in live exercise requires an explicit disposable repository and acknowledgement, creates both an issue-linked control and an unlinked publication case, merges only fixture PRs, and reads actual `closingIssuesReferences`, issue state, and `ClosedEvent` timeline evidence.

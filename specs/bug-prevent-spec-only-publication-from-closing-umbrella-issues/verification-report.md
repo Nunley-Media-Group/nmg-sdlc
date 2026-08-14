@@ -20,9 +20,9 @@
 | **Overall** | **5.0** |
 
 **Implementation Status**: Pass (defect fix)
-**Total Issues**: 0 remaining; 1 low-severity test-coverage finding fixed during verification
+**Total Issues**: 0 remaining; 1 low-severity test-coverage finding and 1 major review finding fixed during verification
 
-The defect no longer relies on pull-request body wording. Seal-Spec publication keeps the issue-linked sealing branch as source provenance, pushes the exact seal commit to a deterministic unlinked publication ref, and requires actual GitHub closing-reference and issue-timeline proof before pending or merged success. Recovery can reopen only the exact umbrella proven to have been closed by the exact marked publication PR and remains approval-gated in the skill. Ordinary implementation delivery closure is unchanged.
+The defect no longer relies on pull-request body wording. Seal-Spec publication keeps the issue-linked sealing branch as source provenance, pushes the exact seal commit to a deterministic unlinked publication ref, and requires actual GitHub closing-reference and issue-timeline proof before pending or merged success. Close/reopen events are processed chronologically, and recovery can reopen only the exact umbrella whose currently active closure belongs to the exact marked publication PR from the same repository. Historical, reopened, later unrelated, and cross-repository closures cannot authorize recovery. The skill retains its approval gate, and ordinary implementation delivery closure is unchanged.
 
 ---
 
@@ -34,7 +34,7 @@ The original PathCast incident was rechecked live without mutation:
 - Its head was the issue-linked `108-establish-claim-specific-ip-and-product-safety-guardrails` branch.
 - GitHub returned issue #108 in `closingIssuesReferences`.
 - `scripts/umbrella-publication-status.mjs` returned `publication_closed_umbrella` / `publication_pr_closed_umbrella`.
-- The helper found a `ClosedEvent` at `2026-08-14T02:34:56Z`, one second after merge, with PR #125 as the exact closer; issue #108 remained closed.
+- The helper found a `ClosedEvent` at `2026-08-14T02:34:56Z`, one second after merge, with same-repository PR #125 as the currently active exact closer; issue #108 remained closed.
 
 This reproduces the old failure through the new read-only evidence path. The fixed workflow cannot report an open issue-linked publication as pending-safe and requires the deterministic unlinked head plus an empty umbrella closing-reference set.
 
@@ -46,8 +46,8 @@ This reproduces the old failure through the new read-only evidence path. The fix
 |----|-------------|--------|----------|
 | AC1 | Publication PRs are non-closing | Pass | Dedicated ref derivation and marker generation in `scripts/umbrella-publication-status.mjs:117`; `pending_safe` requires the dedicated head and excludes the umbrella at `scripts/umbrella-publication-status.mjs:271`; write-spec creates the ref with plain Git and never `gh issue develop` at `skills/write-spec/SKILL.md:242`. |
 | AC2 | Umbrella remains open after merge | Pass | `merged_safe` requires current issue state `OPEN` and no unexplained closing relationship at `scripts/umbrella-publication-status.mjs:286`; write-spec combines it with fresh canonical tree proof at `skills/write-spec/SKILL.md:269`. |
-| AC3 | Unexpected closure is detected | Pass | Exact PR-linked `ClosedEvent` attribution returns `publication_closed_umbrella` at `scripts/umbrella-publication-status.mjs:245`; live PathCast #108/#125 query produced that status with no gaps. |
-| AC4 | Existing auto-closed umbrellas can be recovered | Pass | Shared exact-recovery invariants are defined at `references/canonical-umbrella-spec.md:100`; write-spec requires exact approval, `gh issue reopen N`, refetch, `merged_safe`, and `evidence.recovered = true` at `skills/write-spec/SKILL.md:271`. The helper itself is read-only. |
+| AC3 | Unexpected closure is detected | Pass | Chronological close/reopen processing tracks the active closure at `scripts/umbrella-publication-status.mjs:251`; only its repository-qualified exact PR attribution returns `publication_closed_umbrella` at line 315. Live PathCast #108/#125 produced that status with no gaps. |
+| AC4 | Existing auto-closed umbrellas can be recovered | Pass | Shared exact-recovery invariants are defined at `references/canonical-umbrella-spec.md:100`; write-spec requires an exact active closure, exact approval, `gh issue reopen N`, refetch, `merged_safe`, and `evidence.recovered = true` at `skills/write-spec/SKILL.md:271`. Publication-close/reopen/unrelated-close and cross-repository regressions prove historical evidence cannot authorize recovery. The helper itself is read-only. |
 | AC5 | Ordinary delivery closure is preserved | Pass | The shared contract and write-spec explicitly retain `$nmg-sdlc:open-pr` ownership; static regression coverage proves the helper contains no reopen mutation. |
 | AC6 | Existing publication safety remains intact | Pass | Write-spec retains full seal commit/tree, allowed-path diff, forbidden release paths, remote-ref collision proof, exact marker/base/head/commit matching, no force-push, and canonical reclassification at `skills/write-spec/SKILL.md:217-274`. |
 | AC7 | Actual GitHub closing semantics are exercised | Pass | The opt-in live writer at `scripts/exercise-github-umbrella-publication.mjs:129` creates linked control and unlinked cases, merges fixture PRs, and asserts `closing_relationship` / `publication_closed_umbrella` versus `pending_safe` / `merged_safe`; the GraphQL query shape was exercised live against PathCast #108/#125. A disposable write repository was not supplied during this verification, so the unlinked live mutation remains opt-in rather than being run against production. |
@@ -62,7 +62,7 @@ All seven ACs have exactly one `@regression` scenario in `feature.gherkin` and d
 |------|-------------|--------|-------|
 | T001 | Add deterministic publication-closing classification | Complete | Zero-dependency helper, shared contract, stable evidence states, and bounded timeline pagination implemented. |
 | T002 | Publish from an unlinked branch and enforce semantic gates | Complete | Seal source retained; deterministic publication ref and pre/post GitHub gates added through `$skill-creator`. |
-| T003 | Add deterministic and live GitHub-semantic coverage | Complete | 10 focused helper tests, cross-skill contract assertions, disposable Git topology exercise, seven Gherkin scenarios, and opt-in live writer added. |
+| T003 | Add deterministic and live GitHub-semantic coverage | Complete | 12 focused helper tests, cross-skill contract assertions, disposable Git topology exercise, seven Gherkin scenarios, and opt-in live writer added. |
 | T004 | Document and verify | Complete | README/CHANGELOG updated and every applicable verification gate passes. |
 
 ---
@@ -82,7 +82,7 @@ All seven ACs have exactly one `@regression` scenario in `feature.gherkin` and d
 | Area | Score | Evidence |
 |------|-------|----------|
 | Security | 5/5 | Positive integer, repository, spec path, full OID, and base validation; `spawnSync`/`execFileSync` argument arrays; no shell interpolation; exact repository-qualified closer comparison; no secrets; helper performs no writes. |
-| Performance | 5/5 | Closing references are bounded at 100 and fail on truncation; `ClosedEvent` pagination is bounded at 10 pages; each external query has a timeout and output cap. |
+| Performance | 5/5 | Closing references are bounded at 100 and fail on truncation; close/reopen timeline pagination is bounded at 10 pages; each external query has a timeout and output cap. |
 | Testability | 5/5 | Pure `classifyPublicationEvidence`, injectable command adapter, deterministic marker/branch functions, contract-faithful fixtures, disposable Git topology, and normal-suite network independence. |
 | Error Handling | 5/5 | Stable `reasonCode`, bounded `gaps`, exact evidence preservation, fail-closed missing/truncated/mismatched state, bounded retry in the opt-in live exercise, and best-effort fixture cleanup that does not conceal the primary failure. |
 
@@ -93,10 +93,10 @@ All seven ACs have exactly one `@regression` scenario in `feature.gherkin` and d
 | Layer | Result | Evidence |
 |-------|--------|----------|
 | BDD scenarios | Pass | 7/7 ACs have one `@regression` scenario. |
-| Focused helper/contract tests | Pass | 19 tests across the new helper and canonical contract suites. |
+| Focused helper/contract tests | Pass | 21 tests across the new helper and canonical contract suites, including active-closure ordering and repository identity regressions. |
 | Focused publication topology | Pass | `exercise-write-spec-epic.test.mjs` proves the dedicated ref resolves to the exact seal commit while the linked source ref remains unchanged. |
-| Full Jest suite | Pass | 29 suites passed; 273 tests passed; 12 pre-existing intentional exercise skips; 0 failures. |
-| Live read-only GitHub semantics | Pass | PathCast #108/#125 classified with exact closing reference and `ClosedEvent` closer attribution. |
+| Full Jest suite | Pass | 29 suites passed; 275 tests passed; 12 pre-existing intentional exercise skips; 0 failures. |
+| Live read-only GitHub semantics | Pass | PathCast #108/#125 classified with exact closing reference and repository-qualified active `ClosedEvent` closer attribution using the close/reopen query. |
 | Live disposable writer | Not run | Explicit opt-in script is implemented and contract-tested; no disposable repository was supplied, so production repositories were not polluted. |
 
 ---
@@ -105,7 +105,7 @@ All seven ACs have exactly one `@regression` scenario in `feature.gherkin` and d
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 29/32 suites passed, 3 intentional suites skipped; 273 passed, 12 intentional skips, 0 failures. |
+| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 29/32 suites passed, 3 intentional suites skipped; 275 passed, 12 intentional skips, 0 failures. |
 | Skill inventory | Pass | `Skill inventory audit: clean (439 items mapped).` |
 | Codex compatibility | Pass | `Codex compatibility check passed.` |
 | Active plugin surface | Pass | `Plugin surface validation passed: repository`. |

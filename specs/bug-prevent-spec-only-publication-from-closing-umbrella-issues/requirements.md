@@ -101,9 +101,9 @@ No plugin error is currently produced. The defect appears as a closed umbrella i
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Publish the exact seal commit through a dedicated branch that was not created or linked through GitHub's issue-development flow, then prove the resulting PR does not list the umbrella as a closing issue before it can be merged. | Must |
-| FR2 | After a matching publication PR merges, inspect current issue state and timeline evidence before reporting canonical coordination success. | Must |
+| FR2 | After a matching publication PR merges, inspect current issue state and chronologically process close/reopen timeline evidence before reporting canonical coordination success. | Must |
 | FR3 | Return a lifecycle failure with exact PR, issue, closing-reference, and timeline evidence when publication is or was closing. | Must |
-| FR4 | Allow only an explicitly approved reopen of the exact umbrella proven to have been closed by the exact marked spec-only publication PR. | Must |
+| FR4 | Allow only an explicitly approved reopen when the exact marked spec-only publication PR from the same repository owns the umbrella's currently active closure; historical or later unrelated closures do not qualify. | Must |
 | FR5 | Keep ordinary `$nmg-sdlc:open-pr` issue-closing behavior unchanged; the non-closing branch and checks apply only to the exact Seal-Spec publication flow. | Must |
 | FR6 | Preserve exact issue/path/tree marker matching, default-branch targeting, allowed-path checks, forbidden release-path checks, idempotent PR reuse, and canonical tree reclassification. | Must |
 | FR7 | Add deterministic GitHub-contract tests plus an opt-in live exercise that observes closing references and issue timeline state around merged issue-linked and unlinked publication branches. | Must |
@@ -136,6 +136,6 @@ No plugin error is currently produced. The defect appears as a closed umbrella i
 - [x] Severity is assessed
 - [x] All seven issue acceptance criteria are retained in Given/When/Then form
 - [x] Actual GitHub closing-reference and timeline evidence is named
-- [x] Recovery is limited to the exact publication-caused closure and retains an explicit approval gate
+- [x] Recovery is limited to the exact repository-qualified currently active publication-caused closure and retains an explicit approval gate
 - [x] Ordinary delivery closure and existing publication safety are protected
 - [x] Out of scope is defined

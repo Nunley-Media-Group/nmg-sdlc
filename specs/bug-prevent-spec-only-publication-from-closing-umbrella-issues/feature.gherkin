@@ -34,11 +34,12 @@ Feature: Spec-only umbrella publication is non-closing
   @regression
   Scenario: Recover only an umbrella closed by its exact marked publication
     Given the exact marked specification-only publication pull request merged
-    And the umbrella is closed by a ClosedEvent whose closer is that pull request
+    And the umbrella's currently active closure is a ClosedEvent whose repository-qualified closer is that pull request
     When the operator invokes the supported recovery and explicitly approves reopening that exact issue
     Then the workflow reopens only that umbrella
     And it refetches the issue and requires it to be open before continuing
     And an unrelated or unverifiable closure is never reopened through this path
+    And a historical publication closure cleared by reopen cannot override a later unrelated closure
 
   @regression
   Scenario: Preserve intentional closure for ordinary implementation delivery

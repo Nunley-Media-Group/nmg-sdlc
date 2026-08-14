@@ -44,16 +44,16 @@ Add one zero-dependency, read-only `scripts/umbrella-publication-status.mjs` hel
 
 Before a new or reused publication PR is considered `publication_pending`, require all of the following: the head is the expected dedicated unlinked publication ref, the base is the detected default branch, the exact marker matches issue/path/tree, the PR contains only the already-validated seal commit scope, the umbrella is open, and `closingIssuesReferences` excludes it. A mismatched or closing PR is a lifecycle error and cannot be merged through the workflow.
 
-After a matching PR merges, rerun both classifiers. Canonical Git tree identity remains authoritative for content, while the publication helper must report the umbrella open and no `ClosedEvent` tied to that PR before child transition succeeds. If the exact marked PR closed the exact umbrella, report `publication_closed_umbrella`. The supported recovery path shows the PR/timeline evidence and may reopen only that issue after an explicit approval; it then refetches and requires the issue to be open before continuing. A closed issue without exact marked-PR closure evidence remains fail-closed and is never reopened automatically.
+After a matching PR merges, rerun both classifiers. Canonical Git tree identity remains authoritative for content, while the publication helper must report the umbrella open and no active `ClosedEvent` tied to that PR before child transition succeeds. It reads both close and reopen events chronologically: a reopen clears the preceding publication closure, and a later unrelated close becomes the active closure. Only when the exact marked PR from the same repository is the closer of the exact umbrella's currently active closure does it report `publication_closed_umbrella`. The supported recovery path shows that active PR/timeline evidence and may reopen only that issue after an explicit approval; it then refetches and requires the issue to be open before continuing. Historical, cross-repository, unrelated, or unverifiable closure evidence remains fail-closed and is never reopened automatically.
 
 ### Publication State Contract
 
 | Status | Evidence | Workflow behavior |
 |--------|----------|-------------------|
 | `pending_safe` | Exact marked open PR, expected dedicated head/base, umbrella open, and no umbrella closing reference. | Report `publication_pending`; wait for normal review and merge. |
-| `merged_safe` | Exact marked PR merged, umbrella remains open, and no PR-linked `ClosedEvent` exists. | Combine with canonical tree proof and permit child transition. |
+| `merged_safe` | Exact marked PR merged, umbrella remains open, and no publication-owned active closure or unexplained closing relationship remains. Historical publication closure evidence may remain after a reopen. | Combine with canonical tree proof and permit child transition. |
 | `closing_relationship` | PR `closingIssuesReferences` includes the umbrella before merge. | Lifecycle error; do not report pending-safe or encourage merge. |
-| `publication_closed_umbrella` | Exact marked PR is merged and the umbrella is closed by a timeline `ClosedEvent` whose closer is that PR. | Lifecycle error; offer exact approval-gated reopen recovery. |
+| `publication_closed_umbrella` | Exact marked PR is merged and is the repository-qualified closer of the umbrella's currently active timeline closure after chronological close/reopen processing. | Lifecycle error; offer exact approval-gated reopen recovery. |
 | `closed_unrelated` | Umbrella is closed but the exact publication PR is not its proven closer. | Fail closed; do not reopen. |
 | `unverifiable` | Required repository, PR, marker, closing-reference, issue, or timeline evidence is missing or inconsistent. | Fail closed with exact gaps and no GitHub mutation. |
 
