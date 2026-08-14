@@ -15,7 +15,7 @@ A newly created umbrella relationship is complete only when all four records agr
 | Native GitHub relationship | Child `C` has parent `P`, equivalently parent `P` lists sub-issue `C` |
 | Body representation | Child contains line-anchored `Depends on: #P`; parent checklist lists `#C` when that representation is maintained |
 
-The producer must re-fetch the written records and classify them before handoff. Do not retain `P` only in session state. Existing records that have a confirmed `epic` target and an agreeing native or body relationship but lack the child label remain supported as `legacy`; report the exact missing label and route repair through `$nmg-sdlc:upgrade-project`.
+The producer must re-fetch the written records and classify them before handoff. Do not retain `P` only in session state. After native discovery succeeds and every page is consumed, existing records that have a confirmed `epic` target and an agreeing native or body relationship but lack the child label remain supported as `legacy`; report the exact missing label and route repair through `$nmg-sdlc:upgrade-project`. Native discovery failure never produces a `legacy` result.
 
 ## Supported Signals
 
@@ -35,7 +35,7 @@ Hydrate every referenced target, including targets outside the candidate window,
 
 - Discover native parents and sub-issues through GitHub GraphQL. Never request `parent` through `gh issue view --json`.
 - Batch candidate and target hydration when possible. Page native `subIssues` to exhaustion within the current parent; an unconsumed page makes sibling classification `unverifiable`. A successful GraphQL `null` parent or fully consumed empty `subIssues` result is an authoritative empty native contribution, not an API failure.
-- If native discovery itself fails, warn and retain body/label evidence. Record sibling authority as `checklist-fallback`; do not claim native reconciliation.
+- If native discovery itself fails, warn and retain body/label/checklist evidence for reporting only. Record sibling authority as `checklist-fallback`, classify any claimed coordination identity as `unverifiable`, and stop consuming lifecycle mutations until native discovery succeeds.
 - If required target metadata is missing or malformed, fail closed as described below.
 
 ## Shared Result
@@ -47,9 +47,12 @@ Every consumer derives these fields, whether represented as an in-memory object,
 | `role` | `ordinary`, `epic`, `epic-child`, `inconsistent`, `ambiguous`, `unverifiable` |
 | `parentNumber` | One confirmed coordination parent or `null` |
 | `identity` | `none`, `durable`, `legacy`, `inconsistent`, `ambiguous`, `unverifiable` |
+| `consistency` | `not-applicable`, `consistent`, `legacy`, `inconsistent`, `ambiguous`, `unverifiable` |
+| `nativeAuthority` | `not-applicable`, `native`, `checklist-fallback`, `incomplete` |
+| `degraded` | Boolean indicating incomplete, legacy, conflicting, or drifted evidence |
 | `coordinationPairs` | Deduplicated confirmed epic pairs with all signals |
 | `executionDependencies` | Non-epic or unknown targets with state and blocking result |
-| `siblingNumbers` | Native-authoritative child set, or checklist fallback only when native discovery failed |
+| `siblingNumbers` | Native-authoritative child set, or report-only checklist fallback when native discovery failed |
 | `siblingReconciliation` | Authority plus `nativeOnly` and `checklistOnly` discrepancies |
 | `gaps` | Bounded, actionable evidence failures or repair recommendations |
 
@@ -59,15 +62,15 @@ Apply this decision order after normalization:
 
 | Evidence | Result | Behavior |
 |----------|--------|----------|
-| Confirmed `epic` target, one matching `epic-child-of-P`, and at least one agreeing native/body signal | `epic-child` / `durable` | Preserve parent identity and exclude only `P` from blockers and topological in-degree. |
-| Confirmed `epic` target and agreeing native/body signal, but no child label | `epic-child` / `legacy` | Continue with a named repair recommendation; preserve backward compatibility. |
+| Confirmed `epic` target, one matching `epic-child-of-P`, an agreeing native relationship, and an agreeing body relationship | `epic-child` / `durable` | Set `consistency = consistent`; preserve parent identity and exclude only `P` from blockers and topological in-degree. |
+| Native discovery completed successfully; confirmed `epic` target and agreeing native/body signal, but no child label | `epic-child` / `legacy` | Continue with a named repair recommendation; preserve backward compatibility. |
 | More than one confirmed epic target | `ambiguous` | Stop before mutation and name every deduplicated child/target pair. |
-| Multiple child labels, a child label that disagrees with the confirmed parent, a child-label-only claim, or a label targeting a confirmed non-epic issue | `inconsistent` | Stop before mutation and report every conflicting signal. |
+| Multiple child labels; a child label that disagrees with the confirmed native/body parent; a matching label missing an available native or body record; or a label targeting a confirmed non-epic issue | `inconsistent` | Stop before mutation and report every conflicting or missing signal. |
 | A claimed coordination target cannot be hydrated | `unverifiable` | Stop before mutation; never infer readiness. |
 | Confirmed target lacks `epic` and is not claimed by a child label | `execution-dependency` | Apply normal completion rules. |
 | Non-label relationship target metadata is missing or malformed | `execution-dependency` with unknown metadata | Retain it as blocking and emit the warning below. |
 
-An issue carrying `epic` with no child identity is `role = epic`. No supported coordination evidence yields `role = ordinary`.
+When native discovery itself is unavailable, any claimed child or parent coordination identity is `unverifiable`, not durable or legacy. An issue carrying `epic` is `role = epic` only after native discovery succeeds; under native failure it is `unverifiable` with report-only fallback evidence. No supported coordination evidence yields `role = ordinary`.
 
 For an unknown execution target, emit at most once per deduplicated pair:
 
@@ -86,7 +89,7 @@ A confirmed execution dependency is unresolved while its target state is not `CL
 For a confirmed parent `P`, query and fully page GraphQL `subIssues`, then parse only supported checklist rows matching `^\s*-\s*\[[ xX]\]\s*#([1-9]\d*)\b`.
 
 - When the native query succeeds, `siblingNumbers` comes from the native child set. Report native children omitted by the checklist as `nativeOnly`; report checklist entries absent from the native set as `checklistOnly`. Do not silently omit `nativeOnly` children or trust `checklistOnly` entries as authoritative membership.
-- When native discovery fails, use the checklist as `checklist-fallback`, warn that authority degraded, and retain all successfully discovered evidence.
+- When native discovery fails, retain the checklist as `checklist-fallback` evidence for reporting only, warn that authority degraded, and set coordination identity to `unverifiable`. Checklist fallback never authorizes completion, version classification, delivery, or any consuming mutation.
 - Exclude the active child only after reconciliation. Hydrate every remaining sibling before completion or version classification.
 
 ## Producer and Recovery Invariants

@@ -16,9 +16,10 @@ Offer a mutation set only for one of these exact shapes:
 
 | Finding | Required agreeing evidence | Proposed repair |
 |---------|----------------------------|-----------------|
-| Legacy child | Confirmed `epic` parent plus an agreeing native or supported body relationship; no conflicting child label | Lazily create and add `epic-child-of-P` to child `C` |
-| Parent label missing | Child has exactly one `epic-child-of-P` plus an agreeing native or supported body relationship to `P`; target exists and has no conflicting coordination label | Lazily create and add `epic` to parent `P` |
+| Legacy child | Confirmed `epic` parent plus agreeing native and supported body relationships; no conflicting child label | Lazily create and add `epic-child-of-P` to child `C` |
+| Parent label missing | Child has exactly one `epic-child-of-P` plus agreeing native and supported body relationships to `P`; target exists and has no conflicting coordination label | Lazily create and add `epic` to parent `P` |
 | Native link missing | Confirmed `epic` parent, matching child label, and body relationship; native query succeeded and shows no different parent | Add parent `P` to child `C` |
+| Body relationship missing | Confirmed `epic` parent, matching child label, and native relationship; the child body is well formed and has no conflicting coordination relationship | Append one line-anchored `Depends on: #P` entry through a temporary body file |
 | Checklist stale | Native query succeeded; parent has a recognizable `## Child Issues` section; proposed edit changes only supported checklist rows to match native children | Rewrite only that section through a temporary body file |
 
 Do not offer automatic repair for multiple epic parents, multiple/mismatched child labels, a different native parent, malformed bodies, missing target metadata, unrecognized checklist structure, or evidence that could also represent an ordinary dependency. Preserve those records as inconsistent, ambiguous, or unverifiable.
@@ -54,14 +55,15 @@ Ask through `request_user_input`: approve this exact mutation set, preserve it, 
    ```bash
    gh issue edit P --add-label epic
    gh issue edit C --add-label epic-child-of-P
-   gh issue edit C --add-parent P
+   gh issue edit P --add-sub-issue C
    ```
 
-6. For an approved checklist repair, write the full re-fetched body to a temporary file, replace only supported checklist rows inside the recognizable `## Child Issues` section, inspect the exact section diff, then run `gh issue edit P --body-file <temporary-file>`. Preserve every other byte and remove the temporary file afterward.
-7. Stop on the first failed command in the set. Report all writes already completed and the exact remaining differences; never roll forward with broader commands or create duplicate issues.
+6. For an approved missing-body repair, write the full re-fetched child body to a temporary file, append exactly one line-anchored `Depends on: #P` entry, inspect the exact diff, then run `gh issue edit C --body-file <temporary-file>`. Preserve every existing byte and remove the temporary file afterward.
+7. For an approved checklist repair, write the full re-fetched parent body to a separate temporary file, replace only supported checklist rows inside the recognizable `## Child Issues` section, inspect the exact section diff, then run `gh issue edit P --body-file <temporary-file>`. Preserve every other byte and remove the temporary file afterward.
+8. Stop on the first failed command in the set. Report all writes already completed and the exact remaining differences; never roll forward with broader commands or create duplicate issues.
 
 ## Post-Apply Proof
 
-Re-fetch the parent and children, classify each child, and require the approved target state. A full repaired tuple must be `role = epic-child`, have the approved `parentNumber`, and be `identity = durable`. Re-run the audit for the parent group; it must propose no further mutation.
+Re-fetch the parent and children, classify each child, and require the approved target state. A full repaired tuple must be `role = epic-child`, have the approved `parentNumber`, be `identity = durable`, have `consistency = consistent`, use `nativeAuthority = native`, and retain matching native plus body signals. Re-run the audit for the parent group; it must propose no further mutation.
 
 Report issue numbers, commands applied, final classification, native/checklist reconciliation, and any partial failure. Do not close/reopen issues, change issue type/milestone/state, modify unrelated labels, or claim canonical-spec readiness; those belong to their owning lifecycle stages.

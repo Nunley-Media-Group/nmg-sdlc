@@ -57,18 +57,29 @@ Issue a single `gh api graphql` call that requests `parent`, `subIssues`, `state
 issue(number: N) {
   number
   state
-  labels(first: 100) { nodes { name } }
-  parent {
-    number
-    state
-    labels(first: 100) { nodes { name } }
-  }
-  subIssues(first: 50) { nodes { number state } }
-  body
+    labels(first: 100) {
+      nodes { name }
+      pageInfo { hasNextPage endCursor }
+    }
+    parent {
+      number
+      state
+      labels(first: 100) {
+        nodes { name }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    subIssues(first: 50) {
+      nodes { number state }
+      pageInfo { hasNextPage endCursor }
+    }
+    body
 }
 ```
 
-Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls. Derive the complete shared result per the reference.
+Page every candidate `subIssues` connection and every candidate/native-parent `labels` connection by `endCursor` until `hasNextPage` is false, with a maximum of 10 follow-up pages per connection. Merge each page into the same issue record before normalization. If a cursor is absent, a follow-up request fails, a response is malformed, or the bound is exceeded, mark the affected candidate `unverifiable` with exact connection/issue evidence and stop before presentation; never treat a partial native set as complete.
+
+Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference.
 
 If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — this is not a fallback condition.
 
@@ -85,9 +96,9 @@ Extract issue numbers with `#?(\d+)`. Normalize: `Blocks: #Y` on issue `X` is re
 
 ### Build and Classify the Graph
 
-Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues), body cross-refs, and child labels. Derive `role`, `parentNumber`, `identity`, `coordinationPairs`, `executionDependencies`, and `gaps` exactly as specified by the shared reference. Build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from `executionDependencies` only. Stop selection before presentation when a candidate has `inconsistent`, `ambiguous`, or `unverifiable` coordination identity; name the candidate and exact gaps instead of silently reclassifying it.
+Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues), body cross-refs, and child labels. Derive `role`, `parentNumber`, `identity`, `consistency`, `nativeAuthority`, `degraded`, `coordinationPairs`, `executionDependencies`, and `gaps` exactly as specified by the shared reference. Build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from `executionDependencies` only. Stop selection before presentation when a candidate has `inconsistent`, `ambiguous`, or `unverifiable` coordination identity; name the candidate and exact gaps instead of silently reclassifying it.
 
-Native link normalization: a `parent` entry on issue `C` with `{number: P}` adds `P` to `parentsOf[C]`; a `subIssues` entry on issue `P` with node `{number: C}` adds `P` to `parentsOf[C]` (inverse — the sub-issue's parent is `P`).
+Native link normalization happens before classification: a `parent` entry on issue `C` with `{number: P}` adds pair `(C, P)`; a `subIssues` entry on issue `P` with node `{number: C}` adds the same inverse pair `(C, P)`. Deduplicate those signals with body and label evidence. Add `P` to `parentsOf[C]` only when the classified pair appears in `executionDependencies`; never add a confirmed `coordinationPairs` entry to `parentsOf`.
 
 ### Blocked Filter
 

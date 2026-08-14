@@ -350,12 +350,15 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(evidence.issue.coordination).toMatchObject({
       role: 'epic-child',
       identity: 'durable',
+      consistency: 'consistent',
+      nativeAuthority: 'native',
+      degraded: false,
       parentNumber: 10,
       siblingNumbers: [43],
     });
     const status = inferLifecycle(evidence);
     expect(status.stage).toBe('specified');
-    expect(renderText(status)).toContain('Coordination: epic-child (durable) parent #10');
+    expect(renderText(status)).toContain('Coordination: epic-child (durable; consistency: consistent; authority: native; degraded: no) parent #10');
   });
 
   it('fails coordination closed when native sibling pagination is incomplete', () => {
@@ -392,7 +395,62 @@ describe('bounded evidence collection and read-only safety', () => {
     const evidence = collectEvidence(root, { run });
     expect(evidence.issue.coordination).toMatchObject({ role: 'unverifiable', identity: 'unverifiable' });
     expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
-      expect.stringContaining('paginated'),
+      expect.stringContaining('pagination is incomplete'),
+    ]));
+  });
+
+  it('fails coordination closed when an alias-only target has incomplete pagination', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: 'Depends on: #10',
+      labels: { nodes: [{ name: 'epic-child-of-10' }], pageInfo: { hasNextPage: false, endCursor: null } },
+      parent: null,
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const target = {
+      number: 10,
+      state: 'OPEN',
+      body: '- [ ] #42',
+      labels: { nodes: [{ name: 'epic' }], pageInfo: { hasNextPage: false, endCursor: null } },
+      subIssues: {
+        nodes: [{ number: 42, state: 'OPEN' }],
+        pageInfo: { hasNextPage: true, endCursor: 'target-cursor' },
+      },
+    };
+    let paginationRequested = false;
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+      if (args[0] === 'repo') return { ok: true, status: 0, stdout: '{"nameWithOwner":"example/project"}', stderr: '' };
+      if (args[0] === 'api') {
+        if (args.includes('cursor=target-cursor')) {
+          paginationRequested = true;
+          return { ok: true, status: 0, stdout: '{"data":{"repository":{"issue":null}}}', stderr: '' };
+        }
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ data: { repository: { active, target10: target } } }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(paginationRequested).toBe(true);
+    expect(evidence.issue.coordination).toMatchObject({
+      role: 'unverifiable',
+      identity: 'unverifiable',
+      consistency: 'unverifiable',
+      nativeAuthority: 'incomplete',
+      degraded: true,
+    });
+    expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('issue #10 sub-issues'),
     ]));
   });
 

@@ -174,13 +174,14 @@ The confirmed split + DAG drives a loop over Steps 2–9. Each iteration runs th
 | Field | Source | Consumers |
 |-------|--------|-----------|
 | `session.productContext` | Step 1 | Step 4 investigation |
-| `session.dag` | Step 1d | Step 6 (body cross-ref placeholders), Step 10 (autolinking) |
+| `session.dag` | Step 1d | Step 6 and Step 10.4 body cross-ref placeholders |
+| `session.coordinationMembershipEdges` | Initialized empty; Step 10.1 epic fan-out is the sole append owner | Steps 10.2-10.3 native umbrella membership |
 
-Iterations **must not mutate** these fields. Everything else — classification, milestone, investigation, interview answers, depth, understanding, draft, review counter — lives in a per-iteration `DraftState`.
+Iterations **must not mutate** `session.productContext` or `session.dag`. They may read `session.coordinationMembershipEdges`, but only the Step 10.1 epic fan-out operation may append an exact created parent/child pair. Everything else — classification, milestone, investigation, interview answers, depth, understanding, draft, review counter — lives in a per-iteration `DraftState`.
 
 ### Loop ordering
 
-Issues are created in **topological order** by `session.dag` so that parents exist before children's `gh issue edit --add-sub-issue` calls fire in Step 10. Flat DAGs preserve the order from `session.proposedSplit.asks`.
+Issues are created in **topological order** by `session.dag` so dependency issue numbers exist before Step 10 resolves body cross-references. Flat DAGs preserve the order from `session.proposedSplit.asks`. Ordinary DAG edges never assign a GitHub native parent; that single-parent relationship is reserved for a synthesized epic-to-child coordination membership edge.
 
 ### Iteration output
 
@@ -188,16 +189,16 @@ Each successful iteration appends to `session.createdIssues`:
 
 ```
 session.createdIssues = [
-  { planId, issueNumber, url, labels, dependsOn: [askId, ...], blocks: [askId, ...] },
+  { scopeId, planId, issueNumber, url, labels, classification, dependsOn: [askId, ...], blocks: [askId, ...] },
   ...
 ]
 ```
 
-`dependsOn` / `blocks` are computed from `session.dag` and passed to Step 6 so it can write placeholder body lines (`Depends on: <A1>`, `Blocks: <A3>`). Step 10 later resolves placeholders to real `#N` references.
+Assign `scopeId = outer` to the original batch. Assign each nested epic child batch the collision-safe scope `epic-<created-epic-issue-number>`; plan IDs are unique only within that scope. `dependsOn` / `blocks` are computed from the iteration's read-only `activeDag`: the outer `session.dag` for the original batch or a Step 10-local `childDag` for epic fan-out. They are passed with `scopeId` to Step 6 so it can write placeholder body lines (`Depends on: <A1>`, `Blocks: <A3>`); Step 10 later resolves them only against created records in the same scope. An epic child's separate `coordinationParentNumber` supplies its mandatory `Depends on: #P` membership line and is never added to these execution-dependency fields.
 
 ### Single-issue path
 
-When `session.proposedSplit === null`, the loop runs exactly once against the original description and `session.dag === []`. Steps 10 and 11 still run, but Step 10 is a no-op (no edges) and Step 11 renders the trivial summary.
+When `session.proposedSplit === null`, the loop runs exactly once against the original description and `session.dag === []`. Steps 10 and 11 still run. Step 10 is a no-op for an ordinary feature or bug, while an epic may populate its child-membership queue through Step 10.1; Step 11 renders the resulting summary.
 
 ### State model
 
@@ -213,19 +214,24 @@ SessionState {
   } | null
 
   dag: [{ parent: askId, child: askId }]
+  coordinationMembershipEdges: [{ scopeId, parent: issueNumber, child: issueNumber }]  // initialized []
 
   subIssueSupported: boolean | null
+  nativeLinkComplete: boolean
   autolinkDegradationNotes: string[]
 
   createdIssues: [{
-    planId, issueNumber, url, labels, dependsOn, blocks
+    scopeId, planId, issueNumber, url, labels, classification, dependsOn, blocks
   }]
 
   abandoned: boolean
 }
 
 DraftState {
+  scopeId: string  // outer or epic-<created-epic-issue-number>
   planId: askId
+  activeDag: [{ parent: askId, child: askId }]  // read-only outer or child-scoped graph
+  coordinationParentNumber: issueNumber | null  // separate from execution dependencies
   description: string  // per-ask summary + sourceText (or original description on single-issue path)
   classification: 'feature' | 'bug' | 'epic'
   milestone: string | null
@@ -283,64 +289,86 @@ The child issues themselves (created in Step 10 via the existing Steps 1b–1d b
 
 ## Step 10 — Autolink Batch
 
-Runs after the Per-Issue Loop (or immediately after Step 9 on the single-issue path, where it is a no-op).
+Runs after the Per-Issue Loop (or immediately after Step 9 on the single-issue path). It is a no-op for an ordinary single feature or bug; a single epic may populate and deliver its child-membership queue before Step 11 renders the summary.
 
 ### Input
 
 - `session.createdIssues` (from the loop)
 - `session.dag` (from Step 1d)
+- `session.coordinationMembershipEdges` (initialized empty; populated only by Step 10.1 epic fan-out)
+- Step 10-local `childDagsByEpic`, `childPlansByEpic`, and `childBatchSummaries` maps (initialized empty; never replace `session.proposedSplit` or `session.dag`)
 
 ### Process
 
-#### 10.1 Probe `gh` capability once per batch
+#### 10.1 Materialize Epic Children and Their Coordination Queue
 
-Run `gh issue edit --help 2>&1` and look for `--add-sub-issue` in the output. Cache the result as `session.subIssueSupported`. If the probe output cannot be read or the flag is absent, set `session.subIssueSupported = false` and record a single degradation note: `"Sub-issue linking unavailable in this gh version — body cross-refs only"`.
+For every successfully created iteration whose `classification === 'epic'`, after the epic issue itself exists:
 
-#### 10.2 Wire parent/child edges (only when supported)
+1. **Parse Delivery Phases** from the epic body (already synthesized in Step 6). Each row yields a planned child with a short summary and optional sibling prerequisites (the `Depends On` column).
+2. **Build a child-local plan and DAG.** Set `scopeId = epic-<created-epic-issue-number>`. Convert the Delivery Phases into a step-local `childPlan`, and convert their prerequisites into `childDag`; validate every endpoint against that child plan and topologically order it with the same deterministic rules as Step 1d. Store them in `childPlansByEpic[scopeId]` and `childDagsByEpic[scopeId]` for Steps 10.1, 10.4, 10.5, and summary accounting. Never replace or mutate the outer `session.proposedSplit` or `session.dag`.
+3. **Enter batch mode for the children.** Iterate `childPlan` directly, set each child's draft classification (Feature unless the row summary starts with `bug:`), and run the Per-Issue Loop starting at Step 2. Pass `scopeId`, the matching `childDag` as read-only `activeDag`, and the created epic issue number as the separate `coordinationParentNumber` for every child; nested Steps 2-9 must not read or mutate the outer plan or DAG.
+4. **Enforce child body identity.** Step 6 writes `Depends on: #{epic-number}` from `coordinationParentNumber`. Each intra-epic prerequisite separately produces `Depends on: #{sibling-number}` from `activeDag`; the epic signal never becomes an ordinary DAG edge or execution dependency.
+5. **Persist labels.** Lazily create `epic-child-of-<epic>` with color `BFD4F2`, then apply it plus `enhancement` (not `epic`) to every child. Each child has exactly one `epic-child-of-N` label.
+6. **Populate the native queue.** Append exactly one `{scopeId, parent: epic.issueNumber, child: child.issueNumber}` entry per created child to `session.coordinationMembershipEdges`. This operation is the queue's sole append owner. It does not run `gh issue edit`; sibling prerequisites stay body-only execution dependencies.
+7. **Prepare the epic checklist.** Replace child placeholders in the epic's Child Issues checklist and Delivery Phases table with the captured issue numbers in the pending Step 10.4 body content.
+8. **Record child summary inputs.** Append `{scopeId, epicIssueNumber, plannedCount, createdCount, abandonedPlanIds}` to step-local `childBatchSummaries`; derive it from `childPlan` plus created records in that exact scope. Step 11 uses this record without altering the original outer plan counts.
 
-For each `{parent, child}` in `session.dag` where both ask IDs have entries in `session.createdIssues`:
+Do not proceed to Step 10.2 until child creation has finished or stopped and the queue contains every successfully created epic-child membership pair. Preserve partial child creation exactly; never synthesize an edge for a child that was not created.
 
+#### 10.2 Probe `gh` Capability Once per Batch
+
+When `session.coordinationMembershipEdges` is non-empty, run `gh issue edit --help 2>&1` and look for `--add-sub-issue` in the output. Cache the result as `session.subIssueSupported`. If the probe output cannot be read or the flag is absent, set `session.subIssueSupported = false`, set `session.nativeLinkComplete = false`, and record a single degradation note: `"Sub-issue linking unavailable in this gh version — body cross-refs only; handoff is partial until native membership is repaired"`. Continue only to body preservation and Step 10.5 report-only verification; do not report successful handoff. With no coordination membership edges, skip the probe and set `session.nativeLinkComplete = true`.
+
+#### 10.3 Write Coordination Membership Edges (only when supported)
+
+For each synthesized `{parent: epic, child}` in `session.coordinationMembershipEdges` where both endpoints have created issue numbers:
+
+```bash
+gh issue edit <parent.issueNumber> --add-sub-issue <child.issueNumber>
 ```
-gh issue edit <child.issueNumber> --add-sub-issue <parent.issueNumber>
-```
 
-Per-edge failures are appended to `session.autolinkDegradationNotes` but do NOT abort the batch.
+Initialize `session.nativeLinkComplete = true` before writes. Per-edge failures are appended to `session.autolinkDegradationNotes` and set `session.nativeLinkComplete = false`; continue only to preserve remaining body representations and produce the Step 10.5 partial-handoff result.
 
-#### 10.3 Resolve body cross-ref placeholders (always)
+Do not enqueue `session.dag` or child-scoped `activeDag` prerequisite edges here. They remain execution dependencies represented by the unconditional `Depends on:` / `Blocks:` body records in Step 10.4. Before reporting the batch complete, re-fetch every affected issue, normalize the expected DAG body pairs plus coordination membership pairs, and require the complete expected edge set with no missing or conflicting target. A partial body or native write is reported exactly.
 
-Every issue body written in Step 6 contains `Depends on: <A1>, <A2>` / `Blocks: <A3>` placeholder lines (when the iteration had DAG neighbors). Step 10 rewrites each affected body by replacing every `<askId>` token with:
+#### 10.4 Resolve Body Cross-Ref and Checklist Placeholders (always)
 
-- The real `#N` number when a `session.createdIssues` entry exists for that ask ID
+Every issue body written in Step 6 contains `Depends on: <A1>, <A2>` / `Blocks: <A3>` placeholder lines (when the iteration had DAG neighbors). Step 10 selects the outer `session.dag` for `scopeId = outer` or `childDagsByEpic[scopeId]` for an epic child, then resolves each `<askId>` using only `session.createdIssues` records whose `scopeId` matches:
+
+- The real `#N` number when a same-scope `session.createdIssues` entry exists for that ask ID
 - The plain-text marker `(planned but not created)` when the batch was abandoned before the ask was created
+
+Never resolve an `A1`-style token from the outer batch or a different epic scope. Duplicate plan IDs across scopes are expected and harmless.
 
 Apply the rewrite via:
 
-```
+```bash
 gh issue edit <issue.number> --body-file <updated-body>
 ```
 
 Body cross-refs are written **unconditionally** — independent of `session.subIssueSupported` and independent of whether any `--add-sub-issue` call succeeded.
 
-#### 10.4 Epic Child-Creation Flow (epic classification only)
+For an epic, this step also writes the prepared Child Issues checklist and Delivery Phases replacements to the epic body with the same temporary-body-file discipline.
 
-When the current iteration's `classification === 'epic'`, after the epic issue itself is created in Step 8, the skill fans out to create children from the Epic's Delivery Phases table.
+#### 10.5 Re-Fetch and Verify the Complete Expected Edge Set
 
-1. **Parse Delivery Phases** from the epic body (already synthesized in Step 6). Each row yields a planned child with a short summary and optional sibling prerequisites (the `Depends On` column).
-2. **Enter batch mode for the children.** Re-seed `session.proposedSplit` from the Delivery Phases, set each child's draft classification (Feature unless the row summary starts with `bug:`), and re-enter the Per-Issue Loop starting at Step 2 for each planned child.
-3. **Child body requirements** (enforced during Step 6 for each child):
-   - The body MUST contain a `Depends on: #{epic-number}` line (the epic is the parent of every child).
-   - Any intra-epic prerequisite from the Delivery Phases `Depends On` column MUST produce an additional `Depends on: #{sibling-number}` line (resolved via Step 10.3 placeholder rewriting once siblings exist).
-4. **Child labels:** lazily create `epic-child-of-<epic>` with color `BFD4F2`, then apply it plus `enhancement` (NOT `epic`) to every child. Each child must have exactly one `epic-child-of-N` label.
-5. **GitHub sub-issue link:** after each child is created, also run `gh issue edit <child> --add-parent <epic>` (gated on `session.subIssueSupported` — the `--add-parent` flag uses the same gh capability as `--add-sub-issue`). Per-edge failures append to `session.autolinkDegradationNotes`; the batch is not `durable` until a supported native relationship agrees.
-6. **Update the epic's Child Issues checklist in place.** After all children are created, rewrite the epic's body (`gh issue edit <epic> --body-file <updated>`) to replace `#{askId-N}` placeholders in the Child Issues checklist and Delivery Phases table with the real child issue numbers.
-7. **Revalidate identity.** Re-fetch the epic and every child and apply `../../../references/epic-relationships.md`. Require `role = epic-child`, the expected `parentNumber`, and `identity = durable` for each child before the batch summary reports successful handoff. Preserve and report partial writes exactly; never create a duplicate child as compensation.
+Re-fetch every issue affected by `session.dag`, `childDagsByEpic`, or `session.coordinationMembershipEdges`. Normalize the complete body, label, parent, and inverse sub-issue evidence through `../../../references/epic-relationships.md`.
+
+- For each outer or child-scoped DAG pair, first inspect same-scope creation records. When both endpoints were created, require one concrete supported body pair and an `executionDependencies` entry rather than a native parent assignment. When either endpoint was not created, require the surviving affected body to retain `(planned but not created)` and classify the edge as planned/abandoned rather than missing concrete evidence.
+- Require every queued epic membership to be `role = epic-child`, have its expected `parentNumber`, `identity = durable`, `consistency = consistent`, `nativeAuthority = native`, and matching native plus body signals.
+- Require the observed pair set to contain every expected edge with no missing, duplicate, or conflicting target before the batch summary reports success.
+- If `session.nativeLinkComplete` is false or re-fetch yields `nativeAuthority = checklist-fallback`/`incomplete`, return `native-degraded partial handoff`, preserve the exact created issues and body/label evidence, and direct recovery to `$nmg-sdlc:upgrade-project`. Never treat fallback evidence as successful creation, completion, or permission to continue another lifecycle mutation.
+
+Preserve and report partial writes exactly; never create a replacement child or a second native parent as compensation.
 
 ### Output
 
 - `session.subIssueSupported` — boolean
+- `session.nativeLinkComplete` — false for an unavailable or failed native write; such a batch is partial, never successful
 - `session.autolinkDegradationNotes` — list of failure descriptions
+- `session.coordinationMembershipEdges` — the only edges eligible for native parent writes
+- `childBatchSummaries` — explicit per-epic planned/created/abandoned counts; the original outer plan remains unchanged
 - Updated issue bodies with resolved cross-refs
-- For epics: `session.epicChildIssues` — list of `{number, title}` created as children
 - For epics: one fresh durable-identity result per child, or exact partial-write evidence when handoff stops
 
 ---
@@ -349,8 +377,8 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 
 ### Input
 
-- `session.createdIssues`, `session.proposedSplit`, `session.dag`
-- `session.abandoned`, `session.autolinkDegradationNotes`, `session.subIssueSupported`
+- `session.createdIssues`, unchanged outer `session.proposedSplit`, `session.dag`, `session.coordinationMembershipEdges`, `childBatchSummaries`
+- `session.abandoned`, `session.autolinkDegradationNotes`, `session.subIssueSupported`, `session.nativeLinkComplete`
 
 ### Process
 
@@ -359,28 +387,34 @@ Render the final summary.
 #### Batch mode
 
 ```
-Batch complete: Created N of M planned issues
+Batch result: <complete | partial handoff>
+Created N of M planned issues
 
   #<num1> — <title1>  (url)
   #<num2> — <title2>  (url)
   ...
   [Abandoned]: <list of asks not drafted, if any>
 
-Autolinking:
-  - Sub-issues wired: <count> / <total DAG edges>
-  - Body cross-refs written: yes (unconditionally)
-  [If degraded]: Sub-issue linking unavailable in this gh version — body cross-refs only.
+  Epic #<num> child batch (<scopeId>): Created C of P planned children
+    [Abandoned child IDs]: <same-scope list, if any>
 
-Next step: $nmg-sdlc:start-issue #<first-issue-number>
+Autolinking:
+  - Native epic memberships wired: <count> / <total coordinationMembershipEdges>
+  - Concrete execution-dependency body cross-refs written: <count> / <edges whose same-scope endpoints both exist>
+  - Planned markers retained: <count> / <edges with an abandoned or uncreated same-scope endpoint>
+  [If degraded]: Native membership incomplete — exact surviving labels, bodies, and edges listed below.
+
+[Only when complete]: Next step: $nmg-sdlc:start-issue #<first-ready-issue-number>
+[When partial]: Stop lifecycle handoff. Repair exact native identity through $nmg-sdlc:upgrade-project, then rerun verification; do not create replacement children.
 ```
 
 #### Single-issue mode
 
-Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block).
+For an ordinary feature or bug, Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). A single epic uses the batch summary because Step 10.1 may create children and native membership edges; it reports the child count and cannot print a start-issue handoff while `session.nativeLinkComplete` is false.
 
 #### Abandonment
 
-When `session.abandoned === true`, the summary reports the partial counts (`"Created N of M planned issues"` with `N < M`), lists the already-created issues with URLs, and marks the remaining plan entries as `[Abandoned]`. No rollback or deletion runs.
+When `session.abandoned === true`, the summary reports the original outer partial counts (`"Created N of M planned issues"` with `N < M`) without including child plans in `M`, lists already-created outer issues with URLs, and marks remaining outer entries as `[Abandoned]`. Each `childBatchSummaries` record independently reports its planned, created, and abandoned child counts so multiple epics cannot overwrite or inflate the outer plan. No rollback or deletion runs.
 
 ### Output
 

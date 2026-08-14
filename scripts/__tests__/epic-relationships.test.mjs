@@ -76,6 +76,9 @@ describe('epic relationship classification', () => {
       role: 'epic-child',
       parentNumber: 10,
       identity: 'durable',
+      consistency: 'consistent',
+      nativeAuthority: 'native',
+      degraded: false,
       executionDependencies: [],
       siblingNumbers: [30],
       gaps: [],
@@ -88,6 +91,69 @@ describe('epic relationship classification', () => {
     const result = classifyEpicRelationships({ issues: [parent, child], activeIssueNumber: 20 });
     expect(result).toMatchObject({ role: 'epic-child', parentNumber: 10, identity: 'legacy' });
     expect(result.gaps).toContain('issue #20 is missing label epic-child-of-10');
+  });
+
+  test('does not authorize legacy identity when native discovery is unavailable', () => {
+    const parent = issue(10, {
+      labels: ['epic'],
+      body: '- [ ] #20',
+    });
+    const child = issue(20, { body: 'Depends on: #10' });
+    const result = classifyEpicRelationships({
+      issues: [parent, child],
+      activeIssueNumber: 20,
+      nativeAvailable: false,
+    });
+    expect(result).toMatchObject({
+      role: 'unverifiable',
+      parentNumber: 10,
+      identity: 'unverifiable',
+      consistency: 'unverifiable',
+      nativeAuthority: 'checklist-fallback',
+      degraded: true,
+    });
+    expect(result.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('coordination with epic #10 is unverifiable'),
+      expect.stringContaining('sibling authority degraded to checklist-fallback'),
+    ]));
+  });
+
+  test('rejects a labeled child when an available native identity signal is missing', () => {
+    const parent = issue(10, { labels: ['epic'] });
+    const child = issue(20, {
+      labels: ['epic-child-of-10'],
+      body: 'Depends on: #10',
+    });
+    const result = classifyEpicRelationships({ issues: [parent, child], activeIssueNumber: 20 });
+    expect(result).toMatchObject({
+      role: 'inconsistent',
+      identity: 'inconsistent',
+      consistency: 'inconsistent',
+      degraded: true,
+    });
+    expect(result.gaps).toContain('issue #20 has no native relationship to labeled epic #10');
+  });
+
+  test('fails a labeled child closed when native identity is unavailable', () => {
+    const parent = issue(10, { labels: ['epic'] });
+    const child = issue(20, {
+      labels: ['epic-child-of-10'],
+      body: 'Depends on: #10',
+    });
+    const result = classifyEpicRelationships({
+      issues: [parent, child],
+      activeIssueNumber: 20,
+      nativeAvailable: false,
+    });
+    expect(result).toMatchObject({
+      role: 'unverifiable',
+      parentNumber: 10,
+      identity: 'unverifiable',
+      consistency: 'unverifiable',
+      nativeAuthority: 'checklist-fallback',
+      degraded: true,
+    });
+    expect(result.gaps).toContain('issue #20 native relationship discovery is unavailable; coordination with epic #10 is unverifiable');
   });
 
   test('keeps a genuine sibling dependency blocking beside a durable parent', () => {
@@ -154,6 +220,9 @@ describe('epic relationship classification', () => {
     expect(result).toMatchObject({
       role: 'epic',
       identity: 'durable',
+      consistency: 'consistent',
+      nativeAuthority: 'native',
+      degraded: true,
       siblingNumbers: [20, 30],
       siblingReconciliation: {
         authority: 'native',
@@ -161,6 +230,34 @@ describe('epic relationship classification', () => {
         checklistOnly: [99],
       },
     });
+    expect(result.gaps).toEqual([
+      'parent #10 checklist omits native children: #30',
+      'parent #10 checklist contains non-native children: #99',
+    ]);
+  });
+
+  test('reports checklist fallback as degraded without misleading drift gaps', () => {
+    const parent = issue(10, {
+      labels: ['epic'],
+      body: '- [ ] #20\n- [ ] #30',
+    });
+    const result = classifyEpicRelationships({
+      issues: [parent],
+      activeIssueNumber: 10,
+      nativeAvailable: false,
+    });
+    expect(result).toMatchObject({
+      role: 'unverifiable',
+      identity: 'unverifiable',
+      consistency: 'unverifiable',
+      nativeAuthority: 'checklist-fallback',
+      degraded: true,
+      siblingNumbers: [20, 30],
+    });
+    expect(result.gaps).toEqual([
+      'issue #10 native sub-issue discovery is unavailable; epic coordination is unverifiable',
+      'parent #10 sibling authority degraded to checklist-fallback; native sub-issue discovery was unavailable',
+    ]);
   });
 });
 

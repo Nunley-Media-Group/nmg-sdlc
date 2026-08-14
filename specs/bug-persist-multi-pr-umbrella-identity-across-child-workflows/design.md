@@ -43,7 +43,7 @@ Make the existing four-part tuple explicit and reconstructable:
 1. The coordination parent carries `epic`.
 2. Every child carries exactly one matching `epic-child-of-N` label.
 3. GitHub's native parent/sub-issue relationship is the authoritative membership graph when available.
-4. The supported body reference and checklist remain readable fallback and reconciliation evidence.
+4. The supported body reference and checklist remain readable reconciliation evidence and report-only fallback when native discovery fails.
 
 Add a zero-dependency `scripts/epic-relationships.mjs` module for pure normalization and classification. The module accepts hydrated issue records rather than performing writes. It deduplicates signals, distinguishes `durable`, `legacy`, `inconsistent`, `ambiguous`, and `unverifiable` coordination states, and preserves genuine execution dependencies. `sdlc-status.mjs` uses the module to expose the active issue's coordination result. Prompt-defined consumers continue to read `references/epic-relationships.md`, which specifies the same inputs, outputs, and fail-safe decision table and names the module as the deterministic reference implementation.
 
@@ -75,6 +75,9 @@ classifyEpicRelationships({ issues, activeIssueNumber })
        role,
        parentNumber,
        identity,
+       consistency,
+       nativeAuthority,
+       degraded,
        coordinationPairs,
        executionDependencies,
        siblingNumbers,
@@ -91,11 +94,12 @@ The module does not execute `gh`, mutate issue metadata, or cache results. Calle
 
 | Evidence | Classification | Behavior |
 |----------|----------------|----------|
-| Parent has `epic`, child has matching `epic-child-of-N`, and at least one supported relationship signal agrees | `epic-child` / `durable` | Continue and exclude the parent from blockers. |
-| Parent has `epic` and a supported native/body relationship agrees, but the child label is absent | `epic-child` / `legacy` | Continue with a named repair recommendation; do not erase backward compatibility. |
-| Child label points at a confirmed non-epic target, labels disagree with native/body parent, or more than one child label exists | `inconsistent` | Stop before branch/spec/code/delivery mutation and report exact signals. |
+| Parent has `epic`, child has matching `epic-child-of-N`, and every available native/body identity signal agrees with both required signal classes present | `epic-child` / `durable` | Continue with `consistency = consistent`, `nativeAuthority = native`, and exclude the parent from blockers. |
+| Native discovery completed; parent has `epic` and a supported native/body relationship agrees, but the child label is absent | `epic-child` / `legacy` | Continue with a named repair recommendation; do not erase backward compatibility. |
+| Child label points at a confirmed non-epic target, labels disagree with native/body parent, a required native/body signal is missing while its source is available, or more than one child label exists | `inconsistent` | Stop before branch/spec/code/delivery mutation and report exact signals. |
 | More than one confirmed epic parent remains after deduplication | `ambiguous` | Stop and name each candidate. |
 | Required target metadata cannot be hydrated | `unverifiable` for claimed coordination; execution dependencies remain blocking | Fail closed with bounded diagnostics. |
+| Native parent/sub-issue discovery fails while body or checklist evidence remains | `unverifiable` / `checklist-fallback` | Preserve evidence for reporting, but stop completion, version, delivery, and consuming mutation. |
 
 ### Blast Radius
 
@@ -112,7 +116,7 @@ The module does not execute `gh`, mutate issue metadata, or cache results. Calle
 | A genuine dependency is mistaken for coordination and stops blocking. | Medium | Require a confirmed `epic` target and an agreeing supported signal; unknown targets remain blocking. |
 | Existing valid umbrellas without child labels become unusable. | Medium | Preserve an explicit `legacy` classification that continues with a repair recommendation. |
 | A stale checklist adds a non-native issue as a sibling. | Medium | Treat native children as authoritative when available; report checklist-only entries rather than silently trusting them. |
-| Native relationship API degradation hides every sibling. | Medium | Preserve checklist fallback and surface degraded authority in the result. |
+| Native relationship API degradation hides every sibling. | Medium | Preserve checklist fallback for reporting, surface degraded authority, and block consuming mutations until native discovery succeeds. |
 | Status introduces GitHub mutations or changes lifecycle stage inference. | Low | Keep queries read-only, isolate coordination as evidence, and retain existing stage logic. |
 | Recovery overwrites concurrent issue edits. | Medium | Require exact approval, re-fetch and compare evidence before mutation, and abort on drift. |
 | Skill contracts drift from executable classification. | Medium | Add cross-skill contract assertions for shared result fields and decision table wording. |

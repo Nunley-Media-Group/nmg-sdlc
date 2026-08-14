@@ -19,7 +19,7 @@ Feature: Persist umbrella identity across child workflows
   Scenario: Every lifecycle consumer derives one classification
     Given a child belongs to a persisted umbrella
     When start-issue, write-spec, write-code, verify-code, status, and open-pr inspect it
-    Then each consumer uses the shared role, parent, identity, dependency, sibling, and gap fields
+    Then each consumer uses the shared role, parent, identity, consistency, native-authority, degradation, dependency, sibling, and gap fields
     And each derives the same coordination result
 
   @regression
@@ -62,3 +62,32 @@ Feature: Persist umbrella identity across child workflows
     Then they retain one parent identity across every evaluation
     And they preserve truthful blockers and canonical-spec routing
     And final sibling coordination includes every native child
+
+  @regression
+  Scenario: Legacy identity requires complete native discovery
+    Given an existing child has a confirmed epic target and agreeing relationship evidence but lacks its matching child label
+    When native discovery completes successfully and every page is consumed
+    Then the relationship is retained as legacy with every observed signal
+    And the exact missing-label repair is reported without rewriting metadata
+
+  @regression
+  Scenario: Conflicting or unverifiable identity stops safely
+    Given child metadata is conflicting, ambiguous, or cannot be fully hydrated
+    When any lifecycle consumer classifies the relationship
+    Then it stops before its first mutation
+    And it reports every observed pair, signal, consistency state, authority, and gap without silently reclassifying the child
+
+  @regression
+  Scenario: Checklist fallback is report-only
+    Given native parent or sub-issue discovery fails while checklist evidence remains available
+    When sibling coordination is evaluated
+    Then the identity is unverifiable and authority is checklist-fallback
+    And the checklist is retained for reporting but cannot authorize completion, versioning, delivery, or mutation
+
+  @regression
+  Scenario: Partial producer writes remain exact and idempotent
+    Given a producer creates some child records but a native membership write fails
+    When the batch reaches post-write verification and is rerun after exact approved recovery
+    Then the partial handoff reports every created issue and surviving signal
+    And no replacement child or second native parent is created
+    And the repaired rerun proves the complete edge set without another mutation

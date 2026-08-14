@@ -2,7 +2,7 @@
 
 **Issue**: #160
 **Date**: 2026-08-14
-**Status**: Ready for Implementation
+**Status**: Complete
 **Author**: Rich Nunley
 
 ---
@@ -17,7 +17,7 @@
 - [x] Normalize native parent/sub-issue, supported body cross-reference, `epic`, and `epic-child-of-N` label evidence without following cross-repository or invalid identifiers.
 - [x] Return stable role, parent, identity, coordination-pair, execution-dependency, sibling, and gap fields for durable, legacy, inconsistent, ambiguous, unverifiable, and ordinary records.
 - [x] Keep unknown or confirmed non-epic execution targets blocking and exclude only confirmed coordination parents.
-- [x] Reconcile native child membership with checklist fallback while reporting native-only and checklist-only discrepancies.
+- [x] Reconcile native child membership with report-only checklist fallback while reporting native-only and checklist-only discrepancies.
 - [x] Keep the implementation zero-dependency, deterministic, read-only, and free of cached GitHub state.
 
 ## T002: Persist and Consume Identity Across the Manual Lifecycle
@@ -31,12 +31,12 @@
 - [x] Every generated epic child receives exactly one matching `epic-child-of-N` label plus native and body relationship evidence.
 - [x] Start, spec, code, verify, status, and PR preparation use the shared result and stop before mutation on inconsistent, ambiguous, or unverifiable coordination claims.
 - [x] A canonical, consistently classified child bypasses child-numbered sealing and proceeds to its implementation slice.
-- [x] Open-PR sibling enumeration uses native children authoritatively, preserves checklist fallback, and reports discrepancies.
+- [x] Open-PR sibling enumeration uses native children authoritatively, preserves checklist fallback for reporting only, and reports discrepancies.
 - [x] Status text and JSON expose the same active-issue coordination identity without changing lifecycle-stage inference or read-only guarantees.
 
 ## T003: Add Approval-Gated Recovery, Documentation, and Regression Coverage
 
-**Files**: `skills/upgrade-project/SKILL.md`, `skills/upgrade-project/references/epic-identity-recovery.md`, `scripts/__tests__/epic-relationships.test.mjs`, `scripts/__tests__/epic-relationship-contract.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__tests__/exercise-start-issue-epic.test.mjs`, `scripts/__tests__/exercise-open-pr-epic.test.mjs`, `scripts/__tests__/exercise-persisted-umbrella-identity.test.mjs`, `README.md`
+**Files**: `skills/upgrade-project/SKILL.md`, `skills/upgrade-project/references/epic-identity-recovery.md`, `scripts/__tests__/epic-relationships.test.mjs`, `scripts/__tests__/epic-relationship-contract.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__tests__/exercise-start-issue-epic.test.mjs`, `scripts/__tests__/exercise-persisted-umbrella-identity.test.mjs`, `README.md`
 **Type**: Create / Modify (route upgrade skill/reference edits through `$skill-creator`)
 **Depends on**: T002
 **Acceptance**:
@@ -46,6 +46,7 @@
 - [x] Unit tests cover identity normalization, genuine dependencies, conflicts, unknown targets, and sibling reconciliation.
 - [x] Contract tests prove every named producer and consumer uses the shared fields and current GitHub query boundary.
 - [x] A deterministic fresh-session fixture covers planning through PR preparation with a real sibling dependency and stale checklist.
+- [x] Regression scenarios cover legacy, conflicting, ambiguous, unverifiable, native-degraded, and partial-write states with safe stopping and idempotent rerun behavior.
 - [x] README documents the durable tuple, native relationship authority, and recovery command.
 
 ## T004: Verify the Complete Defect Fix

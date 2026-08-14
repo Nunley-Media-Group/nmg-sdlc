@@ -56,11 +56,12 @@ Read `../../references/canonical-umbrella-spec.md` when the canonical parent-spe
 
 Before Spec Discovery, bug/spike variant selection, or any Phase 1 write, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
 
-- `role = ordinary` or `epic` → continue unchanged and record no canonical parent.
-- `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before discovery or writes and report the exact pairs/signals/gaps.
-- `role = epic-child` → record `P = parentNumber`, report any `identity = legacy` repair recommendation, and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+- `role = ordinary` or `epic` with its matching shared identity/consistency state → continue unchanged and record no canonical parent.
+- `role = inconsistent`, `ambiguous`, or `unverifiable`; any child with a mismatched `identity`/`consistency`; or any claimed child whose `nativeAuthority` is not `native` → stop before discovery or writes and report the exact role, identity, consistency, authority, pairs, signals, and gaps.
+- `role = epic-child`, `identity = durable`, `consistency = consistent`, and `nativeAuthority = native` → record `P = parentNumber` and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+- `role = epic-child`, `identity = legacy`, `consistency = legacy`, and `nativeAuthority = native` → record `P = parentNumber`, report the exact missing-label repair recommendation, and run the same parent-mode helper. No other legacy field combination may continue.
 
-Continue only when the result is `canonical` or `canonical_marker_lost`. Record the returned parent issue, default commit, and canonical `specPath` for the current invocation. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before discovery, variant routing, interviews, or file writes. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
+Continue only when both the relationship row above is valid and the helper result is `canonical` or `canonical_marker_lost`. A canonical helper result never overrides inconsistent, mismatched, degraded, ambiguous, or unverifiable child identity. Record the returned parent issue, default commit, and canonical `specPath` for the current invocation. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before discovery, variant routing, interviews, or file writes. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
 
 Bug- and spike-labelled child issues still follow their existing creation variants after this gate; they do not amend the parent spec. A feature child may use the recorded canonical path during discovery and may contain approved child-scoped amendments that differ from the baseline tree.
 
@@ -255,7 +256,7 @@ The approved create-children action also owns durable identity persistence:
 
 1. Lazily create the repository `epic` label with color `5319E7` when absent, apply it to current issue `#N`, and re-fetch the issue to prove the label persisted.
 2. Pass `N` as the live parent number into the batch flow. Require each child to receive `epic-child-of-N`, the native parent link, and `Depends on: #N` per `references/umbrella-mode.md`; do not rely on an earlier session variable after the write.
-3. Re-fetch the parent and every created child, derive the shared result from `../../references/epic-relationships.md`, and require each child to be `role = epic-child`, `parentNumber = N`, and `identity = durable` before reporting successful handoff.
+3. Re-fetch the parent and every created child, derive the shared result from `../../references/epic-relationships.md`, and require each child to be `role = epic-child`, `parentNumber = N`, `identity = durable`, `consistency = consistent`, and `nativeAuthority = native`. Also require the matching coordination pair to retain a native signal and a body signal before reporting successful handoff.
 4. If a label, relationship, or body write partially fails, stop with the exact surviving metadata and repair action. Do not create a replacement child or claim the batch is ready.
 
 #### 3b.5 Canonical Next-Step Hint

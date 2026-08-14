@@ -95,7 +95,9 @@ This category is independent from template reconciliation, managed assets, relea
 
 ### Step 3.6: Audit Umbrella Identity
 
-Read `../../references/epic-relationships.md` and `references/epic-identity-recovery.md`. Fetch the current repository's issue graph and classify every issue that has an `epic`, `epic-child-of-N`, native parent/sub-issue, or supported body relationship signal. Record durable, legacy, inconsistent, ambiguous, unverifiable, native-degraded, and checklist-drift findings with exact issue numbers and signals.
+Read `../../references/epic-relationships.md` and `references/epic-identity-recovery.md`. Fetch the current repository's issue graph and classify every issue that has an `epic`, `epic-child-of-N`, native parent/sub-issue, or supported body relationship signal. Page the repository issue connection by `endCursor` until `hasNextPage` is false, then fully page labels and native `subIssues` for every retained issue and expand each native parent record. Parse every supported line-anchored `Depends on:`, `Blocks:`, and Child Issues checklist representation before classification. Record durable, legacy, inconsistent, ambiguous, unverifiable, native-degraded, and checklist-drift findings with exact issue numbers and signals.
+
+Prove graph completeness before a clean audit result: every requested issue/label/sub-issue page must be consumed and every referenced target must be hydrated. A missing cursor, malformed page, permission denial, rate limit, or other failed request marks the affected records `unverifiable`, marks the overall identity audit incomplete, and prevents both a clean result and any repair proposal derived from the partial graph. Preserve all successfully fetched evidence for reporting; never interpret an omitted page or inaccessible relationship as absence.
 
 The audit is read-only. It must not add labels, change parent links, rewrite bodies, close/reopen issues, or infer repair approval. Only deterministic repairs meeting the recovery reference's evidence threshold become proposals; all other findings remain preserved for manual resolution.
 
@@ -187,7 +189,7 @@ Before the sealed-spec block, emit:
 
 ```text
 Umbrella Identity:
-- parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | failed (<reason>)
+- parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
 - Native/checklist reconciliation: clean | degraded | drift (<exact issue numbers>)
 - Gaps: none | <comma-separated exact records and failures>
 ```

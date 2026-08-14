@@ -153,12 +153,33 @@ function resultBase(activeIssueNumber) {
     role: 'ordinary',
     parentNumber: null,
     identity: 'none',
+    consistency: 'not-applicable',
+    nativeAuthority: 'not-applicable',
+    degraded: false,
     coordinationPairs: [],
     executionDependencies: [],
     siblingNumbers: [],
     siblingReconciliation: null,
     gaps: [],
   };
+}
+
+function appendSiblingDiagnostics(result, parentNumber) {
+  const reconciliation = result.siblingReconciliation;
+  result.nativeAuthority = reconciliation.authority;
+  if (reconciliation.authority !== 'native') {
+    result.degraded = true;
+    result.gaps.push(`parent #${parentNumber} sibling authority degraded to checklist-fallback; native sub-issue discovery was unavailable`);
+    return;
+  }
+  if (reconciliation.nativeOnly.length > 0) {
+    result.degraded = true;
+    result.gaps.push(`parent #${parentNumber} checklist omits native children: ${reconciliation.nativeOnly.map((number) => `#${number}`).join(', ')}`);
+  }
+  if (reconciliation.checklistOnly.length > 0) {
+    result.degraded = true;
+    result.gaps.push(`parent #${parentNumber} checklist contains non-native children: ${reconciliation.checklistOnly.map((number) => `#${number}`).join(', ')}`);
+  }
 }
 
 export function reconcileEpicSiblings({
@@ -188,6 +209,8 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
   if (active === null) {
     result.role = 'unverifiable';
     result.identity = 'unverifiable';
+    result.consistency = 'unverifiable';
+    result.degraded = true;
     result.gaps.push('active issue number is missing or invalid');
     return result;
   }
@@ -197,6 +220,8 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
   if (!current) {
     result.role = 'unverifiable';
     result.identity = 'unverifiable';
+    result.consistency = 'unverifiable';
+    result.degraded = true;
     result.gaps.push(`issue #${active} metadata is unavailable`);
     return result;
   }
@@ -229,12 +254,17 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
   }
 
   result.executionDependencies.sort((left, right) => left.issueNumber - right.issueNumber);
+  if (result.executionDependencies.some((dependency) => dependency.metadata === 'unknown')) {
+    result.degraded = true;
+  }
   result.coordinationPairs = coordination;
 
   const uniqueCoordinationTargets = [...new Set(coordination.map((pair) => pair.target))];
   if (uniqueCoordinationTargets.length > 1) {
     result.role = 'ambiguous';
     result.identity = 'ambiguous';
+    result.consistency = 'ambiguous';
+    result.degraded = true;
     result.gaps.push(`issue #${active} has multiple confirmed epic parents: ${uniqueCoordinationTargets.map((number) => `#${number}`).join(', ')}`);
     return result;
   }
@@ -244,6 +274,8 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
     const unknown = inconsistentClaims.some((claim) => !claim.targetKnown);
     result.role = unknown ? 'unverifiable' : 'inconsistent';
     result.identity = result.role;
+    result.consistency = result.role;
+    result.degraded = true;
     result.gaps.push(`${unknown ? 'could not verify' : 'confirmed non-epic'} target${targets.length === 1 ? '' : 's'} claimed by child label: ${targets.map((number) => `#${number}`).join(', ')}`);
     return result;
   }
@@ -251,25 +283,52 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
   if (uniqueCoordinationTargets.length === 1) {
     const parentNumber = uniqueCoordinationTargets[0];
     const pair = coordination.find((candidate) => candidate.target === parentNumber);
-    const relationshipSignals = pair.signals.filter((signal) => signal !== 'child-label');
+    const parent = normalized.issues.get(parentNumber);
+    const nativeSignals = pair.signals.filter((signal) => signal.startsWith('native-'));
+    const bodySignals = pair.signals.filter((signal) => signal.startsWith('body-'));
     const matchingLabels = childLabelTargets.filter((target) => target === parentNumber);
     const otherLabels = childLabelTargets.filter((target) => target !== parentNumber);
-    if (childLabelTargets.length > 1 || otherLabels.length > 0 || relationshipSignals.length === 0) {
+    if (!nativeAvailable) {
+      result.role = 'unverifiable';
+      result.parentNumber = parentNumber;
+      result.identity = 'unverifiable';
+      result.consistency = 'unverifiable';
+      result.degraded = true;
+      result.siblingReconciliation = reconcileEpicSiblings({
+        nativeChildren: nativeChildren(parent),
+        checklistChildren: parseChecklistChildren(parent?.body),
+        nativeAvailable: false,
+      });
+      result.siblingNumbers = result.siblingReconciliation.siblingNumbers
+        .filter((number) => number !== active);
+      result.gaps.push(`issue #${active} native relationship discovery is unavailable; coordination with epic #${parentNumber} is unverifiable`);
+      appendSiblingDiagnostics(result, parentNumber);
+      return result;
+    }
+    const labeledIdentityIncomplete = matchingLabels.length === 1
+      && (nativeSignals.length === 0 || bodySignals.length === 0);
+    if (childLabelTargets.length > 1 || otherLabels.length > 0 || labeledIdentityIncomplete) {
       result.role = 'inconsistent';
-      result.identity = 'inconsistent';
+      result.identity = result.role;
+      result.consistency = result.role;
+      result.degraded = true;
       if (childLabelTargets.length > 1) result.gaps.push(`issue #${active} has multiple epic-child labels`);
       if (otherLabels.length > 0) result.gaps.push(`issue #${active} child label does not match confirmed epic #${parentNumber}`);
-      if (relationshipSignals.length === 0) result.gaps.push(`issue #${active} has no native or body relationship to labeled epic #${parentNumber}`);
+      if (nativeSignals.length === 0) {
+        result.gaps.push(`issue #${active} has no native relationship to labeled epic #${parentNumber}`);
+      }
+      if (bodySignals.length === 0) result.gaps.push(`issue #${active} has no supported body relationship to labeled epic #${parentNumber}`);
       return result;
     }
 
     result.role = 'epic-child';
     result.parentNumber = parentNumber;
     result.identity = matchingLabels.length === 1 ? 'durable' : 'legacy';
+    result.consistency = result.identity === 'durable' ? 'consistent' : 'legacy';
+    result.degraded = result.identity === 'legacy';
     if (result.identity === 'legacy') {
       result.gaps.push(`issue #${active} is missing label epic-child-of-${parentNumber}`);
     }
-    const parent = normalized.issues.get(parentNumber);
     result.siblingReconciliation = reconcileEpicSiblings({
       nativeChildren: nativeChildren(parent),
       checklistChildren: parseChecklistChildren(parent?.body),
@@ -277,31 +336,34 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
     });
     result.siblingNumbers = result.siblingReconciliation.siblingNumbers
       .filter((number) => number !== active);
-    if (result.siblingReconciliation.nativeOnly.length > 0) {
-      result.gaps.push(`parent #${parentNumber} checklist omits native children: ${result.siblingReconciliation.nativeOnly.map((number) => `#${number}`).join(', ')}`);
-    }
-    if (result.siblingReconciliation.checklistOnly.length > 0) {
-      result.gaps.push(`parent #${parentNumber} checklist contains non-native children: ${result.siblingReconciliation.checklistOnly.map((number) => `#${number}`).join(', ')}`);
-    }
+    appendSiblingDiagnostics(result, parentNumber);
     return result;
   }
 
   if (childLabelTargets.length > 0) {
     result.role = 'unverifiable';
     result.identity = 'unverifiable';
+    result.consistency = 'unverifiable';
+    result.degraded = true;
     result.gaps.push(`issue #${active} claims an epic parent that was not hydrated`);
     return result;
   }
 
   if (currentLabels.includes('epic')) {
-    result.role = 'epic';
-    result.identity = 'durable';
+    result.role = nativeAvailable ? 'epic' : 'unverifiable';
+    result.identity = nativeAvailable ? 'durable' : 'unverifiable';
+    result.consistency = nativeAvailable ? 'consistent' : 'unverifiable';
+    result.degraded = !nativeAvailable;
     result.siblingReconciliation = reconcileEpicSiblings({
       nativeChildren: nativeChildren(current),
       checklistChildren: parseChecklistChildren(current.body),
       nativeAvailable,
     });
     result.siblingNumbers = result.siblingReconciliation.siblingNumbers;
+    if (!nativeAvailable) {
+      result.gaps.push(`issue #${active} native sub-issue discovery is unavailable; epic coordination is unverifiable`);
+    }
+    appendSiblingDiagnostics(result, active);
   }
   return result;
 }

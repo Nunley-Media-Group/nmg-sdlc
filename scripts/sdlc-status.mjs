@@ -218,7 +218,10 @@ const GRAPHQL_ISSUE_FIELDS = `
   number
   state
   body
-  labels(first: 100) { nodes { name } }
+  labels(first: 100) {
+    nodes { name }
+    pageInfo { hasNextPage endCursor }
+  }
   subIssues(first: 100) {
     nodes { number state }
     pageInfo { hasNextPage endCursor }
@@ -227,14 +230,71 @@ const GRAPHQL_ISSUE_FIELDS = `
 
 const MAX_COORDINATION_TARGETS = 100;
 const MAX_FALLBACK_TARGETS = 8;
+const MAX_CONNECTION_PAGES = 10;
 
-function markCoordinationUnverifiable(result, message) {
+function markCoordinationUnverifiable(result, message, nativeAuthority = 'incomplete') {
   return {
     ...result,
     role: 'unverifiable',
     identity: 'unverifiable',
+    consistency: 'unverifiable',
+    nativeAuthority,
+    degraded: true,
     gaps: [...result.gaps, message],
   };
+}
+
+function hydrateConnectionPages(projectRoot, owner, name, issue, connection, adapters) {
+  const fields = connection === 'labels' ? 'nodes { name }' : 'nodes { number state }';
+  for (let page = 0; issue?.[connection]?.pageInfo?.hasNextPage === true; page += 1) {
+    const cursor = issue[connection].pageInfo.endCursor;
+    if (page >= MAX_CONNECTION_PAGES || typeof cursor !== 'string' || !cursor) {
+      return { ok: false, reason: `${connection} pagination exceeded its safe bound or lacked an end cursor` };
+    }
+    const query = `query($owner: String!, $name: String!, $cursor: String!) {
+      repository(owner: $owner, name: $name) {
+        issue(number: ${issue.number}) {
+          ${connection}(first: 100, after: $cursor) {
+            ${fields}
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }`;
+    const response = adapters.run(
+      'gh',
+      ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `cursor=${cursor}`],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (!response.ok) return { ok: false, reason: commandFailure(response) };
+    try {
+      const next = JSON.parse(response.stdout)?.data?.repository?.issue?.[connection];
+      if (!next || !Array.isArray(next.nodes) || !next.pageInfo) {
+        return { ok: false, reason: `${connection} pagination response was malformed` };
+      }
+      issue[connection].nodes.push(...next.nodes);
+      issue[connection].pageInfo = next.pageInfo;
+    } catch (error) {
+      return { ok: false, reason: error.message };
+    }
+  }
+  return { ok: true };
+}
+
+function hydrateGraphConnections(projectRoot, owner, name, issues, adapters) {
+  const unique = new Map();
+  for (const issue of issues) {
+    if (Number.isInteger(issue?.number) && !unique.has(issue.number)) unique.set(issue.number, issue);
+  }
+  for (const issue of unique.values()) {
+    const labels = hydrateConnectionPages(projectRoot, owner, name, issue, 'labels', adapters);
+    if (!labels.ok) return { ok: false, reason: `issue #${issue.number} labels: ${labels.reason}` };
+  }
+  for (const issue of unique.values()) {
+    const subIssues = hydrateConnectionPages(projectRoot, owner, name, issue, 'subIssues', adapters);
+    if (!subIssues.ok) return { ok: false, reason: `issue #${issue.number} sub-issues: ${subIssues.reason}` };
+  }
+  return { ok: true, issues: [...unique.values()] };
 }
 
 function relationshipCandidates(issue) {
@@ -290,16 +350,20 @@ function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
             const graphIssues = [repository.active, repository.active.parent]
               .concat(candidates.map((number) => repository[`target${number}`]))
               .filter(Boolean);
+            const hydration = hydrateGraphConnections(
+              projectRoot,
+              owner,
+              name,
+              graphIssues,
+              adapters,
+            );
             const result = classifyEpicRelationships({
-              issues: graphIssues,
+              issues: hydration.issues ?? graphIssues,
               activeIssueNumber: activeIssue.number,
               nativeAvailable: true,
             });
-            const truncated = [repository.active, repository.active.parent]
-              .filter(Boolean)
-              .some((issue) => issue.subIssues?.pageInfo?.hasNextPage === true);
-            if (!truncated) return result;
-            const message = 'GitHub native sub-issue result is paginated; coordination classification is unverifiable until every page is hydrated';
+            if (hydration.ok) return result;
+            const message = `GitHub relationship pagination is incomplete: ${hydration.reason}`;
             gaps.push(message);
             return markCoordinationUnverifiable(result, message);
           }
@@ -694,7 +758,7 @@ export function renderText(status) {
     ? `#${status.pullRequest.number} ${status.pullRequest.state} (checks: ${status.pullRequest.checks})`
     : 'unknown';
   const coordination = status.issue?.coordination
-    ? `${status.issue.coordination.role} (${status.issue.coordination.identity})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
+    ? `${status.issue.coordination.role} (${status.issue.coordination.identity}; consistency: ${status.issue.coordination.consistency}; authority: ${status.issue.coordination.nativeAuthority}; degraded: ${status.issue.coordination.degraded ? 'yes' : 'no'})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
     : 'unknown';
   const lines = [
     `SDLC status: ${status.stage}`,

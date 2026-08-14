@@ -2,7 +2,7 @@
 
 **Issue**: #160
 **Date**: 2026-08-14
-**Status**: Investigating
+**Status**: Fixed
 **Author**: Rich Nunley
 **Severity**: High
 **Related Spec**: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
@@ -93,6 +93,13 @@ The defect normally appears as incorrect lifecycle routing rather than an except
 **When** fresh-session classification is exercised across planning, start, spec, implementation, verification, status, and pull-request preparation
 **Then** automated coverage proves stable identity, no resealing loop, truthful blockers, consistent status, and complete sibling coordination
 
+Additional AC7 regression examples cover these non-happy paths:
+
+- A legacy record is recognized only after native discovery completes, retains every available signal, and names the exact upgrade repair.
+- Conflicting, ambiguous, or unverifiable identity stops before mutation and reports the complete observed evidence without reclassification.
+- Native discovery degradation preserves checklist evidence for reporting but cannot authorize completion, versioning, delivery, or another lifecycle mutation.
+- A partial producer write preserves every created issue and surviving signal, never creates a replacement child, and converges idempotently after an exact approved repair and rerun.
+
 ---
 
 ## Functional Requirements
@@ -138,5 +145,9 @@ Before moving to PLAN phase:
 - [x] Acceptance criteria use Given/When/Then format
 - [x] Every issue acceptance criterion is retained
 - [x] At least one regression scenario is included
+- [x] Legacy identity and exact repair guidance have regression coverage
+- [x] Conflicting, ambiguous, and unverifiable identity have fail-closed regression coverage
+- [x] Native-degraded fallback is report-only and mutation-blocking in regression coverage
+- [x] Partial writes preserve evidence, avoid replacement children, and prove idempotent rerun behavior
 - [x] Fix scope is bounded to umbrella identity persistence and consumption
 - [x] Out of scope is defined

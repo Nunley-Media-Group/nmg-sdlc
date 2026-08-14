@@ -71,6 +71,9 @@ describe('exercise: persisted umbrella identity across fresh lifecycle sessions'
         role: 'epic-child',
         parentNumber: 108,
         identity: 'durable',
+        consistency: 'consistent',
+        nativeAuthority: 'native',
+        degraded: true,
         executionDependencies: [],
         siblingNumbers: [123, 124],
         siblingReconciliation: {
