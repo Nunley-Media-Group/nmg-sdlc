@@ -44,16 +44,19 @@ Gather all information needed for the PR:
 
 1. **Read the issue** — `gh issue view #N` for title, description, acceptance criteria.
 2. **Check for spec files** — file discovery for `specs/*/requirements.md` and match against the current issue number or branch name (see the feature-naming pointer above for the fallback chain). Found match → set a **specs-found** flag. No match → set **specs-not-found** flag.
-3. **Read spec files (specs-found only)**:
+3. **Resolve active spec scope (specs-found only)** — read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and matched spec. Continue only for `scoped` or `implicit_single_issue`. Use only `delivery` for current summary, acceptance criteria, and implementation test-plan content; add only declared `regression` evidence as a separate preservation section. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed. Never build a cumulative whole-spec PR body for a multi-issue spec.
+4. **Read spec files (specs-found only)**:
    - `specs/{feature-name}/requirements.md` for acceptance criteria.
    - `specs/{feature-name}/tasks.md` for the testing phase.
+   - `specs/{feature-name}/issue-scope.json` when the resolver status is `scoped`.
 
    Skip this sub-step if specs-not-found — acceptance criteria will be extracted from the issue body already fetched in step 1.
-4. **Read git state**:
+5. **Read verification evidence** — locate the verification report under the matched spec (when present), parse its one-line `nmg-sdlc-issue-scope` JSON marker, require that marker and the human-readable Issue Scope block to match the current normalized result, and extract **Implementation Status** plus any `## Steering Doc Verification Gates` summary produced by `$nmg-sdlc:verify-code`. Fail closed if scope evidence is missing or differs, implementation status is absent or not `Pass`, or any required steering gate is failed/incomplete. When specs-not-found, require equivalent passing verification evidence before delivery rather than treating the issue body as proof.
+6. **Read git state**:
    - `git status` — eligible changes after delivery preparation.
    - `git log main..HEAD --oneline` — commits on this branch.
    - `git diff main...HEAD --stat` — files changed vs main.
-5. **Read version artifacts for the PR body** — read `VERSION`, `CHANGELOG.md`, and the delivery-preparation results to populate the PR body's Version line.
+7. **Read version artifacts for the PR body** — read `VERSION`, `CHANGELOG.md`, and the delivery-preparation results to populate the PR body's Version line.
 
 ### Step 2: Determine Version Bump
 

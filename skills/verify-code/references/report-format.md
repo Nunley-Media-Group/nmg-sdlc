@@ -10,6 +10,8 @@ Use `checklists/report-template.md` as the scaffold and fill in:
 
 - Executive summary with post-fix scores.
 - Acceptance criteria checklist (pass / fail / partial).
+- **Issue Scope** with the active issue number, spec and manifest paths, resolver status, exact delivery AC/FR/task/scenario IDs, and exact regression AC/FR/scenario IDs.
+- A separate regression-obligations checklist. Regression evidence never counts as current delivery completion.
 - Architecture review scores (SOLID, security, performance, testability, error handling).
 - Test coverage analysis.
 - Exercise test results — include when plugin changes were detected in Step 5a; cover skill exercised, method, AC evaluation, and captured output summary. Include the graceful-degradation note when exercise was skipped.
@@ -35,11 +37,27 @@ Use this Markdown structure:
 
 ### Implementation Status: [Pass / Partial / Fail]
 
+### Issue Scope
+
+- Active issue: #N
+- Spec: `specs/{feature}`
+- Manifest: `specs/{feature}/issue-scope.json` or `implicit single issue`
+- Resolver status: `scoped` / `implicit_single_issue`
+- Delivery: AC [...]; FR [...]; tasks [...]; scenarios [...]
+- Regression: AC [...]; FR [...]; scenarios [...]
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
+
 ### Acceptance Criteria
 
 - [x] AC1: [criterion] — Implemented in `path/to/file`
 - [x] AC2: [criterion] — Implemented in `path/to/file`
 - [ ] AC3: [criterion] — **Not implemented** / **Partial**
+
+### Regression Obligations
+
+- [x] ACX / FRX / SCNXXX: [prior contract] — Preserved by [evidence]
+- [ ] ACY / FRY / SCNYYY: [prior contract] — **Regression found**
 
 ### Architecture Review
 
@@ -85,3 +103,5 @@ The Routing column records how the fix was applied: `skill-creator` when the fix
 
 [Ready for PR / Needs fixes for remaining items / Major rework needed]
 ```
+
+Emit the HTML marker as one line with valid JSON and the exact normalized resolver values. Use `implicit_single_issue` when applicable. Include the same marker in the GitHub issue comment; it is machine evidence used by status and delivery preparation to reject another contributor's verification report.

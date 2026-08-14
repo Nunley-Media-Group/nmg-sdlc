@@ -1,0 +1,70 @@
+# Generated from: specs/bug-scope-cumulative-feature-specs-to-the-active-issue/requirements.md
+# Issue: #162
+# Type: Defect regression
+
+@regression @issue-162 @issue-scope
+Feature: Cumulative feature specs are scoped to the active issue
+  Cumulative specs previously identified contributing issues without assigning
+  individual completion units. Every lifecycle consumer must use one validated
+  active delivery slice and explicit regression obligations.
+
+  @SCN001 @regression
+  Scenario: Record machine-readable ownership and adoption
+    Given multiple issues contribute acceptance criteria, functional requirements, tasks, and scenarios to one feature spec
+    When write-spec accepts a new creation or amendment
+    Then issue-scope.json assigns every element one owner
+    And the active issue separately records any explicitly adopted existing elements
+    And the resulting manifest validates against the cumulative spec inventory
+
+  @SCN002 @regression
+  Scenario: Implement only the active mapped slice
+    Given earlier, active, adopted, and future tasks coexist in one cumulative tasks document
+    When write-code resolves scope for the active issue
+    Then its plan contains only the active issue's owned and adopted tasks
+    And it does not execute earlier completed or future issue tasks
+
+  @SCN003 @regression
+  Scenario: Resume only incomplete tasks in the same active slice
+    Given one mapped active task is complete and another mapped active task remains incomplete
+    And unrelated cumulative tasks also exist
+    When write-code reconstructs implementation progress
+    Then it enumerates only the incomplete task from the active mapped slice
+    And unrelated tasks cannot enter the resumed plan
+
+  @SCN004 @regression
+  Scenario: Separate current delivery verification from prior regression evidence
+    Given the active issue maps current delivery elements and explicit prior regression contracts
+    When verify-code evaluates the implementation
+    Then current delivery ACs tasks and scenarios determine active completion
+    And only declared prior ACs FRs and scenarios are evaluated as regression evidence
+    And future or undeclared elements are excluded from the completion claim
+
+  @SCN005 @regression
+  Scenario: Bind reports and lifecycle status to the active mapping
+    Given several issues share one canonical spec directory
+    When verification and status artifacts are generated for the active issue
+    Then both identify the active issue and the same normalized delivery and regression IDs
+    And evidence for another issue cannot advance the active lifecycle stage
+
+  @SCN006 @regression
+  Scenario: Prepare an issue-scoped pull request
+    Given the cumulative spec has a valid active issue scope
+    When open-pr assembles spec-linked delivery content
+    Then its summary acceptance criteria and test plan use only active delivery plus declared regression evidence
+    And it links issue-scope.json
+    And it closes only the active issue
+
+  @SCN007 @regression
+  Scenario: Fail safely when cumulative legacy ownership is ambiguous
+    Given a multi-issue feature spec lacks a complete valid issue-scope manifest
+    When any lifecycle consumer attempts to resolve the active issue
+    Then the resolver returns repair_required with exact gaps
+    And the consumer directs explicit repair through write-spec
+    And it does not fall back to the whole cumulative spec
+
+  @SCN008 @regression
+  Scenario: Prove isolation with a cumulative lifecycle fixture
+    Given a committed fixture contains earlier complete active owned active adopted regression and future elements
+    When the resolver and every affected lifecycle contract are exercised for the active issue
+    Then implementation resumption verification reporting status and pull-request preparation use the same isolated slice
+    And deterministic tests reject cross-issue completion evidence

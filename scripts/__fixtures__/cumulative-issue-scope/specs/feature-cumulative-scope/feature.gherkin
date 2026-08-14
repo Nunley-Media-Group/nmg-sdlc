@@ -1,0 +1,31 @@
+Feature: Cumulative issue scope fixture
+
+  @SCN001
+  Scenario: Earlier completed delivery behavior
+    Given issue 10 completed its original delivery
+    When later issues run
+    Then the completed task remains outside their delivery unless adopted
+
+  @SCN002
+  Scenario: Existing behavior adopted by the active issue
+    Given issue 10 owns an existing deliverable
+    When issue 20 adopts it
+    Then it becomes part of issue 20 delivery
+
+  @SCN003
+  Scenario: Active owned behavior
+    Given issue 20 owns new behavior
+    When issue 20 runs
+    Then that behavior is current delivery
+
+  @SCN004
+  Scenario: Future behavior
+    Given issue 30 owns future behavior
+    When issue 20 runs
+    Then the future scenario is excluded
+
+  @SCN005
+  Scenario: Prior regression behavior
+    Given issue 10 owns completed behavior
+    When issue 20 declares it as regression
+    Then verification checks it without making it current delivery

@@ -14,6 +14,8 @@ import {
 } from '../sdlc-status.mjs';
 
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
+const scriptsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function baseEvidence(overrides = {}) {
   const evidence = {
@@ -67,10 +69,14 @@ function makeRepository() {
 
   const specDir = path.join(root, 'specs', 'feature-status-fixture');
   fs.mkdirSync(specDir, { recursive: true });
+  const specContents = {
+    'requirements.md': '# Requirements\n\n**Issues**: #42\n\n### AC1: Status\n\n| ID | Requirement | Priority |\n|---|---|---|\n| FR1 | Report status | Must |\n',
+    'design.md': '# Design\n\n**Issues**: #42\n',
+    'tasks.md': '# Tasks\n\n**Issues**: #42\n\n### T001: Implement status\n',
+    'feature.gherkin': '@SCN001\nScenario: Report status\n',
+  };
   for (const filename of REQUIRED_SPEC_FILES) {
-    const content = filename === 'requirements.md'
-      ? '# Requirements\n\n**Issues**: #42\n'
-      : `# ${filename}\n`;
+    const content = specContents[filename];
     fs.writeFileSync(path.join(specDir, filename), content);
   }
   return root;
@@ -167,6 +173,33 @@ describe('lifecycle inference', () => {
     expect(status.gaps).toContain('passing verification conflicts with absent implementation paths');
   });
 
+  it('routes invalid cumulative scope to write-spec before later lifecycle evidence', () => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: 'Feature', state: 'OPEN', source: 'branch' },
+      spec: {
+        path: 'specs/feature',
+        complete: true,
+        missingFiles: [],
+        scope: {
+          status: 'repair_required',
+          reasonCode: 'cumulative_manifest_missing',
+          gaps: ['specs/feature/issue-scope.json is required for a multi-issue spec'],
+        },
+      },
+      verification: { path: 'specs/feature/verification-report.md', status: 'pass', current: true },
+      pullRequest: { number: 50, state: 'OPEN', url: null, checks: 'passing' },
+    }));
+
+    expect(status.stage).toBe('started');
+    expect(status.nextAction.command).toBe('$nmg-sdlc:write-spec #42');
+    expect(status.completedArtifacts).not.toContain('spec package');
+    expect(status.missingArtifacts).toContain('issue scope repair');
+    expect(status.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('issue scope repair_required'),
+    ]));
+  });
+
   test.each([
     ['closed issue', { issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' } }],
     ['closed unmerged pull request', { pullRequest: { number: 50, state: 'CLOSED', url: null, checks: 'absent' } }],
@@ -202,6 +235,16 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(evidence.project.dirty).toBe(true);
     expect(evidence.project.baseRelativeCommits).toEqual([]);
     expect(evidence.spec).toMatchObject({ complete: true, missingFiles: [] });
+    expect(evidence.spec.scope).toMatchObject({
+      status: 'implicit_single_issue',
+      issueNumber: 42,
+      delivery: {
+        acceptanceCriteria: ['AC1'],
+        functionalRequirements: ['FR1'],
+        tasks: ['T001'],
+        scenarios: ['SCN001'],
+      },
+    });
     expect(evidence.project.implementationPaths).toEqual([]);
     expect(evidence.gaps).toEqual(expect.arrayContaining([
       expect.stringContaining('GitHub issue unavailable'),
@@ -210,12 +253,42 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('specified');
   });
 
+  it('exposes the cumulative fixture active slice in JSON and text evidence', () => {
+    fs.rmSync(path.join(root, 'specs'), { recursive: true, force: true });
+    fs.cpSync(
+      path.join(scriptsRoot, '__fixtures__', 'cumulative-issue-scope', 'specs'),
+      path.join(root, 'specs'),
+      { recursive: true },
+    );
+    execFileSync('git', ['branch', '-m', '20-cumulative-scope'], { cwd: root });
+
+    const evidence = collectEvidence(root, { run: localRun });
+    expect(evidence.spec.scope).toMatchObject({
+      status: 'scoped',
+      issueNumber: 20,
+      delivery: {
+        acceptanceCriteria: ['AC1', 'AC2'],
+        functionalRequirements: ['FR1', 'FR2'],
+        tasks: ['T002', 'T003'],
+        scenarios: ['SCN002', 'SCN003'],
+      },
+      regression: {
+        acceptanceCriteria: ['AC4'],
+        functionalRequirements: ['FR4'],
+        scenarios: ['SCN005'],
+      },
+    });
+    const status = inferLifecycle(evidence);
+    expect(status.stage).toBe('specified');
+    expect(renderText(status)).toContain('Scope: scoped (delivery: AC AC1, AC2');
+  });
+
   it('trusts a passing verification report only while its committed implementation snapshot is current', () => {
     fs.mkdirSync(path.join(root, 'src'));
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      '# Verification Report\n\n**Implementation Status**: Pass\n',
+      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add verified fixture'], {
@@ -259,12 +332,32 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      '# Verification Report\n\n**Implementation Status**: Pass\n',
+      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
     );
 
     const evidence = collectEvidence(root, { run: localRun });
     expect(evidence.verification).toMatchObject({ status: 'pass', current: false, commit: null });
     expect(evidence.gaps).toContain('verification report is not committed; freshness cannot be proven');
+    expect(inferLifecycle(evidence).stage).toBe('implemented');
+  });
+
+  it('does not let another issue verification marker advance the active issue', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    const otherIssueMarker = SCOPE_MARKER.replace('"issueNumber":42', '"issueNumber":10');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      `# Verification Report\n\n**Implementation Status**: Pass\n\n${otherIssueMarker}\n`,
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'feat: add mismatched verification fixture'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const evidence = collectEvidence(root, { run: localRun });
+    expect(evidence.verification).toMatchObject({ status: 'pass', current: false, scopeMatch: false });
+    expect(evidence.gaps).toContain('verification report issue scope does not match the active issue');
     expect(inferLifecycle(evidence).stage).toBe('implemented');
   });
 

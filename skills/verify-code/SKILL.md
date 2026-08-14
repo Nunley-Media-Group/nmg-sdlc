@@ -45,6 +45,8 @@ Continue only for `canonical` or `canonical_marker_lost`. Other canonical status
 
 Read all spec documents:
 
+Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and spec path before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use `delivery.functionalRequirements` as delivery context. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
+
 After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
 
 ```
@@ -98,8 +100,9 @@ Read `references/defect-path.md` when the spec under verification uses the defec
 
 Check each acceptance criterion against actual code:
 
-1. **For each AC in requirements.md**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
-2. **For each task in tasks.md**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
+1. **For each mapped delivery AC**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
+2. **For each mapped delivery task**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
+3. **For each declared regression obligation**: verify preservation separately and record its evidence without counting it as current delivery implementation.
 
 ### Step 4: Architecture Review
 

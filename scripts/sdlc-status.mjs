@@ -17,6 +17,7 @@ import {
   epicChildLabelTargets,
   parseBodyRelationships,
 } from './epic-relationships.mjs';
+import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -100,7 +101,10 @@ export function findFeatureDir(specsDir, issueNumber, branchSlug, adapters = {})
   const fsApi = adapters.fs ?? fs;
   if (!fsApi.existsSync(specsDir)) return null;
   const directories = fsApi.readdirSync(specsDir)
-    .filter((entry) => fsApi.statSync(path.join(specsDir, entry)).isDirectory())
+    .filter((entry) => {
+      const entryStat = fsApi.lstatSync(path.join(specsDir, entry));
+      return entryStat.isDirectory() && !entryStat.isSymbolicLink();
+    })
     .sort();
 
   if (branchSlug) {
@@ -115,6 +119,8 @@ export function findFeatureDir(specsDir, issueNumber, branchSlug, adapters = {})
       const requirementsPath = path.join(specsDir, directory, 'requirements.md');
       if (!fsApi.existsSync(requirementsPath)) continue;
       try {
+        const requirementsStat = fsApi.lstatSync(requirementsPath);
+        if (!requirementsStat.isFile() || requirementsStat.isSymbolicLink()) continue;
         const content = readBounded(fsApi, requirementsPath, 32 * 1024);
         const issueField = content.match(/^\*\*Issues?\*\*:.*$/m)?.[0] ?? '';
         if (issuePattern.test(issueField)) return path.join(specsDir, directory);
@@ -130,8 +136,51 @@ export function checkRequiredSpecFiles(featureDir, adapters = {}) {
   const fsApi = adapters.fs ?? fs;
   return REQUIRED_SPEC_FILES.filter((filename) => {
     const filePath = path.join(featureDir, filename);
-    return !fsApi.existsSync(filePath) || fsApi.statSync(filePath).size === 0;
+    if (!fsApi.existsSync(filePath)) return true;
+    const fileStat = fsApi.lstatSync(filePath);
+    return !fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.size === 0;
   });
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, stableJson(value[key])]),
+    );
+  }
+  return value;
+}
+
+function issueScopeProjection(scope) {
+  if (!scope) return null;
+  return {
+    issueNumber: scope.issueNumber,
+    specPath: scope.specPath,
+    status: scope.status,
+    delivery: scope.delivery,
+    regression: scope.regression,
+  };
+}
+
+function verifyReportScope(content, scope) {
+  if (!['scoped', 'implicit_single_issue'].includes(scope?.status)) return { required: false, match: null };
+  const marker = String(content).match(/^<!-- nmg-sdlc-issue-scope: (\{.*\}) -->\s*$/m)?.[1];
+  if (!marker) return { required: true, match: false, gap: 'verification report lacks active issue scope evidence' };
+  try {
+    const actual = stableJson(JSON.parse(marker));
+    const expected = stableJson(issueScopeProjection(scope));
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      return { required: true, match: false, gap: 'verification report issue scope does not match the active issue' };
+    }
+    return { required: true, match: true };
+  } catch (error) {
+    return {
+      required: true,
+      match: false,
+      gap: `verification report issue scope is invalid JSON: ${boundedMessage(error.message)}`,
+    };
+  }
 }
 
 function collectVerification(projectRoot, spec, untrackedImplementationPaths, adapters, gaps) {
@@ -140,14 +189,43 @@ function collectVerification(projectRoot, spec, untrackedImplementationPaths, ad
   if (!adapters.fs.existsSync(reportPath)) return null;
   const relativeReportPath = toGitPath(path.relative(projectRoot, reportPath));
   try {
+    const reportStat = adapters.fs.lstatSync(reportPath);
+    if (!reportStat.isFile() || reportStat.isSymbolicLink()) {
+      gaps.push('verification report must be a regular file and not a symbolic link');
+      return {
+        path: relativeReportPath,
+        status: 'unknown',
+        current: false,
+        commit: null,
+        scopeMatch: null,
+      };
+    }
     const content = readBounded(adapters.fs, reportPath);
     const match = content.match(/Implementation Status(?:\*\*)?\s*:?\s*(?:\*\*)?\s*(Pass|Partial|Fail)\b/i);
     if (!match) {
       gaps.push('verification report lacks an explicit Implementation Status');
-      return { path: relativeReportPath, status: 'unknown', current: false, commit: null };
+      return {
+        path: relativeReportPath,
+        status: 'unknown',
+        current: false,
+        commit: null,
+        scopeMatch: null,
+      };
     }
     const status = match[1].toLowerCase();
-    const verification = { path: relativeReportPath, status, current: false, commit: null };
+    const verification = {
+      path: relativeReportPath,
+      status,
+      current: false,
+      commit: null,
+      scopeMatch: null,
+    };
+    const scopeEvidence = verifyReportScope(content, spec.scope);
+    verification.scopeMatch = scopeEvidence.match;
+    if (scopeEvidence.required && !scopeEvidence.match) {
+      gaps.push(scopeEvidence.gap);
+      return verification;
+    }
     if (status !== 'pass') return verification;
 
     const commitResult = adapters.run(
@@ -199,7 +277,13 @@ function collectVerification(projectRoot, spec, untrackedImplementationPaths, ad
     return verification;
   } catch (error) {
     gaps.push(`verification report unavailable: ${boundedMessage(error.message)}`);
-    return { path: relativeReportPath, status: 'unknown', current: false, commit: null };
+    return {
+      path: relativeReportPath,
+      status: 'unknown',
+      current: false,
+      commit: null,
+      scopeMatch: null,
+    };
   }
 }
 
@@ -584,10 +668,25 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     try {
       const missingFiles = checkRequiredSpecFiles(featureDir, adapters);
       spec = {
-        path: path.relative(projectRoot, featureDir),
+        path: toGitPath(path.relative(projectRoot, featureDir)),
         complete: missingFiles.length === 0,
         missingFiles,
       };
+      const activeIssueNumber = github.issue?.number ?? issueNumber;
+      if (Number.isInteger(activeIssueNumber) && activeIssueNumber > 0) {
+        spec.scope = inspectIssueSpecScope(
+          {
+            projectRoot,
+            specPath: spec.path,
+            issueNumber: activeIssueNumber,
+          },
+          {
+            readFile: (filePath) => readBounded(adapters.fs, filePath),
+            lstat: (filePath) => adapters.fs.lstatSync(filePath),
+            realpath: (filePath) => adapters.fs.realpathSync(filePath),
+          },
+        );
+      }
     } catch (error) {
       gaps.push(`spec evidence unavailable: ${boundedMessage(error.message)}`);
     }
@@ -625,8 +724,10 @@ function artifactSummary(evidence, stage) {
   const completed = [];
   const verificationCurrent = evidence.verification?.status === 'pass'
     && evidence.verification.current === true;
+  const scopeBlocked = ['repair_required', 'unverifiable'].includes(evidence.spec?.scope?.status);
+  const specReady = evidence.spec?.complete && !scopeBlocked;
   if (evidence.issue?.number && evidence.project.branch !== 'main') completed.push('issue branch');
-  if (evidence.spec?.complete) completed.push('spec package');
+  if (specReady) completed.push('spec package');
   if (evidence.project.implementationPaths.length > 0) completed.push('implementation');
   if (verificationCurrent) completed.push('verification');
   if (evidence.pullRequest) completed.push('pull request');
@@ -634,7 +735,7 @@ function artifactSummary(evidence, stage) {
 
   const missing = [];
   if (!evidence.issue?.number && evidence.project.branch === 'main') missing.push('issue branch');
-  if (!evidence.spec?.complete) missing.push('spec package');
+  if (!specReady) missing.push(scopeBlocked ? 'issue scope repair' : 'spec package');
   if (evidence.project.implementationPaths.length === 0) missing.push('implementation');
   if (!verificationCurrent) missing.push('verification');
   if (!evidence.pullRequest) missing.push('pull request');
@@ -648,10 +749,23 @@ export function inferLifecycle(evidence) {
   const implementationPresent = evidence.project.implementationPaths.length > 0;
   const verificationPass = evidence.verification?.status === 'pass'
     && evidence.verification.current === true;
+  const scopeStatus = evidence.spec?.scope?.status ?? null;
+  const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
   let stage;
   let nextAction;
 
-  if (prState === 'MERGED') {
+  if (scopeBlocked) {
+    const scopeGaps = evidence.spec.scope.gaps?.length
+      ? evidence.spec.scope.gaps.join('; ')
+      : evidence.spec.scope.reasonCode;
+    gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
+    stage = issueNumber && evidence.project.branch !== 'main' ? 'started' : 'unknown';
+    nextAction = {
+      command: phaseCommand('write-spec', issueNumber),
+      reason: 'The active cumulative spec scope is missing, incomplete, or unverifiable and must be repaired before later lifecycle evidence can advance this issue.',
+      manualRepairRequired: false,
+    };
+  } else if (prState === 'MERGED') {
     stage = 'complete';
     nextAction = {
       command: '$nmg-sdlc:start-issue',
@@ -764,6 +878,9 @@ export function renderText(status) {
   const spec = status.spec
     ? `${status.spec.path} (${status.spec.complete ? 'complete' : `missing ${status.spec.missingFiles.join(', ')}`})`
     : 'unknown';
+  const scope = status.spec?.scope
+    ? `${status.spec.scope.status} (delivery: AC ${listOrNone(status.spec.scope.delivery.acceptanceCriteria)}, FR ${listOrNone(status.spec.scope.delivery.functionalRequirements)}, tasks ${listOrNone(status.spec.scope.delivery.tasks)}, scenarios ${listOrNone(status.spec.scope.delivery.scenarios)}; regression: AC ${listOrNone(status.spec.scope.regression.acceptanceCriteria)}, FR ${listOrNone(status.spec.scope.regression.functionalRequirements)}, scenarios ${listOrNone(status.spec.scope.regression.scenarios)})`
+    : 'unknown';
   const verification = status.verification
     ? `${status.verification.status}, ${status.verification.current ? 'current' : 'not current'} (${status.verification.path})`
     : 'unknown';
@@ -779,6 +896,7 @@ export function renderText(status) {
     `Coordination: ${coordination}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,
+    `Scope: ${scope}`,
     `Verification: ${verification}`,
     `Pull request: ${pullRequest}`,
     `Completed: ${listOrNone(status.completedArtifacts)}`,

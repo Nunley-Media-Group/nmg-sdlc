@@ -7,7 +7,9 @@ description: "Inspect and report the current manual nmg-sdlc lifecycle state wit
 
 Read `../../references/codex-tooling.md` when the workflow starts — it maps inspection and shell wording to Codex-native, argument-safe behavior.
 
-Report the strongest lifecycle conclusion supported by current repository, spec, verification, and read-only GitHub evidence. Delegate deterministic inspection to the bundled status CLI and pass its output through unchanged.
+Report the strongest lifecycle conclusion supported by current repository, active issue scope, verification, and read-only GitHub evidence. Delegate deterministic inspection to the bundled status CLI and pass its output through unchanged.
+
+Read `../../references/issue-spec-scope.md` when interpreting the `spec.scope` field. The CLI imports the same resolver used by the delivery skills. `repair_required` or `unverifiable` scope is a lifecycle gap whose next action is `$nmg-sdlc:write-spec #N`, even when cumulative spec files, implementation paths, verification reports, or pull requests would otherwise imply a later stage.
 
 Read `../../references/epic-relationships.md` when an active issue is present. The bundled CLI hydrates the same label/body/native evidence, uses `scripts/epic-relationships.mjs`, and exposes the shared result as the issue's nullable `coordination` field without changing lifecycle-stage inference.
 

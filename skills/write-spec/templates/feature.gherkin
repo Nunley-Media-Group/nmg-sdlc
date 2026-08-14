@@ -22,6 +22,7 @@ Feature: [Feature Name]
 
   # --- Happy Path ---
 
+  @SCN001
   Scenario: [AC1 scenario name]
     Given [AC1 precondition]
     When [AC1 action]
@@ -30,6 +31,7 @@ Feature: [Feature Name]
 
   # --- Alternative Paths ---
 
+  @SCN002
   Scenario: [AC2 scenario name]
     Given [AC2 precondition]
     When [AC2 action]
@@ -37,6 +39,7 @@ Feature: [Feature Name]
 
   # --- Error Handling ---
 
+  @SCN003
   Scenario: [AC3 scenario name - error case]
     Given [AC3 error precondition]
     When [AC3 action that triggers error]
@@ -44,6 +47,7 @@ Feature: [Feature Name]
 
   # --- Edge Cases ---
 
+  @SCN004
   Scenario: [AC4 scenario name - edge case]
     Given [AC4 edge case precondition]
     When [AC4 action]
@@ -51,6 +55,7 @@ Feature: [Feature Name]
 
   # --- Data-Driven (if applicable) ---
 
+  @SCN005
   Scenario Outline: [Parameterized scenario name]
     Given [precondition with <parameter>]
     When [action with <parameter>]
@@ -110,10 +115,11 @@ then("the response status is {int}", (status) => {
 ## Guidelines
 
 1. **One scenario per acceptance criterion** — direct 1:1 mapping from requirements.md
-2. **Concrete examples** — use realistic data, not "foo" and "bar"
-3. **Independent scenarios** — each scenario should be self-contained
-4. **Declarative style** — describe *what*, not *how* (avoid UI implementation details)
-5. **Background for shared setup** — use `Background:` for preconditions common to all scenarios
+2. **Stable scenario ID** — tag every scenario with one unique sequential `@SCN...` identifier; preserve that tag when renaming the scenario
+3. **Concrete examples** — use realistic data, not "foo" and "bar"
+4. **Independent scenarios** — each scenario should be self-contained
+5. **Declarative style** — describe *what*, not *how* (avoid UI implementation details)
+6. **Background for shared setup** — use `Background:` for preconditions common to all scenarios
 
 ```gherkin
 # Use Background for shared preconditions
@@ -121,10 +127,12 @@ Background:
   Given a registered user is logged in
   And the user has a saved route
 
+@SCN001
 Scenario: First scenario
   When ...
   Then ...
 
+@SCN002
 Scenario: Second scenario
   When ...
   Then ...
@@ -135,6 +143,7 @@ Scenario: Second scenario
 ## Validation Checklist
 
 - [ ] Every acceptance criterion has a corresponding scenario
+- [ ] Every scenario has exactly one unique stable `@SCN...` tag
 - [ ] Feature file is valid Gherkin syntax
 - [ ] Scenarios are independent (no shared mutable state)
 - [ ] Step definitions use project's BDD framework patterns
@@ -163,7 +172,7 @@ Feature: [Bug summary — what was broken]
 
   # --- Bug Is Fixed ---
 
-  @regression
+  @SCN001 @regression
   Scenario: [AC1 — bug no longer reproduces]
     Given [the precondition that previously triggered the bug]
     When [the action that caused the incorrect behavior]
@@ -171,7 +180,7 @@ Feature: [Bug summary — what was broken]
 
   # --- Related Behavior Still Works ---
 
-  @regression
+  @SCN002 @regression
   Scenario: [AC2 — related behavior is preserved]
     Given [a related but working scenario]
     When [a related action]
@@ -179,7 +188,7 @@ Feature: [Bug summary — what was broken]
 
   # --- Edge Case (if applicable) ---
 
-  @regression
+  @SCN003 @regression
   Scenario: [AC3 — boundary condition]
     Given [edge case precondition]
     When [action]
@@ -191,7 +200,8 @@ Feature: [Bug summary — what was broken]
 ## Defect Scenario Guidelines
 
 1. **Tag all scenarios `@regression`** — enables targeted regression suite runs
-2. **Feature description states what was broken**, not a user story — describe the bug and the fix
-3. **Fewer scenarios** — typically 2–3 (bug fixed + no regression), not 4+ like features
-4. **Focus on "it no longer breaks"** and "related things still work"
-5. **Use concrete data from the reproduction steps** in requirements.md
+2. **Give every scenario one unique stable `@SCN...` tag** — keep the tag when scenario prose changes
+3. **Feature description states what was broken**, not a user story — describe the bug and the fix
+4. **Fewer scenarios** — typically 2–3 (bug fixed + no regression), not 4+ like features
+5. **Focus on "it no longer breaks"** and "related things still work"
+6. **Use concrete data from the reproduction steps** in requirements.md

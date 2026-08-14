@@ -69,6 +69,8 @@ This check proves the refreshed default-branch parent baseline. The active child
 
 Load all active specification documents:
 
+Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and resolved spec path before implementation planning. Continue only for `scoped` or `implicit_single_issue`. Treat `delivery.acceptanceCriteria`, `delivery.functionalRequirements`, `delivery.tasks`, and `delivery.scenarios` as the complete current implementation slice; `regression` is verification context and never adds implementation tasks. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with the exact gaps. On `unverifiable`, fail closed with `reasonCode` and gaps. Never fall back to all tasks in a multi-issue spec.
+
 Then read `../../references/spec-context.md` and establish bounded neighboring context. Fully load related specs only when the ranking reasons show their surrounding contracts can affect implementation scope, and cap related full-spec loading per the shared contract. The active spec remains authoritative; related specs provide constraints, compatibility notes, and blast-radius context, not replacement task sources.
 
 ```

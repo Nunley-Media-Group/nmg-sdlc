@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #162 by adding a strict `issue-scope.json` contract and shared resolver for cumulative feature specs, scoping implementation/resumption/verification/status/pull-request evidence to the active issue's owned-plus-adopted delivery slice, separating explicit prior regression obligations, and failing safely when cumulative ownership is missing or invalid.
+
 ## [2.0.4] - 2026-08-14
 
 ### Fixed

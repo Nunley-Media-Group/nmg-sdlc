@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T07:51:36.138Z",
+  "generated_at": "2026-08-14T09:20:39.742Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -284,13 +284,13 @@
         "skills/draft-issue/references/multi-issue.md:113",
         "skills/draft-issue/references/multi-issue.md:166",
         "skills/onboard-project/SKILL.md:149",
-        "skills/open-pr/SKILL.md:97",
+        "skills/open-pr/SKILL.md:100",
         "skills/run-retro/SKILL.md:167",
         "skills/start-issue/SKILL.md:239",
-        "skills/verify-code/SKILL.md:195",
-        "skills/write-code/SKILL.md:116",
-        "skills/write-spec/SKILL.md:129",
-        "skills/write-spec/SKILL.md:161"
+        "skills/verify-code/SKILL.md:198",
+        "skills/write-code/SKILL.md:118",
+        "skills/write-spec/SKILL.md:132",
+        "skills/write-spec/SKILL.md:164"
       ]
     },
     {
@@ -1174,136 +1174,154 @@
       "destination": "skills/open-pr/SKILL.md:46"
     },
     {
-      "id": "43f46ddfb5e2",
+      "id": "46dc962761cf",
       "source_before": "skills/open-pr/SKILL.md:47",
-      "normalized": "read spec files (specs-found only):",
+      "normalized": "resolve active spec scope (specs-found only) — read ../../references/issue-spec-",
       "destination": "skills/open-pr/SKILL.md:47"
     },
     {
-      "id": "3485ce3b75f1",
+      "id": "43f46ddfb5e2",
       "source_before": "skills/open-pr/SKILL.md:48",
-      "normalized": "specs/{feature-name}/requirements.md for acceptance criteria.",
+      "normalized": "read spec files (specs-found only):",
       "destination": "skills/open-pr/SKILL.md:48"
     },
     {
-      "id": "e4220b9181ac",
+      "id": "3485ce3b75f1",
       "source_before": "skills/open-pr/SKILL.md:49",
-      "normalized": "specs/{feature-name}/tasks.md for the testing phase.",
+      "normalized": "specs/{feature-name}/requirements.md for acceptance criteria.",
       "destination": "skills/open-pr/SKILL.md:49"
     },
     {
-      "id": "c85d65877859",
+      "id": "e4220b9181ac",
+      "source_before": "skills/open-pr/SKILL.md:50",
+      "normalized": "specs/{feature-name}/tasks.md for the testing phase.",
+      "destination": "skills/open-pr/SKILL.md:50"
+    },
+    {
+      "id": "887696e0f6dc",
       "source_before": "skills/open-pr/SKILL.md:51",
-      "normalized": "skip this sub-step if specs-not-found — acceptance criteria will be extracted fr",
+      "normalized": "specs/{feature-name}/issue-scope.json when the resolver status is scoped.",
       "destination": "skills/open-pr/SKILL.md:51"
     },
     {
-      "id": "83471eb6fba9",
-      "source_before": "skills/open-pr/SKILL.md:52",
-      "normalized": "read git state:",
-      "destination": "skills/open-pr/SKILL.md:52"
-    },
-    {
-      "id": "c3ca0281b04c",
+      "id": "c85d65877859",
       "source_before": "skills/open-pr/SKILL.md:53",
-      "normalized": "git status — eligible changes after delivery preparation.",
+      "normalized": "skip this sub-step if specs-not-found — acceptance criteria will be extracted fr",
       "destination": "skills/open-pr/SKILL.md:53"
     },
     {
-      "id": "c20e5f268b4f",
+      "id": "901d059a8648",
       "source_before": "skills/open-pr/SKILL.md:54",
-      "normalized": "git log main..head --oneline — commits on this branch.",
+      "normalized": "read verification evidence — locate the verification report under the matched sp",
       "destination": "skills/open-pr/SKILL.md:54"
     },
     {
-      "id": "3306658175c5",
+      "id": "83471eb6fba9",
       "source_before": "skills/open-pr/SKILL.md:55",
-      "normalized": "git diff main...head --stat — files changed vs main.",
+      "normalized": "read git state:",
       "destination": "skills/open-pr/SKILL.md:55"
     },
     {
-      "id": "f8d3368b8ecd",
+      "id": "c3ca0281b04c",
       "source_before": "skills/open-pr/SKILL.md:56",
-      "normalized": "read version artifacts for the pr body — read version, changelog.md, and the del",
+      "normalized": "git status — eligible changes after delivery preparation.",
       "destination": "skills/open-pr/SKILL.md:56"
     },
     {
+      "id": "c20e5f268b4f",
+      "source_before": "skills/open-pr/SKILL.md:57",
+      "normalized": "git log main..head --oneline — commits on this branch.",
+      "destination": "skills/open-pr/SKILL.md:57"
+    },
+    {
+      "id": "3306658175c5",
+      "source_before": "skills/open-pr/SKILL.md:58",
+      "normalized": "git diff main...head --stat — files changed vs main.",
+      "destination": "skills/open-pr/SKILL.md:58"
+    },
+    {
+      "id": "f8d3368b8ecd",
+      "source_before": "skills/open-pr/SKILL.md:59",
+      "normalized": "read version artifacts for the pr body — read version, changelog.md, and the del",
+      "destination": "skills/open-pr/SKILL.md:59"
+    },
+    {
       "id": "e47ec592f3fc",
-      "source_before": "skills/open-pr/SKILL.md:60",
+      "source_before": "skills/open-pr/SKILL.md:63",
       "normalized": "read references/version-bump.md when a version file exists at the project root a",
-      "destination": "skills/open-pr/SKILL.md:60"
+      "destination": "skills/open-pr/SKILL.md:63"
     },
     {
       "id": "339ebcd5606f",
-      "source_before": "skills/open-pr/SKILL.md:64",
+      "source_before": "skills/open-pr/SKILL.md:67",
       "normalized": "use references/version-bump.md to update version, changelog.md, .codex-plugin/pl",
-      "destination": "skills/open-pr/SKILL.md:64"
+      "destination": "skills/open-pr/SKILL.md:67"
     },
     {
       "id": "455a33a83d9a",
-      "source_before": "skills/open-pr/SKILL.md:68",
+      "source_before": "skills/open-pr/SKILL.md:71",
       "normalized": "read references/pr-body.md when assembling the pr title and body — the reference",
-      "destination": "skills/open-pr/SKILL.md:68"
+      "destination": "skills/open-pr/SKILL.md:71"
     },
     {
       "id": "092987c66f68",
-      "source_before": "skills/open-pr/SKILL.md:70",
+      "source_before": "skills/open-pr/SKILL.md:73",
       "normalized": "spike prs: the pr body template omits the version line entirely and adds type: s",
-      "destination": "skills/open-pr/SKILL.md:70"
+      "destination": "skills/open-pr/SKILL.md:73"
     },
     {
       "id": "1a2d092c1620",
-      "source_before": "skills/open-pr/SKILL.md:74",
-      "normalized": "before gh pr create, confirm the delivery-preparation postconditions from refere",
-      "destination": "skills/open-pr/SKILL.md:74"
-    },
-    {
-      "id": "51674671dae5",
-      "source_before": "skills/open-pr/SKILL.md:76",
-      "normalized": "local contains origin/main;",
-      "destination": "skills/open-pr/SKILL.md:76"
-    },
-    {
-      "id": "85b99902ae91",
       "source_before": "skills/open-pr/SKILL.md:77",
-      "normalized": "git log origin/{branch}..head --oneline is empty;",
+      "normalized": "before gh pr create, confirm the delivery-preparation postconditions from refere",
       "destination": "skills/open-pr/SKILL.md:77"
     },
     {
-      "id": "7f3a2429e46d",
-      "source_before": "skills/open-pr/SKILL.md:78",
-      "normalized": "the staged and pushed scope matches the approved delivery tree;",
-      "destination": "skills/open-pr/SKILL.md:78"
-    },
-    {
-      "id": "e253ac6a7358",
+      "id": "51674671dae5",
       "source_before": "skills/open-pr/SKILL.md:79",
-      "normalized": "deliverycommitcreated accurately records whether this invocation created a commi",
+      "normalized": "local contains origin/main;",
       "destination": "skills/open-pr/SKILL.md:79"
     },
     {
-      "id": "715fdb369402",
+      "id": "85b99902ae91",
+      "source_before": "skills/open-pr/SKILL.md:80",
+      "normalized": "git log origin/{branch}..head --oneline is empty;",
+      "destination": "skills/open-pr/SKILL.md:80"
+    },
+    {
+      "id": "7f3a2429e46d",
       "source_before": "skills/open-pr/SKILL.md:81",
-      "normalized": "then create the pr:",
+      "normalized": "the staged and pushed scope matches the approved delivery tree;",
       "destination": "skills/open-pr/SKILL.md:81"
     },
     {
+      "id": "e253ac6a7358",
+      "source_before": "skills/open-pr/SKILL.md:82",
+      "normalized": "deliverycommitcreated accurately records whether this invocation created a commi",
+      "destination": "skills/open-pr/SKILL.md:82"
+    },
+    {
+      "id": "715fdb369402",
+      "source_before": "skills/open-pr/SKILL.md:84",
+      "normalized": "then create the pr:",
+      "destination": "skills/open-pr/SKILL.md:84"
+    },
+    {
       "id": "c61aab4e6fa4",
-      "source_before": "skills/open-pr/SKILL.md:87",
+      "source_before": "skills/open-pr/SKILL.md:90",
       "normalized": "add labels matching the issue when appropriate. read references/pr-body.md for t",
-      "destination": "skills/open-pr/SKILL.md:87"
+      "destination": "skills/open-pr/SKILL.md:90"
     },
     {
       "id": "7cf0f3130b1a",
-      "source_before": "skills/open-pr/SKILL.md:91",
+      "source_before": "skills/open-pr/SKILL.md:94",
       "normalized": "follow the output block from references/pr-body.md, then continue to step 7.",
-      "destination": "skills/open-pr/SKILL.md:91"
+      "destination": "skills/open-pr/SKILL.md:94"
     },
     {
       "id": "ca181179bed4",
-      "source_before": "skills/open-pr/SKILL.md:95",
+      "source_before": "skills/open-pr/SKILL.md:98",
       "normalized": "read references/ci-monitoring.md for the opt-in prompt, the 30-second polling lo",
-      "destination": "skills/open-pr/SKILL.md:95"
+      "destination": "skills/open-pr/SKILL.md:98"
     },
     {
       "id": "9711433e8e7f",
@@ -1907,51 +1925,51 @@
     },
     {
       "id": "4e2ccb29efb3",
-      "source_before": "skills/status/SKILL.md:20",
-      "normalized": "accept $arguments only when it is empty or exactly --json after trimming surroun",
-      "destination": "skills/status/SKILL.md:20"
-    },
-    {
-      "id": "d1753b43c91a",
       "source_before": "skills/status/SKILL.md:22",
-      "normalized": "for any other value, print this usage line and stop non-zero without inspecting ",
+      "normalized": "accept $arguments only when it is empty or exactly --json after trimming surroun",
       "destination": "skills/status/SKILL.md:22"
     },
     {
+      "id": "d1753b43c91a",
+      "source_before": "skills/status/SKILL.md:24",
+      "normalized": "for any other value, print this usage line and stop non-zero without inspecting ",
+      "destination": "skills/status/SKILL.md:24"
+    },
+    {
       "id": "514a74601a23",
-      "source_before": "skills/status/SKILL.md:30",
+      "source_before": "skills/status/SKILL.md:32",
       "normalized": "resolve the project root with the read-only equivalent of:",
-      "destination": "skills/status/SKILL.md:30"
+      "destination": "skills/status/SKILL.md:32"
     },
     {
       "id": "d96f1fe9c4f8",
-      "source_before": "skills/status/SKILL.md:36",
-      "normalized": "resolve the installed plugin root from this loaded skill's own source path: the ",
-      "destination": "skills/status/SKILL.md:36"
-    },
-    {
-      "id": "82d48ffd8cb4",
       "source_before": "skills/status/SKILL.md:38",
-      "normalized": "if the project root cannot be identified or the bundled cli is missing, report t",
+      "normalized": "resolve the installed plugin root from this loaded skill's own source path: the ",
       "destination": "skills/status/SKILL.md:38"
     },
     {
+      "id": "82d48ffd8cb4",
+      "source_before": "skills/status/SKILL.md:40",
+      "normalized": "if the project root cannot be identified or the bundled cli is missing, report t",
+      "destination": "skills/status/SKILL.md:40"
+    },
+    {
       "id": "2b25f9e8ab57",
-      "source_before": "skills/status/SKILL.md:42",
+      "source_before": "skills/status/SKILL.md:44",
       "normalized": "invoke node.js without a shell using an argument array:",
-      "destination": "skills/status/SKILL.md:42"
+      "destination": "skills/status/SKILL.md:44"
     },
     {
       "id": "2a8dc43119ab",
-      "source_before": "skills/status/SKILL.md:49",
+      "source_before": "skills/status/SKILL.md:51",
       "normalized": "use the second form only when $arguments is --json. pass the resolved paths as d",
-      "destination": "skills/status/SKILL.md:49"
+      "destination": "skills/status/SKILL.md:51"
     },
     {
       "id": "b4b92533636d",
-      "source_before": "skills/status/SKILL.md:51",
+      "source_before": "skills/status/SKILL.md:53",
       "normalized": "stream the cli exit code, stdout, and stderr without adding interpretation. in j",
-      "destination": "skills/status/SKILL.md:51"
+      "destination": "skills/status/SKILL.md:53"
     },
     {
       "id": "2f370a23b0ee",
@@ -2320,262 +2338,277 @@
       "destination": "skills/verify-code/SKILL.md:46"
     },
     {
-      "id": "eccb792c372a",
+      "id": "c82e2b8fd19b",
       "source_before": "skills/verify-code/SKILL.md:48",
+      "normalized": "read ../../references/issue-spec-scope.md and run its read-only resolver for the",
+      "destination": "skills/verify-code/SKILL.md:48",
+      "additional_destinations": [
+        "skills/write-code/SKILL.md:72"
+      ]
+    },
+    {
+      "id": "eccb792c372a",
+      "source_before": "skills/verify-code/SKILL.md:50",
       "normalized": "after the active spec is loaded, read ../../references/spec-context.md and load ",
-      "destination": "skills/verify-code/SKILL.md:48"
+      "destination": "skills/verify-code/SKILL.md:50"
     },
     {
       "id": "6f30be9e6ffc",
-      "source_before": "skills/verify-code/SKILL.md:58",
+      "source_before": "skills/verify-code/SKILL.md:60",
       "normalized": "read all steering documents — these define project conventions used throughout v",
-      "destination": "skills/verify-code/SKILL.md:58"
+      "destination": "skills/verify-code/SKILL.md:60"
     },
     {
       "id": "b3b951684188",
-      "source_before": "skills/verify-code/SKILL.md:67",
-      "normalized": "steering docs define the verification framework (behavioral contracts, checklist",
-      "destination": "skills/verify-code/SKILL.md:67"
-    },
-    {
-      "id": "351d5e6f4eb9",
       "source_before": "skills/verify-code/SKILL.md:69",
-      "normalized": "read references/verification-gates.md when tech.md is being parsed — the referen",
+      "normalized": "steering docs define the verification framework (behavioral contracts, checklist",
       "destination": "skills/verify-code/SKILL.md:69"
     },
     {
+      "id": "351d5e6f4eb9",
+      "source_before": "skills/verify-code/SKILL.md:71",
+      "normalized": "read references/verification-gates.md when tech.md is being parsed — the referen",
+      "destination": "skills/verify-code/SKILL.md:71"
+    },
+    {
       "id": "dc6272f4237c",
-      "source_before": "skills/verify-code/SKILL.md:73",
+      "source_before": "skills/verify-code/SKILL.md:75",
       "normalized": "check the issue's labels:",
-      "destination": "skills/verify-code/SKILL.md:73",
+      "destination": "skills/verify-code/SKILL.md:75",
       "additional_destinations": [
         "skills/write-code/SKILL.md:42"
       ]
     },
     {
       "id": "13aa99e928b6",
-      "source_before": "skills/verify-code/SKILL.md:79",
+      "source_before": "skills/verify-code/SKILL.md:81",
       "normalized": "if any label is spike, print exactly:",
-      "destination": "skills/verify-code/SKILL.md:79",
+      "destination": "skills/verify-code/SKILL.md:81",
       "additional_destinations": [
         "skills/write-code/SKILL.md:48"
       ]
     },
     {
       "id": "a5de0b78ed8d",
-      "source_before": "skills/verify-code/SKILL.md:85",
+      "source_before": "skills/verify-code/SKILL.md:87",
       "normalized": "exit 0 — this is a correctness guard, not a failure. do not post a verification ",
-      "destination": "skills/verify-code/SKILL.md:85"
+      "destination": "skills/verify-code/SKILL.md:87"
     },
     {
       "id": "3e8aabc122a9",
-      "source_before": "skills/verify-code/SKILL.md:89",
+      "source_before": "skills/verify-code/SKILL.md:91",
       "normalized": "read the github issue for the original acceptance criteria:",
-      "destination": "skills/verify-code/SKILL.md:89"
+      "destination": "skills/verify-code/SKILL.md:91"
     },
     {
       "id": "ce25b2655f4f",
-      "source_before": "skills/verify-code/SKILL.md:95",
+      "source_before": "skills/verify-code/SKILL.md:97",
       "normalized": "read references/defect-path.md when the spec under verification uses the defect ",
-      "destination": "skills/verify-code/SKILL.md:95"
+      "destination": "skills/verify-code/SKILL.md:97"
     },
     {
       "id": "31415e1075d2",
-      "source_before": "skills/verify-code/SKILL.md:99",
-      "normalized": "check each acceptance criterion against actual code:",
-      "destination": "skills/verify-code/SKILL.md:99"
-    },
-    {
-      "id": "e7794403e1b3",
       "source_before": "skills/verify-code/SKILL.md:101",
-      "normalized": "for each ac in requirements.md: find the implementing code via file discovery / ",
+      "normalized": "check each acceptance criterion against actual code:",
       "destination": "skills/verify-code/SKILL.md:101"
     },
     {
-      "id": "d65c86a7e181",
-      "source_before": "skills/verify-code/SKILL.md:102",
-      "normalized": "for each task in tasks.md: verify the file exists and contains the expected code",
-      "destination": "skills/verify-code/SKILL.md:102"
+      "id": "e5350163000b",
+      "source_before": "skills/verify-code/SKILL.md:103",
+      "normalized": "for each mapped delivery ac: find the implementing code via file discovery / tex",
+      "destination": "skills/verify-code/SKILL.md:103"
+    },
+    {
+      "id": "9f8d62011b70",
+      "source_before": "skills/verify-code/SKILL.md:104",
+      "normalized": "for each mapped delivery task: verify the file exists and contains the expected ",
+      "destination": "skills/verify-code/SKILL.md:104"
+    },
+    {
+      "id": "e667cd457e37",
+      "source_before": "skills/verify-code/SKILL.md:105",
+      "normalized": "for each declared regression obligation: verify preservation separately and reco",
+      "destination": "skills/verify-code/SKILL.md:105"
     },
     {
       "id": "68f93c974299",
-      "source_before": "skills/verify-code/SKILL.md:106",
+      "source_before": "skills/verify-code/SKILL.md:109",
       "normalized": "run the architecture review inline by default. if the user explicitly authorizes",
-      "destination": "skills/verify-code/SKILL.md:106"
+      "destination": "skills/verify-code/SKILL.md:109"
     },
     {
       "id": "94422635d2f3",
-      "source_before": "skills/verify-code/SKILL.md:108",
-      "normalized": "when using a subagent, assume it has no useful conversation context — it only se",
-      "destination": "skills/verify-code/SKILL.md:108"
-    },
-    {
-      "id": "5aaf3fb3aa7d",
-      "source_before": "skills/verify-code/SKILL.md:110",
-      "normalized": "tech.md — checklist applicability table (scripts vs. skills), script verificatio",
-      "destination": "skills/verify-code/SKILL.md:110"
-    },
-    {
-      "id": "f83f88ad67b9",
       "source_before": "skills/verify-code/SKILL.md:111",
-      "normalized": "structure.md — architectural invariants (hard contracts that must never be viola",
+      "normalized": "when using a subagent, assume it has no useful conversation context — it only se",
       "destination": "skills/verify-code/SKILL.md:111"
     },
     {
-      "id": "703a30587025",
+      "id": "5aaf3fb3aa7d",
       "source_before": "skills/verify-code/SKILL.md:113",
-      "normalized": "| area | checklist | priority |",
+      "normalized": "tech.md — checklist applicability table (scripts vs. skills), script verificatio",
       "destination": "skills/verify-code/SKILL.md:113"
     },
     {
-      "id": "e3db6143ce9b",
-      "source_before": "skills/verify-code/SKILL.md:115",
-      "normalized": "| solid principles | read checklists/solid-principles.md when evaluating solid c",
-      "destination": "skills/verify-code/SKILL.md:115"
+      "id": "f83f88ad67b9",
+      "source_before": "skills/verify-code/SKILL.md:114",
+      "normalized": "structure.md — architectural invariants (hard contracts that must never be viola",
+      "destination": "skills/verify-code/SKILL.md:114"
     },
     {
-      "id": "47728f1bdf3f",
+      "id": "703a30587025",
       "source_before": "skills/verify-code/SKILL.md:116",
-      "normalized": "| security | read checklists/security.md when evaluating security posture | 2 |",
+      "normalized": "| area | checklist | priority |",
       "destination": "skills/verify-code/SKILL.md:116"
     },
     {
-      "id": "dc6f336302dc",
-      "source_before": "skills/verify-code/SKILL.md:117",
-      "normalized": "| performance | read checklists/performance.md when evaluating performance | 3 |",
-      "destination": "skills/verify-code/SKILL.md:117"
-    },
-    {
-      "id": "931bbaf46262",
+      "id": "e3db6143ce9b",
       "source_before": "skills/verify-code/SKILL.md:118",
-      "normalized": "| testability | read checklists/testability.md when evaluating testability | 4 |",
+      "normalized": "| solid principles | read checklists/solid-principles.md when evaluating solid c",
       "destination": "skills/verify-code/SKILL.md:118"
     },
     {
-      "id": "69b0cf57505e",
+      "id": "47728f1bdf3f",
       "source_before": "skills/verify-code/SKILL.md:119",
-      "normalized": "| error handling | read checklists/error-handling.md when evaluating error handl",
+      "normalized": "| security | read checklists/security.md when evaluating security posture | 2 |",
       "destination": "skills/verify-code/SKILL.md:119"
     },
     {
-      "id": "463a9b8c2fe7",
+      "id": "dc6f336302dc",
+      "source_before": "skills/verify-code/SKILL.md:120",
+      "normalized": "| performance | read checklists/performance.md when evaluating performance | 3 |",
+      "destination": "skills/verify-code/SKILL.md:120"
+    },
+    {
+      "id": "931bbaf46262",
       "source_before": "skills/verify-code/SKILL.md:121",
-      "normalized": "for each area: load the checklist, evaluate the implementation against each item",
+      "normalized": "| testability | read checklists/testability.md when evaluating testability | 4 |",
       "destination": "skills/verify-code/SKILL.md:121"
     },
     {
+      "id": "69b0cf57505e",
+      "source_before": "skills/verify-code/SKILL.md:122",
+      "normalized": "| error handling | read checklists/error-handling.md when evaluating error handl",
+      "destination": "skills/verify-code/SKILL.md:122"
+    },
+    {
+      "id": "463a9b8c2fe7",
+      "source_before": "skills/verify-code/SKILL.md:124",
+      "normalized": "for each area: load the checklist, evaluate the implementation against each item",
+      "destination": "skills/verify-code/SKILL.md:124"
+    },
+    {
       "id": "6c1331ba4adc",
-      "source_before": "skills/verify-code/SKILL.md:127",
-      "normalized": "run git diff main...head --name-only and check if any changed files match these ",
-      "destination": "skills/verify-code/SKILL.md:127"
-    },
-    {
-      "id": "909bef7d933c",
-      "source_before": "skills/verify-code/SKILL.md:129",
-      "normalized": "plugins//skills//skill.md",
-      "destination": "skills/verify-code/SKILL.md:129"
-    },
-    {
-      "id": "487213cd5218",
       "source_before": "skills/verify-code/SKILL.md:130",
-      "normalized": "plugins//agents/.md",
+      "normalized": "run git diff main...head --name-only and check if any changed files match these ",
       "destination": "skills/verify-code/SKILL.md:130"
     },
     {
-      "id": "3e00201442d0",
-      "source_before": "skills/verify-code/SKILL.md:131",
-      "normalized": "skills//skill.md or agents/.md at the repo root (for standalone-plugin repos)",
-      "destination": "skills/verify-code/SKILL.md:131"
+      "id": "909bef7d933c",
+      "source_before": "skills/verify-code/SKILL.md:132",
+      "normalized": "plugins//skills//skill.md",
+      "destination": "skills/verify-code/SKILL.md:132"
     },
     {
-      "id": "0e85b7eea64c",
+      "id": "487213cd5218",
       "source_before": "skills/verify-code/SKILL.md:133",
-      "normalized": "template-only changes (files in templates/ without an accompanying skill.md chan",
+      "normalized": "plugins//agents/.md",
       "destination": "skills/verify-code/SKILL.md:133"
     },
     {
-      "id": "8b2617cb87ad",
-      "source_before": "skills/verify-code/SKILL.md:135",
-      "normalized": "if plugin changes are detected → proceed to 5b–5e (exercise-based verification).",
-      "destination": "skills/verify-code/SKILL.md:135"
+      "id": "3e00201442d0",
+      "source_before": "skills/verify-code/SKILL.md:134",
+      "normalized": "skills//skill.md or agents/.md at the repo root (for standalone-plugin repos)",
+      "destination": "skills/verify-code/SKILL.md:134"
     },
     {
-      "id": "fe554bab63e7",
+      "id": "0e85b7eea64c",
       "source_before": "skills/verify-code/SKILL.md:136",
-      "normalized": "if no plugin changes are detected → run the standard bdd verification below, the",
+      "normalized": "template-only changes (files in templates/ without an accompanying skill.md chan",
       "destination": "skills/verify-code/SKILL.md:136"
     },
     {
+      "id": "8b2617cb87ad",
+      "source_before": "skills/verify-code/SKILL.md:138",
+      "normalized": "if plugin changes are detected → proceed to 5b–5e (exercise-based verification).",
+      "destination": "skills/verify-code/SKILL.md:138"
+    },
+    {
+      "id": "fe554bab63e7",
+      "source_before": "skills/verify-code/SKILL.md:139",
+      "normalized": "if no plugin changes are detected → run the standard bdd verification below, the",
+      "destination": "skills/verify-code/SKILL.md:139"
+    },
+    {
       "id": "6f5280c6018f",
-      "source_before": "skills/verify-code/SKILL.md:140",
-      "normalized": "check that bdd tests exist and cover the acceptance criteria:",
-      "destination": "skills/verify-code/SKILL.md:140"
-    },
-    {
-      "id": "71688f716bf9",
-      "source_before": "skills/verify-code/SKILL.md:142",
-      "normalized": "feature files — do .feature files exist at the location specified in tech.md?",
-      "destination": "skills/verify-code/SKILL.md:142"
-    },
-    {
-      "id": "6af75bc0d627",
       "source_before": "skills/verify-code/SKILL.md:143",
-      "normalized": "scenario coverage — does each ac from requirements.md have a corresponding gherk",
+      "normalized": "check that bdd tests exist and cover the acceptance criteria:",
       "destination": "skills/verify-code/SKILL.md:143"
     },
     {
-      "id": "02e46c2dbcb9",
-      "source_before": "skills/verify-code/SKILL.md:144",
-      "normalized": "step definitions — are step definitions implemented for all scenarios?",
-      "destination": "skills/verify-code/SKILL.md:144"
-    },
-    {
-      "id": "5ff8e0b087b5",
+      "id": "71688f716bf9",
       "source_before": "skills/verify-code/SKILL.md:145",
-      "normalized": "test execution — reference tech.md for the command to run tests.",
+      "normalized": "feature files — do .feature files exist at the location specified in tech.md?",
       "destination": "skills/verify-code/SKILL.md:145"
     },
     {
-      "id": "1b6ca7672ee6",
+      "id": "6af75bc0d627",
+      "source_before": "skills/verify-code/SKILL.md:146",
+      "normalized": "scenario coverage — does each ac from requirements.md have a corresponding gherk",
+      "destination": "skills/verify-code/SKILL.md:146"
+    },
+    {
+      "id": "02e46c2dbcb9",
       "source_before": "skills/verify-code/SKILL.md:147",
-      "normalized": "report coverage gaps.",
+      "normalized": "step definitions — are step definitions implemented for all scenarios?",
       "destination": "skills/verify-code/SKILL.md:147"
     },
     {
+      "id": "5ff8e0b087b5",
+      "source_before": "skills/verify-code/SKILL.md:148",
+      "normalized": "test execution — reference tech.md for the command to run tests.",
+      "destination": "skills/verify-code/SKILL.md:148"
+    },
+    {
+      "id": "1b6ca7672ee6",
+      "source_before": "skills/verify-code/SKILL.md:150",
+      "normalized": "report coverage gaps.",
+      "destination": "skills/verify-code/SKILL.md:150"
+    },
+    {
       "id": "ce442a4635d6",
-      "source_before": "skills/verify-code/SKILL.md:151",
+      "source_before": "skills/verify-code/SKILL.md:154",
       "normalized": "read references/exercise-testing.md when step 5a detected plugin changes — the r",
-      "destination": "skills/verify-code/SKILL.md:151"
+      "destination": "skills/verify-code/SKILL.md:154"
     },
     {
       "id": "caeec3bb88eb",
-      "source_before": "skills/verify-code/SKILL.md:153",
+      "source_before": "skills/verify-code/SKILL.md:156",
       "normalized": "exercise findings are treated as findings for step 6, just like any other verifi",
-      "destination": "skills/verify-code/SKILL.md:153"
+      "destination": "skills/verify-code/SKILL.md:156"
     },
     {
       "id": "32005cf42edc",
-      "source_before": "skills/verify-code/SKILL.md:157",
+      "source_before": "skills/verify-code/SKILL.md:160",
       "normalized": "read references/verification-gates.md when gates were extracted in step 1 — the ",
-      "destination": "skills/verify-code/SKILL.md:157"
+      "destination": "skills/verify-code/SKILL.md:160"
     },
     {
       "id": "2ff8c545e712",
-      "source_before": "skills/verify-code/SKILL.md:161",
+      "source_before": "skills/verify-code/SKILL.md:164",
       "normalized": "read references/autofix-loop.md when steps 3–5 have produced findings — the refe",
-      "destination": "skills/verify-code/SKILL.md:161"
+      "destination": "skills/verify-code/SKILL.md:164"
     },
     {
       "id": "26a2b6abdc85",
-      "source_before": "skills/verify-code/SKILL.md:165",
+      "source_before": "skills/verify-code/SKILL.md:168",
       "normalized": "read references/report-format.md when authoring the report — the reference cover",
-      "destination": "skills/verify-code/SKILL.md:165"
+      "destination": "skills/verify-code/SKILL.md:168"
     },
     {
       "id": "a85bc1617365",
-      "source_before": "skills/verify-code/SKILL.md:169",
+      "source_before": "skills/verify-code/SKILL.md:172",
       "normalized": "post the verification results as an issue comment following the markdown templat",
-      "destination": "skills/verify-code/SKILL.md:169"
+      "destination": "skills/verify-code/SKILL.md:172"
     },
     {
       "id": "86dd3bc04d0a",
@@ -2645,45 +2678,45 @@
     },
     {
       "id": "0bea0f680ad5",
-      "source_before": "skills/write-code/SKILL.md:72",
+      "source_before": "skills/write-code/SKILL.md:74",
       "normalized": "then read ../../references/spec-context.md and establish bounded neighboring con",
-      "destination": "skills/write-code/SKILL.md:72"
+      "destination": "skills/write-code/SKILL.md:74"
     },
     {
       "id": "5cbc58de9996",
-      "source_before": "skills/write-code/SKILL.md:82",
+      "source_before": "skills/write-code/SKILL.md:84",
       "normalized": "if specs do not exist, present a requestuserinput gate with the message \"no spec",
-      "destination": "skills/write-code/SKILL.md:82"
+      "destination": "skills/write-code/SKILL.md:84"
     },
     {
       "id": "5da51e479297",
-      "source_before": "skills/write-code/SKILL.md:86",
+      "source_before": "skills/write-code/SKILL.md:88",
       "normalized": "load project conventions:",
-      "destination": "skills/write-code/SKILL.md:86"
+      "destination": "skills/write-code/SKILL.md:88"
     },
     {
       "id": "188bbca2e203",
-      "source_before": "skills/write-code/SKILL.md:104",
+      "source_before": "skills/write-code/SKILL.md:106",
       "normalized": "after all tasks are complete and the bundled simplify pass has completed:",
-      "destination": "skills/write-code/SKILL.md:104"
+      "destination": "skills/write-code/SKILL.md:106"
     },
     {
       "id": "50e58bcfa2dc",
-      "source_before": "skills/write-spec/SKILL.md:127",
+      "source_before": "skills/write-spec/SKILL.md:130",
       "normalized": "read references/review-gates.md when this gate fires — § phase 1 contains the re",
-      "destination": "skills/write-spec/SKILL.md:127"
+      "destination": "skills/write-spec/SKILL.md:130"
     },
     {
       "id": "ef925daf92cd",
-      "source_before": "skills/write-spec/SKILL.md:159",
+      "source_before": "skills/write-spec/SKILL.md:162",
       "normalized": "read references/review-gates.md when this gate fires — § phase 2 contains the de",
-      "destination": "skills/write-spec/SKILL.md:159"
+      "destination": "skills/write-spec/SKILL.md:162"
     },
     {
       "id": "b3075b7ace76",
-      "source_before": "skills/write-spec/SKILL.md:199",
+      "source_before": "skills/write-spec/SKILL.md:214",
       "normalized": "read references/review-gates.md when this gate fires — § phase 3 contains the ta",
-      "destination": "skills/write-spec/SKILL.md:199"
+      "destination": "skills/write-spec/SKILL.md:214"
     }
   ]
 }

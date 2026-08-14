@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "issues": {
+    "[issue-number]": {
+      "owned": {
+        "acceptanceCriteria": ["[AC-ID]"],
+        "functionalRequirements": ["[FR-ID]"],
+        "tasks": ["[TASK-ID]"],
+        "scenarios": ["[SCENARIO-ID]"]
+      },
+      "adopted": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "tasks": [],
+        "scenarios": []
+      },
+      "regression": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "scenarios": []
+      }
+    }
+  }
+}

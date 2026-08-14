@@ -52,7 +52,8 @@ describe('status skill contract', () => {
   });
 
   it('keeps a stable manual-only evidence boundary', () => {
-    expect(source).toContain('Report the strongest lifecycle conclusion supported by current repository, spec, verification, and read-only GitHub evidence');
+    expect(source).toContain('Report the strongest lifecycle conclusion supported by current repository, active issue scope, verification, and read-only GitHub evidence');
+    expect(source).toContain('`repair_required` or `unverifiable` scope is a lifecycle gap');
     expect(source).toContain('Dirty worktrees are evidence to report, not conditions to repair');
     for (const removedToken of ['sdlc-config.json', 'sdlc-state.json', 'unattended-mode', 'end-loop', 'process.kill']) {
       expect(source).not.toContain(removedToken);
