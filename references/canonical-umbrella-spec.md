@@ -47,7 +47,61 @@ tree: <full-git-tree-oid>
 
 Validate `N`, the normalized path, and the 40-character tree object ID before comparing markers. Match the complete marker plus the detected base branch. Reuse one open exact match; after a merged match, fetch and classify again. Stop on a closed-unmerged exact match or multiple exact matches instead of silently creating a duplicate.
 
-The publication PR references the umbrella issue without closing it. It contains only the exact approved spec directory and never changes `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, a marketplace file, or an unrelated dirty path.
+The publication PR references the umbrella issue without closing it. Body wording is supporting evidence only: a branch created through `gh issue develop` can retain a native closing association despite `Refs #N`.
+
+## Dedicated Publication Ref
+
+Keep the issue-linked sealing branch as source provenance, but never use it as the publication PR head. Derive the dedicated ref from validated evidence:
+
+```text
+nmg-sdlc/spec-publication-<issue>-<first-12-characters-of-source-tree>
+```
+
+Create it only with a plain full-commit push:
+
+```bash
+git push origin <full-seal-commit>:refs/heads/<dedicated-publication-ref>
+```
+
+Never create or link that ref with `gh issue develop`. Before pushing, query the exact remote ref. Reuse it only when it resolves to the same full seal commit; a collision or mismatch stops. Never force-push it. The PR must use this dedicated head, target the detected default branch, and contain only the exact approved spec directory. It never changes `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, a marketplace file, or an unrelated dirty path.
+
+## GitHub Closing-Semantic Gate
+
+After creating or finding an exact-marker PR, invoke the read-only helper from the installed plugin root:
+
+```bash
+node <plugin-root>/scripts/umbrella-publication-status.mjs \
+  --project <project-root> \
+  --repository <owner/name> \
+  --issue <N> \
+  --pr <publication-pr-number> \
+  --spec specs/<validated-slug> \
+  --tree <full-source-tree-oid> \
+  --source <full-seal-commit> \
+  --base <detected-default-branch> \
+  --json
+```
+
+The helper validates the exact marker, dedicated head, base, and head commit; reads `closingIssuesReferences`; and walks the issue's bounded `ClosedEvent` timeline through GitHub GraphQL. It performs no Git or GitHub mutation.
+
+| Status | Evidence | Consumer behavior |
+|--------|----------|-------------------|
+| `pending_safe` | Exact marked open PR uses the dedicated head, umbrella is open, and its closing references exclude the umbrella. | Report `publication_pending` and the normal review/merge handoff. |
+| `merged_safe` | Exact marked PR merged and the umbrella is currently open; no unexplained closing relationship remains. `evidence.recovered` identifies an approved prior reopen. | Combine with fresh canonical Git-tree proof before child transition. |
+| `closing_relationship` | The open PR includes the umbrella in `closingIssuesReferences`, or a merged PR retains an unexplained closing relationship. | Lifecycle error. Do not report pending/success or encourage merge. |
+| `publication_closed_umbrella` | The exact marked merged PR is the umbrella's `ClosedEvent` closer and the issue remains closed. | Lifecycle error. Offer only the exact recovery gate below. |
+| `closed_unrelated` | The umbrella is closed without exact evidence that this marked PR closed it. | Fail closed; never reopen through publication recovery. |
+| `unverifiable` | Required repository, marker, head/base/commit, closing-reference, issue, or timeline evidence is incomplete or inconsistent. | Fail closed with `reasonCode`, `gaps`, and evidence. |
+
+Before merge, only `pending_safe` may become `publication_pending`. After merge, require both `merged_safe` and fresh `canonical` / `canonical_marker_lost` content proof. Content proof never overrides a GitHub semantic failure.
+
+For diagnosis and recovery only, a merged historical exact-marker PR may have the former issue-linked head. The helper exposes `evidence.dedicatedHead = false`; it can still prove an exact publication-caused closure or a currently open historical merge. An open PR with a non-dedicated head is never `pending_safe`.
+
+## Exact Reopen Recovery
+
+Recovery is available only for `publication_closed_umbrella`. Render the exact issue, PR, marker, dedicated head, merge time, and matching `ClosedEvent` closer. Ask for approval to reopen that exact issue; approval for another action, silence, or a general continuation request is not approval.
+
+After exact approval, run `gh issue reopen N`, refetch through the helper, and continue only when it returns `merged_safe` with `evidence.recovered = true` and the canonical tree check still passes. Never reopen `closed_unrelated`, `closing_relationship`, or `unverifiable` state. Ordinary implementation PR closure remains owned by `$nmg-sdlc:open-pr` and is unchanged by this contract.
 
 ## Child Readiness
 
