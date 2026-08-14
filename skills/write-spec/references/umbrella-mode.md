@@ -12,8 +12,8 @@ The umbrella+children shape is triggered when ANY of the following is true:
 
 | Trigger | Source |
 |---------|--------|
-| `design.md` contains a `## Multi-PR Rollout` heading | Phase 3 Seal-Spec Flow |
-| Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive) | Phase 3 Seal-Spec Flow |
+| `design.md` contains a `## Multi-PR Rollout` heading | Phase 3 Seal-Spec publication flow |
+| Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive) | Phase 3 Seal-Spec publication flow |
 | Phase 0 HRG (interactive) selects "Umbrella+Children" | Spike Phase 0 |
 
 ---
@@ -131,11 +131,15 @@ gh issue edit #{U} --add-sub-issue #{child-N}
 
 ## Creation Sequence
 
+Before this sequence begins for a multi-PR feature, the Phase 3 flow must prove the approved umbrella spec canonical on the freshly fetched remote default branch through `../../references/canonical-umbrella-spec.md`. A seal commit or open publication PR is not enough.
+
 1. Create the umbrella issue (no child numbers yet — use placeholder checklist rows if needed).
 2. Create each child issue in dependency order (leaves first). Capture each `#{child-N}`.
 3. Update the umbrella's child checklist with the real issue numbers (edit the body).
 4. Run the autolink loop: for each child, `gh issue edit #{U} --add-sub-issue #{child-N}` (probe first).
 5. Record `epicParentNumber = U` in the session state for `$nmg-sdlc:open-pr` step 2 epic-child downgrade.
+
+If canonical proof is pending, divergent, ambiguous, or unverifiable, stop before Step 1 and report the publication PR or recovery evidence. On rerun after merge, re-fetch and reclassify; do not trust cached status or commit-message ancestry.
 
 ---
 
@@ -145,7 +149,8 @@ This reference gives `$nmg-sdlc:write-spec` a single production recipe. The *mac
 
 | Behavior | Authoritative Source |
 |-----------|---------------------|
-| Phase 3 Seal-Spec Flow (multi-PR trigger, seal commit, child-issue prompt) | `skills/write-spec/SKILL.md` § 3b |
+| Canonical status, PR marker, and child-readiness rules | `references/canonical-umbrella-spec.md` |
+| Phase 3 Seal-Spec Flow (trigger, exact seal, publication PR, canonical recheck) | `skills/write-spec/SKILL.md` § 3b |
 | Epic Coordination template and multi-issue batch mode | `skills/draft-issue/references/multi-issue.md` |
 | Epic-child sibling-aware version downgrade | `skills/open-pr/references/version-bump.md` § 4a |
 | Spike Phase 0 HRG menu and deterministic default | `skills/write-spec/references/spike-variant.md` |

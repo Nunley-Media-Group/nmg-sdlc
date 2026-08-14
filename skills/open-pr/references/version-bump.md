@@ -31,8 +31,8 @@ Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line a
 
 Before presenting to the user, determine whether the current issue is an epic child and whether the bump should be downgraded to a patch:
 
-1. Parse the current issue body for `Depends on: #E` lines (regex `/Depends on:\s*#(\d+)\b/gi`). If none found, also run `gh issue view #N --json parent` and use the parent field's `number` when non-null.
-2. If no parent candidate is found OR the parent is not labelled `epic` (`gh issue view #E --json labels --jq '.labels[].name'`), this is not an epic child — skip to Step 5 with the classification from step 4 and `siblingClass = 'non-epic'`.
+1. Read `../../references/epic-relationships.md`. Parse the current issue's supported body signals and query its native parent through GitHub GraphQL; never request `parent` through `gh issue view --json`.
+2. Hydrate each deduplicated target's live labels/state and classify it. If no target is confirmed as `epic-membership`, skip to Step 5 with the classification from step 4 and `siblingClass = 'non-epic'`. If more than one target is confirmed as an epic parent, stop as ambiguous and name every child/target pair. Otherwise use the one confirmed epic target as `E`.
 3. Otherwise enumerate siblings: read the parent's Child Issues checklist (regex `^\s*-\s*\[[x ]\]\s*#(\d+)`) and collect all referenced issue numbers. Exclude the current issue number from the sibling list.
 4. For each sibling, query `gh issue view #C --json state,closedByPullRequestsReferences`. Classify each sibling as **complete** when `state === 'CLOSED'` AND at least one entry in `closedByPullRequestsReferences` has `state === 'MERGED'` (or `mergedAt != null`); otherwise **incomplete**.
 5. **Downgrade rule:**

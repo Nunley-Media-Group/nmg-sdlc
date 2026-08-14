@@ -15,6 +15,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/spec-context.md` when Step 2 resolves the active spec — write-code preserves active-spec-first loading and adds capped neighboring specs only when surrounding contracts can affect implementation scope.
 
+Read `../../references/epic-relationships.md` and `../../references/canonical-umbrella-spec.md` when the active issue is a child of a confirmed coordination epic. Resolve the helper from the installed plugin root, not the consumer project.
+
 ## Prerequisites
 
 1. Specs exist at `specs/{feature-name}/` (created by `$nmg-sdlc:write-spec`).
@@ -50,6 +52,18 @@ Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
 ```
 
 Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter plan mode, delegate to a worker, or touch any file.
+
+### Step 1.75: Canonical Parent-Spec Gate
+
+Before reading the active spec or entering implementation planning, resolve the issue's supported body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for the native parent and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
+
+- No confirmed `epic-membership` target → continue unchanged.
+- More than one confirmed epic parent → stop as ambiguous and name every child/target pair.
+- One confirmed epic parent `P` → run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+
+Continue only when the result is `canonical` or `canonical_marker_lost`. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before spec loading, plan review, delegation, or edits. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
+
+This check proves the refreshed default-branch parent baseline. The active child branch may contain approved child-scoped amendments to that same spec path.
 
 ### Step 2: Read Specs
 

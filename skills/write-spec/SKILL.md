@@ -48,6 +48,22 @@ Read `../../references/spec-frontmatter.md` when writing or amending any spec fi
 
 Read `../../references/spec-context.md` when Spec Discovery needs related existing specs — parent-link resolution remains first, then bounded metadata ranking decides whether to amend an existing feature spec or create a new one.
 
+Read `../../references/canonical-umbrella-spec.md` when the canonical parent-spec gate resolves a confirmed coordination epic or when the Phase 3 Seal-Spec Flow runs. Resolve the installed plugin root from this skill's path and invoke its status helper against the project root.
+
+---
+
+## Canonical Parent-Spec Gate
+
+Before Spec Discovery, bug/spike variant selection, or any Phase 1 write, resolve the issue's supported body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for the native parent and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
+
+- No confirmed `epic-membership` target → continue unchanged and record no canonical parent.
+- More than one confirmed epic parent → stop as ambiguous and name every child/target pair.
+- One confirmed epic parent `P` → run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+
+Continue only when the result is `canonical` or `canonical_marker_lost`. Record the returned parent issue, default commit, and canonical `specPath` for the current invocation. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before discovery, variant routing, interviews, or file writes. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
+
+Bug- and spike-labelled child issues still follow their existing creation variants after this gate; they do not amend the parent spec. A feature child may use the recorded canonical path during discovery and may contain approved child-scoped amendments that differ from the baseline tree.
+
 ---
 
 ## Spec Discovery
@@ -188,41 +204,64 @@ After the Phase 3 approval gate, detect a multi-PR delivery trigger. The trigger
 - `design.md` contains a `## Multi-PR Rollout` heading, OR
 - Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive).
 
-The umbrella spec is not itself a shipping change, so sealing commits the spec without a version bump and (optionally) creates child issues — bypassing `$nmg-sdlc:open-pr`'s normal version-bump path.
+Run this flow only when the Canonical Parent-Spec Gate recorded no coordination parent for the current issue. A feature child amending an already-canonical umbrella inherits the parent's multi-PR design text but must continue to its normal `$nmg-sdlc:write-code #N` handoff; it must not create a child-numbered seal commit or a second umbrella publication PR.
+
+The umbrella spec is not itself a shipping change. Sealing commits the exact spec without a version bump, publishes it through a spec-only pull request to the repository default branch, and blocks child transition until refreshed remote content is canonical. This flow bypasses `$nmg-sdlc:open-pr` because that skill owns versioned implementation delivery.
 
 #### 3b.1 Offer Seal
 
-Ask through `request_user_input` in Plan Mode: `Seal and transition` (commit `specs/{feature-name}/`, push, offer child issue creation) or `Do not seal` (the user will handle child-issue creation manually). Include the selected seal behavior in the `<proposed_plan>` and auto-execute after acceptance.
+Ask through `request_user_input` in Plan Mode: `Seal and publish` (commit `specs/{feature-name}/`, push, and create or reuse a spec-only publication PR) or `Do not seal` (leave the approved spec uncommitted for now). Include the selected behavior in the `<proposed_plan>` and auto-execute after acceptance.
 
-#### 3b.2 Idempotency Check and Seal Commit
+#### 3b.2 Seal Exact Scope
 
-1. Check for an existing seal commit on HEAD: `git log --format=%H --grep="^docs: seal umbrella spec for #{N}$" HEAD`. If a SHA is returned, print `Spec already sealed at commit {sha}` and skip to 3b.3.
-2. Otherwise, perform the seal:
+1. Validate `N` as a positive issue number and `specs/{feature-name}` as a normalized path below `specs/` with no symlink escape.
+2. Search current ancestry for `^docs: seal umbrella spec for #{N}$`.
+   - If absent, stage only `specs/{feature-name}/`, inspect the staged name list, and commit with the exact subject `docs: seal umbrella spec for #{N}`.
+   - If present, require the spec directory to be clean. A dirty already-sealed spec stops for another reviewed spec amendment; do not hide changes in a duplicate seal.
+3. Inspect the selected seal commit with `git diff-tree`. Every changed path must be inside the exact spec directory. Reject `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, marketplace files, or any unrelated path.
+4. Push only the current sealing branch with `git push origin HEAD`. Record the full seal commit and source tree IDs.
+
+Never use `git add -A`, `git add .`, force-push, a version bump, or a release roll.
+
+#### 3b.3 Classify and Publish
+
+1. Run publication mode from the installed plugin root:
+
    ```bash
-   git add specs/{feature-name}/
-   git commit -m "docs: seal umbrella spec for #{N}"
-   git push origin HEAD
+   node <plugin-root>/scripts/umbrella-spec-status.mjs \
+     --project <project-root> \
+     --spec specs/{feature-name} \
+     --source HEAD \
+     --json
    ```
-3. **Scope invariants** (violation is a skill-quality finding):
-   - `git add` MUST use the explicit `specs/{feature-name}/` path — never `git add -A` or `git add .`.
-   - The seal commit MUST NOT touch `plugin.json`, `marketplace.json`, `CHANGELOG.md`, or `VERSION`.
-   - The commit message MUST exactly match `^docs: seal umbrella spec for #\d+$` — this is the idempotency marker other skills grep for.
-4. Record the commit SHA as `session.sealCommitSha`.
 
-#### 3b.3 Offer Child-Issue Creation
+2. Handle the Git classification:
+   - `canonical` or `canonical_marker_lost` with the expected source tree → continue to 3b.4.
+   - `divergent`, `ambiguous`, or `unverifiable` → stop with the exact `reasonCode`, path/tree/ref evidence, and recovery guidance.
+   - `stranded_recoverable` → continue below; default still lacks the source tree.
+3. Before any PR mutation, verify `git diff --name-only <default-commit>...HEAD` contains only `specs/{feature-name}/`. Stop if the branch would publish any other path.
+4. Build the exact marker from `../../references/canonical-umbrella-spec.md`. Query pull requests targeting the detected default branch and match the complete validated issue/path/tree marker plus base branch.
+   - One open match → reuse it and report `publication_pending` with its URL.
+   - One merged match → rerun the helper; continue only if the refreshed result is canonical.
+   - A closed-unmerged match or multiple exact matches → stop with the PR evidence; do not duplicate it.
+   - No match → create one PR from the current branch to the detected default branch using a temporary `--body-file`. Title it `docs: publish umbrella spec for #N`, include `Refs #N` rather than a closing keyword, and include the exact marker.
+5. After creating or reusing an open PR, stop before child creation and print its URL plus: `Merge the spec-only publication PR, refresh the default branch, then re-run $nmg-sdlc:write-spec #N.` Never approve or merge it automatically.
 
-After a successful seal, ask through `request_user_input` in Plan Mode whether to create child issues now via `$nmg-sdlc:draft-issue` batch mode using the design's Delivery Phases table as input. Include the selected child-issue action in the `<proposed_plan>` and auto-execute after acceptance.
+#### 3b.4 Offer Child-Issue Creation After Canonical Proof
 
-#### 3b.4 After-Seal Next-Step Hint
+Only after a fresh helper result is `canonical` or `canonical_marker_lost` for the expected source tree, ask through `request_user_input` whether to create child issues via `$nmg-sdlc:draft-issue` batch mode using the Delivery Phases table. Include the selected child action in the `<proposed_plan>` and auto-execute after acceptance.
 
-```
-Umbrella spec sealed at commit {sealCommitSha}.
-Children created: #{child1}, #{child2}, ...  (or: "none — create manually later")
+#### 3b.5 Canonical Next-Step Hint
+
+```text
+Umbrella spec canonical on origin/{defaultBranch} at tree {sourceTree}.
+Seal provenance: retained | history marker lost
+Children created: #{child1}, #{child2}, ...  (or: none — create manually later)
 
 Next step: $nmg-sdlc:start-issue #{first-unblocked-child}
 ```
 
-If no children were created, fall back to: `"Create child issues with $nmg-sdlc:draft-issue and then run $nmg-sdlc:start-issue #{child-number}."`
+If no children were created, print: `Create child issues with $nmg-sdlc:draft-issue, then run $nmg-sdlc:start-issue #{child-number}.`
 
 ---
 

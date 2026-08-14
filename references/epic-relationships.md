@@ -1,6 +1,6 @@
 # Epic Relationship Roles
 
-**Consumed by**: `start-issue` dependency resolution, `write-spec` parent-spec discovery, and `open-pr` sibling-aware delivery.
+**Consumed by**: `start-issue` dependency resolution and child readiness, `write-spec` parent-spec discovery, `write-code` child readiness, and `open-pr` sibling-aware delivery.
 
 Epic membership is coordination metadata, not an execution prerequisite. Both selectors must normalize the supported GitHub signals into child/target pairs, hydrate the target's live metadata, classify the pair, and only then perform blocked filtering or topological ordering.
 
@@ -52,3 +52,13 @@ A confirmed execution dependency is unresolved while its target state is not `CL
 ## Downstream Compatibility
 
 Classification is read-only. `$nmg-sdlc:draft-issue` continues to produce native parent links and `Depends on: #{epic}` body lines; `$nmg-sdlc:write-spec` and `$nmg-sdlc:open-pr` continue to consume those same identity signals for umbrella-spec discovery and sibling-aware release classification.
+
+## Canonical Parent-Spec Readiness
+
+After a consuming child workflow confirms one `epic-membership` pair, read `references/canonical-umbrella-spec.md` and inspect the target issue with parent mode. Only `canonical` and `canonical_marker_lost` permit child branch, spec, plan, delegation, or code mutation.
+
+- No confirmed epic parent preserves existing single-PR and keyword-fallback behavior.
+- More than one confirmed epic parent is ambiguous and stops with the deduplicated child/target pairs.
+- A confirmed non-epic or unknown target remains an execution dependency; do not reinterpret it as the coordination parent.
+- Canonical readiness proves the parent baseline on refreshed default-branch state. It does not require an approved child branch amendment to equal that baseline tree.
+- Run the check fresh at every child entry point. Do not cache the path, tree, default commit, or classification.

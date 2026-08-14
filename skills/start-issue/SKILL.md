@@ -15,6 +15,8 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/epic-relationships.md` when Step 1a begins — it defines the supported relationship signals, target-metadata hydration, epic-membership classification, fail-safe fallback, and completion rules shared by the manual epic consumers.
 
+Read `../../references/canonical-umbrella-spec.md` after a selected issue is confirmed and relationship classification identifies a coordination epic. Resolve the helper from the installed plugin root, not the consumer project.
+
 ## Workflow Overview
 
 ```
@@ -24,6 +26,7 @@ $nmg-sdlc:start-issue [#N]
     ├─ 1a. Dependency resolution (filter blocked, topological sort)
     ├─ 2.  Present issue selection (`request_user_input` gate)
     ├─ 3.  Confirm selected issue and load its details
+    ├─ 3.25 Prove a child parent spec canonical (when applicable)
     ├─ 3.5 Reconcile stale remote branch (if any)
     └─ 4.  Create linked feature branch & set issue to In Progress
          ├─ Precondition: working tree must be clean
@@ -147,6 +150,26 @@ If the user selects "Enter issue number manually", they type their issue number 
 Read the full issue details via `gh issue view #N` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, and milestone.
 
 Ask through `request_user_input`: "Ready to start working on this issue?" If the user says no, return to Step 2.
+
+## Step 3.25: Canonical Parent-Spec Gate
+
+After confirmation and before stale-branch reconciliation, re-resolve the selected issue's supported relationship signals through `../../references/epic-relationships.md`. This recheck also applies when an explicit issue argument skipped Step 1a.
+
+1. Read the selected issue body and use GitHub GraphQL for its native parent. Hydrate each deduplicated target's live state and labels. Never request `parent` through `gh issue view --json`.
+2. If no target is confirmed as `epic-membership`, continue unchanged. If more than one is confirmed, stop as ambiguous and name every child/target pair.
+3. For the one confirmed coordination parent `P`, run:
+
+   ```bash
+   node <plugin-root>/scripts/umbrella-spec-status.mjs \
+     --project <project-root> \
+     --parent-issue P \
+     --json
+   ```
+
+4. Continue only for `canonical` or `canonical_marker_lost`. Report marker loss as supporting provenance information, not a failure.
+5. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop with the exact parent, status, `reasonCode`, path/tree/ref evidence, and this next step: publish the parent through `$nmg-sdlc:write-spec #P`, or audit an affected initialized project with `$nmg-sdlc:upgrade-project`.
+
+This gate runs before dirty-tree handling, branch creation/switching, remote-branch deletion, or project-status mutation. A failure leaves Git and GitHub unchanged.
 
 ## Step 3.5: Reconcile Stale Remote Branch
 

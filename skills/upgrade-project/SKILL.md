@@ -16,6 +16,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 3. `CHANGELOG.md` and `VERSION` reconciliation.
 4. Managed contribution guide, project `AGENTS.md`, contribution gate, and structured issue form reconciliation.
 5. Interactive v2 cleanup of exact obsolete runner artifacts.
+6. Read-only sealed umbrella-spec audit and explicitly approved recovery preparation.
 
 `$nmg-sdlc:upgrade-project` is the only skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md`. It reads current templates at runtime so newly introduced sections can be proposed without rewriting existing content.
 
@@ -36,6 +37,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 steering/*.md                            — current steering sections
 specs/*/{requirements,design,tasks}.md  — current spec sections and frontmatter
 specs/*/                                 — legacy directory naming/consolidation
+bounded refs/heads/* and refs/remotes/origin/* — sealed umbrella-spec evidence (Git trees only)
 .codex/upgrade-exclusions.json          — previously declined steering sections
 CHANGELOG.md and VERSION                — release-document consistency
 CONTRIBUTING.md and README.md           — managed contribution guidance
@@ -83,6 +85,12 @@ For `requirements.md`, `design.md`, and `tasks.md`, detect feature versus defect
 
 Read `references/migration-steps.md` when legacy `{issue#}-{slug}` directories or singular `**Issue**` frontmatter are found. Consolidations and deletions always remain explicit findings.
 
+### Step 3.5: Audit Sealed Umbrella Specs
+
+Read `../../references/canonical-umbrella-spec.md` and `references/sealed-spec-recovery.md`. Run audit mode from the installed plugin root against the consumer project. Record each exact path as canonical, canonical with history marker lost, stranded but unambiguously recoverable, divergent, ambiguous/unrecoverable, or unverifiable.
+
+This category is independent from template reconciliation, managed assets, release documents, and runner cleanup. Analysis reads only bounded Git tree metadata/content for multi-PR-triggered spec paths and never changes the worktree, index, refs, branches, or GitHub.
+
 ### Step 4: Analyze Release Documents
 
 Read `references/verification.md` for `CHANGELOG.md` and `VERSION` analysis. Preserve all manual release notes.
@@ -110,6 +118,7 @@ Show a per-file summary grouped as:
 - Steering Documents
 - Spec Documents and Directories
 - Related Spec Links and Frontmatter
+- Sealed Umbrella Specs
 - CHANGELOG and VERSION
 - Contribution Guide
 - Project AGENTS
@@ -123,14 +132,17 @@ Use `request_user_input` gates:
 
 1. Steering sections: apply all, decline all, or provide a narrowed subset.
 2. Each spec consolidation/deletion group: apply or preserve.
-3. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
-4. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
+3. Each `stranded_recoverable` sealed-spec finding: approve that exact path/tree/source identity, preserve it, or narrow and re-present. No other sealed status is recoverable.
+4. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
+5. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
 
 No mutation occurs until the user has accepted a decision-complete plan.
 
 ### Step 8: Apply Approved Changes
 
 Read `references/upgrade-procedures.md` and apply only the accepted findings. Re-read every changed text artifact and re-inspect every deleted path. Persist newly declined steering sections in `.codex/upgrade-exclusions.json` without removing prior decisions.
+
+Route approved sealed-spec findings through `references/sealed-spec-recovery.md`, including its fresh reclassification and exact-source checks.
 
 Managed contribution-gate and issue-form reconciliation is independent of cleanup approval. Declining cleanup must not suppress approved asset reconciliation; cleanup approval must not broaden asset ownership.
 
@@ -149,6 +161,16 @@ Runner Artifact Cleanup:
 
 Then summarize applied, declined, already-current, relevance-filtered, and failed findings. If every category was already current and cleanup was already clean, report `Everything is up to date — no upgrade needed.`
 
+Before the runner block, emit:
+
+```text
+Sealed Umbrella Specs:
+- specs/<slug>/: canonical | canonical (history marker lost) | prepared for publication | preserved (divergent) | preserved (ambiguous) | failed (<reason>)
+- Gaps: none | <comma-separated exact paths and failures>
+```
+
+For a prepared recovery, direct the user to `$nmg-sdlc:write-spec #N` for normal reviewed spec-only publication. Do not claim default-branch publication until that later workflow proves it.
+
 ## Error States
 
 | Condition | Behavior |
@@ -160,6 +182,9 @@ Then summarize applied, declined, already-current, relevance-filtered, and faile
 | Cleanup deletion/edit failure | Stop that exact operation, preserve all other scope, and report the exact path |
 | Managed workflow path collision | Preserve the unmarked workflow and report a gap |
 | Canonical issue form unavailable | Preserve the target and report a gap |
+| Sealed-spec default refresh or Git read failure | Preserve every candidate; report `unverifiable` with the exact reason code |
+| Approved recovery evidence changed | Stop that exact recovery; preserve the worktree/index and report a stale-finding gap |
+| Default/source spec trees diverge | Preserve default as canonical and never overwrite it |
 
 ## Integration with SDLC Workflow
 

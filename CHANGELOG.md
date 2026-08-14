@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-08-13
+
+### Fixed
+
+- Fixed issue #157 by publishing sealed multi-PR umbrella specs through reviewed spec-only pull requests, requiring refreshed default-branch canonical evidence before child work, tolerating squash/rebase marker loss, and adding approval-gated recovery for unambiguous stranded specs without overwriting divergent default content.
+
 ## [2.0.0] - 2026-08-13
 
 ### Changed (BREAKING)
