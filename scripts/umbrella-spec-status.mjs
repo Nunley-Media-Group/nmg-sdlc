@@ -100,6 +100,27 @@ function frontmatterClaimsIssue(source, issueNumber) {
   ));
 }
 
+function classifyIssueClaim(requirementsSource, designSource, issueNumber) {
+  const requirementsIssues = parseFrontmatterIssues(requirementsSource);
+  const requirementsClaim = frontmatterClaimsIssue(requirementsSource, issueNumber);
+  const designClaim = frontmatterClaimsIssue(designSource, issueNumber);
+  if (!requirementsIssues.ok) {
+    return {
+      ok: !(requirementsClaim || designClaim),
+      relevant: requirementsClaim || designClaim,
+      issues: [],
+      reason: 'invalid_issue_frontmatter',
+    };
+  }
+  if (requirementsIssues.issues.includes(issueNumber)) {
+    return { ok: true, relevant: true, issues: requirementsIssues.issues, reason: null };
+  }
+  if (designClaim) {
+    return { ok: false, relevant: true, issues: requirementsIssues.issues, reason: 'conflicting_issue_frontmatter' };
+  }
+  return { ok: true, relevant: false, issues: requirementsIssues.issues, reason: null };
+}
+
 function hasMultiPrTrigger(requirements, design) {
   if (/^## Multi-PR Rollout\s*$/im.test(design)) return true;
   return requirements.split(/\r?\n/).some((line) => (
@@ -189,19 +210,24 @@ function inspectSpecAtCommit(projectRoot, commit, specPath, adapters, options = 
   const requirements = readGitFile(projectRoot, commit, requirementsPath, adapters);
   if (!requirements.ok) return { ok: false, fatal: !requirements.missing, reason: requirements.reason };
   let issues = null;
+  let design = null;
   if (options.issueFilter) {
-    issues = parseFrontmatterIssues(requirements.source);
-    if (!issues.ok) {
-      if (!frontmatterClaimsIssue(requirements.source, options.issueFilter)) {
-        return { ok: true, issues: [], tree: null, multiPr: null, filtered: true };
-      }
-      return { ok: false, fatal: false, reason: issues.reason };
+    design = readGitFile(projectRoot, commit, designPath, adapters);
+    if (!design.ok && !design.missing) {
+      return { ok: false, fatal: true, reason: design.reason };
     }
-    if (!issues.issues.includes(options.issueFilter)) {
-      return { ok: true, issues: issues.issues, tree: null, multiPr: null, filtered: true };
+    const claim = classifyIssueClaim(
+      requirements.source,
+      design.ok ? design.source : '',
+      options.issueFilter,
+    );
+    if (!claim.ok) return { ok: false, fatal: false, reason: claim.reason };
+    if (!claim.relevant) {
+      return { ok: true, issues: claim.issues, tree: null, multiPr: null, filtered: true };
     }
+    issues = { ok: true, issues: claim.issues };
   }
-  const design = readGitFile(projectRoot, commit, designPath, adapters);
+  design ??= readGitFile(projectRoot, commit, designPath, adapters);
   if (!design.ok) return { ok: false, fatal: !design.missing, reason: design.reason };
   const multiPr = hasMultiPrTrigger(requirements.source, design.source);
   if (!multiPr && options.ignoreNonMultiPr) {
@@ -391,16 +417,34 @@ function classifyParentMode(projectRoot, issueNumber, remoteDefault, adapters) {
       });
     }
     const parsed = parseFrontmatterIssues(requirements.source);
-    if (!parsed.ok && frontmatterClaimsIssue(requirements.source, issueNumber)) {
+    if (parsed.ok && parsed.issues.includes(issueNumber)) {
+      matches.push(specPath);
+      continue;
+    }
+    const design = readGitFile(projectRoot, remoteDefault.commit, `${specPath}/design.md`, adapters);
+    if (!design.ok && !design.missing) {
       return unverifiable('parent', projectRoot, {
         ...remoteDefault,
-        reasonCode: 'default_spec_invalid',
-        reason: `${specPath}: ${parsed.reason}`,
+        reasonCode: 'default_spec_scan_failed',
+        reason: `${specPath}: ${design.reason}`,
         issueNumber,
         specPath,
       });
     }
-    if (parsed.ok && parsed.issues.includes(issueNumber)) matches.push(specPath);
+    const claim = classifyIssueClaim(
+      requirements.source,
+      design.ok ? design.source : '',
+      issueNumber,
+    );
+    if (!claim.ok) {
+      return unverifiable('parent', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'default_spec_invalid',
+        reason: `${specPath}: ${claim.reason}`,
+        issueNumber,
+        specPath,
+      });
+    }
   }
 
   const base = { ...baseResult('parent', projectRoot, remoteDefault), issueNumber, gaps: [] };

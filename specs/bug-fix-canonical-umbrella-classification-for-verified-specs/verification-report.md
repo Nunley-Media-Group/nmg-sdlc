@@ -47,7 +47,7 @@ The original reproduction no longer occurs: a regular lifecycle-owned `verificat
 | AC3 | Isolate targeted parents while failing closed on relevant malformed evidence | Pass | Frontmatter-first filter and fatal distinction in `scripts/umbrella-spec-status.mjs:186` and `:272`; branch/default regressions in `scripts/__tests__/umbrella-spec-status.test.mjs:350`, `:377`, and `:390` |
 | AC4 | Retain valid audit findings with candidate-specific gaps | Pass | Gap aggregation and result preservation in `scripts/umbrella-spec-status.mjs:287` and `:474`; mixed audit regression in `scripts/__tests__/umbrella-spec-status.test.mjs:403` |
 | AC5 | Complete later child work without resealing or child-tree equality | Pass | Lifecycle exercise in `scripts/__tests__/exercise-write-spec-epic.test.mjs:133`; contract assertions in `scripts/__tests__/canonical-umbrella-spec-contract.test.mjs:38` and `:61` |
-| AC6 | Preserve #157 canonicality and real lifecycle safety | Pass | Full Jest run: 225 passed, 12 intentional skips, 0 failures; existing #157 publication, recovery, divergence, ambiguity, symlink, idempotency, and no-mutation suites remain green |
+| AC6 | Preserve #157 canonicality and real lifecycle safety | Pass | Full Jest run: 228 passed, 12 intentional skips, 0 failures; existing #157 publication, recovery, divergence, ambiguity, symlink, idempotency, and no-mutation suites remain green |
 
 ## Task Completion
 
@@ -55,7 +55,7 @@ The original reproduction no longer occurs: a regular lifecycle-owned `verificat
 |------|-------------|--------|-------|
 | T001 | Recognize the lifecycle verification report | Complete | Four required blobs retained; one explicit optional regular blob added. |
 | T002 | Isolate targeted candidates and audit gaps | Complete | Relevant failures remain fail-closed; unrelated failures no longer poison results. |
-| T003 | Add deterministic classifier regressions | Complete | 20 classifier tests pass. |
+| T003 | Add deterministic classifier regressions | Complete | 22 classifier tests pass. |
 | T004 | Exercise verified child handoff | Complete | Verified canonical baseline and different child amendment pass without reseal. |
 | T005 | Verify the complete defect contract | Complete | Full suite and all applicable repository gates pass. |
 
@@ -98,8 +98,8 @@ The original reproduction no longer occurs: a regular lifecycle-owned `verificat
 ### Coverage Summary
 
 - Defect feature: 6 `@regression` scenarios for 6 acceptance criteria
-- Focused suites: 31 tests passed
-- Full suite: 225 tests passed; 12 intentional environment/live-only skips; 0 failures
+- Focused suites: 34 tests passed
+- Full suite: 228 tests passed; 12 intentional environment/live-only skips; 0 failures
 - Regression test quality: the added cases reproduce the previously rejected report, unrelated-candidate poisoning, relevant malformed evidence, and post-verification child handoff
 
 ---
@@ -108,7 +108,7 @@ The original reproduction no longer occurs: a regular lifecycle-owned `verificat
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 26 suites passed, 225 tests passed, 12 intentional skips |
+| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 26 suites passed, 228 tests passed, 12 intentional skips |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean, 428 items mapped |
 | Codex compatibility | Pass | `node scripts/codex-compatibility-check.mjs`: passed |
 | Active plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed |
@@ -125,6 +125,7 @@ The original reproduction no longer occurs: a regular lifecycle-owned `verificat
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
+| High | Functional Correctness | `scripts/umbrella-spec-status.mjs` | CodeRabbit found that malformed requirements metadata could look unrelated even when `design.md` claimed the requested parent. | Inspect both authoring files before filtering, fail closed on a requirements/design claim conflict, and add branch/default plus lifecycle regressions. | direct |
 | Medium | Error Handling | `scripts/umbrella-spec-status.mjs` | Malformed default-branch frontmatter claiming the requested parent could evade scoped failure after the initial scan. | Added explicit claim detection and `default_spec_invalid` evidence, plus a regression test. | direct |
 | Low | Compatibility | `scripts/umbrella-spec-status.mjs` | An unnecessary new audit reason code would have broadened the public result vocabulary. | Reused the existing `audit_complete` reason while exposing candidate details through `gaps`. | direct |
 

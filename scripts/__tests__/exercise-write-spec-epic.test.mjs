@@ -44,7 +44,7 @@ function writeSpec(root) {
     '| FR1 | Deliver through multiple PRs | Must |',
     '',
   ].join('\n'));
-  write(root, `${specPath}/design.md`, '# Design\n\n## Multi-PR Rollout\n\nTwo phases.\n');
+  write(root, `${specPath}/design.md`, '# Design\n\n**Issues**: #157\n\n## Multi-PR Rollout\n\nTwo phases.\n');
   write(root, `${specPath}/tasks.md`, '# Tasks\n\n- T001\n');
   write(root, `${specPath}/feature.gherkin`, 'Feature: Forward publication\n');
 }
@@ -162,6 +162,31 @@ describe('write-spec umbrella publication exercise', () => {
     expect(fs.existsSync(path.join(work, specPath, 'verification-report.md'))).toBe(true);
     expect(childTree).not.toBe(canonicalTree);
     expect(childSeal).toBe('');
+  });
+
+  test('a malformed requirements file cannot hide a parent claim in design metadata', () => {
+    const { work } = fixture();
+    write(work, `${specPath}/requirements.md`, [
+      '# Requirements: Forward Publication',
+      '',
+      '**Issues**: #999',
+      '**Issue**: #999',
+      '',
+      '| ID | Requirement | Priority |',
+      '|----|-------------|----------|',
+      '| FR1 | Deliver through multiple PRs | Must |',
+      '',
+    ].join('\n'));
+    git(work, ['add', `${specPath}/requirements.md`]);
+    git(work, ['commit', '-m', 'docs: introduce malformed issue metadata']);
+    git(work, ['push', 'origin', '157-seal']);
+    git(work, ['checkout', 'main']);
+
+    const result = inspect(work, ['--parent-issue', '157']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('candidate_scan_failed');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
   });
 
   test('single-PR specs retain the existing trigger boundary', () => {

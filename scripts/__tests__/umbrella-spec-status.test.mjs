@@ -46,6 +46,7 @@ function writeSpec(root, {
   revision = 'one',
   verificationReport = null,
   duplicateIssueFrontmatter = false,
+  designIssue = null,
 } = {}) {
   write(root, `${specPath}/requirements.md`, [
     '# Requirements: Umbrella',
@@ -64,6 +65,7 @@ function writeSpec(root, {
   write(root, `${specPath}/design.md`, [
     '# Design: Umbrella',
     '',
+    ...(designIssue === null ? [] : [`**Issues**: #${designIssue}`, '']),
     '## Multi-PR Rollout',
     '',
     `Revision: ${revision}`,
@@ -86,6 +88,7 @@ function commitSpec(root, {
   revision = 'one',
   verificationReport = null,
   duplicateIssueFrontmatter = false,
+  designIssue = null,
 } = {}) {
   writeSpec(root, {
     specPath,
@@ -93,6 +96,7 @@ function commitSpec(root, {
     revision,
     verificationReport,
     duplicateIssueFrontmatter,
+    designIssue,
   });
   git(root, ['add', specPath]);
   git(root, ['commit', '-m', subject ?? `docs: seal umbrella spec for #${issue}`]);
@@ -397,6 +401,39 @@ describe('umbrella-spec-status', () => {
     expect(result.status).toBe('unverifiable');
     expect(result.reasonCode).toBe('default_spec_invalid');
     expect(result.specPath).toBe('specs/feature-umbrella');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('fails closed when malformed candidate requirements conflict with a matching design claim', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'design-claimed-target']);
+    commitSpec(work, {
+      issue: 99,
+      duplicateIssueFrontmatter: true,
+      designIssue: 42,
+    });
+    git(work, ['checkout', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('candidate_scan_failed');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('fails closed when malformed default requirements conflict with a matching design claim', () => {
+    const { work } = createFixture();
+    commitSpec(work, {
+      issue: 99,
+      duplicateIssueFrontmatter: true,
+      designIssue: 42,
+    });
+    git(work, ['push', 'origin', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('default_spec_invalid');
     expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
   });
 
