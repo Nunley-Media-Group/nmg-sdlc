@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #161 by publishing sealed umbrella specs from deterministic unlinked refs, validating actual GitHub closing references before merge and issue timeline state after merge, and adding exact approval-gated recovery for umbrellas proven to have been closed by their marked spec-only publication PR without changing ordinary delivery closure.
+
 ## [2.0.3] - 2026-08-14
 
 ### Fixed

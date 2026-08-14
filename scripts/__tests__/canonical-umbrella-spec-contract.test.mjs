@@ -11,6 +11,8 @@ function read(relativePath) {
 
 describe('canonical umbrella-spec contracts', () => {
   const shared = read('references/canonical-umbrella-spec.md');
+  const publicationHelper = read('scripts/umbrella-publication-status.mjs');
+  const livePublicationExercise = read('scripts/exercise-github-umbrella-publication.mjs');
   const relationships = read('references/epic-relationships.md');
   const writeSpec = read('skills/write-spec/SKILL.md');
   const umbrellaMode = read('skills/write-spec/references/umbrella-mode.md');
@@ -22,6 +24,7 @@ describe('canonical umbrella-spec contracts', () => {
   const recovery = read('skills/upgrade-project/references/sealed-spec-recovery.md');
   const upgradeProcedures = read('skills/upgrade-project/references/upgrade-procedures.md');
   const gherkin = read('specs/bug-fix-sealed-umbrella-specs-stranded-outside-the-default-branch/feature.gherkin');
+  const closingGherkin = read('specs/bug-prevent-spec-only-publication-from-closing-umbrella-issues/feature.gherkin');
 
   test('shared contract defines stable helper modes, statuses, and marker identity', () => {
     expect(shared).toContain('--parent-issue <N> --json');
@@ -42,20 +45,52 @@ describe('canonical umbrella-spec contracts', () => {
     expect(seal).toBeGreaterThan(0);
     expect(publish).toBeGreaterThan(seal);
     expect(children).toBeGreaterThan(publish);
-    expect(writeSpec).toContain('git diff --name-only <default-commit>...HEAD');
+    expect(writeSpec).toContain('git diff --name-only <default-commit>...<full-seal-commit>');
     expect(writeSpec).toContain('`VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, marketplace files');
     expect(writeSpec).toContain('Refs #N');
+    expect(writeSpec).toContain('nmg-sdlc/spec-publication-N-<first-12-characters-of-source-tree>');
+    expect(writeSpec).toContain('git push origin <full-seal-commit>:refs/heads/{publicationHead}');
+    expect(writeSpec).toContain('Never create or link this ref with `gh issue develop`');
+    expect(writeSpec).toContain('umbrella-publication-status.mjs');
+    expect(writeSpec).toContain('Only the exact reopen approval permits `gh issue reopen N`');
     expect(writeSpec).toContain('Never approve or merge it automatically');
     expect(writeSpec).toContain('`publication_pending`');
     expect(writeSpec).toContain('recorded no coordination parent for the current issue');
     expect(writeSpec).toContain('must not create a child-numbered seal commit or a second umbrella publication PR');
     expect(writeSpec).toContain('continue to its normal `$nmg-sdlc:write-code #N` handoff');
-    expect(writeSpec).toContain('One open match → reuse it');
-    expect(writeSpec).toContain('One merged match → rerun the helper');
-    expect(writeSpec).toContain('A closed-unmerged match or multiple exact matches → stop');
+    expect(writeSpec).toContain('One open match on `publicationHead`');
+    expect(writeSpec).toContain('One merged match on either the dedicated head or a historical issue-linked head');
+    expect(writeSpec).toContain('a closed-unmerged match, or multiple exact matches → stop');
     expect(writeSpec).toContain('No match → create one PR');
+    expect(shared).toContain('## Dedicated Publication Ref');
+    expect(shared).toContain('## GitHub Closing-Semantic Gate');
+    expect(shared).toContain('## Exact Reopen Recovery');
+    expect(shared).toContain('`pending_safe`');
+    expect(shared).toContain('`publication_closed_umbrella`');
+    expect(publicationHelper).toContain('closingIssuesReferences(first: 100)');
+    expect(publicationHelper).toContain('itemTypes: [CLOSED_EVENT, REOPENED_EVENT]');
+    expect(publicationHelper).toContain('evidence.activeClosure = null');
+    expect(publicationHelper).toContain("evidence.activeClosure?.publicationCloser === true");
+    expect(publicationHelper).toContain("result('closing_relationship'");
+    expect(publicationHelper).toContain("result('publication_closed_umbrella'");
     expect(umbrellaMode).toContain('the freshly fetched remote default branch');
     expect(umbrellaMode).toContain('stop before Step 1');
+  });
+
+  test('ordinary delivery closure remains outside the Seal-Spec semantic contract', () => {
+    expect(shared).toContain('Ordinary implementation PR closure remains owned by `$nmg-sdlc:open-pr`');
+    expect(writeSpec).toContain('Ordinary implementation issue closure remains owned by `$nmg-sdlc:open-pr` and is unchanged');
+    expect(publicationHelper).not.toContain('gh issue reopen');
+    expect(publicationHelper).not.toContain("['issue', 'reopen'");
+  });
+
+  test('live GitHub exercise is explicit and verifies both linked and unlinked outcomes', () => {
+    expect(livePublicationExercise).toContain("'acknowledge-live-writes'");
+    expect(livePublicationExercise).toContain('--repository must be an explicit owner/name disposable repository');
+    expect(livePublicationExercise).toContain("waitForStatus('publication_closed_umbrella'");
+    expect(livePublicationExercise).toContain("waitForStatus('merged_safe'");
+    expect(livePublicationExercise).toContain("safeBefore.status !== 'pending_safe'");
+    expect(livePublicationExercise).toContain('publicationClosedEvents.length !== 0');
   });
 
   test('all child entry points gate before their first mutation', () => {
@@ -113,5 +148,13 @@ describe('canonical umbrella-spec contracts', () => {
     expect([...gherkin.matchAll(/^  @regression$/gm)]).toHaveLength(7);
     expect(gherkin).toContain('Every child entry point fails closed on an uncanonical parent spec');
     expect(gherkin).toContain('A divergent default-branch spec is never overwritten');
+  });
+
+  test('issue #161 retains one regression scenario per acceptance criterion', () => {
+    expect([...closingGherkin.matchAll(/^  Scenario:/gm)]).toHaveLength(7);
+    expect([...closingGherkin.matchAll(/^  @regression$/gm)]).toHaveLength(7);
+    expect(closingGherkin).toContain('Publish an umbrella specification without a closing relationship');
+    expect(closingGherkin).toContain('Recover only an umbrella closed by its exact marked publication');
+    expect(closingGherkin).toContain('Preserve intentional closure for ordinary implementation delivery');
   });
 });

@@ -240,13 +240,38 @@ Never use `git add -A`, `git add .`, force-push, a version bump, or a release ro
    - `canonical` or `canonical_marker_lost` with the expected source tree → continue to 3b.4.
    - `divergent`, `ambiguous`, or `unverifiable` → stop with the exact `reasonCode`, path/tree/ref evidence, and recovery guidance.
    - `stranded_recoverable` → continue below; default still lacks the source tree.
-3. Before any PR mutation, verify `git diff --name-only <default-commit>...HEAD` contains only `specs/{feature-name}/`. Stop if the branch would publish any other path.
-4. Build the exact marker from `../../references/canonical-umbrella-spec.md`. Query pull requests targeting the detected default branch and match the complete validated issue/path/tree marker plus base branch.
-   - One open match → reuse it and report `publication_pending` with its URL.
-   - One merged match → rerun the helper; continue only if the refreshed result is canonical.
-   - A closed-unmerged match or multiple exact matches → stop with the PR evidence; do not duplicate it.
-   - No match → create one PR from the current branch to the detected default branch using a temporary `--body-file`. Title it `docs: publish umbrella spec for #N`, include `Refs #N` rather than a closing keyword, and include the exact marker.
-5. After creating or reusing an open PR, stop before child creation and print its URL plus: `Merge the spec-only publication PR, refresh the default branch, then re-run $nmg-sdlc:write-spec #N.` Never approve or merge it automatically.
+3. Before any publication-ref or PR mutation, verify `git diff --name-only <default-commit>...<full-seal-commit>` contains only `specs/{feature-name}/`. Stop if the seal commit would publish any other path.
+4. Derive `publicationHead = nmg-sdlc/spec-publication-N-<first-12-characters-of-source-tree>` per `../../references/canonical-umbrella-spec.md`. Query `refs/heads/{publicationHead}` with `git ls-remote --heads origin`:
+   - An existing ref must resolve to the exact full seal commit; otherwise stop with the collision evidence.
+   - If absent, create it only with `git push origin <full-seal-commit>:refs/heads/{publicationHead}`.
+   - Never create or link this ref with `gh issue develop`, use the issue-linked sealing branch as PR head, or force-push.
+5. Build the exact marker from the shared reference. Query all pull requests targeting the detected default branch whose body contains that complete issue/path/tree marker. Require the expected base and inspect every matching head before mutation.
+   - One open match on `publicationHead` → run the GitHub closing-semantic gate below; reuse it only when the result is `pending_safe`.
+   - One merged match on either the dedicated head or a historical issue-linked head → run the GitHub closing-semantic gate, then rerun the canonical Git helper. Continue only through the merged/recovery rules below.
+   - A matching open PR on any other head, a closed-unmerged match, or multiple exact matches → stop with the PR evidence; do not duplicate it.
+   - No match → create one PR from `publicationHead` to the detected default branch using a temporary `--body-file`. Title it `docs: publish umbrella spec for #N`, include `Refs #N` rather than a closing keyword, and include the exact marker.
+6. After creating or selecting a PR, invoke the installed helper with the exact project, repository, issue, PR, spec path, source tree, seal commit, and default base:
+
+   ```bash
+   node <plugin-root>/scripts/umbrella-publication-status.mjs \
+     --project <project-root> \
+     --repository <owner/name> \
+     --issue N \
+     --pr <publication-pr-number> \
+     --spec specs/{feature-name} \
+     --tree <full-source-tree-oid> \
+     --source <full-seal-commit> \
+     --base <detected-default-branch> \
+     --json
+   ```
+
+7. Handle the GitHub semantic result:
+   - `pending_safe` → report `publication_pending`, stop before child creation, and print its URL plus: `Merge the spec-only publication PR, refresh the default branch, then re-run $nmg-sdlc:write-spec #N.` Never approve or merge it automatically.
+   - `closing_relationship`, `closed_unrelated`, or `unverifiable` → report a lifecycle error with `reasonCode`, `gaps`, closing references, issue state, head/base, marker, and timeline evidence. Do not report pending/success or encourage merge.
+   - `publication_closed_umbrella` → render the exact marked PR and its repository-qualified currently active `ClosedEvent` evidence. A cleared historical closure or later unrelated active closure is not recoverable here. Ask through `request_user_input` for approval to reopen that exact issue. Only the exact reopen approval permits `gh issue reopen N`; silence, another approval, or a general continuation does not. Rerun the helper and require `merged_safe` with `evidence.recovered = true` before continuing.
+   - `merged_safe` → rerun publication mode in `umbrella-spec-status.mjs`; continue only when refreshed content is `canonical` or `canonical_marker_lost` for the expected tree.
+
+An already-merged historical publication may use the former issue-linked head so its exact closure can be diagnosed and recovered. Such a head is never accepted for an open `publication_pending` PR. Ordinary implementation issue closure remains owned by `$nmg-sdlc:open-pr` and is unchanged.
 
 #### 3b.4 Offer Child-Issue Creation After Canonical Proof
 

@@ -12,6 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { publicationBranchName } from '../umbrella-publication-status.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const helper = path.join(repoRoot, 'scripts', 'umbrella-spec-status.mjs');
 const temporaryRoots = [];
@@ -67,8 +69,9 @@ function fixture() {
   git(work, ['add', specPath]);
   git(work, ['commit', '-m', 'docs: seal umbrella spec for #157']);
   const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+  const sourceTree = git(work, ['rev-parse', `HEAD:${specPath}`]);
   git(work, ['push', '-u', 'origin', '157-seal']);
-  return { bare, work, sourceCommit };
+  return { bare, work, sourceCommit, sourceTree };
 }
 
 function inspect(root, args) {
@@ -128,6 +131,21 @@ describe('write-spec umbrella publication exercise', () => {
     const merged = inspect(work, ['--spec', specPath, '--source', sourceCommit]);
     expect(merged.status).toBe('canonical_marker_lost');
     expect(merged.defaultTree).toBe(merged.sourceTree);
+  });
+
+  test('the publication ref carries the exact seal commit without replacing the issue-linked source ref', () => {
+    const { work, sourceCommit, sourceTree } = fixture();
+    const publicationHead = publicationBranchName(157, sourceTree);
+    const sourceBefore = git(work, ['ls-remote', '--heads', 'origin', 'refs/heads/157-seal']).split(/\s+/)[0];
+
+    git(work, ['push', 'origin', `${sourceCommit}:refs/heads/${publicationHead}`]);
+
+    const publicationCommit = git(work, ['ls-remote', '--heads', 'origin', `refs/heads/${publicationHead}`]).split(/\s+/)[0];
+    const sourceAfter = git(work, ['ls-remote', '--heads', 'origin', 'refs/heads/157-seal']).split(/\s+/)[0];
+    expect(publicationCommit).toBe(sourceCommit);
+    expect(sourceAfter).toBe(sourceBefore);
+    expect(publicationHead).toBe(`nmg-sdlc/spec-publication-157-${sourceTree.slice(0, 12)}`);
+    expect(publicationHead).not.toBe('157-seal');
   });
 
   test('a verified canonical umbrella supports a later child amendment without resealing', () => {
