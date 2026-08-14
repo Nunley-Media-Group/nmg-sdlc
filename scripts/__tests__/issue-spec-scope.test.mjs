@@ -103,6 +103,20 @@ describe('issue spec scope classifier', () => {
     expect(result.gaps.some((gap) => gap.includes('missing a stable @SCN tag'))).toBe(true);
   });
 
+  test('rejects multiple stable scenario tags split across adjacent tag lines', () => {
+    const documents = fixtureDocuments();
+    documents.gherkin = documents.gherkin.replace(
+      '  @SCN003\n',
+      '  @SCN003\n  @SCN099\n',
+    );
+
+    const result = classifyIssueSpecScope({ issueNumber: 20, specPath }, documents);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('spec_inventory_invalid');
+    expect(result.gaps).toContain('scenario Active owned behavior has multiple stable SCN tags');
+  });
+
   test('fails closed on duplicate ownership and unknown identifiers', () => {
     const manifest = JSON.parse(fixtureDocuments().manifest);
     manifest.issues['20'].owned.tasks.push('T001');

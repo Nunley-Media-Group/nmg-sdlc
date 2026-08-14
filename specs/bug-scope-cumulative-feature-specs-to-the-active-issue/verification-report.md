@@ -58,7 +58,7 @@ The singular issue #162 defect spec resolves through `implicit_single_issue` and
 |------|--------|----------|
 | T001: Deterministic contract and resolver | Complete | Strict schema/inventory resolver, non-symlink and bounded reads, shared reference, manifest template, and stable scenario tags. |
 | T002: Scope lifecycle consumers | Complete | `write-spec`, `write-code`, resumption, `verify-code`, status, and `open-pr` all consume the shared result. |
-| T003: Isolation fixtures and regression coverage | Complete | Committed cumulative fixture, 11 resolver tests, 6 cross-consumer contract tests, and status isolation/cross-issue tests. |
+| T003: Isolation fixtures and regression coverage | Complete | Committed cumulative fixture, 12 resolver tests, 6 cross-consumer contract tests, and status isolation/cross-issue tests. |
 | T004: Document and verify | Complete | README/CHANGELOG updated; inventory baseline regenerated; all applicable gates pass; this report records exact evidence. |
 
 ## Architecture Review
@@ -74,8 +74,8 @@ The singular issue #162 defect spec resolves through `implicit_single_issue` and
 ## Test Coverage
 
 - BDD scenarios: 8/8 acceptance criteria mapped to one unique `@SCN... @regression` scenario.
-- Focused scope/consumer/status coverage: 53 passing tests.
-- Complete Jest suite: 31 suites passed; 295 tests passed; 12 intentional exercise-only tests skipped; 0 failures.
+- Focused scope/consumer/status coverage: 54 passing tests.
+- Complete Jest suite: 31 suites passed; 296 tests passed; 12 intentional exercise-only tests skipped; 0 failures.
 - Syntax: `node --check` passed for `issue-spec-scope.mjs` and `sdlc-status.mjs`.
 - JSON: plugin manifest, inventory baseline, manifest template, and cumulative fixture parsed successfully.
 - Current defect resolver: `implicit_single_issue`, 8 ACs, 6 FRs, 4 tasks, 8 scenarios, no gaps.
@@ -97,7 +97,7 @@ Local deterministic evidence is intentionally not represented as installed-plugi
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | 31 suites and 295 tests passed; 12 explicitly exercise-only skips; no unexpected failures or orphaned imports. |
+| Contract tests | Pass | 31 suites and 296 tests passed; 12 explicitly exercise-only skips; no unexpected failures or orphaned imports. |
 | Skill inventory | Pass | Baseline regenerated; `--check` reports 444 items mapped and clean. |
 | Codex compatibility | Pass | `codex-compatibility-check.mjs` exited 0. |
 | Active plugin surface | Pass | Repository plugin-surface validation exited 0. |
@@ -116,6 +116,9 @@ Local deterministic evidence is intentionally not represented as installed-plugi
 | Low | Error handling | `scripts/sdlc-status.mjs` | Verification evidence did not expose `scopeMatch` in every result shape. | Normalized missing/error shapes to `scopeMatch: null`. | `direct` |
 | Low | Testing | `scripts/__tests__/status-skill-contract.test.mjs` | One legacy assertion expected the pre-scope status evidence sentence. | Updated it to require active issue scope and the invalid-scope repair boundary. | `direct` |
 | Low | Documentation | `references/issue-spec-scope.md` | The shared contract needed the verified symlink and size boundaries. | Added the exact regular-path and bounded-read requirements. | `skill-creator` |
+| Major | Review correctness | `scripts/issue-spec-scope.mjs` | Adjacent stable scenario-tag lines replaced rather than accumulated, allowing an ambiguous tag set to appear singular. | Accumulated raw stable tags, reject any count above one, and added a split-line regression test. | `direct` |
+| Major | Review integration | `skills/write-code/references/plan-mode.md`, `skills/write-code/references/resumption.md` | Delegated and fresh-run paths still used cumulative or generic task wording. | Pass exact normalized `delivery.tasks` IDs to workers, prohibit other cumulative tasks, and start fresh runs at the first mapped identifier. | `skill-creator` |
+| Minor | Documentation | `references/issue-spec-scope.md` | The functional-requirement source-form example contained unescaped Markdown table delimiters. | Replaced the cell with escaped HTML pipe entities. | `skill-creator` |
 
 The required post-fix simplify review found no further worthwhile behavior-preserving cleanup. Focused and full validation were rerun after all fixes.
 

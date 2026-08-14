@@ -24,10 +24,10 @@ After the `<proposed_plan>` is accepted, execute tasks inline by default. If the
 
 ```
 Spawn a Codex worker with this bounded task:
-"Implement the specs for issue #N in specs/{feature-name}/. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then execute all tasks sequentially. For each task, apply the SKILL-BUNDLED FILE DETECTOR and Skill-Creator Probe Contract from this reference — route every skill-bundled file edit through $skill-creator. There is no hand-edit fallback: if $skill-creator is unavailable, escalate and stop. Return the files changed and task-completion summary."
+"Implement the specs for issue #N in specs/{feature-name}/. The normalized active delivery task identifiers are exactly [delivery.tasks IDs]. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then load and execute only those mapped task definitions in their declared order. Do not execute any other task in the cumulative tasks.md. Use the normalized delivery AC/FR/scenario IDs as behavioral context and regression IDs only as preservation context. For each mapped task, apply the SKILL-BUNDLED FILE DETECTOR and Skill-Creator Probe Contract from this reference — route every skill-bundled file edit through $skill-creator. There is no hand-edit fallback: if $skill-creator is unavailable, escalate and stop. Return the exact mapped task IDs completed, files changed, and task-completion summary."
 ```
 
-The worker reads all spec and steering documents, executes tasks from `tasks.md` sequentially, and returns a completion summary with files created / modified.
+The worker reads all spec and steering documents, executes only the supplied `delivery.tasks` identifiers sequentially, and returns a completion summary with files created / modified. Reject a worker result that reports an unmapped cumulative task as completed.
 
 If the worker reports partial completion or deviations, review its output and decide whether to re-invoke it for remaining tasks or handle them directly.
 

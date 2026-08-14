@@ -63,7 +63,7 @@ The active `delivery` slice is the stable union of `owned` and `adopted`. `regre
 | Element | Source form | Manifest form |
 |---------|-------------|---------------|
 | Acceptance criterion | `### AC1: ...` | `AC1` |
-| Functional requirement | `| FR1 | ...` | `FR1` |
+| Functional requirement | <code>&#124; FR1 &#124; ...</code> | `FR1` |
 | Task | `## T001: ...` or `### T001: ...` | `T001` |
 | Scenario | Unique tag immediately before the scenario, such as `@SCN001` | `SCN001` |
 

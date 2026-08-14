@@ -62,12 +62,15 @@ describe('active issue scope prompt contract', () => {
     ]);
     expectFragments('skills/write-code/references/plan-mode.md', [
       "resolver's `delivery.tasks`",
+      'normalized active delivery task identifiers are exactly [delivery.tasks IDs]',
+      'Do not execute any other task in the cumulative tasks.md',
       'unmapped earlier and future tasks must not appear',
       'never as implementation work',
     ]);
     expectFragments('skills/write-code/references/resumption.md', [
       'including explicitly adopted tasks',
       'subtract completed mapped tasks from `delivery.tasks`',
+      'start from the first identifier in `delivery.tasks`',
       'Earlier or future tasks outside the active delivery set are ignored',
     ]);
   });

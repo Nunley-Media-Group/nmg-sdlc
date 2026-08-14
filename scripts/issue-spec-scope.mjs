@@ -179,12 +179,11 @@ function extractScenarios(content, gaps) {
   let pendingTags = [];
   for (const line of String(content ?? '').split(/\r?\n/)) {
     const tags = [...line.matchAll(/(?:^|\s)@(SCN0*[1-9]\d*)(?=\s|$)/g)].map((match) => match[1]);
-    if (tags.length > 0) pendingTags = tags;
+    if (tags.length > 0) pendingTags.push(...tags);
     const scenario = line.match(/^\s*Scenario(?: Outline)?:\s*(.+?)\s*$/);
     if (!scenario) continue;
-    const combined = sortedUnique([...pendingTags, ...tags]);
-    if (combined.length > 1) gaps.push(`scenario ${scenario[1]} has multiple stable SCN tags`);
-    scenarios.push(combined[0] ?? `SCENARIO:${scenario[1]}`);
+    if (pendingTags.length > 1) gaps.push(`scenario ${scenario[1]} has multiple stable SCN tags`);
+    scenarios.push(pendingTags[0] ?? `SCENARIO:${scenario[1]}`);
     pendingTags = [];
   }
   if (new Set(scenarios).size !== scenarios.length) gaps.push('feature.gherkin contains duplicate scenario identifiers or names');

@@ -16,7 +16,7 @@ Implementations rarely complete in a single sitting — the developer reruns `$n
 
 | Condition | Behaviour |
 |-----------|-----------|
-| No commits on branch yet | Treat as a fresh run — start from Task 1. |
+| No commits on branch yet | Treat as a fresh run — start from the first identifier in `delivery.tasks`. |
 | Commits exist but none match an active mapped task | Warn and present a `request_user_input` gate with `Treat as fresh` / `Stop as corrupt`; any free-form `Other` answer is treated as a mapped task-id hint and the active task scan is retried. |
 | All mapped tasks appear complete but `$nmg-sdlc:verify-code` has not been run | Skip to Step 6 (Signal Completion) and recommend running `$nmg-sdlc:verify-code` next. |
 | `tasks.md` or `issue-scope.json` was amended after commits started | Re-resolve scope, then run existing commits against the updated `delivery.tasks`; treat any mapped task without a matching commit as incomplete. Note the amendment in the completion summary. |
@@ -24,5 +24,5 @@ Implementations rarely complete in a single sitting — the developer reruns `$n
 ## Example
 
 User says: "Resume implementing the current feature."
-Actions: detects branch `42-add-auth`, reads `tasks.md`, finds the first incomplete task, resumes from there.
+Actions: detects branch `42-add-auth`, reuses the normalized `delivery.tasks`, finds the first incomplete mapped identifier, and resumes from there.
 Result: remaining tasks completed from where the previous session left off.
