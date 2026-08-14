@@ -307,6 +307,148 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 
+  it('reports the active issue durable coordination identity from fresh GitHub evidence', () => {
+    const parent = {
+      number: 10,
+      state: 'OPEN',
+      body: '## Child Issues\n\n- [ ] #42\n- [ ] #43',
+      labels: { nodes: [{ name: 'epic' }] },
+      subIssues: { nodes: [{ number: 42, state: 'OPEN' }, { number: 43, state: 'OPEN' }] },
+    };
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: 'Depends on: #10',
+      labels: { nodes: [{ name: 'epic-child-of-10' }] },
+      parent,
+      subIssues: { nodes: [] },
+    };
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr' && args[1] === 'list') {
+        return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+      }
+      if (args[0] === 'repo' && args[1] === 'view') {
+        return { ok: true, status: 0, stdout: JSON.stringify({ nameWithOwner: 'example/project' }), stderr: '' };
+      }
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({ data: { repository: { active, target10: parent } } }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected GitHub command: ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.issue.coordination).toMatchObject({
+      role: 'epic-child',
+      identity: 'durable',
+      parentNumber: 10,
+      siblingNumbers: [43],
+    });
+    const status = inferLifecycle(evidence);
+    expect(status.stage).toBe('specified');
+    expect(renderText(status)).toContain('Coordination: epic-child (durable) parent #10');
+  });
+
+  it('fails coordination closed when native sibling pagination is incomplete', () => {
+    const parent = {
+      number: 10,
+      state: 'OPEN',
+      body: '- [ ] #42',
+      labels: { nodes: [{ name: 'epic' }] },
+      subIssues: {
+        nodes: [{ number: 42, state: 'OPEN' }],
+        pageInfo: { hasNextPage: true, endCursor: 'cursor' },
+      },
+    };
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: 'Depends on: #10',
+      labels: { nodes: [{ name: 'epic-child-of-10' }] },
+      parent,
+      subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+      if (args[0] === 'repo') return { ok: true, status: 0, stdout: '{"nameWithOwner":"example/project"}', stderr: '' };
+      if (args[0] === 'api') {
+        return { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { active, target10: parent } } }), stderr: '' };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.issue.coordination).toMatchObject({ role: 'unverifiable', identity: 'unverifiable' });
+    expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('paginated'),
+    ]));
+  });
+
+  it('bounds relationship hydration before constructing a GitHub graph query', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: Array.from({ length: 101 }, (_, index) => `Depends on: #${index + 100}`).join('\n'),
+      labels: [],
+    };
+    let repoQueried = false;
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+      if (args[0] === 'repo') repoQueried = true;
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(repoQueried).toBe(false);
+    expect(evidence.issue.coordination).toMatchObject({ role: 'unverifiable', identity: 'unverifiable' });
+    expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('more than 100 relationship targets'),
+    ]));
+  });
+
+  it('bounds per-target fallback when native coordination is unavailable', () => {
+    const active = {
+      number: 42,
+      title: 'Status fixture',
+      state: 'OPEN',
+      body: Array.from({ length: 9 }, (_, index) => `Depends on: #${index + 100}`).join('\n'),
+      labels: [],
+    };
+    let issueViews = 0;
+    const run = (command, args, options) => {
+      if (command !== 'gh') return localRun(command, args, options);
+      if (args[0] === 'pr') return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      if (args[0] === 'issue') {
+        issueViews += 1;
+        return { ok: true, status: 0, stdout: JSON.stringify(active), stderr: '' };
+      }
+      if (args[0] === 'repo') return { ok: false, status: 1, stdout: '', stderr: 'offline' };
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(issueViews).toBe(1);
+    expect(evidence.issue.coordination).toMatchObject({ role: 'unverifiable', identity: 'unverifiable' });
+    expect(evidence.issue.coordination.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining('fallback limit of 8'),
+    ]));
+  });
+
   it('uses only read-only git and GitHub command forms', () => {
     const calls = [];
     const run = (command, args, options) => {

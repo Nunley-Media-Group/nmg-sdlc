@@ -23,8 +23,8 @@ function fakeGhSource() {
   const issue = (number) => {
     const fixtures = {
       10: { number: 10, title: 'Coordinate rollout', state: 'OPEN', body: '', labels: [{ name: 'epic' }], parent: null },
-      20: { number: 20, title: 'Build foundation', state: 'OPEN', body: 'Depends on: #10', labels: [{ name: 'enhancement' }], parent: 10 },
-      30: { number: 30, title: 'Ship integration', state: 'OPEN', body: 'Depends on: #10\nDepends on: #20', labels: [{ name: 'enhancement' }], parent: 10 },
+      20: { number: 20, title: 'Build foundation', state: 'OPEN', body: 'Depends on: #10', labels: [{ name: 'enhancement' }, { name: 'epic-child-of-10' }], parent: 10 },
+      30: { number: 30, title: 'Ship integration', state: 'OPEN', body: 'Depends on: #10\nDepends on: #20', labels: [{ name: 'enhancement' }, { name: 'epic-child-of-10' }], parent: 10 },
     };
     return fixtures[number];
   };

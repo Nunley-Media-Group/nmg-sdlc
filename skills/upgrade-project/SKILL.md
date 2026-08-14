@@ -17,6 +17,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 4. Managed contribution guide, project `AGENTS.md`, contribution gate, and structured issue form reconciliation.
 5. Interactive v2 cleanup of exact obsolete runner artifacts.
 6. Read-only sealed umbrella-spec audit and explicitly approved recovery preparation.
+7. Read-only umbrella-identity audit and explicitly approved GitHub metadata repair.
 
 `$nmg-sdlc:upgrade-project` is the only skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md`. It reads current templates at runtime so newly introduced sections can be proposed without rewriting existing content.
 
@@ -25,7 +26,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 - Inspect before proposing; list exact paths and exact `.gitignore` lines before any deletion.
 - Never delete, move, or overwrite project-authored content merely because its name resembles an nmg-sdlc artifact.
 - Never parse, display, execute, or signal content from `.codex/sdlc-state.json`.
-- Never mutate GitHub labels, issue label assignments, repository settings, secrets, or branch protection.
+- Never mutate repository settings, secrets, branch protection, issue state, or unrelated GitHub metadata. Umbrella label, parent-link, and checklist mutations are allowed only through the separately approved, freshly revalidated recovery contract.
 - Preserve unrelated workflows and issue templates byte-for-byte.
 - A repeated run must produce no additional diff and report the cleanup state as already clean.
 
@@ -38,6 +39,7 @@ steering/*.md                            — current steering sections
 specs/*/{requirements,design,tasks}.md  — current spec sections and frontmatter
 specs/*/                                 — legacy directory naming/consolidation
 bounded refs/heads/* and refs/remotes/origin/* — sealed umbrella-spec evidence (Git trees only)
+current-repository GitHub issue graph         — umbrella labels, native relationships, and supported body representations
 .codex/upgrade-exclusions.json          — previously declined steering sections
 CHANGELOG.md and VERSION                — release-document consistency
 CONTRIBUTING.md and README.md           — managed contribution guidance
@@ -91,6 +93,12 @@ Read `../../references/canonical-umbrella-spec.md` and `references/sealed-spec-r
 
 This category is independent from template reconciliation, managed assets, release documents, and runner cleanup. Analysis reads only bounded Git tree metadata/content for multi-PR-triggered spec paths and never changes the worktree, index, refs, branches, or GitHub.
 
+### Step 3.6: Audit Umbrella Identity
+
+Read `../../references/epic-relationships.md` and `references/epic-identity-recovery.md`. Fetch the current repository's issue graph and classify every issue that has an `epic`, `epic-child-of-N`, native parent/sub-issue, or supported body relationship signal. Record durable, legacy, inconsistent, ambiguous, unverifiable, native-degraded, and checklist-drift findings with exact issue numbers and signals.
+
+The audit is read-only. It must not add labels, change parent links, rewrite bodies, close/reopen issues, or infer repair approval. Only deterministic repairs meeting the recovery reference's evidence threshold become proposals; all other findings remain preserved for manual resolution.
+
 ### Step 4: Analyze Release Documents
 
 Read `references/verification.md` for `CHANGELOG.md` and `VERSION` analysis. Preserve all manual release notes.
@@ -119,6 +127,7 @@ Show a per-file summary grouped as:
 - Spec Documents and Directories
 - Related Spec Links and Frontmatter
 - Sealed Umbrella Specs
+- Umbrella Identity
 - CHANGELOG and VERSION
 - Contribution Guide
 - Project AGENTS
@@ -133,8 +142,9 @@ Use `request_user_input` gates:
 1. Steering sections: apply all, decline all, or provide a narrowed subset.
 2. Each spec consolidation/deletion group: apply or preserve.
 3. Each `stranded_recoverable` sealed-spec finding: approve that exact path/tree/source identity, preserve it, or narrow and re-present. No other sealed status is recoverable.
-4. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
-5. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
+4. Each deterministic umbrella-identity mutation set: approve that exact parent/children/evidence/commands set, preserve it, or narrow and re-present. Ambiguous or unverifiable findings are never offered as executable repairs.
+5. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
+6. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
 
 No mutation occurs until the user has accepted a decision-complete plan.
 
@@ -143,6 +153,8 @@ No mutation occurs until the user has accepted a decision-complete plan.
 Read `references/upgrade-procedures.md` and apply only the accepted findings. Re-read every changed text artifact and re-inspect every deleted path. Persist newly declined steering sections in `.codex/upgrade-exclusions.json` without removing prior decisions.
 
 Route approved sealed-spec findings through `references/sealed-spec-recovery.md`, including its fresh reclassification and exact-source checks.
+
+Route approved umbrella-identity findings through `references/epic-identity-recovery.md`, including exact-evidence re-fetch, drift comparison, narrowly scoped GitHub commands, and post-apply idempotence audit.
 
 Managed contribution-gate and issue-form reconciliation is independent of cleanup approval. Declining cleanup must not suppress approved asset reconciliation; cleanup approval must not broaden asset ownership.
 
@@ -171,6 +183,15 @@ Sealed Umbrella Specs:
 
 For a prepared recovery, direct the user to `$nmg-sdlc:write-spec #N` for normal reviewed spec-only publication. Do not claim default-branch publication until that later workflow proves it.
 
+Before the sealed-spec block, emit:
+
+```text
+Umbrella Identity:
+- parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | failed (<reason>)
+- Native/checklist reconciliation: clean | degraded | drift (<exact issue numbers>)
+- Gaps: none | <comma-separated exact records and failures>
+```
+
 ## Error States
 
 | Condition | Behavior |
@@ -185,6 +206,8 @@ For a prepared recovery, direct the user to `$nmg-sdlc:write-spec #N` for normal
 | Sealed-spec default refresh or Git read failure | Preserve every candidate; report `unverifiable` with the exact reason code |
 | Approved recovery evidence changed | Stop that exact recovery; preserve the worktree/index and report a stale-finding gap |
 | Default/source spec trees diverge | Preserve default as canonical and never overwrite it |
+| Approved umbrella issue evidence changed | Stop that exact metadata repair before mutation and report the changed labels, body digest, or relationship set |
+| Umbrella repair target is ambiguous or unverifiable | Preserve every record and do not offer executable repair commands |
 
 ## Integration with SDLC Workflow
 

@@ -31,9 +31,9 @@ Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line a
 
 Before presenting to the user, determine whether the current issue is an epic child and whether the bump should be downgraded to a patch:
 
-1. Read `../../references/epic-relationships.md`. Parse the current issue's supported body signals and query its native parent through GitHub GraphQL; never request `parent` through `gh issue view --json`.
-2. Hydrate each deduplicated target's live labels/state and classify it. If no target is confirmed as `epic-membership`, skip to Step 5 with the classification from step 4 and `siblingClass = 'non-epic'`. If more than one target is confirmed as an epic parent, stop as ambiguous and name every child/target pair. Otherwise use the one confirmed epic target as `E`.
-3. Otherwise enumerate siblings: read the parent's Child Issues checklist (regex `^\s*-\s*\[[x ]\]\s*#(\d+)`) and collect all referenced issue numbers. Exclude the current issue number from the sibling list.
+1. Read `../../references/epic-relationships.md`. Parse the current issue's supported label/body signals and query native parent/sub-issue data through GitHub GraphQL; never request `parent` through `gh issue view --json`.
+2. Hydrate each deduplicated target and derive the shared result. For `ordinary` or `epic`, skip to Step 5 with `siblingClass = 'non-epic'`. For `inconsistent`, `ambiguous`, or `unverifiable`, stop before version or PR mutation and report the pairs/signals/gaps. For `epic-child`, use `E = parentNumber` and report any `identity = legacy` repair recommendation.
+3. Enumerate and page the parent's GraphQL `subIssues` to exhaustion as the authoritative set. An unconsumed page stops before version mutation. Parse the supported Child Issues checklist and derive `nativeOnly` and `checklistOnly`; report both discrepancy lists. Use the checklist as fallback only when native discovery itself failed, and warn about degraded authority. Exclude the current issue only after reconciliation.
 4. For each sibling, query `gh issue view #C --json state,closedByPullRequestsReferences`. Classify each sibling as **complete** when `state === 'CLOSED'` AND at least one entry in `closedByPullRequestsReferences` has `state === 'MERGED'` (or `mergedAt != null`); otherwise **incomplete**.
 5. **Downgrade rule:**
    - Every sibling complete → this is the final child. Keep the classified bump (`siblingClass = 'final'`).

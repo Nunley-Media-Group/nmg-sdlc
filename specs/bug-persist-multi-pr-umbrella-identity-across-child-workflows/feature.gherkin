@@ -1,0 +1,64 @@
+# File: specs/bug-persist-multi-pr-umbrella-identity-across-child-workflows/feature.gherkin
+# Issue: #160
+
+@regression
+Feature: Persist umbrella identity across child workflows
+  As an nmg-sdlc user delivering an umbrella through child issues
+  I want every fresh lifecycle session to reconstruct the same coordination identity
+  So that children advance safely without false blockers, resealing loops, or missing siblings
+
+  @regression
+  Scenario: Umbrella identity survives a fresh session
+    Given a canonical umbrella whose parent has the "epic" label
+    And a child has a matching "epic-child-of-N" label, native parent, and body fallback
+    When a new lifecycle session hydrates the GitHub records
+    Then it classifies the child as a durable member of that parent
+    And it does not require ephemeral session state
+
+  @regression
+  Scenario: Every lifecycle consumer derives one classification
+    Given a child belongs to a persisted umbrella
+    When start-issue, write-spec, write-code, verify-code, status, and open-pr inspect it
+    Then each consumer uses the shared role, parent, identity, dependency, sibling, and gap fields
+    And each derives the same coordination result
+
+  @regression
+  Scenario: Genuine dependencies remain blocking
+    Given a durable umbrella child also depends on an open non-epic sibling
+    When readiness is classified
+    Then the coordination parent is excluded from blockers
+    And the open sibling remains a named execution dependency
+    And unknown or conflicting identity evidence does not make the child ready
+
+  @regression
+  Scenario: A canonical child does not reseal the umbrella spec
+    Given the refreshed default branch proves the parent specification canonical
+    And the active issue is consistently classified as that parent's child
+    When write-spec hands off the approved child work
+    Then the next stage is write-code for the child
+    And no child-numbered seal commit or publication pull request is created
+
+  @regression
+  Scenario: Native relationships prevent stale checklist omissions
+    Given the native parent has children 201, 202, and 203
+    And its checklist names only children 201 and 202
+    When sibling-aware delivery evaluates child 201
+    Then it uses 202 and 203 as authoritative siblings
+    And it reports 203 as missing from the checklist
+    And it does not silently omit child 203
+
+  @regression
+  Scenario: Legacy umbrella identity is repaired only after exact approval
+    Given an upgrade audit finds a parent missing "epic" and a child missing its matching label
+    When the operator approves the exact proposed metadata changes
+    Then the workflow re-fetches and compares the issue evidence before mutation
+    And it applies each approved change once
+    And a repeated audit proposes no further change
+
+  @regression
+  Scenario: A fresh-session lifecycle fixture remains coordinated end to end
+    Given a persisted umbrella fixture with multiple children, a real dependency, and a stale checklist
+    When separate planning, start, spec, code, verify, status, and PR-preparation evaluations run
+    Then they retain one parent identity across every evaluation
+    And they preserve truthful blockers and canonical-spec routing
+    And final sibling coordination includes every native child

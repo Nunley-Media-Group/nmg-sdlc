@@ -13,7 +13,7 @@ Select a GitHub issue to work on, create a linked feature branch, and set the is
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/` (the current Codex release refuses to Edit/Write there).
 
-Read `../../references/epic-relationships.md` when Step 1a begins — it defines the supported relationship signals, target-metadata hydration, epic-membership classification, fail-safe fallback, and completion rules shared by the manual epic consumers.
+Read `../../references/epic-relationships.md` when Step 1a begins — it defines the durable label/native/body tuple, shared result fields, target hydration, fail-safe classification, sibling reconciliation, and completion rules used by every manual epic consumer.
 
 Read `../../references/canonical-umbrella-spec.md` after a selected issue is confirmed and relationship classification identifies a coordination epic. Resolve the helper from the installed plugin root, not the consumer project.
 
@@ -68,7 +68,7 @@ issue(number: N) {
 }
 ```
 
-Normalize native and body signals into deduplicated `(child, target)` pairs. After parsing the bodies, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls. Classify each pair from the target's live labels per the shared reference.
+Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls. Derive the complete shared result per the reference.
 
 If `parent` or `subIssues` fields return `null` or `[]` but the GraphQL call itself succeeded (HTTP 200), treat the native contribution for that issue as an empty set and continue — this is not a fallback condition.
 
@@ -85,13 +85,13 @@ Extract issue numbers with `#?(\d+)`. Normalize: `Blocks: #Y` on issue `X` is re
 
 ### Build and Classify the Graph
 
-Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues) with body cross-refs. Classify each pair as `epic-membership` or `execution-dependency` from hydrated target metadata. Retain both roles for parent identity, but build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from execution dependencies only.
+Construct deduplicated relationship pairs by merging native links (parent + inverse sub-issues), body cross-refs, and child labels. Derive `role`, `parentNumber`, `identity`, `coordinationPairs`, `executionDependencies`, and `gaps` exactly as specified by the shared reference. Build `parentsOf: Map<issue_number, Set<parent_number>>` for readiness from `executionDependencies` only. Stop selection before presentation when a candidate has `inconsistent`, `ambiguous`, or `unverifiable` coordination identity; name the candidate and exact gaps instead of silently reclassifying it.
 
 Native link normalization: a `parent` entry on issue `C` with `{number: P}` adds `P` to `parentsOf[C]`; a `subIssues` entry on issue `P` with node `{number: C}` adds `P` to `parentsOf[C]` (inverse — the sub-issue's parent is `P`).
 
 ### Blocked Filter
 
-An issue `I` is **blocked** and dropped from the candidate set if any confirmed execution dependency in `parentsOf[I]` is not `CLOSED`. A known target whose metadata is missing or failed remains in `parentsOf[I]` as unresolved and emits the shared actionable warning naming the child and target. A confirmed epic-membership target never blocks, even while the epic is open.
+An issue `I` is **blocked** and dropped from the candidate set if any confirmed execution dependency in `parentsOf[I]` is not `CLOSED`. A known target whose metadata is missing or failed remains in `parentsOf[I]` as unresolved and emits the shared actionable warning naming the child and target. A confirmed `role = epic-child` parent never blocks, even while the epic is open.
 
 ### Topological Sort (Kahn's algorithm)
 
@@ -155,9 +155,9 @@ Ask through `request_user_input`: "Ready to start working on this issue?" If the
 
 After confirmation and before stale-branch reconciliation, re-resolve the selected issue's supported relationship signals through `../../references/epic-relationships.md`. This recheck also applies when an explicit issue argument skipped Step 1a.
 
-1. Read the selected issue body and use GitHub GraphQL for its native parent. Hydrate each deduplicated target's live state and labels. Never request `parent` through `gh issue view --json`.
-2. If no target is confirmed as `epic-membership`, continue unchanged. If more than one is confirmed, stop as ambiguous and name every child/target pair.
-3. For the one confirmed coordination parent `P`, run:
+1. Read the selected issue body and labels and use GitHub GraphQL for its native parent. Hydrate each deduplicated target's live state and labels. Never request `parent` through `gh issue view --json`.
+2. Derive the shared result. For `ordinary` or `epic`, continue unchanged. For `inconsistent`, `ambiguous`, or `unverifiable`, stop and report the exact pairs/signals/gaps. For `epic-child`, record `P = parentNumber`; report but do not block on `identity = legacy`.
+3. For `P`, run:
 
    ```bash
    node <plugin-root>/scripts/umbrella-spec-status.mjs \

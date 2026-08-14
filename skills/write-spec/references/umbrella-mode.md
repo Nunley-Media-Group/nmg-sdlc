@@ -137,7 +137,7 @@ Before this sequence begins for a multi-PR feature, the Phase 3 flow must prove 
 2. Create each child issue in dependency order (leaves first). Capture each `#{child-N}`.
 3. Update the umbrella's child checklist with the real issue numbers (edit the body).
 4. Run the autolink loop: for each child, `gh issue edit #{U} --add-sub-issue #{child-N}` (probe first).
-5. Record `epicParentNumber = U` in the session state for `$nmg-sdlc:open-pr` step 2 epic-child downgrade.
+5. Re-fetch `U` and every child, then classify each child through `../../../references/epic-relationships.md`. Require `role = epic-child`, `parentNumber = U`, and `identity = durable`. Session state may cache the just-observed number for the current action, but every later command must re-resolve it from GitHub.
 
 If canonical proof is pending, divergent, ambiguous, or unverifiable, stop before Step 1 and report the publication PR or recovery evidence. On rerun after merge, re-fetch and reclassify; do not trust cached status or commit-message ancestry.
 

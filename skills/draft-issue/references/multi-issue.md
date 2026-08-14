@@ -330,9 +330,10 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 3. **Child body requirements** (enforced during Step 6 for each child):
    - The body MUST contain a `Depends on: #{epic-number}` line (the epic is the parent of every child).
    - Any intra-epic prerequisite from the Delivery Phases `Depends On` column MUST produce an additional `Depends on: #{sibling-number}` line (resolved via Step 10.3 placeholder rewriting once siblings exist).
-4. **Child labels:** apply `enhancement` (NOT `epic`) to every child.
-5. **GitHub sub-issue link:** after each child is created, also run `gh issue edit <child> --add-parent <epic>` (gated on `session.subIssueSupported` — the `--add-parent` flag uses the same gh capability as `--add-sub-issue`). Per-edge failures append to `session.autolinkDegradationNotes`.
+4. **Child labels:** lazily create `epic-child-of-<epic>` with color `BFD4F2`, then apply it plus `enhancement` (NOT `epic`) to every child. Each child must have exactly one `epic-child-of-N` label.
+5. **GitHub sub-issue link:** after each child is created, also run `gh issue edit <child> --add-parent <epic>` (gated on `session.subIssueSupported` — the `--add-parent` flag uses the same gh capability as `--add-sub-issue`). Per-edge failures append to `session.autolinkDegradationNotes`; the batch is not `durable` until a supported native relationship agrees.
 6. **Update the epic's Child Issues checklist in place.** After all children are created, rewrite the epic's body (`gh issue edit <epic> --body-file <updated>`) to replace `#{askId-N}` placeholders in the Child Issues checklist and Delivery Phases table with the real child issue numbers.
+7. **Revalidate identity.** Re-fetch the epic and every child and apply `../../../references/epic-relationships.md`. Require `role = epic-child`, the expected `parentNumber`, and `identity = durable` for each child before the batch summary reports successful handoff. Preserve and report partial writes exactly; never create a duplicate child as compensation.
 
 ### Output
 
@@ -340,6 +341,7 @@ When the current iteration's `classification === 'epic'`, after the epic issue i
 - `session.autolinkDegradationNotes` — list of failure descriptions
 - Updated issue bodies with resolved cross-refs
 - For epics: `session.epicChildIssues` — list of `{number, title}` created as children
+- For epics: one fresh durable-identity result per child, or exact partial-write evidence when handoff stops
 
 ---
 

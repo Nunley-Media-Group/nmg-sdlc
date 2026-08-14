@@ -12,6 +12,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import {
+  classifyEpicRelationships,
+  epicChildLabelTargets,
+  parseBodyRelationships,
+} from './epic-relationships.mjs';
+
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
   'design.md',
@@ -208,6 +214,140 @@ function classifyChecks(checks) {
   return 'unknown';
 }
 
+const GRAPHQL_ISSUE_FIELDS = `
+  number
+  state
+  body
+  labels(first: 100) { nodes { name } }
+  subIssues(first: 100) {
+    nodes { number state }
+    pageInfo { hasNextPage endCursor }
+  }
+`;
+
+const MAX_COORDINATION_TARGETS = 100;
+const MAX_FALLBACK_TARGETS = 8;
+
+function markCoordinationUnverifiable(result, message) {
+  return {
+    ...result,
+    role: 'unverifiable',
+    identity: 'unverifiable',
+    gaps: [...result.gaps, message],
+  };
+}
+
+function relationshipCandidates(issue) {
+  const body = parseBodyRelationships(issue?.body);
+  return [...new Set([...body.dependsOn, ...epicChildLabelTargets(issue)])]
+    .filter((number) => number !== issue?.number)
+    .sort((left, right) => left - right);
+}
+
+function collectCoordination(projectRoot, activeIssue, adapters, gaps) {
+  const fallbackIssues = [activeIssue];
+  const candidates = relationshipCandidates(activeIssue);
+  if (candidates.length > MAX_COORDINATION_TARGETS) {
+    const message = `issue #${activeIssue.number} has more than ${MAX_COORDINATION_TARGETS} relationship targets; bounded coordination classification is unverifiable`;
+    gaps.push(message);
+    const result = classifyEpicRelationships({
+      issues: fallbackIssues,
+      activeIssueNumber: activeIssue.number,
+      nativeAvailable: false,
+    });
+    return markCoordinationUnverifiable(result, message);
+  }
+  try {
+    const repoResult = adapters.run(
+      'gh',
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      { cwd: projectRoot, timeout: 30_000 },
+    );
+    if (repoResult.ok) {
+      const nameWithOwner = JSON.parse(repoResult.stdout)?.nameWithOwner;
+      const [owner, name, extra] = String(nameWithOwner ?? '').split('/');
+      if (owner && name && !extra) {
+        const aliases = candidates
+          .map((number) => `target${number}: issue(number: ${number}) { ${GRAPHQL_ISSUE_FIELDS} }`)
+          .join('\n');
+        const query = `query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            active: issue(number: ${activeIssue.number}) {
+              ${GRAPHQL_ISSUE_FIELDS}
+              parent { ${GRAPHQL_ISSUE_FIELDS} }
+            }
+            ${aliases}
+          }
+        }`;
+        const graphResult = adapters.run(
+          'gh',
+          ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`],
+          { cwd: projectRoot, timeout: 30_000 },
+        );
+        if (graphResult.ok) {
+          const repository = JSON.parse(graphResult.stdout)?.data?.repository;
+          if (repository?.active) {
+            const graphIssues = [repository.active, repository.active.parent]
+              .concat(candidates.map((number) => repository[`target${number}`]))
+              .filter(Boolean);
+            const result = classifyEpicRelationships({
+              issues: graphIssues,
+              activeIssueNumber: activeIssue.number,
+              nativeAvailable: true,
+            });
+            const truncated = [repository.active, repository.active.parent]
+              .filter(Boolean)
+              .some((issue) => issue.subIssues?.pageInfo?.hasNextPage === true);
+            if (!truncated) return result;
+            const message = 'GitHub native sub-issue result is paginated; coordination classification is unverifiable until every page is hydrated';
+            gaps.push(message);
+            return markCoordinationUnverifiable(result, message);
+          }
+          gaps.push('GitHub coordination response malformed: active issue missing');
+        } else {
+          gaps.push(`GitHub native coordination unavailable: ${boundedMessage(commandFailure(graphResult))}`);
+        }
+      } else {
+        gaps.push('GitHub repository response malformed: nameWithOwner missing');
+      }
+    } else {
+      gaps.push(`GitHub repository unavailable for coordination: ${boundedMessage(commandFailure(repoResult))}`);
+    }
+  } catch (error) {
+    gaps.push(`GitHub coordination metadata malformed: ${boundedMessage(error.message)}`);
+  }
+
+  if (candidates.length > MAX_FALLBACK_TARGETS) {
+    const message = `native coordination is unavailable and ${candidates.length} targets exceed the bounded fallback limit of ${MAX_FALLBACK_TARGETS}`;
+    gaps.push(message);
+    const result = classifyEpicRelationships({
+      issues: fallbackIssues,
+      activeIssueNumber: activeIssue.number,
+      nativeAvailable: false,
+    });
+    return markCoordinationUnverifiable(result, message);
+  }
+
+  for (const number of candidates) {
+    try {
+      const targetResult = adapters.run(
+        'gh',
+        ['issue', 'view', String(number), '--json', 'number,state,labels,body'],
+        { cwd: projectRoot, timeout: 5_000 },
+      );
+      if (targetResult.ok) fallbackIssues.push(JSON.parse(targetResult.stdout));
+      else gaps.push(`GitHub coordination target #${number} unavailable: ${boundedMessage(commandFailure(targetResult))}`);
+    } catch (error) {
+      gaps.push(`GitHub coordination target #${number} malformed: ${boundedMessage(error.message)}`);
+    }
+  }
+  return classifyEpicRelationships({
+    issues: fallbackIssues,
+    activeIssueNumber: activeIssue.number,
+    nativeAvailable: false,
+  });
+}
+
 function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   let issue = issueNumber
     ? { number: issueNumber, title: null, state: 'unknown', source: 'branch' }
@@ -271,7 +411,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   if (issue?.number) {
     const issueResult = adapters.run(
       'gh',
-      ['issue', 'view', String(issue.number), '--json', 'number,title,state'],
+      ['issue', 'view', String(issue.number), '--json', 'number,title,state,body,labels'],
       { cwd: projectRoot, timeout: 30_000 },
     );
     if (issueResult.ok) {
@@ -280,11 +420,13 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
         if (!Number.isInteger(parsed.number) || parsed.number <= 0) {
           gaps.push('GitHub issue response malformed: missing positive issue number');
         } else {
+          const coordination = collectCoordination(projectRoot, parsed, adapters, gaps);
           issue = {
             number: parsed.number,
             title: parsed.title ?? null,
             state: parsed.state ?? 'unknown',
             source: issue.source,
+            coordination,
           };
         }
       } catch (error) {
@@ -551,9 +693,13 @@ export function renderText(status) {
   const pullRequest = status.pullRequest
     ? `#${status.pullRequest.number} ${status.pullRequest.state} (checks: ${status.pullRequest.checks})`
     : 'unknown';
+  const coordination = status.issue?.coordination
+    ? `${status.issue.coordination.role} (${status.issue.coordination.identity})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
+    : 'unknown';
   const lines = [
     `SDLC status: ${status.stage}`,
     `Issue: ${issue}`,
+    `Coordination: ${coordination}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,
     `Verification: ${verification}`,

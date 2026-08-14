@@ -55,11 +55,11 @@ Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter 
 
 ### Step 1.75: Canonical Parent-Spec Gate
 
-Before reading the active spec or entering implementation planning, resolve the issue's supported body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for the native parent and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
+Before reading the active spec or entering implementation planning, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
 
-- No confirmed `epic-membership` target → continue unchanged.
-- More than one confirmed epic parent → stop as ambiguous and name every child/target pair.
-- One confirmed epic parent `P` → run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+- `role = ordinary` or `epic` → continue unchanged.
+- `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before spec loading or planning and report the shared pairs/signals/gaps.
+- `role = epic-child` → record `P = parentNumber`, report any `identity = legacy` repair recommendation, and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
 
 Continue only when the result is `canonical` or `canonical_marker_lost`. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before spec loading, plan review, delegation, or edits. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
 

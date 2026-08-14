@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #160 by persisting umbrella parent/child identity across fresh sessions, centralizing fail-safe relationship classification for every lifecycle consumer, using native sub-issues as sibling authority, and adding exact approval-gated recovery for legacy metadata.
+
 ## [2.0.2] - 2026-08-14
 
 ### Fixed

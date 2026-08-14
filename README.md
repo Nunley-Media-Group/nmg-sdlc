@@ -98,7 +98,7 @@ Classifies the request, investigates relevant code, interviews the user, drafts 
 $nmg-sdlc:start-issue #42
 ```
 
-With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do.
+With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do. New umbrellas persist an `epic` parent label, a matching `epic-child-of-N` child label, the native relationship, and body fallback so every fresh lifecycle command reconstructs the same identity.
 
 ### Write Specs
 
@@ -159,11 +159,13 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines read-only git, spec, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields. Status never prompts or mutates local or remote state.
+Status combines read-only git, spec, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields and a nullable `issue.coordination` result. Status never prompts or mutates local or remote state.
 
 ## Project Upgrades and V2 Cleanup
 
 `$nmg-sdlc:upgrade-project` relocates legacy steering/spec trees, reconciles current templates and frontmatter, preserves manual changelog content, and applies the same managed contribution assets as onboarding. It also audits bounded local and `origin/*` refs for sealed multi-PR specs that never reached the refreshed default branch. Canonical and history-marker-loss states are report-only. A single unambiguous stranded tree can be restored to an absent worktree path only after exact-path approval; an already byte-identical path is a no-op. Recovery remains unstaged for the normal reviewed `$nmg-sdlc:write-spec #N` publication flow. Divergent default-branch content always wins, while ambiguous or unverifiable findings are preserved for manual resolution.
+
+The upgrade audit also reconciles umbrella identity. Native sub-issue relationships are authoritative when available; supported body checklists remain fallback and drift evidence. Deterministic missing-label, missing-link, or stale-checklist repairs are shown as exact per-parent mutation sets, require their own approval, are revalidated immediately before writing, and must be clean on a second audit.
 
 For existing projects, its v2 migration proposes deletion of only these obsolete exact paths when they are regular files:
 
@@ -209,7 +211,7 @@ For plugin skills, `scripts/skill-exercise-runner.mjs` supports deterministic ar
 | `$nmg-sdlc:open-pr #N` | Version, commit, rebase, push, and create a pull request |
 | `$nmg-sdlc:address-pr-comments [#N]` | Close the automated-reviewer feedback loop |
 | `$nmg-sdlc:status [--json]` | Report manual lifecycle state without mutation |
-| `$nmg-sdlc:upgrade-project` | Reconcile current contracts, audit sealed specs, recover approved stranded specs, and perform v2 cleanup |
+| `$nmg-sdlc:upgrade-project` | Reconcile current contracts, audit sealed specs and umbrella identity, recover exact approved findings, and perform v2 cleanup |
 | `$nmg-sdlc:run-retro` | Derive spec-writing learnings from defect history |
 
 ## License
