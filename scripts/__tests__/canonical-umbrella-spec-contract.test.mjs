@@ -49,6 +49,7 @@ describe('canonical umbrella-spec contracts', () => {
     expect(writeSpec).toContain('`publication_pending`');
     expect(writeSpec).toContain('recorded no coordination parent for the current issue');
     expect(writeSpec).toContain('must not create a child-numbered seal commit or a second umbrella publication PR');
+    expect(writeSpec).toContain('continue to its normal `$nmg-sdlc:write-code #N` handoff');
     expect(writeSpec).toContain('One open match → reuse it');
     expect(writeSpec).toContain('One merged match → rerun the helper');
     expect(writeSpec).toContain('A closed-unmerged match or multiple exact matches → stop');
@@ -82,6 +83,8 @@ describe('canonical umbrella-spec contracts', () => {
     expect(codeGate).toBeGreaterThan(0);
     expect(readSpecs).toBeGreaterThan(codeGate);
     expect(writeCode).toContain('before spec loading, plan review, delegation, or edits');
+    expect(writeCode).toContain('The active child branch may contain approved child-scoped amendments to that same spec path');
+    expect(shared).toContain('Parent readiness proves the canonical baseline path, not equality with a child branch');
   });
 
   test('every native-parent consumer uses GraphQL rather than unsupported gh JSON', () => {

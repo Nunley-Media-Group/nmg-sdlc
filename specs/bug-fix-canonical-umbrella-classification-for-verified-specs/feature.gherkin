@@ -1,0 +1,55 @@
+# Generated from: specs/bug-fix-canonical-umbrella-classification-for-verified-specs/requirements.md
+# Issue: #159
+# Type: Defect regression
+
+@regression @issue-159
+Feature: Canonical umbrella classification accepts verified specifications
+  Canonical umbrella classification previously rejected the lifecycle-owned verification report
+  and allowed one invalid candidate to suppress unrelated targeted or audit results.
+  The classifier now recognizes verified trees while preserving strict validation and isolated diagnostics.
+
+  @regression
+  Scenario: Accept a verified umbrella specification in every classifier mode
+    Given a multi-PR feature-spec tree contains the four required regular authoring blobs plus a regular verification-report.md
+    When parent, publication, and audit mode validate that tree
+    Then the verification report is not classified as an unexpected entry
+    And each mode reaches the status supported by the umbrella evidence
+    And exact tree identity includes the verification report
+
+  @regression
+  Scenario: Reject every unrecognized or unsafe spec-tree shape
+    Given a candidate spec tree is missing a required authoring file, contains a symlink, or contains an unrecognized entry
+    When a classifier mode validates the tree
+    Then validation fails closed with a stable path-specific reason
+    And the helper does not mutate the worktree, index, refs, remote state, or GitHub
+
+  @regression
+  Scenario: Ignore an unrelated invalid candidate during targeted parent lookup
+    Given bounded refs contain an invalid candidate unrelated to requested parent issue 159 and a valid candidate for issue 159
+    When parent mode queries issue 159
+    Then the unrelated candidate does not change or suppress the valid parent result
+    And malformed or ambiguous evidence that claims issue 159 still fails closed with scoped diagnostics
+
+  @regression
+  Scenario: Retain valid findings in a mixed repository audit
+    Given bounded refs contain valid, invalid, canonical, stranded, divergent, and ambiguous umbrella candidates
+    When repository audit mode runs with JSON output
+    Then valid per-spec findings are retained
+    And candidate-specific validation gaps are reported without aborting the audit
+    And a systemic Git, default-branch, or bounded-ref failure still makes the audit unverifiable
+
+  @regression
+  Scenario: Continue child implementation from a verified canonical baseline without resealing
+    Given a verified umbrella spec is canonical on the refreshed default branch and a feature child has an approved child-scoped amendment
+    When write-spec completes for the child and write-code begins
+    Then no child-numbered seal commit or second umbrella publication pull request is created
+    And the next-step output points to write-code
+    And the write-code parent gate accepts the canonical parent baseline and loads the child-amended specification
+    And the child branch tree is not required to equal the parent baseline tree
+
+  @regression
+  Scenario: Preserve the complete canonical umbrella lifecycle from issue 157
+    Given the issue 157 publication, recovery, divergence, ambiguity, symlink, idempotency, and no-mutation regressions
+    When the lifecycle adds canonical merge, implementation verification, a later child amendment, and write-code handoff
+    Then every classifier mode and consumer handoff passes with verification-report.md present
+    And exact publication scope, default-branch precedence, idempotency, symlink rejection, and read-only behavior remain unchanged

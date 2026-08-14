@@ -24,6 +24,13 @@ const REQUIRED_SPEC_FILES = new Set([
   'requirements.md',
   'tasks.md',
 ]);
+const OPTIONAL_SPEC_FILES = new Set([
+  'verification-report.md',
+]);
+const ALLOWED_SPEC_FILES = new Set([
+  ...REQUIRED_SPEC_FILES,
+  ...OPTIONAL_SPEC_FILES,
+]);
 
 function boundedMessage(value) {
   const singleLine = String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -85,6 +92,14 @@ function parseFrontmatterIssues(source) {
   return { ok: true, issues: [...new Set(values)], reason: null };
 }
 
+function frontmatterClaimsIssue(source, issueNumber) {
+  const issuePattern = new RegExp(`#${issueNumber}\\b`);
+  return source.split(/\r?\n/).some((line) => (
+    /^\*\*Issues?\*\*:/.test(line)
+    && issuePattern.test(line)
+  ));
+}
+
 function hasMultiPrTrigger(requirements, design) {
   if (/^## Multi-PR Rollout\s*$/im.test(design)) return true;
   return requirements.split(/\r?\n/).some((line) => (
@@ -127,22 +142,22 @@ function resolveTree(projectRoot, commit, specPath, adapters) {
 
 function validateTreeEntries(projectRoot, commit, specPath, adapters) {
   const result = git(projectRoot, ['ls-tree', '-r', '-z', commit, '--', specPath], adapters);
-  if (!result.ok) return { ok: false, reason: commandFailure(result) };
+  if (!result.ok) return { ok: false, fatal: true, reason: commandFailure(result) };
   const observedFiles = new Set();
   const prefix = `${specPath}/`;
   for (const entry of result.stdout.split('\0').filter(Boolean)) {
     const match = entry.match(/^(\d{6})\s+(\w+)\s+[0-9a-f]{40}\t(.+)$/i);
-    if (!match) return { ok: false, reason: 'malformed_tree_entry' };
-    if (match[1] === '120000') return { ok: false, reason: `symlink_not_allowed:${match[3]}` };
+    if (!match) return { ok: false, fatal: false, reason: 'malformed_tree_entry' };
+    if (match[1] === '120000') return { ok: false, fatal: false, reason: `symlink_not_allowed:${match[3]}` };
     const relativePath = match[3].startsWith(prefix) ? match[3].slice(prefix.length) : null;
-    if (match[2] !== 'blob' || !relativePath || !REQUIRED_SPEC_FILES.has(relativePath)) {
-      return { ok: false, reason: `unexpected_spec_entry:${match[3]}` };
+    if (match[2] !== 'blob' || !relativePath || !ALLOWED_SPEC_FILES.has(relativePath)) {
+      return { ok: false, fatal: false, reason: `unexpected_spec_entry:${match[3]}` };
     }
     observedFiles.add(relativePath);
   }
   for (const requiredFile of REQUIRED_SPEC_FILES) {
     if (!observedFiles.has(requiredFile)) {
-      return { ok: false, reason: `missing_spec_entry:${specPath}/${requiredFile}` };
+      return { ok: false, fatal: false, reason: `missing_spec_entry:${specPath}/${requiredFile}` };
     }
   }
   return { ok: true };
@@ -172,24 +187,38 @@ function inspectSpecAtCommit(projectRoot, commit, specPath, adapters, options = 
   const requirementsPath = `${specPath}/requirements.md`;
   const designPath = `${specPath}/design.md`;
   const requirements = readGitFile(projectRoot, commit, requirementsPath, adapters);
-  if (!requirements.ok) return { ok: false, reason: requirements.reason };
+  if (!requirements.ok) return { ok: false, fatal: !requirements.missing, reason: requirements.reason };
+  let issues = null;
+  if (options.issueFilter) {
+    issues = parseFrontmatterIssues(requirements.source);
+    if (!issues.ok) {
+      if (!frontmatterClaimsIssue(requirements.source, options.issueFilter)) {
+        return { ok: true, issues: [], tree: null, multiPr: null, filtered: true };
+      }
+      return { ok: false, fatal: false, reason: issues.reason };
+    }
+    if (!issues.issues.includes(options.issueFilter)) {
+      return { ok: true, issues: issues.issues, tree: null, multiPr: null, filtered: true };
+    }
+  }
   const design = readGitFile(projectRoot, commit, designPath, adapters);
-  if (!design.ok) return { ok: false, reason: design.reason };
+  if (!design.ok) return { ok: false, fatal: !design.missing, reason: design.reason };
   const multiPr = hasMultiPrTrigger(requirements.source, design.source);
   if (!multiPr && options.ignoreNonMultiPr) {
-    return { ok: true, issues: [], tree: null, multiPr: false };
+    return { ok: true, issues: [], tree: null, multiPr: false, filtered: false };
   }
-  const issues = parseFrontmatterIssues(requirements.source);
-  if (!issues.ok) return { ok: false, reason: issues.reason };
+  issues ??= parseFrontmatterIssues(requirements.source);
+  if (!issues.ok) return { ok: false, fatal: false, reason: issues.reason };
   const tree = resolveTree(projectRoot, commit, specPath, adapters);
-  if (!tree.ok) return { ok: false, reason: tree.reason };
+  if (!tree.ok) return { ok: false, fatal: !tree.missing, reason: tree.reason };
   const entries = validateTreeEntries(projectRoot, commit, specPath, adapters);
-  if (!entries.ok) return { ok: false, reason: entries.reason };
+  if (!entries.ok) return { ok: false, fatal: entries.fatal, reason: entries.reason };
   return {
     ok: true,
     issues: issues.issues,
     tree: tree.tree,
     multiPr,
+    filtered: false,
   };
 }
 
@@ -255,18 +284,26 @@ function collectCandidates(projectRoot, adapters, issueFilter = null, extraRefs 
     refsByCommit.set(commit, refs);
   }
   const byIdentity = new Map();
+  const gaps = [];
 
   for (const [commit, refs] of refsByCommit) {
     const paths = listRequirementPaths(projectRoot, commit, adapters);
     if (!paths.ok) return { ok: false, reason: `${refs[0]}: ${paths.reason}`, candidates: [] };
     for (const requirementsPath of paths.paths) {
       const specPath = path.posix.dirname(requirementsPath);
-      const inspected = inspectSpecAtCommit(projectRoot, commit, specPath, adapters, { ignoreNonMultiPr: true });
+      const inspected = inspectSpecAtCommit(projectRoot, commit, specPath, adapters, {
+        ignoreNonMultiPr: true,
+        issueFilter,
+      });
       if (!inspected.ok) {
-        return { ok: false, reason: `${refs[0]}: ${inspected.reason}`, candidates: [] };
+        const reason = `${refs[0]}:${specPath}: ${inspected.reason}`;
+        if (inspected.fatal || issueFilter) {
+          return { ok: false, reason, candidates: [], gaps: [] };
+        }
+        gaps.push(reason);
+        continue;
       }
-      if (!inspected.multiPr) continue;
-      if (issueFilter && !inspected.issues.includes(issueFilter)) continue;
+      if (!inspected.multiPr || inspected.filtered) continue;
       const key = `${specPath}\0${inspected.tree}`;
       const candidate = byIdentity.get(key) ?? {
         path: specPath,
@@ -286,7 +323,7 @@ function collectCandidates(projectRoot, adapters, issueFilter = null, extraRefs 
     refs: [...new Set(candidate.refs)].sort(),
     sourceCommits: [...new Set(candidate.sourceCommits)].sort(),
   })).sort((left, right) => left.path.localeCompare(right.path) || left.tree.localeCompare(right.tree));
-  return { ok: true, candidates };
+  return { ok: true, candidates, gaps: gaps.sort() };
 }
 
 function baseResult(mode, projectRoot, remoteDefault) {
@@ -344,8 +381,25 @@ function classifyParentMode(projectRoot, issueNumber, remoteDefault, adapters) {
   for (const requirementsPath of paths.paths) {
     const specPath = path.posix.dirname(requirementsPath);
     const requirements = readGitFile(projectRoot, remoteDefault.commit, requirementsPath, adapters);
-    if (!requirements.ok) continue;
+    if (!requirements.ok) {
+      return unverifiable('parent', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'default_spec_scan_failed',
+        reason: `${specPath}: ${requirements.reason}`,
+        issueNumber,
+        specPath,
+      });
+    }
     const parsed = parseFrontmatterIssues(requirements.source);
+    if (!parsed.ok && frontmatterClaimsIssue(requirements.source, issueNumber)) {
+      return unverifiable('parent', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'default_spec_invalid',
+        reason: `${specPath}: ${parsed.reason}`,
+        issueNumber,
+        specPath,
+      });
+    }
     if (parsed.ok && parsed.issues.includes(issueNumber)) matches.push(specPath);
   }
 
@@ -484,10 +538,12 @@ function classifyAuditMode(projectRoot, remoteDefault, adapters) {
 
   return {
     ...baseResult('audit', projectRoot, remoteDefault),
-    status: findings.some((finding) => finding.status !== 'canonical' && finding.status !== 'canonical_marker_lost') ? 'findings' : 'canonical',
-    reasonCode: findings.length === 0 ? 'no_multi_pr_specs_found' : 'audit_complete',
+    status: collected.gaps.length > 0 || findings.some((finding) => finding.status !== 'canonical' && finding.status !== 'canonical_marker_lost') ? 'findings' : 'canonical',
+    reasonCode: findings.length === 0 && collected.gaps.length === 0
+      ? 'no_multi_pr_specs_found'
+      : 'audit_complete',
     findings,
-    gaps: [],
+    gaps: collected.gaps,
   };
 }
 
