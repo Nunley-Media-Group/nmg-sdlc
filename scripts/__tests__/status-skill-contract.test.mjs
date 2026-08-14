@@ -60,6 +60,16 @@ describe('status skill contract', () => {
     }
   });
 
+  it('documents the shared PR-dependent read-only status boundary', () => {
+    expect(source).toContain('../../references/pr-dependent-verification.md');
+    expect(source).toContain('`delivery-validation-pending`');
+    expect(source).toContain('`local verification` is complete');
+    expect(source).toContain('`PR evidence` is missing');
+    for (const field of ['draft state', 'head SHA', 'merge state', 'checks']) {
+      expect(source).toContain(field);
+    }
+  });
+
   it('is auto-discovered by the plugin manifest', () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     expect(manifest.skills).toBe('./skills/');

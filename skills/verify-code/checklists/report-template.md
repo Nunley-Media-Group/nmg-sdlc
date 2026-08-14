@@ -28,8 +28,28 @@ Use this template to generate the final verification report.
 | Error Handling | [score] |
 | **Overall** | [average] |
 
-**Status**: Pass / Partial / Fail
+**Status**: Pass / PR Evidence Pending / Partial / Incomplete / Fail
 **Total Issues**: [count]
+
+---
+
+## Issue Scope
+
+- Active issue: #[number]
+- Spec: `specs/[feature]`
+- Manifest: `specs/[feature]/issue-scope.json` or `implicit single issue`
+- Resolver status: `scoped` / `implicit_single_issue`
+- Delivery: AC [...]; FR [...]; tasks [...]; scenarios [...]
+- Regression: AC [...]; FR [...]; scenarios [...]
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
+
+## Delivery Validation
+
+- Local verification: Pass / Not complete
+- PR evidence: Not required / Pending / Satisfied for `[40-character head SHA]`
+
+<!-- Include exactly one nmg-sdlc-pr-readiness marker here only when the shared PR-dependent verification contract classifies the report as pending or satisfied. -->
 
 ---
 

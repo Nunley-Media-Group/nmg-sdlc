@@ -25,6 +25,10 @@ import {
   inspectIssueSpecScope,
   ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
 } from './issue-spec-scope.mjs';
+import {
+  inspectVerificationReadiness,
+  MAX_VERIFICATION_REPORT_BYTES,
+} from './verification-readiness.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -190,7 +194,7 @@ function verifyReportScope(content, scope) {
   }
 }
 
-function collectVerification(projectRoot, spec, untrackedImplementationPaths, adapters, gaps) {
+function collectVerification(projectRoot, spec, pullRequest, untrackedImplementationPaths, adapters, gaps) {
   if (!spec) return null;
   const reportPath = path.join(projectRoot, spec.path, 'verification-report.md');
   if (!adapters.fs.existsSync(reportPath)) return null;
@@ -207,22 +211,22 @@ function collectVerification(projectRoot, spec, untrackedImplementationPaths, ad
         scopeMatch: null,
       };
     }
-    const content = readBounded(adapters.fs, reportPath);
-    const match = content.match(/Implementation Status(?:\*\*)?\s*:?\s*(?:\*\*)?\s*(Pass|Partial|Fail)\b/i);
-    if (!match) {
-      gaps.push('verification report lacks an explicit Implementation Status');
-      return {
-        path: relativeReportPath,
-        status: 'unknown',
-        current: false,
-        commit: null,
-        scopeMatch: null,
-      };
-    }
-    const status = match[1].toLowerCase();
+    const content = readBounded(adapters.fs, reportPath, MAX_VERIFICATION_REPORT_BYTES);
+    const readiness = inspectVerificationReadiness({
+      content,
+      options: {
+        expectedIssueNumber: spec.scope?.issueNumber,
+        expectedSpecPath: spec.path,
+        expectedScope: spec.scope,
+        expectedHeadSha: pullRequest?.headRefOid ?? undefined,
+      },
+    });
+    const status = readiness.implementationStatus ?? 'unknown';
     const verification = {
       path: relativeReportPath,
       status,
+      readinessStatus: readiness.status,
+      readiness: readiness.readiness,
       current: false,
       commit: null,
       scopeMatch: null,
@@ -233,7 +237,15 @@ function collectVerification(projectRoot, spec, untrackedImplementationPaths, ad
       gaps.push(scopeEvidence.gap);
       return verification;
     }
-    if (status !== 'pass') return verification;
+    if (['blocked', 'unverifiable'].includes(readiness.status)) {
+      for (const gap of readiness.gaps) gaps.push(`verification readiness: ${gap}`);
+      return verification;
+    }
+    if (readiness.status === 'pr_evidence_satisfied' && !pullRequest?.headRefOid) {
+      verification.readinessStatus = 'unverifiable';
+      gaps.push('verification readiness: satisfied PR evidence has no matching pull-request head');
+      return verification;
+    }
 
     const commitResult = adapters.run(
       'git',
@@ -669,7 +681,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   if (branch && branch !== 'main' && branch !== 'HEAD') {
     const prResult = adapters.run(
       'gh',
-      ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,url,headRefName,closingIssuesReferences'],
+      ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,url,headRefName,headRefOid,isDraft,mergeStateStatus,closingIssuesReferences'],
       { cwd: projectRoot, timeout: 30_000 },
     );
     if (prResult.ok) {
@@ -693,6 +705,9 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
             number: pr.number,
             state: pr.state ?? 'unknown',
             url: pr.url ?? null,
+            isDraft: typeof pr.isDraft === 'boolean' ? pr.isDraft : null,
+            headRefOid: /^[0-9a-f]{40}$/i.test(pr.headRefOid ?? '') ? pr.headRefOid : null,
+            mergeStateStatus: pr.mergeStateStatus ?? 'unknown',
             checks: 'unknown',
           };
           if (String(pr.state).toUpperCase() === 'OPEN') {
@@ -860,6 +875,7 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
   const verification = collectVerification(
     projectRoot,
     spec,
+    github.pullRequest,
     untrackedImplementationPaths,
     adapters,
     gaps,
@@ -889,12 +905,14 @@ function artifactSummary(evidence, stage) {
   const completed = [];
   const verificationCurrent = evidence.verification?.status === 'pass'
     && evidence.verification.current === true;
+  const deliveryValidationPending = stage === 'delivery-validation-pending';
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(evidence.spec?.scope?.status);
   const specReady = evidence.spec?.complete && !scopeBlocked;
   if (evidence.issue?.number && evidence.project.branch !== 'main') completed.push('issue branch');
   if (specReady) completed.push('spec package');
   if (evidence.project.implementationPaths.length > 0) completed.push('implementation');
-  if (verificationCurrent) completed.push('verification');
+  if (deliveryValidationPending) completed.push('local verification');
+  else if (verificationCurrent) completed.push('verification');
   if (evidence.pullRequest) completed.push('pull request');
   if (stage === 'complete') completed.push('merged delivery');
 
@@ -902,7 +920,8 @@ function artifactSummary(evidence, stage) {
   if (!evidence.issue?.number && evidence.project.branch === 'main') missing.push('issue branch');
   if (!specReady) missing.push(scopeBlocked ? 'issue scope repair' : 'spec package');
   if (evidence.project.implementationPaths.length === 0) missing.push('implementation');
-  if (!verificationCurrent) missing.push('verification');
+  if (deliveryValidationPending) missing.push('PR evidence');
+  else if (!verificationCurrent) missing.push('verification');
   if (!evidence.pullRequest) missing.push('pull request');
   return { completed, missing: stage === 'complete' ? [] : missing };
 }
@@ -914,6 +933,18 @@ export function inferLifecycle(evidence) {
   const implementationPresent = evidence.project.implementationPaths.length > 0;
   const verificationPass = evidence.verification?.status === 'pass'
     && evidence.verification.current === true;
+  const deliveryValidationPending = evidence.verification?.current === true
+    && (
+      (evidence.verification.readinessStatus === 'pr_evidence_pending'
+        && (!evidence.pullRequest || (prState === 'OPEN' && evidence.pullRequest.isDraft === true)))
+      || (evidence.verification.readinessStatus === 'pr_evidence_satisfied'
+        && prState === 'OPEN'
+        && evidence.pullRequest?.isDraft === true)
+    );
+  const readyPrWithPendingVerification = evidence.verification?.current === true
+    && evidence.verification.readinessStatus === 'pr_evidence_pending'
+    && prState === 'OPEN'
+    && evidence.pullRequest?.isDraft === false;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
   const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
@@ -956,6 +987,23 @@ export function inferLifecycle(evidence) {
     nextAction = {
       command: '$nmg-sdlc:start-issue',
       reason: 'The pull request is merged; the delivery lifecycle is complete.',
+      manualRepairRequired: false,
+    };
+  } else if (readyPrWithPendingVerification) {
+    gaps.push('ready pull request conflicts with pending PR-dependent verification');
+    stage = 'unknown';
+    nextAction = {
+      command: `Manual repair: restore controlled draft validation on PR #${evidence.pullRequest.number}`,
+      reason: 'A ready pull request cannot be advanced from pending PR-dependent verification evidence.',
+      manualRepairRequired: true,
+    };
+  } else if (deliveryValidationPending) {
+    stage = 'delivery-validation-pending';
+    nextAction = {
+      command: phaseCommand('open-pr', issueNumber),
+      reason: evidence.verification.readinessStatus === 'pr_evidence_satisfied'
+        ? 'Local and draft-head verification pass, but controlled final-head delivery validation is not complete.'
+        : 'Local verification passes and only declared pull-request evidence remains.',
       manualRepairRequired: false,
     };
   } else if (prState === 'OPEN') {
@@ -1071,7 +1119,7 @@ export function renderText(status) {
     ? `${status.verification.status}, ${status.verification.current ? 'current' : 'not current'} (${status.verification.path})`
     : 'unknown';
   const pullRequest = status.pullRequest
-    ? `#${status.pullRequest.number} ${status.pullRequest.state} (checks: ${status.pullRequest.checks})`
+    ? `#${status.pullRequest.number} ${status.pullRequest.state} (${status.pullRequest.isDraft === true ? 'draft' : status.pullRequest.isDraft === false ? 'ready' : 'draft state unknown'}, head: ${status.pullRequest.headRefOid ?? 'unknown'}, merge: ${status.pullRequest.mergeStateStatus ?? 'unknown'}, checks: ${status.pullRequest.checks})`
     : 'unknown';
   const coordination = status.issue?.coordination
     ? `${status.issue.coordination.role} (${status.issue.coordination.identity}; consistency: ${status.issue.coordination.consistency}; authority: ${status.issue.coordination.nativeAuthority}; degraded: ${status.issue.coordination.degraded ? 'yes' : 'no'})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`

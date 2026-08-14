@@ -19,6 +19,7 @@ import {
 
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
+const PENDING_MARKER = '<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"contract-tests","acceptanceCriteria":["AC1"]}]} -->';
 const scriptsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function baseEvidence(overrides = {}) {
@@ -152,6 +153,17 @@ describe('lifecycle inference', () => {
       spec: { path: 'specs/feature', complete: true, missingFiles: [] },
       verification: { path: 'specs/feature/verification-report.md', status: 'pass', current: true },
     }), '$nmg-sdlc:open-pr #42'],
+    ['delivery-validation-pending', baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: 'Feature', state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+    }), '$nmg-sdlc:open-pr #42'],
     ['pull-request-open', baseEvidence({
       project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
       issue: { number: 42, title: 'Feature', state: 'OPEN', source: 'branch' },
@@ -182,6 +194,33 @@ describe('lifecycle inference', () => {
     expect(status.stage).toBe('pull-request-open');
     expect(status.nextAction.manualRepairRequired).toBe(manualRepair);
     expect(status.nextAction.command).toContain(command);
+  });
+
+  it('fails closed when pending verification is exposed by a ready pull request', () => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+      pullRequest: {
+        number: 50,
+        state: 'OPEN',
+        isDraft: false,
+        headRefOid: 'a'.repeat(40),
+        mergeStateStatus: 'BLOCKED',
+        checks: 'pending',
+      },
+    }));
+    expect(status).toMatchObject({
+      stage: 'unknown',
+      nextAction: { manualRepairRequired: true },
+    });
+    expect(status.gaps).toContain('ready pull request conflicts with pending PR-dependent verification');
   });
 
   it('stops at the last consistent boundary when verification conflicts', () => {
@@ -456,6 +495,37 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(renderText(inferLifecycle(stale))).toContain('Verification: pass, not current');
   });
 
+  it('reports committed qualified pending evidence as local verification complete', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      `# Verification Report\n\n**Implementation Status**: PR Evidence Pending\n\n${SCOPE_MARKER}\n${PENDING_MARKER}\n`,
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'feat: add pending verification fixture'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
+    expect(evidence.verification).toMatchObject({
+      status: 'pr_evidence_pending',
+      readinessStatus: 'pr_evidence_pending',
+      current: true,
+      scopeMatch: true,
+    });
+    const status = inferLifecycle(evidence);
+    expect(status).toMatchObject({
+      stage: 'delivery-validation-pending',
+      completedArtifacts: expect.arrayContaining(['local verification']),
+      missingArtifacts: expect.arrayContaining(['PR evidence']),
+      nextAction: { command: '$nmg-sdlc:open-pr #42', manualRepairRequired: false },
+    });
+    expect(status.completedArtifacts).not.toContain('verification');
+    expect(renderText(status)).toContain('SDLC status: delivery-validation-pending');
+  });
+
   it('does not trust an uncommitted passing verification report', () => {
     fs.mkdirSync(path.join(root, 'src'));
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
@@ -503,6 +573,9 @@ describe('bounded evidence collection and read-only safety', () => {
             state: 'OPEN',
             url: 'https://example.test/pull/50',
             headRefName: 'feature/status-fixture',
+            headRefOid: 'a'.repeat(40),
+            isDraft: true,
+            mergeStateStatus: 'BLOCKED',
             closingIssuesReferences: [{ number: 42, title: 'Status fixture', state: 'OPEN' }],
           }]),
           stderr: '',
@@ -525,7 +598,14 @@ describe('bounded evidence collection and read-only safety', () => {
     const evidence = collectEvidence(root, { run });
     expect(evidence.issue).toMatchObject({ number: 42, source: 'pullRequest' });
     expect(evidence.spec).toMatchObject({ complete: true, missingFiles: [] });
-    expect(evidence.pullRequest).toMatchObject({ number: 50, state: 'OPEN', checks: 'absent' });
+    expect(evidence.pullRequest).toMatchObject({
+      number: 50,
+      state: 'OPEN',
+      isDraft: true,
+      headRefOid: 'a'.repeat(40),
+      mergeStateStatus: 'BLOCKED',
+      checks: 'absent',
+    });
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 

@@ -19,10 +19,14 @@ Read `../../references/versioning.md` when you need the versioning invariants �
 
 Read `../../references/steering-schema.md` when reading `steering/tech.md` for the `## Versioning` bump matrix or stack-specific versioned-files table — `tech.md` is the authoritative source for project-specific bump behaviour.
 
+Read `../../references/pr-dependent-verification.md` when the verification report contains a PR-readiness marker.
+
+Read `references/pr-dependent-delivery.md` when the shared validator returns qualified pending evidence or an exact controlled draft is being resumed.
+
 ## Prerequisites
 
 1. Implementation is complete (all tasks from `tasks.md` done).
-2. Verification has passed (via `$nmg-sdlc:verify-code`).
+2. Verification has passed, or valid shared-contract `pr_evidence_pending` proves all local verification has passed (via `$nmg-sdlc:verify-code`).
 3. `origin` is reachable for fetch, rebase, push, and PR creation.
 
 ---
@@ -51,7 +55,7 @@ Gather all information needed for the PR:
    - `specs/{feature-name}/issue-scope.json` when the resolver status is `scoped`.
 
    Skip this sub-step if specs-not-found — acceptance criteria will be extracted from the issue body already fetched in step 1.
-5. **Read verification evidence** — locate the verification report under the matched spec (when present), parse its one-line `nmg-sdlc-issue-scope` JSON marker, require that marker and the human-readable Issue Scope block to match the current normalized result, and extract **Implementation Status** plus any `## Steering Doc Verification Gates` summary produced by `$nmg-sdlc:verify-code`. Fail closed if scope evidence is missing or differs, implementation status is absent or not `Pass`, or any required steering gate is failed/incomplete. When specs-not-found, require equivalent passing verification evidence before delivery rather than treating the issue body as proof.
+5. **Read verification evidence** — locate the verification report under the matched spec (when present), parse its one-line `nmg-sdlc-issue-scope` JSON marker, require that marker and the human-readable Issue Scope block to match the current normalized result, and extract **Implementation Status** plus any `## Steering Doc Verification Gates` summary produced by `$nmg-sdlc:verify-code`. Run the shared readiness validator with the active issue/spec identity and apply the existing report commit, ancestry, uncommitted-change, and implementation-freshness proof. Ordinary current `Pass` with no readiness marker follows the existing path unchanged. Only current valid `pr_evidence_pending` may select the controlled draft path in `references/pr-dependent-delivery.md`; generic Partial, Incomplete, Fail, malformed/mismatched/stale evidence, failed/incomplete gates, and prose exceptions fail closed. When specs-not-found, require equivalent passing verification evidence before delivery rather than treating the issue body as proof.
 6. **Read git state**:
    - `git status` — eligible changes after delivery preparation.
    - `git log main..HEAD --oneline` — commits on this branch.
@@ -83,9 +87,13 @@ Before `gh pr create`, confirm the delivery-preparation postconditions from `ref
 
 Then create the PR:
 
+For the ordinary Pass path, preserve the existing command:
+
 ```bash
 gh pr create --title "[title]" --body "[body]"
 ```
+
+For qualified pending readiness, do not run the ordinary create command. Follow `references/pr-dependent-delivery.md`: create or reuse only the exact draft, validate H1, reverify, safely push any report update, validate H2, record final evidence, and call `gh pr ready` only after the final marker is re-fetched and validated.
 
 Add labels matching the issue when appropriate. Read `references/pr-body.md` for the output block.
 
@@ -95,7 +103,7 @@ Follow the output block from `references/pr-body.md`, then continue to Step 7.
 
 ### Step 7: Interactive CI Monitor + Auto-Merge (Opt-In)
 
-Read `references/ci-monitoring.md` for the opt-in prompt, the 30-second polling loop with 30-minute timeout, the pre-merge `mergeStateStatus == CLEAN` check, the squash-merge-and-cleanup path, the failure path (which leaves the user on the feature branch), and the no-CI graceful-skip path.
+Read `references/ci-monitoring.md` when Step 7 starts — the reference covers the opt-in prompt, the 30-second polling loop with 30-minute timeout, the pre-merge `mergeStateStatus == CLEAN` check, the squash-merge-and-cleanup path, the failure path (which leaves the user on the feature branch), and the no-CI graceful-skip path. A controlled draft enters this step only after `pr-dependent-delivery.md` has made it ready and revalidated its unchanged final head.
 
 ---
 

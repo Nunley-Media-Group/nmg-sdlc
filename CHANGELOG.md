@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.8] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #171 by adding shared fail-closed PR-dependent verification readiness, a read-only pending-delivery status, and controlled draft H1/H2 evidence validation that preserves ordinary Pass delivery and every existing review and merge gate.
+
 ## [2.0.7] - 2026-08-14
 
 ### Fixed

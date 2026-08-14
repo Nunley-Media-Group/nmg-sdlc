@@ -137,6 +137,8 @@ $nmg-sdlc:verify-code #42
 
 Checks every mapped delivery acceptance criterion and task, exercises only explicitly declared prior regression obligations, reviews SOLID/security/performance/testability/error handling, applies safe scoped fixes, and posts an issue-bound verification report. The report includes normalized delivery/regression IDs so another contributor's evidence cannot satisfy the active issue.
 
+When every local obligation passes but a mapped acceptance criterion requires GitHub evidence that cannot exist before pull-request creation, verification records `PR Evidence Pending` plus a bounded machine marker instead of mislabeling the work Partial or Pass. Only named required checks, check runs, and merge-blocking observations qualify. Any local failure, failed/incomplete steering gate, stale scope, malformed marker, or arbitrary deferred-work exception remains blocked. After a controlled draft exists, verification can record satisfied evidence only for that draft's exact head SHA.
+
 Skill-bundled fixes route through `$skill-creator`. Optional Codex subagents are used only when the user explicitly authorizes delegation.
 
 ### Open a Pull Request
@@ -145,7 +147,9 @@ Skill-bundled fixes route through `$skill-creator`. Optional Codex subagents are
 $nmg-sdlc:open-pr #42
 ```
 
-Inspects and stages the approved delivery tree, requires matching active-scope verification, presents the version decision, updates version artifacts, commits, rebases safely, pushes, and creates a spec-linked pull request. Its acceptance criteria and test plan contain only mapped delivery plus separate declared regression evidence, link `issue-scope.json` when present, and close only the active issue. After creation, the user may opt into CI monitoring and squash merge; merge occurs only when required checks pass and GitHub reports a clean merge state.
+Inspects and stages the approved delivery tree, requires matching active-scope verification, presents the version decision, updates version artifacts, commits, rebases safely, pushes, and creates a spec-linked pull request. Its acceptance criteria and test plan contain only mapped delivery plus separate declared regression evidence, link `issue-scope.json` when present, and close only the active issue.
+
+Ordinary current Pass verification keeps the normal PR path. Qualified `PR Evidence Pending` uses a controlled draft: delivery proves the exact branch/base/issue identity, captures draft head H1, gathers only the declared GitHub evidence, reruns verification, safely commits and pushes any report update, then gathers the same evidence again for final head H2. H1 evidence cannot satisfy H2. The PR body records a validated final-H2 marker before `gh pr ready`; any missing, failed, cancelled, timed-out, stale, or malformed result leaves the draft and feature branch intact. Only then may the existing automated-review, required-check, mergeability, explicit merge-choice, and cleanup gates run. Merge still requires success-equivalent required checks and GitHub `mergeStateStatus: CLEAN`; repository protections are never weakened or bypassed.
 
 ### Address Review Comments
 
@@ -162,7 +166,7 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, deliverable availability, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, nullable `issue.coordination` and `issue.deliverableDependencies` results, and the resolver result under `spec.scope`. Missing, invalid, cross-issue, unmerged-deliverable, or unrepresentable dependency evidence cannot advance the lifecycle; an active issue whose body cannot be hydrated is deliverable-unverifiable and blocked. Legacy free-form checkpoint heuristics remain upgrade-audit findings and do not gate status before approved structured repair. Status never prompts or mutates local or remote state.
+Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, deliverable availability, draft/head/merge metadata, and the exact owning next command. A committed current qualified pending report produces `delivery-validation-pending`: local verification is complete, PR evidence is missing, and `$nmg-sdlc:open-pr #N` owns the next transition without claiming full Pass. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, nullable `issue.coordination` and `issue.deliverableDependencies` results, and the resolver result under `spec.scope`. Missing, invalid, cross-issue, unmerged-deliverable, or unrepresentable dependency evidence cannot advance the lifecycle; an active issue whose body cannot be hydrated is deliverable-unverifiable and blocked. Legacy free-form checkpoint heuristics remain upgrade-audit findings and do not gate status before approved structured repair. Status never prompts or mutates local or remote state.
 
 ## Project Upgrades and V2 Cleanup
 

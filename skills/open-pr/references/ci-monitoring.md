@@ -2,6 +2,8 @@
 
 **Consumed by**: `open-pr` Step 7.
 
+Entry requires a ready (non-draft) pull request. For PR-dependent delivery, `pr-dependent-delivery.md` owns draft creation, exact H1/H2 validation, the final-delivery marker, and `gh pr ready`; this monitor must not run while `isDraft` is true.
+
 ## Entry gate
 
 1. **Present** a `request_user_input` gate:

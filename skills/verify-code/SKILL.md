@@ -21,6 +21,8 @@ Read `../../references/spec-frontmatter.md` when a frontmatter field drives beha
 
 Read `../../references/spec-context.md` when Step 1 loads the active spec — verify-code uses bounded related specs during acceptance, architecture, blast-radius, and test-coverage review while keeping the active spec as the primary pass/fail source.
 
+Read `../../references/pr-dependent-verification.md` when an acceptance criterion names GitHub evidence that cannot exist before pull-request creation, or when a matching draft pull request already exists. The shared contract owns the only qualified pending/satisfied marker schema; do not infer delivery readiness from prose or a generic non-Pass status.
+
 ## Prerequisites
 
 1. Specs exist at `specs/{feature-name}/`.
@@ -45,7 +47,7 @@ Continue only for `canonical` or `canonical_marker_lost`. Other canonical status
 
 Read all spec documents:
 
-Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and spec path before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use `delivery.functionalRequirements` as delivery context. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
+Read `../../references/issue-spec-scope.md` when Step 1 resolves the active issue and spec path. Run its read-only resolver before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use `delivery.functionalRequirements` as delivery context. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
 
 After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
 
@@ -103,6 +105,7 @@ Check each acceptance criterion against actual code:
 1. **For each mapped delivery AC**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
 2. **For each mapped delivery task**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
 3. **For each declared regression obligation**: verify preservation separately and record its evidence without counting it as current delivery implementation.
+4. **For each claimed PR-only obligation**: map it to active delivery acceptance criteria and enumerate its exact `required_check`, `check_run`, or `merge_blocking` identity. Treat every other unavailable result as an ordinary finding; arbitrary exceptions and deferred local work do not qualify.
 
 ### Step 4: Architecture Review
 
@@ -167,6 +170,13 @@ Read `references/autofix-loop.md` when Steps 3–5 have produced findings — th
 
 Read `references/report-format.md` when authoring the report — the reference covers the Step 7 local report structure (built from `checklists/report-template.md`) and the Step 8 GitHub issue-comment Markdown template. The report sections include executive summary, acceptance-criteria checklist, architecture-review scores, test coverage, exercise test results (when Step 5a fired), Steering Doc Verification Gates (when extracted from `tech.md`), Fixes Applied (with Routing column), Remaining Issues, and Recommendations.
 
+When Step 3 found claimed PR-only obligations, apply `../../references/pr-dependent-verification.md` before aggregating status:
+
+- Emit `PR Evidence Pending` and one `pr_evidence_pending` marker only when every mapped local delivery and regression obligation, task, scenario, test, architecture finding, and applicable steering gate passes and every remaining item is allowlisted, bounded PR-only evidence.
+- If an exact matching draft PR exists, capture its `headRefOid`, the exact declared check names, conclusions and links, plus any declared merge-blocking observations. Emit Pass with one `pr_evidence_satisfied` marker only when every item succeeds for that exact head SHA.
+- Partial, Incomplete, Fail, stale/mismatched scope, failed or incomplete gates, unknown evidence, missing checks, non-success conclusions, and malformed results receive no qualifying marker.
+- Keep the local report and GitHub issue comment structurally identical, including both the existing issue-scope marker and the readiness marker when one qualifies.
+
 ### Step 8: Update GitHub Issue
 
 Post the verification results as an issue comment following the Markdown template in `references/report-format.md`:
@@ -180,7 +190,7 @@ gh issue comment #N --body "[verification summary]"
 ```
 Verification complete for issue #N.
 
-Status: [Pass / Partial / Fail / Incomplete]
+Status: [Pass / PR Evidence Pending / Partial / Fail / Incomplete]
 Acceptance criteria: [X/Y] passing
 Architecture score: [average]
 Test coverage: [X/Y] criteria covered
@@ -191,6 +201,7 @@ Remaining issues: [count]
 GitHub issue #N updated with verification report.
 
 [If passing]: Next step: Run `$nmg-sdlc:open-pr #N` to create a pull request.
+[If PR evidence pending]: Local verification complete; run `$nmg-sdlc:open-pr #N` for controlled draft delivery validation.
 [If remaining issues]: Deferred items documented — review before creating a PR.
 [If failing]: Critical issues remain — address the items above before creating a PR.
 ```

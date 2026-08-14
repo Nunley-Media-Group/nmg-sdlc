@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   evaluateDraftIssueArtifact,
+  evaluateOpenPrArtifact,
   evaluateStatusArtifact,
+  evaluateVerifyCodeArtifact,
   extractArtifactFromOutput,
   rubricChecks,
 } from '../skill-exercise-runner.mjs';
@@ -16,6 +18,8 @@ const runner = path.join(repoRoot, 'scripts', 'skill-exercise-runner.mjs');
 const passArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'draft-issue', 'artifacts', 'feature-pass.md');
 const failArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'draft-issue', 'artifacts', 'malformed-fail.md');
 const statusArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'status', 'artifacts', 'status-pass.json');
+const verifyCodeArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'verify-code', 'artifacts', 'verify-code-pass.json');
+const openPrArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'open-pr', 'artifacts', 'open-pr-pass.json');
 
 describe('skill exercise rubric evaluator', () => {
   test('passing draft-issue feature artifact passes all applicable criteria', () => {
@@ -179,6 +183,24 @@ Done.`);
     });
     expect(proc.status).toBe(0);
     expect(proc.stdout).toContain('S6');
+    expect(proc.stdout).not.toContain('[skipped]');
+  });
+
+  test.each([
+    ['verify-code', verifyCodeArtifact, evaluateVerifyCodeArtifact, 'V6'],
+    ['open-pr', openPrArtifact, evaluateOpenPrArtifact, 'P7'],
+  ])('%s fixture passes every PR-dependent rubric without placeholder skips', (skill, artifactPath, evaluate, finalId) => {
+    const artifact = fs.readFileSync(artifactPath, 'utf8');
+    const results = evaluate(artifact);
+    expect(results.length).toBeGreaterThanOrEqual(6);
+    expect(results.every((result) => result.status === 'pass')).toBe(true);
+
+    const proc = spawnSync(process.execPath, [runner, '--skill', skill, '--artifact', artifactPath, '--base', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    expect(proc.status).toBe(0);
+    expect(proc.stdout).toContain(finalId);
     expect(proc.stdout).not.toContain('[skipped]');
   });
 });
