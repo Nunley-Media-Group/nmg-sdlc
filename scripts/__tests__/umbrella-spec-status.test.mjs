@@ -40,7 +40,14 @@ function createFixture() {
   return { bare, work };
 }
 
-function writeSpec(root, { specPath = 'specs/feature-umbrella', issue = 42, revision = 'one' } = {}) {
+function writeSpec(root, {
+  specPath = 'specs/feature-umbrella',
+  issue = 42,
+  revision = 'one',
+  verificationReport = null,
+  duplicateIssueFrontmatter = false,
+  designIssue = null,
+} = {}) {
   write(root, `${specPath}/requirements.md`, [
     '# Requirements: Umbrella',
     '',
@@ -58,6 +65,7 @@ function writeSpec(root, { specPath = 'specs/feature-umbrella', issue = 42, revi
   write(root, `${specPath}/design.md`, [
     '# Design: Umbrella',
     '',
+    ...(designIssue === null ? [] : [`**Issues**: #${designIssue}`, '']),
     '## Multi-PR Rollout',
     '',
     `Revision: ${revision}`,
@@ -65,10 +73,31 @@ function writeSpec(root, { specPath = 'specs/feature-umbrella', issue = 42, revi
   ].join('\n'));
   write(root, `${specPath}/tasks.md`, `# Tasks\n\n- ${revision}\n`);
   write(root, `${specPath}/feature.gherkin`, `Feature: Umbrella ${revision}\n`);
+  if (verificationReport !== null) {
+    write(root, `${specPath}/verification-report.md`, `# Verification Report\n\n${verificationReport}\n`);
+  }
+  if (duplicateIssueFrontmatter) {
+    fs.appendFileSync(path.join(root, specPath, 'requirements.md'), `**Issue**: #${issue}\n`);
+  }
 }
 
-function commitSpec(root, { specPath = 'specs/feature-umbrella', issue = 42, subject, revision = 'one' } = {}) {
-  writeSpec(root, { specPath, issue, revision });
+function commitSpec(root, {
+  specPath = 'specs/feature-umbrella',
+  issue = 42,
+  subject,
+  revision = 'one',
+  verificationReport = null,
+  duplicateIssueFrontmatter = false,
+  designIssue = null,
+} = {}) {
+  writeSpec(root, {
+    specPath,
+    issue,
+    revision,
+    verificationReport,
+    duplicateIssueFrontmatter,
+    designIssue,
+  });
   git(root, ['add', specPath]);
   git(root, ['commit', '-m', subject ?? `docs: seal umbrella spec for #${issue}`]);
   return git(root, ['rev-parse', 'HEAD']);
@@ -94,6 +123,41 @@ afterEach(() => {
 });
 
 describe('umbrella-spec-status', () => {
+  test('accepts a lifecycle verification report in parent, publication, and audit modes', () => {
+    const { work } = createFixture();
+    const sourceCommit = commitSpec(work, { issue: 42, verificationReport: 'All checks passed.' });
+    git(work, ['push', 'origin', 'main']);
+
+    const parent = runHelper(work, ['--parent-issue', '42']);
+    const publication = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+    const audit = runHelper(work, ['--all']);
+
+    expect(parent.status).toBe('canonical');
+    expect(publication.status).toBe('canonical');
+    expect(publication.sourceTree).toBe(publication.defaultTree);
+    expect(audit.status).toBe('canonical');
+    expect(audit.gaps).toEqual([]);
+    expect(audit.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'specs/feature-umbrella', status: 'canonical' }),
+    ]));
+  });
+
+  test('includes verification report content in exact publication identity', () => {
+    const { work } = createFixture();
+    commitSpec(work, { issue: 42, verificationReport: 'Default evidence.' });
+    git(work, ['push', 'origin', 'main']);
+    git(work, ['checkout', '-b', 'changed-verification']);
+    write(work, 'specs/feature-umbrella/verification-report.md', '# Verification Report\n\nChanged evidence.\n');
+    git(work, ['add', 'specs/feature-umbrella/verification-report.md']);
+    git(work, ['commit', '-m', 'docs: update verification evidence']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const publication = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+
+    expect(publication.status).toBe('divergent');
+    expect(publication.sourceTree).not.toBe(publication.defaultTree);
+  });
+
   test('recognizes a canonical default tree with its seal marker retained', () => {
     const { work } = createFixture();
     commitSpec(work, { issue: 42 });
@@ -266,8 +330,8 @@ describe('umbrella-spec-status', () => {
 
     const audit = runHelper(work, ['--all']);
 
-    expect(audit.status).toBe('unverifiable');
-    expect(audit.reasonCode).toBe('candidate_scan_failed');
+    expect(audit.status).toBe('findings');
+    expect(audit.reasonCode).toBe('audit_complete');
     expect(audit.gaps[0]).toContain('missing_spec_entry:specs/feature-umbrella/tasks.md');
   });
 
@@ -285,6 +349,123 @@ describe('umbrella-spec-status', () => {
     expect(result.status).toBe('unverifiable');
     expect(result.reasonCode).toBe('source_spec_invalid');
     expect(result.gaps[0]).toContain('unexpected_spec_entry:specs/feature-umbrella/seal.json');
+  });
+
+  test('isolates an unrelated invalid candidate from a targeted parent lookup', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'a-invalid-unrelated']);
+    commitSpec(work, {
+      issue: 99,
+      specPath: 'specs/feature-invalid',
+      duplicateIssueFrontmatter: true,
+    });
+    git(work, ['rm', 'specs/feature-invalid/design.md']);
+    write(work, 'specs/feature-invalid/seal.json', '{}\n');
+    git(work, ['add', 'specs/feature-invalid/seal.json']);
+    git(work, ['commit', '-m', 'docs: make unrelated candidate invalid']);
+    git(work, ['checkout', 'main']);
+    git(work, ['checkout', '-b', 'z-valid-target']);
+    const sourceCommit = commitSpec(work, {
+      issue: 42,
+      specPath: 'specs/feature-target',
+    });
+    git(work, ['checkout', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('stranded_recoverable');
+    expect(result.specPath).toBe('specs/feature-target');
+    expect(result.candidates[0].sourceCommits).toContain(sourceCommit);
+  });
+
+  test('fails closed when malformed frontmatter claims the targeted parent', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'invalid-target']);
+    commitSpec(work, { issue: 42, duplicateIssueFrontmatter: true });
+    git(work, ['checkout', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('candidate_scan_failed');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('fails closed when malformed default-branch frontmatter claims the targeted parent', () => {
+    const { work } = createFixture();
+    commitSpec(work, { issue: 42, duplicateIssueFrontmatter: true });
+    git(work, ['push', 'origin', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('default_spec_invalid');
+    expect(result.specPath).toBe('specs/feature-umbrella');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('fails closed when malformed candidate requirements conflict with a matching design claim', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'design-claimed-target']);
+    commitSpec(work, {
+      issue: 99,
+      duplicateIssueFrontmatter: true,
+      designIssue: 42,
+    });
+    git(work, ['checkout', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('candidate_scan_failed');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('fails closed when malformed default requirements conflict with a matching design claim', () => {
+    const { work } = createFixture();
+    commitSpec(work, {
+      issue: 99,
+      duplicateIssueFrontmatter: true,
+      designIssue: 42,
+    });
+    git(work, ['push', 'origin', 'main']);
+
+    const result = runHelper(work, ['--parent-issue', '42']);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('default_spec_invalid');
+    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+  });
+
+  test('retains valid audit findings alongside candidate-specific validation gaps', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'a-invalid-audit']);
+    commitSpec(work, {
+      issue: 99,
+      specPath: 'specs/feature-invalid',
+      duplicateIssueFrontmatter: true,
+    });
+    git(work, ['checkout', 'main']);
+    git(work, ['checkout', '-b', 'z-valid-audit']);
+    commitSpec(work, {
+      issue: 42,
+      specPath: 'specs/feature-valid',
+      verificationReport: 'Verified.',
+    });
+    git(work, ['checkout', 'main']);
+
+    const audit = runHelper(work, ['--all']);
+
+    expect(audit.status).toBe('findings');
+    expect(audit.reasonCode).toBe('audit_complete');
+    expect(audit.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'specs/feature-valid',
+        status: 'stranded_recoverable',
+      }),
+    ]));
+    expect(audit.gaps).toHaveLength(1);
+    expect(audit.gaps[0]).toContain('refs/heads/a-invalid-audit:specs/feature-invalid: invalid_issue_frontmatter');
   });
 
   test('is deterministic across repeated read-only runs', () => {

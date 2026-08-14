@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #159 by accepting lifecycle-owned `verification-report.md` evidence in canonical umbrella trees, isolating targeted parent lookups from unrelated invalid candidates, and retaining valid audit findings alongside candidate-specific validation gaps without weakening strict tree identity or safety checks.
+
 ## [2.0.1] - 2026-08-13
 
 ### Fixed
