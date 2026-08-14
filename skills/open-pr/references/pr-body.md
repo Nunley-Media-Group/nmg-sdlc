@@ -23,16 +23,20 @@ Step 4 picks the PR body template based on the specs-found / specs-not-found fla
 
 From `specs/{feature}/requirements.md`:
 
-- [ ] AC1: [criterion]
-- [ ] AC2: [criterion]
-- [ ] AC3: [criterion]
+- [ ] AC1: [mapped delivery criterion]
+- [ ] AC2: [mapped delivery criterion]
 
 ## Test Plan
 
-From `specs/{feature}/tasks.md` testing phase:
+From the active issue's mapped tasks and scenarios:
 
 - [ ] [Test type]: [what was tested]
 - [ ] [Test type]: [what was tested]
+
+## Regression Evidence
+
+<!-- Include only declared regression identifiers from the normalized scope -->
+- [ ] ACX / FRX / SCNXXX: [preservation evidence]
 
 ## Version
 
@@ -47,9 +51,12 @@ From `specs/{feature}/tasks.md` testing phase:
 - Requirements: `specs/{feature}/requirements.md`
 - Design: `specs/{feature}/design.md`
 - Tasks: `specs/{feature}/tasks.md`
+- Issue scope: `specs/{feature}/issue-scope.json` <!-- omit only for implicit_single_issue -->
 
 Closes #N
 ```
+
+Template A is issue-bound: include only identifiers in the resolver's `delivery` groups as current work, include only its `regression` groups under Regression Evidence, and emit exactly one closing keyword for active issue `#N`. Never list another contributing issue as closed and never copy all cumulative ACs or tasks into the body.
 
 ### Body — specs-not-found (Template B, fallback to issue body)
 

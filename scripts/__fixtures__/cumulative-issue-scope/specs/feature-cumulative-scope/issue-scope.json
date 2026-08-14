@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "issues": {
+    "10": {
+      "owned": {
+        "acceptanceCriteria": ["AC1", "AC4"],
+        "functionalRequirements": ["FR1", "FR4"],
+        "tasks": ["T001", "T002"],
+        "scenarios": ["SCN001", "SCN002", "SCN005"]
+      },
+      "adopted": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "tasks": [],
+        "scenarios": []
+      },
+      "regression": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "scenarios": []
+      }
+    },
+    "20": {
+      "owned": {
+        "acceptanceCriteria": ["AC2"],
+        "functionalRequirements": ["FR2"],
+        "tasks": ["T003"],
+        "scenarios": ["SCN003"]
+      },
+      "adopted": {
+        "acceptanceCriteria": ["AC1"],
+        "functionalRequirements": ["FR1"],
+        "tasks": ["T002"],
+        "scenarios": ["SCN002"]
+      },
+      "regression": {
+        "acceptanceCriteria": ["AC4"],
+        "functionalRequirements": ["FR4"],
+        "scenarios": ["SCN005"]
+      }
+    },
+    "30": {
+      "owned": {
+        "acceptanceCriteria": ["AC3"],
+        "functionalRequirements": ["FR3"],
+        "tasks": ["T004"],
+        "scenarios": ["SCN004"]
+      },
+      "adopted": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "tasks": [],
+        "scenarios": []
+      },
+      "regression": {
+        "acceptanceCriteria": [],
+        "functionalRequirements": [],
+        "scenarios": []
+      }
+    }
+  }
+}

@@ -77,10 +77,13 @@ specs/feature-<slug>/
 ├── requirements.md
 ├── design.md
 ├── tasks.md
-└── feature.gherkin
+├── feature.gherkin
+└── issue-scope.json
 ```
 
 Defect packages use `specs/bug-<slug>/` and retain links to the affected feature contract when applicable.
+
+Feature specs use `issue-scope.json` to assign every AC, FR, task, and stable `@SCN...` scenario identifier to one contributing issue. An issue's current delivery slice is its owned elements plus any explicitly adopted elements whose historical owner remains unchanged. Prior ACs, FRs, and scenarios may be declared separately as regression obligations; they are preservation evidence, not current implementation tasks. A single-contributor feature or singular defect without a manifest remains compatible through unambiguous whole-spec scope. A multi-issue spec with a missing or incomplete map stops at `$nmg-sdlc:write-spec #N` for explicit repair instead of defaulting to the cumulative document.
 
 ## Workflow
 
@@ -106,7 +109,7 @@ With an issue number, validates readiness, confirms the start, creates a linked 
 $nmg-sdlc:write-spec #42
 ```
 
-Creates human-reviewed requirements, technical design, tasks, and Gherkin scenarios. Feature work may amend an existing related feature spec; defect work uses a focused defect package. Spike issues produce a gap-analysis ADR under `docs/decisions/` and require the user to choose the resulting scope shape.
+Creates human-reviewed requirements, technical design, tasks, stable-ID Gherkin scenarios, and feature issue-scope mappings. Feature work may amend an existing related feature spec; the Tasks gate shows the exact owned, adopted, and regression identifiers before the manifest is written. Defect work uses a focused defect package. Spike issues produce a gap-analysis ADR under `docs/decisions/` and require the user to choose the resulting scope shape.
 
 For multi-PR umbrella work, sealing retains the issue-linked source branch but publishes the exact seal commit from a separate, deterministic Git ref that is never created through GitHub's issue-development flow. The spec-only pull request targets the detected default branch, changes only the approved spec directory, does not bump a version, and is never merged automatically. Before reporting it as pending, write-spec proves that GitHub's `closingIssuesReferences` excludes the umbrella. Re-run `$nmg-sdlc:write-spec #N` after merge: it requires both refreshed canonical default-branch content and current issue/timeline proof that the umbrella stayed open. If an older exact marked publication closed its umbrella, write-spec shows the matching PR and `ClosedEvent` evidence and can reopen only that exact issue after explicit approval. Ordinary implementation pull-request closure is unchanged. Child creation and downstream start, spec, and code entry points remain blocked until the canonical and coordination proofs succeed.
 
@@ -116,7 +119,7 @@ For multi-PR umbrella work, sealing retains the issue-linked source branch but p
 $nmg-sdlc:write-code #42
 ```
 
-Reads the active and relevant specs, presents a decision-complete implementation plan, waits for approval, executes tasks sequentially, and runs simplification before reporting completion.
+Reads the active and relevant specs, resolves the active issue's delivery slice, presents a decision-complete implementation plan, waits for approval, executes only mapped owned-plus-adopted tasks sequentially, and runs simplification before reporting completion. Resumption reconstructs progress inside that same task set and ignores earlier or future cumulative tasks.
 
 ### Simplify
 
@@ -132,7 +135,7 @@ Reviews changed files for behavior-preserving improvements across reuse, code qu
 $nmg-sdlc:verify-code #42
 ```
 
-Checks every acceptance criterion, exercises plugin changes where applicable, reviews SOLID/security/performance/testability/error handling, applies safe scoped fixes, and posts a verification report to the issue.
+Checks every mapped delivery acceptance criterion and task, exercises only explicitly declared prior regression obligations, reviews SOLID/security/performance/testability/error handling, applies safe scoped fixes, and posts an issue-bound verification report. The report includes normalized delivery/regression IDs so another contributor's evidence cannot satisfy the active issue.
 
 Skill-bundled fixes route through `$skill-creator`. Optional Codex subagents are used only when the user explicitly authorizes delegation.
 
@@ -142,7 +145,7 @@ Skill-bundled fixes route through `$skill-creator`. Optional Codex subagents are
 $nmg-sdlc:open-pr #42
 ```
 
-Inspects and stages the approved delivery tree, presents the version decision, updates version artifacts, commits, rebases safely, pushes, and creates a spec-linked pull request. After creation, the user may opt into CI monitoring and squash merge; merge occurs only when required checks pass and GitHub reports a clean merge state.
+Inspects and stages the approved delivery tree, requires matching active-scope verification, presents the version decision, updates version artifacts, commits, rebases safely, pushes, and creates a spec-linked pull request. Its acceptance criteria and test plan contain only mapped delivery plus separate declared regression evidence, link `issue-scope.json` when present, and close only the active issue. After creation, the user may opt into CI monitoring and squash merge; merge occurs only when required checks pass and GitHub reports a clean merge state.
 
 ### Address Review Comments
 
@@ -159,7 +162,7 @@ $nmg-sdlc:status
 $nmg-sdlc:status --json
 ```
 
-Status combines read-only git, spec, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields and a nullable `issue.coordination` result. Status never prompts or mutates local or remote state.
+Status combines read-only git, normalized active issue scope, verification-report, issue, PR, and check evidence. It reports the active stage, completed artifacts, material gaps, active umbrella coordination identity, compact delivery/regression IDs, and the exact owning next command. JSON mode emits `schemaVersion: 1` with stable top-level lifecycle fields, a nullable `issue.coordination` result, and the resolver result under `spec.scope`. Missing, invalid, or cross-issue scope evidence routes to `$nmg-sdlc:write-spec #N` or re-verification rather than advancing the lifecycle. Status never prompts or mutates local or remote state.
 
 ## Project Upgrades and V2 Cleanup
 

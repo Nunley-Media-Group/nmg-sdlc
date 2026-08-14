@@ -116,6 +116,12 @@ Same revise-loop semantics as Phase 1.
 **Critical path**: T001 → T003 → T004 → ... → T[last] *(the longest dependency chain)*
 
 **Gherkin scenarios**: [count] scenarios covering [count] acceptance criteria
+
+**Issue scope** (`issue-scope.json`, feature creation/amendment only):
+- Owned by #N: AC [...]; FR [...]; tasks [...]; scenarios [...]
+- Adopted by #N: AC [...]; FR [...]; tasks [...]; scenarios [...]
+- Regression for #N: AC [...]; FR [...]; scenarios [...]
+- Validation: `scoped` / `repair_required` with exact gaps
 ```
 
 Ask through `request_user_input`:
@@ -136,4 +142,4 @@ Ask through `request_user_input`:
 }
 ```
 
-Same revise-loop semantics. After approval, the workflow may enter the Seal-Spec Flow when a multi-PR delivery trigger fires (see SKILL.md).
+Same revise-loop semantics. Approval covers the displayed owned, adopted, and regression lists; do not add inferred identifiers after the gate. After approval, validate the manifest through the shared issue-scope resolver. A `repair_required` result returns to this gate with exact gaps, while `unverifiable` stops fail-closed. The workflow may then enter the Seal-Spec Flow when a multi-PR delivery trigger fires (see SKILL.md).

@@ -10,11 +10,13 @@ Enter Plan Mode and gather unresolved implementation choices with `request_user_
 
 The implementation approach should:
 
-1. **Map tasks to files** — take each task from `tasks.md` and map it to actual files in the codebase. Use file discovery and text search to find existing code to build on. Reference `structure.md` for directory conventions.
+1. **Map active tasks to files** — take only identifiers in the resolver's `delivery.tasks` from `tasks.md` and map them to actual files in the codebase. Use `delivery.acceptanceCriteria`, `delivery.functionalRequirements`, and `delivery.scenarios` as the active behavioral context. Use file discovery and text search to find existing code to build on. Reference `structure.md` for directory conventions.
 2. **Identify reuse** — find existing code patterns to follow: similar features already implemented, shared utilities, base classes, common patterns.
 3. **Propose implementation order** — based on task dependencies.
 4. **Flag any deviations** — if the codebase has evolved since specs were written.
 5. **Present the plan** for user approval as the final `<proposed_plan>` after required input has been collected.
+
+The plan summary must print the active issue number, spec path, scope status, and exact mapped delivery IDs. Earlier-owned adopted tasks may appear because adoption makes them current delivery obligations; unmapped earlier and future tasks must not appear. Regression IDs may be listed as preservation context but never as implementation work.
 
 ## Step 5: Execute Tasks
 
@@ -22,10 +24,10 @@ After the `<proposed_plan>` is accepted, execute tasks inline by default. If the
 
 ```
 Spawn a Codex worker with this bounded task:
-"Implement the specs for issue #N in specs/{feature-name}/. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then execute all tasks sequentially. For each task, apply the SKILL-BUNDLED FILE DETECTOR and Skill-Creator Probe Contract from this reference — route every skill-bundled file edit through $skill-creator. There is no hand-edit fallback: if $skill-creator is unavailable, escalate and stop. Return the files changed and task-completion summary."
+"Implement the specs for issue #N in specs/{feature-name}/. The normalized active delivery task identifiers are exactly [delivery.tasks IDs]. Read requirements.md, design.md, tasks.md, and steering docs in steering/, then load and execute only those mapped task definitions in their declared order. Do not execute any other task in the cumulative tasks.md. Use the normalized delivery AC/FR/scenario IDs as behavioral context and regression IDs only as preservation context. For each mapped task, apply the SKILL-BUNDLED FILE DETECTOR and Skill-Creator Probe Contract from this reference — route every skill-bundled file edit through $skill-creator. There is no hand-edit fallback: if $skill-creator is unavailable, escalate and stop. Return the exact mapped task IDs completed, files changed, and task-completion summary."
 ```
 
-The worker reads all spec and steering documents, executes tasks from `tasks.md` sequentially, and returns a completion summary with files created / modified.
+The worker reads all spec and steering documents, executes only the supplied `delivery.tasks` identifiers sequentially, and returns a completion summary with files created / modified. Reject a worker result that reports an unmapped cumulative task as completed.
 
 If the worker reports partial completion or deviations, review its output and decide whether to re-invoke it for remaining tasks or handle them directly.
 
@@ -33,12 +35,12 @@ If the worker reports partial completion or deviations, review its output and de
 
 If subagents are not explicitly authorized or a worker fails, implement tasks directly:
 
-1. **Mark in-progress** — note which task you're working on.
+1. **Mark in-progress** — note which mapped delivery task you're working on.
 2. **Classify** — apply the SKILL-BUNDLED FILE DETECTOR below. If the task touches a skill-bundled file, route through `$skill-creator` per the Skill-Creator Probe Contract below — never edit those files directly.
 3. **Write code** — follow `design.md` for architecture decisions, use patterns from `structure.md` and `tech.md`, follow existing code style in the project.
 4. **Self-check** — compare output against the task's acceptance criteria.
 5. **Test** — run relevant tests if specified in `tech.md`.
-6. **Complete** — mark task done, move to next.
+6. **Complete** — mark the mapped delivery task done, move to the next identifier in `delivery.tasks`; ignore all other cumulative tasks.
 
 ### Bug-Fix Implementation
 

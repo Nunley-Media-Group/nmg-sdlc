@@ -46,6 +46,8 @@ Read `../../references/feature-naming.md` when deriving a `feature-{slug}` / `bu
 
 Read `../../references/spec-frontmatter.md` when writing or amending any spec file's frontmatter (plural `**Issues**`, Change History, defect-spec schema).
 
+Read `../../references/issue-spec-scope.md` when creating a feature spec, amending a cumulative feature spec, or validating the completed package. It defines the versioned `issue-scope.json` authority, stable `@SCN...` identifiers, and fail-closed resolver contract shared by downstream lifecycle consumers.
+
 Read `../../references/spec-context.md` when Spec Discovery needs related existing specs — parent-link resolution remains first, then bounded metadata ranking decides whether to amend an existing feature spec or create a new one.
 
 Read `../../references/canonical-umbrella-spec.md` when the canonical parent-spec gate resolves a confirmed coordination epic or when the Phase 3 Seal-Spec Flow runs. Resolve the installed plugin root from this skill's path and invoke its status helper against the project root.
@@ -116,6 +118,7 @@ Extract the user story, acceptance criteria, functional requirements, and out-of
    1. Draft `requirements.md` content from [templates/requirements.md](templates/requirements.md) — feature variant by default, defect variant per `references/defect-variant.md` when bug-labelled.
    2. Bootstrap acceptance criteria from the issue body.
    3. Use `**Issues**: #N` (plural even for the first issue) and add the initial Change History entry: `| #N | [today] | Initial feature spec |`.
+   4. For a feature spec, initialize `issue-scope.json` from [templates/issue-scope.json](templates/issue-scope.json). Assign every AC, FR, task, and stable scenario ID created for `#N` to that issue's `owned` group; leave `adopted` and `regression` empty unless the reviewed scope explicitly says otherwise. Defect specs use the resolver's singular-issue compatibility path and do not require a manifest.
 7. Consult steering docs for project-specific requirements (accessibility, platform support, etc.).
 
 ### Output
@@ -176,7 +179,7 @@ Read `references/review-gates.md` when this gate fires — § Phase 2 contains t
    3. Map tasks to actual file paths in the project (reference `structure.md`).
    4. Define dependencies between tasks. Features map a full dependency graph across phases; defects are linear (fix → test → verify).
    5. Ensure each task has verifiable acceptance criteria and includes BDD testing tasks.
-   6. Draft the Gherkin feature file using [templates/feature.gherkin](templates/feature.gherkin). For defects, tag scenarios `@regression`.
+   6. Draft the Gherkin feature file using [templates/feature.gherkin](templates/feature.gherkin). Give every scenario one unique stable `@SCN...` tag. For defects, also tag scenarios `@regression`.
 
 ### Phasing (Features Only)
 
@@ -193,6 +196,18 @@ Defect issues skip phasing and use the flat task list (typically T001: Fix, T002
 ### Output
 
 After the Phase 3 Human Review Gate approves the draft, write to (or amend) `specs/{feature-name}/tasks.md` and `specs/{feature-name}/feature.gherkin`.
+
+For feature creation or amendment, write the approved `issue-scope.json` in the same spec directory, then validate the complete package with:
+
+```bash
+node <plugin-root>/scripts/issue-spec-scope.mjs \
+  --project <project-root> \
+  --spec specs/{feature-name} \
+  --issue N \
+  --json
+```
+
+Continue only for `scoped` or `implicit_single_issue`. A `repair_required` result returns to the Tasks Review Gate with the exact gaps and proposed ownership repair. An `unverifiable` result stops with its `reasonCode` and gaps; never infer ownership or hand off a cumulative spec by treating the whole document as the active issue.
 
 ### Human Review Gate
 
@@ -306,6 +321,7 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 - design.md — Technical architecture and design decisions
 - tasks.md — Phased implementation tasks
 - feature.gherkin — BDD test scenarios
+- issue-scope.json — Issue ownership, adoption, and regression mapping (feature specs)
 
 Next step: Run `$nmg-sdlc:write-code #N` to plan and execute implementation.
 ```

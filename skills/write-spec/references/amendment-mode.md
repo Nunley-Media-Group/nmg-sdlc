@@ -2,9 +2,9 @@
 
 **Read this when** Spec Discovery (`references/discovery.md`) resolved an existing feature spec and the workflow is amending it rather than creating a new one. The amendment branch fires across all three phases — this file consolidates the per-phase steps so the main workflow stays focused on the create path. Defect specs are never amended; if the issue is bug-labelled, the workflow uses `references/defect-variant.md` and writes a fresh `bug-{slug}/` directory.
 
-The amendment contract is **append-only**: existing ACs, FRs, design sections, and tasks are preserved verbatim. New content is appended with sequential numbering so the change history stays auditable and prior reviewers' approvals remain valid.
+The amendment contract is **append-only**: existing ACs, FRs, design sections, tasks, scenarios, and ownership assignments are preserved verbatim. New content is appended with sequential numbering so the change history stays auditable and prior reviewers' approvals remain valid.
 
-Read `../../references/spec-frontmatter.md` when applying any frontmatter edit during amendment — the plural `**Issues**`, Change History table format, and defect-vs-feature schema conventions live there.
+Read `../../references/spec-frontmatter.md` when applying any frontmatter edit during amendment — the plural `**Issues**`, Change History table format, and defect-vs-feature schema conventions live there. Read `../../../references/issue-spec-scope.md` before changing a cumulative feature spec's `issue-scope.json`; the manifest is the element-level authority and its existing ownership must remain intact.
 
 ## Phase 1 — `requirements.md` amendment
 
@@ -48,9 +48,20 @@ Read `../../references/spec-frontmatter.md` when applying any frontmatter edit d
 
 1. Read the existing `feature.gherkin`.
 2. Append new scenarios at the end.
-3. Tag new scenarios with a comment indicating the contributing issue: `# Added by issue #N`.
-4. Write the amended `feature.gherkin`.
+3. Assign each new scenario the next unique stable `@SCN...` identifier and retain the contributing-issue comment: `# Added by issue #N`.
+4. Preserve every existing stable scenario identifier verbatim.
+5. Write the amended `feature.gherkin`.
+
+## Phase 3 — `issue-scope.json` amendment
+
+1. Read and validate the existing manifest before proposing an amendment. A missing or incomplete cumulative manifest is an explicit repair task; do not guess ownership from Change History prose.
+2. Preserve all existing issue entries and `owned` assignments verbatim unless the review is explicitly repairing a named validation gap.
+3. Add the new issue entry and assign every newly appended AC, FR, task, and scenario ID to its `owned` group.
+4. Put an existing element in `adopted` only when it is a current delivery obligation and its canonical owner remains a different issue.
+5. Put an earlier AC, FR, or scenario in `regression` only when the current issue must prove preservation; regression never contains tasks and never changes ownership.
+6. Present the exact owned, adopted, and regression lists in the Tasks Review Gate. Apply only the approved mapping.
+7. Run the shared resolver for the active issue and require `scoped` before handoff. Return `repair_required` to the review gate and fail closed on `unverifiable`.
 
 ## Why append-only
 
-Rewriting existing content silently invalidates prior review approvals and breaks the Change History audit trail used by `$nmg-sdlc:run-retro`. The append-only rule keeps every prior issue's contribution intact and traceable: an AC introduced for `#42` stays attributed to `#42` even after `#71` and `#84` add their own. When in doubt about whether a change is an *addition* or a *rewrite*, treat it as a rewrite and stop — discuss with the user before proceeding.
+Rewriting existing content silently invalidates prior review approvals and breaks the Change History audit trail used by `$nmg-sdlc:run-retro`. The append-only rule keeps every prior issue's contribution intact and traceable: an AC introduced for `#42` stays owned by `#42` even after `#71` adopts it or `#84` adds its own. When in doubt about whether a change is an *addition* or a *rewrite*, treat it as a rewrite and stop — discuss with the user before proceeding.
