@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "pending": {
+    "state": "pr_evidence_pending",
+    "localAllPass": true,
+    "tests": "pass",
+    "steeringGates": "pass",
+    "evidence": [
+      {
+        "kind": "required_check",
+        "name": "guardrail-contract",
+        "event": "pull_request",
+        "acceptanceCriteria": ["AC1"]
+      },
+      {
+        "kind": "merge_blocking",
+        "name": "required-check-blocks-merge",
+        "acceptanceCriteria": ["AC2"]
+      }
+    ]
+  },
+  "satisfied": {
+    "headSha": "1111111111111111111111111111111111111111",
+    "evidence": [
+      {
+        "kind": "required_check",
+        "name": "guardrail-contract",
+        "event": "pull_request",
+        "acceptanceCriteria": ["AC1"],
+        "headSha": "1111111111111111111111111111111111111111",
+        "conclusion": "SUCCESS",
+        "url": "https://example.test/checks/1"
+      },
+      {
+        "kind": "merge_blocking",
+        "name": "required-check-blocks-merge",
+        "acceptanceCriteria": ["AC2"],
+        "headSha": "1111111111111111111111111111111111111111",
+        "conclusion": "OBSERVED",
+        "url": "https://example.test/pulls/200",
+        "observedStates": ["BLOCKED", "CLEAN"]
+      }
+    ]
+  },
+  "blockedReports": [
+    { "kind": "partial", "accepted": false },
+    { "kind": "failed-gate", "accepted": false },
+    { "kind": "stale-scope", "accepted": false },
+    { "kind": "malformed-marker", "accepted": false },
+    { "kind": "unknown-evidence", "accepted": false }
+  ],
+  "reportParity": true,
+  "issueScopePreserved": true,
+  "ordinaryPassUnchanged": true
+}

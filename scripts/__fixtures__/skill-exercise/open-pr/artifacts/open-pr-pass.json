@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "ordinary": {
+    "command": "gh pr create",
+    "draft": false
+  },
+  "pending": {
+    "command": "gh pr create --draft",
+    "preflight": {
+      "scope": true,
+      "version": true,
+      "stage": true,
+      "commit": true,
+      "rebase": true,
+      "safePush": true,
+      "pushedState": true
+    },
+    "identity": {
+      "repository": true,
+      "base": true,
+      "head": true,
+      "issue": true,
+      "draftState": true
+    },
+    "h1": {
+      "headSha": "1111111111111111111111111111111111111111",
+      "exactSha": true,
+      "evidenceSucceeded": true,
+      "reverified": true
+    },
+    "h2": {
+      "headSha": "2222222222222222222222222222222222222222",
+      "differsAfterReportCommit": true,
+      "allEvidenceRechecked": true,
+      "h1RejectedForH2": true
+    },
+    "finalMarker": {
+      "validated": true,
+      "headSha": "2222222222222222222222222222222222222222"
+    },
+    "order": [
+      "preflight",
+      "draft",
+      "collectH1",
+      "reverifyH1",
+      "pushReport",
+      "collectH2",
+      "recordFinalMarker",
+      "validateFinalMarker",
+      "ready"
+    ]
+  },
+  "failure": {
+    "branchPreserved": true,
+    "draftPreserved": true,
+    "forbiddenActions": [
+      { "name": "ready", "emitted": false },
+      { "name": "merge", "emitted": false },
+      { "name": "checkout", "emitted": false },
+      { "name": "branch-delete", "emitted": false },
+      { "name": "false-pass", "emitted": false },
+      { "name": "protection-mutation", "emitted": false }
+    ]
+  }
+}

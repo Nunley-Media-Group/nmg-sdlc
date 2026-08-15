@@ -20,7 +20,9 @@ Use `checklists/report-template.md` as the scaffold and fill in:
 - Remaining issues (items that could not be auto-fixed, with reasons).
 - Recommendations.
 
-Refer to `references/verification-gates.md` → "Gate-status aggregation" for how gate results constrain the overall Implementation Status row.
+Refer to `references/verification-gates.md` → "Gate-status aggregation" for how gate results constrain the overall Implementation Status row. When an acceptance criterion depends on GitHub-only evidence, also read `../../../references/pr-dependent-verification.md` and use its exact local-evidence, marker, and status-aggregation rules.
+
+`PR Evidence Pending` is narrower than Partial: every local obligation and gate has passed and the exact remaining evidence is a bounded, allowlisted GitHub result. A matching draft may instead produce Pass plus satisfied evidence for its exact head. Generic non-Pass reports never carry a readiness marker.
 
 ## Step 8: GitHub issue comment template
 
@@ -35,7 +37,7 @@ Use this Markdown structure:
 ```markdown
 ## Verification Report
 
-### Implementation Status: [Pass / Partial / Fail]
+### Implementation Status: [Pass / PR Evidence Pending / Partial / Incomplete / Fail]
 
 ### Issue Scope
 
@@ -47,6 +49,14 @@ Use this Markdown structure:
 - Regression: AC [...]; FR [...]; scenarios [...]
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
+
+<!-- Include exactly one readiness marker only for qualified pending or satisfied evidence. Emit compact JSON on one line immediately after the issue-scope marker. -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":N,"specPath":"specs/{feature}","local":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...],"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"exact-check-name","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->
+
+### Delivery Validation
+
+- Local verification: Pass / Not complete
+- PR evidence: Not required / Pending / Satisfied for `[40-character head SHA]`
 
 ### Acceptance Criteria
 
@@ -105,3 +115,5 @@ The Routing column records how the fix was applied: `skill-creator` when the fix
 ```
 
 Emit the HTML marker as one line with valid JSON and the exact normalized resolver values. Use `implicit_single_issue` when applicable. Include the same marker in the GitHub issue comment; it is machine evidence used by status and delivery preparation to reject another contributor's verification report.
+
+When PR-dependent evidence qualifies, emit the readiness marker immediately after the issue-scope marker and copy it unchanged to the issue comment. Before PR creation, use `state: pr_evidence_pending` and `pendingEvidence`; the exact declared checks are allowed to be absent because the PR-only results do not exist yet. Every `required_check` or `check_run` identity includes GitHub's exact `event: pull_request` provenance; a push-capable or unknown event does not qualify. For an existing draft, set `state: pr_evidence_satisfied` and use `evidence` only when every declared item succeeds. Required-check and check-run items include the same event identity, exact head SHA, successful conclusion, and evidence URL; each `merge_blocking` item additionally includes its required `observedStates`. Do not emit a qualifying marker for Partial, Incomplete, Fail, local/gate failures, stale/malformed evidence, missing or failed evidence on an existing draft, or an ordinary Pass report.

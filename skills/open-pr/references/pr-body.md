@@ -104,6 +104,8 @@ By the time this reference is consulted, `open-pr` delivery preparation must hav
 gh pr create --title "[title]" --body "[body]"
 ```
 
+That command is the ordinary current-Pass path. When the shared validator returns qualified `pr_evidence_pending`, read `pr-dependent-delivery.md` and create with `gh pr create --draft --title <title> --body-file <body-file>` instead. The controlled path later appends exactly one validated `nmg-sdlc-delivery-validation` marker to the preserved PR body for the final head SHA before `gh pr ready`.
+
 ### Labels
 
 Add labels matching the issue when appropriate.

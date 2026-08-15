@@ -25,6 +25,57 @@ describe('open-pr folded delivery contract (issues #108, #148, and #151)', () =>
     expect(read('skills/open-pr/SKILL.md')).toContain('Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR');
   });
 
+  it('keeps ordinary Pass creation unchanged and gates the controlled draft path', () => {
+    const openPr = read('skills/open-pr/SKILL.md');
+    const prBody = read('skills/open-pr/references/pr-body.md');
+    const controlled = read('skills/open-pr/references/pr-dependent-delivery.md');
+
+    expect(openPr).toContain('../../references/pr-dependent-verification.md');
+    expect(openPr).toContain('Current valid `pr_evidence_pending` may select the controlled draft path');
+    expect(openPr).toContain('current valid `pr_evidence_satisfied` may enter only its exact preserved-draft H2 retry');
+    expect(openPr).toContain('gh pr create --title "[title]" --body "[body]"');
+    expect(prBody).toContain('gh pr create --draft --title <title> --body-file <body-file>');
+    expect(controlled).toContain('status: pr_evidence_pending');
+    expect(controlled).toContain('Ordinary `pass` follows the unchanged ordinary PR path');
+    expect(controlled).toContain('--delivery-body-file <fetched-body-file>');
+    for (const blocker of ['Partial', 'Incomplete', 'Fail', 'blocked', 'unverifiable']) {
+      expect(`${openPr}\n${controlled}`).toContain(blocker);
+    }
+  });
+
+  it('orders exact draft H1, re-verification, H2, final marker, and readiness', () => {
+    const controlled = read('skills/open-pr/references/pr-dependent-delivery.md');
+    const h1 = controlled.indexOf('Record it as `H1`');
+    const reverify = controlled.indexOf('Rerun `$nmg-sdlc:verify-code #N`');
+    const h2 = controlled.indexOf('re-fetch `headRefOid` as `H2`');
+    const finalMarker = controlled.indexOf('nmg-sdlc-delivery-validation');
+    const ready = controlled.indexOf('gh pr ready <number>');
+
+    expect(h1).toBeGreaterThan(-1);
+    expect(reverify).toBeGreaterThan(h1);
+    expect(h2).toBeGreaterThan(reverify);
+    expect(finalMarker).toBeGreaterThan(h2);
+    expect(ready).toBeGreaterThan(finalMarker);
+    expect(controlled).toContain('H1 results cannot satisfy H2');
+    expect(controlled).toContain('require `H2 != H1`');
+    expect(controlled).toContain('Require the PR to remain open and draft');
+  });
+
+  it('preserves branch, draft, protections, and review/merge gates on failure', () => {
+    const controlled = read('skills/open-pr/references/pr-dependent-delivery.md');
+    const monitor = read('skills/open-pr/references/ci-monitoring.md');
+
+    for (const token of ['missing', 'failed', 'timed-out', 'stale', 'conflicting', 'malformed', 'unknown']) {
+      expect(controlled).toContain(token);
+    }
+    for (const forbidden of ['gh pr ready', 'merge', 'checkout', 'branch deletion', 'protection/ruleset mutation', 'false Pass']) {
+      expect(controlled).toContain(forbidden);
+    }
+    expect(controlled).toContain('preserve the feature branch and controlled draft PR');
+    expect(controlled).toContain('mergeStateStatus == CLEAN');
+    expect(monitor).toContain('must not run while `isDraft` is true');
+  });
+
   it('open-pr delivery docs cover dirty, clean, rebase, safe-push, and push verification paths', () => {
     const openPr = read('skills/open-pr/SKILL.md');
     const preflight = read('skills/open-pr/references/preflight.md');

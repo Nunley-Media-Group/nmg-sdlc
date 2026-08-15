@@ -19,6 +19,10 @@ import {
 
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
+const PENDING_MARKER = '<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"contract-tests","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->';
+const H1 = '1'.repeat(40);
+const H2 = '2'.repeat(40);
+const SATISFIED_MARKER = `<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_satisfied","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"evidence":[{"kind":"required_check","name":"contract-tests","event":"pull_request","acceptanceCriteria":["AC1"],"headSha":"${H1}","conclusion":"SUCCESS","url":"https://example.test/checks/h1"}]} -->`;
 const scriptsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function baseEvidence(overrides = {}) {
@@ -152,6 +156,17 @@ describe('lifecycle inference', () => {
       spec: { path: 'specs/feature', complete: true, missingFiles: [] },
       verification: { path: 'specs/feature/verification-report.md', status: 'pass', current: true },
     }), '$nmg-sdlc:open-pr #42'],
+    ['delivery-validation-pending', baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: 'Feature', state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+    }), '$nmg-sdlc:open-pr #42'],
     ['pull-request-open', baseEvidence({
       project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
       issue: { number: 42, title: 'Feature', state: 'OPEN', source: 'branch' },
@@ -182,6 +197,106 @@ describe('lifecycle inference', () => {
     expect(status.stage).toBe('pull-request-open');
     expect(status.nextAction.manualRepairRequired).toBe(manualRepair);
     expect(status.nextAction.command).toContain(command);
+  });
+
+  it('fails closed when pending verification is exposed by a ready pull request', () => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+      pullRequest: {
+        number: 50,
+        state: 'OPEN',
+        isDraft: false,
+        headRefOid: 'a'.repeat(40),
+        mergeStateStatus: 'BLOCKED',
+        checks: 'pending',
+      },
+    }));
+    expect(status).toMatchObject({
+      stage: 'unknown',
+      nextAction: { manualRepairRequired: true },
+    });
+    expect(status.gaps).toContain('ready pull request conflicts with pending PR-dependent verification');
+  });
+
+  it('fails closed when draft state is unavailable for pending PR-dependent verification', () => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+      pullRequest: {
+        number: 50,
+        state: 'OPEN',
+        isDraft: null,
+        headRefOid: 'a'.repeat(40),
+        mergeStateStatus: 'UNKNOWN',
+        checks: 'pending',
+      },
+    }));
+    expect(status).toMatchObject({
+      stage: 'unknown',
+      nextAction: {
+        command: 'Manual repair: restore controlled draft validation on PR #50',
+        manualRepairRequired: true,
+      },
+    });
+    expect(status.gaps).toContain('pull-request draft state is unavailable for pending PR-dependent verification');
+  });
+
+  it('requires final delivery validation before a controlled PR is ready or complete', () => {
+    const verification = {
+      path: 'specs/feature/verification-report.md',
+      status: 'pass',
+      readinessStatus: 'pr_evidence_satisfied',
+      current: true,
+      deliveryValidationStatus: 'unverifiable',
+      deliveryValidationGaps: ['delivery-validation marker is missing'],
+    };
+    const ready = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification,
+      pullRequest: { number: 50, state: 'OPEN', isDraft: false, checks: 'passing' },
+    }));
+    expect(ready).toMatchObject({ stage: 'unknown', nextAction: { manualRepairRequired: true } });
+    expect(ready.gaps).toContain('ready pull request conflicts with incomplete PR-dependent delivery validation');
+
+    const merged = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification,
+      pullRequest: { number: 50, state: 'MERGED', isDraft: false, checks: 'passing' },
+    }));
+    expect(merged).toMatchObject({ stage: 'unknown', nextAction: { manualRepairRequired: true } });
+    expect(merged.gaps).toContain('merged pull request lacks valid final PR-dependent delivery evidence');
+
+    const validated = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        ...verification,
+        deliveryValidationStatus: 'final_sha_validated',
+        deliveryValidationGaps: [],
+      },
+      pullRequest: { number: 50, state: 'MERGED', isDraft: false, checks: 'passing' },
+    }));
+    expect(validated.stage).toBe('complete');
   });
 
   it('stops at the last consistent boundary when verification conflicts', () => {
@@ -417,7 +532,7 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add verified fixture'], {
@@ -456,12 +571,94 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(renderText(inferLifecycle(stale))).toContain('Verification: pass, not current');
   });
 
+  it('reports committed qualified pending evidence as local verification complete', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      `# Verification Report\n\n### Implementation Status: PR Evidence Pending\n\n${SCOPE_MARKER}\n${PENDING_MARKER}\n`,
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'feat: add pending verification fixture'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
+    expect(evidence.verification).toMatchObject({
+      status: 'pr_evidence_pending',
+      readinessStatus: 'pr_evidence_pending',
+      current: true,
+      scopeMatch: true,
+    });
+    const status = inferLifecycle(evidence);
+    expect(status).toMatchObject({
+      stage: 'delivery-validation-pending',
+      completedArtifacts: expect.arrayContaining(['local verification']),
+      missingArtifacts: expect.arrayContaining(['PR evidence']),
+      nextAction: { command: '$nmg-sdlc:open-pr #42', manualRepairRequired: false },
+    });
+    expect(status.completedArtifacts).not.toContain('verification');
+    expect(renderText(status)).toContain('SDLC status: delivery-validation-pending');
+  });
+
+  it('keeps satisfied H1 readiness current after the report commit advances the draft to H2', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n${SATISFIED_MARKER}\n`,
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'docs: record H1 verification evidence'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const run = (command, args, options) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify([{
+            number: 50,
+            state: 'OPEN',
+            url: 'https://example.test/pull/50',
+            body: '',
+            headRefName: '42-feature-status-fixture',
+            headRefOid: H2,
+            isDraft: true,
+            mergeStateStatus: 'BLOCKED',
+            closingIssuesReferences: [{ number: 42, title: 'Status fixture', state: 'OPEN' }],
+          }]),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'checks') {
+        return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      }
+      return localRunWithHydratedIssue(command, args, options);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.verification).toMatchObject({
+      status: 'pass',
+      readinessStatus: 'pr_evidence_satisfied',
+      readinessHeadSha: H1,
+      deliveryValidationStatus: 'unverifiable',
+      current: true,
+    });
+    expect(evidence.pullRequest).toMatchObject({ headRefOid: H2, isDraft: true });
+    expect(evidence.pullRequest).not.toHaveProperty('body');
+    expect(inferLifecycle(evidence).stage).toBe('delivery-validation-pending');
+  });
+
   it('does not trust an uncommitted passing verification report', () => {
     fs.mkdirSync(path.join(root, 'src'));
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n`,
     );
 
     const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
@@ -476,7 +673,7 @@ describe('bounded evidence collection and read-only safety', () => {
     const otherIssueMarker = SCOPE_MARKER.replace('"issueNumber":42', '"issueNumber":10');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${otherIssueMarker}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${otherIssueMarker}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add mismatched verification fixture'], {
@@ -503,6 +700,9 @@ describe('bounded evidence collection and read-only safety', () => {
             state: 'OPEN',
             url: 'https://example.test/pull/50',
             headRefName: 'feature/status-fixture',
+            headRefOid: 'a'.repeat(40),
+            isDraft: true,
+            mergeStateStatus: 'BLOCKED',
             closingIssuesReferences: [{ number: 42, title: 'Status fixture', state: 'OPEN' }],
           }]),
           stderr: '',
@@ -525,7 +725,14 @@ describe('bounded evidence collection and read-only safety', () => {
     const evidence = collectEvidence(root, { run });
     expect(evidence.issue).toMatchObject({ number: 42, source: 'pullRequest' });
     expect(evidence.spec).toMatchObject({ complete: true, missingFiles: [] });
-    expect(evidence.pullRequest).toMatchObject({ number: 50, state: 'OPEN', checks: 'absent' });
+    expect(evidence.pullRequest).toMatchObject({
+      number: 50,
+      state: 'OPEN',
+      isDraft: true,
+      headRefOid: 'a'.repeat(40),
+      mergeStateStatus: 'BLOCKED',
+      checks: 'absent',
+    });
     expect(inferLifecycle(evidence).stage).toBe('pull-request-open');
   });
 

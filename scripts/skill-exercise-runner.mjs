@@ -76,6 +76,23 @@ const STATUS_RUBRIC_CHECKS = [
   { id: 'S5', name: 'status neither prompts nor executes the next action' },
   { id: 'S6', name: 'text and JSON fixture runs preserve repository state' },
 ];
+const VERIFY_CODE_RUBRIC_CHECKS = [
+  { id: 'V1', name: 'qualified pending evidence requires complete local verification' },
+  { id: 'V2', name: 'pending evidence is exact and allowlisted' },
+  { id: 'V3', name: 'satisfied evidence is bound to one exact successful head' },
+  { id: 'V4', name: 'generic and malformed reports remain blocked' },
+  { id: 'V5', name: 'local and issue-comment reports preserve identical scope evidence' },
+  { id: 'V6', name: 'ordinary Pass verification remains unchanged' },
+];
+const OPEN_PR_RUBRIC_CHECKS = [
+  { id: 'P1', name: 'ordinary Pass keeps ordinary PR creation' },
+  { id: 'P2', name: 'qualified pending runs preflight before draft creation' },
+  { id: 'P3', name: 'draft reuse requires exact repository, base, head, and issue identity' },
+  { id: 'P4', name: 'H1 evidence is followed by exact-head reverification' },
+  { id: 'P5', name: 'report pushes trigger a complete H2 evidence recheck' },
+  { id: 'P6', name: 'final marker validation precedes ready transition' },
+  { id: 'P7', name: 'every failure preserves recoverable work and forbids unsafe actions' },
+];
 
 function readFile(absPath) {
   return fs.readFileSync(absPath, 'utf8');
@@ -585,9 +602,140 @@ function evaluateStatusArtifact(artifact) {
   ];
 }
 
+function evaluateStructuredArtifact(artifact, checks, evaluate) {
+  let parsed;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch (error) {
+    return checks.map((check) => ({
+      ...check,
+      status: 'fail',
+      detail: `invalid JSON artifact: ${error.message}`,
+    }));
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return checks.map((check) => ({
+      ...check,
+      status: 'fail',
+      detail: 'artifact root must be a non-null object',
+    }));
+  }
+  return checks.map((check) => {
+    try {
+      const result = evaluate(check.id, parsed);
+      return {
+        ...check,
+        status: result.pass ? 'pass' : 'fail',
+        detail: result.detail,
+      };
+    } catch (error) {
+      return {
+        ...check,
+        status: 'fail',
+        detail: `malformed artifact structure: ${error.message}`,
+      };
+    }
+  });
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function evaluateVerifyCodeArtifact(artifact) {
+  return evaluateStructuredArtifact(artifact, VERIFY_CODE_RUBRIC_CHECKS, (id, value) => {
+    const pending = isRecord(value.pending) ? value.pending : {};
+    const satisfied = isRecord(value.satisfied) ? value.satisfied : {};
+    const evidence = Array.isArray(pending.evidence) ? pending.evidence : [];
+    const satisfiedEvidence = Array.isArray(satisfied.evidence) ? satisfied.evidence : [];
+    const allowed = new Set(['required_check', 'check_run', 'merge_blocking']);
+    const checks = {
+      V1: value.schemaVersion === 1
+        && pending.state === 'pr_evidence_pending'
+        && pending.localAllPass === true
+        && pending.tests === 'pass'
+        && pending.steeringGates === 'pass',
+      V2: evidence.length > 0
+        && evidence.every((item) => isRecord(item)
+          && allowed.has(item.kind)
+          && typeof item.name === 'string'
+          && item.name.length > 0
+          && Array.isArray(item.acceptanceCriteria)
+          && item.acceptanceCriteria.length > 0
+          && (item.kind === 'merge_blocking' || item.event === 'pull_request')),
+      V3: /^[0-9a-f]{40}$/i.test(satisfied.headSha ?? '')
+        && satisfiedEvidence.length === evidence.length
+        && satisfiedEvidence.every((item, index) => isRecord(item)
+          && isRecord(evidence[index])
+          && item.kind === evidence[index].kind
+          && item.name === evidence[index].name
+          && JSON.stringify(item.acceptanceCriteria) === JSON.stringify(evidence[index].acceptanceCriteria)
+          && item.event === evidence[index].event
+          && item.headSha === satisfied.headSha
+          && (item.kind === 'merge_blocking' || item.event === 'pull_request')
+          && (item.kind === 'merge_blocking'
+            ? item.conclusion === 'OBSERVED'
+            : ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(item.conclusion))
+          && /^https?:\/\//.test(item.url ?? '')),
+      V4: Array.isArray(value.blockedReports)
+        && value.blockedReports.length >= 5
+        && value.blockedReports.every((item) => isRecord(item) && item.accepted === false),
+      V5: value.reportParity === true && value.issueScopePreserved === true,
+      V6: value.ordinaryPassUnchanged === true,
+    };
+    return {
+      pass: checks[id] === true,
+      detail: checks[id] === true ? 'fixture contract satisfied' : 'fixture contract missing or contradictory',
+    };
+  });
+}
+
+function evaluateOpenPrArtifact(artifact) {
+  return evaluateStructuredArtifact(artifact, OPEN_PR_RUBRIC_CHECKS, (id, value) => {
+    const ordinary = isRecord(value.ordinary) ? value.ordinary : {};
+    const pending = isRecord(value.pending) ? value.pending : {};
+    const failure = isRecord(value.failure) ? value.failure : {};
+    const order = Array.isArray(pending.order) ? pending.order : [];
+    const index = (step) => order.indexOf(step);
+    const ordered = (earlier, later) => index(earlier) >= 0 && index(later) > index(earlier);
+    const checks = {
+      P1: ordinary.command === 'gh pr create' && ordinary.draft === false,
+      P2: pending.command === 'gh pr create --draft'
+        && ['scope', 'version', 'stage', 'commit', 'rebase', 'safePush', 'pushedState']
+          .every((gate) => pending.preflight?.[gate] === true)
+        && ordered('preflight', 'draft'),
+      P3: ['repository', 'base', 'head', 'issue', 'draftState']
+        .every((field) => pending.identity?.[field] === true),
+      P4: pending.h1?.exactSha === true
+        && pending.h1?.evidenceSucceeded === true
+        && pending.h1?.reverified === true
+        && ordered('collectH1', 'reverifyH1'),
+      P5: pending.h2?.differsAfterReportCommit === true
+        && pending.h2?.allEvidenceRechecked === true
+        && pending.h2?.h1RejectedForH2 === true
+        && ordered('pushReport', 'collectH2'),
+      P6: pending.finalMarker?.validated === true
+        && /^[0-9a-f]{40}$/i.test(pending.h2?.headSha ?? '')
+        && pending.finalMarker?.headSha === pending.h2?.headSha
+        && ordered('validateFinalMarker', 'ready'),
+      P7: failure.branchPreserved === true
+        && failure.draftPreserved === true
+        && Array.isArray(failure.forbiddenActions)
+        && failure.forbiddenActions.length >= 6
+        && failure.forbiddenActions.every((action) => isRecord(action) && action.emitted === false),
+    };
+    return {
+      pass: checks[id] === true,
+      detail: checks[id] === true ? 'fixture contract satisfied' : 'fixture contract missing or contradictory',
+    };
+  });
+}
+
 const RUBRIC_EVALUATORS = {
   'draft-issue': { checks: RUBRIC_CHECKS, evaluate: evaluateDraftIssueArtifact },
+  'open-pr': { checks: OPEN_PR_RUBRIC_CHECKS, evaluate: evaluateOpenPrArtifact },
   status: { checks: STATUS_RUBRIC_CHECKS, evaluate: evaluateStatusArtifact },
+  'verify-code': { checks: VERIFY_CODE_RUBRIC_CHECKS, evaluate: evaluateVerifyCodeArtifact },
 };
 
 function rubricChecks(skillName, artifact, options = {}) {
@@ -698,7 +846,9 @@ if (isMainModule) {
 export {
   acBlocks,
   evaluateDraftIssueArtifact,
+  evaluateOpenPrArtifact,
   evaluateStatusArtifact,
+  evaluateVerifyCodeArtifact,
   extractArtifactFromOutput,
   main,
   parseDraftIssueArtifact,
