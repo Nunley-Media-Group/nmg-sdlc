@@ -125,9 +125,10 @@ This defect uses the narrowed blast-radius review required for a minimal fix.
 | Contract tests | Pass | `cd scripts && npm test`: 35 suites passed, 393 tests passed, exit 0. |
 | Codex compatibility | Pass | `node scripts/codex-compatibility-check.mjs`: passed, exit 0. |
 | Active plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed, exit 0. |
+| Release metadata | Pass | `VERSION` and `.codex-plugin/plugin.json` both declare `2.0.9`; `CHANGELOG.md` records the matching defect fix. |
 | Git hygiene | Pass | `node --check scripts/umbrella-spec-status.mjs` and `git diff --check`: exit 0. |
 
-**Gate Summary**: 4/4 applicable gates passed, 0 failed, 0 incomplete. The non-applicable skill-edit gates were not required; the inventory audit was also run defensively and reported 463 mapped items clean.
+**Gate Summary**: 5/5 applicable gates passed, 0 failed, 0 incomplete. The non-applicable skill-edit gates were not required; the inventory audit was also run defensively and reported 463 mapped items clean.
 
 ---
 
