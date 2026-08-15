@@ -1,0 +1,43 @@
+# Generated from: specs/bug-fix-canonical-umbrella-rejection-of-issue-scope-manifests/requirements.md
+# Issue: #173
+# Type: Defect regression
+
+@regression @issue-173
+Feature: Canonical umbrella classification accepts issue scope manifests
+  Canonical umbrella classification previously rejected the lifecycle-required issue-scope.json sidecar.
+  The classifier now recognizes the exact regular blob while preserving complete tree identity and strict safety boundaries.
+
+  @SCN173001 @regression
+  Scenario: Accept a scope manifest in every classifier mode
+    Given a canonical feature-spec tree contains the four required authoring blobs and a regular issue-scope.json
+    When parent, publication, and audit mode validate that tree
+    Then the scope manifest is accepted as an explicitly recognized lifecycle artifact
+    And each mode reaches the status supported by the remaining canonical evidence
+
+  @SCN173002 @regression
+  Scenario: Include scope manifest bytes in exact publication identity
+    Given source and default feature-spec trees differ only in issue-scope.json content
+    When publication mode compares their Git tree identities
+    Then the helper reports divergent tree identity
+    And it does not ignore or normalize the manifest bytes
+
+  @SCN173003 @regression
+  Scenario: Preserve strict spec-tree rejection boundaries
+    Given a candidate is missing a required authoring file or contains an unknown entry, directory, symlink, unsafe path, or unsupported object type
+    When a classifier mode validates the candidate
+    Then validation fails closed with the existing stable path-specific diagnostic
+    And recognizing issue-scope.json does not permit arbitrary sidecars
+
+  @SCN173004 @regression
+  Scenario: Keep semantic manifest validation in the scope resolver
+    Given a regular issue-scope.json contains opaque bytes that do not satisfy the scope-manifest schema
+    When canonical tree validation runs
+    Then the helper validates only the recognized regular-blob shape and exact tree participation
+    And semantic scope-manifest validation remains owned by issue-spec-scope.mjs
+
+  @SCN173005 @regression
+  Scenario: Unblock the real PathCast parent without mutation
+    Given the fixed source helper is exercised against PathCast parent issue 108 on the refreshed default branch
+    When parent mode classifies the canonical umbrella tree
+    Then it returns canonical or canonical_marker_lost instead of unexpected_spec_entry
+    And it does not change the worktree, index, local branches, refs, remote state, or GitHub

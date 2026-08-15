@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.9] - 2026-08-14
+
+### Fixed
+
+- Fixed issue #173 by recognizing the lifecycle-required `issue-scope.json` sidecar in canonical umbrella trees, retaining its bytes in exact publication identity, and preserving strict entry validation and scope-resolver ownership.
+
 ## [2.0.8] - 2026-08-14
 
 ### Fixed

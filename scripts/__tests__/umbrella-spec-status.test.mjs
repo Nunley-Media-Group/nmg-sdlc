@@ -45,6 +45,7 @@ function writeSpec(root, {
   issue = 42,
   revision = 'one',
   verificationReport = null,
+  issueScope = null,
   duplicateIssueFrontmatter = false,
   designIssue = null,
 } = {}) {
@@ -76,6 +77,9 @@ function writeSpec(root, {
   if (verificationReport !== null) {
     write(root, `${specPath}/verification-report.md`, `# Verification Report\n\n${verificationReport}\n`);
   }
+  if (issueScope !== null) {
+    write(root, `${specPath}/issue-scope.json`, `${issueScope}\n`);
+  }
   if (duplicateIssueFrontmatter) {
     fs.appendFileSync(path.join(root, specPath, 'requirements.md'), `**Issue**: #${issue}\n`);
   }
@@ -87,6 +91,7 @@ function commitSpec(root, {
   subject,
   revision = 'one',
   verificationReport = null,
+  issueScope = null,
   duplicateIssueFrontmatter = false,
   designIssue = null,
 } = {}) {
@@ -95,6 +100,7 @@ function commitSpec(root, {
     issue,
     revision,
     verificationReport,
+    issueScope,
     duplicateIssueFrontmatter,
     designIssue,
   });
@@ -123,9 +129,13 @@ afterEach(() => {
 });
 
 describe('umbrella-spec-status', () => {
-  test('accepts a lifecycle verification report in parent, publication, and audit modes', () => {
+  test('accepts lifecycle sidecars in parent, publication, and audit modes', () => {
     const { work } = createFixture();
-    const sourceCommit = commitSpec(work, { issue: 42, verificationReport: 'All checks passed.' });
+    const sourceCommit = commitSpec(work, {
+      issue: 42,
+      verificationReport: 'All checks passed.',
+      issueScope: '{"schemaVersion":1,"issues":{"42":{}}}',
+    });
     git(work, ['push', 'origin', 'main']);
 
     const parent = runHelper(work, ['--parent-issue', '42']);
@@ -142,6 +152,17 @@ describe('umbrella-spec-status', () => {
     ]));
   });
 
+  test('treats scope manifest content as opaque canonical tree data', () => {
+    const { work } = createFixture();
+    commitSpec(work, { issue: 42, issueScope: '{not-valid-json' });
+    git(work, ['push', 'origin', 'main']);
+
+    const parent = runHelper(work, ['--parent-issue', '42']);
+
+    expect(parent.status).toBe('canonical');
+    expect(parent.reasonCode).toBe('default_tree_and_marker_present');
+  });
+
   test('includes verification report content in exact publication identity', () => {
     const { work } = createFixture();
     commitSpec(work, { issue: 42, verificationReport: 'Default evidence.' });
@@ -150,6 +171,22 @@ describe('umbrella-spec-status', () => {
     write(work, 'specs/feature-umbrella/verification-report.md', '# Verification Report\n\nChanged evidence.\n');
     git(work, ['add', 'specs/feature-umbrella/verification-report.md']);
     git(work, ['commit', '-m', 'docs: update verification evidence']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const publication = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+
+    expect(publication.status).toBe('divergent');
+    expect(publication.sourceTree).not.toBe(publication.defaultTree);
+  });
+
+  test('includes scope manifest content in exact publication identity', () => {
+    const { work } = createFixture();
+    commitSpec(work, { issue: 42, issueScope: '{"revision":"default"}' });
+    git(work, ['push', 'origin', 'main']);
+    git(work, ['checkout', '-b', 'changed-scope']);
+    write(work, 'specs/feature-umbrella/issue-scope.json', '{"revision":"changed"}\n');
+    git(work, ['add', 'specs/feature-umbrella/issue-scope.json']);
+    git(work, ['commit', '-m', 'docs: update issue scope']);
     const sourceCommit = git(work, ['rev-parse', 'HEAD']);
 
     const publication = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
@@ -313,6 +350,59 @@ describe('umbrella-spec-status', () => {
     expect(result.gaps[0]).toContain('symlink_not_allowed');
   });
 
+  test('rejects a scope manifest symlink even though the filename is recognized', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'scope-symlink-seal']);
+    writeSpec(work, { issue: 42 });
+    fs.symlinkSync('../../outside', path.join(work, 'specs/feature-umbrella/issue-scope.json'));
+    git(work, ['add', 'specs/feature-umbrella']);
+    git(work, ['commit', '-m', 'docs: seal umbrella spec for #42']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const result = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('source_spec_invalid');
+    expect(result.gaps[0]).toContain('symlink_not_allowed:specs/feature-umbrella/issue-scope.json');
+  });
+
+  test('rejects a directory at the recognized scope manifest path', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'scope-directory-seal']);
+    writeSpec(work, { issue: 42 });
+    write(work, 'specs/feature-umbrella/issue-scope.json/payload', '{}\n');
+    git(work, ['add', 'specs/feature-umbrella']);
+    git(work, ['commit', '-m', 'docs: seal umbrella spec for #42']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const result = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('source_spec_invalid');
+    expect(result.gaps[0]).toContain('unexpected_spec_entry:specs/feature-umbrella/issue-scope.json/payload');
+  });
+
+  test('rejects a non-blob at the recognized scope manifest path', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'scope-gitlink-seal']);
+    writeSpec(work, { issue: 42 });
+    git(work, ['add', 'specs/feature-umbrella']);
+    git(work, [
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${'1'.repeat(40)},specs/feature-umbrella/issue-scope.json`,
+    ]);
+    git(work, ['commit', '-m', 'docs: seal umbrella spec for #42']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const result = runHelper(work, ['--spec', 'specs/feature-umbrella', '--source', sourceCommit]);
+
+    expect(result.status).toBe('unverifiable');
+    expect(result.reasonCode).toBe('source_spec_invalid');
+    expect(result.gaps[0]).toContain('unexpected_spec_entry:specs/feature-umbrella/issue-scope.json');
+  });
+
   test('fails closed when a source tree is missing a required spec file', () => {
     const { work } = createFixture();
     git(work, ['checkout', '-b', 'incomplete-seal']);
@@ -335,7 +425,7 @@ describe('umbrella-spec-status', () => {
     expect(audit.gaps[0]).toContain('missing_spec_entry:specs/feature-umbrella/tasks.md');
   });
 
-  test('fails closed when a source tree contains a fifth spec artifact', () => {
+  test('fails closed when a source tree contains an unrecognized spec artifact', () => {
     const { work } = createFixture();
     git(work, ['checkout', '-b', 'extra-file-seal']);
     writeSpec(work, { issue: 42 });
