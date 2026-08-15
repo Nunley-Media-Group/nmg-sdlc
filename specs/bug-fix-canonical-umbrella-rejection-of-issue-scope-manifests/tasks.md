@@ -46,12 +46,13 @@
 
 ### T003: Verify Source and Real Consumer
 
-**File(s)**: `scripts/__tests__/umbrella-spec-status.test.mjs`, PathCast repository read-only evidence
+**File(s)**: `scripts/__tests__/umbrella-spec-status.test.mjs`, `VERSION`, `.codex-plugin/plugin.json`, PathCast repository read-only evidence
 **Type**: Verify (no consumer file changes)
 **Depends**: T001, T002
 **Acceptance**:
 - [x] The focused umbrella classifier suite passes from `scripts/`.
 - [x] The full script test suite passes from `scripts/` with no unexpected skips.
+- [x] `VERSION` and `.codex-plugin/plugin.json` both declare release version `2.0.9`.
 - [x] `git diff --check` passes and the changed-file scope matches the approved design.
 - [x] The fixed source helper reports `canonical` or `canonical_marker_lost` for PathCast parent #108.
 - [x] Before/after evidence proves the live consumer run changes no worktree, index, branch, local ref, remote ref, or GitHub state.
