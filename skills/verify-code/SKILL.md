@@ -174,7 +174,8 @@ When Step 3 found claimed PR-only obligations, apply `../../references/pr-depend
 
 - Emit `PR Evidence Pending` and one `pr_evidence_pending` marker only when every mapped local delivery and regression obligation, task, scenario, test, architecture finding, and applicable steering gate passes and every remaining item is allowlisted, bounded PR-only evidence.
 - If an exact matching draft PR exists, capture its `headRefOid`, the exact declared check names, conclusions and links, plus any declared merge-blocking observations. Emit Pass with one `pr_evidence_satisfied` marker only when every item succeeds for that exact head SHA.
-- Partial, Incomplete, Fail, stale/mismatched scope, failed or incomplete gates, unknown evidence, missing checks, non-success conclusions, and malformed results receive no qualifying marker.
+- Before PR creation, the exact pending marker is allowed to name checks that cannot exist yet; their absence at that boundary is not a missing-evidence failure.
+- Once a draft exists, missing or failed declared checks, non-success conclusions, post-draft evidence gaps, local failures, Partial, Incomplete, Fail, stale/mismatched scope, failed/incomplete gates, unknown evidence, and malformed results receive no satisfied marker.
 - Keep the local report and GitHub issue comment structurally identical, including both the existing issue-scope marker and the readiness marker when one qualifies.
 
 ### Step 8: Update GitHub Issue

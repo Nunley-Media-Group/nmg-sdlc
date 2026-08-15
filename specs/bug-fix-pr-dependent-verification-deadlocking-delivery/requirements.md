@@ -109,7 +109,8 @@ open-pr: verification status is not Pass — delivery blocked
 
 **Given** final verification and final-head-SHA checks pass
 **When** delivery advances beyond the draft boundary
-**Then** the pull request may be marked ready for review
+**Then** delivery writes, re-fetches, and validates exactly one `nmg-sdlc-delivery-validation` marker for final head H2
+**And** only after that validation succeeds may it run `gh pr ready`
 **And** existing automated-review, required-check, mergeability, `mergeStateStatus == CLEAN`, explicit merge-choice, and cleanup gates remain in force
 **And** repository or organization protection is never weakened or bypassed
 

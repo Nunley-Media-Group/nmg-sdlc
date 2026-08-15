@@ -613,20 +613,39 @@ function evaluateStructuredArtifact(artifact, checks, evaluate) {
       detail: `invalid JSON artifact: ${error.message}`,
     }));
   }
-  return checks.map((check) => {
-    const result = evaluate(check.id, parsed);
-    return {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return checks.map((check) => ({
       ...check,
-      status: result.pass ? 'pass' : 'fail',
-      detail: result.detail,
-    };
+      status: 'fail',
+      detail: 'artifact root must be a non-null object',
+    }));
+  }
+  return checks.map((check) => {
+    try {
+      const result = evaluate(check.id, parsed);
+      return {
+        ...check,
+        status: result.pass ? 'pass' : 'fail',
+        detail: result.detail,
+      };
+    } catch (error) {
+      return {
+        ...check,
+        status: 'fail',
+        detail: `malformed artifact structure: ${error.message}`,
+      };
+    }
   });
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function evaluateVerifyCodeArtifact(artifact) {
   return evaluateStructuredArtifact(artifact, VERIFY_CODE_RUBRIC_CHECKS, (id, value) => {
-    const pending = value.pending ?? {};
-    const satisfied = value.satisfied ?? {};
+    const pending = isRecord(value.pending) ? value.pending : {};
+    const satisfied = isRecord(value.satisfied) ? value.satisfied : {};
     const evidence = Array.isArray(pending.evidence) ? pending.evidence : [];
     const satisfiedEvidence = Array.isArray(satisfied.evidence) ? satisfied.evidence : [];
     const allowed = new Set(['required_check', 'check_run', 'merge_blocking']);
@@ -637,7 +656,8 @@ function evaluateVerifyCodeArtifact(artifact) {
         && pending.tests === 'pass'
         && pending.steeringGates === 'pass',
       V2: evidence.length > 0
-        && evidence.every((item) => allowed.has(item.kind)
+        && evidence.every((item) => isRecord(item)
+          && allowed.has(item.kind)
           && typeof item.name === 'string'
           && item.name.length > 0
           && Array.isArray(item.acceptanceCriteria)
@@ -645,13 +665,21 @@ function evaluateVerifyCodeArtifact(artifact) {
           && (item.kind === 'merge_blocking' || item.event === 'pull_request')),
       V3: /^[0-9a-f]{40}$/i.test(satisfied.headSha ?? '')
         && satisfiedEvidence.length === evidence.length
-        && satisfiedEvidence.every((item) => item.headSha === satisfied.headSha
+        && satisfiedEvidence.every((item, index) => isRecord(item)
+          && isRecord(evidence[index])
+          && item.kind === evidence[index].kind
+          && item.name === evidence[index].name
+          && JSON.stringify(item.acceptanceCriteria) === JSON.stringify(evidence[index].acceptanceCriteria)
+          && item.event === evidence[index].event
+          && item.headSha === satisfied.headSha
           && (item.kind === 'merge_blocking' || item.event === 'pull_request')
-          && ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'OBSERVED'].includes(item.conclusion)
+          && (item.kind === 'merge_blocking'
+            ? item.conclusion === 'OBSERVED'
+            : ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(item.conclusion))
           && /^https?:\/\//.test(item.url ?? '')),
       V4: Array.isArray(value.blockedReports)
         && value.blockedReports.length >= 5
-        && value.blockedReports.every((item) => item.accepted === false),
+        && value.blockedReports.every((item) => isRecord(item) && item.accepted === false),
       V5: value.reportParity === true && value.issueScopePreserved === true,
       V6: value.ordinaryPassUnchanged === true,
     };
@@ -664,9 +692,9 @@ function evaluateVerifyCodeArtifact(artifact) {
 
 function evaluateOpenPrArtifact(artifact) {
   return evaluateStructuredArtifact(artifact, OPEN_PR_RUBRIC_CHECKS, (id, value) => {
-    const ordinary = value.ordinary ?? {};
-    const pending = value.pending ?? {};
-    const failure = value.failure ?? {};
+    const ordinary = isRecord(value.ordinary) ? value.ordinary : {};
+    const pending = isRecord(value.pending) ? value.pending : {};
+    const failure = isRecord(value.failure) ? value.failure : {};
     const order = Array.isArray(pending.order) ? pending.order : [];
     const index = (step) => order.indexOf(step);
     const ordered = (earlier, later) => index(earlier) >= 0 && index(later) > index(earlier);
@@ -694,7 +722,7 @@ function evaluateOpenPrArtifact(artifact) {
         && failure.draftPreserved === true
         && Array.isArray(failure.forbiddenActions)
         && failure.forbiddenActions.length >= 6
-        && failure.forbiddenActions.every((action) => action.emitted === false),
+        && failure.forbiddenActions.every((action) => isRecord(action) && action.emitted === false),
     };
     return {
       pass: checks[id] === true,

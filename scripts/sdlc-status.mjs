@@ -26,6 +26,8 @@ import {
   ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
 } from './issue-spec-scope.mjs';
 import {
+  evidenceIdentity,
+  inspectDeliveryValidation,
   inspectVerificationReadiness,
   MAX_VERIFICATION_REPORT_BYTES,
 } from './verification-readiness.mjs';
@@ -218,7 +220,6 @@ function collectVerification(projectRoot, spec, pullRequest, untrackedImplementa
         expectedIssueNumber: spec.scope?.issueNumber,
         expectedSpecPath: spec.path,
         expectedScope: spec.scope,
-        expectedHeadSha: pullRequest?.headRefOid ?? undefined,
       },
     });
     const status = readiness.implementationStatus ?? 'unknown';
@@ -230,6 +231,9 @@ function collectVerification(projectRoot, spec, pullRequest, untrackedImplementa
       current: false,
       commit: null,
       scopeMatch: null,
+      readinessHeadSha: null,
+      deliveryValidationStatus: null,
+      deliveryValidationGaps: [],
     };
     const scopeEvidence = verifyReportScope(content, spec.scope);
     verification.scopeMatch = scopeEvidence.match;
@@ -245,6 +249,22 @@ function collectVerification(projectRoot, spec, pullRequest, untrackedImplementa
       verification.readinessStatus = 'unverifiable';
       gaps.push('verification readiness: satisfied PR evidence has no matching pull-request head');
       return verification;
+    }
+    if (readiness.status === 'pr_evidence_satisfied') {
+      verification.readinessHeadSha = readiness.readiness.evidence[0].headSha.toLowerCase();
+      const deliveryValidation = inspectDeliveryValidation({
+        content: pullRequest?.body ?? '',
+        options: {
+          expectedIssueNumber: spec.scope?.issueNumber,
+          expectedSpecPath: spec.path,
+          expectedPullRequestNumber: pullRequest?.number,
+          expectedHeadSha: pullRequest?.headRefOid,
+          deliveryAcceptanceCriteria: spec.scope?.delivery?.acceptanceCriteria,
+          expectedEvidenceIdentities: readiness.readiness.evidence.map(evidenceIdentity),
+        },
+      });
+      verification.deliveryValidationStatus = deliveryValidation.status;
+      verification.deliveryValidationGaps = deliveryValidation.gaps;
     }
 
     const commitResult = adapters.run(
@@ -681,7 +701,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   if (branch && branch !== 'main' && branch !== 'HEAD') {
     const prResult = adapters.run(
       'gh',
-      ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,url,headRefName,headRefOid,isDraft,mergeStateStatus,closingIssuesReferences'],
+      ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,url,body,headRefName,headRefOid,isDraft,mergeStateStatus,closingIssuesReferences'],
       { cwd: projectRoot, timeout: 30_000 },
     );
     if (prResult.ok) {
@@ -705,6 +725,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
             number: pr.number,
             state: pr.state ?? 'unknown',
             url: pr.url ?? null,
+            body: typeof pr.body === 'string' ? pr.body : null,
             isDraft: typeof pr.isDraft === 'boolean' ? pr.isDraft : null,
             headRefOid: /^[0-9a-f]{40}$/i.test(pr.headRefOid ?? '') ? pr.headRefOid : null,
             mergeStateStatus: pr.mergeStateStatus ?? 'unknown',
@@ -880,6 +901,9 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     adapters,
     gaps,
   );
+  const publicPullRequest = github.pullRequest
+    ? Object.fromEntries(Object.entries(github.pullRequest).filter(([key]) => key !== 'body'))
+    : null;
   return {
     project: {
       root: projectRoot,
@@ -892,7 +916,7 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     issue: github.issue,
     spec,
     verification,
-    pullRequest: github.pullRequest,
+    pullRequest: publicPullRequest,
     gaps,
   };
 }
@@ -941,14 +965,16 @@ export function inferLifecycle(evidence) {
         && prState === 'OPEN'
         && evidence.pullRequest?.isDraft === true)
     );
-  const readyPrWithPendingVerification = evidence.verification?.current === true
-    && evidence.verification.readinessStatus === 'pr_evidence_pending'
-    && prState === 'OPEN'
-    && evidence.pullRequest?.isDraft === false;
-  const unknownDraftPrWithPendingVerification = evidence.verification?.current === true
-    && evidence.verification.readinessStatus === 'pr_evidence_pending'
-    && prState === 'OPEN'
-    && evidence.pullRequest?.isDraft == null;
+  const controlledReadiness = ['pr_evidence_pending', 'pr_evidence_satisfied']
+    .includes(evidence.verification?.readinessStatus);
+  const finalDeliveryValidated = evidence.verification?.current === true
+    && evidence.verification.deliveryValidationStatus === 'final_sha_validated';
+  const exposedPrDependentVerification = controlledReadiness
+    && (
+      prState === 'MERGED'
+      || (prState === 'OPEN' && evidence.pullRequest?.isDraft !== true)
+    )
+    && !finalDeliveryValidated;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
   const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
@@ -986,25 +1012,34 @@ export function inferLifecycle(evidence) {
       reason: 'The active cumulative spec scope is missing, incomplete, or unverifiable and must be repaired before later lifecycle evidence can advance this issue.',
       manualRepairRequired: false,
     };
+  } else if (exposedPrDependentVerification) {
+    const merged = prState === 'MERGED';
+    const deliveryGaps = evidence.verification?.deliveryValidationGaps ?? [];
+    const exposureGap = merged
+      ? 'merged pull request lacks valid final PR-dependent delivery evidence'
+      : evidence.verification?.readinessStatus === 'pr_evidence_pending'
+        ? (evidence.pullRequest?.isDraft === false
+            ? 'ready pull request conflicts with pending PR-dependent verification'
+            : 'pull-request draft state is unavailable for pending PR-dependent verification')
+        : 'ready pull request conflicts with incomplete PR-dependent delivery validation';
+    gaps.push(exposureGap);
+    for (const gap of deliveryGaps) gaps.push(`delivery validation: ${gap}`);
+    stage = 'unknown';
+    nextAction = {
+      command: merged
+        ? `Manual repair: restore final delivery validation evidence on merged PR #${evidence.pullRequest.number}`
+        : `Manual repair: restore controlled draft validation on PR #${evidence.pullRequest.number}`,
+      reason: merged
+        ? 'A merged controlled delivery cannot be complete until its final marker and head identity are proven.'
+        : 'A ready pull request cannot advance until controlled final-head delivery validation is proven.',
+      manualRepairRequired: true,
+    };
   } else if (prState === 'MERGED') {
     stage = 'complete';
     nextAction = {
       command: '$nmg-sdlc:start-issue',
       reason: 'The pull request is merged; the delivery lifecycle is complete.',
       manualRepairRequired: false,
-    };
-  } else if (readyPrWithPendingVerification || unknownDraftPrWithPendingVerification) {
-    const draftGap = readyPrWithPendingVerification
-      ? 'ready pull request conflicts with pending PR-dependent verification'
-      : 'pull-request draft state is unavailable for pending PR-dependent verification';
-    gaps.push(draftGap);
-    stage = 'unknown';
-    nextAction = {
-      command: `Manual repair: restore controlled draft validation on PR #${evidence.pullRequest.number}`,
-      reason: readyPrWithPendingVerification
-        ? 'A ready pull request cannot be advanced from pending PR-dependent verification evidence.'
-        : 'The pull request draft state must be proven before pending PR-dependent verification can advance.',
-      manualRepairRequired: true,
     };
   } else if (deliveryValidationPending) {
     stage = 'delivery-validation-pending';

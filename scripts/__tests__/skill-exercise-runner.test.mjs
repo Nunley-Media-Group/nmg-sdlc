@@ -223,4 +223,33 @@ Done.`);
     expect(evaluateOpenPrArtifact(JSON.stringify(value)).find((item) => item.id === 'P6'))
       .toMatchObject({ status: 'fail' });
   });
+
+  test('verify-code satisfied evidence must match the declared pending identity', () => {
+    const value = JSON.parse(fs.readFileSync(verifyCodeArtifact, 'utf8'));
+    value.satisfied.evidence[0] = {
+      ...value.satisfied.evidence[0],
+      name: 'replacement-check',
+      acceptanceCriteria: ['AC2'],
+    };
+    expect(evaluateVerifyCodeArtifact(JSON.stringify(value)).find((item) => item.id === 'V3'))
+      .toMatchObject({ status: 'fail' });
+  });
+
+  test.each([
+    ['verify-code null root', evaluateVerifyCodeArtifact, 'null', 'V1'],
+    ['verify-code primitive evidence', evaluateVerifyCodeArtifact, JSON.stringify({
+      schemaVersion: 1,
+      pending: { state: 'pr_evidence_pending', localAllPass: true, tests: 'pass', steeringGates: 'pass', evidence: [null, 7] },
+      satisfied: { headSha: '1'.repeat(40), evidence: [null, 7] },
+      blockedReports: [null, 1, 2, 3, 4],
+    }), 'V2'],
+    ['open-pr primitive forbidden actions', evaluateOpenPrArtifact, JSON.stringify({
+      ordinary: {},
+      pending: {},
+      failure: { branchPreserved: true, draftPreserved: true, forbiddenActions: [null, 1, 2, 3, 4, 5] },
+    }), 'P7'],
+  ])('%s fails closed without throwing', (_label, evaluate, artifact, rubricId) => {
+    expect(() => evaluate(artifact)).not.toThrow();
+    expect(evaluate(artifact).find((item) => item.id === rubricId)).toMatchObject({ status: 'fail' });
+  });
 });

@@ -14,7 +14,7 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const SPEC_PATTERN = /^specs\/[a-z0-9][a-z0-9-]*$/;
 const HTTP_URL_PATTERN = /^https?:\/\/\S+$/i;
 const IDENTIFIER_PATTERN = /^(?:AC|FR|T|SCN)\d+$/;
-const IMPLEMENTATION_STATUS_PATTERN = /Implementation Status(?:\*\*)?\s*:?\s*(?:\*\*)?\s*(PR Evidence Pending|Pass|Partial|Incomplete|Fail)\b/i;
+const IMPLEMENTATION_STATUS_PATTERN = /^#{1,6}\s+(?:\*\*)?Implementation Status(?:\*\*)?\s*:\s*(?:\*\*)?(PR Evidence Pending|Pass|Partial|Incomplete|Fail)(?:\*\*)?\s*$/gmi;
 const SCOPE_MARKER_PATTERN = /^<!-- nmg-sdlc-issue-scope: (\{.*\}) -->\s*$/gm;
 const READINESS_MARKER_PATTERN = /^<!-- nmg-sdlc-pr-readiness: (\{.*\}) -->\s*$/gm;
 const DELIVERY_MARKER_PATTERN = /^<!-- nmg-sdlc-delivery-validation: (\{.*\}) -->\s*$/gm;
@@ -58,9 +58,13 @@ function parseSingleMarker(content, pattern, label, { required }) {
 }
 
 function implementationStatus(content) {
-  const match = String(content).match(IMPLEMENTATION_STATUS_PATTERN);
-  if (!match) return null;
-  return match[1].toLowerCase().replaceAll(' ', '_');
+  const matches = [...String(content).matchAll(IMPLEMENTATION_STATUS_PATTERN)];
+  return {
+    count: matches.length,
+    value: matches.length === 1
+      ? matches[0][1].toLowerCase().replaceAll(' ', '_')
+      : null,
+  };
 }
 
 function validIdentifierArray(value, prefix, { allowEmpty = true, max = 200 } = {}) {
@@ -160,6 +164,7 @@ function validateEvidenceArray(items, state, scope, gaps, options = {}) {
     return;
   }
   const identities = [];
+  const satisfiedHeadShas = [];
   items.forEach((item, position) => {
     const index = position + 1;
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -186,6 +191,8 @@ function validateEvidenceArray(items, state, scope, gaps, options = {}) {
     } else if (options.expectedHeadSha
       && item.headSha.toLowerCase() !== String(options.expectedHeadSha).toLowerCase()) {
       gaps.push(`evidence item ${index} does not match the expected head SHA`);
+    } else {
+      satisfiedHeadShas.push(item.headSha.toLowerCase());
     }
     if (!HTTP_URL_PATTERN.test(item.url) || item.url.length > 2048) {
       gaps.push(`evidence item ${index} has an invalid evidence URL`);
@@ -203,6 +210,10 @@ function validateEvidenceArray(items, state, scope, gaps, options = {}) {
     }
   });
   if (new Set(identities).size !== identities.length) gaps.push(`${state} evidence identities must be unique`);
+  if (state === 'satisfied' && satisfiedHeadShas.length === items.length
+    && new Set(satisfiedHeadShas).size !== 1) {
+    gaps.push('satisfied evidence must reference one exact head SHA');
+  }
 }
 
 function readinessResult(status, reasonCode, implementation, scope, readiness, gaps) {
@@ -225,10 +236,14 @@ export function inspectVerificationReadiness(input) {
     ]);
   }
 
-  const implementation = implementationStatus(content);
+  const parsedImplementation = implementationStatus(content);
+  const implementation = parsedImplementation.value;
   if (!implementation) {
-    return readinessResult('unverifiable', 'implementation_status_missing', null, null, null, [
-      'verification report lacks an explicit supported Implementation Status',
+    const duplicate = parsedImplementation.count > 1;
+    return readinessResult('unverifiable', duplicate ? 'implementation_status_ambiguous' : 'implementation_status_missing', null, null, null, [
+      duplicate
+        ? 'verification report must contain exactly one canonical Implementation Status heading'
+        : 'verification report lacks one canonical supported Implementation Status heading',
     ]);
   }
 

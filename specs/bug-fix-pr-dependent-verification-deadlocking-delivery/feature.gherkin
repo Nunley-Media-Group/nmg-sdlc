@@ -71,7 +71,8 @@ Feature: PR-dependent verification deadlocks delivery
   Scenario: Fully revalidated delivery may become review-ready
     Given current issue-scoped Pass evidence exists and every required final-head check succeeds for H2
     When open-pr records the final H2 delivery evidence
-    Then it may mark the draft ready for review
+    Then it writes, re-fetches, and validates exactly one final-H2 nmg-sdlc-delivery-validation marker
+    And only after that marker validation succeeds may it mark the draft ready for review
     And automated-review, required-check, mergeability, CLEAN-state, explicit merge-choice, and cleanup gates remain in force
 
   @SCN009 @regression

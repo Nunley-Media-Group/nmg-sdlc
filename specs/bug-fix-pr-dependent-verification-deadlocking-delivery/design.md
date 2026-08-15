@@ -76,7 +76,7 @@ The pending state may contain only the allowlisted GitHub-only kinds `required_c
 ```markdown
 ### Implementation Status: PR Evidence Pending
 
-<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":171,"specPath":"specs/bug-fix-pr-dependent-verification-deadlocking-delivery","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"nmg-sdlc-contribution-gate","event":"pull_request","acceptanceCriteria":["AC6"]}]} -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":171,"specPath":"specs/bug-fix-pr-dependent-verification-deadlocking-delivery","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"nmg-sdlc-contribution-gate","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->
 ```
 
 The example is structural only. The producer must emit the exact normalized active delivery and regression identifiers rather than the abbreviated arrays above.

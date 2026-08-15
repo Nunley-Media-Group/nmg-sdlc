@@ -28,7 +28,7 @@ Use this template to generate the final verification report.
 | Error Handling | [score] |
 | **Overall** | [average] |
 
-**Implementation Status**: Pass / PR Evidence Pending / Partial / Incomplete / Fail
+### Implementation Status: Pass / PR Evidence Pending / Partial / Incomplete / Fail
 **Total Issues**: [count]
 
 ---
@@ -44,12 +44,12 @@ Use this template to generate the final verification report.
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
 
+<!-- Include exactly one nmg-sdlc-pr-readiness marker here only when the shared PR-dependent verification contract classifies the report as pending or satisfied. -->
+
 ## Delivery Validation
 
 - Local verification: Pass / Not complete
 - PR evidence: Not required / Pending / Satisfied for `[40-character head SHA]`
-
-<!-- Include exactly one nmg-sdlc-pr-readiness marker here only when the shared PR-dependent verification contract classifies the report as pending or satisfied. -->
 
 ---
 

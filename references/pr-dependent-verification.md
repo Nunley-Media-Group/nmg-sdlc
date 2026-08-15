@@ -120,5 +120,5 @@ If H1 verification was committed and pushed but H2 collection or final-marker va
 - Apply existing report commit/ancestry/implementation freshness checks to valid pending and satisfied reports.
 - Before or during the controlled draft path, report stage `delivery-validation-pending`, completed artifact `local verification`, missing artifact `PR evidence`, and next action `$nmg-sdlc:open-pr #N`.
 - Include read-only PR `isDraft`, `headRefOid`, `mergeStateStatus`, and check state when available.
-- A ready open PR returns to the existing `pull-request-open` review-cleanup stage.
+- A ready open controlled PR returns to the existing `pull-request-open` review-cleanup stage only when its re-fetched final marker validates against the current head. A ready or merged controlled PR with pending, missing, stale, or invalid final delivery evidence fails closed.
 - Never advance from marker prose alone or mutate state.

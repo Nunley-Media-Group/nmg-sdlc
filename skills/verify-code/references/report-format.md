@@ -50,13 +50,13 @@ Use this Markdown structure:
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
 
+<!-- Include exactly one readiness marker only for qualified pending or satisfied evidence. Emit compact JSON on one line immediately after the issue-scope marker. -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":N,"specPath":"specs/{feature}","local":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...],"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"exact-check-name","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->
+
 ### Delivery Validation
 
 - Local verification: Pass / Not complete
 - PR evidence: Not required / Pending / Satisfied for `[40-character head SHA]`
-
-<!-- Include exactly one readiness marker only for qualified pending or satisfied evidence. Emit compact JSON on one line immediately after the issue-scope marker. -->
-<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":N,"specPath":"specs/{feature}","local":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...],"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"exact-check-name","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->
 
 ### Acceptance Criteria
 
@@ -116,4 +116,4 @@ The Routing column records how the fix was applied: `skill-creator` when the fix
 
 Emit the HTML marker as one line with valid JSON and the exact normalized resolver values. Use `implicit_single_issue` when applicable. Include the same marker in the GitHub issue comment; it is machine evidence used by status and delivery preparation to reject another contributor's verification report.
 
-When PR-dependent evidence qualifies, emit the readiness marker immediately after the issue-scope marker and copy it unchanged to the issue comment. For pending evidence, use `state: pr_evidence_pending` and `pendingEvidence`. Every `required_check` or `check_run` identity includes GitHub's exact `event: pull_request` provenance; a push-capable or unknown event does not qualify. For satisfied draft evidence, set `state: pr_evidence_satisfied`, use `evidence`, and include the same event identity, exact head SHA, successful conclusion, evidence URL, and required merge-blocking observations on every item as defined by the shared contract. Do not emit this marker for Partial, Incomplete, Fail, local/gate failures, missing or stale evidence, or an ordinary Pass report.
+When PR-dependent evidence qualifies, emit the readiness marker immediately after the issue-scope marker and copy it unchanged to the issue comment. Before PR creation, use `state: pr_evidence_pending` and `pendingEvidence`; the exact declared checks are allowed to be absent because the PR-only results do not exist yet. Every `required_check` or `check_run` identity includes GitHub's exact `event: pull_request` provenance; a push-capable or unknown event does not qualify. For an existing draft, set `state: pr_evidence_satisfied` and use `evidence` only when every declared item succeeds. Required-check and check-run items include the same event identity, exact head SHA, successful conclusion, and evidence URL; each `merge_blocking` item additionally includes its required `observedStates`. Do not emit a qualifying marker for Partial, Incomplete, Fail, local/gate failures, stale/malformed evidence, missing or failed evidence on an existing draft, or an ordinary Pass report.

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T23:38:38.559Z",
+  "generated_at": "2026-08-15T00:17:24.426Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -287,7 +287,7 @@
         "skills/open-pr/SKILL.md:108",
         "skills/run-retro/SKILL.md:167",
         "skills/start-issue/SKILL.md:246",
-        "skills/verify-code/SKILL.md:209",
+        "skills/verify-code/SKILL.md:210",
         "skills/write-code/SKILL.md:118",
         "skills/write-spec/SKILL.md:134",
         "skills/write-spec/SKILL.md:166"
@@ -2692,22 +2692,28 @@
       "destination": "skills/verify-code/SKILL.md:176"
     },
     {
-      "id": "35c219eb2102",
+      "id": "92c38586e8bb",
       "source_before": "skills/verify-code/SKILL.md:177",
-      "normalized": "partial, incomplete, fail, stale/mismatched scope, failed or incomplete gates, u",
+      "normalized": "before pr creation, the exact pending marker is allowed to name checks that cann",
       "destination": "skills/verify-code/SKILL.md:177"
     },
     {
-      "id": "fbbfbd7ace61",
+      "id": "c9a3e2e9b075",
       "source_before": "skills/verify-code/SKILL.md:178",
-      "normalized": "keep the local report and github issue comment structurally identical, including",
+      "normalized": "once a draft exists, missing or failed declared checks, non-success conclusions,",
       "destination": "skills/verify-code/SKILL.md:178"
     },
     {
+      "id": "fbbfbd7ace61",
+      "source_before": "skills/verify-code/SKILL.md:179",
+      "normalized": "keep the local report and github issue comment structurally identical, including",
+      "destination": "skills/verify-code/SKILL.md:179"
+    },
+    {
       "id": "a85bc1617365",
-      "source_before": "skills/verify-code/SKILL.md:182",
+      "source_before": "skills/verify-code/SKILL.md:183",
       "normalized": "post the verification results as an issue comment following the markdown templat",
-      "destination": "skills/verify-code/SKILL.md:182"
+      "destination": "skills/verify-code/SKILL.md:183"
     },
     {
       "id": "86dd3bc04d0a",

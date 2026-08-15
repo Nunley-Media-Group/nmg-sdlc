@@ -23,7 +23,7 @@
 
 **Verification Path**: defect fix
 **Total Issues**: 0
-**Review Findings Fixed**: 19/19
+**Review Finding Ledger**: 34/34 fixed (`I01`–`I19` initial findings; `G01`–`G15` GitHub findings)
 
 The circular verification-to-delivery dependency no longer exists in the contract. A shared fail-closed validator distinguishes ordinary Pass, qualified PR evidence pending, exact-head satisfied evidence, blocked reports, and unverifiable reports. Status consumes the same classification, and open-pr owns a controlled draft H1/H2 transition without relaxing the ordinary delivery or merge gates.
 
@@ -111,8 +111,8 @@ Blast radius is limited to verification reporting, lifecycle status, open-pr del
 ## Test Coverage
 
 - Active Gherkin scenarios: 10/10 mapped and covered.
-- Focused impacted suites: 99/99 tests passing after final fixes.
-- Complete Jest suite: 35 suites passing; 372 tests passing; 12 established conditional/opt-in tests skipped; 0 unexpected failures or orphaned imports.
+- Focused impacted suites: 122/122 tests passing after final fixes.
+- Complete Jest suite: 35 suites passing; 388 tests passing; 12 established conditional/opt-in tests skipped; 0 unexpected failures or orphaned imports.
 - Syntax: all changed `.mjs` entrypoints pass `node --check`.
 - Scope resolver: `implicit_single_issue`, exact AC/FR/task/scenario inventories, zero gaps.
 
@@ -129,8 +129,8 @@ Blast radius is limited to verification reporting, lifecycle status, open-pr del
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | 35 suites / 372 tests passed; no unexpected skips or orphaned imports |
-| Skill inventory | Pass | Clean; 462 items mapped after inspected pointer-contract refresh |
+| Contract tests | Pass | 35 suites / 388 tests passed; no unexpected skips or orphaned imports |
+| Skill inventory | Pass | Clean; 463 items mapped after inspected pointer-contract refresh |
 | Codex compatibility | Pass | `Codex compatibility check passed.` |
 | Active plugin surface | Pass | Repository plugin surface validation passed |
 | Skill creator validation | Pass | verify-code, status, and open-pr bundles all valid |
@@ -142,25 +142,42 @@ Blast radius is limited to verification reporting, lifecycle status, open-pr del
 
 ## Fixes Applied During Verification
 
-| Severity | Category | Location | Original Issue | Fix Applied | Routing |
-|----------|----------|----------|----------------|-------------|---------|
-| Medium | Security | `scripts/verification-readiness.mjs` | Symlink type was checked only after path resolution. | Reject the original report path when it is a symlink before resolving/reading it. | direct |
-| Medium | Status safety | `scripts/sdlc-status.mjs` | Missing draft metadata could render as ready, and ready PR plus pending verification was not explicitly inconsistent. | Preserve unknown metadata, validate head shape, and fail closed on ready/pending conflict. | direct |
-| Low | Test fidelity | `scripts/__tests__/exercise-pr-dependent-delivery.test.mjs` | Fixture used a nonexistent `gh pr checks --head` shorthand. | Model supported `gh pr view` head proof plus `gh pr checks --required --json`. | direct |
-| Low | Prompt quality | `skills/verify-code/SKILL.md`, `skills/open-pr/SKILL.md` | Three existing reference pointers did not use the deterministic `Read ... when ...` grammar. | Normalize the pointers, register no-skip exercises, and refresh the inspected inventory baseline. | skill-creator |
-| Low | Contract test | `scripts/__tests__/open-pr-delivery-contract.test.mjs` | Static assertion lagged the new current-report freshness requirement. | Pin the stricter `current valid pr_evidence_pending` wording. | direct |
-| Major | Status safety | `scripts/sdlc-status.mjs`, `scripts/__tests__/sdlc-status.test.mjs` | Pending evidence with unknown open-PR draft state could fall through to `pull-request-open`. | Add a named fail-closed gap and exact manual-repair action for unavailable draft state. | direct |
-| Major | Exercise integrity | `scripts/skill-exercise-runner.mjs`, runner tests | Missing ordered steps produced `indexOf() == -1` comparisons that could pass P2/P4/P5/P6; P6 accepted equal placeholders. | Require both steps to exist in order and require a concrete 40-character H2 SHA before equality. | direct |
-| Major | Validator robustness | `scripts/verification-readiness.mjs`, validator tests | A non-string satisfied `headSha` could throw during case normalization. | Type-guard the SHA before comparison and pin non-throwing invalid-data behavior. | direct |
-| Major | Delivery interface | validator CLI, open-pr controlled-delivery reference | Final-body validation existed only as an internal export, leaving no executable workflow command before ready. | Add bounded `--pr`, `--head`, and `--delivery-body-file` CLI validation and require its successful result before `gh pr ready`. | skill-creator + direct |
-| Major | Retry safety | shared/open-pr contracts and delivery exercise | A pushed H1 report becomes satisfied, so an H2 failure could not re-enter the pending-only path. | Permit only the exact preserved satisfied draft to resume at H2 with refreshed identity/freshness/evidence checks and add an H2 failure-to-retry regression. | skill-creator + direct |
-| Major | Evidence provenance | shared validator, verify-code/open-pr contracts, fixtures | An allowlisted check kind and AC mapping did not prove that the evidence was unavailable before PR creation. | Require exact `event: pull_request` identity, reject push/unknown events, and verify the observed event at H1/H2. | skill-creator + direct |
-| Major | Release evidence | this report | Blast-radius text incorrectly claimed there were no version-artifact changes. | Record `.codex-plugin/plugin.json`, `VERSION`, and `CHANGELOG.md` synchronized at 2.0.8. | direct |
-| Minor (8 findings) | Markdown hierarchy | eight PR-dependent report fixtures | Fixture `Implementation Status` headings used H3 directly below H1. | Normalize all eight headings to H2. | direct |
-| Minor | Exercise fidelity | PR-dependent delivery exercise | H1/H2 observations were fixed constants and the report-commit path did not reject unchanged H2. | Make observed H1/H2 configurable, require advancement after a report commit, and pin the preserved-draft failure case. | direct |
-| Minor | Rubric coverage | skill-exercise runner tests | Tests checked only a result count and final ID. | Assert the exact ordered V1-V6 and P1-P7 rubric ID sets plus malformed-order/SHA failures. | direct |
-| Minor | Report contract | `skills/verify-code/checklists/report-template.md` | The scaffold used `Status` while the parser and public format require `Implementation Status`. | Rename the scaffold field to the canonical label. | skill-creator |
-| Minor | Spec validation | active requirements validation checklist | The checklist omitted the qualified-pending fixture from its explicit regression inventory. | Require qualified pending and pre-PR-capable check fixtures explicitly. | direct |
+`V01`–`V05` are pre-review verification improvements and are excluded from the 34-item review ledger. Review IDs are counted exactly once; `I08`–`I15` names the eight individually counted fixture-heading findings.
+
+| ID(s) | Severity | Category | Location | Original Issue | Fix Applied | Routing |
+|-------|----------|----------|----------|----------------|-------------|---------|
+| V01 | Medium | Security | `scripts/verification-readiness.mjs` | Symlink type was checked only after path resolution. | Reject the original report path when it is a symlink before resolving/reading it. | direct |
+| V02 | Medium | Status safety | `scripts/sdlc-status.mjs` | Missing draft metadata could render as ready, and ready PR plus pending verification was not explicitly inconsistent. | Preserve unknown metadata, validate head shape, and fail closed on ready/pending conflict. | direct |
+| V03 | Low | Test fidelity | delivery exercise | Fixture used a nonexistent `gh pr checks --head` shorthand. | Model supported `gh pr view` head proof plus `gh pr checks --required --json`. | direct |
+| V04 | Low | Prompt quality | verify-code/open-pr skills | Three reference pointers did not use deterministic pointer grammar. | Normalize the pointers, register no-skip exercises, and refresh the inspected inventory baseline. | skill-creator |
+| V05 | Low | Contract test | open-pr contract test | Static assertion lagged the current-report freshness requirement. | Pin the stricter current pending wording. | direct |
+| I01 | Major | Status safety | status source/tests | Pending evidence with unknown open-PR draft state could fall through to `pull-request-open`. | Add a named fail-closed gap and exact repair action. | direct |
+| I02 | Major | Exercise integrity | exercise runner/tests | Missing ordered steps could pass because both indices were `-1`; P6 accepted equal placeholders. | Require both steps in order and a concrete H2 SHA. | direct |
+| I03 | Major | Validator robustness | readiness validator/tests | A non-string satisfied SHA could throw during normalization. | Type-guard before comparison and pin non-throwing invalid-data behavior. | direct |
+| I04 | Major | Delivery interface | validator CLI/open-pr reference | Final-body validation had no executable public workflow command. | Add bounded delivery-body CLI validation before ready. | skill-creator + direct |
+| I05 | Major | Retry safety | shared/open-pr contracts/exercise | A pushed satisfied H1 report could not re-enter after H2 failure. | Permit only the exact preserved draft to resume at H2. | skill-creator + direct |
+| I06 | Major | Evidence provenance | validator/contracts/fixtures | Allowlisted kind and AC mapping did not prove PR-only provenance. | Require exact `event: pull_request` identity and reject push/unknown events. | skill-creator + direct |
+| I07 | Major | Release evidence | verification report | Blast radius denied real release-artifact changes. | Record the three synchronized 2.0.8 paths. | direct |
+| I08–I15 | Minor | Markdown hierarchy | eight report fixtures | Eight status headings used the reviewed hierarchy. | Normalize all eight headings to H2. | direct |
+| I16 | Minor | Exercise fidelity | delivery exercise | H1/H2 were fixed constants and unchanged H2 was accepted. | Make observations configurable and require post-report advancement. | direct |
+| I17 | Minor | Rubric coverage | runner tests | Tests checked only count and final ID. | Assert exact ordered V/P IDs plus malformed-order/SHA failures. | direct |
+| I18 | Minor | Report contract | report scaffold | Scaffold label did not match the canonical parser field. | Use the canonical `Implementation Status` field. | skill-creator |
+| I19 | Minor | Spec validation | requirements checklist | Fixture inventory was not explicit enough. | Name qualified-pending and pre-PR-capable fixtures. | direct |
+| G01 | Minor | Success semantics | delivery exercise | Only `SUCCESS` advanced H1/H2. | Share a predicate accepting `SUCCESS`, `NEUTRAL`, and `SKIPPED`; test all paths. | direct |
+| G02 | Major | Persisted-state proof | delivery exercise | In-memory marker validation preceded body persistence and refetch. | Model edit/refetch first, then validate fetched body/head/draft state before ready. | direct |
+| G03 | Major | H1/H2 identity | status source/tests | Satisfied H1 was compared with current H2. | Derive one exact H1 from report evidence and validate final marker separately against H2. | direct |
+| G04 | Major | Evidence identity | exercise runner/tests | V3 did not match satisfied evidence to declared kind/name/AC identity. | Require exact ordered identity/event/AC mapping and add replacement regression. | direct |
+| G05 | Major | Malformed data | exercise runner/tests | Parseable null/primitive structures could throw. | Require record roots/elements, catch evaluator errors, and fail rubric checks closed. | direct |
+| G06 | Major | Report parsing | readiness validator/tests | Prose or duplicate status fields could override the real result. | Require exactly one canonical Markdown status heading; reject duplicates. | direct |
+| G07 | Minor | Report scaffold | verify-code template/format/tests | Status heading and marker placement diverged from parser/contract. | Use exact H3 status and place readiness immediately after scope. | skill-creator + direct |
+| G08 | Minor | Evidence schema | verify-code report guidance | Wording implied `observedStates` on every evidence kind. | Limit observations to `merge_blocking`; retain check-specific fields. | skill-creator |
+| G09 | Major | Pending semantics | verify-code skill/format | Missing-check prohibition also blocked valid pre-PR pending evidence. | Distinguish pre-PR absence from missing/failed post-draft evidence. | skill-creator |
+| G10 | Minor | Spec example | active design | Example mapped pending evidence outside active delivery ACs. | Map the example check to AC1. | direct |
+| G11 | Minor | Acceptance contract | requirements/Gherkin | Final marker persistence/refetch/validation was implicit. | Require all three before `gh pr ready`. | direct |
+| G12 | Major | Release evidence | tasks/report | GitHub separately flagged the false version-artifact claim. | Add path-specific 2.0.8 task and reviewed-file evidence. | direct |
+| G13 | Major | Completion safety | status source/tests/docs | Ready/merged controlled PRs could complete without valid final evidence. | Validate final marker/head and fail closed before review or completion. | skill-creator + direct |
+| G14 | Minor | Review accounting | verification report | The 19/19 claim did not map one-to-one to grouped table rows. | Add this exact I/G ledger and separate non-review V IDs. | direct |
+| G15 | Minor | Test evidence | report/PR delivery evidence | Recorded Jest totals disagreed across artifacts. | Use the fresh authoritative 35-suite / 388-test run and update the PR body. | direct |
 
 ## Remaining Issues
 

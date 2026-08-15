@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   inspectDeliveryValidation,
@@ -11,6 +12,7 @@ import {
 const HEAD_1 = '1'.repeat(40);
 const HEAD_2 = '2'.repeat(40);
 const SPEC_PATH = 'specs/feature-readiness';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCOPE = {
   issueNumber: 42,
   specPath: SPEC_PATH,
@@ -109,6 +111,44 @@ describe('verification readiness contract', () => {
     })).toMatchObject({ status: 'pass', reasonCode: 'ordinary_pass', gaps: [] });
   });
 
+  it('ignores misleading prose and rejects duplicate canonical status headings', () => {
+    const misleading = report('Partial').replace(
+      '# Verification Report',
+      '# Verification Report\n\nNarrative text says Implementation Status: Pass, but it is not the canonical field.',
+    );
+    expect(inspectVerificationReadiness({
+      content: misleading,
+      options: { expectedScope: SCOPE },
+    })).toMatchObject({ status: 'blocked', implementationStatus: 'partial' });
+
+    const duplicate = report('Pass').replace(
+      '### Implementation Status: Pass',
+      '### Implementation Status: Pass\n\n### Implementation Status: Partial',
+    );
+    expect(inspectVerificationReadiness({
+      content: duplicate,
+      options: { expectedScope: SCOPE },
+    })).toMatchObject({
+      status: 'unverifiable',
+      reasonCode: 'implementation_status_ambiguous',
+      gaps: ['verification report must contain exactly one canonical Implementation Status heading'],
+    });
+  });
+
+  it('keeps the report scaffold canonical and places readiness immediately after scope', () => {
+    const template = fs.readFileSync(
+      path.join(repoRoot, 'skills', 'verify-code', 'checklists', 'report-template.md'),
+      'utf8',
+    );
+    expect(template).toContain('### Implementation Status: Pass / PR Evidence Pending / Partial / Incomplete / Fail');
+    const scope = template.indexOf('<!-- nmg-sdlc-issue-scope:');
+    const readiness = template.indexOf('<!-- Include exactly one nmg-sdlc-pr-readiness marker');
+    const delivery = template.indexOf('## Delivery Validation');
+    expect(scope).toBeGreaterThan(-1);
+    expect(readiness).toBeGreaterThan(scope);
+    expect(delivery).toBeGreaterThan(readiness);
+  });
+
   it('accepts exact scoped local completion with allowlisted pending evidence', () => {
     expect(inspectVerificationReadiness({
       content: report('PR Evidence Pending', pendingReadiness()),
@@ -158,6 +198,28 @@ describe('verification readiness contract', () => {
       content,
       options: { expectedScope: SCOPE, expectedHeadSha: HEAD_1 },
     }).gaps).toContain('evidence item 1 has an invalid head SHA');
+  });
+
+  it('requires every satisfied item to reference one exact recorded head', () => {
+    const result = inspectVerificationReadiness({
+      content: report('Pass', satisfiedReadiness({
+        evidence: [
+          satisfiedItem(),
+          {
+            kind: 'merge_blocking',
+            name: 'merge-blocking-contract',
+            acceptanceCriteria: ['AC2'],
+            headSha: HEAD_2,
+            conclusion: 'OBSERVED',
+            url: 'https://github.example/pull/50',
+            observedStates: ['BLOCKED', 'CLEAN'],
+          },
+        ],
+      })),
+      options: { expectedScope: SCOPE },
+    });
+    expect(result).toMatchObject({ status: 'unverifiable' });
+    expect(result.gaps).toContain('satisfied evidence must reference one exact head SHA');
   });
 
   test.each(['Partial', 'Incomplete', 'Fail'])(

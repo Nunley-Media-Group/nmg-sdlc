@@ -20,6 +20,9 @@ import {
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
 const PENDING_MARKER = '<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"contract-tests","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->';
+const H1 = '1'.repeat(40);
+const H2 = '2'.repeat(40);
+const SATISFIED_MARKER = `<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_satisfied","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"evidence":[{"kind":"required_check","name":"contract-tests","event":"pull_request","acceptanceCriteria":["AC1"],"headSha":"${H1}","conclusion":"SUCCESS","url":"https://example.test/checks/h1"}]} -->`;
 const scriptsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function baseEvidence(overrides = {}) {
@@ -251,6 +254,49 @@ describe('lifecycle inference', () => {
       },
     });
     expect(status.gaps).toContain('pull-request draft state is unavailable for pending PR-dependent verification');
+  });
+
+  it('requires final delivery validation before a controlled PR is ready or complete', () => {
+    const verification = {
+      path: 'specs/feature/verification-report.md',
+      status: 'pass',
+      readinessStatus: 'pr_evidence_satisfied',
+      current: true,
+      deliveryValidationStatus: 'unverifiable',
+      deliveryValidationGaps: ['delivery-validation marker is missing'],
+    };
+    const ready = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification,
+      pullRequest: { number: 50, state: 'OPEN', isDraft: false, checks: 'passing' },
+    }));
+    expect(ready).toMatchObject({ stage: 'unknown', nextAction: { manualRepairRequired: true } });
+    expect(ready.gaps).toContain('ready pull request conflicts with incomplete PR-dependent delivery validation');
+
+    const merged = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification,
+      pullRequest: { number: 50, state: 'MERGED', isDraft: false, checks: 'passing' },
+    }));
+    expect(merged).toMatchObject({ stage: 'unknown', nextAction: { manualRepairRequired: true } });
+    expect(merged.gaps).toContain('merged pull request lacks valid final PR-dependent delivery evidence');
+
+    const validated = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'CLOSED', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        ...verification,
+        deliveryValidationStatus: 'final_sha_validated',
+        deliveryValidationGaps: [],
+      },
+      pullRequest: { number: 50, state: 'MERGED', isDraft: false, checks: 'passing' },
+    }));
+    expect(validated.stage).toBe('complete');
   });
 
   it('stops at the last consistent boundary when verification conflicts', () => {
@@ -486,7 +532,7 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add verified fixture'], {
@@ -530,7 +576,7 @@ describe('bounded evidence collection and read-only safety', () => {
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: PR Evidence Pending\n\n${SCOPE_MARKER}\n${PENDING_MARKER}\n`,
+      `# Verification Report\n\n### Implementation Status: PR Evidence Pending\n\n${SCOPE_MARKER}\n${PENDING_MARKER}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add pending verification fixture'], {
@@ -556,12 +602,63 @@ describe('bounded evidence collection and read-only safety', () => {
     expect(renderText(status)).toContain('SDLC status: delivery-validation-pending');
   });
 
+  it('keeps satisfied H1 readiness current after the report commit advances the draft to H2', () => {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n${SATISFIED_MARKER}\n`,
+    );
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'docs: record H1 verification evidence'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+
+    const run = (command, args, options) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify([{
+            number: 50,
+            state: 'OPEN',
+            url: 'https://example.test/pull/50',
+            body: '',
+            headRefName: '42-feature-status-fixture',
+            headRefOid: H2,
+            isDraft: true,
+            mergeStateStatus: 'BLOCKED',
+            closingIssuesReferences: [{ number: 42, title: 'Status fixture', state: 'OPEN' }],
+          }]),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'checks') {
+        return { ok: true, status: 0, stdout: '[]', stderr: '' };
+      }
+      return localRunWithHydratedIssue(command, args, options);
+    };
+
+    const evidence = collectEvidence(root, { run });
+    expect(evidence.verification).toMatchObject({
+      status: 'pass',
+      readinessStatus: 'pr_evidence_satisfied',
+      readinessHeadSha: H1,
+      deliveryValidationStatus: 'unverifiable',
+      current: true,
+    });
+    expect(evidence.pullRequest).toMatchObject({ headRefOid: H2, isDraft: true });
+    expect(evidence.pullRequest).not.toHaveProperty('body');
+    expect(inferLifecycle(evidence).stage).toBe('delivery-validation-pending');
+  });
+
   it('does not trust an uncommitted passing verification report', () => {
     fs.mkdirSync(path.join(root, 'src'));
     fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const value = 1;\n');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${SCOPE_MARKER}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${SCOPE_MARKER}\n`,
     );
 
     const evidence = collectEvidence(root, { run: localRunWithHydratedIssue });
@@ -576,7 +673,7 @@ describe('bounded evidence collection and read-only safety', () => {
     const otherIssueMarker = SCOPE_MARKER.replace('"issueNumber":42', '"issueNumber":10');
     fs.writeFileSync(
       path.join(root, 'specs', 'feature-status-fixture', 'verification-report.md'),
-      `# Verification Report\n\n**Implementation Status**: Pass\n\n${otherIssueMarker}\n`,
+      `# Verification Report\n\n### Implementation Status: Pass\n\n${otherIssueMarker}\n`,
     );
     execFileSync('git', ['add', '.'], { cwd: root });
     execFileSync('git', ['commit', '-m', 'feat: add mismatched verification fixture'], {
