@@ -187,12 +187,12 @@ Done.`);
   });
 
   test.each([
-    ['verify-code', verifyCodeArtifact, evaluateVerifyCodeArtifact, 'V6'],
-    ['open-pr', openPrArtifact, evaluateOpenPrArtifact, 'P7'],
-  ])('%s fixture passes every PR-dependent rubric without placeholder skips', (skill, artifactPath, evaluate, finalId) => {
+    ['verify-code', verifyCodeArtifact, evaluateVerifyCodeArtifact, ['V1', 'V2', 'V3', 'V4', 'V5', 'V6']],
+    ['open-pr', openPrArtifact, evaluateOpenPrArtifact, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']],
+  ])('%s fixture passes every PR-dependent rubric without placeholder skips', (skill, artifactPath, evaluate, expectedIds) => {
     const artifact = fs.readFileSync(artifactPath, 'utf8');
     const results = evaluate(artifact);
-    expect(results.length).toBeGreaterThanOrEqual(6);
+    expect(results.map((result) => result.id)).toEqual(expectedIds);
     expect(results.every((result) => result.status === 'pass')).toBe(true);
 
     const proc = spawnSync(process.execPath, [runner, '--skill', skill, '--artifact', artifactPath, '--base', 'HEAD'], {
@@ -200,7 +200,27 @@ Done.`);
       encoding: 'utf8',
     });
     expect(proc.status).toBe(0);
-    expect(proc.stdout).toContain(finalId);
+    for (const rubricId of expectedIds) expect(proc.stdout).toContain(rubricId);
     expect(proc.stdout).not.toContain('[skipped]');
+  });
+
+  test.each([
+    ['preflight', 'draft', 'P2'],
+    ['collectH1', 'reverifyH1', 'P4'],
+    ['pushReport', 'collectH2', 'P5'],
+    ['validateFinalMarker', 'ready', 'P6'],
+  ])('open-pr ordering fails when %s or %s is missing', (earlier, later, rubricId) => {
+    const value = JSON.parse(fs.readFileSync(openPrArtifact, 'utf8'));
+    value.pending.order = value.pending.order.filter((step) => step !== earlier && step !== later);
+    expect(evaluateOpenPrArtifact(JSON.stringify(value)).find((item) => item.id === rubricId))
+      .toMatchObject({ status: 'fail' });
+  });
+
+  test('open-pr final-marker rubric rejects a non-SHA H2 identity', () => {
+    const value = JSON.parse(fs.readFileSync(openPrArtifact, 'utf8'));
+    value.pending.h2.headSha = 'same-placeholder';
+    value.pending.finalMarker.headSha = 'same-placeholder';
+    expect(evaluateOpenPrArtifact(JSON.stringify(value)).find((item) => item.id === 'P6'))
+      .toMatchObject({ status: 'fail' });
   });
 });

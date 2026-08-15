@@ -31,11 +31,13 @@ describe('open-pr folded delivery contract (issues #108, #148, and #151)', () =>
     const controlled = read('skills/open-pr/references/pr-dependent-delivery.md');
 
     expect(openPr).toContain('../../references/pr-dependent-verification.md');
-    expect(openPr).toContain('Only current valid `pr_evidence_pending` may select the controlled draft path');
+    expect(openPr).toContain('Current valid `pr_evidence_pending` may select the controlled draft path');
+    expect(openPr).toContain('current valid `pr_evidence_satisfied` may enter only its exact preserved-draft H2 retry');
     expect(openPr).toContain('gh pr create --title "[title]" --body "[body]"');
     expect(prBody).toContain('gh pr create --draft --title <title> --body-file <body-file>');
     expect(controlled).toContain('status: pr_evidence_pending');
     expect(controlled).toContain('Ordinary `pass` follows the unchanged ordinary PR path');
+    expect(controlled).toContain('--delivery-body-file <fetched-body-file>');
     for (const blocker of ['Partial', 'Incomplete', 'Fail', 'blocked', 'unverifiable']) {
       expect(`${openPr}\n${controlled}`).toContain(blocker);
     }

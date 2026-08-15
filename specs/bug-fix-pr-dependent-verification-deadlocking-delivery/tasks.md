@@ -31,7 +31,7 @@ Every file under `skills/` and `references/` is skill-bundled and must be create
 - [x] Route the shared-reference creation through `$skill-creator` and define schema version 1, exact pending/satisfied states, consumer result table, field bounds, and preservation rules
 - [x] Parse exactly one `nmg-sdlc-pr-readiness` marker as data and never execute or interpolate report content
 - [x] Compare issue number, spec path, active delivery/regression identifiers, tests, and steering-gate completion with the existing normalized issue-scope evidence
-- [x] Accept only bounded `required_check`, `check_run`, and `merge_blocking` items mapped to active delivery acceptance criteria
+- [x] Accept only bounded PR-event `required_check`/`check_run` and intrinsically PR-only `merge_blocking` items mapped to active delivery acceptance criteria
 - [x] Require exact head SHA, conclusion, URL, and kind-specific observations for satisfied evidence
 - [x] Reject missing/duplicate/malformed markers, unknown keys/kinds, generic non-Pass status, scope drift, local omissions, failed/incomplete gates, stale/mismatched evidence, and size/bound violations with stable reason codes
 - [x] Expose a zero-dependency reusable function and JSON CLI with stable exit codes and no filesystem or GitHub mutation
@@ -90,7 +90,7 @@ Every file under `skills/` and `references/` is skill-bundled and must be create
 **Acceptance**:
 - [x] Reproduce the PathCast #122 boundary with valid local completion and qualified required-check/merge-blocking evidence
 - [x] Exercise the H1 draft evidence, verification-report push to H2, final-H2 recheck, recorded evidence, and ready transition with deterministic command/state fixtures
-- [x] Add companion generic Partial, failed-gate, stale-scope, malformed-marker, unknown-kind, stale-head, failed/cancelled/timed-out check, and ordinary Pass fixtures
+- [x] Add companion pre-PR-capable check, generic Partial, failed-gate, stale-scope, malformed-marker, unknown-kind, stale-head, failed/cancelled/timed-out check, and ordinary Pass fixtures
 - [x] Prove only the qualified pending fixture may create/reuse a draft and only fully revalidated H2 may become ready
 - [x] Prove every failure preserves the branch/draft and emits no ready, merge, delete, checkout, or protection-mutation command
 - [x] Document the local-verification/delivery-validation split, controlled draft lifecycle, status output, exact-SHA rule, and ordinary-path compatibility in README
@@ -98,7 +98,7 @@ Every file under `skills/` and `references/` is skill-bundled and must be create
 
 ### T006: Run Complete Verification and Record Evidence
 
-**File(s)**: all issue #171 implementation, test, documentation, and spec files
+**File(s)**: all issue #171 implementation, test, documentation, spec, and approved release files (`.codex-plugin/plugin.json`, `VERSION`, `CHANGELOG.md`)
 **Type**: Verify
 **Depends**: T001, T002, T003, T004, T005
 **Acceptance**:
@@ -107,6 +107,7 @@ Every file under `skills/` and `references/` is skill-bundled and must be create
 - [x] Run skill inventory, Codex compatibility, active plugin surface, every applicable changed-skill exercise, skill-creator validation, prompt-quality review, and `git diff --check`
 - [x] Verify every AC1-AC10 and FR1-FR6 against direct code, contract, fixture, command, or report evidence
 - [x] Confirm the diff contains only issue #171 scope and preserves unrelated files, historical specs, released changelog entries, and runtime artifacts
+- [x] Confirm `.codex-plugin/plugin.json`, `VERSION`, and the 2.0.8 `CHANGELOG.md` entry are synchronized
 - [x] Generate a current issue-scoped verification report and post the matching GitHub verification comment
 
 ---

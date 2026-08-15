@@ -19,7 +19,7 @@ import {
 
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const SCOPE_MARKER = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"specs/feature-status-fixture","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->';
-const PENDING_MARKER = '<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"contract-tests","acceptanceCriteria":["AC1"]}]} -->';
+const PENDING_MARKER = '<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":42,"specPath":"specs/feature-status-fixture","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"contract-tests","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->';
 const scriptsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function baseEvidence(overrides = {}) {
@@ -221,6 +221,36 @@ describe('lifecycle inference', () => {
       nextAction: { manualRepairRequired: true },
     });
     expect(status.gaps).toContain('ready pull request conflicts with pending PR-dependent verification');
+  });
+
+  it('fails closed when draft state is unavailable for pending PR-dependent verification', () => {
+    const status = inferLifecycle(baseEvidence({
+      project: { branch: '42-feature', implementationPaths: ['src/index.js'] },
+      issue: { number: 42, title: null, state: 'OPEN', source: 'branch' },
+      spec: { path: 'specs/feature', complete: true, missingFiles: [] },
+      verification: {
+        path: 'specs/feature/verification-report.md',
+        status: 'pr_evidence_pending',
+        readinessStatus: 'pr_evidence_pending',
+        current: true,
+      },
+      pullRequest: {
+        number: 50,
+        state: 'OPEN',
+        isDraft: null,
+        headRefOid: 'a'.repeat(40),
+        mergeStateStatus: 'UNKNOWN',
+        checks: 'pending',
+      },
+    }));
+    expect(status).toMatchObject({
+      stage: 'unknown',
+      nextAction: {
+        command: 'Manual repair: restore controlled draft validation on PR #50',
+        manualRepairRequired: true,
+      },
+    });
+    expect(status.gaps).toContain('pull-request draft state is unavailable for pending PR-dependent verification');
   });
 
   it('stops at the last consistent boundary when verification conflicts', () => {

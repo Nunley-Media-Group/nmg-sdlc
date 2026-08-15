@@ -105,7 +105,7 @@ Check each acceptance criterion against actual code:
 1. **For each mapped delivery AC**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
 2. **For each mapped delivery task**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
 3. **For each declared regression obligation**: verify preservation separately and record its evidence without counting it as current delivery implementation.
-4. **For each claimed PR-only obligation**: map it to active delivery acceptance criteria and enumerate its exact `required_check`, `check_run`, or `merge_blocking` identity. Treat every other unavailable result as an ordinary finding; arbitrary exceptions and deferred local work do not qualify.
+4. **For each claimed PR-only obligation**: map it to active delivery acceptance criteria and enumerate its exact `required_check`, `check_run`, or `merge_blocking` identity. Record `event: pull_request` for check evidence and reject missing or non-PR event provenance. Treat every other unavailable result as an ordinary finding; arbitrary exceptions and deferred local work do not qualify.
 
 ### Step 4: Architecture Review
 

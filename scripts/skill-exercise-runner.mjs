@@ -641,10 +641,12 @@ function evaluateVerifyCodeArtifact(artifact) {
           && typeof item.name === 'string'
           && item.name.length > 0
           && Array.isArray(item.acceptanceCriteria)
-          && item.acceptanceCriteria.length > 0),
+          && item.acceptanceCriteria.length > 0
+          && (item.kind === 'merge_blocking' || item.event === 'pull_request')),
       V3: /^[0-9a-f]{40}$/i.test(satisfied.headSha ?? '')
         && satisfiedEvidence.length === evidence.length
         && satisfiedEvidence.every((item) => item.headSha === satisfied.headSha
+          && (item.kind === 'merge_blocking' || item.event === 'pull_request')
           && ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'OBSERVED'].includes(item.conclusion)
           && /^https?:\/\//.test(item.url ?? '')),
       V4: Array.isArray(value.blockedReports)
@@ -667,25 +669,27 @@ function evaluateOpenPrArtifact(artifact) {
     const failure = value.failure ?? {};
     const order = Array.isArray(pending.order) ? pending.order : [];
     const index = (step) => order.indexOf(step);
+    const ordered = (earlier, later) => index(earlier) >= 0 && index(later) > index(earlier);
     const checks = {
       P1: ordinary.command === 'gh pr create' && ordinary.draft === false,
       P2: pending.command === 'gh pr create --draft'
         && ['scope', 'version', 'stage', 'commit', 'rebase', 'safePush', 'pushedState']
           .every((gate) => pending.preflight?.[gate] === true)
-        && index('draft') > index('preflight'),
+        && ordered('preflight', 'draft'),
       P3: ['repository', 'base', 'head', 'issue', 'draftState']
         .every((field) => pending.identity?.[field] === true),
       P4: pending.h1?.exactSha === true
         && pending.h1?.evidenceSucceeded === true
         && pending.h1?.reverified === true
-        && index('reverifyH1') > index('collectH1'),
+        && ordered('collectH1', 'reverifyH1'),
       P5: pending.h2?.differsAfterReportCommit === true
         && pending.h2?.allEvidenceRechecked === true
         && pending.h2?.h1RejectedForH2 === true
-        && index('collectH2') > index('pushReport'),
+        && ordered('pushReport', 'collectH2'),
       P6: pending.finalMarker?.validated === true
+        && /^[0-9a-f]{40}$/i.test(pending.h2?.headSha ?? '')
         && pending.finalMarker?.headSha === pending.h2?.headSha
-        && index('ready') > index('validateFinalMarker'),
+        && ordered('validateFinalMarker', 'ready'),
       P7: failure.branchPreserved === true
         && failure.draftPreserved === true
         && Array.isArray(failure.forbiddenActions)

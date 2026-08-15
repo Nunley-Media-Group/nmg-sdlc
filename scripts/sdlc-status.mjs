@@ -945,6 +945,10 @@ export function inferLifecycle(evidence) {
     && evidence.verification.readinessStatus === 'pr_evidence_pending'
     && prState === 'OPEN'
     && evidence.pullRequest?.isDraft === false;
+  const unknownDraftPrWithPendingVerification = evidence.verification?.current === true
+    && evidence.verification.readinessStatus === 'pr_evidence_pending'
+    && prState === 'OPEN'
+    && evidence.pullRequest?.isDraft == null;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
   const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
@@ -989,12 +993,17 @@ export function inferLifecycle(evidence) {
       reason: 'The pull request is merged; the delivery lifecycle is complete.',
       manualRepairRequired: false,
     };
-  } else if (readyPrWithPendingVerification) {
-    gaps.push('ready pull request conflicts with pending PR-dependent verification');
+  } else if (readyPrWithPendingVerification || unknownDraftPrWithPendingVerification) {
+    const draftGap = readyPrWithPendingVerification
+      ? 'ready pull request conflicts with pending PR-dependent verification'
+      : 'pull-request draft state is unavailable for pending PR-dependent verification';
+    gaps.push(draftGap);
     stage = 'unknown';
     nextAction = {
       command: `Manual repair: restore controlled draft validation on PR #${evidence.pullRequest.number}`,
-      reason: 'A ready pull request cannot be advanced from pending PR-dependent verification evidence.',
+      reason: readyPrWithPendingVerification
+        ? 'A ready pull request cannot be advanced from pending PR-dependent verification evidence.'
+        : 'The pull request draft state must be proven before pending PR-dependent verification can advance.',
       manualRepairRequired: true,
     };
   } else if (deliveryValidationPending) {

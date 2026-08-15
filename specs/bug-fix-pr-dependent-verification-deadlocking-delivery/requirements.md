@@ -72,7 +72,7 @@ open-pr: verification status is not Pass — delivery blocked
 
 **Given** a verification report names pending evidence
 **When** the PR-dependent readiness state is validated
-**Then** only bounded `required_check`, `check_run`, or `merge_blocking` evidence that is impossible before pull-request creation can qualify
+**Then** only bounded `required_check` or `check_run` evidence with exact `event: pull_request` provenance, or `merge_blocking` evidence intrinsically tied to an existing PR, can qualify
 **And** arbitrary project-declared exceptions, deferred local work, unknown evidence kinds, and unrecognized marker fields fail closed
 
 ### AC4: Keep Lifecycle Consumers Consistent
@@ -171,5 +171,5 @@ open-pr: verification status is not Pass — delivery blocked
 - [x] All ten acceptance criteria preserve the issue's approved scope and use Given/When/Then form
 - [x] Qualifying remote evidence kinds and fail-closed local boundaries are explicit
 - [x] Exact-SHA reverification, final-SHA checks, review safety, and failure preservation are specified
-- [x] Regression coverage requires qualified pending, generic non-Pass, failed-gate, stale-scope, and ordinary Pass fixtures
+- [x] Regression coverage requires qualified pending, pre-PR-capable check, generic non-Pass, failed-gate, stale-scope, and ordinary Pass fixtures
 - [x] Out-of-scope boundaries exclude consumer fixes, protection changes, and non-GitHub providers

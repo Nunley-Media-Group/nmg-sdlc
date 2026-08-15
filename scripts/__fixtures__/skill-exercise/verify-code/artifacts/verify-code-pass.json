@@ -9,6 +9,7 @@
       {
         "kind": "required_check",
         "name": "guardrail-contract",
+        "event": "pull_request",
         "acceptanceCriteria": ["AC1"]
       },
       {
@@ -24,6 +25,8 @@
       {
         "kind": "required_check",
         "name": "guardrail-contract",
+        "event": "pull_request",
+        "acceptanceCriteria": ["AC1"],
         "headSha": "1111111111111111111111111111111111111111",
         "conclusion": "SUCCESS",
         "url": "https://example.test/checks/1"
@@ -31,9 +34,11 @@
       {
         "kind": "merge_blocking",
         "name": "required-check-blocks-merge",
+        "acceptanceCriteria": ["AC2"],
         "headSha": "1111111111111111111111111111111111111111",
         "conclusion": "OBSERVED",
-        "url": "https://example.test/pulls/200"
+        "url": "https://example.test/pulls/200",
+        "observedStates": ["BLOCKED", "CLEAN"]
       }
     ]
   },

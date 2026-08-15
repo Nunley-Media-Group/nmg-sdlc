@@ -30,8 +30,9 @@ Feature: PR-dependent verification deadlocks delivery
   Scenario: Only allowlisted GitHub evidence can qualify
     Given a pending-readiness marker contains evidence descriptors
     When the deterministic validator inspects the marker
-    Then required_check, check_run, and merge_blocking descriptors with active acceptance-criterion mappings may qualify
-    And arbitrary exceptions, deferred local work, unknown kinds, and unrecognized fields fail closed
+    Then required_check and check_run descriptors require event pull_request plus active acceptance-criterion mappings
+    And merge_blocking descriptors require active acceptance-criterion mappings and an existing pull request
+    And push-capable checks, arbitrary exceptions, deferred local work, unknown kinds, and unrecognized fields fail closed
 
   @SCN004 @regression
   Scenario: Status distinguishes local completion from delivery validation
@@ -82,7 +83,7 @@ Feature: PR-dependent verification deadlocks delivery
 
   @SCN010 @regression
   Scenario: Deterministic fixtures preserve ordinary and fail-closed paths
-    Given fixtures cover qualified PR-dependent readiness, generic Partial, failed gates, stale scope, and ordinary Pass
+    Given fixtures cover qualified PR-dependent readiness, a pre-PR-capable check, generic Partial, failed gates, stale scope, and ordinary Pass
     When the complete verification-to-delivery contract is exercised
     Then only the qualified pending fixture advances to controlled draft delivery
     And ordinary Pass follows ordinary PR delivery

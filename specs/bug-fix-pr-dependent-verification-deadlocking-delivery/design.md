@@ -63,7 +63,7 @@ Spec Context:
 
 Introduce one shared, deterministic verification-readiness contract rather than adding a prose exception to `open-pr`. A new zero-dependency helper validates the report's existing issue-scope marker together with one bounded `nmg-sdlc-pr-readiness` JSON marker. The marker has schema version 1 and exact states `pr_evidence_pending` or `pr_evidence_satisfied`; unknown keys, duplicate markers, invalid scope, incomplete local evidence, failed/incomplete gates, or unknown evidence kinds fail closed.
 
-The pending state may contain only the allowlisted GitHub-only kinds `required_check`, `check_run`, and `merge_blocking`. Each item names the exact evidence and mapped delivery acceptance criteria. The satisfied state additionally records the observed 40-character head SHA, conclusion, evidence URL, and kind-specific merge-state observations. Marker arrays and strings are bounded, identifiers must belong to the active delivery slice, and no command, arbitrary exception name, or deferred-work flag is accepted.
+The pending state may contain only the allowlisted GitHub-only kinds `required_check`, `check_run`, and `merge_blocking`. Each check item names the exact evidence, records `event: pull_request` provenance, and maps delivery acceptance criteria; merge-blocking evidence is intrinsically PR-only. The satisfied state additionally records the observed 40-character head SHA, conclusion, evidence URL, and kind-specific merge-state observations. Marker arrays and strings are bounded, identifiers must belong to the active delivery slice, and no command, arbitrary exception name, deferred-work flag, push-capable event, or unknown event is accepted.
 
 `verify-code` remains the producer. When all local obligations pass and only valid PR-only evidence is unavailable, it emits human status `PR Evidence Pending`, the exact marker, and a separate local-pass/delivery-pending summary. After a draft exists, it gathers evidence for the exact draft head and may emit Pass plus `pr_evidence_satisfied`. Generic Partial, Incomplete, and Fail reports never receive a qualifying marker.
 
@@ -76,7 +76,7 @@ The pending state may contain only the allowlisted GitHub-only kinds `required_c
 ```markdown
 ### Implementation Status: PR Evidence Pending
 
-<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":171,"specPath":"specs/bug-fix-pr-dependent-verification-deadlocking-delivery","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"nmg-sdlc-contribution-gate","acceptanceCriteria":["AC6"]}]} -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":171,"specPath":"specs/bug-fix-pr-dependent-verification-deadlocking-delivery","local":{"acceptanceCriteria":["AC1"],"functionalRequirements":["FR1"],"tasks":["T001"],"scenarios":["SCN001"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"nmg-sdlc-contribution-gate","event":"pull_request","acceptanceCriteria":["AC6"]}]} -->
 ```
 
 The example is structural only. The producer must emit the exact normalized active delivery and regression identifiers rather than the abbreviated arrays above.

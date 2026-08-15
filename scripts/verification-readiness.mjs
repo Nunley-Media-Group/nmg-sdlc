@@ -144,6 +144,9 @@ function validateEvidenceIdentity(item, deliveryAcceptanceCriteria, gaps, index)
   if (typeof item.name !== 'string' || item.name.trim() !== item.name || item.name.length < 1 || item.name.length > 256) {
     gaps.push(`evidence item ${index} has an invalid name`);
   }
+  if (['required_check', 'check_run'].includes(item.kind) && item.event !== 'pull_request') {
+    gaps.push(`evidence item ${index} is not proven pull-request-only`);
+  }
   if (!validIdentifierArray(item.acceptanceCriteria, 'AC', { allowEmpty: false, max: 100 })) {
     gaps.push(`evidence item ${index} has invalid acceptance-criterion mappings`);
   } else if (item.acceptanceCriteria.some((identifier) => !deliveryAcceptanceCriteria.includes(identifier))) {
@@ -164,10 +167,13 @@ function validateEvidenceArray(items, state, scope, gaps, options = {}) {
       return;
     }
     const pendingKeys = ['kind', 'name', 'acceptanceCriteria'];
+    const identityKeys = ['required_check', 'check_run'].includes(item.kind)
+      ? [...pendingKeys, 'event']
+      : pendingKeys;
     const satisfiedKeys = item.kind === 'merge_blocking'
-      ? [...pendingKeys, 'headSha', 'conclusion', 'url', 'observedStates']
-      : [...pendingKeys, 'headSha', 'conclusion', 'url'];
-    if (!exactKeys(item, state === 'pending' ? pendingKeys : satisfiedKeys)) {
+      ? [...identityKeys, 'headSha', 'conclusion', 'url', 'observedStates']
+      : [...identityKeys, 'headSha', 'conclusion', 'url'];
+    if (!exactKeys(item, state === 'pending' ? identityKeys : satisfiedKeys)) {
       gaps.push(`evidence item ${index} has unknown or missing fields`);
       return;
     }
@@ -175,8 +181,10 @@ function validateEvidenceArray(items, state, scope, gaps, options = {}) {
     identities.push(`${item.kind}\u0000${item.name}`);
     if (state === 'pending') return;
 
-    if (!SHA_PATTERN.test(item.headSha)) gaps.push(`evidence item ${index} has an invalid head SHA`);
-    if (options.expectedHeadSha && item.headSha.toLowerCase() !== options.expectedHeadSha.toLowerCase()) {
+    if (typeof item.headSha !== 'string' || !SHA_PATTERN.test(item.headSha)) {
+      gaps.push(`evidence item ${index} has an invalid head SHA`);
+    } else if (options.expectedHeadSha
+      && item.headSha.toLowerCase() !== String(options.expectedHeadSha).toLowerCase()) {
       gaps.push(`evidence item ${index} does not match the expected head SHA`);
     }
     if (!HTTP_URL_PATTERN.test(item.url) || item.url.length > 2048) {
@@ -276,11 +284,13 @@ export function inspectVerificationReadiness(input) {
 }
 
 export function evidenceIdentity(item) {
-  return {
+  const identity = {
     kind: item.kind,
     name: item.name,
     acceptanceCriteria: item.acceptanceCriteria,
   };
+  if (item.event !== undefined) identity.event = item.event;
+  return identity;
 }
 
 export function inspectDeliveryValidation(input) {
@@ -309,7 +319,8 @@ export function inspectDeliveryValidation(input) {
   if (options.expectedPullRequestNumber !== undefined && value?.pullRequestNumber !== options.expectedPullRequestNumber) {
     gaps.push('delivery-validation PR does not match the active pull request');
   }
-  if (options.expectedHeadSha && value?.headSha?.toLowerCase() !== options.expectedHeadSha.toLowerCase()) {
+  if (options.expectedHeadSha && typeof value?.headSha === 'string'
+    && value.headSha.toLowerCase() !== String(options.expectedHeadSha).toLowerCase()) {
     gaps.push('delivery-validation head does not match the final pull-request head');
   }
 
@@ -338,7 +349,12 @@ export function inspectDeliveryValidation(input) {
 }
 
 function usage() {
-  return 'Usage: node verification-readiness.mjs --project <repo-root> --spec specs/<slug> --issue <N> [--head <sha>] --json\n';
+  return [
+    'Usage:',
+    '  node verification-readiness.mjs --project <repo-root> --spec specs/<slug> --issue <N> [--head <sha>] --json',
+    '  node verification-readiness.mjs --project <repo-root> --spec specs/<slug> --issue <N> --pr <N> --head <sha> --delivery-body-file <path> --json',
+    '',
+  ].join('\n');
 }
 
 function positiveIssue(value) {
@@ -363,6 +379,16 @@ function readReport(projectRoot, specPath) {
   return fs.readFileSync(reportReal, 'utf8');
 }
 
+function readRegularFile(filePath, label) {
+  const absolute = path.resolve(filePath);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular non-symlink file`);
+  if (stat.size > MAX_VERIFICATION_REPORT_BYTES) {
+    throw new Error(`${label} exceeds ${MAX_VERIFICATION_REPORT_BYTES} bytes`);
+  }
+  return fs.readFileSync(absolute, 'utf8');
+}
+
 export function runCli(argv, streams = {}) {
   const stdout = streams.stdout ?? process.stdout;
   const stderr = streams.stderr ?? process.stderr;
@@ -374,7 +400,9 @@ export function runCli(argv, streams = {}) {
         project: { type: 'string' },
         spec: { type: 'string' },
         issue: { type: 'string' },
+        pr: { type: 'string' },
         head: { type: 'string' },
+        'delivery-body-file': { type: 'string' },
         json: { type: 'boolean', default: false },
         help: { type: 'boolean', default: false },
       },
@@ -390,14 +418,54 @@ export function runCli(argv, streams = {}) {
     return 0;
   }
   const issueNumber = positiveIssue(values.issue);
+  const pullRequestNumber = positiveIssue(values.pr);
+  const deliveryBodyFile = values['delivery-body-file'];
+  const deliveryMode = deliveryBodyFile !== undefined || values.pr !== undefined;
   if (!values.project || !SPEC_PATTERN.test(values.spec ?? '') || !issueNumber || !values.json
-    || (values.head && !SHA_PATTERN.test(values.head))) {
+    || (values.head && !SHA_PATTERN.test(values.head))
+    || (deliveryMode && (!deliveryBodyFile || !pullRequestNumber || !values.head))
+    || (!deliveryMode && values.pr !== undefined)) {
     stderr.write(usage());
     return 2;
   }
   try {
     const projectRoot = path.resolve(values.project);
     const content = readReport(projectRoot, values.spec);
+    if (deliveryMode) {
+      const reportResult = inspectVerificationReadiness({
+        content,
+        options: {
+          expectedIssueNumber: issueNumber,
+          expectedSpecPath: values.spec,
+        },
+      });
+      if (reportResult.status !== 'pr_evidence_satisfied') {
+        const result = {
+          status: 'unverifiable',
+          reasonCode: 'delivery_report_not_satisfied',
+          deliveryValidation: null,
+          gaps: [
+            'delivery validation requires a satisfied PR-readiness report',
+            ...reportResult.gaps,
+          ],
+        };
+        stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        return 2;
+      }
+      const result = inspectDeliveryValidation({
+        content: readRegularFile(deliveryBodyFile, 'delivery body'),
+        options: {
+          expectedIssueNumber: issueNumber,
+          expectedSpecPath: values.spec,
+          expectedPullRequestNumber: pullRequestNumber,
+          expectedHeadSha: values.head,
+          deliveryAcceptanceCriteria: reportResult.issueScope.delivery.acceptanceCriteria,
+          expectedEvidenceIdentities: reportResult.readiness.evidence.map(evidenceIdentity),
+        },
+      });
+      stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return result.status === 'final_sha_validated' ? 0 : 2;
+    }
     const result = inspectVerificationReadiness({
       content,
       options: {

@@ -28,7 +28,7 @@ Use this template to generate the final verification report.
 | Error Handling | [score] |
 | **Overall** | [average] |
 
-**Status**: Pass / PR Evidence Pending / Partial / Incomplete / Fail
+**Implementation Status**: Pass / PR Evidence Pending / Partial / Incomplete / Fail
 **Total Issues**: [count]
 
 ---

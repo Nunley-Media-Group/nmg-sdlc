@@ -14,7 +14,7 @@ Before creating or reusing a draft:
    node <plugin-root>/scripts/verification-readiness.mjs --project <project-root> --spec specs/<slug> --issue N --json
    ```
 
-2. Continue only for `status: pr_evidence_pending`, with no gaps. Ordinary `pass` follows the unchanged ordinary PR path. `blocked` or `unverifiable` stops before PR mutation.
+2. Continue for `status: pr_evidence_pending`, with no gaps. Also accept `status: pr_evidence_satisfied` only as a retry of its exact preserved controlled draft: do not create a new PR, retain the same evidence identities, and require the remaining identity/freshness/final-marker checks below. Ordinary `pass` follows the unchanged ordinary PR path. `blocked` or `unverifiable` stops before PR mutation.
 3. Preserve the parsed pending evidence identities in memory as data. Never execute or interpolate report content as shell source.
 4. Complete the existing preflight, version, staging, commit, rebase, safe-push, and pushed-state postconditions. Re-run the helper and the report commit/ancestry/implementation-freshness proof against the committed report before draft creation; require the same marker identity and evidence list.
 
@@ -26,15 +26,15 @@ Resolve the authenticated repository and default branch through bounded read-onl
 number,state,isDraft,url,headRefName,headRefOid,baseRefName,closingIssuesReferences
 ```
 
-- No matching PR: create with `gh pr create --draft --title <title> --body-file <body-file>`.
+- No matching PR: create with `gh pr create --draft --title <title> --body-file <body-file>` only for `pr_evidence_pending`; a satisfied retry without its exact draft stops.
 - One matching PR: reuse only when it is `OPEN`, `isDraft: true`, its head branch equals the local branch, its base equals the repository default branch, and its closing references contain exactly the active issue expected by this delivery.
 - More than one candidate, a ready/closed/merged PR, another base/head/issue, missing metadata, or malformed JSON: stop without mutating the candidate.
 
-Re-fetch the created/reused PR through `gh pr view` and require the same repository, PR number, open draft state, base, head branch, closing issue, and a 40-character `headRefOid`. Require that `headRefOid` equals the pushed local `HEAD`. Record it as `H1`.
+Re-fetch the created/reused PR through `gh pr view` and require the same repository, PR number, open draft state, base, head branch, closing issue, and a 40-character `headRefOid`. Require that `headRefOid` equals the pushed local `HEAD`. Record it as `H1` for pending entry. For satisfied retry, preserve its recorded H1, record the current pushed head as H2, require the report to remain committed/current with the exact evidence identities, and require that the current PR body has no valid final marker for H2 before re-entering at **Recheck and Record H2**.
 
 ## Collect H1 Evidence
 
-Poll at most 60 times, 30 seconds apart. Fetch check data as JSON with `gh pr checks <number> --json bucket,completedAt,description,event,link,name,startedAt,state,workflow`; for `required_check`, also use `--required`. Match each declared `required_check` or `check_run` by its exact name, never by substring or display prose.
+Poll at most 60 times, 30 seconds apart. Fetch check data as JSON with `gh pr checks <number> --json bucket,completedAt,description,event,link,name,startedAt,state,workflow`; for `required_check`, also use `--required`. Match each declared `required_check` or `check_run` by its exact name and exact `event: pull_request`, never by substring or display prose. Any other or missing event fails closed as pre-PR-capable evidence.
 
 - `SUCCESS`, `NEUTRAL`, or `SKIPPED` is success.
 - `PENDING`, `QUEUED`, `IN_PROGRESS`, `WAITING`, or `REQUESTED` remains pending until the bound expires.
@@ -60,7 +60,13 @@ Repeat the complete declared evidence collection for exact `H2`; H1 results cann
 
 Fetch the current PR body, reject a duplicate or malformed delivery-validation marker, replace the prior marker when resuming, and write the complete preserved body plus exactly one new marker through a securely created temporary body file and `gh pr edit <number> --body-file <file>`. Always delete only that exact temporary file after use.
 
-Re-fetch the PR body and head metadata. Validate the marker with `inspectDeliveryValidation`, requiring the active issue, spec, PR number, H2, delivery acceptance-criterion set, and the original pending evidence identities. Require the PR to remain open and draft and `headRefOid` to remain H2.
+Re-fetch the PR body and head metadata into a securely created temporary body file. Validate the exact fetched body through the public helper interface:
+
+```text
+node <plugin-root>/scripts/verification-readiness.mjs --project <project-root> --spec specs/<slug> --issue N --pr P --head H2 --delivery-body-file <fetched-body-file> --json
+```
+
+Require exit 0, `status: final_sha_validated`, active issue/spec/PR/H2 identity, the delivery acceptance-criterion set, and the original pending evidence identities. Require the PR to remain open and draft and `headRefOid` to remain H2. Delete only the exact temporary file after validation. Do not call an unexposed in-process helper from the workflow.
 
 Only after every check above succeeds, run:
 
@@ -77,4 +83,4 @@ At any missing, failed, timed-out, stale, conflicting, malformed, or unknown res
 - stop without `gh pr ready`, merge, checkout, branch deletion, protection/ruleset mutation, or a false Pass report;
 - preserve the feature branch and controlled draft PR;
 - report the exact PR, head SHA, evidence identity, and gap;
-- on a later invocation, revalidate the entry marker, exact draft identity, current pushed head, and all evidence from the beginning. Never trust cached H1/H2 data.
+- on a later invocation, revalidate the entry marker, exact draft identity, current pushed head, and all evidence from the beginning. A current `pr_evidence_satisfied` report for H1 resumes at H2 only when the same open draft, report freshness, evidence identities, and lack of a valid final H2 marker are all proven. Never trust cached H1/H2 data.

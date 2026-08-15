@@ -49,6 +49,7 @@ function pendingItem(overrides = {}) {
   return {
     kind: 'required_check',
     name: 'contract-tests',
+    event: 'pull_request',
     acceptanceCriteria: ['AC1'],
     ...overrides,
   };
@@ -119,6 +120,17 @@ describe('verification readiness contract', () => {
     });
   });
 
+  it('rejects an allowlisted check that is available before pull-request creation', () => {
+    const result = inspectVerificationReadiness({
+      content: report('PR Evidence Pending', pendingReadiness({
+        pendingEvidence: [pendingItem({ event: 'push' })],
+      })),
+      options: { expectedScope: SCOPE },
+    });
+    expect(result).toMatchObject({ status: 'unverifiable' });
+    expect(result.gaps).toContain('evidence item 1 is not proven pull-request-only');
+  });
+
   it('accepts satisfied evidence only for the expected head SHA', () => {
     const valid = inspectVerificationReadiness({
       content: report('Pass', satisfiedReadiness()),
@@ -134,6 +146,20 @@ describe('verification readiness contract', () => {
     expect(stale.gaps).toContain('evidence item 1 does not match the expected head SHA');
   });
 
+  it('rejects a non-string satisfied head SHA without throwing', () => {
+    const content = report('Pass', satisfiedReadiness({
+      evidence: [satisfiedItem({ headSha: 123 })],
+    }));
+    expect(() => inspectVerificationReadiness({
+      content,
+      options: { expectedScope: SCOPE, expectedHeadSha: HEAD_1 },
+    })).not.toThrow();
+    expect(inspectVerificationReadiness({
+      content,
+      options: { expectedScope: SCOPE, expectedHeadSha: HEAD_1 },
+    }).gaps).toContain('evidence item 1 has an invalid head SHA');
+  });
+
   test.each(['Partial', 'Incomplete', 'Fail'])(
     'keeps generic %s reports blocked',
     (status) => {
@@ -146,7 +172,11 @@ describe('verification readiness contract', () => {
 
   it('rejects unknown evidence kinds, fields, and local omissions', () => {
     const unknownKind = pendingReadiness({
-      pendingEvidence: [pendingItem({ kind: 'manual_exception' })],
+      pendingEvidence: [{
+        kind: 'manual_exception',
+        name: 'contract-tests',
+        acceptanceCriteria: ['AC1'],
+      }],
     });
     expect(inspectVerificationReadiness({
       content: report('PR Evidence Pending', unknownKind),
@@ -192,11 +222,15 @@ describe('verification readiness contract', () => {
     }).gaps).toContain('PR-readiness marker must appear exactly once');
 
     const invalidMerge = satisfiedReadiness({
-      evidence: [satisfiedItem({
+      evidence: [{
         kind: 'merge_blocking',
+        name: 'contract-tests',
+        acceptanceCriteria: ['AC1'],
+        headSha: HEAD_1,
         conclusion: 'OBSERVED',
+        url: 'https://github.example/pull/50',
         observedStates: ['CLEAN'],
-      })],
+      }],
     });
     expect(inspectVerificationReadiness({
       content: report('Pass', invalidMerge),
@@ -270,5 +304,61 @@ describe('verification readiness CLI', () => {
       stderr: { write: () => {} },
     })).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ status: 'blocked' });
+  });
+
+  it('validates a fetched PR body against a satisfied report before ready transition', () => {
+    const reportPath = path.join(root, 'specs', 'feature-readiness', 'verification-report.md');
+    const bodyPath = path.join(root, 'pr-body.md');
+    fs.writeFileSync(reportPath, report('Pass', satisfiedReadiness()));
+    fs.writeFileSync(bodyPath, marker('nmg-sdlc-delivery-validation', {
+      schemaVersion: 1,
+      state: 'final_sha_validated',
+      issueNumber: 42,
+      specPath: SPEC_PATH,
+      pullRequestNumber: 50,
+      headSha: HEAD_2,
+      evidence: [satisfiedItem({ headSha: HEAD_2 })],
+    }));
+
+    let stdout = '';
+    let stderr = '';
+    expect(runCli([
+      '--project', root,
+      '--spec', SPEC_PATH,
+      '--issue', '42',
+      '--pr', '50',
+      '--head', HEAD_2,
+      '--delivery-body-file', bodyPath,
+      '--json',
+    ], {
+      stdout: { write: (chunk) => { stdout += chunk; } },
+      stderr: { write: (chunk) => { stderr += chunk; } },
+    })).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ status: 'final_sha_validated', gaps: [] });
+    expect(stderr).toBe('');
+
+    fs.writeFileSync(bodyPath, marker('nmg-sdlc-delivery-validation', {
+      schemaVersion: 1,
+      state: 'final_sha_validated',
+      issueNumber: 42,
+      specPath: SPEC_PATH,
+      pullRequestNumber: 50,
+      headSha: HEAD_1,
+      evidence: [satisfiedItem({ headSha: HEAD_1 })],
+    }));
+    stdout = '';
+    expect(runCli([
+      '--project', root,
+      '--spec', SPEC_PATH,
+      '--issue', '42',
+      '--pr', '50',
+      '--head', HEAD_2,
+      '--delivery-body-file', bodyPath,
+      '--json',
+    ], {
+      stdout: { write: (chunk) => { stdout += chunk; } },
+      stderr: { write: () => {} },
+    })).toBe(2);
+    expect(JSON.parse(stdout)).toMatchObject({ status: 'unverifiable' });
   });
 });
