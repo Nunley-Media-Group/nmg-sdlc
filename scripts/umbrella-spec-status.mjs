@@ -25,6 +25,7 @@ const REQUIRED_SPEC_FILES = new Set([
   'tasks.md',
 ]);
 const OPTIONAL_SPEC_FILES = new Set([
+  'issue-scope.json',
   'verification-report.md',
 ]);
 const ALLOWED_SPEC_FILES = new Set([
