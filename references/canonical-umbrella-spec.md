@@ -166,6 +166,8 @@ After exact approval, run `gh issue reopen N`, refetch through the helper, and c
 `start-issue` uses only relationship and genuine dependency readiness; it may
 start the first ready child before an aggregate exists. It displays resolved
 lineage informationally and never makes aggregate publication an execution edge.
+The canonical parent-spec gate therefore begins with `write-spec`, not branch
+creation or the issue/Project transition performed by `start-issue`.
 
 `write-spec` creates the missing aggregate with the first child or requires
 canonical aggregate proof for a later child. `write-code`, `verify-code`,
