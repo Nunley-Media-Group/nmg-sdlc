@@ -89,7 +89,7 @@ jobs:
             function resolveSpecDirectories(value, paths) {
               const directories = new Set();
               for (const path of paths) {
-                const match = path.match(/^(specs\/(?:feature|bug)-[^/]+)\/(?:requirements|design|tasks)\.md$|^(specs\/(?:feature|bug)-[^/]+)\/feature\.gherkin$/);
+                const match = path.match(/^(specs\/(?:feature|bug)-[^/]+)\/(?:requirements|design|tasks)\.md$|^(specs\/(?:feature|bug)-[^/]+)\/(?:feature\.gherkin|issue-scope\.json|epic-link\.json)$/);
                 if (match) directories.add(match[1] || match[2]);
               }
               for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/(?:feature|bug)-[a-z0-9-]+\b/gi)) {

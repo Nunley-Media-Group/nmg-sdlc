@@ -39,6 +39,7 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
     expect(template).toContain("['requirements.md', 'design.md', 'epic-scope.json']");
     expect(template).toContain('new Set()');
     expect(template).toContain('resolveSpecDirectories');
+    expect(template).toContain('(?:feature\\.gherkin|issue-scope\\.json|epic-link\\.json)');
     expect(template).toContain('resolveAggregateDirectories');
     expect(template).toContain("(?:requirements\\.md|design\\.md|epic-scope\\.json)");
     expect(template).not.toContain('epic-requirements\\.md|epic-design\\.md');

@@ -248,6 +248,25 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     expect(result.failed).toEqual([]);
   });
 
+  test.each(['issue-scope.json', 'epic-link.json'])(
+    'discovers an executable child from an authority-only %s change',
+    async (authorityArtifact) => {
+      const files = addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+        issue: 143,
+        tasks: '**File(s)**: `specs/feature-gate/`',
+      });
+      const result = await runEvaluator({
+        body: 'Closes #143\n\nSteering: steering/tech.md\n\n## Verification\nAC1: passed',
+        changedPaths: [`specs/feature-gate/${authorityArtifact}`],
+        repositoryFiles: files,
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.failed).toEqual([]);
+      expect(result.contentCalls).toContain('specs/feature-gate/requirements.md');
+    },
+  );
+
   test('rejects an aggregate without an executable child package', async () => {
     const files = addAggregate(baseRepositoryFiles(), 'specs/epic-delivery');
     const result = await runEvaluator({
