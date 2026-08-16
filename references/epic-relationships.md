@@ -144,7 +144,21 @@ siblings, dependencies, or unrelated Project items.
 
 ## Canonical Parent-Spec Readiness
 
-After a consumer obtains `role = epic-child`, read `references/canonical-umbrella-spec.md` and inspect `parentNumber` with parent mode. Only `canonical` and `canonical_marker_lost` permit child branch, spec, plan, verification, or delivery mutation.
+This gate begins with `write-spec`; `start-issue` does not run it. A first ready
+child may receive its branch and In Progress transition while the parent
+aggregate is still absent because `write-spec` owns creation and publication of
+that first aggregate/child pair.
+
+After a later consumer obtains `role = epic-child`, read
+`references/canonical-umbrella-spec.md` and inspect `parentNumber` with parent
+mode. Route the result by lifecycle stage:
+
+- `write-spec` may accept `planned/aggregate_not_authored` only for the first
+  ready child and must use its first-child flow. A later or existing child
+  requires `canonical` or `canonical_marker_lost` before specification writes.
+- `write-code`, `verify-code`, `status`, and `open-pr` require `canonical` or
+  `canonical_marker_lost` plus valid child authority before plan, verification,
+  or delivery mutation.
 
 - `ordinary` preserves existing single-PR and keyword-fallback behavior.
 - `legacy` uses the same canonical gate as `durable` and reports its repair recommendation.

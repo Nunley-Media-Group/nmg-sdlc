@@ -98,7 +98,9 @@ describe('canonical epic and legacy umbrella-spec contracts', () => {
 
   test('all child entry points gate before their first mutation', () => {
     expect(relationships).toContain('Canonical Parent-Spec Readiness');
-    expect(relationships).toContain('Only `canonical` and `canonical_marker_lost`');
+    expect(relationships).toContain('`start-issue` does not run it');
+    expect(relationships).toContain('`planned/aggregate_not_authored` only for the first');
+    expect(relationships).toContain('require `canonical` or');
 
     const startGate = startIssue.indexOf('## Step 3.25: Fresh Relationship and Readiness Gate');
     const staleBranch = startIssue.indexOf('## Step 3.5: Reconcile Stale Remote Branch');
