@@ -466,4 +466,21 @@ describe('epic completion classification', () => {
     };
     expect(classifyEpicCompletion(input)).toEqual(classifyEpicCompletion(input));
   });
+
+  test('binds the completion digest to valid spec-authority evidence', () => {
+    const input = {
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10, evidenceDigest: 'sha256:first' },
+    };
+    const first = classifyEpicCompletion(input);
+    const second = classifyEpicCompletion({
+      ...input,
+      specAuthority: { ...input.specAuthority, evidenceDigest: 'sha256:second' },
+    });
+
+    expect(first.specAuthorityEvidenceDigest).toBe('sha256:first');
+    expect(second.specAuthorityEvidenceDigest).toBe('sha256:second');
+    expect(second.evidenceDigest).not.toBe(first.evidenceDigest);
+  });
 });

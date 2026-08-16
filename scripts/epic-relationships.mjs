@@ -546,6 +546,7 @@ function completionBase(epicIssueNumber, specAuthority) {
     directChildren: [],
     incompleteChildren: [],
     specAuthorityStatus: specAuthority?.status ?? 'unverifiable',
+    specAuthorityEvidenceDigest: specAuthority?.evidenceDigest ?? null,
     projectStatus: 'not_applicable',
     projectMutations: [],
     nextParentNumber: null,
