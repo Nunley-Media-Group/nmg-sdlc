@@ -22,7 +22,7 @@ describe('coordination-only epic lifecycle parity (issue #177)', () => {
       const source = read(relativePath);
       expectLifecycleSummary(source);
       expect(source).toMatch(/aggregate/i);
-      expect(source).toMatch(/child(?:'s)? (?:separate |own |executable |normal )*(?:feature or bug )?package|package.*child/i);
+      expect(source).toMatch(/executable epic child has its own normal feature or bug package|first ready child[^\n]*plus its own normal five-file package|first epic child[^\n]*creates the aggregate plus its separate child package/i);
       expect(source).toMatch(/exact-head merge/i);
       expect(source).toMatch(/eligible[^.\n]*epic|epic[^.\n]*eligible/i);
       expect(source).toMatch(/exact approval|explicit approval/i);
@@ -62,6 +62,13 @@ describe('coordination-only epic lifecycle parity (issue #177)', () => {
     expect(structure).toContain('design.md');
     expect(structure).toContain('epic-scope.json');
     expect(structure).toMatch(/never.*tasks|no executable tasks/i);
+
+    for (const relativePath of ['steering/tech.md', 'skills/onboard-project/templates/tech.md']) {
+      const source = read(relativePath);
+      expect(source).toContain('### Automated Review');
+      expect(source).toContain('| `bots` | `true` |');
+      expect(source).toContain('| `logins` | `["coderabbitai"]` |');
+    }
   });
 
   test('every lifecycle consumer binds work to an executable child and keeps open-pr terminal', () => {
@@ -84,7 +91,7 @@ describe('coordination-only epic lifecycle parity (issue #177)', () => {
     ]) {
       const source = read(relativePath);
       expect(source).toContain('epic-spec-authority.mjs');
-      expect(source).toMatch(/active child|child[\s\S]{0,40}package|requestedChild\.specPath/i);
+      expect(source).toMatch(/requestedChild\.specPath|resolved child\s+package/i);
     }
 
     const openPr = read('skills/open-pr/SKILL.md');

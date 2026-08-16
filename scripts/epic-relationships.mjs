@@ -525,6 +525,11 @@ function normalizeProjectItems(projectItems) {
       });
     }
   }
+  mutations.sort((left, right) => (
+    left.projectId.localeCompare(right.projectId)
+    || left.itemId.localeCompare(right.itemId)
+    || left.statusFieldId.localeCompare(right.statusFieldId)
+  ));
   return { mutations, gaps };
 }
 

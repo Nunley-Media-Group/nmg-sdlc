@@ -42,6 +42,17 @@ Every workflow decision is interactive. Scripts may inspect, classify, or valida
 | GitHub integration | `gh` CLI / GraphQL where required | Authenticated current CLI |
 | Plugin packaging | `.codex-plugin/plugin.json` | Current Codex plugin schema |
 
+### Automated Review
+
+`$nmg-sdlc:address-pr-comments` may address a review thread only when its author
+matches this configuration. Human-reviewer threads always remain outside the
+automated fix loop.
+
+| Predicate | Value | Meaning |
+|-----------|-------|---------|
+| `bots` | `true` | Any GitHub author with `__typename: Bot` is eligible. |
+| `logins` | `["coderabbitai"]` | Explicit automated-reviewer logins are eligible in addition to the Bot predicate. |
+
 Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a development dependency isolated to `scripts/`.
 
 ---

@@ -32,7 +32,8 @@ function hasWorkflowCoverage(source) {
     && /informational lineage/i.test(source)
     && /exact-head merge/i.test(source)
     && /eligible epic/i.test(source)
-    && /exact approval/i.test(source);
+    && /exact approval/i.test(source)
+    && /fresh (?:drift (?:proof|digest)|matching digest)/i.test(source);
 }
 
 function ensureContributionGuide(projectDir, { brownfield = false } = {}) {

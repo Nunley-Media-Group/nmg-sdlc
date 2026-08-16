@@ -52,6 +52,17 @@ All technical decisions should align with these guidelines.
 |---------|---------|-------|
 | [service] | [purpose] | [rate limits, etc.] |
 
+### Automated Review
+
+`$nmg-sdlc:address-pr-comments` may address a review thread only when its author
+matches this configuration. Human-reviewer threads always remain outside the
+automated fix loop.
+
+| Predicate | Value | Meaning |
+|-----------|-------|---------|
+| `bots` | `true` | Any GitHub author with `__typename: Bot` is eligible. |
+| `logins` | `["coderabbitai"]` | Explicit automated-reviewer logins are eligible in addition to the Bot predicate. |
+
 ---
 
 ## Versioning

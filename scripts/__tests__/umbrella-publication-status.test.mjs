@@ -252,6 +252,12 @@ describe('umbrella publication GitHub semantic classifier', () => {
     expect(invalidMarker.status).toBe('unverifiable');
     expect(invalidMarker.gaps).toContain('pull request body does not contain exactly one expected umbrella marker');
 
+    const mixedMarkers = classifyPublicationEvidence(options, payload({
+      body: `Refs #161\n\n${publicationMarker(options)}\n\n${aggregatePublicationMarker(aggregateOptions)}`,
+    }));
+    expect(mixedMarkers.status).toBe('unverifiable');
+    expect(mixedMarkers.gaps).toContain('pull request body does not contain exactly one expected umbrella marker');
+
     const invalidBase = payload();
     invalidBase.repository.pullRequest.baseRefName = 'develop';
     expect(classifyPublicationEvidence(options, invalidBase).gaps).toContain('base ref is develop, expected main');
@@ -345,6 +351,21 @@ describe('umbrella publication GitHub semantic classifier', () => {
     const closedChild = classifyPublicationEvidence(aggregateOptions, aggregatePayload({ childState: 'CLOSED' }));
     expect(closedChild.status).toBe('unverifiable');
     expect(closedChild.gaps).toContain('spec publication requires the child issue to remain open');
+
+    for (const closingIssue of [108, 124]) {
+      const mergedClosesIssue = classifyPublicationEvidence(
+        aggregateOptions,
+        aggregatePayload({ merged: true, closing: [closingIssue] }),
+      );
+      expect(mergedClosesIssue.status).toBe('closing_relationship');
+      expect(mergedClosesIssue.reasonCode).toBe('merged_pr_retains_unexplained_closing_relationship');
+    }
+
+    const mixedMarkerPayload = aggregatePayload();
+    mixedMarkerPayload.repository.pullRequest.body += `\n\n${publicationMarker(options)}`;
+    const mixedMarkers = classifyPublicationEvidence(aggregateOptions, mixedMarkerPayload);
+    expect(mixedMarkers.status).toBe('unverifiable');
+    expect(mixedMarkers.gaps).toContain('pull request body does not contain exactly one expected aggregate/child marker');
   });
 
   test('accepts a merged exact aggregate/child publication without closing lifecycle issues', () => {

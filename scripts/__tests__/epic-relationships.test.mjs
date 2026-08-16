@@ -467,6 +467,31 @@ describe('epic completion classification', () => {
     expect(classifyEpicCompletion(input)).toEqual(classifyEpicCompletion(input));
   });
 
+  test('normalizes Project mutations independently of input order', () => {
+    const projectItems = [
+      {
+        itemId: 'ITEM-B', projectId: 'PROJECT-B', projectTitle: 'Beta',
+        statusFieldId: 'STATUS-B', statusName: 'In Progress',
+        doneOptions: [{ id: 'DONE-B', name: 'Done' }],
+      },
+      {
+        itemId: 'ITEM-A', projectId: 'PROJECT-A', projectTitle: 'Alpha',
+        statusFieldId: 'STATUS-A', statusName: 'Backlog',
+        doneOptions: [{ id: 'DONE-A', name: 'Done' }],
+      },
+    ];
+    const input = {
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10, evidenceDigest: 'sha256:spec' },
+    };
+    const forward = classifyEpicCompletion({ ...input, projectItems });
+    const reversed = classifyEpicCompletion({ ...input, projectItems: [...projectItems].reverse() });
+
+    expect(forward.projectMutations).toEqual(reversed.projectMutations);
+    expect(forward.evidenceDigest).toBe(reversed.evidenceDigest);
+  });
+
   test('binds the completion digest to valid spec-authority evidence', () => {
     const input = {
       issues: completedGraph(),

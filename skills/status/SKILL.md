@@ -14,8 +14,8 @@ Read `../../references/issue-spec-scope.md` when interpreting the `spec.scope` f
 Read `../../references/epic-relationships.md` when an active issue is present. The bundled CLI hydrates the same label/body/native evidence, uses `scripts/epic-relationships.mjs`, and exposes the shared result as the issue's nullable `coordination` field without changing lifecycle-stage inference.
 
 Read `../../references/epic-spec-authority.md` when coordination identifies an
-epic or child. The CLI exposes `spec.epicAuthority` from a read-only exact source
-inspection performed by `scripts/epic-spec-authority.mjs`. A confirmed epic reports `coordination-only` and recommends a ready
+epic or child. The CLI exposes `spec.epicAuthority` from a read-only worktree
+snapshot inspection performed by `scripts/epic-spec-authority.mjs`. A confirmed epic reports `coordination-only` and recommends a ready
 child; it never reports implementation/verification/delivery as the epic's own
 stage. A child advances only for `valid` authority and uses its resolved child
 package. `planned`, `repair_required`, or `unverifiable` authority caps the stage

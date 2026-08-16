@@ -143,7 +143,7 @@ recovery action; an open PR or pending handoff is never success.
 
 ## Integration with SDLC Workflow
 
-```
+```text
 $nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
                                                                                                        ▲ You are here
 ```

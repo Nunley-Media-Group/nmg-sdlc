@@ -711,7 +711,9 @@ function classifyBundlePublicationMode(
     return unverifiable('aggregate-child-publication', projectRoot, {
       ...remoteDefault,
       reasonCode: 'default_bundle_tree_unavailable',
-      reason: aggregateDefaultTree.reason ?? childDefaultTree.reason,
+      reason: (!aggregateDefaultTree.ok && !aggregateDefaultTree.missing)
+        ? aggregateDefaultTree.reason
+        : childDefaultTree.reason,
       specPath: !aggregateDefaultTree.ok && !aggregateDefaultTree.missing ? aggregatePath : childSpecPath,
       issueNumber: childIssue,
     });

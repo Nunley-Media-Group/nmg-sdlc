@@ -193,7 +193,7 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   └── initialized → $nmg-sdlc:upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (merge + closure)
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
 ```
 
 Managed guidance must state that epics are coordination-only and cannot be started; children use normal dependency rules and show epic lineage only as information. New epic work uses a three-file aggregate plus separate executable child packages. Terminal delivery proves exact-head merge and child closure before eligible epic ancestors close. Legacy epic graph/spec/state drift is audited read-only and repaired only through exact per-epic `$nmg-sdlc:upgrade-project` approval.

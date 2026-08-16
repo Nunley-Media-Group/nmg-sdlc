@@ -93,7 +93,11 @@ specs/epic-<slug>/
 └── epic-scope.json
 ```
 
-Every epic child has its own normal feature or bug package and an `epic-link.json` that agrees bidirectionally with the aggregate manifest. Aggregate packages never contain `tasks.md`, `feature.gherkin`, or executable AC/FR/task/scenario ownership.
+Every executable epic child has its own normal feature or bug package and an
+`epic-link.json` that agrees bidirectionally with the aggregate manifest. A
+nested epic child instead uses its own aggregate package and `epic-scope.json`.
+Aggregate packages never contain `tasks.md`, `feature.gherkin`, or executable
+AC/FR/task/scenario ownership.
 
 Feature specs use `issue-scope.json` to assign every AC, FR, task, and stable `@SCN...` scenario identifier to one contributing issue. An issue's current delivery slice is its owned elements plus any explicitly adopted elements whose historical owner remains unchanged. Prior ACs, FRs, and scenarios may be declared separately as regression obligations; they are preservation evidence, not current implementation tasks. A single-contributor feature or singular defect without a manifest remains compatible through unambiguous whole-spec scope. A multi-issue spec with a missing or incomplete map stops at `$nmg-sdlc:write-spec #N` for explicit repair instead of defaulting to the cumulative document.
 

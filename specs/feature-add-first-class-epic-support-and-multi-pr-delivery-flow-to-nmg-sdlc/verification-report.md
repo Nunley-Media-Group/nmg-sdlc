@@ -20,7 +20,7 @@
 | **Overall** | **4.8** |
 
 ### Implementation Status: Pass
-**Total Issues**: 4 found and fixed; 0 remaining
+**Total Issues**: 31 found and fixed; 1 false-positive inventory claim disproved and revalidated; 0 remaining
 
 Issue #177 is locally complete. Epics are excluded from executable selection,
 epic lineage is informational, aggregate and child specification authority are
@@ -28,12 +28,19 @@ separate, pull-request delivery is terminal through exact-head merge and child
 closure, eligible epic ancestors close leaf-to-root, and legacy backlog repair
 is read-only until one exact digest-bound proposal is explicitly approved.
 
-Verification found and fixed four gaps: real aggregate filenames
-were not all discovered by the managed contribution gate, nested closure could
-accept a prematurely closed inner epic with planned descendants, and an exact
-legacy split did not bind destination paths or prove complete identifier
-transfer. Release preflight also found stale plugin metadata describing the old
-PR endpoint. Regression or manifest validation now pins every correction.
+Local verification first fixed four gaps: real aggregate filenames were not all
+discovered by the managed contribution gate, nested closure could accept a
+prematurely closed inner epic with planned descendants, an exact legacy split
+did not bind destinations or prove complete identifier transfer, and plugin
+metadata still described the old PR endpoint. CodeRabbit then found seven valid
+blocking defects plus twenty valid documentation, determinism, validation, and
+coverage improvements. Those findings now have focused regressions, including
+authority-only gate discovery, safe first-child readiness, action-free
+ambiguous repair, authority-digest binding, strict PR-check provenance,
+merge-base publication diffs, marker exclusivity, programmatic input guards,
+and order-stable Project evidence. Its claimed 69-item inventory result was not
+reproducible: the canonical audit mapped 506 items before and after a fresh
+baseline regeneration.
 
 ---
 
@@ -76,7 +83,7 @@ PR endpoint. Regression or manifest validation now pins every correction.
 ## Regression Obligations
 
 The normalized issue scope declares no separate regression identifiers for
-#177. Historical #149 obligations remain owned by #149 and were used only as
+issue `#177`. Historical #149 obligations remain owned by #149 and were used only as
 bounded neighboring context; they do not count toward #177 completion.
 
 ## Task Completion
@@ -154,7 +161,7 @@ and authority checks intentionally perform bounded full-tree work for safety.
 - Feature file: 12/12 active scenarios covered
 - Step definitions: implemented as deterministic Jest contract and disposable-repository exercises
 - Full execution: 44 suites passed; 2 opt-in Agent SDK suites skipped as designed
-- Tests: 463 passed; 5 opt-in tests skipped; 468 total
+- Tests: 472 passed; 5 opt-in tests skipped; 477 total
 - Syntax: every changed `.mjs` file passed `node --check`
 
 ## Exercise Test Results
@@ -178,7 +185,7 @@ upgrade.
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Full script test suite | Pass | 44 suites passed; 463 tests passed; only 5 documented opt-in tests skipped |
+| Full script test suite | Pass | 44 suites passed; 472 tests passed; only 5 documented opt-in tests skipped |
 | Skill inventory audit | Pass | 506 tracked items; no drift |
 | Codex compatibility | Pass | `node scripts/codex-compatibility-check.mjs` |
 | Plugin surface | Pass | repository surface validation passed |
@@ -197,10 +204,14 @@ upgrade.
 | High | Error handling / Lifecycle safety | `scripts/epic-relationships.mjs` | A closed nested epic with planned descendants could satisfy ancestor completion. | Require nested completion authority and reject planned or unverifiable nested state before ancestor closure. | direct |
 | High | Data integrity / Repair safety | `scripts/epic-lifecycle-repair.mjs`, `skills/upgrade-project/references/epic-lifecycle-recovery.md` | Exact split evidence did not bind child issues to destination paths or prove full source identifier coverage. | Added issue/path bindings, source-tree agreement, complete native-child matching, and exact source-to-transfer set equality. | `skill-creator` + direct helper/tests |
 | Medium | Documentation / Plugin metadata | `.codex-plugin/plugin.json` | The installed plugin description still ended delivery at PR creation and separate comment cleanup. | Updated the 2.1.0 manifest description to state epic coordination and terminal exact-head delivery; validated the manifest with `$plugin-creator`. | `plugin-creator` |
+| High | Review / Lifecycle safety | contribution gate, epic relationship/repair helpers, PR delivery classifier, publication status, and upgrade recovery | Eight blocking review threads exposed authority-only discovery, contradictory first-child readiness, ambiguous repair actions, unbound authority digests, weak check provenance, merge-base drift, and incomplete CLI guidance. | Fixed all valid blockers with focused regressions; regenerated and revalidated the 506-item inventory baseline instead of accepting the reviewer's incorrect 69-item reconstruction. | `address-pr-comments` + `write-code` + `verify-code` |
+| Medium | Review / Documentation and determinism | README, contribution exercise, steering/spec docs, lifecycle skills, authority/publication helpers, and tests | Twenty non-blocking findings identified nested-epic wording, stale status/path prose, unordered evidence, missing guards, marker ambiguity, lintable fences, and untested branches. | Corrected every reproducible finding, restored the automated-reviewer configuration in current and onboarding steering, and added deterministic coverage. | `skill-creator` + direct helpers/tests |
 
 ## Remaining Issues
 
-None.
+None. CodeRabbit's repository-wide docstring-coverage warning is not applicable
+to this Markdown-first plugin and was advisory rather than a failed required
+check.
 
 ## Positive Observations
 
@@ -213,10 +224,10 @@ None.
 
 | Surface | Issues | Notes |
 |---------|--------|-------|
-| `scripts/` | 2 fixed | Classifiers, publication/status helpers, inventory baseline, unit/contract/exercise tests |
+| `scripts/` | 11 fixed | Classifiers, publication/status helpers, inventory baseline, unit/contract/exercise tests |
 | `skills/` | 0 remaining | All affected lifecycle skills and templates validated through `$skill-creator` rules |
-| `references/` | 1 fixed | Epic identity/authority, publication, scope, verification, contribution, and repair contracts |
-| `.github/workflows/nmg-sdlc-contribution-gate.yml` | 1 fixed | Version-3 managed contribution evidence gate |
+| `references/` | 3 fixed | Epic identity/authority, publication, scope, verification, contribution, and repair contracts |
+| `.github/workflows/nmg-sdlc-contribution-gate.yml` | 2 fixed | Version-3 managed contribution evidence gate |
 | `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` | 0 | Coordination-only epic issue form |
 | `.codex-plugin/plugin.json`, `VERSION`, `CHANGELOG.md` | 1 fixed | 2.1.0 release metadata and migration guidance |
 | `README.md`, `CONTRIBUTING.md`, `steering/` | 0 | Public, contributor, and generated steering guidance |

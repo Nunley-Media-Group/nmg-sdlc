@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-16T18:13:00.720Z",
+  "generated_at": "2026-08-16T19:16:27.646Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -2596,9 +2596,9 @@
       "destination": "skills/upgrade-project/SKILL.md:235"
     },
     {
-      "id": "3b8f8de20e2e",
+      "id": "72dda4ca705c",
       "source_before": "skills/upgrade-project/SKILL.md:244",
-      "normalized": "before that block, emit:",
+      "normalized": "before the umbrella-identity block, emit:",
       "destination": "skills/upgrade-project/SKILL.md:244"
     },
     {

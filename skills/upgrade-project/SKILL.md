@@ -241,7 +241,7 @@ Umbrella Identity:
 - Gaps: none | <comma-separated exact records and failures>
 ```
 
-Before that block, emit:
+Before the umbrella-identity block, emit:
 
 ```text
 Epic Specification and Lifecycle:

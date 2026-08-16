@@ -758,9 +758,15 @@ function legacyCandidates(snapshot, epicIssue) {
   return candidates.sort();
 }
 
-export function inspectEpicSpecAuthority(options) {
+export function inspectEpicSpecAuthority(options = {}) {
   const mode = options.mode;
-  const requestedIssue = options.issueNumber ?? null;
+  const requestedIssue = parsePositiveInteger(options.issueNumber);
+  if (!['epic', 'child', 'all'].includes(mode)) {
+    return resultWithDigest({ status: 'unverifiable', reasonCode: 'mode_invalid', mode: mode ?? null, requestedIssue, source: options.source ?? 'worktree', aggregatePath: null, epicIssue: null, outcomes: [], children: [], nativeChildren: options.nativeChildren ?? null, migrations: [], gaps: ['mode must be epic, child, or all'] });
+  }
+  if (mode !== 'all' && requestedIssue === null) {
+    return resultWithDigest({ status: 'unverifiable', reasonCode: 'requested_issue_invalid', mode, requestedIssue, source: options.source ?? 'worktree', aggregatePath: null, epicIssue: null, outcomes: [], children: [], nativeChildren: options.nativeChildren ?? null, migrations: [], gaps: ['issueNumber must be a positive integer'] });
+  }
   let snapshot;
   try {
     snapshot = options.source

@@ -28,7 +28,7 @@ describe('bounded spec context contract (issue #139)', () => {
   test('affected skills reference the shared spec-context contract', () => {
     expect(read('skills/draft-issue/SKILL.md')).toContain('Read `../../references/spec-context.md` when Step 4 investigates a feature or enhancement');
     expect(read('skills/write-spec/SKILL.md')).toContain('Read `../../references/spec-context.md` when Spec Discovery needs related existing specs');
-    expect(read('skills/write-spec/references/discovery.md')).toContain('bounded metadata ranking contract from `../../references/spec-context.md`');
+    expect(read('skills/write-spec/references/discovery.md')).toContain('repository-root\n   `references/spec-context.md`');
     expect(read('skills/write-code/SKILL.md')).toContain('Read `../../references/spec-context.md` when Step 2 resolves the active spec');
     expect(read('skills/verify-code/SKILL.md')).toContain('Read `../../references/spec-context.md` when Step 1 loads the active spec');
   });

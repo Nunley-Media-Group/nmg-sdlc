@@ -187,6 +187,19 @@ describe('epic spec schema normalization', () => {
 });
 
 describe('epic spec authority inspection', () => {
+  test('rejects invalid programmatic modes and issue numbers before scanning', () => {
+    const root = project();
+    seedAggregate(root);
+    write(root, 'specs/epic-route-weather/epic-scope.json', '{"epicIssue":"invalid"}\n');
+
+    expect(inspectEpicSpecAuthority({ project: root, mode: 'typo', issueNumber: 108 }))
+      .toMatchObject({ status: 'unverifiable', reasonCode: 'mode_invalid' });
+    expect(inspectEpicSpecAuthority({ project: root, mode: 'epic', issueNumber: null }))
+      .toMatchObject({ status: 'unverifiable', reasonCode: 'requested_issue_invalid' });
+    expect(inspectEpicSpecAuthority({ project: root, mode: 'child', issueNumber: 'invalid' }))
+      .toMatchObject({ status: 'unverifiable', reasonCode: 'requested_issue_invalid' });
+  });
+
   test('resolves a canonical child while the aggregate still has a planned child', () => {
     const root = project();
     seedAggregate(root);

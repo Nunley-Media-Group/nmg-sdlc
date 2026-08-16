@@ -189,11 +189,18 @@ export function aggregatePublicationMarker(options) {
   ].join('\n');
 }
 
+const MARKER_PATTERNS = {
+  'aggregate-child': /<!-- nmg-sdlc:aggregate-child-spec\s+[\s\S]*?-->/g,
+  umbrella: /<!-- nmg-sdlc:umbrella-spec\s+[\s\S]*?-->/g,
+};
+
 function markerCount(body, kind) {
-  const pattern = kind === 'aggregate-child'
-    ? /<!-- nmg-sdlc:aggregate-child-spec\s+[\s\S]*?-->/g
-    : /<!-- nmg-sdlc:umbrella-spec\s+[\s\S]*?-->/g;
-  return [...String(body ?? '').matchAll(pattern)].length;
+  const source = String(body ?? '');
+  const counts = Object.fromEntries(Object.entries(MARKER_PATTERNS)
+    .map(([name, pattern]) => [name, [...source.matchAll(pattern)].length]));
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const expectedKind = kind === 'aggregate-child' ? 'aggregate-child' : 'umbrella';
+  return counts[expectedKind] === 1 && total === 1 ? 1 : total;
 }
 
 function result(status, reasonCode, expected, evidence = {}, gaps = []) {

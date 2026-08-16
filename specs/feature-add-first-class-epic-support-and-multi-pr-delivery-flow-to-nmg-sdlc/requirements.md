@@ -154,6 +154,7 @@ and FR1-FR8; #177 owns AC9-AC20 and FR9-FR25.
 | AC7a and AC7c: warn about premature closure or require an epic-authored spec | AC12, AC15, AC18, AC19 | New work prevents epic execution; approved repair handles legacy premature state and legacy spec authority. |
 | Design lifecycle steps that start and spec the epic before the first child | AC9-AC14 | Epics are coordination-only and the first ready child owns the specification transition. |
 | Out-of-scope exclusions for `upgrade-project` and pre-existing epic migrations | AC19 / FR21-FR23 | Exact, approved backlog and spec-authority repair is now required. |
+| Out-of-scope exclusion for `onboard-project` | AC20 / FR24 / T030 | Onboarding guidance and distributed templates must teach the coordination-only epic lifecycle, so this exclusion is superseded. |
 
 ### Issue #177 User Story Amendment
 

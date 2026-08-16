@@ -22,7 +22,7 @@ Read `../../references/deliverable-dependencies.md` when Step 1a begins. Structu
 
 ## Workflow Overview
 
-```
+```text
 $nmg-sdlc:start-issue [#N]
     │
     ├─ 1.  Fetch milestones & issues

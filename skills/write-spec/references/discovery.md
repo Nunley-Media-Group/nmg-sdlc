@@ -16,7 +16,7 @@ The top-level Epic Role and Authority Gate runs before this reference.
    aggregate or a sibling.
 3. Preserve cycle diagnostics. If top-level relationship resolution encounters a cycle, it aborts before discovery with:
 
-   ```
+   ```text
    ERROR: cycle detected in parent-link graph — #A and #B depend on each other. Break the cycle by removing one of the Depends on: lines and re-run $nmg-sdlc:write-spec.
    ```
 
@@ -25,7 +25,8 @@ The top-level Epic Role and Authority Gate runs before this reference.
 
 ## Step 1: Bounded Spec-Context Ranking (fallback)
 
-1. Apply the bounded metadata ranking contract from `../../references/spec-context.md`.
+1. Apply the bounded metadata ranking contract from the repository-root
+   `references/spec-context.md`.
 2. **Search for existing feature specs**: Run file discovery for `specs/feature-*/requirements.md` to list candidates. If no feature specs exist, skip to the create-new-spec flow in the main workflow.
 3. **Extract metadata first**: For each candidate, scan compact metadata only: slug/title, `**Issues**`, `**Related Spec**`, headings, AC/FR names, affected paths, symbols, component names, and strong title/body keywords from the issue.
 4. **Rank and filter**: Apply the shared ranking rules. Keep candidates only when they meet the threshold: at least one strong signal or at least two medium signals. Weak generic overlap is not enough.
