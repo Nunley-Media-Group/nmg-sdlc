@@ -6,6 +6,11 @@ Steering-level verification gates let a project declare mandatory shell-command 
 
 ## Extracting gates (Step 1)
 
+For an epic child, extraction begins only after link/aggregate authority is
+`valid` and the active executable package has been resolved. Steering gates run
+against that child delivery slice and repository changes; aggregate outcomes do
+not become pass criteria. An epic itself has no verification-gate run.
+
 After loading `tech.md`, check whether it contains a `## Verification Gates` section.
 
 - **If present**: parse each table row as a named gate with four fields:

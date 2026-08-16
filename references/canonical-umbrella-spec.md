@@ -1,8 +1,13 @@
-# Canonical Umbrella Specifications
+# Canonical Epic and Legacy Umbrella Specifications
 
-**Consumed by**: `write-spec` sealing and parent discovery, `start-issue` child readiness, `write-code` child readiness, `open-pr` child delivery readiness, and `upgrade-project` seal audit and recovery.
+**Consumed by**: `write-spec` publication, downstream epic-child authority
+checks, and `upgrade-project` audit/recovery. `start-issue` never requires a spec
+before selecting a ready child.
 
-A sealed umbrella specification is canonical only when refreshed `origin` default-branch content proves it. A seal commit, current-worktree copy, feature-branch copy, or pull-request state is supporting evidence, never a substitute for the default-branch tree.
+A legacy sealed umbrella or new aggregate/child pair is canonical only when
+refreshed `origin` default-branch content proves it. A source commit, worktree,
+feature branch, or pull-request state is supporting evidence, never a substitute
+for exact default-branch trees.
 
 ## Inspect Status
 
@@ -11,11 +16,22 @@ Resolve the installed plugin root from the consuming skill's own path, then run 
 ```bash
 node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue <N> --json
 node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --spec <specs/slug> --source <commit-ish> --json
+node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --aggregate <specs/epic-slug> --child-spec <specs/child-slug> --source <commit-ish> --json
 node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --all --json
 ```
 
-- Use `--parent-issue` before child branch, child spec, implementation plan, delegation, or code mutation. It searches the freshly fetched default tree for one feature spec whose strict `**Issues**` or legacy `**Issue**` field contains the confirmed parent.
+- Use `--parent-issue` for default-branch aggregate/legacy compatibility proof.
+  It recognizes a schema-v1 `epic-scope.json` aggregate first, then legacy
+  multi-PR packages. It is not a start-issue prerequisite.
 - Use `--spec` with `--source` during forward publication. It compares the full source spec-directory tree with the same path on the freshly fetched default branch.
+- Use `--aggregate` with `--child-spec` and `--source` for all new epic-child
+  publication. An executable child path validates the bidirectional manifests;
+  a distinct nested `specs/epic-*` child path validates both aggregate manifests
+  recursively. The helper compares the exact source/default tree pair.
+  First-child changes are limited to both new directories. Later-child changes
+  are limited to the new child directory plus `epic-scope.json`. An ancestor
+  link may reuse an unchanged exact nested-aggregate tree while publishing only
+  the approved ancestor aggregate/manifest.
 - Use standalone `--all` during upgrade analysis. It scans only bounded `refs/heads/*` and `refs/remotes/origin/*` histories, filters to multi-PR-triggered feature specs, and deduplicates candidates by full tree object ID.
 
 The helper discovers `origin`'s symbolic default branch through `git ls-remote`, fetches its objects without checkout or local branch/ref updates, and reads committed trees directly. It never writes the worktree or index, switches or creates a branch, stages, commits, pushes, or mutates GitHub.
@@ -34,6 +50,28 @@ The helper discovers `origin`'s symbolic default branch through `git ls-remote`,
 `audit` mode returns these statuses per finding. `publication_pending` is a workflow state, not a Git classification: `write-spec` derives it only after the helper reports a noncanonical source and one open pull request matches the exact marker below.
 
 ## Publication Marker
+
+New epic-child publications use exactly one pair marker:
+
+```text
+<!-- nmg-sdlc:aggregate-child-spec
+epic: #E
+aggregate: specs/epic-<slug>/
+aggregate-tree: <full-git-tree-oid>
+child: #C
+child-spec: specs/<type>-<slug>/ or specs/epic-<nested-slug>/
+child-tree: <full-git-tree-oid>
+digest: <sha256-of-normalized-pair>
+-->
+```
+
+Derive the marker and dedicated ref with exported helpers from
+`umbrella-publication-status.mjs`; do not hand-normalize or truncate identity.
+The head is
+`nmg-sdlc/spec-publication-E-C-<first-12-characters-of-digest>`. The PR body
+references both issues and closes neither. The legacy marker below remains
+readable for historical cumulative packages only. A nested-aggregate pair does
+not make the child epic executable and never creates `epic-link.json` for it.
 
 Put this stable comment in the spec-only pull-request body:
 
@@ -63,11 +101,31 @@ Create it only with a plain full-commit push:
 git push origin <full-seal-commit>:refs/heads/<dedicated-publication-ref>
 ```
 
-Never create or link that ref with `gh issue develop`. Before pushing, query the exact remote ref. Reuse it only when it resolves to the same full seal commit; a collision or mismatch stops. Never force-push it. The PR must use this dedicated head, target the detected default branch, and contain only the exact approved spec directory. It never changes `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, a marketplace file, or an unrelated dirty path.
+For a new aggregate/child pair, use the pair-derived ref documented above.
+Never create or link either publication ref with `gh issue develop`. Before
+pushing, query the exact remote ref. Reuse it only when it resolves to the same
+full source commit; a collision or mismatch stops. Never force-push it. The PR
+must use the dedicated head, target the detected default branch, and contain
+only the exact approved path set. It never changes `VERSION`, `CHANGELOG.md`,
+`.codex-plugin/plugin.json`, a marketplace file, or an unrelated dirty path.
 
 ## GitHub Closing-Semantic Gate
 
 After creating or finding an exact-marker PR, invoke the read-only helper from the installed plugin root:
+
+For new aggregate/child publication:
+
+```bash
+node <plugin-root>/scripts/umbrella-publication-status.mjs \
+  --project <project-root> --repository <owner/name> \
+  --epic E --child C --pr <publication-pr-number> \
+  --aggregate specs/epic-<slug> --aggregate-tree <full-aggregate-tree-oid> \
+  --child-spec <specs/executable-or-nested-aggregate-path> --child-tree <full-child-tree-oid> \
+  --source <full-source-commit> --base <detected-default-branch> --json
+```
+
+The helper requires both epic and child to remain open and rejects a closing
+reference to either one. For a legacy cumulative publication, use:
 
 ```bash
 node <plugin-root>/scripts/umbrella-publication-status.mjs \
@@ -105,14 +163,18 @@ After exact approval, run `gh issue reopen N`, refetch through the helper, and c
 
 ## Child Readiness
 
-Resolve the child's confirmed coordination parent through `references/epic-relationships.md`, then invoke parent mode. Only `canonical` and `canonical_marker_lost` satisfy the gate. Run it:
+`start-issue` uses only relationship and genuine dependency readiness; it may
+start the first ready child before an aggregate exists. It displays resolved
+lineage informationally and never makes aggregate publication an execution edge.
+The canonical parent-spec gate therefore begins with `write-spec`, not branch
+creation or the issue/Project transition performed by `start-issue`.
 
-- in `start-issue` after issue confirmation and before stale-branch reconciliation, dirty-tree handling, branch creation, or project status mutation;
-- in `write-spec` before amendment mode or child-spec writes;
-- in `write-code` before implementation planning, delegation, or edits.
-- in `open-pr` before sibling completion classification, version artifact edits, commits, pushes, or pull-request mutation.
-
-Parent readiness proves the canonical baseline path, not equality with a child branch that may contain approved child-scoped amendments. An issue with no confirmed coordination parent keeps its existing single-PR or keyword-fallback behavior.
+`write-spec` creates the missing aggregate with the first child or requires
+canonical aggregate proof for a later child. `write-code`, `verify-code`,
+`status`, and `open-pr` require `epic-spec-authority.mjs --child C` to return
+`valid` from the applicable committed/default source before consuming work.
+They use only the child issue-scope slice; parent-mode legacy proof alone cannot
+authorize a new epic child.
 
 ## Recovery Invariants
 

@@ -107,11 +107,13 @@ describe('exercise: persisted umbrella identity across fresh lifecycle sessions'
     expect(after.executionDependencies.some((dependency) => dependency.issueNumber === 108)).toBe(false);
   });
 
-  test('canonical child contract hands off to write-code without a child seal', () => {
+  test('canonical child contract uses exact pair publication before executable handoff', () => {
     const writeSpec = fs.readFileSync(path.join(repoRoot, 'skills/write-spec/SKILL.md'), 'utf8');
     const result = freshClassify(122);
     expect(result).toMatchObject({ role: 'epic-child', identity: 'durable', parentNumber: 108 });
-    expect(writeSpec).toContain('must not create a child-numbered seal commit or a second umbrella publication PR');
-    expect(writeSpec).toContain('continue to its normal `$nmg-sdlc:write-code #N` handoff');
+    expect(writeSpec).toContain('### Aggregate + Active-Child Publication');
+    expect(writeSpec).toContain('it never starts or closes the epic or child');
+    expect(writeSpec).toContain('The successful handoff names only the active child package');
+    expect(writeSpec).toContain('`$nmg-sdlc:write-code #C`');
   });
 });

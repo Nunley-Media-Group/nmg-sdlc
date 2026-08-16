@@ -109,6 +109,62 @@ function commitSpec(root, {
   return git(root, ['rev-parse', 'HEAD']);
 }
 
+function childScope(issue) {
+  return {
+    schemaVersion: 1,
+    issues: {
+      [issue]: {
+        owned: {
+          acceptanceCriteria: ['AC1'],
+          functionalRequirements: ['FR1'],
+          tasks: ['T001'],
+          scenarios: ['SCN001'],
+        },
+        adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
+        regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
+      },
+    },
+  };
+}
+
+function writeEpicChild(root, {
+  epic = 108,
+  issue = 109,
+  aggregatePath = 'specs/epic-route-weather',
+  childPath = 'specs/feature-sample-route-weather',
+} = {}) {
+  write(root, `${childPath}/requirements.md`, `# Requirements: Child\n\n**Issue**: #${issue}\n\n### AC1: Result\n\n| ID | Requirement | Priority |\n|----|-------------|----------|\n| FR1 | Deliver result | Must |\n`);
+  write(root, `${childPath}/design.md`, `# Design: Child\n\n**Issue**: #${issue}\n`);
+  write(root, `${childPath}/tasks.md`, `# Tasks: Child\n\n**Issue**: #${issue}\n\n### T001: Deliver\n`);
+  write(root, `${childPath}/feature.gherkin`, '@SCN001\nFeature: Child\n  Scenario: Result\n    Given context\n    When action\n    Then result\n');
+  write(root, `${childPath}/issue-scope.json`, `${JSON.stringify(childScope(issue), null, 2)}\n`);
+  write(root, `${childPath}/epic-link.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: epic,
+    epicSpecPath: aggregatePath,
+    childIssue: issue,
+    childSpecPath: childPath,
+    outcomes: ['EO001'],
+  }, null, 2)}\n`);
+}
+
+function writeEpicAggregate(root, {
+  epic = 108,
+  aggregatePath = 'specs/epic-route-weather',
+  children = [{ issue: 109, specPath: 'specs/feature-sample-route-weather', packageState: 'canonical', outcomes: ['EO001'] }],
+} = {}) {
+  write(root, `${aggregatePath}/requirements.md`, `# Epic Aggregate Requirements\n\n**Issue**: #${epic}\n\n### EO001: Route weather outcome\n`);
+  write(root, `${aggregatePath}/design.md`, `# Epic Aggregate Design\n\n**Issue**: #${epic}\n`);
+  write(root, `${aggregatePath}/epic-scope.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: epic,
+    aggregatePath,
+    outcomes: [{ id: 'EO001', childIssues: children.map((child) => child.issue) }],
+    children,
+    migrations: [],
+  }, null, 2)}\n`);
+}
+
 function runHelper(root, args) {
   const result = spawnSync(process.execPath, [helper, '--project', root, ...args, '--json'], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || result.stdout);
@@ -235,6 +291,131 @@ describe('umbrella-spec-status', () => {
     expect(finding.status).toBe('stranded_recoverable');
     expect(finding.candidates).toHaveLength(1);
     expect(finding.candidates[0].sourceCommits).toContain(sourceCommit);
+  });
+
+  test('classifies and publishes one exact first-child aggregate pair', () => {
+    const { work } = createFixture();
+    git(work, ['checkout', '-b', 'first-child-spec']);
+    writeEpicAggregate(work);
+    writeEpicChild(work);
+    git(work, ['add', 'specs/epic-route-weather', 'specs/feature-sample-route-weather']);
+    git(work, ['commit', '-m', 'docs: author first epic child specs']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const pending = runHelper(work, [
+      '--aggregate', 'specs/epic-route-weather',
+      '--child-spec', 'specs/feature-sample-route-weather',
+      '--source', sourceCommit,
+    ]);
+    expect(pending.status).toBe('stranded_recoverable');
+    expect(pending.reasonCode).toBe('first_child_aggregate_pair_not_on_default');
+    expect(pending.sourceTrees.aggregate).toMatch(/^[0-9a-f]{40}$/);
+    expect(pending.sourceTrees.child).toMatch(/^[0-9a-f]{40}$/);
+
+    git(work, ['checkout', 'main']);
+    git(work, ['restore', `--source=${sourceCommit}`, '--worktree', '--', 'specs/epic-route-weather', 'specs/feature-sample-route-weather']);
+    git(work, ['add', 'specs/epic-route-weather', 'specs/feature-sample-route-weather']);
+    git(work, ['commit', '-m', 'docs: publish first epic child specs']);
+    git(work, ['push', 'origin', 'main']);
+
+    const canonical = runHelper(work, [
+      '--aggregate', 'specs/epic-route-weather',
+      '--child-spec', 'specs/feature-sample-route-weather',
+      '--source', sourceCommit,
+    ]);
+    expect(canonical.status).toBe('canonical_marker_lost');
+    expect(canonical.reasonCode).toBe('default_aggregate_and_child_trees_match');
+    expect(runHelper(work, ['--parent-issue', '108'])).toMatchObject({
+      status: 'canonical_marker_lost',
+      specKind: 'epic-aggregate',
+      specPath: 'specs/epic-route-weather',
+    });
+  });
+
+  test('allows a later child only with its package and exact aggregate manifest amendment', () => {
+    const { work } = createFixture();
+    writeEpicAggregate(work);
+    writeEpicChild(work);
+    git(work, ['add', 'specs']);
+    git(work, ['commit', '-m', 'docs: publish first epic child specs']);
+    git(work, ['push', 'origin', 'main']);
+    git(work, ['checkout', '-b', 'later-child-spec']);
+    const children = [
+      { issue: 109, specPath: 'specs/feature-sample-route-weather', packageState: 'canonical', outcomes: ['EO001'] },
+      { issue: 110, specPath: 'specs/feature-present-route-weather', packageState: 'canonical', outcomes: ['EO001'] },
+    ];
+    writeEpicAggregate(work, { children });
+    writeEpicChild(work, { issue: 110, childPath: 'specs/feature-present-route-weather' });
+    git(work, ['add', 'specs/epic-route-weather/epic-scope.json', 'specs/feature-present-route-weather']);
+    git(work, ['commit', '-m', 'docs: author later epic child specs']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const result = runHelper(work, [
+      '--aggregate', 'specs/epic-route-weather',
+      '--child-spec', 'specs/feature-present-route-weather',
+      '--source', sourceCommit,
+    ]);
+
+    expect(result.status).toBe('stranded_recoverable');
+    expect(result.reasonCode).toBe('later_child_and_manifest_amendment_not_on_default');
+    expect(result.changedPaths).toEqual(expect.arrayContaining([
+      'specs/epic-route-weather/epic-scope.json',
+      'specs/feature-present-route-weather/epic-link.json',
+    ]));
+    expect(result.changedPaths.every((changedPath) => (
+      changedPath === 'specs/epic-route-weather/epic-scope.json'
+      || changedPath.startsWith('specs/feature-present-route-weather/')
+    ))).toBe(true);
+  });
+
+  test('publishes an ancestor manifest against an already-canonical nested epic aggregate', () => {
+    const { work } = createFixture();
+    writeEpicAggregate(work, {
+      epic: 108,
+      aggregatePath: 'specs/epic-route-weather',
+      children: [{
+        issue: 109,
+        specPath: 'specs/feature-sample-route-weather',
+        packageState: 'planned',
+        outcomes: ['EO001'],
+      }],
+    });
+    git(work, ['add', 'specs/epic-route-weather']);
+    git(work, ['commit', '-m', 'docs: publish nested epic aggregate']);
+    git(work, ['push', 'origin', 'main']);
+    git(work, ['checkout', '-b', 'root-aggregate-link']);
+    writeEpicAggregate(work, {
+      epic: 200,
+      aggregatePath: 'specs/epic-root',
+      children: [{
+        issue: 108,
+        specPath: 'specs/epic-route-weather',
+        packageState: 'canonical',
+        outcomes: ['EO001'],
+      }],
+    });
+    git(work, ['add', 'specs/epic-root']);
+    git(work, ['commit', '-m', 'docs: link nested epic aggregate']);
+    const sourceCommit = git(work, ['rev-parse', 'HEAD']);
+
+    const result = runHelper(work, [
+      '--aggregate', 'specs/epic-root',
+      '--child-spec', 'specs/epic-route-weather',
+      '--source', sourceCommit,
+    ]);
+
+    expect(result).toMatchObject({
+      status: 'stranded_recoverable',
+      reasonCode: 'first_child_aggregate_pair_not_on_default',
+      epicIssueNumber: 200,
+      issueNumber: 108,
+      childSpecKind: 'epic-aggregate',
+    });
+    expect(result.changedPaths).toEqual([
+      'specs/epic-root/design.md',
+      'specs/epic-root/epic-scope.json',
+      'specs/epic-root/requirements.md',
+    ]);
   });
 
   test('preserves default as canonical when the source tree diverges', () => {

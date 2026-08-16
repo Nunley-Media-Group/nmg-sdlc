@@ -1,6 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
 
 import {
+  aggregatePublicationBranchName,
+  aggregatePublicationDigest,
+  aggregatePublicationMarker,
   classifyPublicationEvidence,
   inspectUmbrellaPublication,
   publicationBranchName,
@@ -17,6 +20,19 @@ const options = {
   specPath: 'specs/feature-umbrella',
   tree,
   sourceCommit,
+  base: 'main',
+};
+const aggregateOptions = {
+  projectRoot: '/fixture',
+  repository: 'example/project',
+  epicIssueNumber: 108,
+  childIssueNumber: 124,
+  pullRequestNumber: 201,
+  aggregatePath: 'specs/epic-route-weather',
+  aggregateTree: '3'.repeat(40),
+  childSpecPath: 'specs/feature-route-weather-timeline',
+  childTree: '4'.repeat(40),
+  sourceCommit: '5'.repeat(40),
   base: 'main',
 };
 
@@ -84,6 +100,42 @@ function reopenedEvent() {
     __typename: 'ReopenedEvent',
     createdAt: '2026-08-14T12:00:02Z',
     actor: { login: 'reopen-user' },
+  };
+}
+
+function aggregatePayload({ closing = [], merged = false, childState = 'OPEN' } = {}) {
+  return {
+    repository: {
+      pullRequest: {
+        number: 201,
+        state: merged ? 'MERGED' : 'OPEN',
+        merged,
+        mergedAt: merged ? '2026-08-16T12:00:00Z' : null,
+        url: 'https://github.com/example/project/pull/201',
+        baseRefName: 'main',
+        headRefName: aggregatePublicationBranchName(aggregateOptions),
+        headRefOid: aggregateOptions.sourceCommit,
+        body: `Refs #108 and #124\n\n${aggregatePublicationMarker(aggregateOptions)}`,
+        closingIssuesReferences: {
+          nodes: closing.map((number) => ({
+            number,
+            repository: { nameWithOwner: 'example/project' },
+          })),
+          pageInfo: { hasNextPage: false },
+        },
+      },
+      issue: {
+        number: 108,
+        state: 'OPEN',
+        url: 'https://github.com/example/project/issues/108',
+        timelineItems: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      },
+      childIssue: {
+        number: 124,
+        state: childState,
+        url: 'https://github.com/example/project/issues/124',
+      },
+    },
   };
 }
 
@@ -200,6 +252,12 @@ describe('umbrella publication GitHub semantic classifier', () => {
     expect(invalidMarker.status).toBe('unverifiable');
     expect(invalidMarker.gaps).toContain('pull request body does not contain exactly one expected umbrella marker');
 
+    const mixedMarkers = classifyPublicationEvidence(options, payload({
+      body: `Refs #161\n\n${publicationMarker(options)}\n\n${aggregatePublicationMarker(aggregateOptions)}`,
+    }));
+    expect(mixedMarkers.status).toBe('unverifiable');
+    expect(mixedMarkers.gaps).toContain('pull request body does not contain exactly one expected umbrella marker');
+
     const invalidBase = payload();
     invalidBase.repository.pullRequest.baseRefName = 'develop';
     expect(classifyPublicationEvidence(options, invalidBase).gaps).toContain('base ref is develop, expected main');
@@ -253,5 +311,67 @@ describe('umbrella publication GitHub semantic classifier', () => {
     const result = classifyPublicationEvidence({ ...options, tree: 'short' }, payload());
     expect(result.status).toBe('unverifiable');
     expect(result.reasonCode).toBe('invalid_input');
+  });
+
+  test('derives a stable exact aggregate/child marker and dedicated ref', () => {
+    const digest = aggregatePublicationDigest(aggregateOptions);
+
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(aggregatePublicationDigest({ ...aggregateOptions })).toBe(digest);
+    expect(aggregatePublicationBranchName(aggregateOptions)).toBe(
+      `nmg-sdlc/spec-publication-108-124-${digest.slice(0, 12)}`,
+    );
+    expect(aggregatePublicationMarker(aggregateOptions)).toContain(`digest: ${digest}`);
+    expect(aggregatePublicationMarker(aggregateOptions)).toContain('aggregate-tree: 3333333333333333333333333333333333333333');
+    expect(aggregatePublicationMarker(aggregateOptions)).toContain('child-tree: 4444444444444444444444444444444444444444');
+
+    const nested = {
+      ...aggregateOptions,
+      childIssueNumber: 170,
+      childSpecPath: 'specs/epic-nested-route-weather',
+    };
+    expect(aggregatePublicationDigest(nested)).toMatch(/^[0-9a-f]{64}$/);
+    expect(aggregatePublicationMarker(nested)).toContain('child-spec: specs/epic-nested-route-weather/');
+  });
+
+  test('accepts only a non-closing aggregate/child publication while both issues remain open', () => {
+    const pending = classifyPublicationEvidence(aggregateOptions, aggregatePayload());
+    expect(pending.status).toBe('pending_safe');
+    expect(pending.publicationKind).toBe('aggregate-child');
+    expect(pending.bundleDigest).toBe(aggregatePublicationDigest(aggregateOptions));
+
+    const closesEpic = classifyPublicationEvidence(aggregateOptions, aggregatePayload({ closing: [108] }));
+    expect(closesEpic.status).toBe('closing_relationship');
+    expect(closesEpic.reasonCode).toBe('publication_pr_closes_umbrella');
+
+    const closesChild = classifyPublicationEvidence(aggregateOptions, aggregatePayload({ closing: [124] }));
+    expect(closesChild.status).toBe('closing_relationship');
+    expect(closesChild.reasonCode).toBe('publication_pr_closes_child');
+
+    const closedChild = classifyPublicationEvidence(aggregateOptions, aggregatePayload({ childState: 'CLOSED' }));
+    expect(closedChild.status).toBe('unverifiable');
+    expect(closedChild.gaps).toContain('spec publication requires the child issue to remain open');
+
+    for (const closingIssue of [108, 124]) {
+      const mergedClosesIssue = classifyPublicationEvidence(
+        aggregateOptions,
+        aggregatePayload({ merged: true, closing: [closingIssue] }),
+      );
+      expect(mergedClosesIssue.status).toBe('closing_relationship');
+      expect(mergedClosesIssue.reasonCode).toBe('merged_pr_retains_unexplained_closing_relationship');
+    }
+
+    const mixedMarkerPayload = aggregatePayload();
+    mixedMarkerPayload.repository.pullRequest.body += `\n\n${publicationMarker(options)}`;
+    const mixedMarkers = classifyPublicationEvidence(aggregateOptions, mixedMarkerPayload);
+    expect(mixedMarkers.status).toBe('unverifiable');
+    expect(mixedMarkers.gaps).toContain('pull request body does not contain exactly one expected aggregate/child marker');
+  });
+
+  test('accepts a merged exact aggregate/child publication without closing lifecycle issues', () => {
+    const result = classifyPublicationEvidence(aggregateOptions, aggregatePayload({ merged: true }));
+
+    expect(result.status).toBe('merged_safe');
+    expect(result.reasonCode).toBe('publication_merged_epic_and_child_open');
   });
 });

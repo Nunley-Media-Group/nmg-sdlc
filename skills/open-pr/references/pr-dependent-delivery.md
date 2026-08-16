@@ -2,7 +2,7 @@
 
 **Consumed by**: `open-pr` Steps 1, 5, and 7 only when the shared readiness validator returns `pr_evidence_pending`, or when resuming its exact controlled draft.
 
-Read `../../../references/pr-dependent-verification.md` first. This path exists only to collect GitHub evidence that cannot exist before a pull request. It does not relax scope, local verification, versioning, staging, commit, rebase, safe-push, review, mergeability, or merge gates.
+Read `../../../references/pr-dependent-verification.md` first. This path exists only to collect GitHub evidence that cannot exist before a pull request. It does not relax scope, local verification, versioning, explicit-path staging, commit, refreshed-base reconciliation, safe-push, review, mergeability, exact-head merge, or closure gates.
 
 ## Entry Contract
 
@@ -16,7 +16,7 @@ Before creating or reusing a draft:
 
 2. Continue for `status: pr_evidence_pending`, with no gaps. Also accept `status: pr_evidence_satisfied` only as a retry of its exact preserved controlled draft: do not create a new PR, retain the same evidence identities, and require the remaining identity/freshness/final-marker checks below. Ordinary `pass` follows the unchanged ordinary PR path. `blocked` or `unverifiable` stops before PR mutation.
 3. Preserve the parsed pending evidence identities in memory as data. Never execute or interpolate report content as shell source.
-4. Complete the existing preflight, version, staging, commit, rebase, safe-push, and pushed-state postconditions. Re-run the helper and the report commit/ancestry/implementation-freshness proof against the committed report before draft creation; require the same marker identity and evidence list.
+4. Complete the existing preflight, version, explicit-path staging, commit, refreshed-base merge without history rewriting, safe-push, and pushed-state postconditions. Re-run the helper and the report commit/ancestry/implementation-freshness proof against the committed report before draft creation; require the same marker identity and evidence list.
 
 ## Create or Reuse the Exact Draft
 
@@ -74,7 +74,10 @@ Only after every check above succeeds, run:
 gh pr ready <number>
 ```
 
-Re-fetch and require `isDraft: false` and unchanged `headRefOid: H2`, then enter the existing automated-review, CI, mergeability, `mergeStateStatus == CLEAN`, explicit merge-choice, merge, and cleanup flow.
+Re-fetch and require `isDraft: false` and unchanged `headRefOid: H2`, then enter
+the terminal automated-review, CI, mergeability, `mergeStateStatus: CLEAN`,
+exact-head merge, child-closure proof, epic-reconciliation, and cleanup flow.
+There is no success handoff or separate merge-choice gate.
 
 ## Failure and Resume Contract
 

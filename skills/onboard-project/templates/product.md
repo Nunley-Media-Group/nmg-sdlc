@@ -60,6 +60,16 @@ All feature development should align with these guidelines.
 
 ---
 
+## nmg-sdlc Work Coordination
+
+- Epics are coordination-only and cannot be selected by `$nmg-sdlc:start-issue`.
+- Epic children are executable issues governed by the project's normal dependency graph; confirmed epic lineage is informational.
+- Cross-child outcomes/topology live in a three-file `specs/epic-*` aggregate, while each child owns its acceptance criteria, tasks, Gherkin, and delivery.
+- `$nmg-sdlc:open-pr` is terminal through exact-head merge and issue closure, then closes only fully eligible epic ancestors.
+- Legacy backlog repair is read-only until an exact per-epic proposal is explicitly approved and revalidated for drift.
+
+---
+
 ## Success Metrics
 
 | Metric | Target | Why It Matters |

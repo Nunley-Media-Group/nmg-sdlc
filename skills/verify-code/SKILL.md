@@ -35,19 +35,20 @@ Read `../../references/pr-dependent-verification.md` when an acceptance criterio
 
 ### Step 0.75: Coordination Identity Gate
 
-Resolve the issue number from the explicit argument or active issue branch before loading specs. Read `../../references/epic-relationships.md`, hydrate the issue's label/body/native evidence, and derive the shared result.
+Resolve the issue number from the explicit argument or active issue branch before loading specs. Read `../../references/epic-relationships.md` and `../../references/epic-spec-authority.md`, hydrate the issue's label/body/native evidence, and derive the shared result.
 
-- `role = ordinary` or `epic` → continue unchanged.
+- `role = ordinary` → continue unchanged.
+- `role = epic` → stop before loading evidence with `Epic #E is coordination-only and has no executable implementation to verify.` Never publish a passing epic verification report.
 - `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before loading evidence, running tests, writing a report, or commenting on GitHub; report the exact pairs/signals/gaps.
-- `role = epic-child` → record `P = parentNumber`, report any `identity = legacy` repair recommendation, and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+- `role = epic-child` → record complete lineage and fully paged native direct children, then run `node <plugin-root>/scripts/epic-spec-authority.mjs --project <project-root> --child N --native-children <complete-list> --json`.
 
-Continue only for `canonical` or `canonical_marker_lost`. Other canonical statuses stop before verification mutation with the exact parent/status/path/tree/ref evidence and route publication to `$nmg-sdlc:write-spec #P` or metadata recovery to `$nmg-sdlc:upgrade-project`.
+Continue only for `valid`; use `requestedChild.specPath` as the active executable package and retain the aggregate as bounded context. `planned` routes to `$nmg-sdlc:write-spec #N`; `repair_required` or `unverifiable` stops before verification mutation and routes exact gaps/digest to `$nmg-sdlc:upgrade-project`.
 
 ### Step 1: Load Specifications and Steering Docs
 
 Read all spec documents:
 
-Read `../../references/issue-spec-scope.md` when Step 1 resolves the active issue and spec path. Run its read-only resolver before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use `delivery.functionalRequirements` as delivery context. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
+Read `../../references/issue-spec-scope.md` when Step 1 resolves the active executable issue and spec path. Run its read-only resolver before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by child `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use child `delivery.functionalRequirements` as delivery context. Aggregate `EO###` outcomes/topology and sibling identifiers never count as implementation or verification evidence. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
 
 After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
 
@@ -201,7 +202,7 @@ Remaining issues: [count]
 
 GitHub issue #N updated with verification report.
 
-[If passing]: Next step: Run `$nmg-sdlc:open-pr #N` to create a pull request.
+[If passing]: Next step: Run `$nmg-sdlc:open-pr #N` for terminal exact-head delivery, merge, and issue closure.
 [If PR evidence pending]: Local verification complete; run `$nmg-sdlc:open-pr #N` for controlled draft delivery validation.
 [If remaining issues]: Deferred items documented — review before creating a PR.
 [If failing]: Critical issues remain — address the items above before creating a PR.
@@ -225,8 +226,8 @@ GitHub issue #N updated with verification report.
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
-                                                                                                               ▲ You are here
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
+                                                                                 ▲ You are here
 ```
 
 `$nmg-sdlc:simplify` is bundled with this plugin. It runs once between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes.

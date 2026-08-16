@@ -1,6 +1,6 @@
 {
   "name": "nmg-sdlc",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "description": "Stack-agnostic BDD spec-driven development toolkit",
   "author": {
     "name": "Nunley Media Group",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "NMG SDLC",
     "shortDescription": "BDD spec-driven delivery workflow for GitHub issue work.",
-    "longDescription": "NMG SDLC provides a structured manual software delivery workflow: onboard a project, draft and start GitHub issues, write BDD requirements and implementation plans, implement from specs, verify against acceptance criteria, open pull requests, and address review comments.",
+    "longDescription": "NMG SDLC provides a structured manual software delivery workflow: coordinate epics through executable child issues, write BDD specifications, implement and verify scoped work, and deliver pull requests through review, exact-head merge, issue closure, and eligible epic reconciliation.",
     "developerName": "Nunley Media Group",
     "category": "Productivity",
     "capabilities": [

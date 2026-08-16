@@ -26,6 +26,16 @@ All technical decisions should align with these guidelines.
 
 ---
 
+## nmg-sdlc Lifecycle Authority
+
+- `$nmg-sdlc:start-issue` excludes coordination-only epics in both automatic and explicit selection. Children follow normal dependency/deliverable rules and display epic lineage only as information.
+- The first ready child publishes a three-file epic aggregate plus its separate executable package; later children own separate packages and matching manifest rows.
+- Implementation and verification use only the active child's `issue-scope.json` delivery slice. Aggregate outcomes cannot satisfy executable work.
+- `$nmg-sdlc:open-pr` remains active through review/check remediation, exact-head merge, child closure, and eligible epic-ancestor reconciliation. It never force-pushes.
+- `$nmg-sdlc:upgrade-project` audits legacy epic graph/spec/issue/Project drift without mutation and applies only separately approved, digest-revalidated repairs.
+
+---
+
 ## Technology Stack
 
 <!-- Pre-fill from package.json, pubspec.yaml, Cargo.toml, go.mod, etc. -->
@@ -41,6 +51,17 @@ All technical decisions should align with these guidelines.
 | Service | Purpose | Notes |
 |---------|---------|-------|
 | [service] | [purpose] | [rate limits, etc.] |
+
+### Automated Review
+
+`$nmg-sdlc:address-pr-comments` may address a review thread only when its author
+matches this configuration. Human-reviewer threads always remain outside the
+automated fix loop.
+
+| Predicate | Value | Meaning |
+|-----------|-------|---------|
+| `bots` | `true` | Any GitHub author with `__typename: Bot` is eligible. |
+| `logins` | `["coderabbitai"]` | Explicit automated-reviewer logins are eligible in addition to the Bot predicate. |
 
 ---
 

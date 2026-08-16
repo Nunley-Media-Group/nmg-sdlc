@@ -89,6 +89,19 @@ project/
 
 <!-- Pre-fill with patterns discovered from existing code -->
 
+### nmg-sdlc Specification Layout
+
+Executable feature and bug work uses a normal package under `specs/feature-*` or `specs/bug-*` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`, and issue ownership metadata. An epic is coordination-only, cannot be started, and uses only:
+
+```text
+specs/epic-<slug>/
+├── requirements.md
+├── design.md
+└── epic-scope.json
+```
+
+Every epic child remains in its own normal package, follows normal dependency rules, exposes epic membership as informational lineage, and links to the aggregate through `epic-link.json`. Do not place `tasks.md`, `feature.gherkin`, or executable AC/FR/task/scenario ownership in an epic aggregate.
+
 ### [Layer 1 Template]
 
 ```

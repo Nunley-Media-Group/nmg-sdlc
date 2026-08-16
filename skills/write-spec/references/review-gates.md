@@ -4,6 +4,28 @@
 
 The summaries exist because reviewers should not have to switch context to a separate file to evaluate a phase. Inline summaries make the review gate honest — what the user sees here is what they're approving.
 
+## Epic-Child Gate Extension
+
+For first-child mode, each phase summary has two explicitly labeled blocks:
+`Coordination aggregate #E` and `Executable child #C`. Requirements list every
+aggregate `EO###` separately from child AC/FR identifiers. Design distinguishes
+cross-child topology from the child's implementation design. Tasks list only
+child tasks/scenarios/issue scope plus the final manifest/link mapping; state
+`Aggregate executable files: none`. One approval may cover both blocks only
+because both exact drafts are displayed together.
+
+For later-child and existing-child modes, render only the child draft. Show the
+aggregate path, outcome links, and unchanged tree as informational context. The
+only eligible aggregate edit in later-child mode is the displayed
+`epic-scope.json` row transition from `planned` to `canonical`.
+
+If drafting discovers a need to change aggregate prose, another child, or any
+outcome/topology mapping beyond that row transition, pause the active gate and
+present a separate `aggregate_amendment_review` question with the exact diff and
+rationale. Approval of child requirements/design/tasks never implies approval
+of that amendment. Do not write either change until every applicable gate is
+approved.
+
 ## Phase 1 — Requirements Review Gate
 
 Render this exact structure:

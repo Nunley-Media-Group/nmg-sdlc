@@ -28,6 +28,33 @@ describe('start-issue automatic selection contract', () => {
     expect(skill).toContain('unneeded trailing records do not participate');
   });
 
+  test('excludes confirmed epics before target counting and preserves child readiness', () => {
+    expect(selection).toContain('Remove confirmed epics before');
+    expect(selection).toContain('`PRESENTATION_TARGET` count');
+    expect(selection).toContain('fewer than `PRESENTATION_TARGET` executable candidates remain after all three filters');
+    expect(skill).toContain('### Coordination-Only Epic Filter');
+    expect(skill).toContain('remove it before dependency, deliverable');
+    expect(skill).toContain('shortlist-target, or topological-order calculations');
+    expect(skill).toContain('Excluded E coordination-only epics from automatic discovery.');
+    expect(skill).toContain('An epic is not counted as blocked or Done.');
+  });
+
+  test('refuses explicit epic starts before every branch and Project mutation', () => {
+    expect(skill).toContain('### Explicit Epic Guard');
+    expect(skill).toContain('do not ask whether to start it');
+    expect(skill).toContain('do not continue to stale-branch, dirty-tree, branch, or');
+    expect(skill).toContain('No branch or issue/Project state was changed.');
+    expect(skill).toContain('Start a ready child with');
+    expect(skill).toContain('return through the Explicit Epic Guard without mutation');
+  });
+
+  test('renders complete nested lineage without changing dependency semantics', () => {
+    expect(skill).toContain('Call `deriveEpicLineage()`');
+    expect(skill).toContain('root-to-direct-parent number/title list');
+    expect(skill).toContain('(epic #R Root title > #P Direct parent title)');
+    expect(skill).toContain('This suffix is informational only and does not change readiness.');
+  });
+
   test('excludes only confirmed all-Done Project work from automatic discovery', () => {
     expect(selection).toContain('--json number,title,labels,projectItems');
     expect(selection).toContain('at least one readable status exists and every readable status equals `Done` case-insensitively');
@@ -50,6 +77,7 @@ describe('start-issue automatic selection contract', () => {
     expect(skill).toContain('do not emit a blocked count');
     expect(skill).toContain('Dependency blocking status unavailable.');
     expect(skill).toContain('Excluded M open issues already marked Done from automatic discovery.');
+    expect(skill).toContain('Excluded E coordination-only epics from automatic discovery.');
     expect(skill).toContain('the two notes do not double-count one issue');
     expect(skill).toContain('gh issue view N --json number,title,body,labels,milestone,projectItems');
     expect(skill).toContain('at least one readable Project status exists');

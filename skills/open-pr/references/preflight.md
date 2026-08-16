@@ -2,7 +2,7 @@
 
 **Consumed by**: `open-pr` Step 1.
 
-Before `gh pr create`, `$nmg-sdlc:open-pr` prepares the branch for delivery. Dirty eligible work is committed, local divergence is rebased, safe pushes happen here, and clean already-pushed branches continue without a redundant commit.
+Before PR creation or resumption, `$nmg-sdlc:open-pr` prepares the branch for terminal delivery. Dirty eligible work is committed, refreshed base changes are merged without rewriting published history, safe pushes happen here, and clean already-pushed branches continue without a redundant commit.
 
 ## Step 1a: Inspect the Delivery Scope
 
@@ -14,13 +14,16 @@ Read `../../../references/dirty-tree.md` when Step 1a runs:
 
 ## Step 1b: Stage Eligible Changes
 
-If eligible changes exist, stage the approved tree:
+If eligible changes exist, stage only the explicit approved paths:
 
 ```bash
-git add -A
+git add -- <approved-path-1> <approved-path-2> ...
 ```
 
-Then inspect `git diff --cached --name-only`. If the staged set is empty, record `eligible_dirty = false`; otherwise record `eligible_dirty = true`.
+Never use `git add -A` or `git add .`. Then inspect
+`git diff --cached --name-only` and require exact equality with the approved
+eligible path set. If the staged set is empty, record `eligible_dirty = false`;
+otherwise record `eligible_dirty = true`.
 
 ## Step 1c: Prepare Version Artifacts
 
@@ -43,7 +46,7 @@ After staging, inspect `git diff --cached --name-only`.
 
 If the branch has no commits ahead of `main` after this step, stop with `No implementation commits found on this branch — run $nmg-sdlc:write-code before opening a PR.`
 
-## Step 1e: Fetch and Rebase if Behind
+## Step 1e: Fetch and Merge the Base if Behind
 
 Fetch the base and branch refs:
 
@@ -52,38 +55,32 @@ git fetch origin
 git merge-base --is-ancestor origin/main HEAD
 ```
 
-- **Exit 0**: local already contains `origin/main`; set `rebased = false`.
-- **Non-zero**: local is behind `origin/main`; record the remote feature-branch tip and rebase:
+- **Exit 0**: local already contains `origin/main`; set `base_merged = false`.
+- **Non-zero**: local is behind `origin/main`; merge the refreshed base without rewriting any feature commit:
 
 ```bash
-EXPECTED_SHA=$(git rev-parse origin/{branch})
-git pull --rebase origin main
+git merge --no-edit origin/main
 ```
 
-If the rebase pulls in a sibling version bump, re-run Step 1c against the post-rebase baseline. If the computed version changes, amend the delivery commit so the final commit contains the correct version artifacts.
+If the merge brings in a sibling version bump, re-run Step 1c against the post-merge baseline. If the computed version changes, create a new correction commit containing only the approved version artifacts; do not amend a pushed commit.
 
-### Rebase Conflicts
+### Merge Conflicts
 
-If rebase conflicts touch `VERSION`, `.codex-plugin/plugin.json`, `CHANGELOG.md`, or stack-specific version files, print `ERROR: rebase conflict in version file(s): {file-list}. Resolve manually and re-run $nmg-sdlc:open-pr. Force-push never overwrites unresolved conflicts.` and stop.
+If merge conflicts touch `VERSION`, `.codex-plugin/plugin.json`, `CHANGELOG.md`, or stack-specific version files, print `ERROR: merge conflict in version file(s): {file-list}. Resolve the exact conflict and re-run $nmg-sdlc:open-pr. Delivery never force-pushes.` and stop. Other safe conflicts may be fixed in scope, reverified, committed, and re-observed through the terminal loop.
 
 ## Step 1f: Push Safely
 
-Branch on remote state and `rebased`:
+Branch on remote state:
 
 1. No remote tracking branch:
    ```bash
    git push -u origin HEAD
    ```
-2. Tracking branch exists and `rebased === false`:
+2. Tracking branch exists:
    ```bash
    git push
    ```
-3. Tracking branch exists and `rebased === true`:
-   ```bash
-   git push --force-with-lease=HEAD:{EXPECTED_SHA}
-   ```
-
-The `EXPECTED_SHA` value is captured before the rebase. If the lease rejects the push, print the rejection and stop for user investigation rather than overwriting remote work.
+Never use `--force`, `--force-with-lease`, or update a remote feature ref through any other history-rewriting mechanism. A non-fast-forward rejection means remote state changed; fetch, inspect, and merge compatible remote work or report the exact external-authority blocker.
 
 ## Step 1g: Verify Delivery State
 

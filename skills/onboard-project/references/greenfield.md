@@ -51,14 +51,14 @@ After Step 2G.2 verifies all three steering docs exist, apply `../../references/
 **Bootstrap mode**:
 
 1. Create `CONTRIBUTING.md` when missing after steering exists.
-2. Generate stack-agnostic issue, spec, steering, implementation, verification, and PR expectations.
+2. Generate stack-agnostic issue, epic/child spec authority, steering, implementation, verification, terminal PR delivery, automatic epic closure, and exact repair expectations.
 3. Summarize project-specific expectations from the steering docs where safe.
 4. Insert a README link when `README.md` exists, or record `README.md link: skipped (README missing)` without creating a README.
 
 **Enhancement mode**:
 
 1. Preserve existing `CONTRIBUTING.md` content.
-2. Append only the missing nmg-sdlc contribution section when equivalent issue/spec/steering coverage is absent.
+2. Append only the missing nmg-sdlc contribution section when equivalent issue/spec/steering plus coordination-only epic and terminal-delivery coverage is absent.
 3. Detect existing README links before inserting anything.
 4. Record `CONTRIBUTING.md` and README-link outcomes for Step 5.
 
@@ -171,6 +171,7 @@ Generation rules:
 
 - Mine `interview_context.success_criteria` for distinct functional concerns.
 - Hard floor: 3 candidates. Hard ceiling: 7. If interview output yields more, present a top-7 cut via `request_user_input` gate; a free-form `Other` answer is parsed as a custom keep/drop list before re-rendering the cut.
+- When the user approves an epic candidate, `$nmg-sdlc:draft-issue` owns child fan-out. Do not place the epic itself into a start queue. Seeded executable children retain ordinary sibling/external dependency edges; their epic membership is informational lineage.
 
 **Enhancement-mode filter**: query `gh issue list --label seeded-by-onboard --state all --json title --limit 200`. Drop any candidate whose title exactly matches an existing seeded issue.
 

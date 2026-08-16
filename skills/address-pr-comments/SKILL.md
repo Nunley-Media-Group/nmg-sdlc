@@ -1,6 +1,6 @@
 ---
 name: address-pr-comments
-description: "Close the PR review loop locally: read the automated reviewer's unresolved threads on an open PR, classify each as clear-fix / ambiguous / disagreement, apply fixes via $nmg-sdlc:write-code + $nmg-sdlc:verify-code, reply and resolve each successful thread, push with plain git push, and loop until the PR is review-clean. Use when the user says 'address PR comments', 'address review findings', 'respond to the reviewer', 'close the review loop', 'handle reviewer comments on #N', 'fix PR review findings', 'resolve review threads', 'clean up the PR review', or 'run the review loop'. Do NOT use for creating PRs, handling CI failures, or human-reviewer comments — those are owned by $nmg-sdlc:open-pr (creation, CI) and are intentionally out of scope for this skill (human comments). Final SDLC pipeline step — follows $nmg-sdlc:open-pr."
+description: "Close the automated PR review loop locally: read unresolved threads on an open PR, classify each as clear-fix / ambiguous / disagreement, apply fixes via $nmg-sdlc:write-code + $nmg-sdlc:verify-code, reply and resolve successful threads, push normally, and loop until review-clean. Use when the user explicitly asks to address PR comments or when $nmg-sdlc:open-pr invokes this contract during terminal delivery. Do NOT use for PR creation, CI-only failures, merge, issue/epic closure, or human-reviewer comments; those remain owned by $nmg-sdlc:open-pr or the human reviewer. Focused utility, not a post-delivery pipeline stage."
 ---
 
 # Address PR Comments
@@ -70,8 +70,8 @@ When the loop determines another round is warranted, increment the round counter
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
                                                                                                                                   ▲ You are here
 ```
 
-`$nmg-sdlc:address-pr-comments` is the terminal step of the per-issue SDLC cycle. It runs only after `$nmg-sdlc:open-pr` has opened the PR. When the PR is review-clean (either on entry or after the loop completes), the skill exits zero and the cycle is done — the next step is whatever work comes next in the project (a new `$nmg-sdlc:draft-issue`, the next milestone issue via `$nmg-sdlc:start-issue`, or a merge).
+`$nmg-sdlc:address-pr-comments` is a focused utility over one open PR. A review-clean result proves only the automated-thread condition; it does not prove CI success, mergeability, merge, child closure, or epic closure. When invoked standalone, the next owning command remains `$nmg-sdlc:open-pr #N`, which rehydrates the exact head and completes terminal delivery. When invoked from `open-pr`, control returns to that same delivery loop.

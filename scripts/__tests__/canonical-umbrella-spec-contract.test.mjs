@@ -9,7 +9,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-describe('canonical umbrella-spec contracts', () => {
+describe('canonical epic and legacy umbrella-spec contracts', () => {
   const shared = read('references/canonical-umbrella-spec.md');
   const publicationHelper = read('scripts/umbrella-publication-status.mjs');
   const livePublicationExercise = read('scripts/exercise-github-umbrella-publication.mjs');
@@ -29,39 +29,36 @@ describe('canonical umbrella-spec contracts', () => {
   test('shared contract defines stable helper modes, statuses, and marker identity', () => {
     expect(shared).toContain('--parent-issue <N> --json');
     expect(shared).toContain('--spec <specs/slug> --source <commit-ish> --json');
+    expect(shared).toContain('--aggregate <specs/epic-slug> --child-spec <specs/child-slug> --source <commit-ish> --json');
     expect(shared).toContain('--all --json');
     for (const status of ['canonical', 'canonical_marker_lost', 'stranded_recoverable', 'divergent', 'ambiguous', 'unverifiable']) {
       expect(shared).toContain(`\`${status}\``);
     }
     expect(shared).toContain('<!-- nmg-sdlc:umbrella-spec');
+    expect(shared).toContain('<!-- nmg-sdlc:aggregate-child-spec');
+    expect(shared).toContain('digest: <sha256-of-normalized-pair>');
     expect(shared).toContain('tree: <full-git-tree-oid>');
     expect(shared).toContain('Default-branch content always wins');
   });
 
-  test('seal flow enforces exact staging before publication and child transition', () => {
-    const seal = writeSpec.indexOf('#### 3b.2 Seal Exact Scope');
-    const publish = writeSpec.indexOf('#### 3b.3 Classify and Publish');
-    const children = writeSpec.indexOf('#### 3b.4 Offer Child-Issue Creation After Canonical Proof');
-    expect(seal).toBeGreaterThan(0);
-    expect(publish).toBeGreaterThan(seal);
-    expect(children).toBeGreaterThan(publish);
-    expect(writeSpec).toContain('git diff --name-only <default-commit>...<full-seal-commit>');
-    expect(writeSpec).toContain('`VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, marketplace files');
-    expect(writeSpec).toContain('Refs #N');
-    expect(writeSpec).toContain('nmg-sdlc/spec-publication-N-<first-12-characters-of-source-tree>');
-    expect(writeSpec).toContain('git push origin <full-seal-commit>:refs/heads/{publicationHead}');
-    expect(writeSpec).toContain('Never create or link this ref with `gh issue develop`');
-    expect(writeSpec).toContain('umbrella-publication-status.mjs');
-    expect(writeSpec).toContain('Only the exact reopen approval permits `gh issue reopen N`');
-    expect(writeSpec).toContain('Never approve or merge it automatically');
-    expect(writeSpec).toContain('`publication_pending`');
-    expect(writeSpec).toContain('recorded no coordination parent for the current issue');
-    expect(writeSpec).toContain('must not create a child-numbered seal commit or a second umbrella publication PR');
-    expect(writeSpec).toContain('continue to its normal `$nmg-sdlc:write-code #N` handoff');
-    expect(writeSpec).toContain('One open match on `publicationHead`');
-    expect(writeSpec).toContain('One merged match on either the dedicated head or a historical issue-linked head');
-    expect(writeSpec).toContain('a closed-unmerged match, or multiple exact matches → stop');
-    expect(writeSpec).toContain('No match → create one PR');
+  test('aggregate plus child publication is exact, non-closing, and release-neutral', () => {
+    expect(writeSpec).toContain('### Aggregate + Active-Child Publication');
+    expect(writeSpec).toContain('--aggregate specs/epic-<slug>');
+    expect(writeSpec).toContain('--child-spec specs/<type>-<child-slug>');
+    expect(writeSpec).toContain('Its body uses `Refs #E` and `Refs #C`');
+    expect(writeSpec).toContain('it never starts or closes the epic or child');
+    expect(writeSpec).toContain('Never auto-repair, force-push, touch release artifacts');
+    expect(writeSpec).toContain('After merge, rerun both helpers');
+    expect(writeSpec).toContain('`pending_safe` reports `publication_pending` and stops before code');
+    expect(writeSpec).toContain('Legacy Cumulative Multi-PR Compatibility');
+    expect(writeSpec).toMatch(/New\s+writes cannot create, seal, publish, extend, or append children to that format/);
+    expect(writeSpec).toContain('Never offer the historical seal gate');
+    expect(umbrellaMode).toContain('### First child');
+    expect(umbrellaMode).toContain('### Later child');
+    expect(umbrellaMode).toContain('### Existing child');
+    expect(umbrellaMode).toMatch(/does\s+not contain a creation, seal, publication, child-generation, or body-fallback\s+recipe/);
+    expect(shared).toContain('For a new aggregate/child pair, use the pair-derived ref documented above');
+    expect(shared).toContain('references both issues and closes neither');
     expect(shared).toContain('## Dedicated Publication Ref');
     expect(shared).toContain('## GitHub Closing-Semantic Gate');
     expect(shared).toContain('## Exact Reopen Recovery');
@@ -73,53 +70,62 @@ describe('canonical umbrella-spec contracts', () => {
     expect(publicationHelper).toContain("evidence.activeClosure?.publicationCloser === true");
     expect(publicationHelper).toContain("result('closing_relationship'");
     expect(publicationHelper).toContain("result('publication_closed_umbrella'");
-    expect(umbrellaMode).toContain('the freshly fetched remote default branch');
-    expect(umbrellaMode).toContain('stop before Step 1');
   });
 
-  test('ordinary delivery closure remains outside the Seal-Spec semantic contract', () => {
+  test('spec publication never owns executable issue or epic completion', () => {
     expect(shared).toContain('Ordinary implementation PR closure remains owned by `$nmg-sdlc:open-pr`');
-    expect(writeSpec).toContain('Ordinary implementation issue closure remains owned by `$nmg-sdlc:open-pr` and is unchanged');
+    expect(writeSpec).toContain('it never starts or closes the epic or child');
+    expect(writeSpec).toContain('$nmg-sdlc:open-pr #N (review + merge + closure)');
     expect(publicationHelper).not.toContain('gh issue reopen');
     expect(publicationHelper).not.toContain("['issue', 'reopen'");
   });
 
-  test('live GitHub exercise is explicit and verifies both linked and unlinked outcomes', () => {
+  test('live GitHub exercise is explicit and verifies linked, unlinked, and aggregate-child outcomes', () => {
     expect(livePublicationExercise).toContain("'acknowledge-live-writes'");
     expect(livePublicationExercise).toContain('--repository must be an explicit owner/name disposable repository');
     expect(livePublicationExercise).toContain("waitForStatus('publication_closed_umbrella'");
     expect(livePublicationExercise).toContain("waitForStatus('merged_safe'");
     expect(livePublicationExercise).toContain("safeBefore.status !== 'pending_safe'");
     expect(livePublicationExercise).toContain('publicationClosedEvents.length !== 0');
+    expect(livePublicationExercise).toContain('aggregatePublicationBranchName(pairIdentity)');
+    expect(livePublicationExercise).toContain('aggregatePublicationMarker({');
+    expect(livePublicationExercise).toContain('`Refs #${epicIssueNumber} and #${childIssueNumber}`');
+    expect(livePublicationExercise).toContain("pairBefore.status !== 'pending_safe'");
+    expect(livePublicationExercise).toContain("const pairAfter = await waitForStatus('merged_safe'");
+    expect(livePublicationExercise).toContain("pairAfter.evidence.childIssueState !== 'OPEN'");
+    expect(livePublicationExercise).toContain('pairAfter.evidence.closingIssueNumbers.length !== 0');
   });
 
   test('all child entry points gate before their first mutation', () => {
     expect(relationships).toContain('Canonical Parent-Spec Readiness');
-    expect(relationships).toContain('Only `canonical` and `canonical_marker_lost`');
+    expect(relationships).toContain('`start-issue` does not run it');
+    expect(relationships).toContain('`planned/aggregate_not_authored` only for the first');
+    expect(relationships).toContain('require `canonical` or');
 
-    const startGate = startIssue.indexOf('## Step 3.25: Canonical Parent-Spec Gate');
+    const startGate = startIssue.indexOf('## Step 3.25: Fresh Relationship and Readiness Gate');
     const staleBranch = startIssue.indexOf('## Step 3.5: Reconcile Stale Remote Branch');
     expect(startGate).toBeGreaterThan(0);
     expect(staleBranch).toBeGreaterThan(startGate);
+    expect(startIssue).toContain('Do not require an aggregate or child spec here');
     expect(startIssue).toContain('before dirty-tree handling, branch creation/switching');
 
-    const specGate = writeSpec.indexOf('## Canonical Parent-Spec Gate');
+    const specGate = writeSpec.indexOf('## Epic Role and Authority Gate');
     const specDiscovery = writeSpec.indexOf('## Spec Discovery');
     expect(specGate).toBeGreaterThan(0);
     expect(specDiscovery).toBeGreaterThan(specGate);
-    expect(writeSpec).toContain('Before Spec Discovery, bug/spike variant selection, or any Phase 1 write');
-    expect(writeSpec).toContain('Bug- and spike-labelled child issues still follow their existing creation variants after this gate');
-    expect(discovery).toContain('Consume the current gate result');
-    expect(discovery).toContain('recorded canonical `specPath`');
+    expect(writeSpec).toContain('Before Spec Discovery, bug/spike routing, interviews, or writes');
+    expect(writeSpec).toContain('First-child mode reviews one aggregate plus one separate child package');
+    expect(discovery).toContain('A confirmed epic child is routed by');
+    expect(discovery).toContain('keyword similarity can never select an aggregate or sibling package');
     expect(discovery).not.toContain('gh issue view #N --json parent');
 
-    const codeGate = writeCode.indexOf('### Step 1.75: Canonical Parent-Spec Gate');
+    const codeGate = writeCode.indexOf('### Step 1.75: Epic Spec Authority Gate');
     const readSpecs = writeCode.indexOf('### Step 2: Read Specs');
     expect(codeGate).toBeGreaterThan(0);
     expect(readSpecs).toBeGreaterThan(codeGate);
     expect(writeCode).toContain('before spec loading, plan review, delegation, or edits');
-    expect(writeCode).toContain('The active child branch may contain approved child-scoped amendments to that same spec path');
-    expect(shared).toContain('Parent readiness proves the canonical baseline path, not equality with a child branch');
+    expect(writeCode).toContain('Resolve the active spec from `requestedChild.specPath`');
+    expect(shared).toMatch(/parent-mode legacy proof alone cannot\s+authorize a new epic child/);
   });
 
   test('every native-parent consumer uses GraphQL rather than unsupported gh JSON', () => {

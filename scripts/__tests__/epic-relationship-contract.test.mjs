@@ -48,7 +48,7 @@ describe('epic relationship contract', () => {
     expect(shared).toContain('scripts/epic-relationships.mjs');
   });
 
-  test('both producers persist and revalidate the full identity tuple', () => {
+  test('the issue producer persists identity and write-spec revalidates without creating epic work', () => {
     expect(draftIssue).toContain('Depends on: #{epic-number}');
     expect(draftIssue).toContain('gh issue edit <parent.issueNumber> --add-sub-issue <child.issueNumber>');
     expect(draftIssue).toContain('Do not enqueue `session.dag` or child-scoped `activeDag` prerequisite edges here');
@@ -67,14 +67,14 @@ describe('epic relationship contract', () => {
     expect(draftIssue).toContain('identity = durable');
     expect(draftIssue).toContain('nativeAuthority = native');
 
-    expect(writeSpecSkill).toContain('apply it to current issue `#N`');
-    expect(writeSpecSkill).toContain('Require each child to receive `epic-child-of-N`');
-    expect(writeSpecSkill).toContain('require each child to be `role = epic-child`');
-    expect(writeSpecSkill).toContain('`identity = durable`');
-    expect(writeSpecSkill).toContain('`nativeAuthority = native`');
-    expect(writeSpecSkill).toContain('any claimed child whose `nativeAuthority` is not `native`');
-    expect(writeSpecSkill).toContain('A canonical helper result never overrides inconsistent');
-    expect(umbrellaMode).toContain('every later command must re-resolve it from GitHub');
+    expect(writeSpecSkill).toContain('Before Spec Discovery, bug/spike routing, interviews, or writes');
+    expect(writeSpecSkill).toContain('`epic-child` requires consistent native authority');
+    expect(writeSpecSkill).toContain('complete informational lineage and fully paged direct-child inventory');
+    expect(writeSpecSkill).toContain('--project <project-root> --child C');
+    expect(writeSpecSkill).toContain('Any legacy cumulative package, `repair_required`, or `unverifiable` result stops before file mutation');
+    expect(writeSpecSkill).toContain('First-child mode reviews one aggregate plus one separate child package');
+    expect(umbrellaMode).toContain('Resolve all paths and issue numbers through `epic-spec-authority.mjs`');
+    expect(umbrellaMode).toContain('never starts an epic, creates an epic branch');
   });
 
   test('start-issue applies the shared result before filtering or mutation', () => {
@@ -101,16 +101,15 @@ describe('epic relationship contract', () => {
     expect(status).toContain("nullable `coordination` field");
   });
 
-  test('canonical child routing and native-authoritative sibling discovery remain aligned', () => {
-    expect(writeSpecDiscovery).toContain('`Depends on:`');
-    expect(writeSpecDiscovery).toContain('`Blocks:`');
-    expect(writeSpecDiscovery).toContain('GitHub GraphQL');
-    expect(writeSpecDiscovery).toContain('canonical `specPath`');
+  test('child package routing and native-authoritative sibling discovery remain aligned', () => {
+    expect(writeSpecDiscovery).toContain('A confirmed epic child is routed by');
+    expect(writeSpecDiscovery).toContain('keyword similarity can never select an aggregate or sibling package');
+    expect(writeSpecDiscovery).toContain('Only `ordinary` reaches Step 1');
 
-    expect(writeCode).toContain('Canonical Parent-Spec Gate');
-    expect(writeCode).toContain('--parent-issue P --json');
+    expect(writeCode).toContain('Step 1.75: Epic Spec Authority Gate');
+    expect(writeCode).toContain('--project <project-root> --child N');
     expect(verifyCode).toContain('Step 0.75: Coordination Identity Gate');
-    expect(verifyCode).toContain('--parent-issue P --json');
+    expect(verifyCode).toContain('--project <project-root> --child N');
 
     expect(openPr).toContain("GraphQL `subIssues` to exhaustion as the authoritative set");
     expect(openPr).toContain('--parent-issue E --json');
@@ -124,7 +123,7 @@ describe('epic relationship contract', () => {
     expect(upgrade).toContain('marks the overall identity audit incomplete');
     expect(upgrade).toContain('never interpret an omitted page or inaccessible relationship as absence');
     expect(upgrade).toContain('Each deterministic umbrella-identity mutation set');
-    expect(upgrade).toContain('freshly revalidated recovery contract');
+    expect(upgrade).toContain('including exact-evidence re-fetch, drift comparison');
     expect(recovery).toContain('Do not mutate GitHub during audit');
     expect(recovery).toContain('Silence, timeout');
     expect(recovery).toContain('Re-fetch the exact approved parent and children');

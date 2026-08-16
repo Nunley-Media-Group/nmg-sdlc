@@ -1,6 +1,6 @@
 # Design Template
 
-Use this template to create technical designs in the **PLAN** phase.
+Use this template only for executable feature/bug children in the **PLAN** phase. The coordination-only `templates/epic-design.md` source writes aggregate topology and cross-child integration to `design.md` inside `specs/epic-*`, never executable implementation design.
 
 ---
 

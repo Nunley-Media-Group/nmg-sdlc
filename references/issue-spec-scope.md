@@ -169,3 +169,10 @@ When an older multi-issue spec has no complete manifest, render the full AC/FR/t
 ## Integration Boundary
 
 This contract narrows delivery units inside an already-resolved spec directory. It does not replace feature naming, bounded neighboring-spec discovery, epic relationships, canonical umbrella proof, issue selection, versioning, review cleanup, or merge gates.
+
+For a confirmed epic child under the coordination-only contract, first read
+`references/epic-spec-authority.md` and resolve the child's separately linked
+package. Run this issue-scope resolver against that child package only. An
+aggregate `specs/epic-*/` directory deliberately has no `tasks.md`,
+`feature.gherkin`, or `issue-scope.json` and is never a valid input to this
+resolver. Aggregate EO outcomes are context, not owned/adopted/regression IDs.

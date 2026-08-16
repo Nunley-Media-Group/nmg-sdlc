@@ -13,6 +13,15 @@ Read `../../references/issue-spec-scope.md` when interpreting the `spec.scope` f
 
 Read `../../references/epic-relationships.md` when an active issue is present. The bundled CLI hydrates the same label/body/native evidence, uses `scripts/epic-relationships.mjs`, and exposes the shared result as the issue's nullable `coordination` field without changing lifecycle-stage inference.
 
+Read `../../references/epic-spec-authority.md` when coordination identifies an
+epic or child. The CLI exposes `spec.epicAuthority` from a read-only worktree
+snapshot inspection performed by `scripts/epic-spec-authority.mjs`. A confirmed epic reports `coordination-only` and recommends a ready
+child; it never reports implementation/verification/delivery as the epic's own
+stage. A child advances only for `valid` authority and uses its resolved child
+package. `planned`, `repair_required`, or `unverifiable` authority caps the stage
+at specification and names `$nmg-sdlc:write-spec #N` or
+`$nmg-sdlc:upgrade-project` as the owner. Aggregate outcomes are context only.
+
 Read `../../references/deliverable-dependencies.md` when an active issue is present. The CLI parses structured cross-child prerequisites, hydrates fully paged closing-PR evidence, and exposes `issue.deliverableDependencies`. `blocked`, `repair_required`, or `unverifiable` stops lifecycle advancement even when later local artifacts exist; issue closure alone never proves a prerequisite available. If the active issue body cannot be hydrated, initialize this result as `unverifiable` and remain blocked because the CLI cannot prove that the body contains no prerequisite record.
 
 Read `../../references/pr-dependent-verification.md` when `verification.readinessStatus` is present. The CLI imports the shared validator, applies the ordinary commit/ancestry/implementation freshness proof to valid pending and satisfied reports, preserves satisfied H1 evidence when a report commit advances the draft to H2, and validates the re-fetched final marker separately against H2. It reports `delivery-validation-pending` while a controlled draft still needs exact-PR or final-head evidence. In that stage, `local verification` is complete, `PR evidence` is missing, and `$nmg-sdlc:open-pr #N` remains the owning command. A ready or merged controlled PR without valid final-head evidence fails closed; generic non-Pass prose, invalid markers, and stale evidence never advance the stage.

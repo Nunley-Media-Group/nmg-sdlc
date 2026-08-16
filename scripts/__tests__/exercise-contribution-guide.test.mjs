@@ -24,8 +24,16 @@ function expectSingleContributionLink(projectDir) {
 }
 
 function hasWorkflowCoverage(source) {
-  return /## nmg-sdlc Contribution Workflow/.test(source)
+  const lifecycle = /## nmg-sdlc Contribution Workflow/.test(source)
     || (/GitHub issues?/i.test(source) && /specs?/i.test(source) && /steering/i.test(source));
+  return lifecycle
+    && /epics? (?:are|is) coordination-only/i.test(source)
+    && /normal dependency/i.test(source)
+    && /informational lineage/i.test(source)
+    && /exact-head merge/i.test(source)
+    && /eligible epic/i.test(source)
+    && /exact approval/i.test(source)
+    && /fresh (?:drift (?:proof|digest)|matching digest)/i.test(source);
 }
 
 function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
@@ -43,8 +51,11 @@ function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
     '',
     '- Start work from a clear GitHub issue with acceptance criteria.',
     '- Use specs in `specs/` for requirements, design, tasks, and BDD scenarios.',
+    '- Epics are coordination-only and cannot be started; children use normal dependency rules and show epic membership as informational lineage.',
+    '- Keep the three-file epic aggregate separate from each executable child package.',
     '- Consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before implementation.',
-    '- Follow the issue -> spec -> code -> simplify -> verify -> PR workflow.',
+    '- Follow the issue -> spec -> code -> simplify -> verify -> exact-head merge -> issue closure workflow.',
+    '- Close only fully eligible epic ancestors after child closure; backlog repair requires per-epic exact approval and fresh drift proof.',
     brownfield ? '- Treat existing code and reconciled specs as contribution context.' : '- Keep new work aligned with project steering.',
     '',
   ].join('\n');
@@ -60,6 +71,8 @@ function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
       '## Issue and Spec Workflow',
       '',
       'Start with GitHub issues and nmg-sdlc specs.',
+      'Epics are coordination-only and cannot be started. Children use normal dependency rules, and epic membership is informational lineage.',
+      'Keep the three-file epic aggregate separate from every executable child package.',
       '',
       '## Steering Expectations',
       '',
@@ -67,7 +80,8 @@ function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
       '',
       '## Implementation and Verification',
       '',
-      'Implement through code, simplify, verification, and PR review.',
+      'Implement through code, simplify, verification, exact-head merge, and issue closure.',
+      'Close only fully eligible epic ancestors after child closure. Backlog repair requires per-epic exact approval and fresh drift proof.',
       '',
     ].join('\n'));
     status.contributing = 'created';
@@ -95,7 +109,13 @@ describe('contribution guide exercise coverage (issue #109)', () => {
 
     const first = ensureContributionGuide(project);
     expect(first).toEqual({ contributing: 'created', readme: 'added', gaps: [] });
-    expect(fs.readFileSync(path.join(project, 'CONTRIBUTING.md'), 'utf8')).toContain('## Issue and Spec Workflow');
+    const guide = fs.readFileSync(path.join(project, 'CONTRIBUTING.md'), 'utf8');
+    expect(guide).toContain('## Issue and Spec Workflow');
+    expect(guide).toContain('Epics are coordination-only and cannot be started');
+    expect(guide).toContain('epic membership is informational lineage');
+    expect(guide).toContain('exact-head merge');
+    expect(guide).toContain('fully eligible epic ancestors');
+    expect(guide).toContain('per-epic exact approval');
     expectSingleContributionLink(project);
 
     const second = ensureContributionGuide(project);
@@ -120,6 +140,9 @@ describe('contribution guide exercise coverage (issue #109)', () => {
     expect(guide).toContain('## Local Policy');
     expect(guide).toContain('## nmg-sdlc Contribution Workflow');
     expect(guide).toContain('existing code and reconciled specs');
+    expect(guide).toContain('children use normal dependency rules');
+    expect(guide).toContain('exact-head merge');
+    expect(guide).toContain('per-epic exact approval');
     expect(fs.existsSync(path.join(project, 'README.md'))).toBe(false);
   });
 });

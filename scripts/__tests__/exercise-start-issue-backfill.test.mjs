@@ -1,5 +1,5 @@
 /**
- * Opt-in Codex exercise for bounded bare start-issue backfill (issue #175).
+ * Opt-in Codex exercise for bounded bare start-issue backfill (issues #175 and #177).
  *
  * Enable with:
  *   RUN_EXERCISE_TESTS=1 npm test -- --runInBand exercise-start-issue-backfill
@@ -280,17 +280,18 @@ function scaffoldExercise() {
 }
 
 describeExercise('exercise: bare start-issue shortlist backfill', () => {
-  test('expands past blocked and Done candidates without mutation', () => {
+  test('expands past blocked candidates and a coordination epic without mutation', () => {
     const { project, bin, writeLog, gitWriteLog, realGit, initialGit } = scaffoldExercise();
     try {
       const prompt = [
         'Read plugin/skills/start-issue/SKILL.md and every reference required for Steps 1 and 1a.',
         'Exercise bare start-issue discovery with no issue-number argument against the gh executable on PATH.',
         'Stop after the automatic candidate window settles: do not call request_user_input, create a branch, update an issue, or change files.',
-        'Report only these four evidence lines:',
+        'Report only these five evidence lines:',
         'FETCH_LIMITS: issue-list limits used in order',
         'READY: all ready issue numbers in presentation order',
         'BLOCKED: every blocked candidate issue number',
+        'EXCLUDED_EPICS: every confirmed epic removed before readiness and shortlist counting',
         'EXCLUDED_DONE: every unblocked issue excluded because all readable Project statuses are Done',
       ].join('\n');
       const proc = spawnSync('codex', [
@@ -320,7 +321,8 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
       for (let number = 201; number <= 209; number += 1) {
         expect(blockedLine).toMatch(new RegExp(`(?:^|\\D)#?${number}(?:\\D|$)`));
       }
-      expect(output).toMatch(/EXCLUDED_DONE:.*#?200/i);
+      expect(output).toMatch(/EXCLUDED_EPICS:.*#?200/i);
+      expect(output).toMatch(/EXCLUDED_DONE:\s*(?:none|empty|\[\])/i);
       expect(output).not.toMatch(/READY:.*#?195/i);
       expect(fs.existsSync(writeLog)).toBe(false);
       const gitWriteAttempts = fs.existsSync(gitWriteLog) ? fs.readFileSync(gitWriteLog, 'utf8') : '';

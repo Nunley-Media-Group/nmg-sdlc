@@ -4,6 +4,11 @@ Detailed apply rules for findings already accepted through `upgrade-project`'s i
 
 Approved sealed umbrella-spec recovery is not a template or consolidation edit. Route each exact finding through `sealed-spec-recovery.md`; never restore it with the generic Markdown procedures below.
 
+Approved epic lifecycle/specification repair is also not a generic template
+edit. Route one exact digest-protected group through
+`epic-lifecycle-recovery.md`; its explicit paths and GitHub fields are the
+maximum mutation scope.
+
 ## Relevance Heuristic Table
 
 For each missing steering heading, match heading keywords case-insensitively and check the associated patterns one at a time, stopping on the first match.
@@ -49,7 +54,7 @@ For each approved Related Spec correction, replace only the `**Related Spec**:` 
 Follow `../../references/contribution-guide.md`:
 
 1. Require all three steering docs.
-2. Create a missing `CONTRIBUTING.md` or append only the missing managed workflow section.
+2. Create a missing `CONTRIBUTING.md` or append only the missing managed workflow section, including coordination-only epic, child authority, terminal delivery/closure, and exact repair guidance.
 3. Preserve existing project policy.
 4. Add an idempotent README link when a README exists; never create a README just for the link.
 5. Re-read changed files and emit the shared stable status block.
@@ -69,7 +74,7 @@ Follow `../../references/project-agents.md`:
 Follow `../../references/contribution-gate.md`:
 
 1. Create a missing marked workflow at `.github/workflows/nmg-sdlc-contribution-gate.yml`.
-2. Replace an older marked managed version with the current template.
+2. Replace an older marked managed version with the current template (version 3 adds explicit epic aggregate/child evidence boundaries).
 3. Preserve a current or future managed version according to the shared contract.
 4. Preserve an unmarked path collision and report it.
 5. Preserve every unrelated workflow byte-for-byte.
@@ -79,7 +84,7 @@ Follow `../../references/contribution-gate.md`:
 Follow `../../references/issue-form.md`:
 
 1. Read the canonical plugin issue form.
-2. Create a missing target or replace only `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` when it differs.
+2. Create a missing target or replace only `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml` when it differs. The canonical form must distinguish executable criteria from coordination-only epic outcomes and child topology.
 3. Preserve every unrelated issue template and workflow byte-for-byte.
 4. Re-read and emit the shared stable status block.
 

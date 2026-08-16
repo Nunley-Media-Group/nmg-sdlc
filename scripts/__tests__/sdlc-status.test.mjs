@@ -765,6 +765,40 @@ describe('bounded evidence collection and read-only safety', () => {
   });
 
   it('reports the active issue durable coordination identity from fresh GitHub evidence', () => {
+    const aggregatePath = path.join(root, 'specs', 'epic-status-parent');
+    fs.mkdirSync(aggregatePath, { recursive: true });
+    fs.writeFileSync(path.join(aggregatePath, 'requirements.md'), '# Epic Aggregate Requirements\n\n**Issue**: #10\n\n### EO001: Status outcome\n');
+    fs.writeFileSync(path.join(aggregatePath, 'design.md'), '# Epic Aggregate Design\n\n**Issue**: #10\n');
+    fs.writeFileSync(path.join(aggregatePath, 'epic-scope.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      epicIssue: 10,
+      aggregatePath: 'specs/epic-status-parent',
+      outcomes: [{ id: 'EO001', childIssues: [42, 43] }],
+      children: [
+        { issue: 42, specPath: 'specs/feature-status-fixture', packageState: 'canonical', outcomes: ['EO001'] },
+        { issue: 43, specPath: 'specs/feature-status-sibling', packageState: 'planned', outcomes: ['EO001'] },
+      ],
+      migrations: [],
+    }, null, 2)}\n`);
+    const childPath = path.join(root, 'specs', 'feature-status-fixture');
+    fs.writeFileSync(path.join(childPath, 'epic-link.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      epicIssue: 10,
+      epicSpecPath: 'specs/epic-status-parent',
+      childIssue: 42,
+      childSpecPath: 'specs/feature-status-fixture',
+      outcomes: ['EO001'],
+    }, null, 2)}\n`);
+    fs.writeFileSync(path.join(childPath, 'issue-scope.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issues: {
+        42: {
+          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: ['FR1'], tasks: ['T001'], scenarios: ['SCN001'] },
+          adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
+          regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
+        },
+      },
+    }, null, 2)}\n`);
     const parent = {
       number: 10,
       state: 'OPEN',
@@ -822,7 +856,13 @@ describe('bounded evidence collection and read-only safety', () => {
     });
     const status = inferLifecycle(evidence);
     expect(status.stage).toBe('specified');
+    expect(evidence.spec.epicAuthority).toMatchObject({
+      status: 'valid',
+      epicIssue: 10,
+      requestedChild: { issue: 42, specPath: 'specs/feature-status-fixture' },
+    });
     expect(renderText(status)).toContain('Coordination: epic-child (durable; consistency: consistent; authority: native; degraded: no) parent #10');
+    expect(renderText(status)).toContain('Epic spec authority: valid');
   });
 
   it('hydrates merged default-branch evidence for a structured deliverable requirement', () => {

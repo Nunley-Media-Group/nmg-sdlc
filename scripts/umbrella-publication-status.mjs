@@ -8,12 +8,14 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const FULL_OID = /^[0-9a-f]{40}$/i;
 const SPEC_PATH = /^specs\/[a-z0-9][a-z0-9-]*$/;
+const AGGREGATE_PATH = /^specs\/epic-[a-z0-9][a-z0-9-]*$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const MAX_TIMELINE_PAGES = 10;
 const MAX_OUTPUT = 8 * 1024 * 1024;
@@ -24,6 +26,7 @@ query UmbrellaPublicationStatus(
   $name: String!
   $pullRequest: Int!
   $issue: Int!
+  $childIssue: Int!
   $cursor: String
 ) {
   repository(owner: $owner, name: $name) {
@@ -71,6 +74,11 @@ query UmbrellaPublicationStatus(
         }
         pageInfo { hasNextPage endCursor }
       }
+    }
+    childIssue: issue(number: $childIssue) {
+      number
+      state
+      url
     }
   }
 }`;
@@ -135,8 +143,64 @@ export function publicationMarker({ issueNumber, specPath, tree }) {
   ].join('\n');
 }
 
-function markerCount(body) {
-  return [...String(body ?? '').matchAll(/<!-- nmg-sdlc:umbrella-spec\s+[\s\S]*?-->/g)].length;
+function stableBundleValue(options) {
+  return {
+    schemaVersion: 1,
+    epicIssue: Number(options.epicIssueNumber),
+    aggregatePath: normalizeSpecPath(options.aggregatePath),
+    aggregateTree: String(options.aggregateTree ?? '').toLowerCase(),
+    childIssue: Number(options.childIssueNumber),
+    childSpecPath: normalizeSpecPath(options.childSpecPath),
+    childTree: String(options.childTree ?? '').toLowerCase(),
+  };
+}
+
+export function aggregatePublicationDigest(options) {
+  const value = stableBundleValue(options);
+  if (!Number.isSafeInteger(value.epicIssue) || value.epicIssue <= 0
+    || !Number.isSafeInteger(value.childIssue) || value.childIssue <= 0
+    || !value.aggregatePath || !AGGREGATE_PATH.test(value.aggregatePath)
+    || !value.childSpecPath || value.childSpecPath === value.aggregatePath
+    || !FULL_OID.test(value.aggregateTree) || !FULL_OID.test(value.childTree)) return null;
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+export function aggregatePublicationBranchName(options) {
+  const digest = aggregatePublicationDigest(options);
+  return digest
+    ? `nmg-sdlc/spec-publication-${Number(options.epicIssueNumber)}-${Number(options.childIssueNumber)}-${digest.slice(0, 12)}`
+    : null;
+}
+
+export function aggregatePublicationMarker(options) {
+  const value = stableBundleValue(options);
+  const digest = aggregatePublicationDigest(options);
+  if (!digest) return null;
+  return [
+    '<!-- nmg-sdlc:aggregate-child-spec',
+    `epic: #${value.epicIssue}`,
+    `aggregate: ${value.aggregatePath}/`,
+    `aggregate-tree: ${value.aggregateTree}`,
+    `child: #${value.childIssue}`,
+    `child-spec: ${value.childSpecPath}/`,
+    `child-tree: ${value.childTree}`,
+    `digest: ${digest}`,
+    '-->',
+  ].join('\n');
+}
+
+const MARKER_PATTERNS = {
+  'aggregate-child': /<!-- nmg-sdlc:aggregate-child-spec\s+[\s\S]*?-->/g,
+  umbrella: /<!-- nmg-sdlc:umbrella-spec\s+[\s\S]*?-->/g,
+};
+
+function markerCount(body, kind) {
+  const source = String(body ?? '');
+  const counts = Object.fromEntries(Object.entries(MARKER_PATTERNS)
+    .map(([name, pattern]) => [name, [...source.matchAll(pattern)].length]));
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const expectedKind = kind === 'aggregate-child' ? 'aggregate-child' : 'umbrella';
+  return counts[expectedKind] === 1 && total === 1 ? 1 : total;
 }
 
 function result(status, reasonCode, expected, evidence = {}, gaps = []) {
@@ -151,6 +215,14 @@ function result(status, reasonCode, expected, evidence = {}, gaps = []) {
     specPath: expected.specPath,
     tree: expected.tree,
     sourceCommit: expected.sourceCommit,
+    publicationKind: expected.kind,
+    epicIssueNumber: expected.epicIssueNumber ?? null,
+    childIssueNumber: expected.childIssueNumber ?? null,
+    aggregatePath: expected.aggregatePath ?? null,
+    aggregateTree: expected.aggregateTree ?? null,
+    childSpecPath: expected.childSpecPath ?? null,
+    childTree: expected.childTree ?? null,
+    bundleDigest: expected.bundleDigest ?? null,
     evidence,
     gaps,
   };
@@ -161,6 +233,47 @@ function invalid(reasonCode, expected, gaps, evidence = {}) {
 }
 
 function normalizeExpected(options) {
+  if (options.aggregatePath || options.childSpecPath) {
+    const epicIssueNumber = typeof options.epicIssueNumber === 'number'
+      ? options.epicIssueNumber
+      : parsePositiveInteger(String(options.epicIssueNumber ?? ''));
+    const childIssueNumber = typeof options.childIssueNumber === 'number'
+      ? options.childIssueNumber
+      : parsePositiveInteger(String(options.childIssueNumber ?? ''));
+    const aggregatePath = normalizeSpecPath(options.aggregatePath);
+    const childSpecPath = normalizeSpecPath(options.childSpecPath);
+    const aggregateTree = String(options.aggregateTree ?? '').toLowerCase();
+    const childTree = String(options.childTree ?? '').toLowerCase();
+    const bundleOptions = {
+      epicIssueNumber,
+      aggregatePath,
+      aggregateTree,
+      childIssueNumber,
+      childSpecPath,
+      childTree,
+    };
+    const bundleDigest = aggregatePublicationDigest(bundleOptions);
+    return {
+      kind: 'aggregate-child',
+      repository: typeof options.repository === 'string' ? options.repository.trim() : '',
+      issueNumber: epicIssueNumber,
+      epicIssueNumber,
+      childIssueNumber,
+      pullRequestNumber: typeof options.pullRequestNumber === 'number'
+        ? options.pullRequestNumber
+        : parsePositiveInteger(String(options.pullRequestNumber ?? '')),
+      specPath: childSpecPath,
+      tree: childTree,
+      aggregatePath,
+      aggregateTree,
+      childSpecPath,
+      childTree,
+      bundleDigest,
+      sourceCommit: String(options.sourceCommit ?? '').toLowerCase(),
+      base: typeof options.base === 'string' ? options.base.trim() : '',
+      head: aggregatePublicationBranchName(bundleOptions),
+    };
+  }
   const repository = typeof options.repository === 'string' ? options.repository.trim() : '';
   const issueNumber = typeof options.issueNumber === 'number'
     ? options.issueNumber
@@ -173,7 +286,7 @@ function normalizeExpected(options) {
   const sourceCommit = String(options.sourceCommit ?? '').toLowerCase();
   const base = typeof options.base === 'string' ? options.base.trim() : '';
   const head = publicationBranchName(issueNumber, tree);
-  return { repository, issueNumber, pullRequestNumber, specPath, tree, sourceCommit, base, head };
+  return { kind: 'legacy', repository, issueNumber, pullRequestNumber, specPath, tree, sourceCommit, base, head };
 }
 
 function validateExpected(expected) {
@@ -181,8 +294,19 @@ function validateExpected(expected) {
   if (!REPOSITORY.test(expected.repository)) gaps.push('repository must be owner/name');
   if (!Number.isSafeInteger(expected.issueNumber) || expected.issueNumber <= 0) gaps.push('issue must be a positive integer');
   if (!Number.isSafeInteger(expected.pullRequestNumber) || expected.pullRequestNumber <= 0) gaps.push('pull request must be a positive integer');
-  if (!expected.specPath) gaps.push('spec must be a normalized specs/<slug> path');
-  if (!FULL_OID.test(expected.tree)) gaps.push('tree must be a full 40-character Git object ID');
+  if (expected.kind === 'aggregate-child') {
+    if (!expected.aggregatePath || !AGGREGATE_PATH.test(expected.aggregatePath)) gaps.push('aggregate must be a normalized specs/epic-<slug> path');
+    if (!expected.childSpecPath || expected.childSpecPath === expected.aggregatePath) {
+      gaps.push('child spec must be a normalized executable child or distinct nested epic aggregate path');
+    }
+    if (!Number.isSafeInteger(expected.childIssueNumber) || expected.childIssueNumber <= 0) gaps.push('child issue must be a positive integer');
+    if (!FULL_OID.test(expected.aggregateTree)) gaps.push('aggregate tree must be a full 40-character Git object ID');
+    if (!FULL_OID.test(expected.childTree)) gaps.push('child tree must be a full 40-character Git object ID');
+    if (!expected.bundleDigest) gaps.push('aggregate/child publication identity is invalid');
+  } else {
+    if (!expected.specPath) gaps.push('spec must be a normalized specs/<slug> path');
+    if (!FULL_OID.test(expected.tree)) gaps.push('tree must be a full 40-character Git object ID');
+  }
   if (!FULL_OID.test(expected.sourceCommit)) gaps.push('source must be a full 40-character Git commit ID');
   if (!/^[A-Za-z0-9._/-]+$/.test(expected.base) || expected.base.startsWith('/') || expected.base.includes('..')) {
     gaps.push('base must be a normalized branch name');
@@ -206,7 +330,8 @@ export function classifyPublicationEvidence(options, payload) {
   const repository = payload?.repository;
   const pullRequest = repository?.pullRequest;
   const issue = repository?.issue;
-  if (!pullRequest || !issue) {
+  const childIssue = repository?.childIssue;
+  if (!pullRequest || !issue || (expected.kind === 'aggregate-child' && !childIssue)) {
     return invalid('github_object_missing', expected, ['pull request or issue was not returned']);
   }
 
@@ -219,6 +344,8 @@ export function classifyPublicationEvidence(options, payload) {
     baseRefName: pullRequest.baseRefName ?? null,
     issueUrl: issue.url ?? null,
     issueState: String(issue.state ?? 'UNKNOWN').toUpperCase(),
+    childIssueUrl: childIssue?.url ?? null,
+    childIssueState: childIssue ? String(childIssue.state ?? 'UNKNOWN').toUpperCase() : null,
     closingIssueNumbers: [],
     timelineEvents: [],
     publicationClosedEvents: [],
@@ -232,9 +359,13 @@ export function classifyPublicationEvidence(options, payload) {
   if (issue.number !== expected.issueNumber) gaps.push('issue number does not match');
   if (pullRequest.baseRefName !== expected.base) gaps.push(`base ref is ${pullRequest.baseRefName ?? 'missing'}, expected ${expected.base}`);
   if (String(pullRequest.headRefOid ?? '').toLowerCase() !== expected.sourceCommit) gaps.push('head commit does not match the validated seal commit');
-  const marker = publicationMarker(expected);
-  if (markerCount(pullRequest.body) !== 1 || !String(pullRequest.body ?? '').includes(marker)) {
-    gaps.push('pull request body does not contain exactly one expected umbrella marker');
+  const marker = expected.kind === 'aggregate-child'
+    ? aggregatePublicationMarker(expected)
+    : publicationMarker(expected);
+  if (markerCount(pullRequest.body, expected.kind) !== 1 || !String(pullRequest.body ?? '').includes(marker)) {
+    gaps.push(expected.kind === 'aggregate-child'
+      ? 'pull request body does not contain exactly one expected aggregate/child marker'
+      : 'pull request body does not contain exactly one expected umbrella marker');
   }
 
   const closing = pullRequest.closingIssuesReferences;
@@ -246,6 +377,10 @@ export function classifyPublicationEvidence(options, payload) {
       .map((candidate) => candidate?.number)
       .filter((number) => Number.isSafeInteger(number) && number > 0)
       .sort((left, right) => left - right);
+  }
+  if (expected.kind === 'aggregate-child') {
+    if (childIssue.number !== expected.childIssueNumber) gaps.push('child issue number does not match');
+    if (evidence.childIssueState !== 'OPEN') gaps.push('spec publication requires the child issue to remain open');
   }
 
   const timeline = issue.timelineItems;
@@ -286,6 +421,8 @@ export function classifyPublicationEvidence(options, payload) {
   }
 
   const closesUmbrella = evidence.closingIssueNumbers.includes(expected.issueNumber);
+  const closesChild = expected.kind === 'aggregate-child'
+    && evidence.closingIssueNumbers.includes(expected.childIssueNumber);
   const publicationClosed = evidence.activeClosure?.publicationCloser === true;
   const merged = pullRequest.merged === true || evidence.pullRequestState === 'MERGED';
 
@@ -299,8 +436,13 @@ export function classifyPublicationEvidence(options, payload) {
     if (evidence.issueState !== 'OPEN') {
       return result('closed_unrelated', 'umbrella_closed_before_publication_merge', expected, evidence);
     }
-    if (closesUmbrella) {
-      return result('closing_relationship', 'publication_pr_closes_umbrella', expected, evidence);
+    if (closesUmbrella || closesChild) {
+      return result(
+        'closing_relationship',
+        closesUmbrella ? 'publication_pr_closes_umbrella' : 'publication_pr_closes_child',
+        expected,
+        evidence,
+      );
     }
     if (!evidence.dedicatedHead) {
       return invalid('open_pr_uses_issue_linked_or_unexpected_head', expected, [
@@ -321,12 +463,14 @@ export function classifyPublicationEvidence(options, payload) {
     if (evidence.issueState === 'CLOSED') {
       return result('closed_unrelated', 'umbrella_closed_by_other_cause', expected, evidence);
     }
-    if (closesUmbrella) {
+    if (closesUmbrella || closesChild) {
       return result('closing_relationship', 'merged_pr_retains_unexplained_closing_relationship', expected, evidence);
     }
     return result(
       'merged_safe',
-      evidence.dedicatedHead ? 'publication_merged_umbrella_open' : 'legacy_publication_merged_umbrella_open',
+      expected.kind === 'aggregate-child'
+        ? 'publication_merged_epic_and_child_open'
+        : evidence.dedicatedHead ? 'publication_merged_umbrella_open' : 'legacy_publication_merged_umbrella_open',
       expected,
       evidence,
     );
@@ -346,6 +490,7 @@ function graphqlArgs(expected, cursor) {
     '-F', `name=${name}`,
     '-F', `pullRequest=${expected.pullRequestNumber}`,
     '-F', `issue=${expected.issueNumber}`,
+    '-F', `childIssue=${expected.childIssueNumber ?? expected.issueNumber}`,
   ];
   if (cursor) args.push('-F', `cursor=${cursor}`);
   return args;
@@ -398,9 +543,15 @@ function parseCli(argv) {
       project: { type: 'string' },
       repository: { type: 'string' },
       issue: { type: 'string' },
+      epic: { type: 'string' },
+      child: { type: 'string' },
       pr: { type: 'string' },
       spec: { type: 'string' },
       tree: { type: 'string' },
+      aggregate: { type: 'string' },
+      'aggregate-tree': { type: 'string' },
+      'child-spec': { type: 'string' },
+      'child-tree': { type: 'string' },
       source: { type: 'string' },
       base: { type: 'string' },
       json: { type: 'boolean', default: false },
@@ -410,10 +561,38 @@ function parseCli(argv) {
     allowPositionals: false,
   });
   if (values.help) return { help: true };
-  for (const key of ['project', 'repository', 'issue', 'pr', 'spec', 'tree', 'source', 'base']) {
+  for (const key of ['project', 'repository', 'pr', 'source', 'base']) {
     if (!values[key]) throw new Error(`--${key} is required`);
   }
   if (!values.json) throw new Error('--json is required');
+  const aggregateMode = Boolean(
+    values.epic || values.child || values.aggregate || values['aggregate-tree']
+    || values['child-spec'] || values['child-tree'],
+  );
+  if (aggregateMode) {
+    for (const key of ['epic', 'child', 'aggregate', 'aggregate-tree', 'child-spec', 'child-tree']) {
+      if (!values[key]) throw new Error(`--${key} is required for aggregate/child publication`);
+    }
+    if (values.issue || values.spec || values.tree) {
+      throw new Error('--issue, --spec, and --tree are legacy publication options and cannot be combined with aggregate/child publication');
+    }
+    return {
+      projectRoot: path.resolve(values.project),
+      repository: values.repository,
+      epicIssueNumber: parsePositiveInteger(values.epic),
+      childIssueNumber: parsePositiveInteger(values.child),
+      pullRequestNumber: parsePositiveInteger(values.pr),
+      aggregatePath: values.aggregate,
+      aggregateTree: values['aggregate-tree'],
+      childSpecPath: values['child-spec'],
+      childTree: values['child-tree'],
+      sourceCommit: values.source,
+      base: values.base,
+    };
+  }
+  for (const key of ['issue', 'spec', 'tree']) {
+    if (!values[key]) throw new Error(`--${key} is required`);
+  }
   return {
     projectRoot: path.resolve(values.project),
     repository: values.repository,
@@ -430,6 +609,7 @@ function usage() {
   return [
     'Usage:',
     '  node scripts/umbrella-publication-status.mjs --project <path> --repository <owner/name> --issue <N> --pr <N> --spec <specs/slug> --tree <oid> --source <commit> --base <branch> --json',
+    '  node scripts/umbrella-publication-status.mjs --project <path> --repository <owner/name> --epic <N> --child <N> --pr <N> --aggregate <specs/epic-slug> --aggregate-tree <oid> --child-spec <specs/child-slug> --child-tree <oid> --source <commit> --base <branch> --json',
   ].join('\n');
 }
 

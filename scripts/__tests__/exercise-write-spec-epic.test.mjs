@@ -1,23 +1,27 @@
 /**
- * Deterministic forward-publication exercise for issue #157.
+ * Deterministic aggregate/child write-spec exercises for issue #177.
  *
- * Uses distinct sealing, default, and child histories. No live Codex or GitHub
- * session is required.
+ * Every scenario uses disposable local Git repositories. No live GitHub or
+ * consumer-project write is required.
  */
 
 import { afterEach, describe, expect, test } from '@jest/globals';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { publicationBranchName } from '../umbrella-publication-status.mjs';
+import { inspectEpicSpecAuthority } from '../epic-spec-authority.mjs';
+import {
+  aggregatePublicationBranchName,
+  aggregatePublicationMarker,
+} from '../umbrella-publication-status.mjs';
+import { inspectUmbrellaSpec } from '../umbrella-spec-status.mjs';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const helper = path.join(repoRoot, 'scripts', 'umbrella-spec-status.mjs');
 const temporaryRoots = [];
-const specPath = 'specs/feature-forward-publication';
+const aggregatePath = 'specs/epic-route-weather';
+const firstChildPath = 'specs/feature-sample-route-weather';
+const laterChildPath = 'specs/feature-present-route-weather';
 
 function temporary(prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -30,189 +34,311 @@ function git(cwd, args) {
 }
 
 function write(root, relativePath, source) {
-  const target = path.join(root, ...relativePath.split('/'));
+  const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, source);
 }
 
-function writeSpec(root) {
-  write(root, `${specPath}/requirements.md`, [
-    '# Requirements: Forward Publication',
+function issueScope(issue) {
+  return {
+    schemaVersion: 1,
+    issues: {
+      [issue]: {
+        owned: {
+          acceptanceCriteria: ['AC1'],
+          functionalRequirements: ['FR1'],
+          tasks: ['T001'],
+          scenarios: ['SCN001'],
+        },
+        adopted: {
+          acceptanceCriteria: [],
+          functionalRequirements: [],
+          tasks: [],
+          scenarios: [],
+        },
+        regression: {
+          acceptanceCriteria: [],
+          functionalRequirements: [],
+          scenarios: [],
+        },
+      },
+    },
+  };
+}
+
+function seedChild(root, {
+  issue,
+  childPath,
+  epic = 108,
+  outcomes = ['EO001'],
+} = {}) {
+  write(root, `${childPath}/requirements.md`, [
+    `# Requirements: Child ${issue}`,
     '',
-    '**Issues**: #157',
+    `**Issues**: #${issue}`,
+    '',
+    '### AC1: Child result',
+    '',
+    '**Given** context',
+    '**When** action',
+    '**Then** result',
     '',
     '| ID | Requirement | Priority |',
     '|----|-------------|----------|',
-    '| FR1 | Deliver through multiple PRs | Must |',
+    '| FR1 | Implement child | Must |',
     '',
   ].join('\n'));
-  write(root, `${specPath}/design.md`, '# Design\n\n**Issues**: #157\n\n## Multi-PR Rollout\n\nTwo phases.\n');
-  write(root, `${specPath}/tasks.md`, '# Tasks\n\n- T001\n');
-  write(root, `${specPath}/feature.gherkin`, 'Feature: Forward publication\n');
+  write(root, `${childPath}/design.md`, `# Design: Child ${issue}\n\n**Issues**: #${issue}\n`);
+  write(root, `${childPath}/tasks.md`, `# Tasks: Child ${issue}\n\n**Issues**: #${issue}\n\n### T001: Implement child\n`);
+  write(root, `${childPath}/feature.gherkin`, '@SCN001\nFeature: Child\n  Scenario: Child result\n    Given context\n    When action\n    Then result\n');
+  write(root, `${childPath}/issue-scope.json`, `${JSON.stringify(issueScope(issue), null, 2)}\n`);
+  write(root, `${childPath}/epic-link.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: epic,
+    epicSpecPath: aggregatePath,
+    childIssue: issue,
+    childSpecPath: childPath,
+    outcomes,
+  }, null, 2)}\n`);
+}
+
+function seedAggregate(root, children) {
+  write(root, `${aggregatePath}/requirements.md`, [
+    '# Epic Aggregate Requirements: Route weather',
+    '',
+    '**Issue**: #108',
+    '',
+    '### EO001: Route result',
+    '',
+  ].join('\n'));
+  write(root, `${aggregatePath}/design.md`, '# Epic Aggregate Design: Route weather\n\n**Issue**: #108\n');
+  write(root, `${aggregatePath}/epic-scope.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: 108,
+    aggregatePath,
+    outcomes: [{ id: 'EO001', childIssues: children.map((child) => child.issue) }],
+    children,
+    migrations: [],
+  }, null, 2)}\n`);
+}
+
+function baseChildren({ laterState = 'planned' } = {}) {
+  return [
+    { issue: 109, specPath: firstChildPath, packageState: 'canonical', outcomes: ['EO001'] },
+    { issue: 110, specPath: laterChildPath, packageState: laterState, outcomes: ['EO001'] },
+  ];
 }
 
 function fixture() {
-  const bare = temporary('nmg-forward-origin-');
-  const work = temporary('nmg-forward-work-');
+  const bare = temporary('nmg-epic-publication-origin-');
+  const work = temporary('nmg-epic-publication-work-');
   git(bare, ['init', '--bare', '--initial-branch=main']);
   git(work, ['init', '--initial-branch=main']);
-  git(work, ['config', 'user.name', 'Forward Test']);
-  git(work, ['config', 'user.email', 'forward@example.test']);
+  git(work, ['config', 'user.name', 'Epic Exercise']);
+  git(work, ['config', 'user.email', 'epic-exercise@example.invalid']);
   git(work, ['remote', 'add', 'origin', bare]);
   write(work, 'README.md', '# fixture\n');
+  fs.mkdirSync(path.join(work, 'specs'));
   git(work, ['add', 'README.md']);
   git(work, ['commit', '-m', 'chore: initialize']);
   git(work, ['push', '-u', 'origin', 'main']);
-
-  git(work, ['checkout', '-b', '157-seal']);
-  writeSpec(work);
-  git(work, ['add', specPath]);
-  git(work, ['commit', '-m', 'docs: seal umbrella spec for #157']);
-  const sourceCommit = git(work, ['rev-parse', 'HEAD']);
-  const sourceTree = git(work, ['rev-parse', `HEAD:${specPath}`]);
-  git(work, ['push', '-u', 'origin', '157-seal']);
-  return { bare, work, sourceCommit, sourceTree };
+  return { bare, work };
 }
 
-function inspect(root, args) {
-  const result = spawnSync(process.execPath, [helper, '--project', root, ...args, '--json'], { encoding: 'utf8' });
-  if (result.status !== 0) throw new Error(result.stderr || result.stdout);
-  return JSON.parse(result.stdout);
+function authorFirstChild(work) {
+  git(work, ['checkout', '-b', '109-first-child-spec']);
+  seedAggregate(work, baseChildren());
+  seedChild(work, { issue: 109, childPath: firstChildPath });
+  git(work, ['add', aggregatePath, firstChildPath]);
+  git(work, ['commit', '-m', 'docs: publish epic #108 aggregate and child #109 specs']);
+  return git(work, ['rev-parse', 'HEAD']);
+}
+
+function publishPaths(work, source, paths, message) {
+  git(work, ['checkout', 'main']);
+  git(work, ['restore', `--source=${source}`, '--worktree', '--', ...paths]);
+  git(work, ['add', ...paths]);
+  git(work, ['commit', '-m', message]);
+  git(work, ['push', 'origin', 'main']);
+}
+
+function inspectPair(work, childSpecPath, source) {
+  return inspectUmbrellaSpec({
+    project: work,
+    mode: 'aggregate-child-publication',
+    aggregatePath,
+    childSpecPath,
+    source,
+  });
 }
 
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('write-spec umbrella publication exercise', () => {
-  test('an independently based child remains blocked while the parent spec is stranded', () => {
+describe('exercise: first and later epic-child specification publication', () => {
+  test('publication scope ignores unrelated paths added after the branch point', () => {
     const { work } = fixture();
+    const source = authorFirstChild(work);
     git(work, ['checkout', 'main']);
-    git(work, ['checkout', '-b', '158-independent-child']);
-    const headBefore = git(work, ['rev-parse', 'HEAD']);
-
-    const result = inspect(work, ['--parent-issue', '157']);
-
-    expect(fs.existsSync(path.join(work, specPath))).toBe(false);
-    expect(result.status).toBe('stranded_recoverable');
-    expect(result.specPath).toBe(specPath);
-    expect(git(work, ['rev-parse', 'HEAD'])).toBe(headBefore);
-  });
-
-  test('a squash-shaped default publication unblocks a fresh child without the seal marker', () => {
-    const { work, sourceCommit } = fixture();
-    git(work, ['checkout', 'main']);
-    git(work, ['restore', `--source=${sourceCommit}`, '--worktree', '--', specPath]);
-    git(work, ['add', specPath]);
-    git(work, ['commit', '-m', 'docs: publish approved umbrella spec']);
-    git(work, ['push', 'origin', 'main']);
-    git(work, ['checkout', '-b', '158-child-after-publication']);
-
-    const first = inspect(work, ['--parent-issue', '157']);
-    const second = inspect(work, ['--parent-issue', '157']);
-
-    expect(fs.existsSync(path.join(work, specPath, 'requirements.md'))).toBe(true);
-    expect(first.status).toBe('canonical_marker_lost');
-    expect(second).toEqual(first);
-  });
-
-  test('publication mode compares the exact source and default trees', () => {
-    const { work, sourceCommit } = fixture();
-    const pending = inspect(work, ['--spec', specPath, '--source', sourceCommit]);
-    expect(pending.status).toBe('stranded_recoverable');
-    expect(pending.sourceTree).toMatch(/^[0-9a-f]{40}$/);
-
-    git(work, ['checkout', 'main']);
-    git(work, ['restore', `--source=${sourceCommit}`, '--worktree', '--', specPath]);
-    git(work, ['add', specPath]);
-    git(work, ['commit', '-m', 'docs: squash publication']);
+    write(work, 'docs/default-only.md', '# Default-only change\n');
+    git(work, ['add', 'docs/default-only.md']);
+    git(work, ['commit', '-m', 'docs: advance default independently']);
     git(work, ['push', 'origin', 'main']);
 
-    const merged = inspect(work, ['--spec', specPath, '--source', sourceCommit]);
-    expect(merged.status).toBe('canonical_marker_lost');
-    expect(merged.defaultTree).toBe(merged.sourceTree);
+    const pending = inspectPair(work, firstChildPath, source);
+
+    expect(pending).toMatchObject({
+      status: 'stranded_recoverable',
+      reasonCode: 'first_child_aggregate_pair_not_on_default',
+    });
+    expect(pending.changedPaths).not.toContain('docs/default-only.md');
+    expect(pending.changedPaths.every((entry) => entry.startsWith(`${aggregatePath}/`) || entry.startsWith(`${firstChildPath}/`))).toBe(true);
   });
 
-  test('the publication ref carries the exact seal commit without replacing the issue-linked source ref', () => {
-    const { work, sourceCommit, sourceTree } = fixture();
-    const publicationHead = publicationBranchName(157, sourceTree);
-    const sourceBefore = git(work, ['ls-remote', '--heads', 'origin', 'refs/heads/157-seal']).split(/\s+/)[0];
-
-    git(work, ['push', 'origin', `${sourceCommit}:refs/heads/${publicationHead}`]);
-
-    const publicationCommit = git(work, ['ls-remote', '--heads', 'origin', `refs/heads/${publicationHead}`]).split(/\s+/)[0];
-    const sourceAfter = git(work, ['ls-remote', '--heads', 'origin', 'refs/heads/157-seal']).split(/\s+/)[0];
-    expect(publicationCommit).toBe(sourceCommit);
-    expect(sourceAfter).toBe(sourceBefore);
-    expect(publicationHead).toBe(`nmg-sdlc/spec-publication-157-${sourceTree.slice(0, 12)}`);
-    expect(publicationHead).not.toBe('157-seal');
-  });
-
-  test('a verified canonical umbrella supports a later child amendment without resealing', () => {
-    const { work, sourceCommit } = fixture();
-    git(work, ['checkout', 'main']);
-    git(work, ['restore', `--source=${sourceCommit}`, '--worktree', '--', specPath]);
-    git(work, ['add', specPath]);
-    git(work, ['commit', '-m', 'docs: publish approved umbrella spec']);
-    write(work, `${specPath}/verification-report.md`, [
-      '# Verification Report',
-      '',
-      'Issue #157 verification passed before child delivery.',
-      '',
-    ].join('\n'));
-    git(work, ['add', `${specPath}/verification-report.md`]);
-    git(work, ['commit', '-m', 'docs: record umbrella verification']);
-    git(work, ['push', 'origin', 'main']);
-    const canonicalTree = git(work, ['rev-parse', `HEAD:${specPath}`]);
-
-    git(work, ['checkout', '-b', '159-child-amendment']);
-    fs.appendFileSync(path.join(work, specPath, 'requirements.md'), '\nChild issue #159 amendment.\n');
-    fs.appendFileSync(path.join(work, specPath, 'tasks.md'), '\n- T002: Deliver child #159\n');
-    git(work, ['add', specPath]);
-    git(work, ['commit', '-m', 'docs: amend umbrella spec for child #159']);
-    const childTree = git(work, ['rev-parse', `HEAD:${specPath}`]);
-
-    const parentGate = inspect(work, ['--parent-issue', '157']);
-    const childSeal = git(work, ['log', '--format=%s', '--grep=^docs: seal umbrella spec for #159$']);
-
-    expect(parentGate.status).toBe('canonical_marker_lost');
-    expect(parentGate.defaultTree).toBe(canonicalTree);
-    expect(fs.existsSync(path.join(work, specPath, 'verification-report.md'))).toBe(true);
-    expect(childTree).not.toBe(canonicalTree);
-    expect(childSeal).toBe('');
-  });
-
-  test('a malformed requirements file cannot hide a parent claim in design metadata', () => {
+  test('first child publishes exactly one aggregate plus one separate executable child package', () => {
     const { work } = fixture();
-    write(work, `${specPath}/requirements.md`, [
-      '# Requirements: Forward Publication',
-      '',
-      '**Issues**: #999',
-      '**Issue**: #999',
-      '',
-      '| ID | Requirement | Priority |',
-      '|----|-------------|----------|',
-      '| FR1 | Deliver through multiple PRs | Must |',
-      '',
-    ].join('\n'));
-    git(work, ['add', `${specPath}/requirements.md`]);
-    git(work, ['commit', '-m', 'docs: introduce malformed issue metadata']);
-    git(work, ['push', 'origin', '157-seal']);
-    git(work, ['checkout', 'main']);
+    const source = authorFirstChild(work);
+    const authority = inspectEpicSpecAuthority({
+      project: work,
+      source,
+      mode: 'child',
+      issueNumber: 109,
+      nativeChildren: [109, 110],
+    });
+    const pending = inspectPair(work, firstChildPath, source);
 
-    const result = inspect(work, ['--parent-issue', '157']);
+    expect(authority).toMatchObject({ status: 'valid', requestedChild: { issue: 109, status: 'valid' } });
+    expect(pending).toMatchObject({
+      status: 'stranded_recoverable',
+      reasonCode: 'first_child_aggregate_pair_not_on_default',
+      changedPaths: expect.arrayContaining([
+        `${aggregatePath}/requirements.md`,
+        `${aggregatePath}/design.md`,
+        `${aggregatePath}/epic-scope.json`,
+        `${firstChildPath}/epic-link.json`,
+      ]),
+    });
+    expect(pending.changedPaths.every((entry) => entry.startsWith(`${aggregatePath}/`) || entry.startsWith(`${firstChildPath}/`))).toBe(true);
+    expect(fs.existsSync(path.join(work, aggregatePath, 'tasks.md'))).toBe(false);
+    expect(fs.existsSync(path.join(work, aggregatePath, 'feature.gherkin'))).toBe(false);
 
-    expect(result.status).toBe('unverifiable');
-    expect(result.reasonCode).toBe('candidate_scan_failed');
-    expect(result.gaps[0]).toContain('invalid_issue_frontmatter');
+    const branch = aggregatePublicationBranchName({
+      epicIssueNumber: 108,
+      childIssueNumber: 109,
+      aggregatePath,
+      aggregateTree: pending.sourceTrees.aggregate,
+      childSpecPath: firstChildPath,
+      childTree: pending.sourceTrees.child,
+    });
+    const marker = aggregatePublicationMarker({
+      epicIssueNumber: 108,
+      childIssueNumber: 109,
+      aggregatePath,
+      aggregateTree: pending.sourceTrees.aggregate,
+      childSpecPath: firstChildPath,
+      childTree: pending.sourceTrees.child,
+    });
+    expect(branch).toMatch(/^nmg-sdlc\/spec-publication-108-109-[0-9a-f]{12}$/);
+    expect(marker).toContain('epic: #108');
+    expect(marker).toContain('child: #109');
+
+    publishPaths(work, source, [aggregatePath, firstChildPath], 'docs: publish first epic child authority');
+    const canonical = inspectPair(work, firstChildPath, source);
+    expect(canonical).toMatchObject({ status: 'canonical_marker_lost' });
+    expect(inspectPair(work, firstChildPath, source)).toEqual(canonical);
   });
 
-  test('single-PR specs retain the existing trigger boundary', () => {
-    const source = fs.readFileSync(path.join(repoRoot, 'skills/write-spec/SKILL.md'), 'utf8');
-    expect(source).toContain('The trigger fires if EITHER:');
-    expect(source).toContain('`design.md` contains a `## Multi-PR Rollout` heading');
-    expect(source).toContain('Any FR row\'s Requirement cell contains `multiple PRs` or `multi-PR`');
-    expect(source).toContain('Run this flow only when the Canonical Parent-Spec Gate recorded no coordination parent');
-    expect(source).toContain('when the Phase 3 Seal-Spec Flow runs');
+  test('later child changes only its package and the aggregate manifest row while preserving its sibling', () => {
+    const { work } = fixture();
+    const firstSource = authorFirstChild(work);
+    publishPaths(work, firstSource, [aggregatePath, firstChildPath], 'docs: publish first epic child authority');
+    const siblingTree = git(work, ['rev-parse', `HEAD:${firstChildPath}`]);
+    const aggregateRequirements = git(work, ['rev-parse', `HEAD:${aggregatePath}/requirements.md`]);
+    const aggregateDesign = git(work, ['rev-parse', `HEAD:${aggregatePath}/design.md`]);
+
+    git(work, ['checkout', '-b', '110-later-child-spec']);
+    seedAggregate(work, baseChildren({ laterState: 'canonical' }));
+    seedChild(work, { issue: 110, childPath: laterChildPath });
+    git(work, ['add', aggregatePath, laterChildPath]);
+    git(work, ['commit', '-m', 'docs: publish child #110 spec and manifest row']);
+    const laterSource = git(work, ['rev-parse', 'HEAD']);
+    const changed = git(work, ['diff', '--name-only', 'origin/main...HEAD']).split('\n').filter(Boolean);
+    const pending = inspectPair(work, laterChildPath, laterSource);
+
+    expect(changed).toEqual([
+      `${aggregatePath}/epic-scope.json`,
+      `${laterChildPath}/design.md`,
+      `${laterChildPath}/epic-link.json`,
+      `${laterChildPath}/feature.gherkin`,
+      `${laterChildPath}/issue-scope.json`,
+      `${laterChildPath}/requirements.md`,
+      `${laterChildPath}/tasks.md`,
+    ]);
+    expect(git(work, ['rev-parse', `HEAD:${firstChildPath}`])).toBe(siblingTree);
+    expect(git(work, ['rev-parse', `HEAD:${aggregatePath}/requirements.md`])).toBe(aggregateRequirements);
+    expect(git(work, ['rev-parse', `HEAD:${aggregatePath}/design.md`])).toBe(aggregateDesign);
+    expect(pending).toMatchObject({
+      status: 'stranded_recoverable',
+      reasonCode: 'later_child_and_manifest_amendment_not_on_default',
+    });
+
+    publishPaths(work, laterSource, [`${aggregatePath}/epic-scope.json`, laterChildPath], 'docs: publish later epic child authority');
+    const authority = inspectEpicSpecAuthority({
+      project: work,
+      source: 'origin/main',
+      mode: 'child',
+      issueNumber: 110,
+      nativeChildren: [109, 110],
+    });
+    expect(authority).toMatchObject({ status: 'valid', requestedChild: { issue: 110, status: 'valid' } });
+    expect(inspectPair(work, laterChildPath, laterSource)).toMatchObject({ status: 'canonical_marker_lost' });
+  });
+});
+
+describe('exercise: epic specification authority fails closed', () => {
+  test('missing, duplicate, conflicting, ambiguous, and executable aggregate evidence cannot authorize code work', () => {
+    const { work } = fixture();
+    seedAggregate(work, baseChildren({ laterState: 'canonical' }));
+    seedChild(work, { issue: 109, childPath: firstChildPath });
+
+    const missing = inspectEpicSpecAuthority({ project: work, mode: 'child', issueNumber: 110, nativeChildren: [109, 110] });
+    expect(missing).toMatchObject({ status: 'repair_required', reasonCode: 'child_link_missing' });
+
+    seedChild(work, { issue: 110, childPath: laterChildPath, outcomes: ['EO999'] });
+    const conflicting = inspectEpicSpecAuthority({ project: work, mode: 'child', issueNumber: 110, nativeChildren: [109, 110] });
+    expect(conflicting.status).toBe('unverifiable');
+    expect(conflicting.gaps.join('\n')).toContain('link outcomes do not match');
+
+    seedChild(work, { issue: 109, childPath: 'specs/feature-duplicate-child' });
+    const duplicate = inspectEpicSpecAuthority({ project: work, mode: 'child', issueNumber: 109, nativeChildren: [109, 110] });
+    expect(duplicate).toMatchObject({ status: 'unverifiable', reasonCode: 'duplicate_child_link' });
+
+    const secondAggregate = 'specs/epic-duplicate-route-weather';
+    const manifest = JSON.parse(fs.readFileSync(path.join(work, aggregatePath, 'epic-scope.json'), 'utf8'));
+    manifest.aggregatePath = secondAggregate;
+    write(work, `${secondAggregate}/epic-scope.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+    write(work, `${secondAggregate}/requirements.md`, '# Epic\n\n**Issue**: #108\n\n### EO001: Route result\n');
+    write(work, `${secondAggregate}/design.md`, '# Design\n\n**Issue**: #108\n');
+    const ambiguous = inspectEpicSpecAuthority({ project: work, mode: 'epic', issueNumber: 108, nativeChildren: [109, 110] });
+    expect(ambiguous).toMatchObject({ status: 'unverifiable', reasonCode: 'duplicate_epic_aggregate' });
+
+    fs.rmSync(path.join(work, secondAggregate), { recursive: true, force: true });
+    fs.rmSync(path.join(work, 'specs/feature-duplicate-child'), { recursive: true, force: true });
+    seedChild(work, { issue: 110, childPath: laterChildPath });
+    write(work, `${aggregatePath}/tasks.md`, '### T999: forbidden aggregate work\n');
+    const executableAggregate = inspectEpicSpecAuthority({ project: work, mode: 'epic', issueNumber: 108, nativeChildren: [109, 110] });
+    expect(executableAggregate.status).toBe('repair_required');
+    expect(executableAggregate.gaps.join('\n')).toContain('gives executable ownership to an epic aggregate');
+  });
+
+  test('a noncanonical source remains publication evidence, never implementation authority', () => {
+    const { work } = fixture();
+    const source = authorFirstChild(work);
+    const first = inspectPair(work, firstChildPath, source);
+    const second = inspectPair(work, firstChildPath, source);
+    expect(first).toEqual(second);
+    expect(first.status).toBe('stranded_recoverable');
+    expect(first.defaultTrees).toEqual({ aggregate: null, child: null });
   });
 });

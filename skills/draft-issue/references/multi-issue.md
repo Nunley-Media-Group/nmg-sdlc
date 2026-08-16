@@ -426,13 +426,13 @@ Autolinking:
   - Planned markers retained: <count> / <edges with an abandoned or uncreated same-scope endpoint>
   [If degraded]: Native membership incomplete — exact surviving labels, bodies, and edges listed below.
 
-[Only when complete]: Next step: $nmg-sdlc:start-issue #<first-ready-issue-number>
+[Only when complete]: Epic #<num> is coordination-only and cannot be started. Next step: $nmg-sdlc:start-issue #<first-ready-executable-child-number> (selected by normal dependency rules; epic lineage is informational)
 [When partial]: Stop lifecycle handoff. Repair exact native identity through $nmg-sdlc:upgrade-project, then rerun verification; do not create replacement children.
 ```
 
 #### Single-issue mode
 
-For an ordinary feature or bug, Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). A single epic uses the batch summary because Step 10.1 may create children and native membership edges; it reports the child count and cannot print a start-issue handoff while `session.nativeLinkComplete` is false.
+For an ordinary feature or bug, Steps 10 and 11 collapse to the existing `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block from Step 9 (M=1, N=1, no autolinking block). A single epic uses the batch summary because Step 10.1 creates children and native membership edges. It never prints a handoff to the epic. When identity is complete, it derives the first ready executable child with the ordinary dependency/deliverable classifier and displays nested epic lineage as informational context; when `session.nativeLinkComplete` is false, it prints no lifecycle handoff.
 
 #### Abandonment
 

@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: "Create BDD specifications from a GitHub issue: requirements, technical design, and task breakdown. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Do NOT use for creating issues, implementing code, or verifying implementations. Produces requirements.md, design.md, tasks.md, and feature.gherkin with human review gates. Third step in the SDLC pipeline — follows $nmg-sdlc:start-issue and precedes $nmg-sdlc:write-code."
+description: "Create BDD specifications for an executable GitHub issue, with separate coordination aggregates for epic children. Use when user says 'write specs', 'create specifications', 'spec this issue', 'spec #N', 'formalize requirements', 'how do I write specs', 'how to spec a feature', 'design this feature', or 'plan the implementation'. Epics are never executable spec targets. Do NOT use for creating issues, implementing code, or verifying implementations. Third step in the SDLC pipeline — follows $nmg-sdlc:start-issue and precedes $nmg-sdlc:write-code."
 ---
 
 # Write Spec
@@ -35,7 +35,7 @@ Create BDD specifications from a GitHub issue through three phases — Requireme
 
 1. A GitHub issue exists (created via `$nmg-sdlc:draft-issue` or manually).
 2. Steering documents exist in `steering/` (create via `$nmg-sdlc:onboard-project` if missing).
-3. Spec directories follow the `feature-{slug}` / `bug-{slug}` convention.
+3. Executable spec directories follow the `feature-{slug}` / `bug-{slug}` convention; coordination aggregates use `epic-{slug}`.
 4. The project uses the current directory layout (`steering/` and `specs/` at the repo root).
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Phase 1 if the legacy `.codex/{steering,specs}/` layout is still in place.
@@ -48,32 +48,51 @@ Read `../../references/spec-frontmatter.md` when writing or amending any spec fi
 
 Read `../../references/issue-spec-scope.md` when creating a feature spec, amending a cumulative feature spec, or validating the completed package. It defines the versioned `issue-scope.json` authority, stable `@SCN...` identifiers, and fail-closed resolver contract shared by downstream lifecycle consumers.
 
-Read `../../references/deliverable-dependencies.md` when a multi-PR design assigns a task or artifact to one child and another child consumes it. Every such prerequisite must resolve to an extracted baseline issue or a whole-issue dependency before sealing or child creation.
+Read `../../references/epic-spec-authority.md` immediately after relationship classification confirms an epic or epic child. It defines the non-executable aggregate, executable child package, bidirectional manifests, deterministic helper, and first/later-child publication boundary.
+
+Read `../../references/deliverable-dependencies.md` when a multi-PR design assigns a task or artifact to one child and another child consumes it. Every such prerequisite must resolve to an extracted baseline issue or a whole-issue dependency before child-package publication.
+
+Before child creation or package publication, inventory every task ID and named artifact assigned to each Delivery Phase. Preserve prerequisite owners before consumers in the approved dependency graph.
 
 Read `../../references/spec-context.md` when Spec Discovery needs related existing specs — parent-link resolution remains first, then bounded metadata ranking decides whether to amend an existing feature spec or create a new one.
 
-Read `../../references/canonical-umbrella-spec.md` when the canonical parent-spec gate resolves a confirmed coordination epic or when the Phase 3 Seal-Spec Flow runs. Resolve the installed plugin root from this skill's path and invoke its status helper against the project root.
+Read `../../references/canonical-umbrella-spec.md` when the Epic Role and Authority Gate resolves a confirmed child or legacy evidence requires read-only classification. Resolve the installed plugin root from this skill's path and invoke its status helper against the project root.
 
 ---
 
-## Canonical Parent-Spec Gate
+## Epic Role and Authority Gate
 
-Before Spec Discovery, bug/spike variant selection, or any Phase 1 write, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`.
+Before Spec Discovery, bug/spike routing, interviews, or writes, resolve fully paged native relationships through `../../references/epic-relationships.md`. Use GraphQL for native parent/sub-issue evidence; never request unsupported `parent` data through `gh issue view --json`.
 
-- `role = ordinary` or `epic` with its matching shared identity/consistency state → continue unchanged and record no canonical parent.
-- `role = inconsistent`, `ambiguous`, or `unverifiable`; any child with a mismatched `identity`/`consistency`; or any claimed child whose `nativeAuthority` is not `native` → stop before discovery or writes and report the exact role, identity, consistency, authority, pairs, signals, and gaps.
-- `role = epic-child`, `identity = durable`, `consistency = consistent`, and `nativeAuthority = native` → record `P = parentNumber` and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
-- `role = epic-child`, `identity = legacy`, `consistency = legacy`, and `nativeAuthority = native` → record `P = parentNumber`, report the exact missing-label repair recommendation, and run the same parent-mode helper. No other legacy field combination may continue.
+- `ordinary` continues to normal discovery.
+- `epic` stops without mutation: `Epic #E is coordination-only and cannot own an executable spec. Run $nmg-sdlc:write-spec #C for a ready child.` Show ready and blocked executable descendants from fresh dependency evidence.
+- `inconsistent`, `ambiguous`, or `unverifiable` stops with the exact signals and gaps.
+- `epic-child` requires consistent native authority. Record the complete informational lineage and fully paged direct-child inventory for parent `E`; membership itself never becomes an execution dependency.
 
-Continue only when both the relationship row above is valid and the helper result is `canonical` or `canonical_marker_lost`. A canonical helper result never overrides inconsistent, mismatched, degraded, ambiguous, or unverifiable child identity. Record the returned parent issue, default commit, and canonical `specPath` for the current invocation. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before discovery, variant routing, interviews, or file writes. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
+For a confirmed child `C`, run child authority first:
 
-Bug- and spike-labelled child issues still follow their existing creation variants after this gate; they do not amend the parent spec. A feature child may use the recorded canonical path during discovery and may contain approved child-scoped amendments that differ from the baseline tree.
+```bash
+node <plugin-root>/scripts/epic-spec-authority.mjs \
+  --project <project-root> --child C \
+  --native-children <complete-direct-child-list> --json
+```
+
+Route the result without guessing:
+
+1. `valid`: enter existing-child mode and amend only the resolved child package.
+2. `child_link_missing`: inspect `--epic E` with the same native inventory.
+   - `aggregate_not_authored` enters first-child mode.
+   - A valid aggregate whose exact child entry is `planned` enters later-child mode after refreshed default-branch canonical proof.
+   - A missing child entry, conflicting path, or other drift is repair-required.
+3. Any legacy cumulative package, `repair_required`, or `unverifiable` result stops before file mutation and routes the exact finding to `$nmg-sdlc:upgrade-project`.
+
+Read `references/umbrella-mode.md` for first-child, later-child, and existing-child authoring. First-child mode reviews one aggregate plus one separate child package. Later-child mode reviews only the child and changes only its `epic-scope.json` entry from `planned` to `canonical`. Existing-child mode never appends content to the aggregate or a sibling. Aggregate or sibling changes require a separate, explicit review at the applicable phase gate.
 
 ---
 
 ## Spec Discovery
 
-Read `references/discovery.md` when the issue is not bug-labelled — discovery decides between amending an existing feature spec (parent-link first, bounded spec-context ranking fallback) and creating a new one. Bug-labelled issues skip discovery and always create a fresh `bug-{slug}/`. Spike-labelled issues skip Spec Discovery entirely (same as bug-labelled issues) and proceed directly to Phase 0 per `references/spike-variant.md`.
+Read `references/discovery.md` for ordinary non-bug issues. Epic children bypass keyword discovery: their validated child path and mode are authoritative. Bug-labelled issues create a fresh `bug-{slug}/`; spike-labelled issues proceed to Phase 0 per `references/spike-variant.md`.
 
 The discovery outcome flips the rest of the workflow into one of two modes — **amendment mode** when an existing spec was resolved, otherwise **creation mode**.
 
@@ -215,106 +234,65 @@ Continue only for `scoped` or `implicit_single_issue`. A `repair_required` resul
 
 Read `references/review-gates.md` when this gate fires — § Phase 3 contains the Tasks Summary template.
 
-### Seal-Spec Flow (multi-PR triggered)
+### Aggregate + Active-Child Publication
 
-After the Phase 3 approval gate, detect a multi-PR delivery trigger. The trigger fires if EITHER:
+For first-child and later-child modes, read `references/umbrella-mode.md` and `../../references/canonical-umbrella-spec.md`. After all applicable gates approve:
 
-- `design.md` contains a `## Multi-PR Rollout` heading, OR
-- Any FR row's Requirement cell contains `multiple PRs` or `multi-PR` (case-insensitive).
-
-Run this flow only when the Canonical Parent-Spec Gate recorded no coordination parent for the current issue. A feature child amending an already-canonical umbrella inherits the parent's multi-PR design text but must continue to its normal `$nmg-sdlc:write-code #N` handoff; it must not create a child-numbered seal commit or a second umbrella publication PR.
-
-The umbrella spec is not itself a shipping change. Sealing commits the exact spec without a version bump, publishes it through a spec-only pull request to the repository default branch, and blocks child transition until refreshed remote content is canonical. This flow bypasses `$nmg-sdlc:open-pr` because that skill owns versioned implementation delivery.
-
-Before offering seal, inventory every task ID and named artifact assigned to each Delivery Phase. Detect every reference from one phase/child to another phase/child's task or artifact. Render an explicit ownership/prerequisite map and require each prerequisite to use one of the shared contract's supported deliverable boundaries. Recommend a whole-issue dependency unless an independently reviewable baseline and material parallelism justify extraction. Return to the Tasks Review Gate for any ownership or boundary change; a prose-only midpoint checkpoint stops sealing.
-
-#### 3b.1 Offer Seal
-
-Ask through `request_user_input` in Plan Mode: `Seal and publish` (commit `specs/{feature-name}/`, push, and create or reuse a spec-only publication PR) or `Do not seal` (leave the approved spec uncommitted for now). Include the selected behavior in the `<proposed_plan>` and auto-execute after acceptance.
-
-#### 3b.2 Seal Exact Scope
-
-1. Validate `N` as a positive issue number and `specs/{feature-name}` as a normalized path below `specs/` with no symlink escape.
-2. Search current ancestry for `^docs: seal umbrella spec for #{N}$`.
-   - If absent, stage only `specs/{feature-name}/`, inspect the staged name list, and commit with the exact subject `docs: seal umbrella spec for #{N}`.
-   - If present, require the spec directory to be clean. A dirty already-sealed spec stops for another reviewed spec amendment; do not hide changes in a duplicate seal.
-3. Inspect the selected seal commit with `git diff-tree`. Every changed path must be inside the exact spec directory. Reject `VERSION`, `CHANGELOG.md`, `.codex-plugin/plugin.json`, marketplace files, or any unrelated path.
-4. Push only the current sealing branch with `git push origin HEAD`. Record the full seal commit and source tree IDs.
-
-Never use `git add -A`, `git add .`, force-push, a version bump, or a release roll.
-
-#### 3b.3 Classify and Publish
-
-1. Run publication mode from the installed plugin root:
+1. Validate the active child package with `issue-spec-scope.mjs`, then validate the aggregate/link pair with `epic-spec-authority.mjs --child C --native-children ...`. Continue only for `scoped`/`valid` exact results.
+2. Stage only the approved paths. First child: the aggregate and active-child directories. Later child: the active-child directory plus the aggregate `epic-scope.json`. Inspect the staged names before committing; no release artifact or unrelated path is eligible.
+3. Commit the exact spec publication source, then run:
 
    ```bash
    node <plugin-root>/scripts/umbrella-spec-status.mjs \
      --project <project-root> \
-     --spec specs/{feature-name} \
-     --source HEAD \
-     --json
+     --aggregate specs/epic-<slug> \
+     --child-spec specs/<type>-<child-slug> \
+     --source HEAD --json
    ```
 
-2. Handle the Git classification:
-   - `canonical` or `canonical_marker_lost` with the expected source tree → continue to 3b.4.
-   - `divergent`, `ambiguous`, or `unverifiable` → stop with the exact `reasonCode`, path/tree/ref evidence, and recovery guidance.
-   - `stranded_recoverable` → continue below; default still lacks the source tree.
-3. Before any publication-ref or PR mutation, verify `git diff --name-only <default-commit>...<full-seal-commit>` contains only `specs/{feature-name}/`. Stop if the seal commit would publish any other path.
-4. Derive `publicationHead = nmg-sdlc/spec-publication-N-<first-12-characters-of-source-tree>` per `../../references/canonical-umbrella-spec.md`. Query `refs/heads/{publicationHead}` with `git ls-remote --heads origin`:
-   - An existing ref must resolve to the exact full seal commit; otherwise stop with the collision evidence.
-   - If absent, create it only with `git push origin <full-seal-commit>:refs/heads/{publicationHead}`.
-   - Never create or link this ref with `gh issue develop`, use the issue-linked sealing branch as PR head, or force-push.
-5. Build the exact marker from the shared reference. Query all pull requests targeting the detected default branch whose body contains that complete issue/path/tree marker. Require the expected base and inspect every matching head before mutation.
-   - One open match on `publicationHead` → run the GitHub closing-semantic gate below; reuse it only when the result is `pending_safe`.
-   - One merged match on either the dedicated head or a historical issue-linked head → run the GitHub closing-semantic gate, then rerun the canonical Git helper. Continue only through the merged/recovery rules below.
-   - A matching open PR on any other head, a closed-unmerged match, or multiple exact matches → stop with the PR evidence; do not duplicate it.
-   - No match → create one PR from `publicationHead` to the detected default branch using a temporary `--body-file`. Title it `docs: publish umbrella spec for #N`, include `Refs #N` rather than a closing keyword, and include the exact marker.
-6. After creating or selecting a PR, invoke the installed helper with the exact project, repository, issue, PR, spec path, source tree, seal commit, and default base:
+4. For `stranded_recoverable`, derive the dedicated ref and exact aggregate/child marker from `umbrella-publication-status.mjs`. Reuse one exact ref/PR or create one non-closing spec-only PR. Its body uses `Refs #E` and `Refs #C`; it never starts or closes the epic or child. Validate it with the helper's `--epic`, `--child`, `--aggregate`, both tree options, exact source commit, and default base.
+5. `pending_safe` reports `publication_pending` and stops before code. After merge, rerun both helpers. Continue only when GitHub returns `merged_safe`, the refreshed pair is `canonical` or `canonical_marker_lost`, and child authority is still `valid` for the same native inventory.
+6. Divergence, duplicate/closed publication, closing semantics, changed digest, or incomplete evidence fails closed. Never auto-repair, force-push, touch release artifacts, or fall back to a cumulative epic spec.
 
-   ```bash
-   node <plugin-root>/scripts/umbrella-publication-status.mjs \
-     --project <project-root> \
-     --repository <owner/name> \
-     --issue N \
-     --pr <publication-pr-number> \
-     --spec specs/{feature-name} \
-     --tree <full-source-tree-oid> \
-     --source <full-seal-commit> \
-     --base <detected-default-branch> \
-     --json
-   ```
+For nested lineage, complete the immediate executable child pair first, then
+follow `references/umbrella-mode.md` leaf-to-root. Each ancestor step uses the
+same helpers with the ancestor aggregate as `--aggregate` and the already
+canonical nested epic aggregate as `--child-spec`. It changes only the approved
+ancestor manifest/aggregate, creates no nested `epic-link.json`, and keeps both
+epics open. Never hand an epic to `issue-spec-scope`, `write-code`, or an
+executable-child review gate.
 
-7. Handle the GitHub semantic result:
-   - `pending_safe` → report `publication_pending`, stop before child creation, and print its URL plus: `Merge the spec-only publication PR, refresh the default branch, then re-run $nmg-sdlc:write-spec #N.` Never approve or merge it automatically.
-   - `closing_relationship`, `closed_unrelated`, or `unverifiable` → report a lifecycle error with `reasonCode`, `gaps`, closing references, issue state, head/base, marker, and timeline evidence. Do not report pending/success or encourage merge.
-   - `publication_closed_umbrella` → render the exact marked PR and its repository-qualified currently active `ClosedEvent` evidence. A cleared historical closure or later unrelated active closure is not recoverable here. Ask through `request_user_input` for approval to reopen that exact issue. Only the exact reopen approval permits `gh issue reopen N`; silence, another approval, or a general continuation does not. Rerun the helper and require `merged_safe` with `evidence.recovered = true` before continuing.
-   - `merged_safe` → rerun publication mode in `umbrella-spec-status.mjs`; continue only when refreshed content is `canonical` or `canonical_marker_lost` for the expected tree.
+The successful handoff names only the active child package plus the aggregate as bounded context, then prints `$nmg-sdlc:write-code #C`.
 
-An already-merged historical publication may use the former issue-linked head so its exact closure can be diagnosed and recovered. Such a head is never accepted for an open `publication_pending` PR. Ordinary implementation issue closure remains owned by `$nmg-sdlc:open-pr` and is unchanged.
+### Legacy Cumulative Multi-PR Compatibility
 
-#### 3b.4 Offer Child-Issue Creation After Canonical Proof
+The original cumulative umbrella format is read-only compatibility input. New
+writes cannot create, seal, publish, extend, or append children to that format,
+and an already-started ordinary issue is never converted into an epic here.
 
-Only after a fresh helper result is `canonical` or `canonical_marker_lost` for the expected source tree, ask through `request_user_input` whether to create child issues via `$nmg-sdlc:draft-issue` batch mode using the Delivery Phases table. Include the selected child action in the `<proposed_plan>` and auto-execute after acceptance.
+After the Phase 3 gate, detect either a multi-PR trigger in a newly written
+ordinary spec or an existing legacy cumulative/marked publication package:
 
-The approved create-children action also owns durable identity persistence:
+- A new multi-PR trigger with no confirmed epic child authority stops before
+  commit, push, issue, label, relationship, or PR mutation. Explain that the
+  work must be drafted as a coordination-only epic with separately executable
+  children. Preserve the current files and direct the user to
+  `$nmg-sdlc:draft-issue` for the epic/child graph; any ownership transfer from
+  this package requires an exact `$nmg-sdlc:upgrade-project` proposal.
+- An existing cumulative package, historical seal/ref/marker, legacy child
+  linkage, or publication-created issue state is classified with
+  `umbrella-spec-status.mjs` and `umbrella-publication-status.mjs` for evidence
+  only. Report its path/tree/ref/PR/closing evidence and route all graph, package
+  split, ownership, Project, close, or reopen action to the per-epic
+  `$nmg-sdlc:upgrade-project` repair contract.
+- A child whose existing legacy package remains supported at a documented
+  downstream compatibility boundary may amend only its already-owned slice.
+  It cannot add new cumulative ownership, sibling tasks, or aggregate outcomes.
 
-1. Lazily create the repository `epic` label with color `5319E7` when absent, apply it to current issue `#N`, and re-fetch the issue to prove the label persisted.
-2. Pass `N` as the live parent number into the batch flow. Require each child to receive `epic-child-of-N`, the native parent link, and `Depends on: #N` per `references/umbrella-mode.md`; do not rely on an earlier session variable after the write.
-3. Re-fetch the parent and every created child, derive the shared result from `../../references/epic-relationships.md`, and require each child to be `role = epic-child`, `parentNumber = N`, `identity = durable`, `consistency = consistent`, and `nativeAuthority = native`. Also require the matching coordination pair to retain a native signal and a body signal before reporting successful handoff.
-4. If a label, relationship, or body write partially fails, stop with the exact surviving metadata and repair action. Do not create a replacement child or claim the batch is ready.
-5. Pass the approved task/artifact ownership and deliverable-prerequisite map into `$nmg-sdlc:draft-issue` batch mode. Require one structured `Requires deliverable` record and matching whole-issue `Depends on:` edge per cross-child prerequisite. Re-fetch and run the shared deliverable classifier; `repair_required` or `unverifiable` stops handoff, while `blocked` is the truthful expected state until the owner merges.
-
-#### 3b.5 Canonical Next-Step Hint
-
-```text
-Umbrella spec canonical on origin/{defaultBranch} at tree {sourceTree}.
-Seal provenance: retained | history marker lost
-Children created: #{child1}, #{child2}, ...  (or: none — create manually later)
-
-Next step: $nmg-sdlc:start-issue #{first-unblocked-child}
-```
-
-If no children were created, print: `Create child issues with $nmg-sdlc:draft-issue, then run $nmg-sdlc:start-issue #{child-number}.`
+Never offer the historical seal gate, create a cumulative publication ref/PR,
+apply `epic` to a started executable issue, generate children from a cumulative
+package, or print a start handoff to an epic. The new Aggregate + Active-Child
+Publication section above is the sole write path for epic specifications.
 
 ---
 
@@ -331,13 +309,19 @@ Specs written to (or amended in) `specs/{feature-name}/`:
 Next step: Run `$nmg-sdlc:write-code #N` to plan and execute implementation.
 ```
 
+For an epic child, also report its exact `epic-link.json`, aggregate path,
+manifest row, canonical default-branch proof, and informational lineage. State
+that the aggregate has no executable tasks/Gherkin and that the epic itself
+cannot be started. Print the implementation handoff only for child `#N` after
+authority is `valid`.
+
 ---
 
 ## Integration with SDLC Workflow
 
-```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
-                                                  ▲ You are here
+```text
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
+                                             ▲ You are here
 ```
 
 ## References

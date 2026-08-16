@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -101,6 +101,17 @@ function addSpec(files, directory, { issue = 143, tasks = '', requirements = '' 
   return files;
 }
 
+function addAggregate(files, directory, { epic = 108, child = 143 } = {}) {
+  files.set(`${directory}/requirements.md`, `# Epic Requirements\n\n**Epic**: #${epic}\n\nEO001: Deliver child #${child}.\n`);
+  files.set(`${directory}/design.md`, '# Epic Design\n\nCoordination topology only.\n');
+  files.set(`${directory}/epic-scope.json`, JSON.stringify({
+    schemaVersion: 1,
+    epic: { issue: epic },
+    children: [{ issue: child, specPath: 'specs/feature-gate', state: 'canonical' }],
+  }));
+  return files;
+}
+
 async function runEvaluator({
   title = 'feat: strengthen gate',
   body = '',
@@ -170,12 +181,12 @@ function normalScenario({
   };
 }
 
-describe('contribution gate lifecycle coverage (issues #125 and #143)', () => {
-  test('onboarding-style setup creates version 2 and rerun is idempotent', () => {
+describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', () => {
+  test('onboarding-style setup creates version 3 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 2');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 3');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -188,7 +199,7 @@ describe('contribution gate lifecycle coverage (issues #125 and #143)', () => {
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 2');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 3');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 
@@ -206,13 +217,99 @@ describe('contribution gate lifecycle coverage (issues #125 and #143)', () => {
   });
 });
 
-describe('exact embedded contribution evaluator (issue #143)', () => {
+describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
   test('passes a coherent issue, spec, path, steering, verification, and guide graph', async () => {
     const result = await runEvaluator(normalScenario());
 
     expect(result.errors).toEqual([]);
     expect(result.failed).toEqual([]);
     expect(result.infos).toContain('nmg-sdlc contribution evidence is consistent.');
+  });
+
+  test('accepts a correlated executable child package plus its coordination aggregate', async () => {
+    const files = addAggregate(
+      addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+        issue: 143,
+        tasks: '**File(s)**: `scripts/check-gate.mjs`',
+      }),
+      'specs/epic-delivery',
+    );
+    const result = await runEvaluator({
+      body: 'Closes #143\n\nSpec: specs/feature-gate/\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
+      changedPaths: [
+        'scripts/check-gate.mjs',
+        'specs/feature-gate/requirements.md',
+        'specs/epic-delivery/epic-scope.json',
+      ],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.failed).toEqual([]);
+  });
+
+  test.each(['issue-scope.json', 'epic-link.json'])(
+    'discovers an executable child from an authority-only %s change',
+    async (authorityArtifact) => {
+      const files = addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+        issue: 143,
+        tasks: '**File(s)**: `specs/feature-gate/`',
+      });
+      const result = await runEvaluator({
+        body: 'Closes #143\n\nSteering: steering/tech.md\n\n## Verification\nAC1: passed',
+        changedPaths: [`specs/feature-gate/${authorityArtifact}`],
+        repositoryFiles: files,
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.failed).toEqual([]);
+      expect(result.contentCalls).toContain('specs/feature-gate/requirements.md');
+    },
+  );
+
+  test('rejects an aggregate without an executable child package', async () => {
+    const files = addAggregate(baseRepositoryFiles(), 'specs/epic-delivery');
+    const result = await runEvaluator({
+      body: 'Refs #108\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node test` — passed',
+      changedPaths: ['specs/epic-delivery/epic-scope.json'],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors.join('\n')).toContain('Missing spec evidence');
+    expect(result.errors.join('\n')).toContain('Epic aggregate evidence is coordination-only');
+  });
+
+  test('discovers an aggregate from its real requirements filename', async () => {
+    const files = addAggregate(baseRepositoryFiles(), 'specs/epic-delivery');
+    const result = await runEvaluator({
+      body: 'Refs #108\n\nSteering: steering/tech.md\n\n## Verification\n`node test` — passed',
+      changedPaths: ['specs/epic-delivery/requirements.md'],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors.join('\n')).toContain('Epic aggregate evidence is coordination-only');
+  });
+
+  test('rejects executable artifacts inside an epic aggregate', async () => {
+    const files = addAggregate(
+      addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+        issue: 143,
+        tasks: '**File(s)**: `scripts/check-gate.mjs`',
+      }),
+      'specs/epic-delivery',
+    );
+    files.set('specs/epic-delivery/tasks.md', '# Tasks\n');
+    const result = await runEvaluator({
+      body: 'Closes #143\n\nSpec: specs/feature-gate/\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
+      changedPaths: [
+        'scripts/check-gate.mjs',
+        'specs/feature-gate/requirements.md',
+        'specs/epic-delivery/tasks.md',
+      ],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors.join('\n')).toContain('Invalid epic aggregate artifacts: specs/epic-delivery/tasks.md');
   });
 
   test('retains actionable missing spec, steering, and guide failures', async () => {
@@ -276,8 +373,8 @@ describe('exact embedded contribution evaluator (issue #143)', () => {
       repositoryFiles: files,
     });
 
-    expect(result.contentCalls.filter((item) => item.startsWith('specs/'))).toHaveLength(20);
-    expect(new Set(result.contentCalls.filter((item) => item.startsWith('specs/'))).size).toBe(20);
+    expect(result.contentCalls.filter((item) => item.startsWith('specs/'))).toHaveLength(30);
+    expect(new Set(result.contentCalls.filter((item) => item.startsWith('specs/'))).size).toBe(30);
     expect(result.errors).toEqual([]);
   });
 

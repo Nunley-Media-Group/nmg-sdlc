@@ -204,6 +204,19 @@ Out of Scope: [comma-separated list]
 Labels: [applied labels]
 ```
 
+For `classification === 'epic'`, replace the executable summary fields with:
+
+```text
+Epic Coordination Draft — [title]
+
+Goal: [cross-child outcome]
+Delivery Phases: [N proposed children with genuine sibling/external prerequisites]
+Success Criteria: delegated to child acceptance criteria
+Executable ownership: none (no ACs, FRs, tasks, or Gherkin on the epic)
+Lifecycle: coordination-only; the epic cannot be started
+Labels: epic, enhancement
+```
+
 Present a `request_user_input` gate:
 
 ```
@@ -249,27 +262,29 @@ URL: [issue URL]
 Labels: [labels applied]
 ```
 
-In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode, Step 9 ends with `"Next step: Run $nmg-sdlc:start-issue #N …"` and Steps 10/11 render as a trivial summary.
+In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode for an ordinary executable issue, Step 9 ends with `"Next step: Run $nmg-sdlc:start-issue #N …"` and Steps 10/11 render as a trivial summary. Never emit that handoff for `classification === 'epic'`; Step 10 must materialize and verify its children first.
 
 ### Step 10: Autolink Batch
 
-Read `references/multi-issue.md` when the Per-Issue Loop has finished — the reference covers the `gh` capability probe, DAG edge wiring, body cross-ref placeholder resolution, and the Epic child-creation flow. On the single-issue path, Step 10 is a no-op (no edges).
+Read `references/multi-issue.md` when the Per-Issue Loop has finished — the reference covers the `gh` capability probe, DAG edge wiring, body cross-ref placeholder resolution, and the Epic child-creation flow. On an ordinary single-issue path, Step 10 is a no-op (no edges); a single epic is not an ordinary path and must create its child batch.
 
 ### Step 11: Batch Summary
 
-Read `references/multi-issue.md` when rendering the final batch summary. On the single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block).
+Read `references/multi-issue.md` when rendering the final batch summary. On the ordinary single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block). An epic summary names the first ready executable child and states that the epic itself cannot be started.
 
 ## Guidelines
 
 - **Title**: Concise, action-oriented, starts with a verb (e.g., "Add precipitation overlay to map")
-- **Acceptance criteria**: Always in Given/When/Then format — these become Gherkin tests later
+- **Acceptance criteria**: Always in Given/When/Then format for executable feature/bug children. Epics have only cross-child outcomes and topology.
 - **Scope**: Be explicit about what's out of scope to prevent creep
 - **Priority**: Use MoSCoW (Must/Should/Could/Won't) for requirements
 - **No implementation details**: The issue describes *what*, not *how*
 
 ## Integration with SDLC Workflow
 
-```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+```text
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
      ▲ You are here
 ```
+
+If this skill creates an epic, the downstream `#<executable>` is its first ready child under normal dependency rules. The epic is informational lineage and never enters the pipeline itself.

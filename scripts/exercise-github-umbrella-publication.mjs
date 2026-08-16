@@ -15,6 +15,8 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import {
+  aggregatePublicationBranchName,
+  aggregatePublicationMarker,
   inspectUmbrellaPublication,
   publicationBranchName,
   publicationMarker,
@@ -58,6 +60,58 @@ function writeSpec(root, specPath, issueNumber, label) {
   write(root, `${specPath}/feature.gherkin`, `Feature: ${label}\n`);
 }
 
+function writeAggregateChildPair(root, {
+  aggregatePath,
+  childSpecPath,
+  epicIssueNumber,
+  childIssueNumber,
+  label,
+}) {
+  write(root, `${aggregatePath}/requirements.md`, [
+    `# Epic Requirements: ${label}`,
+    '',
+    `**Issue**: #${epicIssueNumber}`,
+    '',
+    '| ID | Outcome | Children |',
+    '|----|---------|----------|',
+    `| EO001 | Deliver the fixture child independently | #${childIssueNumber} |`,
+    '',
+  ].join('\n'));
+  write(root, `${aggregatePath}/design.md`, [
+    `# Epic Design: ${label}`,
+    '',
+    `**Issue**: #${epicIssueNumber}`,
+    '',
+    '## Child Topology',
+    '',
+    `- #${childIssueNumber} owns EO001 delivery.`,
+    '',
+  ].join('\n'));
+  write(root, `${aggregatePath}/epic-scope.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: epicIssueNumber,
+    aggregatePath,
+    outcomes: [{ id: 'EO001', childIssues: [childIssueNumber] }],
+    children: [{
+      issue: childIssueNumber,
+      specPath: childSpecPath,
+      outcomes: ['EO001'],
+      packageState: 'canonical',
+    }],
+    migrations: [],
+  }, null, 2)}\n`);
+
+  writeSpec(root, childSpecPath, childIssueNumber, `${label} child`);
+  write(root, `${childSpecPath}/epic-link.json`, `${JSON.stringify({
+    schemaVersion: 1,
+    epicIssue: epicIssueNumber,
+    epicSpecPath: aggregatePath,
+    childIssue: childIssueNumber,
+    childSpecPath,
+    outcomes: ['EO001'],
+  }, null, 2)}\n`);
+}
+
 function checkoutRemoteBranch(work, branch) {
   run('git', ['fetch', 'origin', `refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd: work });
   run('git', ['checkout', '-B', branch, `origin/${branch}`], { cwd: work });
@@ -88,17 +142,43 @@ function createPr({ repository, base, head, issueNumber, specPath, tree, title }
   return { number: positiveFromUrl(url, 'pull'), url };
 }
 
-function classify({ work, repository, issueNumber, pullRequestNumber, specPath, tree, sourceCommit, base }) {
-  return inspectUmbrellaPublication({
-    projectRoot: work,
-    repository,
-    issueNumber,
-    pullRequestNumber,
-    specPath,
-    tree,
-    sourceCommit,
-    base,
-  });
+function createAggregateChildPr({
+  repository,
+  base,
+  head,
+  epicIssueNumber,
+  childIssueNumber,
+  aggregatePath,
+  aggregateTree,
+  childSpecPath,
+  childTree,
+  title,
+}) {
+  const body = [
+    `Refs #${epicIssueNumber} and #${childIssueNumber}`,
+    '',
+    aggregatePublicationMarker({
+      epicIssueNumber,
+      childIssueNumber,
+      aggregatePath,
+      aggregateTree,
+      childSpecPath,
+      childTree,
+    }),
+    '',
+    'Disposable nmg-sdlc aggregate/child publication exercise fixture.',
+  ].join('\n');
+  const url = run('gh', [
+    'pr', 'create', '--repo', repository,
+    '--base', base, '--head', head,
+    '--title', title, '--body', body,
+  ]);
+  return { number: positiveFromUrl(url, 'pull'), url };
+}
+
+function classify(inputs) {
+  const { work, ...options } = inputs;
+  return inspectUmbrellaPublication({ projectRoot: work, ...options });
 }
 
 async function waitForStatus(expectedStatus, inputs) {
@@ -234,24 +314,85 @@ async function exercise({ repository, base }) {
       throw new Error(`unlinked umbrella did not remain open: ${JSON.stringify(safeAfter)}`);
     }
 
+    run('git', ['checkout', defaultBranch], { cwd: work });
+    run('git', ['pull', '--ff-only', 'origin', defaultBranch], { cwd: work });
+    const aggregateIssue = createIssue(repository, `[nmg-sdlc fixture ${stamp}] coordination-only epic remains open`);
+    const childIssue = createIssue(repository, `[nmg-sdlc fixture ${stamp}] executable child remains open`);
+    issues.push(aggregateIssue.number, childIssue.number);
+    const pairSourceHead = `nmg-sdlc-fixture-pair-source-${stamp}`;
+    branches.push(pairSourceHead);
+    run('git', ['checkout', '-b', pairSourceHead], { cwd: work });
+    const aggregatePath = `specs/epic-publication-pair-${stamp}`;
+    const childSpecPath = `specs/feature-publication-pair-child-${stamp}`;
+    writeAggregateChildPair(work, {
+      aggregatePath,
+      childSpecPath,
+      epicIssueNumber: aggregateIssue.number,
+      childIssueNumber: childIssue.number,
+      label: `Aggregate/child publication ${stamp}`,
+    });
+    run('git', ['add', aggregatePath, childSpecPath], { cwd: work });
+    run('git', ['commit', '-m', `docs: add aggregate child publication fixture ${stamp}`], { cwd: work });
+    const pairCommit = run('git', ['rev-parse', 'HEAD'], { cwd: work });
+    const aggregateTree = run('git', ['rev-parse', `HEAD:${aggregatePath}`], { cwd: work });
+    const childTree = run('git', ['rev-parse', `HEAD:${childSpecPath}`], { cwd: work });
+    const pairIdentity = {
+      epicIssueNumber: aggregateIssue.number,
+      childIssueNumber: childIssue.number,
+      aggregatePath,
+      aggregateTree,
+      childSpecPath,
+      childTree,
+    };
+    const pairPublicationHead = aggregatePublicationBranchName(pairIdentity);
+    branches.push(pairPublicationHead);
+    run('git', ['push', 'origin', `${pairCommit}:refs/heads/${pairPublicationHead}`], { cwd: work });
+    const pairPr = createAggregateChildPr({
+      repository,
+      base: defaultBranch,
+      head: pairPublicationHead,
+      ...pairIdentity,
+      title: `docs: aggregate child publication fixture ${stamp}`,
+    });
+    const pairInputs = {
+      work,
+      repository,
+      pullRequestNumber: pairPr.number,
+      sourceCommit: pairCommit,
+      base: defaultBranch,
+      ...pairIdentity,
+    };
+    const pairBefore = classify(pairInputs);
+    if (pairBefore.status !== 'pending_safe') {
+      throw new Error(`aggregate/child publication was not pending-safe: ${JSON.stringify(pairBefore)}`);
+    }
+    mergeFixture(repository, pairPr.number, pairCommit);
+    const pairAfter = await waitForStatus('merged_safe', pairInputs);
+    if (pairAfter.evidence.issueState !== 'OPEN'
+      || pairAfter.evidence.childIssueState !== 'OPEN'
+      || pairAfter.evidence.closingIssueNumbers.length !== 0
+      || pairAfter.evidence.publicationClosedEvents.length !== 0) {
+      throw new Error(`aggregate/child publication changed lifecycle state: ${JSON.stringify(pairAfter)}`);
+    }
+
     result = {
       repository,
       defaultBranch,
       stamp,
       control: { issue: controlIssue, pullRequest: controlPr, before: controlBefore, after: controlAfter },
       unlinked: { issue: safeIssue, pullRequest: safePr, before: safeBefore, after: safeAfter },
+      aggregateChild: {
+        epic: aggregateIssue,
+        child: childIssue,
+        pullRequest: pairPr,
+        before: pairBefore,
+        after: pairAfter,
+      },
     };
     return result;
   } finally {
-    if (result?.unlinked?.issue?.number) {
-      bestEffort('gh', [
-        'issue', 'close', String(result.unlinked.issue.number), '--repo', repository,
-        '--reason', 'not planned',
-      ]);
-    } else {
-      for (const issue of issues) {
-        bestEffort('gh', ['issue', 'close', String(issue), '--repo', repository, '--reason', 'not planned']);
-      }
+    for (const issue of issues) {
+      bestEffort('gh', ['issue', 'close', String(issue), '--repo', repository, '--reason', 'not planned']);
     }
     for (const branch of branches) {
       bestEffort('git', ['push', 'origin', '--delete', branch], { cwd: work });

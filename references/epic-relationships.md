@@ -84,6 +84,20 @@ A confirmed execution dependency is unresolved while its target state is not `CL
 
 `legacy` is deliberately non-blocking when the confirmed parent and both native and body relationships agree. Include `$nmg-sdlc:upgrade-project` as the repair action, but do not rewrite metadata during the consuming lifecycle stage.
 
+## Informational Lineage
+
+`scripts/epic-relationships.mjs` exports `deriveEpicLineage()` for selection and
+status rendering. Starting from the active issue, follow one confirmed native
+coordination parent at a time and return root-to-direct-parent objects containing
+both `number` and `title`. Preserve the active issue's
+`executionDependencies` separately. Never add a lineage member to blockers or
+topological in-degree.
+
+Require every traversed parent title and native `subIssues` page. A repeated
+issue returns `cycle`; multiple parents return `ambiguous`; a missing title,
+partial page, unavailable native discovery, or inconsistent relationship returns
+`unverifiable`. Do not render a guessed or partial lineage.
+
 ## Sibling Reconciliation
 
 For a confirmed parent `P`, query and fully page GraphQL `subIssues`, then parse only supported checklist rows matching `^\s*-\s*\[[ xX]\]\s*#([1-9]\d*)\b`.
@@ -99,9 +113,52 @@ For a confirmed parent `P`, query and fully page GraphQL `subIssues`, then parse
 - A partial write is reported with exact surviving metadata; never hide it or create a second child to compensate.
 - Existing-record audit and repair is owned by `$nmg-sdlc:upgrade-project`. It is read-only until the user approves one exact mutation set, then re-fetches and compares the same records immediately before writing. Abort on drift and prove idempotence with a second audit.
 
+## Epic Completion Classification
+
+After `open-pr` proves the child PR merged and the child issue closed, call
+`classifyEpicCompletion()` with the freshly hydrated parent graph, the result
+from `references/epic-spec-authority.md`, and normalized readable ProjectV2
+status records.
+
+| Status | Meaning | Mutation behavior |
+|--------|---------|-------------------|
+| `eligible` | The issue is an epic, every fully paged native direct child is closed, aggregate/child authority is valid, and attached Project statuses have exact Done targets. | Reproduce the digest, reconcile the listed Project items, close the epic if open, and re-fetch proof. |
+| `incomplete` | A direct child is open/unresolved or a child spec is intentionally planned. | Stop the cascade normally; mutate nothing. |
+| `repair_required` | The issue lacks durable epic state, has zero native children, or spec authority has deterministic drift. | Mutate nothing and route the exact finding through `upgrade-project`. |
+| `unverifiable` | Native pages, issue metadata, cycles, spec evidence, or required Project state cannot be proven. | Fail closed with exact gaps. |
+
+The classifier returns the native direct-child records, incomplete children,
+normalized Project mutations, the next confirmed parent number, and a SHA-256
+`evidenceDigest`. It performs no mutation. A caller must rehydrate and reproduce
+that digest immediately before writing.
+
+Project absence is `not_applicable`; do not invent an item. For every attached
+readable item, require one Status field, its current value, and exactly one Done
+option. An unreadable attached item blocks closure. Closing text in a child PR
+never targets an epic; closure is an explicit post-merge action.
+
+For nesting, close and verify the inner epic, then classify its confirmed parent
+from fresh evidence. Continue leaf-to-root until `incomplete`. A cycle,
+`repair_required`, or `unverifiable` result ends the cascade without touching
+siblings, dependencies, or unrelated Project items.
+
 ## Canonical Parent-Spec Readiness
 
-After a consumer obtains `role = epic-child`, read `references/canonical-umbrella-spec.md` and inspect `parentNumber` with parent mode. Only `canonical` and `canonical_marker_lost` permit child branch, spec, plan, verification, or delivery mutation.
+This gate begins with `write-spec`; `start-issue` does not run it. A first ready
+child may receive its branch and In Progress transition while the parent
+aggregate is still absent because `write-spec` owns creation and publication of
+that first aggregate/child pair.
+
+After a later consumer obtains `role = epic-child`, read
+`references/canonical-umbrella-spec.md` and inspect `parentNumber` with parent
+mode. Route the result by lifecycle stage:
+
+- `write-spec` may accept `planned/aggregate_not_authored` only for the first
+  ready child and must use its first-child flow. A later or existing child
+  requires `canonical` or `canonical_marker_lost` before specification writes.
+- `write-code`, `verify-code`, `status`, and `open-pr` require `canonical` or
+  `canonical_marker_lost` plus valid child authority before plan, verification,
+  or delivery mutation.
 
 - `ordinary` preserves existing single-PR and keyword-fallback behavior.
 - `legacy` uses the same canonical gate as `durable` and reports its repair recommendation.

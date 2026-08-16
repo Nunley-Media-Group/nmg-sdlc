@@ -2,6 +2,10 @@
 
 **Read this when** `upgrade-project` analyzes obsolete runner artifacts or release documents. Every finding is informational until the normal findings gate approves an exact change.
 
+Epic lifecycle verification is separately per-epic and digest protected. After
+an approved repair, rerun graph/spec/completion/Project classification twice;
+the second audit must be a no-op for every approved action.
+
 ## V2 Runner Artifact Cleanup Analysis
 
 Candidate discovery is closed-world. Inspect only:
