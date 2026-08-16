@@ -162,6 +162,63 @@ process.exit(98);
 `;
 }
 
+function fakeGitSource() {
+  return `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+
+let commandIndex = 0;
+while (commandIndex < args.length) {
+  const arg = args[commandIndex];
+  if (arg === '-C' || arg === '-c' || arg === '--git-dir' || arg === '--work-tree') {
+    commandIndex += 2;
+    continue;
+  }
+  if (arg.startsWith('-')) {
+    commandIndex += 1;
+    continue;
+  }
+  break;
+}
+
+const command = args[commandIndex] || '';
+const commandArgs = args.slice(commandIndex + 1);
+const readOnlyCommands = new Set([
+  'branch', 'cat-file', 'diff', 'for-each-ref', 'log', 'ls-files', 'ls-remote',
+  'merge-base', 'remote', 'rev-parse', 'show', 'status', 'symbolic-ref',
+]);
+const readOnlyConfig = command === 'config'
+  && commandArgs.some((arg) => ['--get', '--get-all', '--get-regexp', '--list', '--show-origin'].includes(arg));
+const readOnlyBranch = command !== 'branch'
+  || !commandArgs.some((arg) => ['-d', '-D', '-m', '-M', '-c', '-C', '--delete', '--move', '--copy'].includes(arg));
+const readOnlyRemote = command !== 'remote'
+  || commandArgs.length === 0
+  || ['-v', '--verbose', 'get-url', 'show'].includes(commandArgs[0]);
+const readOnlySymbolicRef = command !== 'symbolic-ref'
+  || !commandArgs.some((arg) => arg === '--delete' || arg === '-d');
+const allowed = (readOnlyCommands.has(command) || readOnlyConfig)
+  && readOnlyBranch
+  && readOnlyRemote
+  && readOnlySymbolicRef;
+
+if (!allowed) {
+  if (process.env.EXERCISE_GIT_WRITE_LOG) {
+    fs.appendFileSync(process.env.EXERCISE_GIT_WRITE_LOG, args.join(' ') + '\\n');
+  }
+  console.error('GIT MUTATION ATTEMPT BLOCKED: ' + args.join(' '));
+  process.exit(97);
+}
+
+const proc = spawnSync(process.env.EXERCISE_REAL_GIT, args, { stdio: 'inherit' });
+if (proc.error) {
+  console.error(proc.error.message);
+  process.exit(96);
+}
+process.exit(proc.status == null ? 96 : proc.status);
+`;
+}
+
 function scaffoldExercise() {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-start-backfill-'));
   const plugin = path.join(project, 'plugin');
@@ -178,17 +235,27 @@ function scaffoldExercise() {
   fs.writeFileSync(path.join(project, 'steering', 'structure.md'), '# Structure\nFixture.\n');
 
   const fakeGh = path.join(bin, 'gh');
+  const fakeGit = path.join(bin, 'git');
   const writeLog = path.join(project, 'gh-write-attempts.log');
+  const gitWriteLog = path.join(project, 'git-write-attempts.log');
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
   fs.writeFileSync(fakeGh, fakeGhSource(), { mode: 0o755 });
-  execFileSync('git', ['init', '-q'], { cwd: project });
-  execFileSync('git', ['add', '.'], { cwd: project });
-  execFileSync('git', ['-c', 'user.name=Exercise', '-c', 'user.email=exercise@example.invalid', 'commit', '-qm', 'fixture'], { cwd: project });
-  return { project, bin, writeLog };
+  fs.writeFileSync(fakeGit, fakeGitSource(), { mode: 0o755 });
+  execFileSync(realGit, ['init', '-q'], { cwd: project });
+  execFileSync(realGit, ['add', '.'], { cwd: project });
+  execFileSync(realGit, ['-c', 'user.name=Exercise', '-c', 'user.email=exercise@example.invalid', 'commit', '-qm', 'fixture'], { cwd: project });
+  const initialGit = {
+    head: execFileSync(realGit, ['rev-parse', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim(),
+    branch: execFileSync(realGit, ['branch', '--show-current'], { cwd: project, encoding: 'utf8' }).trim(),
+    status: execFileSync(realGit, ['status', '--porcelain'], { cwd: project, encoding: 'utf8' }),
+  };
+  if (initialGit.status !== '') throw new Error(`exercise fixture is dirty before discovery:\n${initialGit.status}`);
+  return { project, bin, writeLog, gitWriteLog, realGit, initialGit };
 }
 
 describeExercise('exercise: bare start-issue shortlist backfill', () => {
   test('expands past blocked and Done candidates without mutation', () => {
-    const { project, bin, writeLog } = scaffoldExercise();
+    const { project, bin, writeLog, gitWriteLog, realGit, initialGit } = scaffoldExercise();
     try {
       const prompt = [
         'Read plugin/skills/start-issue/SKILL.md and every reference required for Steps 1 and 1a.',
@@ -214,6 +281,8 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
           ...process.env,
           PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
           EXERCISE_GH_WRITE_LOG: writeLog,
+          EXERCISE_GIT_WRITE_LOG: gitWriteLog,
+          EXERCISE_REAL_GIT: realGit,
         },
       });
 
@@ -228,6 +297,11 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
       expect(output).toMatch(/EXCLUDED_DONE:.*#?200/i);
       expect(output).not.toMatch(/READY:.*#?195/i);
       expect(fs.existsSync(writeLog)).toBe(false);
+      const gitWriteAttempts = fs.existsSync(gitWriteLog) ? fs.readFileSync(gitWriteLog, 'utf8') : '';
+      expect(gitWriteAttempts).toBe('');
+      expect(execFileSync(realGit, ['rev-parse', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim()).toBe(initialGit.head);
+      expect(execFileSync(realGit, ['branch', '--show-current'], { cwd: project, encoding: 'utf8' }).trim()).toBe(initialGit.branch);
+      expect(execFileSync(realGit, ['status', '--porcelain'], { cwd: project, encoding: 'utf8' })).toBe(initialGit.status);
     } finally {
       fs.rmSync(project, { recursive: true, force: true });
     }
