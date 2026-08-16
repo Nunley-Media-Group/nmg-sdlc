@@ -49,7 +49,7 @@ The repaired discovery contract backfills a starved ten-issue window until four 
 | AC2 | Exclude confirmed completed Project work | Pass | The all-readable-statuses predicate and safe unknown/mixed behavior are defined in `skills/start-issue/references/milestone-selection.md:52`; the exercise excluded #200 separately. |
 | AC3 | Preserve explicit recovery | Pass | Automatic-only filtering and the explicit reopen warning are defined in `skills/start-issue/SKILL.md:118` and `skills/start-issue/SKILL.md:184`; static contract coverage passed. |
 | AC4 | Preserve relationship and deliverable safety | Pass | The evaluated-prefix boundary preserves complete hydration and fail-closed checks in `skills/start-issue/SKILL.md:54`; all 398 non-opt-in tests passed and the unneeded malformed tail remained uninspected. |
-| AC5 | Prove the PathCast regression without mutation | Pass | `scripts/__tests__/exercise-start-issue-backfill.test.mjs:189` exercised limits 10 then 20, returned #196-#199, excluded #200, ignored trailing #195, and recorded no write attempt. A read-only PathCast application yielded #103, #104, #105, and #107. |
+| AC5 | Prove the PathCast regression without mutation | Pass | `scripts/__tests__/exercise-start-issue-backfill.test.mjs` exercised limits 10 then 20, returned #196-#199, excluded #200, ignored trailing #195, and recorded no write attempt or Git-state change. The captured read-only PathCast application yielded #103, #104, #105, and #107 without consuming malformed trailing identity #96. |
 
 ## Regression Obligations
 
@@ -127,11 +127,11 @@ Candidate enumeration feeds the existing Step 1a classifiers, automatic eligibil
 | **Test Project** | Disposable `nmg-sdlc-start-backfill-*` temporary repository, removed after the run |
 | **Exercise Method** | `codex exec` through an opt-in Jest harness |
 | **`request_user_input` Gate Handling** | N/A; the exercise intentionally stopped after automatic discovery settled |
-| **Duration** | Approximately 139 seconds |
+| **Duration** | Approximately 143 seconds |
 
 ### Captured Output Summary
 
-The exercise queried limits 10 and 20, classified #209-#201 as blocked, excluded all-Done coordination issue #200, and presented #196, #197, #198, and #199 in topological issue-number order. The malformed trailing #195 was not evaluated after the target was met. A PATH-prepended deterministic `gh` rejected every write-shaped command, and no write-attempt log was created.
+The exercise queried limits 10 and 20, classified #209-#201 as blocked, excluded all-Done coordination issue #200, and presented #196, #197, #198, and #199 in topological issue-number order. The malformed trailing #195 was not evaluated after the target was met. A PATH-prepended deterministic `gh` rejected every write-shaped command; a similarly constrained `git` rejected unrecognized or mutating commands; no write-attempt log was created; and HEAD, the current branch, all local branch refs, and worktree status were unchanged.
 
 ### AC Evaluation
 
@@ -141,7 +141,7 @@ The exercise queried limits 10 and 20, classified #209-#201 as blocked, excluded
 | AC2 | Done exclusion | Pass | Captured `EXCLUDED_DONE: 200`. |
 | AC3 | Explicit recovery | Pass | Static contract pins automatic-only exclusion and the confirmation warning. |
 | AC4 | Readiness safety | Pass | Nine blockers were retained, ordering was stable, and trailing malformed #195 was absent. |
-| AC5 | No mutation | Pass | No write-attempt log existed after the run. |
+| AC5 | No mutation | Pass | No write-attempt log existed after the run, and HEAD, the current branch, all local branch refs, and worktree status were unchanged. The captured PathCast dry run also stopped after #103, #104, #105, and #107 without consuming malformed trailing identity #96. |
 
 ### Notes
 
@@ -189,7 +189,7 @@ None.
 
 ### Short Term (Should)
 
-- [x] Deliver the patch release through the protected-repository PR workflow.
+- [ ] Deliver the patch release through the protected-repository PR workflow.
 
 ### Long Term (Could)
 

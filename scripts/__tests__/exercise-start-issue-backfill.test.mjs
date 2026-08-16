@@ -190,8 +190,33 @@ const readOnlyCommands = new Set([
 ]);
 const readOnlyConfig = command === 'config'
   && commandArgs.some((arg) => ['--get', '--get-all', '--get-regexp', '--list', '--show-origin'].includes(arg));
-const readOnlyBranch = command !== 'branch'
-  || !commandArgs.some((arg) => ['-d', '-D', '-m', '-M', '-c', '-C', '--delete', '--move', '--copy'].includes(arg));
+function isReadOnlyBranch(args) {
+  if (args.length === 0) return true;
+  const flags = new Set([
+    '--all', '--color', '--ignore-case', '--list', '--no-color', '--omit-empty',
+    '--quiet', '--remotes', '--show-current', '--verbose', '-a', '-q', '-r', '-v', '-vv',
+  ]);
+  const valueOptions = new Set([
+    '--contains', '--format', '--merged', '--no-contains', '--no-merged', '--points-at', '--sort',
+  ]);
+  let listMode = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--list') listMode = true;
+    if (flags.has(arg) || [...valueOptions].some((option) => arg.startsWith(option + '=')) || arg.startsWith('--color=')) {
+      continue;
+    }
+    if (valueOptions.has(arg)) {
+      if (index + 1 >= args.length) return false;
+      index += 1;
+      continue;
+    }
+    if (listMode && !arg.startsWith('-')) continue;
+    return false;
+  }
+  return true;
+}
+const readOnlyBranch = command !== 'branch' || isReadOnlyBranch(commandArgs);
 const readOnlyRemote = command !== 'remote'
   || commandArgs.length === 0
   || ['-v', '--verbose', 'get-url', 'show'].includes(commandArgs[0]);
@@ -247,6 +272,7 @@ function scaffoldExercise() {
   const initialGit = {
     head: execFileSync(realGit, ['rev-parse', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim(),
     branch: execFileSync(realGit, ['branch', '--show-current'], { cwd: project, encoding: 'utf8' }).trim(),
+    headRefs: execFileSync(realGit, ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/heads/'], { cwd: project, encoding: 'utf8' }),
     status: execFileSync(realGit, ['status', '--porcelain'], { cwd: project, encoding: 'utf8' }),
   };
   if (initialGit.status !== '') throw new Error(`exercise fixture is dirty before discovery:\n${initialGit.status}`);
@@ -301,6 +327,7 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
       expect(gitWriteAttempts).toBe('');
       expect(execFileSync(realGit, ['rev-parse', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim()).toBe(initialGit.head);
       expect(execFileSync(realGit, ['branch', '--show-current'], { cwd: project, encoding: 'utf8' }).trim()).toBe(initialGit.branch);
+      expect(execFileSync(realGit, ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/heads/'], { cwd: project, encoding: 'utf8' })).toBe(initialGit.headRefs);
       expect(execFileSync(realGit, ['status', '--porcelain'], { cwd: project, encoding: 'utf8' })).toBe(initialGit.status);
     } finally {
       fs.rmSync(project, { recursive: true, force: true });
