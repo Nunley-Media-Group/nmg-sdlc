@@ -177,6 +177,25 @@ afterEach(() => {
 });
 
 describe('exercise: first and later epic-child specification publication', () => {
+  test('publication scope ignores unrelated paths added after the branch point', () => {
+    const { work } = fixture();
+    const source = authorFirstChild(work);
+    git(work, ['checkout', 'main']);
+    write(work, 'docs/default-only.md', '# Default-only change\n');
+    git(work, ['add', 'docs/default-only.md']);
+    git(work, ['commit', '-m', 'docs: advance default independently']);
+    git(work, ['push', 'origin', 'main']);
+
+    const pending = inspectPair(work, firstChildPath, source);
+
+    expect(pending).toMatchObject({
+      status: 'stranded_recoverable',
+      reasonCode: 'first_child_aggregate_pair_not_on_default',
+    });
+    expect(pending.changedPaths).not.toContain('docs/default-only.md');
+    expect(pending.changedPaths.every((entry) => entry.startsWith(`${aggregatePath}/`) || entry.startsWith(`${firstChildPath}/`))).toBe(true);
+  });
+
   test('first child publishes exactly one aggregate plus one separate executable child package', () => {
     const { work } = fixture();
     const source = authorFirstChild(work);

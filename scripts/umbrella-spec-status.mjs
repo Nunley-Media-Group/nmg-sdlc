@@ -178,7 +178,7 @@ function readJsonFile(projectRoot, commit, relativePath, adapters) {
 function changedPaths(projectRoot, baseCommit, sourceCommit, adapters) {
   const result = git(
     projectRoot,
-    ['diff', '--name-only', '-z', baseCommit, sourceCommit, '--'],
+    ['diff', '--name-only', '-z', `${baseCommit}...${sourceCommit}`, '--'],
     adapters,
   );
   if (!result.ok) return { ok: false, reason: commandFailure(result), paths: [] };
