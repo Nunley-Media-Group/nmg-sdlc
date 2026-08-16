@@ -101,7 +101,7 @@ Classifies the request, investigates relevant code, interviews the user, drafts 
 $nmg-sdlc:start-issue #42
 ```
 
-With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and unblocked issues for explicit selection. Open coordination epics do not block their children; genuine prerequisites do. New umbrellas persist an `epic` parent label, a matching `epic-child-of-N` child label, the native relationship, and body fallback so every fresh lifecycle command reconstructs the same identity. A structured `Requires deliverable` record is ready only when its matching whole-issue dependency has a closing pull request merged into the live default branch; issue closure alone is insufficient.
+With an issue number, validates readiness, confirms the start, creates a linked branch, and updates project status. Without a number, presents milestones and ready issues for explicit selection. Automatic discovery expands its bounded candidate window after dependency filtering until it can offer four choices or exhausts the scope, and omits open issues whose readable Project statuses are all `Done`; explicit issue-number starts remain available for intentional recovery. Open coordination epics do not block their children; genuine prerequisites do. New umbrellas persist an `epic` parent label, a matching `epic-child-of-N` child label, the native relationship, and body fallback so every fresh lifecycle command reconstructs the same identity. A structured `Requires deliverable` record is ready only when its matching whole-issue dependency has a closing pull request merged into the live default branch; issue closure alone is insufficient.
 
 ### Write Specs
 
