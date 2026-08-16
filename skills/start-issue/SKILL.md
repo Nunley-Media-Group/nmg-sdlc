@@ -154,7 +154,7 @@ The body-only fallback still hydrates every known body target. A target lookup f
 
 Before presenting the issue selection, emit the blocked-count line exactly once:
 
-```
+```text
 Filtered N blocked issues from selection.
 ```
 
@@ -162,7 +162,7 @@ Emit the line even when `N == 0` — it confirms dependency resolution ran.
 
 Then emit exactly one Project-completion line:
 
-```
+```text
 Excluded M open issues already marked Done from automatic discovery.
 ```
 
