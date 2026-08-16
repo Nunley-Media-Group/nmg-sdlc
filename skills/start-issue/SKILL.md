@@ -86,7 +86,7 @@ issue(number: N) {
 
 Page every candidate and native-parent `subIssues` connection and every candidate/native-parent `labels` connection by `endCursor` until `hasNextPage` is false, with a maximum of 10 follow-up pages per connection. A nested native-parent response is covered only after its body, labels, and complete `subIssues` set have been hydrated into the same parent record. Merge each page before normalization. If a cursor is absent, a follow-up request fails, a response is malformed, or the bound is exceeded, mark the affected candidate `unverifiable` with exact connection/issue evidence and stop before presentation; never treat a partial native set as complete.
 
-Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference. During bounded expansion, fail-closed classification applies to the evaluated prefix needed to fill the four-choice target. Merely batch-fetching metadata for trailing issues does not make them evaluated candidates once the target is satisfied.
+Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference. During bounded expansion, fail-closed classification applies to the evaluated prefix needed to fill the four-choice target. Merely batch-fetching metadata for trailing issues does not make them evaluated candidates once the target is satisfied.
 
 Also parse exact `Requires deliverable` records before applying the target bound. Add every declared owner to the hydration set. Query the live repository default branch and fully page each owner's `closedByPullRequestsReferences` with PR number, state, merge time, base name, and merge-commit OID. Body-only fallback cannot prove merged deliverable availability: a candidate with structured requirements becomes `unverifiable` when this GraphQL evidence is unavailable.
 
@@ -152,13 +152,17 @@ The body-only fallback still hydrates every known body target. A target lookup f
 
 ### Session Note
 
-Before presenting the issue selection, emit the blocked-count line exactly once:
+Track whether dependency resolution completed through the primary or body-only path. When it completed, emit the blocked-count line exactly once before presenting the issue selection:
 
 ```text
 Filtered N blocked issues from selection.
 ```
 
-Emit the line even when `N == 0` — it confirms dependency resolution ran.
+Emit the line even when `N == 0` — it confirms dependency resolution ran. When dependency resolution was skipped because both metadata paths failed, preserve the existing fallback warning, do not emit a blocked count, and emit this distinct status exactly once:
+
+```text
+Dependency blocking status unavailable.
+```
 
 Then emit exactly one Project-completion line:
 
@@ -183,9 +187,9 @@ If the user selects "Enter issue number manually", they type their issue number 
 
 ## Step 3: Confirm Selection
 
-Read the full issue details via `gh issue view #N --json number,title,body,labels,milestone,projectItems` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, milestone, and readable Project statuses.
+Read the full issue details via `gh issue view N --json number,title,body,labels,milestone,projectItems` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, milestone, and readable Project statuses.
 
-If the issue came from an explicit command argument or manual entry and every readable Project status is `Done` case-insensitively, state that confirming the start will move completed Project work back to In Progress. Do not silently reject or auto-confirm the explicit selection.
+If the issue came from an explicit command argument or manual entry, at least one readable Project status exists, and every readable Project status is `Done` case-insensitively, state that confirming the start will move completed Project work back to In Progress. Empty or entirely unreadable Project statuses do not trigger this warning. Do not silently reject or auto-confirm the explicit selection.
 
 Ask through `request_user_input`: "Ready to start working on this issue?" If the user says no, return to Step 2.
 

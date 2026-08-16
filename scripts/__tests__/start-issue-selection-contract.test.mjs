@@ -46,9 +46,14 @@ describe('start-issue automatic selection contract', () => {
 
   test('reports distinct filter counts and warns before explicitly reopening Done work', () => {
     expect(skill).toContain('Filtered N blocked issues from selection.');
+    expect(skill).toContain('When it completed, emit the blocked-count line exactly once');
+    expect(skill).toContain('do not emit a blocked count');
+    expect(skill).toContain('Dependency blocking status unavailable.');
     expect(skill).toContain('Excluded M open issues already marked Done from automatic discovery.');
     expect(skill).toContain('the two notes do not double-count one issue');
-    expect(skill).toContain('gh issue view #N --json number,title,body,labels,milestone,projectItems');
+    expect(skill).toContain('gh issue view N --json number,title,body,labels,milestone,projectItems');
+    expect(skill).toContain('at least one readable Project status exists');
+    expect(skill).toContain('Empty or entirely unreadable Project statuses do not trigger this warning');
     expect(skill).toContain('confirming the start will move completed Project work back to In Progress');
   });
 
