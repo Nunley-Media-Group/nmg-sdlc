@@ -15,10 +15,10 @@ const STAGES = [
   'simplify',
   'verify-code',
   'open-pr',
-  'address-pr-comments',
 ];
+const UTILITY_STAGES = ['address-pr-comments'];
 const GATED_STAGES = new Set(['draft-issue', 'start-issue', 'write-spec', 'write-code']);
-const PIPELINE = STAGES.map((stage, index) => `$nmg-sdlc:${stage}${[1, 2, 3, 5, 6, 7].includes(index) ? ' #N' : ''}`).join('  →  ');
+const PIPELINE = '$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)';
 
 function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -98,10 +98,8 @@ function exercisePipeline(root) {
   run('verify-code', ['.dry-run/simplify.json', 'specs/feature-manual-pipeline/feature.gherkin'], '.dry-run/verification.json', () => {
     write(root, '.dry-run/verification.json', '{"status":"pass","tests":1}\n');
   });
-  run('open-pr', ['.dry-run/verification.json'], '.dry-run/pull-request.md', () => {
+  run('open-pr', ['.dry-run/verification.json'], '.dry-run/review-clean.json', () => {
     write(root, '.dry-run/pull-request.md', 'Dry-run PR for issue #151\n');
-  });
-  run('address-pr-comments', ['.dry-run/pull-request.md'], '.dry-run/review-clean.json', () => {
     write(root, '.dry-run/review-clean.json', '{"unresolvedThreads":0}\n');
   });
   return evidence;
@@ -114,12 +112,12 @@ afterEach(() => {
 });
 
 describe('complete manual SDLC pipeline exercise (issue #151)', () => {
-  test('all eight skills publish one ordered lifecycle and reference the explicit-input gate when needed', () => {
+  test('all seven pipeline skills and the review utility publish one terminal lifecycle', () => {
     const interactiveContract = read('references/interactive-gates.md');
     expect(interactiveContract).toContain('Stop after the tool call and wait for the user\'s answer.');
     expect(interactiveContract).toContain('Do not continue the workflow, draft artifacts, run mutating commands, or create GitHub resources until the answer is available.');
 
-    for (const stage of STAGES) {
+    for (const stage of [...STAGES, ...UTILITY_STAGES]) {
       const source = read(`skills/${stage}/SKILL.md`);
       expect(source).toContain('## Integration with SDLC Workflow');
       expect(source).toContain(PIPELINE);
@@ -128,7 +126,7 @@ describe('complete manual SDLC pipeline exercise (issue #151)', () => {
       }
     }
 
-    const activeSources = STAGES.map((stage) => read(`skills/${stage}/SKILL.md`)).join('\n');
+    const activeSources = [...STAGES, ...UTILITY_STAGES].map((stage) => read(`skills/${stage}/SKILL.md`)).join('\n');
     expect(activeSources).not.toMatch(/\$nmg-sdlc:(?:run-loop|end-loop|init-config)\b/);
     expect(activeSources).not.toMatch(/unattended[- ]mode/i);
   });
@@ -159,7 +157,6 @@ describe('complete manual SDLC pipeline exercise (issue #151)', () => {
       'simplify',
       'verify-code',
       'open-pr',
-      'address-pr-comments',
     ]);
     expect(git(root, ['log', '--format=%s', '-1'])).toBe('chore: scaffold manual pipeline exercise');
     expect(exists(root, '.dry-run/review-clean.json')).toBe(true);

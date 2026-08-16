@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: "Prepare delivery and create a pull request with spec-driven summary, linking GitHub issue and spec documents. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR. Seventh step in the SDLC pipeline — follows $nmg-sdlc:verify-code and precedes $nmg-sdlc:address-pr-comments."
+description: "Deliver a verified issue through one exact pull request until its exact head is merged and the issue is closed. Use when user says 'create PR', 'open pull request', 'submit for review', 'push for review', 'ready to merge', 'make a PR for issue #N', 'how do I create a PR', 'how do I open a pull request', or 'ship this'. Stages eligible work, applies the version bump, commits, reconciles safely, pushes, creates or resumes the PR, fixes actionable delivery findings, verifies, merges, and reconciles eligible epic ancestors. Seventh terminal step in the SDLC pipeline — follows $nmg-sdlc:verify-code."
 ---
 
 # Open PR
@@ -9,7 +9,9 @@ Read `../../references/codex-tooling.md` when the workflow starts — it maps le
 
 Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
 
-Create a pull request with a spec-driven summary that links to the GitHub issue and references specification documents.
+Deliver one verified executable issue through a spec-driven pull request. This
+command is terminal: PR creation is an intermediate state, never successful
+completion.
 
 Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if the project still keeps SDLC artifacts under `.codex/steering/` or `.codex/specs/`.
 
@@ -23,11 +25,20 @@ Read `../../references/pr-dependent-verification.md` when the verification repor
 
 Read `references/pr-dependent-delivery.md` when the shared validator returns qualified pending evidence or an exact controlled draft is being resumed.
 
+Read `../../references/epic-relationships.md` when resolving epic role, lineage,
+and fully paged native child evidence.
+
+Read `../../references/epic-spec-authority.md` when relationship evidence
+confirms an epic child and the active executable package must be resolved.
+
+Read `references/epic-completion.md` when merged child closure has been proven
+and eligible ancestors must be reconciled leaf-to-root.
+
 ## Prerequisites
 
 1. Implementation is complete (all tasks from `tasks.md` done).
 2. Verification has passed, or valid shared-contract `pr_evidence_pending` proves all local verification has passed (via `$nmg-sdlc:verify-code`).
-3. `origin` is reachable for fetch, rebase, push, and PR creation.
+3. `origin` is reachable for fetch, base reconciliation, push, PR observation, and merge.
 
 ---
 
@@ -42,12 +53,21 @@ Inspect the invocation arguments for a `--major` token (alongside the issue numb
 
 ### Step 1: Read Context
 
-Read `references/preflight.md` when Steps 1–3 have collected issue context and prepared version artifacts — it stages the approved working-tree scope, classifies clean/no-op branches, fetches origin, rebases when needed, pushes safely, and verifies that no unpushed commits remain before PR creation.
+Read `references/preflight.md` when Steps 1–3 have collected issue context and prepared version artifacts — it stages the approved working-tree scope, classifies clean/no-op branches, fetches origin, merges the base when needed without rewriting history, pushes safely, and verifies that no unpushed commits remain before PR creation or resumption.
 
 Gather all information needed for the PR:
 
-1. **Read the issue** — `gh issue view #N` for title, description, acceptance criteria.
-2. **Check for spec files** — file discovery for `specs/*/requirements.md` and match against the current issue number or branch name (see the feature-naming pointer above for the fallback chain). Found match → set a **specs-found** flag. No match → set **specs-not-found** flag.
+1. **Read and classify the issue** — hydrate full native relationship evidence.
+   `ordinary` continues. A confirmed `epic` stops without PR mutation because
+   epics are coordination-only. A confirmed child must return `valid` from
+   `epic-spec-authority.mjs --child N --native-children <complete-list>`; use
+   only `requestedChild.specPath`, and retain aggregate outcomes/topology as
+   bounded context. `planned`, `repair_required`, or `unverifiable` stops before
+   version, commit, push, or PR mutation.
+2. **Check for spec files** — for a validated child use its exact manifest path;
+   otherwise discover the ordinary issue package through the existing naming
+   fallback. Found match → set a **specs-found** flag. No match → set
+   **specs-not-found** flag.
 3. **Resolve active spec scope (specs-found only)** — read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and matched spec. Continue only for `scoped` or `implicit_single_issue`. Use only `delivery` for current summary, acceptance criteria, and implementation test-plan content; add only declared `regression` evidence as a separate preservation section. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed. Never build a cumulative whole-spec PR body for a multi-issue spec.
 4. **Read spec files (specs-found only)**:
    - `specs/{feature-name}/requirements.md` for acceptance criteria.
@@ -97,19 +117,36 @@ For qualified pending readiness, do not run the ordinary create command. Follow 
 
 Add labels matching the issue when appropriate. Read `references/pr-body.md` for the output block.
 
-### Step 6: Output
+### Step 6: Report Prepared PR
 
-Follow the output block from `references/pr-body.md`, then continue to Step 7.
+Render the prepared-PR block from `references/pr-body.md` as progress only, then
+continue immediately to Step 7. Never call this completion.
 
-### Step 7: Interactive CI Monitor + Auto-Merge (Opt-In)
+### Step 7: Terminal Exact-Head Delivery Loop
 
-Read `references/ci-monitoring.md` when Step 7 starts — the reference covers the opt-in prompt, the 30-second polling loop with 30-minute timeout, the pre-merge `mergeStateStatus == CLEAN` check, the squash-merge-and-cleanup path, the failure path (which leaves the user on the feature branch), and the no-CI graceful-skip path. A controlled draft enters this step only after `pr-dependent-delivery.md` has made it ready and revalidated its unchanged final head.
+Read `references/ci-monitoring.md` when Step 7 starts. Invoking this skill
+authorizes the configured terminal delivery path; do not ask whether to monitor
+or merge. Create or resume one exact PR, fingerprint every observed head/check/
+review/thread/merge state, wait for pending evidence, repair safe actionable
+findings, rerun `$nmg-sdlc:verify-code #N`, push normally, and invalidate all
+evidence when the head changes. Merge only when success-equivalent checks,
+review decisions, resolved non-outdated threads, final verification evidence,
+and live `mergeStateStatus: CLEAN` all apply to the same head SHA.
+
+Success requires a fresh PR read proving `state: MERGED` and a fresh issue read
+proving child `state: CLOSED`. Then run `references/epic-completion.md` leaf to
+root and clean up the local branch only after all required proof. Otherwise
+return exactly one external-authority blocker naming the evidence, owner, and
+recovery action; an open PR or pending handoff is never success.
 
 ---
 
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
                                                                                                        ▲ You are here
 ```
+
+`$nmg-sdlc:address-pr-comments` is a focused utility whose contract is used
+inside terminal delivery; it is not a successful post-`open-pr` lifecycle stage.

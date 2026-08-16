@@ -1,76 +1,101 @@
-# Interactive CI Monitor + Auto-Merge (Step 7)
+# Terminal Exact-Head Delivery Loop
 
-**Consumed by**: `open-pr` Step 7.
+**Consumed by**: `open-pr` Step 7 after one ordinary ready PR exists or the
+controlled draft contract has made its exact final head ready.
 
-Entry requires a ready (non-draft) pull request. For PR-dependent delivery, `pr-dependent-delivery.md` owns draft creation, exact H1/H2 validation, the final-delivery marker, and `gh pr ready`; this monitor must not run while `isDraft` is true.
+Invoking `$nmg-sdlc:open-pr` authorizes this configured delivery loop. Do not
+offer an opt-out and do not report success while the PR remains open.
 
-## Entry gate
+## Evidence Snapshot
 
-1. **Present** a `request_user_input` gate:
+On every observation, fully page and normalize:
 
-   ```
-   question: "Monitor CI and auto-merge this PR once all required checks pass?"
-   options:
-     - "Yes, monitor CI and auto-merge"
-     - "No, I'll handle it"
-   ```
+- PR number, state, draft state, base/head refs, `headRefOid`, `mergeable`, and
+  `mergeStateStatus`;
+- every required and reported check with name, state/conclusion, event, and URL;
+- all reviews needed to derive each reviewer's latest decision;
+- all review threads with `isResolved`, `isOutdated`, and comment context;
+- active issue number/state and exact closing references.
 
-   These choices are exhaustive for this step. Treat a free-form `Other` answer as "No, I'll handle it" and include the text in the final guidance.
+Pass the normalized snapshot through
+`scripts/pr-delivery-state.mjs`. Record its SHA-256 fingerprint. Missing pages,
+cursors, malformed identities, an unknown state, duplicate check identity, or a
+head mismatch is `unverifiable`; never infer clean delivery.
 
-2. **On "No, I'll handle it"** (opt-out): print the existing guidance and exit:
+## Loop Constants
 
-   ```
-   Next step: Wait for CI to pass, then merge the PR to close issue #N. After merging, you can start the next issue with `$nmg-sdlc:draft-issue` (for new work) or `$nmg-sdlc:start-issue` (to pick up an existing issue).
-   ```
+Poll pending external state every 30 seconds for at most 60 observations per
+invocation. A later invocation starts with fresh evidence; it never trusts a
+cached fingerprint. Do not sleep longer than the communication/runtime bound in
+one operation.
 
-3. **On "Yes, monitor CI and auto-merge"** (opt-in): run the polling loop, then the merge-and-cleanup path (or the failure path on any non-success terminal state).
+## State Transitions
 
-## Polling constants
+1. **Head changed**: discard every prior check, review, thread, mergeability,
+   and verification conclusion. Re-run verification and observe the new head.
+2. **Pending checks or platform mergeability calculation**: continue polling.
+3. **Safe actionable check, review, or mergeability finding**: inspect exact
+   logs/thread context; edit only in-scope implementation/spec/report files;
+   route skill-bundled changes through `$skill-creator`; run the relevant tests
+   and `$nmg-sdlc:verify-code #N`; commit and push normally; then restart from a
+   new snapshot. Never force-push.
+4. **Ambiguous review, permission denial, unavailable required service,
+   protection/ruleset conflict, or exhausted pending bound**: stop with one
+   `external-authority blocker` containing the PR/head, exact evidence, owning
+   actor or service, and the command/action that can recover it. Preserve the
+   branch and PR.
+5. **Merge-ready**: require the exact live head to have success-equivalent
+   checks (`SUCCESS`, `NEUTRAL`, or `SKIPPED` where allowed), no active latest
+   `CHANGES_REQUESTED`, no unresolved non-outdated review thread, current final
+   verification evidence, `isDraft: false`, and `mergeStateStatus: CLEAN`.
 
-Use these polling constants:
+No checks is acceptable only when the repository exposes no required checks and
+the current verification report declares no PR-only check identity. Never edit
+rulesets or protections to manufacture readiness.
 
-| Constant | Value |
-|----------|-------|
-| Poll interval | 30 seconds |
-| Poll timeout | 30 minutes |
-| Max polls | 60 |
+## Exact Merge and Proof
 
-## Polling loop
+Immediately before merge, re-fetch and reproduce the merge-ready fingerprint.
+Then merge the exact head with the repository-configured method; the default is:
 
-1. Run `gh pr checks <num> --json name,state,link`. If the JSON response is an empty array `[]`, jump to the **No-CI graceful-skip path** below. If the `--json` flag is not supported by the installed `gh` version, fall back to `gh pr checks <num>` (plain text) and check for the "no checks reported" string; if present, also jump to the **No-CI graceful-skip path**.
-2. Map each check's state:
-   - `SUCCESS`, `SKIPPED`, `NEUTRAL` → treat as success for that check.
-   - `PENDING`, `IN_PROGRESS`, `QUEUED` → not terminal; keep polling.
-   - `FAILURE`, `CANCELLED`, `TIMED_OUT` → terminal failure; jump to the **Failure path**.
-3. Print a progress line on each poll (e.g., `Polling checks... 3/5 complete`).
-4. Sleep 30 seconds, then re-poll. Stop after 60 polls total (30 minutes); treat timeout as a failure and jump to the **Failure path** with message `Polling timeout (30 min) reached — not merging.`
-5. When every check is in a success-equivalent state, proceed to the **Pre-merge mergeability check**.
+```bash
+gh pr merge <number> --squash --match-head-commit <head-sha> --delete-branch
+```
 
-## Pre-merge mergeability check
+If the repository requires another allowed method, use its documented
+`steering/tech.md` policy. Do not merge a different head and do not use admin
+bypass.
 
-Run `gh pr view <num> --json mergeable,mergeStateStatus`. If `mergeStateStatus` is anything other than `CLEAN` (e.g., `CONFLICTING`, `BEHIND`, `BLOCKED`, `UNSTABLE`, `DIRTY`), jump to the **Failure path** with the state name in the message. Do NOT merge.
+After the command:
 
-## Merge path
+1. Re-fetch the PR and require `state: MERGED`, the same final head identity,
+   and a merge commit/time.
+2. Re-fetch issue `#N` and require `state: CLOSED`. A merged PR with an open
+   child is not success; report the closing-semantics blocker.
+3. For an epic child, run `epic-completion.md` with fresh graph, spec authority,
+   Project, and digest evidence.
+4. Only after required reconciliation, check out the refreshed default branch
+   and remove the local feature branch when safe. Remote deletion performed by
+   the merge command is already proven by the PR result.
 
-All checks green AND `mergeStateStatus == CLEAN`:
+## Terminal Output
 
-1. Capture the current branch name: `git rev-parse --abbrev-ref HEAD` — store this value as `<branch-name>` for step 4. Do this before `git checkout main` so the name is preserved.
-2. `gh pr merge <num> --squash --delete-branch` — squash-merges and deletes the remote branch atomically.
-3. `git checkout main` — detach from the feature branch before deleting it locally.
-4. `git branch -D <branch-name>` — delete the local feature branch using the name captured in step 1.
-5. Print:
-   ```
-   Merged and cleaned up — you are back on main.
-   ```
+Success output is allowed only after all proof above:
 
-## Failure path
+```text
+Delivery complete for issue #N.
+PR #P: MERGED at head H
+Issue #N: CLOSED
+Epic reconciliation: closed #E, #R | incomplete | not applicable
+Branch cleanup: complete | safely deferred with reason
+```
 
-Any terminal-failure state, non-`CLEAN` mergeability, or polling timeout:
+Every non-success exit uses one blocker block:
 
-1. Print each failing check's name and details URL (from the `link` field returned by `--json`). For non-mergeable states, print the `mergeStateStatus` value and reason. For timeout, print the timeout message from the polling loop.
-2. Do NOT invoke `gh pr merge`. Do NOT run `git branch -D`. Do NOT check out `main` — leave the user on the feature branch so they can push follow-up fixes.
-3. Exit so the user can investigate.
-
-## No-CI graceful-skip path
-
-`gh pr checks` reports no checks — print `No CI configured — skipping auto-merge.` and exit. Do NOT merge. Do NOT delete the feature branch. Graceful skip; silent pass-through merge would hide a misconfigured or absent CI pipeline.
+```text
+External-authority blocker
+PR/head: #P / H
+Evidence: <exact pending, permission, review, check, or platform state>
+Owner: <actor or service>
+Recovery: <specific action, then re-run $nmg-sdlc:open-pr #N>
+```

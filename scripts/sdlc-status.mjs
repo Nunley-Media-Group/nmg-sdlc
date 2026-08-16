@@ -25,6 +25,7 @@ import {
   inspectIssueSpecScope,
   ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
 } from './issue-spec-scope.mjs';
+import { inspectEpicSpecAuthority } from './epic-spec-authority.mjs';
 import {
   evidenceIdentity,
   inspectDeliveryValidation,
@@ -197,7 +198,8 @@ function verifyReportScope(content, scope) {
 }
 
 function collectVerification(projectRoot, spec, pullRequest, untrackedImplementationPaths, adapters, gaps) {
-  if (!spec) return null;
+  if (!spec?.path || spec.epicAuthority?.mode === 'epic'
+    || (spec.epicAuthority?.mode === 'child' && spec.epicAuthority.status !== 'valid')) return null;
   const reportPath = path.join(projectRoot, spec.path, 'verification-report.md');
   if (!adapters.fs.existsSync(reportPath)) return null;
   const relativeReportPath = toGitPath(path.relative(projectRoot, reportPath));
@@ -849,14 +851,35 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     .map(parseStatusPath)
     .filter(isImplementationPath);
   const github = collectGithub(projectRoot, branch, issueNumber, adapters, gaps);
+  const activeIssueNumber = github.issue?.number ?? issueNumber;
+  const coordination = github.issue?.coordination ?? null;
+  let epicAuthority = null;
+  if (Number.isInteger(activeIssueNumber) && ['epic', 'epic-child'].includes(coordination?.role)) {
+    const nativeChildren = coordination.role === 'epic'
+      ? coordination.siblingNumbers
+      : [activeIssueNumber, ...(coordination.siblingNumbers ?? [])].sort((left, right) => left - right);
+    epicAuthority = inspectEpicSpecAuthority({
+      project: projectRoot,
+      mode: coordination.role === 'epic' ? 'epic' : 'child',
+      issueNumber: activeIssueNumber,
+      nativeChildren,
+    });
+  }
   let featureDir = null;
   try {
-    featureDir = findFeatureDir(
-      path.join(projectRoot, 'specs'),
-      github.issue?.number ?? issueNumber,
-      branchContext?.slug,
-      adapters,
-    );
+    const authorityPath = epicAuthority?.mode === 'child' && epicAuthority.status === 'valid'
+      ? epicAuthority.requestedChild?.specPath
+      : null;
+    featureDir = authorityPath
+      ? path.join(projectRoot, ...authorityPath.split('/'))
+      : coordination?.role === 'epic'
+        ? null
+        : findFeatureDir(
+          path.join(projectRoot, 'specs'),
+          activeIssueNumber,
+          branchContext?.slug,
+          adapters,
+        );
   } catch (error) {
     gaps.push(`spec evidence unavailable: ${boundedMessage(error.message)}`);
   }
@@ -868,8 +891,8 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
         path: toGitPath(path.relative(projectRoot, featureDir)),
         complete: missingFiles.length === 0,
         missingFiles,
+        epicAuthority,
       };
-      const activeIssueNumber = github.issue?.number ?? issueNumber;
       if (Number.isInteger(activeIssueNumber) && activeIssueNumber > 0) {
         spec.scope = inspectIssueSpecScope(
           {
@@ -891,6 +914,13 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     } catch (error) {
       gaps.push(`spec evidence unavailable: ${boundedMessage(error.message)}`);
     }
+  } else if (epicAuthority) {
+    spec = {
+      path: epicAuthority.requestedChild?.specPath ?? epicAuthority.aggregatePath ?? null,
+      complete: false,
+      missingFiles: [],
+      epicAuthority,
+    };
   }
 
   const verification = collectVerification(
@@ -931,7 +961,9 @@ function artifactSummary(evidence, stage) {
     && evidence.verification.current === true;
   const deliveryValidationPending = stage === 'delivery-validation-pending';
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(evidence.spec?.scope?.status);
-  const specReady = evidence.spec?.complete && !scopeBlocked;
+  const authorityBlocked = evidence.spec?.epicAuthority?.mode === 'child'
+    && evidence.spec.epicAuthority.status !== 'valid';
+  const specReady = evidence.spec?.complete && !scopeBlocked && !authorityBlocked;
   if (evidence.issue?.number && evidence.project.branch !== 'main') completed.push('issue branch');
   if (specReady) completed.push('spec package');
   if (evidence.project.implementationPaths.length > 0) completed.push('implementation');
@@ -977,12 +1009,43 @@ export function inferLifecycle(evidence) {
     && !finalDeliveryValidated;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
+  const coordinationRole = evidence.issue?.coordination?.role ?? null;
+  const epicAuthority = evidence.spec?.epicAuthority ?? null;
+  const childAuthorityBlocked = coordinationRole === 'epic-child'
+    && epicAuthority?.status !== 'valid';
   const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
   const deliverableBlocked = ['blocked', 'repair_required', 'unverifiable'].includes(deliverableStatus);
   let stage;
   let nextAction;
 
-  if (deliverableBlocked) {
+  if (coordinationRole === 'epic') {
+    stage = 'coordination-only';
+    nextAction = {
+      command: '$nmg-sdlc:start-issue',
+      reason: 'The active issue is an epic coordination container; select a ready executable child through normal dependency rules.',
+      manualRepairRequired: false,
+    };
+  } else if (childAuthorityBlocked) {
+    const authorityStatus = epicAuthority?.status ?? 'unverifiable';
+    const authorityGaps = epicAuthority?.gaps?.length
+      ? epicAuthority.gaps.join('; ')
+      : epicAuthority?.reasonCode ?? 'epic child authority is unavailable';
+    gaps.push(`epic spec authority ${authorityStatus}: ${authorityGaps}`);
+    stage = authorityStatus === 'planned'
+      ? (issueNumber && evidence.project.branch !== 'main' ? 'started' : 'specified')
+      : 'blocked';
+    nextAction = authorityStatus === 'planned'
+      ? {
+        command: phaseCommand('write-spec', issueNumber),
+        reason: 'The epic child package is planned but not canonical.',
+        manualRepairRequired: false,
+      }
+      : {
+        command: '$nmg-sdlc:upgrade-project',
+        reason: 'Epic aggregate/child authority is missing, conflicting, or unverifiable and requires an exact repair audit.',
+        manualRepairRequired: authorityStatus === 'unverifiable',
+      };
+  } else if (deliverableBlocked) {
     const deliverableGaps = evidence.issue.deliverableDependencies.gaps?.length
       ? evidence.issue.deliverableDependencies.gaps.join('; ')
       : evidence.issue.deliverableDependencies.reasonCode;
@@ -1154,7 +1217,7 @@ export function renderText(status) {
     ? `#${status.issue.number}${status.issue.title ? ` ${status.issue.title}` : ''} (${status.issue.state ?? 'unknown'})`
     : 'unknown';
   const spec = status.spec
-    ? `${status.spec.path} (${status.spec.complete ? 'complete' : `missing ${status.spec.missingFiles.join(', ')}`})`
+    ? `${status.spec.path ?? 'not authored'} (${status.spec.complete ? 'complete' : status.spec.missingFiles.length ? `missing ${status.spec.missingFiles.join(', ')}` : 'not executable'})`
     : 'unknown';
   const scope = status.spec?.scope
     ? `${status.spec.scope.status} (delivery: AC ${listOrNone(status.spec.scope.delivery.acceptanceCriteria)}, FR ${listOrNone(status.spec.scope.delivery.functionalRequirements)}, tasks ${listOrNone(status.spec.scope.delivery.tasks)}, scenarios ${listOrNone(status.spec.scope.delivery.scenarios)}; regression: AC ${listOrNone(status.spec.scope.regression.acceptanceCriteria)}, FR ${listOrNone(status.spec.scope.regression.functionalRequirements)}, scenarios ${listOrNone(status.spec.scope.regression.scenarios)})`
@@ -1168,6 +1231,9 @@ export function renderText(status) {
   const coordination = status.issue?.coordination
     ? `${status.issue.coordination.role} (${status.issue.coordination.identity}; consistency: ${status.issue.coordination.consistency}; authority: ${status.issue.coordination.nativeAuthority}; degraded: ${status.issue.coordination.degraded ? 'yes' : 'no'})${status.issue.coordination.parentNumber ? ` parent #${status.issue.coordination.parentNumber}` : ''}`
     : 'unknown';
+  const epicAuthority = status.spec?.epicAuthority
+    ? `${status.spec.epicAuthority.status} (${status.spec.epicAuthority.reasonCode}; digest: ${status.spec.epicAuthority.evidenceDigest})`
+    : 'not applicable';
   const deliverables = status.issue?.deliverableDependencies
     ? `${status.issue.deliverableDependencies.status} (${status.issue.deliverableDependencies.requirements.map((requirement) => `#${requirement.ownerIssue}:${requirement.available ? 'available' : 'unavailable'}`).join(', ') || 'none'})`
     : 'unknown';
@@ -1175,6 +1241,7 @@ export function renderText(status) {
     `SDLC status: ${status.stage}`,
     `Issue: ${issue}`,
     `Coordination: ${coordination}`,
+    `Epic spec authority: ${epicAuthority}`,
     `Deliverables: ${deliverables}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,

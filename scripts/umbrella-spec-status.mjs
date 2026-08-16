@@ -13,10 +13,13 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { inspectEpicSpecAuthority, normalizeEpicScope } from './epic-spec-authority.mjs';
+
 const MAX_REFS = 200;
 const MAX_SPEC_PATHS_PER_REF = 200;
 const MAX_GIT_OUTPUT = 8 * 1024 * 1024;
 const SPEC_PATH_PATTERN = /^specs\/[a-z0-9][a-z0-9-]*\/?$/;
+const AGGREGATE_PATH_PATTERN = /^specs\/epic-[a-z0-9][a-z0-9-]*$/;
 const FEATURE_REQUIREMENTS_PATTERN = /^specs\/feature-[a-z0-9][a-z0-9-]*\/requirements\.md$/;
 const REQUIRED_SPEC_FILES = new Set([
   'design.md',
@@ -160,6 +163,29 @@ function resolveTree(projectRoot, commit, specPath, adapters) {
     return { ok: false, missing: false, reason: `expected tree object at ${specPath}` };
   }
   return { ok: true, tree: objectId };
+}
+
+function readJsonFile(projectRoot, commit, relativePath, adapters) {
+  const file = readGitFile(projectRoot, commit, relativePath, adapters);
+  if (!file.ok) return { ok: false, reason: file.reason };
+  try {
+    return { ok: true, value: JSON.parse(file.source) };
+  } catch (error) {
+    return { ok: false, reason: `${relativePath}: ${boundedMessage(error.message)}` };
+  }
+}
+
+function changedPaths(projectRoot, baseCommit, sourceCommit, adapters) {
+  const result = git(
+    projectRoot,
+    ['diff', '--name-only', '-z', baseCommit, sourceCommit, '--'],
+    adapters,
+  );
+  if (!result.ok) return { ok: false, reason: commandFailure(result), paths: [] };
+  return {
+    ok: true,
+    paths: result.stdout.split('\0').filter(Boolean).map(normalizeGitPath).sort(),
+  };
 }
 
 function validateTreeEntries(projectRoot, commit, specPath, adapters) {
@@ -395,6 +421,59 @@ function unverifiable(mode, projectRoot, details = {}) {
 }
 
 function classifyParentMode(projectRoot, issueNumber, remoteDefault, adapters) {
+  const epicAuthority = inspectEpicSpecAuthority({
+    project: projectRoot,
+    source: remoteDefault.commit,
+    mode: 'epic',
+    issueNumber,
+  });
+  if (epicAuthority.aggregatePath && ['valid', 'planned'].includes(epicAuthority.status)) {
+    const aggregateTree = resolveTree(
+      projectRoot,
+      remoteDefault.commit,
+      epicAuthority.aggregatePath,
+      adapters,
+    );
+    if (!aggregateTree.ok) {
+      return unverifiable('parent', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'default_aggregate_tree_unavailable',
+        reason: aggregateTree.reason,
+        issueNumber,
+        specPath: epicAuthority.aggregatePath,
+      });
+    }
+    const retained = markerRetained(
+      projectRoot,
+      remoteDefault.commit,
+      issueNumber,
+      epicAuthority.aggregatePath,
+      adapters,
+    );
+    return {
+      ...baseResult('parent', projectRoot, remoteDefault),
+      status: retained ? 'canonical' : 'canonical_marker_lost',
+      reasonCode: retained ? 'default_aggregate_tree_and_marker_present' : 'default_aggregate_tree_present_marker_absent',
+      issueNumber,
+      specPath: epicAuthority.aggregatePath,
+      specKind: 'epic-aggregate',
+      authorityStatus: epicAuthority.status,
+      authorityDigest: epicAuthority.evidenceDigest,
+      defaultTree: aggregateTree.tree,
+      candidates: [],
+      gaps: [],
+    };
+  }
+  if (!['aggregate_not_authored', 'legacy_cumulative_epic_spec'].includes(epicAuthority.reasonCode)) {
+    return unverifiable('parent', projectRoot, {
+      ...remoteDefault,
+      reasonCode: epicAuthority.reasonCode,
+      reason: epicAuthority.gaps?.join('; ') || `epic authority is ${epicAuthority.status}`,
+      issueNumber,
+      specPath: epicAuthority.aggregatePath,
+    });
+  }
+
   const paths = listRequirementPaths(projectRoot, remoteDefault.commit, adapters);
   if (!paths.ok) {
     return unverifiable('parent', projectRoot, {
@@ -516,6 +595,204 @@ function classifyPublicationMode(projectRoot, specPath, sourceRef, remoteDefault
   };
 }
 
+function classifyBundlePublicationMode(
+  projectRoot,
+  aggregatePath,
+  childSpecPath,
+  sourceRef,
+  remoteDefault,
+  adapters,
+) {
+  const source = resolveCommit(projectRoot, sourceRef, adapters);
+  if (!source.ok) {
+    return unverifiable('aggregate-child-publication', projectRoot, {
+      ...remoteDefault,
+      reasonCode: 'source_commit_unavailable',
+      reason: source.reason,
+      specPath: aggregatePath,
+    });
+  }
+  const nestedEpicChild = AGGREGATE_PATH_PATTERN.test(childSpecPath);
+  let epicIssue;
+  let childIssue;
+  let authority;
+  if (nestedEpicChild) {
+    const aggregateManifest = readJsonFile(projectRoot, source.commit, `${aggregatePath}/epic-scope.json`, adapters);
+    const childManifest = readJsonFile(projectRoot, source.commit, `${childSpecPath}/epic-scope.json`, adapters);
+    if (!aggregateManifest.ok || !childManifest.ok) {
+      return unverifiable('aggregate-child-publication', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'source_nested_aggregate_link_invalid',
+        reason: aggregateManifest.reason ?? childManifest.reason,
+        specPath: !aggregateManifest.ok ? aggregatePath : childSpecPath,
+      });
+    }
+    const normalizedAggregate = normalizeEpicScope(aggregateManifest.value, aggregatePath);
+    const normalizedChild = normalizeEpicScope(childManifest.value, childSpecPath);
+    epicIssue = normalizedAggregate.value.epicIssue;
+    childIssue = normalizedChild.value.epicIssue;
+    const nestedEntry = normalizedAggregate.value.children.find((child) => (
+      child.issue === childIssue && child.specPath === childSpecPath
+    ));
+    const manifestGaps = [...normalizedAggregate.gaps, ...normalizedChild.gaps];
+    if (!nestedEntry || nestedEntry.packageState !== 'canonical') {
+      manifestGaps.push(`${aggregatePath}/epic-scope.json does not declare canonical nested epic #${childIssue ?? 'invalid'} at ${childSpecPath}`);
+    }
+    if (manifestGaps.length > 0) {
+      return unverifiable('aggregate-child-publication', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'source_nested_aggregate_link_mismatch',
+        reason: manifestGaps.join('; '),
+        specPath: childSpecPath,
+        issueNumber: childIssue,
+      });
+    }
+    authority = inspectEpicSpecAuthority({
+      project: projectRoot,
+      source: source.commit,
+      mode: 'epic',
+      issueNumber: epicIssue,
+      requestedChild: childIssue,
+    });
+  } else {
+    const link = readJsonFile(projectRoot, source.commit, `${childSpecPath}/epic-link.json`, adapters);
+    if (!link.ok) {
+      return unverifiable('aggregate-child-publication', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'source_child_link_invalid',
+        reason: link.reason,
+        specPath: childSpecPath,
+      });
+    }
+    epicIssue = Number(link.value?.epicIssue);
+    childIssue = Number(link.value?.childIssue);
+    if (!Number.isSafeInteger(epicIssue) || epicIssue <= 0
+      || !Number.isSafeInteger(childIssue) || childIssue <= 0
+      || link.value?.epicSpecPath !== aggregatePath
+      || link.value?.childSpecPath !== childSpecPath) {
+      return unverifiable('aggregate-child-publication', projectRoot, {
+        ...remoteDefault,
+        reasonCode: 'source_child_link_mismatch',
+        reason: 'epic-link.json does not identify the requested aggregate and child paths',
+        specPath: childSpecPath,
+      });
+    }
+    authority = inspectEpicSpecAuthority({
+      project: projectRoot,
+      source: source.commit,
+      mode: 'child',
+      issueNumber: childIssue,
+    });
+  }
+  if (authority.status !== 'valid') {
+    return unverifiable('aggregate-child-publication', projectRoot, {
+      ...remoteDefault,
+      reasonCode: authority.reasonCode,
+      reason: authority.gaps?.join('; ') || `child authority is ${authority.status}`,
+      specPath: childSpecPath,
+      issueNumber: childIssue,
+    });
+  }
+  const aggregateSourceTree = resolveTree(projectRoot, source.commit, aggregatePath, adapters);
+  const childSourceTree = resolveTree(projectRoot, source.commit, childSpecPath, adapters);
+  if (!aggregateSourceTree.ok || !childSourceTree.ok) {
+    return unverifiable('aggregate-child-publication', projectRoot, {
+      ...remoteDefault,
+      reasonCode: 'source_bundle_tree_unavailable',
+      reason: aggregateSourceTree.reason ?? childSourceTree.reason,
+      specPath: !aggregateSourceTree.ok ? aggregatePath : childSpecPath,
+      issueNumber: childIssue,
+    });
+  }
+  const aggregateDefaultTree = resolveTree(projectRoot, remoteDefault.commit, aggregatePath, adapters);
+  const childDefaultTree = resolveTree(projectRoot, remoteDefault.commit, childSpecPath, adapters);
+  if ((!aggregateDefaultTree.ok && !aggregateDefaultTree.missing)
+    || (!childDefaultTree.ok && !childDefaultTree.missing)) {
+    return unverifiable('aggregate-child-publication', projectRoot, {
+      ...remoteDefault,
+      reasonCode: 'default_bundle_tree_unavailable',
+      reason: aggregateDefaultTree.reason ?? childDefaultTree.reason,
+      specPath: !aggregateDefaultTree.ok && !aggregateDefaultTree.missing ? aggregatePath : childSpecPath,
+      issueNumber: childIssue,
+    });
+  }
+  const base = {
+    ...baseResult('aggregate-child-publication', projectRoot, remoteDefault),
+    issueNumber: childIssue,
+    epicIssueNumber: epicIssue,
+    specPath: childSpecPath,
+    aggregatePath,
+    childSpecPath,
+    childSpecKind: nestedEpicChild ? 'epic-aggregate' : 'executable-child',
+    sourceCommit: source.commit,
+    authorityDigest: authority.evidenceDigest,
+    sourceTrees: {
+      aggregate: aggregateSourceTree.tree,
+      child: childSourceTree.tree,
+    },
+    defaultTrees: {
+      aggregate: aggregateDefaultTree.ok ? aggregateDefaultTree.tree : null,
+      child: childDefaultTree.ok ? childDefaultTree.tree : null,
+    },
+    gaps: [],
+  };
+  if (aggregateDefaultTree.ok && childDefaultTree.ok
+    && aggregateDefaultTree.tree === aggregateSourceTree.tree
+    && childDefaultTree.tree === childSourceTree.tree) {
+    return {
+      ...base,
+      status: 'canonical_marker_lost',
+      reasonCode: 'default_aggregate_and_child_trees_match',
+    };
+  }
+  if (childDefaultTree.ok && childDefaultTree.tree !== childSourceTree.tree) {
+    return {
+      ...base,
+      status: 'divergent',
+      reasonCode: 'default_bundle_partially_or_differently_present',
+      gaps: ['default-branch child content differs from the approved aggregate/child source tree'],
+    };
+  }
+
+  const changes = changedPaths(projectRoot, remoteDefault.commit, source.commit, adapters);
+  if (!changes.ok) {
+    return unverifiable('aggregate-child-publication', projectRoot, {
+      ...remoteDefault,
+      reasonCode: 'source_change_set_unavailable',
+      reason: changes.reason,
+      specPath: childSpecPath,
+      issueNumber: childIssue,
+    });
+  }
+  const aggregatePrefix = `${aggregatePath}/`;
+  const childPrefix = `${childSpecPath}/`;
+  const allowedAggregatePaths = aggregateDefaultTree.ok
+    ? new Set([`${aggregatePath}/epic-scope.json`])
+    : null;
+  const unexpected = changes.paths.filter((changedPath) => {
+    if (changedPath.startsWith(childPrefix)) return false;
+    if (!changedPath.startsWith(aggregatePrefix)) return true;
+    return allowedAggregatePaths ? !allowedAggregatePaths.has(changedPath) : false;
+  });
+  if (unexpected.length > 0) {
+    return {
+      ...base,
+      status: 'divergent',
+      reasonCode: 'publication_change_set_exceeds_bundle',
+      changedPaths: changes.paths,
+      gaps: unexpected.map((changedPath) => `unexpected publication path: ${changedPath}`),
+    };
+  }
+  return {
+    ...base,
+    status: 'stranded_recoverable',
+    reasonCode: aggregateDefaultTree.ok
+      ? 'later_child_and_manifest_amendment_not_on_default'
+      : 'first_child_aggregate_pair_not_on_default',
+    changedPaths: changes.paths,
+  };
+}
+
 function classifyAuditMode(projectRoot, remoteDefault, adapters) {
   const collected = collectCandidates(projectRoot, adapters, null, [{
     ref: `refs/remotes/origin/${remoteDefault.branch}`,
@@ -613,6 +890,16 @@ export function inspectUmbrellaSpec(options, adapters = createAdapters()) {
   if (!remoteDefault.ok) return unverifiable(options.mode, projectRoot, remoteDefault);
   if (options.mode === 'parent') return classifyParentMode(projectRoot, options.issueNumber, remoteDefault, adapters);
   if (options.mode === 'publication') return classifyPublicationMode(projectRoot, options.specPath, options.source, remoteDefault, adapters);
+  if (options.mode === 'aggregate-child-publication') {
+    return classifyBundlePublicationMode(
+      projectRoot,
+      options.aggregatePath,
+      options.childSpecPath,
+      options.source,
+      remoteDefault,
+      adapters,
+    );
+  }
   return classifyAuditMode(projectRoot, remoteDefault, adapters);
 }
 
@@ -623,6 +910,8 @@ export function parseCli(argv) {
       project: { type: 'string' },
       'parent-issue': { type: 'string' },
       spec: { type: 'string' },
+      aggregate: { type: 'string' },
+      'child-spec': { type: 'string' },
       source: { type: 'string' },
       all: { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
@@ -634,8 +923,9 @@ export function parseCli(argv) {
   if (values.help) return { help: true };
   if (!values.project) throw new Error('--project is required');
   if (!values.json) throw new Error('--json is required');
-  const selectedModes = [Boolean(values['parent-issue']), Boolean(values.spec), values.all].filter(Boolean).length;
-  if (selectedModes !== 1) throw new Error('choose exactly one mode: --parent-issue, --spec, or --all');
+  const bundleMode = Boolean(values.aggregate || values['child-spec']);
+  const selectedModes = [Boolean(values['parent-issue']), Boolean(values.spec), bundleMode, values.all].filter(Boolean).length;
+  if (selectedModes !== 1) throw new Error('choose exactly one mode: --parent-issue, --spec, --aggregate with --child-spec, or --all');
   if (values['parent-issue']) {
     const issueNumber = parsePositiveIssue(values['parent-issue']);
     if (!issueNumber) throw new Error('--parent-issue must be a positive integer');
@@ -648,7 +938,19 @@ export function parseCli(argv) {
     if (!values.source) throw new Error('--source is required with --spec');
     return { project: values.project, mode: 'publication', specPath, source: values.source };
   }
-  if (values.source) throw new Error('--source is valid only with --spec');
+  if (bundleMode) {
+    const aggregatePath = normalizeSpecPath(values.aggregate);
+    const childSpecPath = normalizeSpecPath(values['child-spec']);
+    if (!aggregatePath || !AGGREGATE_PATH_PATTERN.test(aggregatePath)) {
+      throw new Error('--aggregate must be a normalized specs/epic-<slug> path');
+    }
+    if (!childSpecPath || childSpecPath === aggregatePath) {
+      throw new Error('--child-spec must be a normalized executable child or distinct nested epic aggregate path below specs/');
+    }
+    if (!values.source) throw new Error('--source is required with --aggregate and --child-spec');
+    return { project: values.project, mode: 'aggregate-child-publication', aggregatePath, childSpecPath, source: values.source };
+  }
+  if (values.source) throw new Error('--source is valid only with --spec or --aggregate/--child-spec');
   return { project: values.project, mode: 'audit' };
 }
 
@@ -657,6 +959,7 @@ function usage() {
     'Usage:',
     '  node scripts/umbrella-spec-status.mjs --project <path> --parent-issue <N> --json',
     '  node scripts/umbrella-spec-status.mjs --project <path> --spec <specs/path> --source <commit-ish> --json',
+    '  node scripts/umbrella-spec-status.mjs --project <path> --aggregate <specs/epic-path> --child-spec <specs/child-path> --source <commit-ish> --json',
     '  node scripts/umbrella-spec-status.mjs --project <path> --all --json',
   ].join('\n');
 }

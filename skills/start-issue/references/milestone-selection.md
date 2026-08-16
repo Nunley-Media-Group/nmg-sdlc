@@ -39,7 +39,10 @@ gh issue list -s open -L "$limit" --json number,title,labels,projectItems
 gh issue list -s open -m "<milestone>" -L "$limit" --json number,title,labels,projectItems
 ```
 
-Do not filter on coordination or suitability labels. Step 1a owns relationship, dependency, deliverable, and Project-completion filtering after each candidate window is fetched.
+Do not filter on coordination or suitability labels in the issue-list query.
+Step 1a proves roles from complete relationship evidence, excludes confirmed
+epics, and owns dependency, deliverable, and Project-completion filtering after
+each candidate window is fetched. A label-only exclusion is not authoritative.
 
 If the `projectItems` shape is unavailable because GitHub Project metadata cannot be read, retry the same issue query once without `projectItems`. If that retry succeeds, continue without automatic Project-completion exclusion and emit exactly:
 
@@ -59,9 +62,22 @@ For each candidate, collect non-empty `projectItems[].status.name` values. Class
 
 ### Expansion Loop
 
-Start with `limit = INITIAL_LIMIT`. Evaluate issues in the order returned by `gh issue list`. Run all of Step 1a for each evaluated issue, then remove dependency-blocked candidates and unblocked `projectCompleted` candidates from the automatic shortlist. Count the two groups separately; a candidate that is both blocked and Project-completed counts as blocked only.
+Start with `limit = INITIAL_LIMIT`. Evaluate issues in the order returned by
+`gh issue list`. Run role classification first. Remove confirmed epics before
+the `PRESENTATION_TARGET` count, then remove dependency-blocked candidates and
+unblocked `projectCompleted` candidates from the automatic shortlist. Count
+epics, blocked issues, and Done issues separately; an epic never enters either
+of the latter groups, and a candidate that is both blocked and Project-completed
+counts as blocked only.
 
-If fewer than `PRESENTATION_TARGET` candidates remain, expand by `LIMIT_INCREMENT` and repeat the issue fetch plus Step 1a evaluation from fresh evidence. The expanded fetch supersedes the prior result; do not append stale partial classifications. Evaluate the expanded ordered prefix only until `PRESENTATION_TARGET` verified selectable candidates have been found. Metadata may be fetched in a bounded batch for later records, but a trailing record is not an evaluated candidate and cannot fail selection, affect ordering, or enter filtered counts after the target is satisfied.
+If fewer than `PRESENTATION_TARGET` executable candidates remain after all three filters,
+expand by `LIMIT_INCREMENT` and repeat the issue fetch plus Step 1a evaluation from fresh evidence.
+The expanded fetch supersedes the prior result;
+do not append stale partial classifications. Evaluate the expanded ordered prefix only until `PRESENTATION_TARGET` verified selectable candidates have been found.
+Metadata may be fetched in a bounded batch for
+later records, but a trailing record is not an evaluated candidate and cannot
+fail selection, affect ordering, or enter filtered counts after the target is
+satisfied.
 
 This prefix boundary does not weaken fail-closed behavior. Any inconsistent, ambiguous, unverifiable, incompletely paged, or malformed issue encountered before the target is satisfied still stops selection with its exact evidence. Only trailing issues that are unnecessary for the displayed shortlist remain uninspected.
 
@@ -78,4 +94,9 @@ At the bound, continue with every verified selectable candidate found plus the m
 
 If the selected scope has no open issues, report `No open issues found in {scope}.` and stop before branch creation. Do not silently switch to a different milestone after the user has selected one.
 
-Each bounded candidate window is the input to Step 1a dependency resolution. After the expansion loop settles, Step 1a emits `Filtered N blocked issues from selection.` and `Excluded M open issues already marked Done from automatic discovery.` even when either count is zero.
+Each bounded candidate window is the input to Step 1a role and dependency
+resolution. After the expansion loop settles, Step 1a emits
+`Excluded E coordination-only epics from automatic discovery.`,
+`Filtered N blocked issues from selection.`, and
+`Excluded M open issues already marked Done from automatic discovery.` even
+when any count is zero.

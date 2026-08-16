@@ -88,3 +88,12 @@ V2 runner-artifact cleanup is a separate findings category. Never fold a cleanup
 This step runs on ALL feature-variant specs in `feature-*/` directories, catching specs that were created by newer `$nmg-sdlc:write-spec` but somehow have stale frontmatter, renamed from legacy directories but not yet updated, or already in the new naming convention from a prior partial migration.
 
 Read `../../references/spec-frontmatter.md` when applying any frontmatter rewrite during migration — the canonical conventions every spec file follows live there.
+
+## Epic Cumulative-Spec Split Boundary
+
+Do not use keyword clustering or generic consolidation for a legacy executable
+spec owned by an epic. Route it through `epic-lifecycle-recovery.md`. Preserve
+the source tree and prose, create the three-file `specs/epic-*` aggregate, create
+one normal package per approved child, move only uniquely mapped AC/FR/T/SCN
+identifiers, and record the exact migration mapping. Ambiguous identifiers remain
+in place until an explicit missing-child/ownership decision.

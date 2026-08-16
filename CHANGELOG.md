@@ -10,6 +10,16 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-16
+
+### Changed (BREAKING)
+
+- **BREAKING CHANGE:** Made epics coordination-only across the nmg-sdlc lifecycle: `start-issue` excludes them while children follow normal dependency rules, aggregate specs no longer own executable work, `open-pr` continues through exact-head merge and issue closure, eligible epic ancestors close automatically, and legacy backlog repair requires an exact drift-checked approval.
+
+### Migration Notes
+
+- Run `$nmg-sdlc:upgrade-project` in existing projects to audit legacy cumulative epic specs, relationship/checklist drift, and stale issue or Project state. Review and approve each exact per-epic repair separately; ambiguous ownership is preserved for an explicit child decision.
+
 ## [2.0.10] - 2026-08-16
 
 ### Fixed

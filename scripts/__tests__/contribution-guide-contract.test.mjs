@@ -9,7 +9,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-describe('contribution guide contract (issues #109 and #143)', () => {
+describe('contribution guide contract (issues #109, #143, and #177)', () => {
   test('shared reference defines generation, preservation, README, steering, lifecycle, and status rules', () => {
     const contract = read('references/contribution-guide.md');
 
@@ -28,6 +28,13 @@ describe('contribution guide contract (issues #109 and #143)', () => {
     expect(contract).toContain('Issue/spec identity');
     expect(contract).toContain('hidden HTML comments');
     expect(contract).toContain('SDLC-Exception: docs-only');
+    expect(contract).toContain('epics cannot be started');
+    expect(contract).toContain('children use normal dependency rules');
+    expect(contract).toContain('aggregate lineage is informational');
+    expect(contract).toContain('`open-pr` continues through exact-head merge and issue closure');
+    expect(contract).toContain('eligible epics close automatically');
+    expect(contract).toContain('repairs require exact approval');
+    expect(contract).toContain('Never generate guidance that starts/specifies/implements an epic');
   });
 
   test('onboard-project references the shared contract and reports contribution-guide status', () => {

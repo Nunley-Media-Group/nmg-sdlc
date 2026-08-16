@@ -15,9 +15,108 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { classifyEpicRelationships, deriveEpicLineage } from '../epic-relationships.mjs';
+
 const RUN_EXERCISE = process.env.RUN_EXERCISE_TESTS === '1';
 const describeExercise = RUN_EXERCISE ? describe : describe.skip;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+function relationshipIssue(number, {
+  title = `Issue ${number}`,
+  labels = [],
+  state = 'OPEN',
+  body = '',
+  parent = null,
+  children = [],
+} = {}) {
+  return {
+    number,
+    title,
+    labels: { nodes: labels.map((name) => ({ name })) },
+    state,
+    body,
+    parent,
+    subIssues: {
+      nodes: children.map((child) => ({ number: child })),
+      pageInfo: { hasNextPage: false, endCursor: null },
+    },
+  };
+}
+
+describe('exercise: deterministic executable-only start selection', () => {
+  test('keeps ordinary and direct-child work selectable while excluding an epic before ranking', () => {
+    const epic = relationshipIssue(10, {
+      title: 'Coordinate rollout',
+      labels: ['epic'],
+      body: '- [ ] #20',
+      children: [20],
+    });
+    const child = relationshipIssue(20, {
+      title: 'Build foundation',
+      labels: ['enhancement', 'epic-child-of-10'],
+      body: 'Depends on: #10',
+      parent: epic,
+    });
+    const ordinary = relationshipIssue(30, { title: 'Ordinary work', labels: ['enhancement'] });
+    const issues = [epic, child, ordinary];
+    const classifications = issues.map((candidate) => classifyEpicRelationships({
+      issues,
+      activeIssueNumber: candidate.number,
+    }));
+    const selectable = classifications
+      .filter((result) => ['ordinary', 'epic-child'].includes(result.role))
+      .map((result) => result.issueNumber);
+
+    expect(classifications.find((result) => result.issueNumber === 10)).toMatchObject({ role: 'epic' });
+    expect(classifications.find((result) => result.issueNumber === 20)).toMatchObject({
+      role: 'epic-child',
+      parentNumber: 10,
+      executionDependencies: [],
+    });
+    expect(selectable).toEqual([20, 30]);
+    expect(classifications.map((result) => classifyEpicRelationships({ issues, activeIssueNumber: result.issueNumber }))).toEqual(classifications);
+  });
+
+  test('shows complete nested lineage while retaining only a genuine external blocker', () => {
+    const root = relationshipIssue(5, { title: 'Root epic', labels: ['epic'], children: [10] });
+    const inner = relationshipIssue(10, {
+      title: 'Nested epic',
+      labels: ['epic', 'epic-child-of-5'],
+      body: 'Depends on: #5',
+      parent: root,
+      children: [20],
+    });
+    const blocker = relationshipIssue(19, { title: 'External prerequisite', state: 'OPEN' });
+    const leaf = relationshipIssue(20, {
+      title: 'Executable leaf',
+      labels: ['enhancement', 'epic-child-of-10'],
+      body: 'Depends on: #10\nDepends on: #19',
+      parent: inner,
+    });
+    const result = deriveEpicLineage({ issues: [root, inner, blocker, leaf], activeIssueNumber: 20 });
+    expect(result).toMatchObject({
+      status: 'resolved',
+      lineage: [
+        { number: 5, title: 'Root epic' },
+        { number: 10, title: 'Nested epic' },
+      ],
+      executionDependencies: [{ issueNumber: 19, blocking: true }],
+    });
+  });
+
+  test('ambiguous identity fails closed instead of becoming ordinary selectable work', () => {
+    const first = relationshipIssue(10, { labels: ['epic'], children: [20] });
+    const second = relationshipIssue(11, { labels: ['epic'], children: [20] });
+    const child = relationshipIssue(20, {
+      labels: ['epic-child-of-10', 'epic-child-of-11'],
+      body: 'Depends on: #10\nDepends on: #11',
+      parent: first,
+    });
+    const result = classifyEpicRelationships({ issues: [first, second, child], activeIssueNumber: 20 });
+    expect(result).toMatchObject({ role: 'ambiguous', identity: 'ambiguous', degraded: true });
+    expect(result.gaps.join('\n')).toContain('multiple confirmed epic parents');
+  });
+});
 
 function fakeGhSource() {
   const issue = (number) => {

@@ -6,6 +6,10 @@
 
 ## Detection signals
 
+Epic lifecycle detection is independent of legacy filesystem layout. Even when
+all layout signals below are false, continue to the complete read-only per-epic
+graph/spec/issue/Project audit from `epic-lifecycle-recovery.md`.
+
 1. Check whether `.codex/steering/` exists and contains at least one file. Call this `STEERING_LEGACY`.
 2. Check whether `.codex/specs/` exists and contains at least one subdirectory. Call this `SPECS_LEGACY`.
 3. Check whether `.codex/migration-exclusions.json` exists. Call this `EXCLUSIONS_LEGACY`.

@@ -19,6 +19,8 @@ nmg-sdlc/
 │   ├── interactive-gates.md
 │   ├── legacy-layout-gate.md
 │   ├── spec-context.md
+│   ├── epic-relationships.md
+│   ├── epic-spec-authority.md
 │   ├── versioning.md
 │   ├── contribution-gate.md
 │   └── issue-form.md
@@ -39,6 +41,9 @@ nmg-sdlc/
 │   ├── __fixtures__/
 │   ├── __tests__/
 │   ├── sdlc-status.mjs
+│   ├── epic-spec-authority.mjs
+│   ├── epic-lifecycle-repair.mjs
+│   ├── pr-delivery-state.mjs
 │   ├── skill-exercise-runner.mjs
 │   ├── skill-inventory-audit.mjs
 │   └── verify-plugin-surface.mjs
@@ -98,6 +103,7 @@ scripts/
 | Skill support | `references/`, `templates/`, `checklists/`, `scripts/`, `assets/` | `verify-code/checklists/` |
 | Feature specs | `feature-{kebab-case-slug}` | `feature-dark-mode/` |
 | Defect specs | `bug-{kebab-case-slug}` | `bug-login-timeout/` |
+| Epic aggregates | `epic-{kebab-case-slug}` | `epic-offline-navigation/` |
 
 ### Files
 
@@ -107,7 +113,9 @@ scripts/
 | Markdown/reference files | kebab-case | `interactive-gates.md` |
 | Scripts | kebab-case `.mjs` or `.sh` | `verify-plugin-surface.mjs` |
 | JSON metadata | kebab-case where file naming is ours | `skill-inventory.baseline.json` |
-| Spec artifacts | Fixed names | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
+| Executable spec artifacts | Fixed names | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`, `issue-scope.json` |
+| Epic aggregate artifacts | Fixed names | `requirements.md`, `design.md`, `epic-scope.json` |
+| Epic child link | Fixed name in child package | `epic-link.json` |
 
 ### Commits and Versions
 
@@ -180,6 +188,8 @@ Decision points use `request_user_input` and wait indefinitely for explicit user
 
 Project-root `specs/` is canonical. Load the active spec first, inspect bounded metadata across neighbors, then load only relevant specs. Historical specs remain intact and are excluded from active plugin-surface claims.
 
+Epics are coordination-only and never receive a branch or executable spec. A `specs/epic-*` aggregate contains exactly cross-child outcomes, design/topology, and `epic-scope.json`; it has no `tasks.md`, `feature.gherkin`, or executable ownership. Every child uses a separate normal package whose `epic-link.json` agrees with the aggregate manifest. Lifecycle consumers execute and verify only the active child's `issue-scope.json` slice.
+
 ### Managed-Artifact Boundary
 
 - Marked contribution workflows may be created or refreshed only per `references/contribution-gate.md`.
@@ -189,7 +199,7 @@ Project-root `specs/` is canonical. Load the active spec first, inspect bounded 
 
 ### Git and GitHub Boundary
 
-Only the skill that owns a stage performs that mutation. Implementation does not imply delivery; delivery does not imply merge; local test success does not imply GitHub mergeability or installed-artifact closure.
+Only the skill that owns a stage performs that mutation. Implementation does not imply delivery, and local test success does not imply GitHub mergeability. Invoking `$nmg-sdlc:open-pr` enters the terminal delivery stage: PR creation is intermediate, and success requires exact-head merge plus executable-issue closure. That stage may explicitly close only eligible, fully revalidated epic ancestors after the child closes. Backlog repair remains a separate, per-epic, explicitly approved `$nmg-sdlc:upgrade-project` mutation.
 
 ---
 

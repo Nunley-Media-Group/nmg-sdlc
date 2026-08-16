@@ -18,11 +18,14 @@ function collectMarkdownFiles(dir) {
   });
 }
 
-describe('open-pr folded delivery contract (issues #108, #148, and #151)', () => {
-  it('keeps delivery in open-pr and removes obsolete runtime assets', () => {
+describe('open-pr terminal delivery contract (issues #108, #148, #151, and #177)', () => {
+  it('keeps exact-head merge and issue closure in open-pr and removes obsolete runtime assets', () => {
     expect(fs.existsSync(path.join(repoRoot, 'scripts', 'sdlc-runner.mjs'))).toBe(false);
     expect(fs.existsSync(path.join(repoRoot, 'scripts', 'sdlc-config.example.json'))).toBe(false);
-    expect(read('skills/open-pr/SKILL.md')).toContain('Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR');
+    const openPr = read('skills/open-pr/SKILL.md');
+    expect(openPr).toContain('Deliver a verified issue through one exact pull request until its exact head is merged and the issue is closed');
+    expect(openPr).toContain('PR creation is an intermediate state, never successful');
+    expect(openPr).toContain('Success requires a fresh PR read proving `state: MERGED`');
   });
 
   it('keeps ordinary Pass creation unchanged and gates the controlled draft path', () => {
@@ -72,20 +75,24 @@ describe('open-pr folded delivery contract (issues #108, #148, and #151)', () =>
       expect(controlled).toContain(forbidden);
     }
     expect(controlled).toContain('preserve the feature branch and controlled draft PR');
-    expect(controlled).toContain('mergeStateStatus == CLEAN');
-    expect(monitor).toContain('must not run while `isDraft` is true');
+    expect(controlled).toContain('`mergeStateStatus: CLEAN`');
+    expect(monitor).toContain('`isDraft: false`');
+    expect(monitor).toContain('--match-head-commit');
+    expect(monitor).toContain('require `state: CLOSED`');
   });
 
-  it('open-pr delivery docs cover dirty, clean, rebase, safe-push, and push verification paths', () => {
+  it('open-pr delivery docs cover dirty, clean, non-rewriting base merge, safe-push, and push verification paths', () => {
     const openPr = read('skills/open-pr/SKILL.md');
     const preflight = read('skills/open-pr/references/preflight.md');
     const prBody = read('skills/open-pr/references/pr-body.md');
 
-    expect(openPr).toContain('Stages eligible work, applies the version bump, commits, rebases safely, pushes, and creates the PR');
+    expect(openPr).toContain('merges the base when needed without rewriting history');
     expect(preflight).toContain('compare every dirty path with the implementation/specification scope approved for this delivery');
     expect(preflight).not.toContain('git reset -- .codex/');
     expect(preflight).toContain('No additional commit needed');
-    expect(preflight).toContain('git push --force-with-lease=HEAD:{EXPECTED_SHA}');
+    expect(preflight).toContain('git merge --no-edit origin/main');
+    expect(preflight).not.toContain('git push --force-with-lease');
+    expect(preflight).toContain('Never use `--force`, `--force-with-lease`');
     expect(preflight).toContain('git log origin/{branch}..HEAD --oneline');
     expect(prBody).toContain('No additional commit needed');
   });

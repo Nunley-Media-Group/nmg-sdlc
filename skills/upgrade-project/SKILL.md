@@ -19,6 +19,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 6. Read-only sealed umbrella-spec audit and explicitly approved recovery preparation.
 7. Read-only umbrella-identity audit and explicitly approved GitHub metadata repair.
 8. Read-only cross-child deliverable audit and explicitly approved manual whole-issue dependency repair handoff.
+9. Read-only per-epic specification/lifecycle audit and exact approved repair in either close or reopen direction.
 
 `$nmg-sdlc:upgrade-project` is the only skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md`. It reads current templates at runtime so newly introduced sections can be proposed without rewriting existing content.
 
@@ -27,7 +28,7 @@ Bring an existing project forward to the current nmg-sdlc contract while preserv
 - Inspect before proposing; list exact paths and exact `.gitignore` lines before any deletion.
 - Never delete, move, or overwrite project-authored content merely because its name resembles an nmg-sdlc artifact.
 - Never parse, display, execute, or signal content from `.codex/sdlc-state.json`.
-- Never mutate repository settings, secrets, branch protection, issue state, or unrelated GitHub metadata. Umbrella identity and deliverable-dependency body mutations are allowed only through their separately approved, freshly revalidated recovery contracts.
+- Never mutate repository settings, secrets, branch protection, or unrelated GitHub metadata. Epic identity, specification/lifecycle, issue-state, Project, and deliverable body mutations are allowed only through their separately approved, freshly revalidated per-epic recovery contracts.
 - Preserve unrelated workflows and issue templates byte-for-byte.
 - A repeated run must produce no additional diff and report the cleanup state as already clean.
 
@@ -41,6 +42,7 @@ specs/*/{requirements,design,tasks}.md  — current spec sections and frontmatte
 specs/*/                                 — legacy directory naming/consolidation
 bounded refs/heads/* and refs/remotes/origin/* — sealed umbrella-spec evidence (Git trees only)
 current-repository GitHub issue graph         — umbrella labels, native relationships, and supported body representations
+per-epic aggregate/child authority + issue/Project state — close/reopen, split, transfer, and nested repair proposals
 canonical umbrella task ownership + child bodies — cross-child deliverable records and bounded legacy checkpoint candidates
 .codex/upgrade-exclusions.json          — previously declined steering sections
 CHANGELOG.md and VERSION                — release-document consistency
@@ -72,7 +74,7 @@ Resolve the installed plugin root from this skill's own path and load:
 
 - `../onboard-project/templates/{product,tech,structure}.md`
 - `../run-retro/templates/retrospective.md`
-- `../write-spec/templates/{requirements,design,tasks}.md`
+- `../write-spec/templates/{requirements,design,tasks,feature.gherkin,issue-scope.json,epic-requirements,epic-design,epic-scope.json,epic-link.json}`
 - the canonical issue form at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`
 
 If a source template is unavailable, skip only that category and report the exact missing path.
@@ -85,7 +87,7 @@ Read `references/detection.md`. Record exact relocation findings and include the
 
 For steering documents, compare `##` headings with the matching current template, apply the relevance heuristics and `.codex/upgrade-exclusions.json` rules from `references/upgrade-procedures.md`, and propose missing sections in template order.
 
-For `requirements.md`, `design.md`, and `tasks.md`, detect feature versus defect variants and compare only with the matching template variant. Validate defect `**Related Spec**:` links. Skip generated Gherkin files.
+For ordinary `requirements.md`, `design.md`, and `tasks.md`, detect feature versus defect variants and compare only with the matching template variant. Validate defect `**Related Spec**:` links. Skip generated Gherkin files. Never use generic template reconciliation to turn an epic into an executable package; `specs/epic-*`, legacy cumulative epic packages, and child link/ownership drift belong exclusively to Step 3.8.
 
 Read `references/migration-steps.md` when legacy `{issue#}-{slug}` directories or singular `**Issue**` frontmatter are found. Consolidations and deletions always remain explicit findings.
 
@@ -111,6 +113,21 @@ Detect bounded legacy candidates only when a child body line contains a confirme
 
 This audit is read-only. Incomplete pagination, noncanonical specs, degraded sibling authority, ambiguous ownership, or missing target metadata prevents a clean result and prevents a manual repair handoff. Only one exact whole-issue body/graph edit meeting the recovery reference's threshold may be offered. Because GitHub exposes no documented server-enforced issue-body compare-and-set, this skill never executes the full-body write. Baseline extraction is guidance for a separately reviewed issue/spec change, not an automatic mutation.
 
+### Step 3.8: Audit Epic Specification and Lifecycle State
+
+Read `../../references/epic-spec-authority.md` and
+`references/epic-lifecycle-recovery.md`. For every complete native epic group,
+combine exact default/source trees, graph/checklist identity, aggregate/child
+authority, executable ownership, issue state, completion classification, and
+fully readable Project state. Run the deterministic repair planner and record
+`clean`, `repair_proposed`, `preserved_ambiguous`, or `unverifiable` with its
+digest and exact actions.
+
+This step is read-only. It proposes stale-complete closure, premature reopen,
+Project reconciliation, legacy spec split, ownership transfer, and nested repair
+in one per-epic group. Ambiguous ownership is preserved and routed to an explicit
+missing-child drafting/selection decision; it is never assigned heuristically.
+
 ### Step 4: Analyze Release Documents
 
 Read `references/verification.md` for `CHANGELOG.md` and `VERSION` analysis. Preserve all manual release notes.
@@ -124,7 +141,7 @@ After all three steering documents exist or are approved for creation/reconcilia
 3. `../../references/contribution-gate.md`
 4. `../../references/issue-form.md`
 
-Managed markers and exact target-path ownership rules remain authoritative. Missing assets and stale managed assets are findings; unmanaged workflow collisions are preserved and reported.
+Managed markers and exact target-path ownership rules remain authoritative. Missing assets and stale managed assets are findings; unmanaged workflow collisions are preserved and reported. Current managed content must explain coordination-only epics, normal child dependency rules, aggregate/child authority, terminal merge/closure, automatic eligible-ancestor closure, and exact approved repair.
 
 ### Step 6: Analyze V2 Runner Artifact Cleanup
 
@@ -141,6 +158,7 @@ Show a per-file summary grouped as:
 - Sealed Umbrella Specs
 - Umbrella Identity
 - Deliverable Dependencies
+- Epic Specification and Lifecycle
 - CHANGELOG and VERSION
 - Contribution Guide
 - Project AGENTS
@@ -157,8 +175,9 @@ Use `request_user_input` gates:
 3. Each `stranded_recoverable` sealed-spec finding: approve that exact path/tree/source identity, preserve it, or narrow and re-present. No other sealed status is recoverable.
 4. Each deterministic umbrella-identity mutation set: approve that exact parent/children/evidence/commands set, preserve it, or narrow and re-present. Ambiguous or unverifiable findings are never offered as executable repairs.
 5. Each deterministic deliverable-dependency manual handoff: approve the exact downstream issue, owner, structured bullet, normalized `Depends on:` line, canonical ownership, labels/states, native relationships, default branch, closing-PR/merge evidence, and body/spec/relationship digests; preserve it; or narrow and re-present. Approval never authorizes an unconditional body overwrite. Baseline extraction, ambiguous ownership, and unverifiable findings are never offered as in-place repairs.
-6. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
-7. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
+6. Each epic lifecycle/specification group: apply the exact action/path/field set with its digest, preserve it, or narrow and re-present. One epic approval never covers another; ambiguous/unverifiable groups are not executable.
+7. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
+8. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
 
 No mutation occurs until the user has accepted a decision-complete plan.
 
@@ -171,6 +190,11 @@ Route approved sealed-spec findings through `references/sealed-spec-recovery.md`
 Route approved umbrella-identity findings through `references/epic-identity-recovery.md`, including exact-evidence re-fetch, drift comparison, narrowly scoped GitHub commands, and post-apply idempotence audit.
 
 Route approved deliverable-dependency findings through `references/deliverable-dependency-recovery.md`, including full snapshot re-fetch, body/spec-digest and relationship drift comparison, exact manual line-edit instructions, post-edit classification after operator confirmation, and second-audit no-op proof. Do not run an issue-body mutation command.
+
+Route each approved epic specification/lifecycle group through
+`references/epic-lifecycle-recovery.md`. Require a fresh identical digest before
+the first write, apply only exact paths/issues/Project fields, and prove a second
+audit produces no duplicate or remaining approved action.
 
 Managed contribution-gate and issue-form reconciliation is independent of cleanup approval. Declining cleanup must not suppress approved asset reconciliation; cleanup approval must not broaden asset ownership.
 
@@ -215,6 +239,17 @@ Umbrella Identity:
 - parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
 - Native/checklist reconciliation: clean | degraded | drift (<exact issue numbers>)
 - Gaps: none | <comma-separated exact records and failures>
+```
+
+Before that block, emit:
+
+```text
+Epic Specification and Lifecycle:
+- epic #E: clean | repaired | prepared spec split | preserved (ambiguous ownership) | preserved (unverifiable) | failed (<reason>)
+- Issue state: open | closed | reopened | closed automatically | unchanged
+- Project state: Done | In Progress | not applicable | preserved (<reason>)
+- Evidence digest: <sha256> | not available
+- Gaps: none | <exact records and failures>
 ```
 
 ## Error States

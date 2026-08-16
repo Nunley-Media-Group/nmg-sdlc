@@ -10,10 +10,11 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 2` |
-| Current numeric version | `2` |
+| Managed version | `# nmg-sdlc-managed-version: 3` |
+| Current numeric version | `3` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
+| Allowed artifacts per epic aggregate | `requirements.md`, `design.md`, `epic-scope.json` |
 | Maximum paths per diagnostic | `20` |
 
 Only files containing the managed marker are nmg-sdlc-owned. A file at the approved path without that marker is a path collision and must never be overwritten.
@@ -27,6 +28,7 @@ Only files containing the managed marker are nmg-sdlc-owned. A file at the appro
 | `CONTRIBUTING.md` | Contributor-facing remediation target |
 | `steering/product.md`, `steering/tech.md`, `steering/structure.md` | Required steering context |
 | Selected `specs/feature-*` and `specs/bug-*` artifacts | Issue correlation and task evidence |
+| Selected `specs/epic-*` aggregate artifacts | Supporting cross-child outcomes/topology; never executable issue evidence |
 | Committed `verification-report.md` or `verification.md` artifacts | Specific verification and path evidence |
 | Correlated issue labels | Spike/ADR reduced-evidence validation |
 
@@ -38,7 +40,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 2
+# nmg-sdlc-managed-version: 3
 name: nmg-sdlc contribution gate
 
 on:
@@ -65,6 +67,8 @@ jobs:
             const prText = `${pr.title || ''}\n${pr.body || ''}`;
             const MAX_SPEC_DIRECTORIES = 5;
             const SPEC_ARTIFACTS = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+            const OPTIONAL_AUTHORITY_ARTIFACTS = ['issue-scope.json', 'epic-link.json'];
+            const AGGREGATE_ARTIFACTS = ['requirements.md', 'design.md', 'epic-scope.json'];
             const MAX_VERIFICATION_REPORTS = 10;
             const MAX_DIAGNOSTIC_PATHS = 20;
             const failures = [];
@@ -135,11 +139,24 @@ jobs:
               return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
             }
 
+            function resolveAggregateDirectories(value, paths) {
+              const directories = new Set();
+              for (const path of paths) {
+                const match = path.match(/^(specs\/epic-[^/]+)\/(?:requirements\.md|design\.md|epic-scope\.json)$/);
+                if (match) directories.add(match[1]);
+              }
+              for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/epic-[a-z0-9-]+\b/gi)) {
+                directories.add(normalizePath(match[0]));
+              }
+              return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
+            }
+
             function classifyChangedPath(path) {
               if (/^(?:skills|scripts|references|agents)\//.test(path)
                 || /(^|\/)templates\//.test(path)
                 || /^\.github\/workflows\//.test(path)) return 'relevant';
               if (/^specs\/(?:feature|bug)-[^/]+\//.test(path)) return 'spec';
+              if (/^specs\/epic-[^/]+\//.test(path)) return 'aggregate';
               if (/^docs\/decisions\/.+\.md$/i.test(path)) return 'adr';
               if (/(^|\/)(?:verification-report|verification)\.md$/i.test(path)) return 'evidence';
               if (/^(?:README|CONTRIBUTING|CHANGELOG)\.md$/i.test(path)
@@ -224,13 +241,19 @@ jobs:
             const prIssueNumbers = extractIssueNumbers(prText);
             const specDirectories = resolveSpecDirectories(prText, changedPaths);
             const specRecords = await Promise.all(specDirectories.map(async (directory) => {
-              const artifacts = await Promise.all(SPEC_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)));
+              const artifacts = await Promise.all([...SPEC_ARTIFACTS, ...OPTIONAL_AUTHORITY_ARTIFACTS].map((artifact) => readText(`${directory}/${artifact}`)));
               const text = artifacts.join('\n');
               return { directory, text, tasksText: artifacts[2], issueNumbers: extractIssueNumbers(text) };
             }));
             const specText = specRecords.map((record) => record.text).join('\n');
             const mismatchedSpecs = specRecords.filter((record) => ![...record.issueNumbers].some((number) => prIssueNumbers.has(number)));
             const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => [...record.issueNumbers].filter((number) => prIssueNumbers.has(number))));
+            const aggregateDirectories = resolveAggregateDirectories(prText, changedPaths);
+            const aggregateTexts = await Promise.all(aggregateDirectories.map(async (directory) => (
+              (await Promise.all(AGGREGATE_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)))).join('\n')
+            )));
+            const invalidAggregatePaths = changedPaths.filter((path) => /^specs\/epic-[^/]+\//.test(path)
+              && !/^specs\/epic-[^/]+\/(?:requirements\.md|design\.md|epic-scope\.json)$/.test(path));
 
             const pathClasses = new Map(changedPaths.map((path) => [path, classifyChangedPath(path)]));
             const relevantPaths = changedPaths.filter((path) => pathClasses.get(path) === 'relevant');
@@ -278,12 +301,18 @@ jobs:
               } else if (mismatchedSpecs.length > 0) {
                 failures.push(`Issue/spec mismatch: PR issues ${[...prIssueNumbers].map((number) => `#${number}`).join(', ') || 'none'} do not match ${mismatchedSpecs.map((record) => record.directory).join(', ')}.`);
               }
+              if (aggregateDirectories.length > 0 && specDirectories.length === 0) {
+                failures.push('Epic aggregate evidence is coordination-only: include the active child `specs/feature-*` or `specs/bug-*` package; an aggregate cannot satisfy executable issue evidence.');
+              }
+              if (invalidAggregatePaths.length > 0) {
+                failures.push(`Invalid epic aggregate artifacts: ${summarizePaths(invalidAggregatePaths)}. Aggregates may contain only requirements.md, design.md, and epic-scope.json.`);
+              }
             }
 
             const steeringFiles = ['steering/product.md', 'steering/tech.md', 'steering/structure.md'];
             const steeringPresence = await Promise.all(steeringFiles.map(pathExists));
             const missingSteering = steeringFiles.filter((_, index) => !steeringPresence[index]);
-            const currentEvidence = stripQuotedHistory(`${prText}\n${specText}`);
+            const currentEvidence = stripQuotedHistory(`${prText}\n${specText}\n${aggregateTexts.join('\n')}`);
             const steeringReferenced = /\bsteering\b|steering\/(?:product|tech|structure)\.md|product\.md|tech\.md|structure\.md/i.test(currentEvidence)
               || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
             if (missingSteering.length > 0) {
@@ -317,12 +346,13 @@ jobs:
 Evaluate evidence in this order:
 
 1. Extract issue numbers only from current pull-request text. Ignore fenced examples, blockquotes, HTML comments, and explicitly historical sections.
-2. Resolve spec directories from changed expected artifacts and explicit pull-request paths. Deduplicate, sort, cap at five directories, and read only the four expected artifacts in each.
-3. Require every selected spec directory to share at least one issue number with the pull request. An issue from another spec cannot satisfy the mismatched directory.
-4. Classify each changed path. `skills/`, `scripts/`, `references/`, `agents/`, template directories, workflows, and otherwise non-documentation paths are relevant implementation paths; specs, verification reports, documentation, and ADRs are separate evidence classes.
-5. Require every relevant path to appear as an exact normalized path, an explicit containing-directory prefix ending in `/`, or a structured `Behavior for <path>: <description>` entry in selected task or verification evidence. Basename-only and similarly named paths do not match.
-6. Accept verification only from the current Verification, Test Plan, or Validation section plus at most ten committed verification artifacts. A command paired with an outcome, a non-empty report, an `ACN: passed|failed` result, or a changed-path-specific result is concrete; generic keywords are not.
-7. Validate reduced-evidence paths before applying them. The reduced contract never waives current issue linkage, required steering files/evidence, guide discoverability, or any non-exempt check.
+2. Resolve executable spec directories from changed expected artifacts and explicit pull-request paths. Deduplicate, sort, cap at five directories, and read the four required artifacts plus optional `issue-scope.json` and `epic-link.json` authority files.
+3. Require every selected executable spec directory to share at least one issue number with the pull request. An issue from another spec cannot satisfy the mismatched directory.
+4. Resolve `specs/epic-*` separately. An aggregate is supporting coordination evidence only, requires an executable child package in the same non-docs contribution, and may contain only `requirements.md`, `design.md`, and `epic-scope.json`.
+5. Classify each changed path. `skills/`, `scripts/`, `references/`, `agents/`, template directories, workflows, and otherwise non-documentation paths are relevant implementation paths; executable specs, epic aggregates, verification reports, documentation, and ADRs are separate evidence classes.
+6. Require every relevant path to appear as an exact normalized path, an explicit containing-directory prefix ending in `/`, or a structured `Behavior for <path>: <description>` entry in selected task or verification evidence. Basename-only and similarly named paths do not match.
+7. Accept verification only from the current Verification, Test Plan, or Validation section plus at most ten committed verification artifacts. A command paired with an outcome, a non-empty report, an `ACN: passed|failed` result, or a changed-path-specific result is concrete; generic keywords are not.
+8. Validate reduced-evidence paths before applying them. The reduced contract never waives current issue linkage, required steering files/evidence, guide discoverability, or any non-exempt check.
 
 Path diagnostics show at most 20 paths and append the remaining count so large pull requests stay actionable without producing unbounded annotations.
 

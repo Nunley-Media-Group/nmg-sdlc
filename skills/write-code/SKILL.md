@@ -15,7 +15,7 @@ Read `../../references/legacy-layout-gate.md` when the workflow starts — the g
 
 Read `../../references/spec-context.md` when Step 2 resolves the active spec — write-code preserves active-spec-first loading and adds capped neighboring specs only when surrounding contracts can affect implementation scope.
 
-Read `../../references/epic-relationships.md` and `../../references/canonical-umbrella-spec.md` when the active issue is a child of a confirmed coordination epic. Resolve the helper from the installed plugin root, not the consumer project.
+Read `../../references/epic-relationships.md`, `../../references/epic-spec-authority.md`, and `../../references/canonical-umbrella-spec.md` when the active issue is a child of a confirmed coordination epic. Resolve helpers from the installed plugin root, not the consumer project.
 
 ## Prerequisites
 
@@ -53,23 +53,24 @@ Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
 
 Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter plan mode, delegate to a worker, or touch any file.
 
-### Step 1.75: Canonical Parent-Spec Gate
+### Step 1.75: Epic Spec Authority Gate
 
 Before reading the active spec or entering implementation planning, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`. Fully hydrate the native parent's body, labels, and paginated `subIssues` connection before deriving identity or sibling authority; a partial parent record makes the result `unverifiable`.
 
-- `role = ordinary` or `epic` → continue unchanged.
+- `role = ordinary` → continue unchanged.
+- `role = epic` → stop before spec loading with `Epic #E is coordination-only and cannot be implemented. Start a ready executable child instead.` Do not plan, delegate, or edit.
 - `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before spec loading or planning and report the shared pairs/signals/gaps.
-- `role = epic-child` → record `P = parentNumber`, report any `identity = legacy` repair recommendation, and run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue P --json`.
+- `role = epic-child` → record complete lineage and fully paged native direct children, then run `node <plugin-root>/scripts/epic-spec-authority.mjs --project <project-root> --child N --native-children <complete-list> --json`.
 
-Continue only when the result is `canonical` or `canonical_marker_lost`. For `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before spec loading, plan review, delegation, or edits. Report the exact parent/status/path/tree/ref evidence and direct the user to publish through `$nmg-sdlc:write-spec #P` or audit recovery through `$nmg-sdlc:upgrade-project`.
+Continue only for `valid`. Resolve the active spec from `requestedChild.specPath`, retain `aggregatePath` as one related bounded-context spec, and retain the authority digest in the plan evidence. `planned` stops with `$nmg-sdlc:write-spec #N`; `repair_required` or `unverifiable` stops before spec loading, plan review, delegation, or edits and routes exact gaps to `$nmg-sdlc:upgrade-project`.
 
-This check proves the refreshed default-branch parent baseline. The active child branch may contain approved child-scoped amendments to that same spec path.
+Aggregate `EO###` outcomes and topology cannot enter the delivery ID set or satisfy task completion. Legacy cumulative packages remain readable only for their documented ordinary/legacy boundary; new epic-child work requires the split authority above.
 
 ### Step 2: Read Specs
 
 Load all active specification documents:
 
-Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and resolved spec path before implementation planning. Continue only for `scoped` or `implicit_single_issue`. Treat `delivery.acceptanceCriteria`, `delivery.functionalRequirements`, `delivery.tasks`, and `delivery.scenarios` as the complete current implementation slice; `regression` is verification context and never adds implementation tasks. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with the exact gaps. On `unverifiable`, fail closed with `reasonCode` and gaps. Never fall back to all tasks in a multi-issue spec.
+Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and resolved executable spec path before implementation planning. Continue only for `scoped` or `implicit_single_issue`. Treat `delivery.acceptanceCriteria`, `delivery.functionalRequirements`, `delivery.tasks`, and `delivery.scenarios` as the complete current implementation slice; `regression` is verification context and never adds implementation tasks. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with the exact gaps. On `unverifiable`, fail closed with `reasonCode` and gaps. Never fall back to all tasks in a multi-issue spec, any cumulative package, or aggregate outcomes/topology.
 
 Then read `../../references/spec-context.md` and establish bounded neighboring context. Fully load related specs only when the ranking reasons show their surrounding contracts can affect implementation scope, and cap related full-spec loading per the shared contract. The active spec remains authoritative; related specs provide constraints, compatibility notes, and blast-radius context, not replacement task sources.
 
@@ -120,7 +121,7 @@ Next step: Run `$nmg-sdlc:verify-code #N` to verify implementation and update th
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
                                                                          ▲ You are here
 ```
 

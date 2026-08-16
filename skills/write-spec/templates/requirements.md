@@ -1,6 +1,6 @@
 # Requirements Template
 
-Use this template to create feature specifications in the **SPECIFY** phase.
+Use this template only for executable feature/bug children in the **SPECIFY** phase. Never use it for an epic: epics cannot be started. The coordination-only `templates/epic-requirements.md` source instead writes `requirements.md` inside `specs/epic-*`.
 
 ---
 

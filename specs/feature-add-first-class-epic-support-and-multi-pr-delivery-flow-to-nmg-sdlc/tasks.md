@@ -1,11 +1,16 @@
 # Tasks: First-Class Epic Support and Multi-PR Delivery Flow
 
-**Issues**: #149
-**Date**: 2026-04-19
-**Status**: Planning
+**Issues**: #149, #177
+**Date**: 2026-08-16
+**Status**: Issue #177 implementation complete
 **Author**: Rich Nunley
 
 ---
+
+> **Issue #177 supersession:** T001–T017 are retained as the historical #149
+> implementation plan. T018–T034 implement the coordination-only lifecycle and
+> supersede any earlier task behavior that starts an epic, gives an epic
+> executable ownership, or lets delivery finish before merge.
 
 ## Summary
 
@@ -265,7 +270,7 @@ All skill (`SKILL.md`) edits MUST be driven through `/skill-creator` per the `st
 
 ---
 
-## Dependency Graph
+## Historical #149 Dependency Graph
 
 ```
 T001 ──────────────────────────────────────────────────▶ T015, T016, T017
@@ -294,11 +299,326 @@ T011 ──┘
 
 ---
 
+## Issue #177 Implementation Plan
+
+### Summary
+
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| Spec identity and shared authority | T018–T021 | [x] |
+| Selection and specification flow | T022–T024 | [x] |
+| Lifecycle consumers and delivery | T025–T027 | [x] |
+| Backlog repair | T028–T029 | [x] |
+| Documentation and contracts | T030–T031 | [x] |
+| Exercises and real-project proof | T032–T034 | [x] |
+| **Total** | **17** | |
+
+All edits under `skills/` or their bundled `references/` and `templates/` are
+authored through `skill-creator`. Runtime helpers remain deterministic and
+inject their Git/GitHub adapters for unit testing.
+
+### Phase 1: Spec Identity and Shared Authority
+
+### T018: Finalize cumulative spec identity for issues #149 and #177
+
+**File(s)**:
+`specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/feature.gherkin`,
+`specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/issue-scope.json`
+**Type**: Modify/Create
+**Depends**: None
+**Acceptance**:
+- [x] Historical scenarios have unique stable tags `SCN001`–`SCN023` without changing their text
+- [x] #177 scenarios have unique stable tags `SCN024`–`SCN035`
+- [x] Scope ownership is exact: #149 owns AC1–AC8, FR1–FR8, T001–T017, SCN001–SCN023; #177 owns AC9–AC20, FR9–FR25, T018–T034, SCN024–SCN035
+- [x] Neither issue adopts or regresses identifiers owned by the other
+- [x] `scripts/issue-spec-scope.mjs` reports `scoped` for both issues
+
+**Notes**: The spec-writing phase produces these files. `write-code` may mark
+this task complete after re-running the resolver rather than rewriting them.
+
+### T019: Define aggregate and child specification authority assets
+
+**File(s)**: `skills/write-spec/templates/`,
+`skills/write-spec/references/umbrella-mode.md`,
+`references/epic-spec-authority.md`,
+`references/issue-spec-scope.md`, `references/spec-context.md`
+**Type**: Create/Modify (authored through `skill-creator`)
+**Depends**: T018
+**Acceptance**:
+- [x] Aggregate templates produce only `requirements.md`, `design.md`, and schema-v1 `epic-scope.json`
+- [x] Child templates retain the normal five-file executable package and add schema-v1 `epic-link.json`
+- [x] Aggregate outcomes use `EO###`; aggregate packages cannot contain tasks or Gherkin
+- [x] `epic-scope.json` and `epic-link.json` document exact bidirectional path, issue, outcome, and package-state agreement
+- [x] Existing cumulative single-directory specs remain readable as legacy input but cannot be produced by new epic flows
+
+### T020: Implement the epic specification authority classifier
+
+**File(s)**: `scripts/epic-spec-authority.mjs`,
+`scripts/__tests__/epic-spec-authority.test.mjs`,
+`scripts/__fixtures__/epic-spec-authority/`
+**Type**: Create
+**Depends**: T019
+**Acceptance**:
+- [x] CLI supports `--epic`, `--child`, and `--all` JSON modes plus a bounded optional Git source
+- [x] Paths, schemas, issue numbers, outcome IDs, native child inventory, cross-links, package states, and child issue-scope coverage are validated
+- [x] Duplicate issue/path ownership, missing links, unknown schema versions, aggregate executable files, and ambiguous migration mappings fail closed
+- [x] Results use only `valid`, `planned`, `repair_required`, or `unverifiable` with bounded actionable gaps
+- [x] Unit tests cover valid first/later children, missing/conflicting records, duplicate ownership, symlinks/path escape, size limits, legacy findings, and no-op reruns
+
+### T021: Extend epic lineage and completion classification
+
+**File(s)**: `scripts/epic-relationships.mjs`,
+`references/epic-relationships.md`,
+`scripts/__tests__/epic-relationships.test.mjs`,
+`scripts/__tests__/epic-relationship-contract.test.mjs`
+**Type**: Modify (reference edits authored through `skill-creator`)
+**Depends**: T020
+**Acceptance**:
+- [x] `deriveEpicLineage()` returns root-to-parent number/title lineage without adding membership to execution in-degree
+- [x] `classifyEpicCompletion()` distinguishes `eligible`, `incomplete`, `repair_required`, and `unverifiable`
+- [x] Every native connection is fully paged; an incomplete page, cycle, zero-child epic, unknown child, conflicting identity, or invalid spec authority prevents closure
+- [x] Completion evidence includes direct children, incomplete children, Project mutations, next parent, gaps, and a deterministic digest
+- [x] Existing durable/legacy identity and genuine dependency behavior remain backward compatible
+
+### Phase 2: Selection and Specification Flow
+
+### T022: Make epic selection coordination-only
+
+**File(s)**: `skills/start-issue/SKILL.md`,
+`skills/start-issue/references/milestone-selection.md`,
+`scripts/__tests__/start-issue-selection-contract.test.mjs`,
+`scripts/__tests__/exercise-start-issue-epic.test.mjs`,
+`scripts/__tests__/exercise-start-issue-backfill.test.mjs`
+**Type**: Modify (skill/reference edits authored through `skill-creator`)
+**Depends**: T021
+**Acceptance**:
+- [x] Confirmed epics are removed before shortlist target and bounded backfill counts
+- [x] Explicit epic input produces ready-child guidance without branch, checkout, issue-state, or Project mutation
+- [x] Ordinary issues and children follow only genuine execution and deliverable dependency rules
+- [x] Every selectable child shows the complete resolved epic number/title lineage as informational context
+- [x] Ambiguous, inconsistent, or unverifiable identity fails closed instead of being treated as ordinary
+
+### T023: Generalize canonical publication for aggregate plus active-child specs
+
+**File(s)**: `scripts/umbrella-spec-status.mjs`,
+`scripts/umbrella-publication-status.mjs`,
+`scripts/exercise-github-umbrella-publication.mjs`,
+`references/canonical-umbrella-spec.md`,
+`scripts/__tests__/umbrella-spec-status.test.mjs`,
+`scripts/__tests__/umbrella-publication-status.test.mjs`,
+`scripts/__tests__/canonical-umbrella-spec-contract.test.mjs`
+**Type**: Modify (reference edits authored through `skill-creator`)
+**Depends**: T020
+**Acceptance**:
+- [x] New aggregate packages and legacy umbrellas are classified without ambiguity
+- [x] First-child publication compares exactly the approved aggregate and active-child directory trees
+- [x] Dedicated publication refs and exact markers reference but never close or start the epic
+- [x] Later-child publication proves the canonical aggregate and publishes only the approved child plus exact aggregate manifest amendment
+- [x] Reruns reuse one exact publication and refreshed default-branch proof; divergent or closing evidence fails closed
+
+### T024: Implement first-child and later-child write-spec flows
+
+**File(s)**: `skills/write-spec/SKILL.md`,
+`skills/write-spec/references/discovery.md`,
+`skills/write-spec/references/amendment-mode.md`,
+`skills/write-spec/references/umbrella-mode.md`,
+`skills/write-spec/references/review-gates.md`,
+`skills/write-spec/templates/`
+**Type**: Modify/Create (authored through `skill-creator`)
+**Depends**: T019, T020, T023
+**Acceptance**:
+- [x] A first ready child with no aggregate reviews and writes one aggregate plus its separate child package
+- [x] Approved initial specs reach the canonical default branch without an epic branch or closing relationship before code work continues
+- [x] A later child receives or amends only its package and the matching aggregate manifest entry
+- [x] Aggregate or sibling content changes require a separately explicit review; no child content is appended to the aggregate
+- [x] Conflicting, duplicated, missing, or ambiguous authority stops before spec mutation with exact recovery guidance
+
+### Phase 3: Lifecycle Consumers and Delivery
+
+### T025: Bind downstream lifecycle consumers to the active child package
+
+**File(s)**: `skills/write-code/SKILL.md`,
+`skills/write-code/references/plan-mode.md`,
+`skills/write-code/references/resumption.md`,
+`skills/verify-code/SKILL.md`,
+`skills/verify-code/references/verification-gates.md`,
+`skills/status/SKILL.md`, `references/issue-spec-scope.md`
+**Type**: Modify (authored through `skill-creator`)
+**Depends**: T020, T024
+**Acceptance**:
+- [x] Each consumer resolves and validates `epic-link.json` against `epic-scope.json`
+- [x] Plans, completion marks, verification, and status use only the child `issue-scope.json` delivery slice
+- [x] Aggregate outcomes/topology are bounded context and never executable completion evidence
+- [x] Planned, repair-required, or unverifiable authority stops before code, verification success, or lifecycle advancement
+- [x] Ordinary single-issue and legacy cumulative behavior remains supported at its documented boundary
+
+### T026: Make open-pr a terminal exact-head delivery loop
+
+**File(s)**: `skills/open-pr/SKILL.md`,
+`skills/open-pr/references/preflight.md`,
+`skills/open-pr/references/ci-monitoring.md`,
+`skills/open-pr/references/pr-dependent-delivery.md`,
+`skills/open-pr/references/pr-body.md`,
+`references/pr-dependent-verification.md`,
+`scripts/__tests__/open-pr-delivery-contract.test.mjs`,
+`scripts/__tests__/exercise-open-pr-epic.test.mjs`
+**Type**: Modify (skill/reference edits authored through `skill-creator`)
+**Depends**: T021, T025
+**Acceptance**:
+- [x] The skill creates or resumes one exact PR and fingerprints every observed head/check/review/thread/merge state
+- [x] Pending checks are monitored; safe actionable findings and mergeability defects are fixed, reverified, pushed, and re-observed
+- [x] A changed head invalidates earlier evidence; force-push is never used
+- [x] Merge requires success-equivalent checks, clean requested-change/thread state, and live `mergeStateStatus: CLEAN` for the exact verified head
+- [x] Success is reported only after PR `MERGED` and child issue `CLOSED`; otherwise one external-authority blocker names evidence, owner, and recovery action
+
+### T027: Close eligible epics and cascade nested completion
+
+**File(s)**: `skills/open-pr/references/epic-completion.md`,
+`skills/open-pr/SKILL.md`,
+`scripts/epic-relationships.mjs`,
+`scripts/__tests__/epic-completion.test.mjs`,
+`scripts/__tests__/exercise-open-pr-epic.test.mjs`
+**Type**: Create/Modify (skill/reference edits authored through `skill-creator`)
+**Depends**: T021, T026
+**Acceptance**:
+- [x] After child closure, the workflow rehydrates the parent, all native direct children, spec authority, and readable Project state
+- [x] The evidence digest is reproduced immediately before mutation
+- [x] Eligible parents reconcile readable Project Status to Done, close explicitly, and are re-fetched for proof
+- [x] Nested parents are re-evaluated leaf-to-root until incomplete; reruns resume safely after partial mutation
+- [x] Zero-child, partial-page, cyclic, conflicting, open-child, spec-gap, or unreadable required state never closes an epic or mutates unrelated records
+
+### Phase 4: Backlog Repair
+
+### T028: Add read-only per-epic repair audit and exact proposals
+
+**File(s)**: `skills/upgrade-project/SKILL.md`,
+`skills/upgrade-project/references/detection.md`,
+`skills/upgrade-project/references/epic-identity-recovery.md`,
+`skills/upgrade-project/references/epic-lifecycle-recovery.md`,
+`scripts/epic-spec-authority.mjs`
+**Type**: Create/Modify (skill/reference edits authored through `skill-creator`)
+**Depends**: T020, T021
+**Acceptance**:
+- [x] Audit groups graph, checklist, aggregate/child spec, executable ownership, issue state, and Project state findings by epic
+- [x] Proposals cover identity repair, spec split, ownership transfer, stale-complete close, premature reopen, and nested reconciliation
+- [x] Every group shows exact issue/path/field mutations and a digest over source Git trees plus live GitHub records
+- [x] Audit performs no file, index, branch, issue, relationship, or Project mutation
+- [x] Ambiguous ownership is preserved and routed to an explicit missing-child drafting decision
+
+### T029: Apply approved repairs with drift proof and idempotence
+
+**File(s)**: `skills/upgrade-project/SKILL.md`,
+`skills/upgrade-project/references/upgrade-procedures.md`,
+`skills/upgrade-project/references/migration-steps.md`,
+`skills/upgrade-project/references/verification.md`,
+`skills/upgrade-project/references/epic-lifecycle-recovery.md`
+**Type**: Modify (authored through `skill-creator`)
+**Depends**: T028
+**Acceptance**:
+- [x] Each epic mutation group requires its own explicit approval
+- [x] A fresh pre-write audit must reproduce the approved digest or abort on drift
+- [x] Spec splits preserve prose, move only uniquely owned executable IDs, record source tree and mappings, and stage only approved paths
+- [x] Approved issue/relationship/checklist/Project mutations support both close and reopen directions and are resumable
+- [x] Post-write rehydration proves every target state and a second audit yields no duplicate or remaining approved action
+
+### Phase 5: Documentation and Contracts
+
+### T030: Align README, contribution guidance, steering, and distributed templates
+
+**File(s)**: `README.md`, `CONTRIBUTING.md`,
+`references/contribution-guide.md`, `references/contribution-gate.md`,
+`references/issue-form.md`, `.github/ISSUE_TEMPLATE/`,
+`skills/onboard-project/`, `skills/upgrade-project/`,
+`skills/write-spec/templates/`, `steering/product.md`,
+`steering/structure.md`, `steering/tech.md`
+**Type**: Modify (skill-bundled edits authored through `skill-creator`)
+**Depends**: T022, T024, T026, T029
+**Acceptance**:
+- [x] Every maintained source and generated copy states that epics cannot be started and children use normal dependency rules
+- [x] Contribution guidance explains informational lineage, aggregate/child authority, terminal merge, automatic closure, and exact approved repair
+- [x] Onboarding, upgrade, issue-form/gate remediation, write-spec templates, and steering no longer instruct executable epic specs or pre-merge completion
+- [x] Managed blocks preserve project-authored surrounding content
+- [x] An inventory check finds no affected template or generated asset retaining the superseded lifecycle
+
+### T031: Add cross-surface semantic contract tests
+
+**File(s)**: `scripts/__tests__/*contract.test.mjs`,
+`scripts/__tests__/contribution-guide-contract.test.mjs`,
+`scripts/__tests__/contribution-gate-contract.test.mjs`,
+`scripts/__tests__/issue-form-contract.test.mjs`,
+`scripts/__tests__/steering-contract.test.mjs`
+**Type**: Create/Modify
+**Depends**: T022, T024, T025, T026, T027, T029, T030
+**Acceptance**:
+- [x] Contract tests cover epic exclusion, lineage, manifest authority, terminal delivery, closure, repair approval, and documentation parity
+- [x] Generated contribution guide/form/gate and onboard/upgrade assets are tested, not only source Markdown
+- [x] Tests reject historical instructions to start/spec an epic, append child tasks to an aggregate, or stop after opening a PR
+- [x] Existing compatible contracts remain green and deliberately superseded assertions are replaced with #177 evidence
+
+### Phase 6: Exercises and Real-Project Proof
+
+### T032: Exercise selection and aggregate/child specification flows
+
+**File(s)**: `scripts/__tests__/exercise-start-issue-epic.test.mjs`,
+`scripts/__tests__/exercise-start-issue-backfill.test.mjs`,
+`scripts/__tests__/exercise-write-spec-epic.test.mjs`,
+`scripts/__fixtures__/skill-exercise/`
+**Type**: Modify
+**Depends**: T022, T024, T031
+**Acceptance**:
+- [x] Disposable fixtures cover ordinary, direct child, nested child, automatic epic exclusion, and explicit epic refusal without mutations
+- [x] First child publishes aggregate plus separate child package; later child preserves aggregate/siblings and gains its own package
+- [x] Missing, duplicated, conflicting, ambiguous, and noncanonical authority fail before code work
+- [x] Repeated selection/spec runs are idempotent
+
+### T033: Exercise terminal delivery, closure, and repair
+
+**File(s)**: `scripts/__tests__/exercise-open-pr-epic.test.mjs`,
+`scripts/__tests__/exercise-upgrade-epic-lifecycle.test.mjs`,
+`scripts/__fixtures__/skill-exercise/`
+**Type**: Create/Modify
+**Depends**: T027, T029, T031
+**Acceptance**:
+- [x] Delivery fixtures cover pending/failing checks, actionable reviews, new heads, non-CLEAN merge state, merge, and child closure proof
+- [x] Final-child and nested cascades close only eligible epics and reconcile readable Project status
+- [x] Upgrade fixtures cover stale-complete close, premature reopen, legacy ownership transfer, ambiguous preservation, digest drift, partial resume, and a no-op second audit
+- [x] No exercise requires a write to PathCast or another real consumer repository
+
+### T034: Prove the implementation against PathCast and the installed plugin
+
+**File(s)**:
+`specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/verification-report.md`,
+installed nmg-sdlc plugin cache
+**Type**: Verify
+**Depends**: T030, T032, T033
+**Acceptance**:
+- [x] A read-only PathCast audit exercises real native membership, dependencies, spec authority, completion, and proposed repair classification without mutation
+- [x] Any mutable end-to-end proof uses only disposable repositories
+- [x] The local plugin cache is refreshed by the supported workflow and source/cache parity is proven
+- [x] Changed skills and helpers are invoked from the installed plugin path
+- [x] Full unit, contract, exercise, syntax, and spec-scope validation passes with evidence recorded
+
+### Issue #177 Dependency Graph
+
+```text
+T018 -> T019 -> T020 -> T023 -> T024 -> T025 -> T026 -> T027 -> T033 -> T034
+                  \-> T021 -> T022 --------\      \             /
+                           \-> T028 -> T029 -> T030 -> T031 -> T032
+                                      \---------------------> T033
+```
+
+**Critical path**: T019 → T020 → T023 → T024 → T025 → T026 → T027 → T033 → T034.
+T021 joins selection, delivery, closure, and repair. Documentation and semantic
+contracts must complete before final installed-plugin verification.
+
+---
+
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #149 | 2026-04-19 | Initial feature spec |
+| #177 | 2026-08-16 | Added coordination-only selection, split spec authority, terminal merge, automatic closure, repair, documentation, and exercise tasks |
 
 ---
 
@@ -313,3 +633,6 @@ T011 ──┘
 - [x] No circular dependencies
 - [x] Tasks are in logical execution order
 - [x] Skill edits are driven through `/skill-creator` per architectural invariant
+- [x] #149 and #177 task ownership is explicit and non-overlapping
+- [x] Issue #177 tasks cover every AC9–AC20 and FR9–FR25 behavior
+- [x] Documentation, disposable exercises, PathCast read-only proof, and installed-cache verification are included

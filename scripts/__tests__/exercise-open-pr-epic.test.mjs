@@ -1,191 +1,216 @@
 /**
- * Codex exercise test for /open-pr sibling-aware bumping + race detection.
+ * Deterministic terminal-delivery and epic-closure exercises for issue #177.
  *
- * Derived from: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
- * Issue: #149 (T017)
- *
- * Covers AC5 (intermediate vs final bump), AC7a (epic-closed warning), AC7d
- * (race on version files), and non-epic passthrough.
- *
- * Opt-in: RUN_EXERCISE_TESTS=1 npm test -- --testPathPattern=exercise-open-pr-epic
+ * These fixtures model exact GitHub snapshots locally; they never create a PR
+ * or mutate a consumer repository.
  */
 
-import { jest } from '@jest/globals';
-import { execSync, spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, expect, test } from '@jest/globals';
 
-const RUN_EXERCISE = process.env.RUN_EXERCISE_TESTS === '1';
-const describeRunner = RUN_EXERCISE ? describe : describe.skip;
+import { classifyEpicCompletion } from '../epic-relationships.mjs';
+import { classifyPrDeliveryState } from '../pr-delivery-state.mjs';
 
-const PLUGIN_DIR = path.resolve(process.cwd(), '..', 'plugins', 'nmg-sdlc');
+const firstHead = 'a'.repeat(40);
+const secondHead = 'b'.repeat(40);
 
-function scaffoldProject({ version = '1.0.0', onBranch = 'feature/test' } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-open-pr-epic-'));
-  fs.writeFileSync(path.join(dir, 'README.md'), '# Test\n');
-  fs.writeFileSync(path.join(dir, '.gitignore'), '.codex/\n');
-  fs.writeFileSync(path.join(dir, 'VERSION'), `${version}\n`);
-  fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n- Feature work\n`);
-  fs.mkdirSync(path.join(dir, 'steering'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'steering', 'tech.md'),
-    `# Tech\n\n## Versioning\n\n| File | Path | Notes |\n|------|------|-------|\n\n### Version Bump Classification\n\n| Label | Bump Type | Description |\n|-------|-----------|-------------|\n| bug | patch | Bug fix |\n| enhancement | minor | Feature |\n`);
-  fs.writeFileSync(path.join(dir, 'steering', 'product.md'), '# Product\n');
-  fs.writeFileSync(path.join(dir, 'steering', 'structure.md'), '# Structure\n');
-
-  execSync('git init -q', { cwd: dir });
-  execSync('git add -A && git -c user.email=t@t -c user.name=t commit -qm init', { cwd: dir });
-  execSync(`git checkout -qb ${onBranch}`, { cwd: dir });
-  // Simulate an implementation commit
-  fs.writeFileSync(path.join(dir, 'src.txt'), 'impl\n');
-  execSync('git add -A && git -c user.email=t@t -c user.name=t commit -qm "feat: impl"', { cwd: dir });
-  return dir;
+function deliverySnapshot(overrides = {}) {
+  const value = {
+    schemaVersion: 1,
+    issue: { number: 122, state: 'OPEN' },
+    pullRequest: {
+      number: 300,
+      state: 'OPEN',
+      isDraft: false,
+      headRefOid: firstHead,
+      baseRefName: 'main',
+      headRefName: '122-child-delivery',
+      mergeStateStatus: 'CLEAN',
+      mergedAt: null,
+      mergeCommitOid: null,
+    },
+    checks: [{
+      name: 'test',
+      event: 'pull_request',
+      state: 'SUCCESS',
+      required: true,
+      url: 'https://example.invalid/check',
+    }],
+    reviews: [{
+      id: 'R1',
+      author: 'reviewer',
+      state: 'APPROVED',
+      submittedAt: '2026-08-16T12:00:00Z',
+    }],
+    threads: [{
+      id: 'T1',
+      isResolved: true,
+      isOutdated: false,
+      url: 'https://example.invalid/thread',
+    }],
+    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete: true },
+    requiredChecksConfigured: true,
+    declaredPrOnlyChecks: [],
+    verification: { status: 'pass', headSha: firstHead },
+  };
+  return {
+    ...value,
+    ...overrides,
+    issue: { ...value.issue, ...(overrides.issue ?? {}) },
+    pullRequest: { ...value.pullRequest, ...(overrides.pullRequest ?? {}) },
+    pagination: { ...value.pagination, ...(overrides.pagination ?? {}) },
+    verification: { ...value.verification, ...(overrides.verification ?? {}) },
+  };
 }
 
-async function runSkill({ cwd, prompt }) {
-  const proc = spawnSync('codex', [
-    'exec',
-    '--cd', cwd,
-    '--full-auto',
-    prompt,
-  ], { encoding: 'utf8' });
-
-  return [{
-    exitCode: proc.status ?? 1,
-    stdout: proc.stdout || '',
-    stderr: proc.stderr || '',
-  }];
+function issue(number, {
+  state = 'CLOSED',
+  title = `Issue ${number}`,
+  labels = [],
+  parent = null,
+  children = [],
+} = {}) {
+  return {
+    number,
+    title,
+    state,
+    body: parent ? `Depends on: #${parent}` : '',
+    labels: { nodes: labels.map((name) => ({ name })), pageInfo: { hasNextPage: false, endCursor: null } },
+    parent: parent ? { number: parent } : null,
+    subIssues: {
+      nodes: children.map((child) => ({ number: child, state: 'CLOSED' })),
+      pageInfo: { hasNextPage: false, endCursor: null },
+    },
+  };
 }
 
-describeRunner('exercise: /open-pr sibling-aware bump', () => {
-  const projects = [];
-  afterEach(() => {
-    while (projects.length) try { fs.rmSync(projects.pop(), { recursive: true, force: true }); } catch {}
+function authority(epicIssue, children = []) {
+  return { status: 'valid', epicIssue, children, gaps: [] };
+}
+
+describe('exercise: terminal exact-head delivery state machine', () => {
+  test('walks pending, failure, review, new-head, non-CLEAN, merge, and child-closure states', () => {
+    const pending = classifyPrDeliveryState(deliverySnapshot({
+      checks: [{ name: 'test', event: 'pull_request', state: 'PENDING', required: true }],
+    }), { issueNumber: 122, expectedHead: firstHead });
+    expect(pending).toMatchObject({ status: 'pending', reasonCode: 'checks_pending' });
+
+    const failing = classifyPrDeliveryState(deliverySnapshot({
+      checks: [{ name: 'test', event: 'pull_request', state: 'FAILURE', required: true }],
+    }), { issueNumber: 122, expectedHead: firstHead });
+    expect(failing).toMatchObject({ status: 'remediate', reasonCode: 'checks_failed' });
+
+    const review = classifyPrDeliveryState(deliverySnapshot({
+      reviews: [{ id: 'R2', author: 'reviewer', state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T13:00:00Z' }],
+      threads: [{ id: 'T2', isResolved: false, isOutdated: false }],
+    }), { issueNumber: 122, expectedHead: firstHead });
+    expect(review).toMatchObject({ status: 'remediate', reasonCode: 'changes_requested' });
+
+    const newHeadSnapshot = deliverySnapshot({
+      pullRequest: { headRefOid: secondHead },
+      verification: { headSha: secondHead },
+    });
+    const staleEvidence = classifyPrDeliveryState(newHeadSnapshot, { issueNumber: 122, expectedHead: firstHead });
+    expect(staleEvidence).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
+
+    const behind = classifyPrDeliveryState(deliverySnapshot({
+      pullRequest: { headRefOid: secondHead, mergeStateStatus: 'BEHIND' },
+      verification: { headSha: secondHead },
+    }), { issueNumber: 122, expectedHead: secondHead });
+    expect(behind).toMatchObject({ status: 'remediate', reasonCode: 'mergeability_defect' });
+
+    const mergeReady = classifyPrDeliveryState(newHeadSnapshot, { issueNumber: 122, expectedHead: secondHead });
+    expect(mergeReady).toMatchObject({ status: 'merge_ready', reasonCode: 'exact_head_clean', headSha: secondHead });
+    expect(mergeReady.fingerprint).not.toBe(pending.fingerprint);
+
+    const mergedOpenChild = classifyPrDeliveryState(deliverySnapshot({
+      pullRequest: {
+        state: 'MERGED',
+        headRefOid: secondHead,
+        mergedAt: '2026-08-16T14:00:00Z',
+        mergeCommitOid: 'c'.repeat(40),
+      },
+      verification: { headSha: secondHead },
+    }), { issueNumber: 122, expectedHead: secondHead });
+    expect(mergedOpenChild).toMatchObject({
+      status: 'external_blocker',
+      reasonCode: 'merged_pr_child_still_open',
+    });
+
+    const complete = classifyPrDeliveryState(deliverySnapshot({
+      issue: { state: 'CLOSED' },
+      pullRequest: {
+        state: 'MERGED',
+        headRefOid: secondHead,
+        mergedAt: '2026-08-16T14:00:00Z',
+        mergeCommitOid: 'c'.repeat(40),
+      },
+      verification: { headSha: secondHead },
+    }), { issueNumber: 122, expectedHead: secondHead });
+    expect(complete).toMatchObject({ status: 'complete', reasonCode: 'merged_exact_head_and_issue_closed' });
   });
 
-  test('Scenario A (intermediate) — epic child with open sibling gets patch bump + partial-delivery note', async () => {
-    const dir = scaffoldProject();
-    projects.push(dir);
-    // Test fixture assumes #200 is the child (labeled enhancement, Depends on: #199)
-    // and #199 is the epic (labeled epic) with Child Issues checklist [#200, #201]
-    // where #201 is still open. The skill's sibling logic should downgrade minor→patch.
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #200',
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).toMatch(/\*\*Bump:\*\* patch \(epic child: intermediate\)/);
-    expect(blob).toMatch(/\(partial delivery — see epic #199\)/);
-  }, 300_000);
-
-  test('Scenario B (final) — epic child with all siblings closed+merged gets minor bump', async () => {
-    const dir = scaffoldProject();
-    projects.push(dir);
-    // Fixture: #201 is the final child; #200 already merged.
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #201',
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).toMatch(/\*\*Bump:\*\* minor \(epic child: final\)/);
-    expect(blob).not.toMatch(/partial delivery/);
-  }, 300_000);
-
-  test('Scenario C (non-epic passthrough) — standalone enhancement uses label-based bump unchanged', async () => {
-    const dir = scaffoldProject();
-    projects.push(dir);
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #300', // #300 is a standalone enhancement, no parent
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).not.toMatch(/epic child:/);
-  }, 300_000);
-
-  test('Scenario D (race) — stale base after bump commit triggers rebase + re-bump; no force-push', async () => {
-    const dir = scaffoldProject();
-    projects.push(dir);
-    // Simulate origin advancing by creating a bare repo and pushing a divergent commit
-    const bareRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-bare-'));
-    execSync(`git init -q --bare`, { cwd: bareRepo });
-    execSync(`git remote add origin ${bareRepo}`, { cwd: dir });
-    execSync('git push -q origin main', { cwd: dir });
-    // Advance origin/main by pushing from a temp clone
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-clone-'));
-    execSync(`git clone -q ${bareRepo} ${clone}`);
-    fs.writeFileSync(path.join(clone, 'VERSION'), '1.0.1\n');
-    execSync('git add -A && git -c user.email=t@t -c user.name=t commit -qm "chore: bump to 1.0.1" && git push -q origin main', { cwd: clone });
-
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #200',
-    });
-    const blob = JSON.stringify(messages);
-    // Expect evidence of rebase path: either a re-computed bump against 1.0.1
-    // or an explicit conflict error — never a --force push.
-    expect(blob).not.toMatch(/git push .*--force/);
-    projects.push(bareRepo, clone);
-  }, 300_000);
-
-  test('Scenario E (AC7a) — epic CLOSED while child OPEN requires user confirmation', async () => {
-    const dir = scaffoldProject();
-    projects.push(dir);
-
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #200', // fixture: #199 (parent epic) is CLOSED; #200 still OPEN
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).toMatch(/Epic #\d+ is closed but child #\d+ is still open/);
-  }, 300_000);
+  test('never treats a draft, policy-blocked PR, partial page, or changed exact head as success', () => {
+    expect(classifyPrDeliveryState(deliverySnapshot({ pullRequest: { isDraft: true } }), { issueNumber: 122 }).status).toBe('pending');
+    expect(classifyPrDeliveryState(deliverySnapshot({ pullRequest: { mergeStateStatus: 'BLOCKED' } }), { issueNumber: 122 }).status).toBe('external_blocker');
+    expect(classifyPrDeliveryState(deliverySnapshot({ pagination: { threadsComplete: false } }), { issueNumber: 122 }).status).toBe('unverifiable');
+    expect(classifyPrDeliveryState(deliverySnapshot(), { issueNumber: 122, expectedHead: secondHead }).status).toBe('unverifiable');
+  });
 });
 
-describeRunner('exercise: /open-pr folded delivery preparation', () => {
-  const projects = [];
-  afterEach(() => {
-    while (projects.length) try { fs.rmSync(projects.pop(), { recursive: true, force: true }); } catch {}
+describe('exercise: final-child and nested epic completion cascade', () => {
+  test('closes only after the final direct child and then makes the next ancestor eligible', () => {
+    const before = [
+      issue(200, { state: 'OPEN', labels: ['epic'], children: [108] }),
+      issue(108, { state: 'OPEN', labels: ['epic', 'epic-child-of-200'], parent: 200, children: [122, 123] }),
+      issue(122, { parent: 108, labels: ['epic-child-of-108'] }),
+      issue(123, { state: 'OPEN', parent: 108, labels: ['epic-child-of-108'] }),
+    ];
+    const incomplete = classifyEpicCompletion({ issues: before, epicIssueNumber: 108, specAuthority: authority(108) });
+    expect(incomplete).toMatchObject({ status: 'incomplete', incompleteChildren: [123] });
+
+    const afterChild = before.map((entry) => entry.number === 123 ? { ...entry, state: 'CLOSED' } : entry);
+    const inner = classifyEpicCompletion({
+      issues: afterChild,
+      epicIssueNumber: 108,
+      specAuthority: authority(108),
+      projectItems: [{
+        itemId: 'INNER_ITEM', projectId: 'PROJECT', projectTitle: 'Backlog',
+        statusFieldId: 'STATUS', statusName: 'In Progress', doneOptions: [{ id: 'DONE', name: 'Done' }],
+      }],
+    });
+    expect(inner).toMatchObject({
+      status: 'eligible',
+      nextParentNumber: 200,
+      projectMutations: [{ itemId: 'INNER_ITEM', optionId: 'DONE', to: 'Done' }],
+    });
+
+    const afterInnerClose = afterChild.map((entry) => entry.number === 108 ? { ...entry, state: 'CLOSED' } : entry);
+    const outer = classifyEpicCompletion({
+      issues: afterInnerClose,
+      epicIssueNumber: 200,
+      specAuthority: authority(200, [{
+        issue: 108,
+        packageKind: 'epic',
+        status: 'valid',
+        nestedStatus: 'valid',
+      }]),
+    });
+    expect(outer).toMatchObject({ status: 'eligible', directChildren: [{ number: 108, state: 'CLOSED' }] });
   });
 
-  test('dirty branch — open-pr commits, bumps, pushes, and prepares PR creation', async () => {
-    const dir = scaffoldProject({ onBranch: '300-folded-delivery-dirty' });
-    projects.push(dir);
-    fs.writeFileSync(path.join(dir, 'dirty.txt'), 'pending work\n');
+  test('partial pages, zero children, cycles, authority drift, and unreadable Project state stop closure', () => {
+    const epic = issue(108, { state: 'OPEN', labels: ['epic'], children: [122] });
+    const child = issue(122, { parent: 108, labels: ['epic-child-of-108'] });
 
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #300',
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).toMatch(/git add|staged|delivery/i);
-    expect(blob).toMatch(/push|pushed|gh pr create/i);
-  }, 300_000);
+    const partial = structuredClone(epic);
+    partial.subIssues.pageInfo.hasNextPage = true;
+    expect(classifyEpicCompletion({ issues: [partial, child], epicIssueNumber: 108, specAuthority: authority(108) }).status).toBe('unverifiable');
+    expect(classifyEpicCompletion({ issues: [issue(108, { state: 'OPEN', labels: ['epic'] })], epicIssueNumber: 108, specAuthority: authority(108) }).status).toBe('repair_required');
+    expect(classifyEpicCompletion({ issues: [epic, child], epicIssueNumber: 108, specAuthority: { status: 'repair_required', epicIssue: 108, gaps: ['drift'] } }).status).toBe('repair_required');
+    expect(classifyEpicCompletion({ issues: [epic, child], epicIssueNumber: 108, specAuthority: authority(108), projectItems: [{ itemId: null }] }).status).toBe('unverifiable');
 
-  test('clean pushed branch — open-pr reports no additional commit needed', async () => {
-    const dir = scaffoldProject({ onBranch: '300-folded-delivery-clean' });
-    projects.push(dir);
-    const bareRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-clean-bare-'));
-    projects.push(bareRepo);
-    execSync('git init -q --bare', { cwd: bareRepo });
-    execSync(`git remote add origin ${bareRepo}`, { cwd: dir });
-    execSync('git push -q -u origin HEAD', { cwd: dir });
-
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #300',
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).toMatch(/No additional commit needed|already clean/i);
-  }, 300_000);
-
-  test('manual delivery never asks for an unsafe force push', async () => {
-    const dir = scaffoldProject({ onBranch: '300-folded-delivery-manual' });
-    projects.push(dir);
-
-    const messages = await runSkill({
-      cwd: dir,
-      prompt: '/nmg-sdlc:open-pr #300',
-    });
-    const blob = JSON.stringify(messages);
-    expect(blob).not.toMatch(/Force-push without lease/i);
-  }, 300_000);
+    const cyclicParent = issue(200, { state: 'OPEN', labels: ['epic', 'epic-child-of-108'], parent: 108, children: [108] });
+    const cyclicChild = issue(108, { state: 'CLOSED', labels: ['epic', 'epic-child-of-200'], parent: 200, children: [200] });
+    expect(classifyEpicCompletion({ issues: [cyclicParent, cyclicChild], epicIssueNumber: 200, specAuthority: authority(200) }).status).not.toBe('eligible');
+  });
 });

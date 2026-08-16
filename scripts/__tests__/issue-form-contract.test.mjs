@@ -35,7 +35,7 @@ function optionLines(block) {
   return section.split('\n').filter((line) => /^\s{8}- /.test(line));
 }
 
-describe('managed GitHub issue form contract (issue #135)', () => {
+describe('managed GitHub issue form contract (issues #135 and #177)', () => {
   test('canonical issue form exists with required top-level keys and body fields', () => {
     const source = read(FORM_RELATIVE_PATH);
     expect(source).toMatch(/^name: .+/m);
@@ -56,10 +56,10 @@ describe('managed GitHub issue form contract (issue #135)', () => {
 
     for (const label of [
       'Issue Type',
-      'User Story or Bug/Spike Context',
+      'User Story, Bug/Spike Context, or Epic Goal',
       'Current State / Background',
-      'Acceptance Criteria',
-      'Functional Requirements',
+      'Acceptance Criteria or Epic Outcomes',
+      'Functional Requirements or Epic Child Plan',
       'Scope Boundaries',
       'Priority',
     ]) {
@@ -68,9 +68,11 @@ describe('managed GitHub issue form contract (issue #135)', () => {
 
     expect(byLabel.get('Additional Notes')?.required).toBe(false);
     expect(byLabel.has('Automation Suitability')).toBe(false);
-    expect(byLabel.get('Acceptance Criteria')?.block).toContain('Given');
-    expect(byLabel.get('Acceptance Criteria')?.block).toContain('When');
-    expect(byLabel.get('Acceptance Criteria')?.block).toContain('Then');
+    const criteria = byLabel.get('Acceptance Criteria or Epic Outcomes')?.block;
+    expect(criteria).toContain('Given');
+    expect(criteria).toContain('When');
+    expect(criteria).toContain('Then');
+    expect(criteria).toContain('EO1: Cross-child outcome');
   });
 
   test('ids, labels, and dropdown options are unique and schema-safe', () => {
@@ -109,6 +111,9 @@ describe('managed GitHub issue form contract (issue #135)', () => {
     expect(contract).toContain('Preserve every unrelated file under `.github/ISSUE_TEMPLATE/` byte-for-byte');
     expect(contract).toContain('`onboard-project` applies the form after steering exists');
     expect(contract).toContain('`upgrade-project` presents missing or differing issue-form findings');
+    expect(contract).toContain('an epic is coordination-only: it cannot be started or own executable acceptance criteria');
+    expect(contract).toContain('epic children follow the normal dependency graph');
+    expect(contract).toContain('eligible epics close automatically');
   });
 
   test('onboarding, upgrade-project, README, and CHANGELOG reference the managed form', () => {

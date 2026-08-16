@@ -110,10 +110,10 @@ That command is the ordinary current-Pass path. When the shared validator return
 
 Add labels matching the issue when appropriate.
 
-## Output block
+## Prepared-PR progress block
 
 ```
-PR created: [PR URL]
+PR prepared: [PR URL]
 
 Title: [title]
 Base: main ← [branch-name]
@@ -122,6 +122,10 @@ Issue: Closes #N
 
 [If specs-found]: The PR links to specs at specs/{feature}/ and will close issue #N when merged.
 [If specs-not-found]: The PR extracts acceptance criteria from the issue body and will close issue #N when merged.
+
+Delivery is still in progress. `$nmg-sdlc:open-pr` now monitors and remediates
+the exact PR head, merges only clean evidence, proves issue closure, and
+reconciles eligible epic ancestors.
 ```
 
 Then continue to Step 7 (see `ci-monitoring.md`).

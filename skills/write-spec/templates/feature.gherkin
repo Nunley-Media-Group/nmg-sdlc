@@ -1,6 +1,6 @@
 # Gherkin Feature Template
 
-Use this template to create BDD feature files from acceptance criteria.
+Use this template only for executable feature/bug child acceptance criteria. Epic aggregate outcomes never become Gherkin scenarios.
 
 Reference `tech.md` for:
 - BDD framework (e.g., jest-cucumber, pytest-bdd, SpecFlow, flutter_gherkin)

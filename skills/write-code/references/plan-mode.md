@@ -16,7 +16,7 @@ The implementation approach should:
 4. **Flag any deviations** — if the codebase has evolved since specs were written.
 5. **Present the plan** for user approval as the final `<proposed_plan>` after required input has been collected.
 
-The plan summary must print the active issue number, spec path, scope status, and exact mapped delivery IDs. Earlier-owned adopted tasks may appear because adoption makes them current delivery obligations; unmapped earlier and future tasks must not appear. Regression IDs may be listed as preservation context but never as implementation work.
+The plan summary must print the active issue number, executable spec path, scope status, and exact mapped delivery IDs. For an epic child, also print the validated aggregate path, lineage, and authority digest as informational context. Aggregate `EO###` outcomes and topology never appear as executable IDs. Earlier-owned adopted tasks may appear because adoption makes them current delivery obligations; unmapped earlier and future tasks must not appear. Regression IDs may be listed as preservation context but never as implementation work.
 
 ## Step 5: Execute Tasks
 

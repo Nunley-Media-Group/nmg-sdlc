@@ -1,7 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
 
 import {
+  classifyEpicCompletion,
   classifyEpicRelationships,
+  deriveEpicLineage,
   epicChildLabelTargets,
   normalizeEpicRelationships,
   parseBodyRelationships,
@@ -10,19 +12,25 @@ import {
 } from '../epic-relationships.mjs';
 
 function issue(number, {
+  title = `Issue ${number}`,
   labels = [],
   state = 'OPEN',
   body = '',
   parent = null,
   subIssues = [],
+  hasNextPage = false,
 } = {}) {
   return {
     number,
+    title,
     labels: { nodes: labels.map((name) => ({ name })) },
     state,
     body,
     parent,
-    subIssues: { nodes: subIssues.map((child) => (typeof child === 'number' ? { number: child } : child)) },
+    subIssues: {
+      nodes: subIssues.map((child) => (typeof child === 'number' ? { number: child } : child)),
+      pageInfo: { hasNextPage, endCursor: hasNextPage ? 'cursor' : null },
+    },
   };
 }
 
@@ -301,5 +309,161 @@ describe('sibling reconciliation', () => {
       checklistChildren: [20, 30],
       nativeAvailable: false,
     })).toMatchObject({ authority: 'checklist-fallback', siblingNumbers: [20, 30] });
+  });
+});
+
+describe('epic lineage', () => {
+  test('returns root-to-parent titles while retaining only genuine execution dependencies', () => {
+    const root = issue(5, { title: 'Root epic', labels: ['epic'], subIssues: [10] });
+    const inner = issue(10, {
+      title: 'Inner epic',
+      labels: ['epic', 'epic-child-of-5'],
+      parent: root,
+      body: 'Depends on: #5',
+      subIssues: [20],
+    });
+    const dependency = issue(19, { title: 'Real prerequisite', state: 'CLOSED' });
+    const child = issue(20, {
+      title: 'Leaf child',
+      labels: ['epic-child-of-10'],
+      parent: inner,
+      body: 'Depends on: #10\nDepends on: #19',
+    });
+    const result = deriveEpicLineage({ issues: [root, inner, dependency, child], activeIssueNumber: 20 });
+    expect(result).toMatchObject({
+      status: 'resolved',
+      lineage: [
+        { number: 5, title: 'Root epic' },
+        { number: 10, title: 'Inner epic' },
+      ],
+      executionDependencies: [expect.objectContaining({ issueNumber: 19, blocking: false })],
+      gaps: [],
+    });
+  });
+
+  test('fails closed on an incomplete native page', () => {
+    const parent = issue(10, { labels: ['epic'], subIssues: [20], hasNextPage: true });
+    const child = issue(20, { labels: ['epic-child-of-10'], parent, body: 'Depends on: #10' });
+    const result = deriveEpicLineage({ issues: [parent, child], activeIssueNumber: 20 });
+    expect(result.status).toBe('unverifiable');
+    expect(result.gaps).toContain('epic #10 native sub-issue connection is incomplete');
+  });
+
+  test('names a nested cycle without looping', () => {
+    const first = issue(10, {
+      title: 'First',
+      labels: ['epic', 'epic-child-of-11'],
+      body: 'Depends on: #11',
+    });
+    const second = issue(11, {
+      title: 'Second',
+      labels: ['epic', 'epic-child-of-10'],
+      body: 'Depends on: #10',
+    });
+    first.parent = second;
+    first.subIssues.nodes = [{ number: 11 }];
+    second.parent = first;
+    second.subIssues.nodes = [{ number: 10 }];
+    const result = deriveEpicLineage({ issues: [first, second], activeIssueNumber: 10 });
+    expect(result.status).toBe('cycle');
+    expect(result.gaps[0]).toContain('#10 -> #11 -> #10');
+  });
+});
+
+describe('epic completion classification', () => {
+  function completedGraph({ openChild = null, hasNextPage = false } = {}) {
+    const outer = issue(5, { title: 'Outer', labels: ['epic'], subIssues: [10] });
+    const epic = issue(10, {
+      title: 'Inner',
+      labels: ['epic', 'epic-child-of-5'],
+      state: 'OPEN',
+      parent: outer,
+      body: 'Depends on: #5',
+      subIssues: [20, 30],
+      hasNextPage,
+    });
+    const child20 = issue(20, { title: 'First child', state: openChild === 20 ? 'OPEN' : 'CLOSED' });
+    const child30 = issue(30, { title: 'Second child', state: openChild === 30 ? 'OPEN' : 'CLOSED' });
+    return [outer, epic, child20, child30];
+  }
+
+  test('returns eligible with exact Done mutations and the next parent', () => {
+    const result = classifyEpicCompletion({
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10, evidenceDigest: 'sha256:spec' },
+      projectItems: [{
+        itemId: 'ITEM',
+        projectId: 'PROJECT',
+        projectTitle: 'Delivery',
+        statusFieldId: 'STATUS',
+        statusName: 'In Progress',
+        doneOptions: [{ id: 'DONE', name: 'Done' }],
+      }],
+    });
+    expect(result).toMatchObject({
+      status: 'eligible',
+      epicIssueNumber: 10,
+      directChildren: [
+        { number: 20, title: 'First child', state: 'CLOSED', epic: false },
+        { number: 30, title: 'Second child', state: 'CLOSED', epic: false },
+      ],
+      incompleteChildren: [],
+      nextParentNumber: 5,
+      projectStatus: 'needs_reconciliation',
+      projectMutations: [{ itemId: 'ITEM', optionId: 'DONE', to: 'Done' }],
+      gaps: [],
+    });
+    expect(result.evidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  test('stops normally at incomplete children and planned spec authority', () => {
+    const open = classifyEpicCompletion({
+      issues: completedGraph({ openChild: 30 }),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10 },
+    });
+    expect(open).toMatchObject({ status: 'incomplete', incompleteChildren: [30] });
+
+    const planned = classifyEpicCompletion({
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'planned', epicIssue: 10 },
+    });
+    expect(planned.status).toBe('incomplete');
+    expect(planned.gaps[0]).toContain('planned child specification packages');
+  });
+
+  test.each([
+    ['zero-child', [issue(10, { labels: ['epic'], subIssues: [] })], 'repair_required', 'zero native children'],
+    ['partial-page', completedGraph({ hasNextPage: true }), 'unverifiable', 'connection is incomplete'],
+  ])('fails closed for %s evidence', (_name, issues, status, gap) => {
+    const result = classifyEpicCompletion({
+      issues,
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10 },
+    });
+    expect(result.status).toBe(status);
+    expect(result.gaps.join(' ')).toContain(gap);
+  });
+
+  test('requires readable and unambiguous Project status metadata', () => {
+    const result = classifyEpicCompletion({
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10 },
+      projectItems: [{ itemId: 'ITEM', projectId: 'PROJECT', projectTitle: 'Delivery' }],
+    });
+    expect(result.status).toBe('unverifiable');
+    expect(result.gaps[0]).toContain('unreadable required Project status metadata');
+  });
+
+  test('produces an identical digest for repeated unchanged evidence', () => {
+    const input = {
+      issues: completedGraph(),
+      epicIssueNumber: 10,
+      specAuthority: { status: 'valid', epicIssue: 10 },
+    };
+    expect(classifyEpicCompletion(input)).toEqual(classifyEpicCompletion(input));
   });
 });

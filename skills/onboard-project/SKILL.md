@@ -142,7 +142,7 @@ Emit a structured summary with these sections:
 15. **Gaps** — any missing artifact files (from Step 4), managed-asset gaps, any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
 16. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
 17. **Next step** —
-    - Greenfield: `Run $nmg-sdlc:start-issue on a seeded starter (e.g., #<first-seeded-issue>), or $nmg-sdlc:draft-issue to add more.`
+    - Greenfield: `Run $nmg-sdlc:start-issue on the first ready seeded executable issue (never an epic), or $nmg-sdlc:draft-issue to add more.`
     - Brownfield: `Review the reconciled specs, then run $nmg-sdlc:draft-issue for new work or $nmg-sdlc:upgrade-project to bring reconciled specs up to the latest templates.`
     - Already-initialized (after `$nmg-sdlc:upgrade-project`): `Run $nmg-sdlc:draft-issue for the next feature.`
 
@@ -193,5 +193,7 @@ This is the one-time adoption step for projects that aren't yet spec-driven. It 
                        │   └── initialized → $nmg-sdlc:upgrade-project            │
                        └────────────────────┬────────────────────────────┘
                                             ▼
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #N  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N  →  $nmg-sdlc:address-pr-comments #N
+$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (merge + closure)
 ```
+
+Managed guidance must state that epics are coordination-only and cannot be started; children use normal dependency rules and show epic lineage only as information. New epic work uses a three-file aggregate plus separate executable child packages. Terminal delivery proves exact-head merge and child closure before eligible epic ancestors close. Legacy epic graph/spec/state drift is audited read-only and repaired only through exact per-epic `$nmg-sdlc:upgrade-project` approval.

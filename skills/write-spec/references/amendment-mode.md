@@ -4,6 +4,13 @@
 
 The amendment contract is **append-only**: existing ACs, FRs, design sections, tasks, scenarios, and ownership assignments are preserved verbatim. New content is appended with sequential numbering so the change history stays auditable and prior reviewers' approvals remain valid.
 
+For an epic child, amendment mode applies only to the validated child package
+whose `epic-link.json` names the active issue. The aggregate supplies bounded
+outcome/topology context and is immutable here. Never append a child's AC, FR,
+task, scenario, or issue-scope ownership to an aggregate or sibling package.
+Changing aggregate prose or another child is a separate explicit review, not
+part of the active child's amendment.
+
 Read `../../references/spec-frontmatter.md` when applying any frontmatter edit during amendment — the plural `**Issues**`, Change History table format, and defect-vs-feature schema conventions live there. Read `../../../references/issue-spec-scope.md` before changing a cumulative feature spec's `issue-scope.json`; the manifest is the element-level authority and its existing ownership must remain intact.
 
 ## Phase 1 — `requirements.md` amendment

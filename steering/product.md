@@ -34,7 +34,7 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Core Value Proposition
 
-1. **Structured manual workflow** — issue → spec → implement → simplify → verify → PR → review cleanup.
+1. **Structured manual workflow** — executable issue → spec → implement → simplify → verify → exact-head merge → issue closure.
 2. **Stack-agnostic BDD** — any language or framework can supply its conventions through steering docs.
 3. **Explicit human authority** — review and scope gates never select an answer without the user.
 4. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
@@ -51,6 +51,7 @@ This document defines the product vision, target users, and success metrics. All
 | Process over tooling | Skills define lifecycle structure; projects define technical choices |
 | Human gates | Every surviving decision point waits for explicit user input |
 | Spec as source of truth | Implementation and verification trace back to approved spec documents |
+| Coordination is not execution | Epics describe cross-child outcomes and topology; children own executable acceptance criteria and delivery |
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
 | Dogfooding | Skill changes are verified through contracts and executable exercises |
 
@@ -62,6 +63,8 @@ This document defines the product vision, target users, and success metrics. All
 |--------|--------|----------------|
 | Spec-to-implementation fidelity | Zero unresolved drift on first verify | Validates the spec-driven approach |
 | Pipeline continuity | Every manual stage works end to end | Proves the workflow is practical |
+| Terminal delivery integrity | Success requires exact-head merge and executable-issue closure | Prevents PR creation from being overstated as delivery |
+| Epic lifecycle integrity | Epics are never started and close only after all direct children and authority checks pass | Keeps coordination state consistent with delivered work |
 | Gate integrity | No decision proceeds without explicit user input | Preserves user authority |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
@@ -74,12 +77,13 @@ This document defines the product vision, target users, and success metrics. All
 ### Must Have
 
 - Issue grooming with BDD acceptance criteria (`$nmg-sdlc:draft-issue`)
-- Linked branch and status management (`$nmg-sdlc:start-issue`)
-- Human-reviewed requirements, design, tasks, and Gherkin (`$nmg-sdlc:write-spec`)
+- Linked branch and status management for executable issues (`$nmg-sdlc:start-issue`)
+- Coordination-only epics with normal dependency-aware child selection
+- Human-reviewed child requirements, design, tasks, and Gherkin plus aggregate/link authority (`$nmg-sdlc:write-spec`)
 - Spec-driven implementation planning (`$nmg-sdlc:write-code`)
 - Behavior-preserving simplification (`$nmg-sdlc:simplify`)
 - Verification, architecture review, and exercise evidence (`$nmg-sdlc:verify-code`)
-- Versioned PR delivery (`$nmg-sdlc:open-pr`)
+- Terminal versioned PR delivery, exact-head merge, issue closure, and epic reconciliation (`$nmg-sdlc:open-pr`)
 - Review-thread cleanup (`$nmg-sdlc:address-pr-comments`)
 - Safe project adoption and managed assets (`$nmg-sdlc:onboard-project`, `$nmg-sdlc:upgrade-project`)
 - Read-only lifecycle diagnostics (`$nmg-sdlc:status`)
@@ -87,7 +91,7 @@ This document defines the product vision, target users, and success metrics. All
 ### Should Have
 
 - Defect-specific spec variants and retrospective learning
-- Manual epic/sub-issue relationships
+- Explicit, digest-bound backlog repair for legacy epic graphs and specs
 - Managed contribution gate and structured GitHub issue form
 - Historical spec reconciliation for brownfield projects
 
@@ -102,7 +106,7 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Key User Journeys
 
-### Journey 1: Issue to Review-Clean PR
+### Journey 1: Executable Issue to Merged Delivery
 
 ```text
 1. Draft and approve a groomed issue.
@@ -110,8 +114,9 @@ This document defines the product vision, target users, and success metrics. All
 3. Approve requirements, design, and implementation tasks.
 4. Approve the implementation plan and execute the tasks.
 5. Simplify and verify every acceptance criterion.
-6. Approve versioning and open the pull request.
-7. Resolve review findings until the PR is review-clean.
+6. Approve versioning and enter terminal pull-request delivery.
+7. Monitor checks, resolve actionable findings, and merge the exact verified head.
+8. Prove issue closure and reconcile any now-complete epic ancestors.
 ```
 
 ### Journey 2: Adopt or Upgrade a Project
@@ -120,8 +125,9 @@ This document defines the product vision, target users, and success metrics. All
 1. Detect greenfield, brownfield, or initialized state.
 2. Create or reconcile root steering/spec documents.
 3. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form.
-4. For upgrades, present exact owned cleanup findings before deletion.
-5. Report changed, preserved, declined, already-current, and failed outcomes.
+4. Audit legacy epic graph, aggregate/child authority, ownership, issue state, and Project state without mutation.
+5. Present each exact digest-bound repair group for explicit approval and verify a no-op rerun.
+6. Report changed, preserved, declined, already-current, and failed outcomes.
 ```
 
 ### Journey 3: Dogfood a Skill Change
@@ -150,14 +156,14 @@ This document defines the product vision, target users, and success metrics. All
 ### Skill Pipeline Contracts
 
 ```text
-draft-issue        → GitHub issue with BDD acceptance criteria
-start-issue        → linked branch and In Progress status
-write-spec         → approved requirements, design, tasks, Gherkin
+draft-issue        → executable issues or a coordination-only epic with children
+start-issue        → linked branch and In Progress status for executable work; epics excluded
+write-spec         → child-owned executable package plus aggregate/link authority when applicable
 write-code         → implementation covering approved tasks
 simplify           → behavior-preserving cleanup
 verify-code        → acceptance/evidence report and scoped fixes
-open-pr            → pushed versioned PR linking issue and specs
-address-pr-comments→ review-clean PR or explicit remaining blocker
+open-pr            → exact-head PR delivery, merge, issue closure, and eligible epic closure
+address-pr-comments→ focused review-loop utility or explicit remaining blocker
 ```
 
 Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.

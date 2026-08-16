@@ -84,6 +84,20 @@ A confirmed execution dependency is unresolved while its target state is not `CL
 
 `legacy` is deliberately non-blocking when the confirmed parent and both native and body relationships agree. Include `$nmg-sdlc:upgrade-project` as the repair action, but do not rewrite metadata during the consuming lifecycle stage.
 
+## Informational Lineage
+
+`scripts/epic-relationships.mjs` exports `deriveEpicLineage()` for selection and
+status rendering. Starting from the active issue, follow one confirmed native
+coordination parent at a time and return root-to-direct-parent objects containing
+both `number` and `title`. Preserve the active issue's
+`executionDependencies` separately. Never add a lineage member to blockers or
+topological in-degree.
+
+Require every traversed parent title and native `subIssues` page. A repeated
+issue returns `cycle`; multiple parents return `ambiguous`; a missing title,
+partial page, unavailable native discovery, or inconsistent relationship returns
+`unverifiable`. Do not render a guessed or partial lineage.
+
 ## Sibling Reconciliation
 
 For a confirmed parent `P`, query and fully page GraphQL `subIssues`, then parse only supported checklist rows matching `^\s*-\s*\[[ xX]\]\s*#([1-9]\d*)\b`.
@@ -98,6 +112,35 @@ For a confirmed parent `P`, query and fully page GraphQL `subIssues`, then parse
 - Lazily create `epic` with color `5319E7` and `epic-child-of-P` with color `BFD4F2` when absent. Re-fetch the exact parent and children and require `durable` results before successful handoff.
 - A partial write is reported with exact surviving metadata; never hide it or create a second child to compensate.
 - Existing-record audit and repair is owned by `$nmg-sdlc:upgrade-project`. It is read-only until the user approves one exact mutation set, then re-fetches and compares the same records immediately before writing. Abort on drift and prove idempotence with a second audit.
+
+## Epic Completion Classification
+
+After `open-pr` proves the child PR merged and the child issue closed, call
+`classifyEpicCompletion()` with the freshly hydrated parent graph, the result
+from `references/epic-spec-authority.md`, and normalized readable ProjectV2
+status records.
+
+| Status | Meaning | Mutation behavior |
+|--------|---------|-------------------|
+| `eligible` | The issue is an epic, every fully paged native direct child is closed, aggregate/child authority is valid, and attached Project statuses have exact Done targets. | Reproduce the digest, reconcile the listed Project items, close the epic if open, and re-fetch proof. |
+| `incomplete` | A direct child is open/unresolved or a child spec is intentionally planned. | Stop the cascade normally; mutate nothing. |
+| `repair_required` | The issue lacks durable epic state, has zero native children, or spec authority has deterministic drift. | Mutate nothing and route the exact finding through `upgrade-project`. |
+| `unverifiable` | Native pages, issue metadata, cycles, spec evidence, or required Project state cannot be proven. | Fail closed with exact gaps. |
+
+The classifier returns the native direct-child records, incomplete children,
+normalized Project mutations, the next confirmed parent number, and a SHA-256
+`evidenceDigest`. It performs no mutation. A caller must rehydrate and reproduce
+that digest immediately before writing.
+
+Project absence is `not_applicable`; do not invent an item. For every attached
+readable item, require one Status field, its current value, and exactly one Done
+option. An unreadable attached item blocks closure. Closing text in a child PR
+never targets an epic; closure is an explicit post-merge action.
+
+For nesting, close and verify the inner epic, then classify its confirmed parent
+from fresh evidence. Continue leaf-to-root until `incomplete`. A cycle,
+`repair_required`, or `unverifiable` result ends the cascade without touching
+siblings, dependencies, or unrelated Project items.
 
 ## Canonical Parent-Spec Readiness
 

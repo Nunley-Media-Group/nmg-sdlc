@@ -1,6 +1,6 @@
 # Tasks Template
 
-Use this template to create implementation tasks in the **TASKS** phase.
+Use this template only for executable feature/bug children in the **TASKS** phase. Never create tasks for an epic or place child tasks in its aggregate.
 
 Reference `steering/structure.md` to map task file paths to the project's actual directory layout.
 

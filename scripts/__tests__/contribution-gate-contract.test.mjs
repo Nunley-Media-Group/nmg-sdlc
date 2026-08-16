@@ -15,29 +15,37 @@ function workflowTemplate() {
   return match[1];
 }
 
-describe('contribution gate contract (issues #125 and #143)', () => {
-  test('shared reference defines managed version 2, lifecycle status, and collision rules', () => {
+describe('contribution gate contract (issues #125, #143, and #177)', () => {
+  test('shared reference defines managed version 3, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 
     expect(contract).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
     expect(contract).toContain('# nmg-sdlc-managed: contribution-gate');
-    expect(contract).toContain('# nmg-sdlc-managed-version: 2');
-    expect(contract).toContain('| Current numeric version | `2` |');
+    expect(contract).toContain('# nmg-sdlc-managed-version: 3');
+    expect(contract).toContain('| Current numeric version | `3` |');
     expect(contract).toContain('Workflow: created | updated | already present | skipped');
     expect(contract).toContain('skipped (unmanaged file at path)');
     expect(contract).toContain('skipped (newer managed version)');
     expect(contract).toContain('Preserve every unrelated workflow under `.github/workflows/` byte-for-byte');
   });
 
-  test('version-2 template builds a bounded evidence graph and validates exceptions', () => {
+  test('version-3 template separates executable child and coordination aggregate evidence', () => {
     const template = workflowTemplate();
 
     expect(template).toContain('const MAX_SPEC_DIRECTORIES = 5');
     expect(template).toContain('const MAX_DIAGNOSTIC_PATHS = 20');
     expect(template).toContain('const SPEC_ARTIFACTS =');
+    expect(template).toContain('const AGGREGATE_ARTIFACTS =');
+    expect(template).toContain("['requirements.md', 'design.md', 'epic-scope.json']");
     expect(template).toContain('new Set()');
     expect(template).toContain('resolveSpecDirectories');
+    expect(template).toContain('resolveAggregateDirectories');
+    expect(template).toContain("(?:requirements\\.md|design\\.md|epic-scope\\.json)");
+    expect(template).not.toContain('epic-requirements\\.md|epic-design\\.md');
     expect(template).toContain('mismatchedSpecs');
+    expect(template).toContain('invalidAggregatePaths');
+    expect(template).toContain('Epic aggregate evidence is coordination-only');
+    expect(template).toContain('Aggregates may contain only requirements.md, design.md, and epic-scope.json');
     expect(template).toContain('classifyChangedPath');
     expect(template).toContain('Unmatched changed paths');
     expect(template).toContain('hasSpecificVerification');
