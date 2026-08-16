@@ -208,7 +208,7 @@ None.
 | `specs/bug-fix-start-issue-shortlist-starvation/feature.gherkin` | 0 | Five BDD scenarios. |
 | `README.md`, `CHANGELOG.md` | 0 | Public behavior and release note. |
 
-Related-spec discovery scanned 98 requirement documents and loaded the active defect spec plus `specs/feature-start-issue-skill/`; no manifest or ownership gaps were found.
+Related-spec discovery identified the active defect spec first and loaded only its explicitly related neighbor, `specs/feature-start-issue-skill/`; no other spec contents were loaded and no manifest or ownership gaps were found.
 
 ## Recommendation
 
