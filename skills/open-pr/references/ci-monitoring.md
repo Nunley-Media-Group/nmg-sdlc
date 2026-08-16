@@ -12,7 +12,8 @@ On every observation, fully page and normalize:
 
 - PR number, state, draft state, base/head refs, `headRefOid`, `mergeable`, and
   `mergeStateStatus`;
-- every required and reported check with name, state/conclusion, event, and URL;
+- every check admitted as delivery evidence with name, state/conclusion, exact
+  `event: pull_request` provenance, and URL;
 - all reviews needed to derive each reviewer's latest decision;
 - all review threads with `isResolved`, `isOutdated`, and comment context;
 - active issue number/state and exact closing references.
@@ -21,6 +22,11 @@ Pass the normalized snapshot through
 `scripts/pr-delivery-state.mjs`. Record its SHA-256 fingerprint. Missing pages,
 cursors, malformed identities, an unknown state, duplicate check identity, or a
 head mismatch is `unverifiable`; never infer clean delivery.
+
+Do not synthesize a missing event. A commit status without observable event
+provenance is not check evidence; cover an automated reviewer through the fully
+paged review/thread graph and live merge state instead. Every declared PR-only
+check name must appear exactly in the admitted check set.
 
 ## Loop Constants
 

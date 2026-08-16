@@ -75,7 +75,7 @@ function normalizeSnapshot(snapshot, options, gaps) {
   };
   const checks = Array.isArray(snapshot?.checks) ? snapshot.checks.map((check) => ({
     name: text(check?.name),
-    event: text(check?.event) ?? 'pull_request',
+    event: text(check?.event),
     state: String(check?.state ?? check?.conclusion ?? '').toUpperCase(),
     required: check?.required === true,
     url: text(check?.url ?? check?.link),
@@ -135,9 +135,20 @@ function normalizeSnapshot(snapshot, options, gaps) {
       gaps.push('check identity or state is invalid');
       continue;
     }
+    if (check.event !== 'pull_request') {
+      gaps.push(`check ${check.name} must have exact pull_request event provenance`);
+    }
     const key = `${check.name}\0${check.event}`;
     if (checkKeys.has(key)) gaps.push(`duplicate check identity: ${check.name} (${check.event})`);
     checkKeys.add(key);
+  }
+  const observedPrCheckNames = new Set(checks
+    .filter((check) => check.event === 'pull_request')
+    .map((check) => check.name));
+  for (const declaredName of declaredPrOnlyChecks) {
+    if (!observedPrCheckNames.has(declaredName)) {
+      gaps.push(`declared PR-only check was not returned: ${declaredName}`);
+    }
   }
   for (const review of reviews) {
     if (!review.author || !REVIEW_STATES.has(review.state)) gaps.push('review identity or state is invalid');

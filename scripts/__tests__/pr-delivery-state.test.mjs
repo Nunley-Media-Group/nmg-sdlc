@@ -57,11 +57,33 @@ describe('exact-head PR delivery state', () => {
   });
 
   test('distinguishes pending checks, failures, reviews, threads, and mergeability', () => {
-    expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', state: 'PENDING' }] }), { issueNumber: 177 }).status).toBe('pending');
-    expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', state: 'FAILURE' }] }), { issueNumber: 177 }).status).toBe('remediate');
+    expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', event: 'pull_request', state: 'PENDING' }] }), { issueNumber: 177 }).status).toBe('pending');
+    expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', event: 'pull_request', state: 'FAILURE' }] }), { issueNumber: 177 }).status).toBe('remediate');
     expect(classifyPrDeliveryState(snapshot({ reviews: [{ id: 'R2', author: 'reviewer', state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T13:00:00Z' }] }), { issueNumber: 177 }).reasonCode).toBe('changes_requested');
     expect(classifyPrDeliveryState(snapshot({ threads: [{ id: 'T2', isResolved: false, isOutdated: false }] }), { issueNumber: 177 }).reasonCode).toBe('review_threads_unresolved');
     expect(classifyPrDeliveryState(snapshot({ pullRequest: { mergeStateStatus: 'BEHIND' } }), { issueNumber: 177 }).reasonCode).toBe('mergeability_defect');
+  });
+
+  test.each([
+    ['missing', undefined],
+    ['non-PR', 'push'],
+  ])('rejects %s check-event provenance', (_name, event) => {
+    const result = classifyPrDeliveryState(snapshot({
+      checks: [{ name: 'test', event, state: 'SUCCESS' }],
+    }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
+    expect(result.gaps.join('\n')).toContain('exact pull_request event provenance');
+  });
+
+  test('rejects an absent declared check even when an unrelated check was returned', () => {
+    const result = classifyPrDeliveryState(snapshot({
+      checks: [{ name: 'unrelated', event: 'pull_request', state: 'SUCCESS' }],
+      declaredPrOnlyChecks: ['test'],
+    }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
+    expect(result.gaps).toContain('declared PR-only check was not returned: test');
   });
 
   test('requires merged PR proof and child closure before completion', () => {
