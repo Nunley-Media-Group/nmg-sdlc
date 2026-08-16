@@ -45,11 +45,11 @@ Otherwise, discover available issues.
 
 Read `references/milestone-selection.md` when no argument was supplied — the reference covers viable-milestone enumeration, the `request_user_input` milestone gate, and empty-result handling.
 
-After the raw candidate set is produced, proceed to Step 1a before presentation.
+After the initial candidate window is produced, proceed to Step 1a before presentation. Treat that window as provisional: `references/milestone-selection.md` owns bounded expansion after readiness and Project-completion filtering.
 
 ## Step 1a: Dependency Resolution
 
-Filter out blocked issues and topologically order the remainder so genuine prerequisites appear before their descendants. Apply `../../references/epic-relationships.md` before blocked filtering: preserve confirmed coordination-epic identity, but exclude those pairs from blockers, blocked counts, and topological in-degree. Emit a session note reporting the filtered count before presentation, even when the count is zero.
+Filter out blocked issues and topologically order the remainder so genuine prerequisites appear before their descendants. Apply `../../references/epic-relationships.md` before blocked filtering: preserve confirmed coordination-epic identity, but exclude those pairs from blockers, blocked counts, and topological in-degree. Apply the automatic Project-completion predicate from `references/milestone-selection.md` after relationship and deliverable classification. If fewer than four selectable candidates remain, follow that reference's bounded expansion loop and reevaluate the expanded ordered prefix from fresh evidence before presentation.
 
 ### Fetch and Hydrate Relationship Metadata
 
@@ -86,7 +86,7 @@ issue(number: N) {
 
 Page every candidate and native-parent `subIssues` connection and every candidate/native-parent `labels` connection by `endCursor` until `hasNextPage` is false, with a maximum of 10 follow-up pages per connection. A nested native-parent response is covered only after its body, labels, and complete `subIssues` set have been hydrated into the same parent record. Merge each page before normalization. If a cursor is absent, a follow-up request fails, a response is malformed, or the bound is exceeded, mark the affected candidate `unverifiable` with exact connection/issue evidence and stop before presentation; never treat a partial native set as complete.
 
-Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view #T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference.
+Normalize native, body, and `epic-child-of-N` label signals into deduplicated `(child, target)` pairs only after required pages are complete. After parsing the bodies and child labels, hydrate every unique target not already covered by the candidate/native-parent response, including targets outside the candidate pool. Use a second bounded GraphQL batch or supported `gh issue view T --json number,state,labels` calls, and fully page any GraphQL label connection. Derive the complete shared result per the reference. During bounded expansion, fail-closed classification applies to the evaluated prefix needed to fill the four-choice target. Merely batch-fetching metadata for trailing issues does not make them evaluated candidates once the target is satisfied.
 
 Also parse exact `Requires deliverable` records before applying the target bound. Add every declared owner to the hydration set. Query the live repository default branch and fully page each owner's `closedByPullRequestsReferences` with PR number, state, merge time, base name, and merge-commit OID. Body-only fallback cannot prove merged deliverable availability: a candidate with structured requirements becomes `unverifiable` when this GraphQL evidence is unavailable.
 
@@ -114,6 +114,12 @@ Native link normalization happens before classification: a `parent` entry on iss
 ### Blocked Filter
 
 An issue `I` is **blocked** and dropped from the candidate set if any confirmed execution dependency in `parentsOf[I]` is not `CLOSED`. A known target whose metadata is missing or failed remains in `parentsOf[I]` as unresolved and emits the shared actionable warning naming the child and target. A confirmed `role = epic-child` parent never blocks, even while the epic is open.
+
+### Automatic Project-Completion Filter
+
+After blocked filtering, drop an unblocked candidate from automatic discovery when `references/milestone-selection.md` derives `projectCompleted = true`. Do not count it as dependency-blocked and do not apply this filter to an issue number supplied as a command argument or through manual entry. Project status is workflow evidence, not relationship evidence: it never satisfies an execution dependency or structured deliverable requirement.
+
+When fewer than four candidates remain after both filters, expand the fetch window in ten-issue increments up to 100. Reevaluate issues from fresh evidence in issue-list order and stop the evaluated prefix as soon as four selectable candidates exist. Then topologically order only that evaluated prefix. Any failure encountered before the fourth verified candidate remains blocking; unneeded trailing records do not participate.
 
 ### Topological Sort (Kahn's algorithm)
 
@@ -146,19 +152,31 @@ The body-only fallback still hydrates every known body target. A target lookup f
 
 ### Session Note
 
-Before presenting the issue selection, emit exactly one line to stdout:
+Track whether dependency resolution completed through the primary or body-only path. When it completed, emit the blocked-count line exactly once before presenting the issue selection:
 
-```
+```text
 Filtered N blocked issues from selection.
 ```
 
-Emit the line even when `N == 0` — it confirms dependency resolution ran.
+Emit the line even when `N == 0` — it confirms dependency resolution ran. When dependency resolution was skipped because both metadata paths failed, preserve the existing fallback warning, do not emit a blocked count, and emit this distinct status exactly once:
 
-The topologically ordered, blocked-filtered list is what Step 2 presents.
+```text
+Dependency blocking status unavailable.
+```
+
+Then emit exactly one Project-completion line:
+
+```text
+Excluded M open issues already marked Done from automatic discovery.
+```
+
+Emit the line even when `M == 0`. Count only unblocked candidates excluded by the automatic Project-completion predicate so the two notes do not double-count one issue.
+
+The topologically ordered list remaining after blocked and automatic Project-completion filtering is what Step 2 presents.
 
 ## Step 2: Present Issue Selection
 
-Use a `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically ordered, blocked-filtered list (not the raw Step 1 fetch).
+Use a `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically ordered list after both blocked and automatic Project-completion filtering (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none.
@@ -169,7 +187,9 @@ If the user selects "Enter issue number manually", they type their issue number 
 
 ## Step 3: Confirm Selection
 
-Read the full issue details via `gh issue view #N` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, and milestone.
+Read the full issue details via `gh issue view N --json number,title,body,labels,milestone,projectItems` and present a brief summary: title and number, user story (if present), number of acceptance criteria, labels, milestone, and readable Project statuses.
+
+If the issue came from an explicit command argument or manual entry, at least one readable Project status exists, and every readable Project status is `Done` case-insensitively, state that confirming the start will move completed Project work back to In Progress. Empty or entirely unreadable Project statuses do not trigger this warning. Do not silently reject or auto-confirm the explicit selection.
 
 Ask through `request_user_input`: "Ready to start working on this issue?" If the user says no, return to Step 2.
 

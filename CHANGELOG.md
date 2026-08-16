@@ -10,6 +10,12 @@ Major-version bumps are reserved for explicit maintenance milestones and require
 
 ## [Unreleased]
 
+## [2.0.10] - 2026-08-16
+
+### Fixed
+
+- Fixed issue #175 by backfilling bare `$nmg-sdlc:start-issue` discovery after readiness filtering, excluding confirmed all-`Done` Project items from automatic shortlists, and preserving explicit issue-number recovery with a reopen warning.
+
 ## [2.0.9] - 2026-08-14
 
 ### Fixed
