@@ -60,13 +60,17 @@ describe('epic lifecycle repair planner', () => {
     const plan = buildEpicLifecycleRepairPlan(evidence({
       specAuthority: { status: 'repair_required', reasonCode: 'legacy_cumulative_epic_spec', legacySpecPath: 'specs/feature-legacy' },
       legacyOwnership: { status: 'ambiguous' },
-      completion: { status: 'repair_required', gaps: ['legacy ownership'] },
+      completion: { status: 'eligible', gaps: [] },
+      projectItems: [{
+        itemId: 'ITEM', projectId: 'PROJECT', statusFieldId: 'STATUS', statusName: 'Backlog',
+        doneOptions: [{ id: 'DONE', name: 'Done' }], inProgressOptions: [{ id: 'PROGRESS', name: 'In Progress' }],
+      }],
     }));
     expect(plan.status).toBe('preserved_ambiguous');
     expect(plan.findings).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'ambiguous_legacy_ownership_preserved', recovery: expect.stringContaining('draft or select the missing child') }),
     ]));
-    expect(plan.actions.some((action) => action.kind === 'split_legacy_spec')).toBe(false);
+    expect(plan.actions).toEqual([]);
   });
 
   test('accepts only unique exact legacy identifier transfers', () => {

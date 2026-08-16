@@ -312,7 +312,7 @@ export function buildEpicLifecycleRepairPlan(input) {
 
   if (gaps.length > 0) return proposalResult(evidence, 'unverifiable', 'repair_proposal_ambiguous', [], findings, gaps);
   if (findings.some((finding) => finding.kind.includes('ambiguous') || finding.kind.includes('unverifiable'))) {
-    return proposalResult(evidence, 'preserved_ambiguous', 'manual_decision_required', actions, findings, []);
+    return proposalResult(evidence, 'preserved_ambiguous', 'manual_decision_required', [], findings, []);
   }
   return actions.length > 0
     ? proposalResult(evidence, 'repair_proposed', 'exact_epic_repair_available', actions, findings, [])
