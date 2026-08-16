@@ -15,8 +15,8 @@ For each confirmed epic `E`, fully page and record:
 - every child's relevant execution/dependency state;
 - default commit plus full Git tree OIDs for the aggregate, child packages, and
   any legacy cumulative source;
-- `epic-spec-authority.mjs --epic E --source <default-commit>
-  --native-children <complete-list>` output;
+- `epic-spec-authority.mjs --project <path> --epic E
+  --source <default-commit> --native-children <complete-list> --json` output;
 - `classifyEpicCompletion()` output;
 - every Project item/status field/current value and exact Done/In Progress
   option IDs;

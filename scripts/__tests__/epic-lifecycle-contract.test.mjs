@@ -99,6 +99,8 @@ describe('coordination-only epic lifecycle parity (issue #177)', () => {
     const upgrade = read('skills/upgrade-project/SKILL.md');
     const recovery = read('skills/upgrade-project/references/epic-lifecycle-recovery.md');
     const combined = `${upgrade}\n${recovery}`;
+    expect(recovery).toContain('epic-spec-authority.mjs --project <path> --epic E');
+    expect(recovery).toContain('--native-children <complete-list> --json');
     expect(combined).toMatch(/read-only.*audit/is);
     expect(combined).toContain('One epic approval never covers another');
     expect(combined).toMatch(/fresh.*digest/is);
