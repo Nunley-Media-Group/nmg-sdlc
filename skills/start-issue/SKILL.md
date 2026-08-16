@@ -172,7 +172,7 @@ The topologically ordered list remaining after blocked and automatic Project-com
 
 ## Step 2: Present Issue Selection
 
-Use a `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically ordered, blocked-filtered list (not the raw Step 1 fetch).
+Use a `request_user_input` gate to present up to 4 issues as options, drawn from Step 1a's topologically ordered list after both blocked and automatic Project-completion filtering (not the raw Step 1 fetch).
 
 - Each option label: `#N: Title`
 - Each option description: labels (comma-separated), or "No labels" if none.
