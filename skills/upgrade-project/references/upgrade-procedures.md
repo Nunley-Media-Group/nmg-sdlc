@@ -91,15 +91,10 @@ Follow `../../references/issue-form.md`:
 ## Apply V2 Runner Artifact Cleanup
 
 Apply only the exact deletion batch accepted in the final plan.
-
-### Exact file deletion
-
-For each approved path among `sdlc-config.json`, `.codex/unattended-mode`, and `.codex/sdlc-state.json`:
+For each approved path among `sdlc-config.json`, the legacy v2 runner indicator file, and the legacy v2 runner state file:
 
 1. Re-check path metadata with `lstat` semantics; do not follow symlinks.
 2. If absent, record `already clean`.
-3. If it is no longer a regular file, preserve it as unmanaged and report the object type.
-4. Delete only that exact regular file.
 5. Re-check absence. On failure, record `failed (<reason>)` for that path and do not retry with recursive or broader deletion.
 
 Never read any of the three file contents. In particular, never inspect, print, execute, kill, or signal anything referenced by `.codex/sdlc-state.json`.

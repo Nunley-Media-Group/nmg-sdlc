@@ -5,7 +5,7 @@ description: "Review changed files for behavior-preserving simplification opport
 
 # Simplify
 
-Run a focused cleanup pass over changed code. Preserve behavior, avoid scope changes, and leave architecture, security, and spec verification to `$nmg-sdlc:verify-code`.
+Run a focused cleanup pass over changed code. Preserve behavior, avoid scope changes, and leave architecture, security, and spec verification to verify-code.
 
 ## Workflow
 
@@ -58,7 +58,7 @@ Skip any efficiency change that would require new dependencies, alter ordering g
 
 Run the review inline by default.
 
-Use Codex `explorer` subagents only when the user explicitly authorizes delegation. When authorized, spawn three bounded read-only explorers in parallel:
+Use explorer subagents only when the user explicitly authorizes delegation. When authorized, spawn three bounded read-only explorers in parallel:
 
 | Explorer | Scope | Output |
 |----------|-------|--------|
@@ -77,7 +77,7 @@ For each finding:
 1. Apply the smallest behavior-preserving cleanup that clearly improves the code.
 2. Do not change feature behavior, public contracts, user-visible copy, persistence formats, permissions, or test expectations unless the user explicitly requested it.
 3. Skip false positives, risky refactors, and changes whose value is not clear.
-4. Use `apply_patch` for manual edits and follow the repository's existing style.
+4. Use edit or write tools for changes and follow the repository's existing style.
 
 After edits, run the narrowest relevant validation command when one is obvious from the changed files or project steering. If validation cannot be run, state why.
 
@@ -95,6 +95,7 @@ If no worthwhile cleanup is found, say the scoped files were already clean.
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
-                                                                                              ▲ You are here
+/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
 ```
+
+`simplify` is bundled and runs in-process inside write-code after tasks complete, and may be re-invoked after fixes in verify-code.

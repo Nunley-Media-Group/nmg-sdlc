@@ -1,81 +1,22 @@
-# Version-Bump Computation and Artifact Updates
+# Version Bump (v3 automatic)
 
-**Consumed by**: `open-pr` Steps 2 (classify bump), 3 (apply bump to versioned files), and delivery preparation.
+**Consumed by**: open-pr.
 
-Steps 2 and 3 take the current version from `VERSION`, decide the bump type from the issue's labels (adjusted for epic-child sibling state and the explicit `--major` override), and write the new version into every file listed in `steering/tech.md`'s versioning table. Both steps are skipped entirely when no `VERSION` file exists at the project root.
+No --major flag, no user question. Bump classification from steering/tech.md ## Versioning matrix only (label match → type, unmatched → minor, spike label → skip entirely).
 
-See `../../references/versioning.md` for the invariants this reference operationalises (single-source-of-truth, major-bumps-are-manual, dual-file update, CHANGELOG convention, epic-child downgrade rule).
+Compute new version from VERSION file.
 
-## Spike handling (no bump)
+Apply updates to:
+- VERSION
+- package.json (version field)
+- .claude-plugin/plugin.json (version)
+- CHANGELOG.md [Unreleased] → new versioned section
+- every file declared in tech.md versioned-files table (json/toml/plain)
 
-Before Step 2 begins, check the issue's labels:
+Stage together with delivery changes. One commit carries the bump when needed.
 
-```bash
-gh issue view #N --json labels --jq '.labels[].name'
-```
+BREAKING detection + approved major note check happens in caller (open-pr) before bump; produces major_bump_required failed handoff when violated.
 
-If any label is `spike`, skip Steps 2 and 3 entirely — do NOT read `VERSION`, write `CHANGELOG.md`, write `.codex-plugin/plugin.json`, or create a `chore: bump version to ...` commit.
+No sibling/epic downgrade logic (deleted in v3).
 
-Record `spike = true` so Step 4 (Generate PR Content) omits the `Version` line and adds `Type: Spike research (no version bump)` in its place.
-
-> Rationale: spike PRs ship research (the ADR at `docs/decisions/YYYY-MM-DD-<slug>-gap-analysis.md`), not a release. The `spike → skip` row in `steering/tech.md` § Version Bump Classification is the canonical declaration.
-
-## Step 2: Determine version bump
-
-1. **Read the current version.** Read `VERSION` and verify it is valid semver (`X.Y.Z`). If not, warn and skip Steps 2 and 3.
-2. **Read issue labels.** `gh issue view #N --json labels --jq '.labels[].name'`.
-3. **Read the classification matrix from `steering/tech.md`.** Find `## Versioning` → `### Version Bump Classification`. Parse the table rows (Label → Bump Type) and match the issue's labels case-insensitively, stripping backticks. Use the Bump Type from the first matching row. Fallback: subsection missing or no label matches → default to **minor**.
-4. **Calculate the new version string.** If `major_requested` (Step 0) is true, bump **major** (`X.Y.Z → (X+1).0.0`) regardless of the classified type — this is the manual opt-in path. Otherwise use the classified bump type (patch increments Z; minor increments Y and resets Z).
-
-### 4a. Sibling-aware downgrade for epic children
-
-Before presenting to the user, determine whether the current issue is an epic child and whether the bump should be downgraded to a patch:
-
-1. Read `../../references/epic-relationships.md`. Parse the current issue's supported label/body signals and query native parent/sub-issue data through GitHub GraphQL; never request `parent` through `gh issue view --json`.
-2. Hydrate each deduplicated target and derive the shared result. For `ordinary` or `epic`, skip to Step 5 with `siblingClass = 'non-epic'`. For `inconsistent`, `ambiguous`, or `unverifiable`, stop before version or PR mutation and report the pairs/signals/gaps. For `epic-child`, use `E = parentNumber` and report any `identity = legacy` repair recommendation.
-3. Read `../../references/canonical-umbrella-spec.md` and resolve the helper from the installed plugin root. Run `node <plugin-root>/scripts/umbrella-spec-status.mjs --project <project-root> --parent-issue E --json` against refreshed default-branch evidence. Continue only for `canonical` or `canonical_marker_lost` (and report marker loss); for `stranded_recoverable`, `divergent`, `ambiguous`, or `unverifiable`, stop before sibling classification, version artifacts, commits, pushes, or PR mutation with the exact `reasonCode`, path/tree/ref evidence, and gaps.
-4. Enumerate and page the parent's GraphQL `subIssues` to exhaustion as the authoritative set. An unconsumed page stops before version mutation. Parse the supported Child Issues checklist and derive `nativeOnly` and `checklistOnly`; report both discrepancy lists. If native discovery fails, retain checklist fallback for reporting only, classify coordination as `unverifiable`, and stop before version or PR mutation. Exclude the current issue only after successful native reconciliation.
-5. For each sibling, query `gh issue view #C --json state,closedByPullRequestsReferences`. Classify each sibling as **complete** when `state === 'CLOSED'` AND at least one entry in `closedByPullRequestsReferences` has `state === 'MERGED'` (or `mergedAt != null`); otherwise **incomplete**.
-6. **Downgrade rule:**
-   - Every sibling complete → this is the final child. Keep the classified bump (`siblingClass = 'final'`).
-   - At least one sibling incomplete → this is an intermediate child. Force `bump_type = 'patch'`, recompute the proposed version, and set `siblingClass = 'intermediate'`.
-7. **Epic-closure warning.** Also query `gh issue view #E --json state`. If the epic itself is `CLOSED` while the current child is `OPEN`, warn:
-   - Present a `request_user_input` gate to confirm before proceeding (`[1] Proceed anyway` / `[2] Abort — investigate epic closure`). These choices are exhaustive; a free-form `Other` answer is treated as abort guidance and the skill exits without creating the PR.
-
-Record `siblingClass` (one of `non-epic`, `intermediate`, `final`) and `epicParentNumber` (the resolved epic issue number, or null) for Step 3 and Step 4 use.
-
-### 5. Present to the user
-
-```
-question: "Version bump: {current} → {proposed} ({bump_type}). Accept or override?"
-options:
-  - "Accept {proposed}"
-  - "Patch ({current} → {patch_version})"
-  - "Minor ({current} → {minor_version})"
-  - "Major ({current} → {major_version})"
-```
-
-When `major_requested` is true, the displayed `{bump_type}` is `major`, `{proposed}` is the major-bumped version, and "Accept {proposed}" is pre-selected as the recommended answer — the developer can still choose Patch or Minor. When `major_requested` is false, the classified type (patch or minor) is the recommended answer. Major remains available as an override for developers who decide a major bump is warranted after seeing the prompt.
-
-## Step 3: Update version artifacts
-
-If Step 2 determined a version bump, update all version-related files before generating the PR content. If Step 2 was skipped (no `VERSION` file), skip Step 3 as well.
-
-1. **Update the `VERSION` file.** Write the new version string to `VERSION`.
-2. **Update `CHANGELOG.md`** if it exists:
-   - Find the `## [Unreleased]` heading.
-   - Insert a new version heading `## [{new_version}] - {YYYY-MM-DD}` immediately after it.
-   - Move all entries that were under `[Unreleased]` to under the new version heading.
-   - Leave the `[Unreleased]` section empty (just the heading with a blank line after it).
-   - **Partial-delivery note.** If `siblingClass === 'intermediate'`, append ` (partial delivery — see epic #{epicParentNumber})` to the primary bullet under the new version heading. The primary bullet is the first entry line; if there are multiple bullets, only the first receives the suffix. The note must NOT be added for `siblingClass === 'final'` or `non-epic`.
-3. **Update stack-specific files.** Read `steering/tech.md`'s `## Versioning` table and update each listed file:
-   - **JSON files** (e.g., `package.json`, `.codex-plugin/plugin.json`): use the dot-notation path to locate and update the version field.
-   - **TOML files** (e.g., `Cargo.toml`): use the dot-notation path to locate and update the version field.
-   - **Plain-text files**: replace the version string on the specified line (or the entire file content if no line is specified).
-   - Versioning section missing or table empty → only update `VERSION` and `CHANGELOG.md`.
-4. **Stage the version bump for delivery.** Stage the version-related file changes so `open-pr` can include them in the delivery commit:
-   ```
-   git add VERSION CHANGELOG.md [stack-specific files...]
-   ```
-
-Do not create a standalone version commit from this reference. `references/preflight.md` decides whether to combine the version artifacts with implementation changes or create a bump-only `chore: bump version to {new_version}` commit when no other staged files exist.
+If no VERSION file, skip bump and omit Version section from PR body.

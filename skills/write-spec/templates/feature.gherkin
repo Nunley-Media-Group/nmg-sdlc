@@ -1,20 +1,21 @@
 # Gherkin Feature Template
 
-Use this template only for executable feature/bug child acceptance criteria. Epic aggregate outcomes never become Gherkin scenarios.
+Use this template for executable feature or bug acceptance criteria. Spikes have no Gherkin.
 
-Reference `tech.md` for:
-- BDD framework (e.g., jest-cucumber, pytest-bdd, SpecFlow, flutter_gherkin)
-- Feature file location (e.g., `tests/features/*.feature`)
-- Step definition patterns and conventions
+Reference `tech.md` for the project's BDD framework and feature-file location.
 
 ---
 
 ```gherkin
+**Issue**: #[number]
+**Date**: [YYYY-MM-DD]
+**Status**: Draft | Approved
+**Author**: [name]
+**Related Spec**: specs/{M}-{slug}/
+
 # File: {test-layer}/features/[feature-name].feature
 #
-# Generated from: specs/[feature-name]/requirements.md
-# Issue: #[number]
-
+# Generated from: specs/{N}-{slug}/requirements.md
 Feature: [Feature Name]
   As a [user type from user story]
   I want [action from user story]

@@ -48,21 +48,23 @@ The form must capture these sections in the resulting GitHub issue body:
 | Field | Required |
 |-------|----------|
 | Issue Type | Yes |
-| User Story, Bug/Spike Context, or Epic Goal | Yes |
+| User Story or Bug/Spike Context | Yes |
 | Current State / Background | Yes |
-| Acceptance Criteria or Epic Outcomes | Yes |
-| Functional Requirements or Epic Child Plan | Yes |
+| Acceptance Criteria | Yes |
+| Functional Requirements | Yes |
 | Scope Boundaries | Yes |
 | Priority | Yes |
 | Additional Notes | No |
 
-Executable feature/bug acceptance guidance must use Given/When/Then examples so `$nmg-sdlc:write-spec` can translate each criterion into a Gherkin scenario. Epic guidance must instead request cross-child outcomes and topology and state that an epic is coordination-only: it cannot be started or own executable acceptance criteria, requirements, tasks, or Gherkin. The child-plan field captures proposed children and genuine sibling/external prerequisites; confirmed epic membership itself is informational and never an execution dependency.
+Issue Type options are exactly `Feature / Enhancement`, `Bug`, and `Spike`. There is no Epic option.
+
+Executable feature/bug acceptance guidance must use Given/When/Then examples so `/plan /skill:write-spec #N` can translate each criterion into a Gherkin scenario. There is no epic type, epic markdown block, EO outcome list, or child-plan table.
 
 ## Lifecycle Behavior
 
 - `onboard-project` applies the form after steering exists because the form is a managed setup artifact.
 - `upgrade-project` presents missing or differing issue-form findings in its normal non-destructive managed-artifact batch.
-- The canonical form tells contributors that epic children follow the normal dependency graph, the first child creates aggregate/child spec authority, terminal delivery includes exact-head merge and closure, and eligible epics close automatically.
+- The canonical form tells contributors to groom with `/plan /skill:draft-issue` and spec with `/plan /skill:write-spec #N`. Terminal delivery is `/skill:execute` through exact-head merge and issue closure.
 - Differing files at the approved issue-form path are replaced after approval and reported as `overwritten`.
 - Record every created, overwritten, already-present, or skipped outcome in the final summary.
 

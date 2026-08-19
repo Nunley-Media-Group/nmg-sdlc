@@ -1,74 +1,270 @@
 {
-  "generated_at": "2026-08-16T19:16:27.646Z",
+  "generated_at": "2026-08-19T23:44:36.802Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
+      "id": "bb7b8d0fa8af",
+      "source_before": "agents/architecture-reviewer.md:10",
+      "normalized": "you are the nmg-sdlc verify worker.",
+      "destination": "agents/architecture-reviewer.md:10"
+    },
+    {
+      "id": "61e30b9494de",
+      "source_before": "agents/architecture-reviewer.md:12",
+      "normalized": "read skill://verify-code and execute it for the given #n.",
+      "destination": "agents/architecture-reviewer.md:12"
+    },
+    {
+      "id": "e9e35b59469c",
+      "source_before": "agents/architecture-reviewer.md:13",
+      "normalized": "run the architecture review inline in this session.",
+      "destination": "agents/architecture-reviewer.md:13"
+    },
+    {
+      "id": "dcaaf17f3f15",
+      "source_before": "agents/architecture-reviewer.md:14",
+      "normalized": "write specs/{n}-{slug}/verification-report.md and comment on the issue.",
+      "destination": "agents/architecture-reviewer.md:14"
+    },
+    {
+      "id": "f0f70126e95d",
+      "source_before": "agents/architecture-reviewer.md:15",
+      "normalized": "never call ask or any nmg-pi input tool.",
+      "destination": "agents/architecture-reviewer.md:15",
+      "additional_destinations": [
+        "agents/deliverer.md:14",
+        "agents/spec-implementer.md:14",
+        "agents/spike-researcher.md:13",
+        "agents/starter.md:13"
+      ]
+    },
+    {
+      "id": "8341e996950a",
+      "source_before": "agents/architecture-reviewer.md:16",
+      "normalized": "write .omp/sdlc/handoffs/<n>-verify.json.",
+      "destination": "agents/architecture-reviewer.md:16"
+    },
+    {
+      "id": "33546cebc481",
+      "source_before": "agents/architecture-reviewer.md:17",
+      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-verify.json",
+      "destination": "agents/architecture-reviewer.md:17"
+    },
+    {
+      "id": "81436d8b192b",
+      "source_before": "agents/architecture-reviewer.md:18",
+      "normalized": "stop.",
+      "destination": "agents/architecture-reviewer.md:18",
+      "additional_destinations": [
+        "agents/deliverer.md:18",
+        "agents/spec-implementer.md:17",
+        "agents/starter.md:16"
+      ]
+    },
+    {
+      "id": "529e6b386cf2",
+      "source_before": "agents/architecture-reviewer.md:20",
+      "normalized": "execute does not use the omp task tool for this step.",
+      "destination": "agents/architecture-reviewer.md:20",
+      "additional_destinations": [
+        "agents/deliverer.md:20",
+        "agents/spec-implementer.md:19",
+        "agents/starter.md:18"
+      ]
+    },
+    {
+      "id": "ee9ee8e5d3d5",
+      "source_before": "agents/deliverer.md:9",
+      "normalized": "you are the nmg-sdlc deliver worker.",
+      "destination": "agents/deliverer.md:9"
+    },
+    {
+      "id": "4361b2e497c4",
+      "source_before": "agents/deliverer.md:11",
+      "normalized": "read skill://open-pr and execute it for the given #n.",
+      "destination": "agents/deliverer.md:11"
+    },
+    {
+      "id": "f19f8ba8a528",
+      "source_before": "agents/deliverer.md:12",
+      "normalized": "bot review threads (__typename: bot or login coderabbitai) are fixed in this sam",
+      "destination": "agents/deliverer.md:12"
+    },
+    {
+      "id": "644e40a64928",
+      "source_before": "agents/deliverer.md:13",
+      "normalized": "human-reviewer threads fail the handoff with intervention: true and reasoncode: ",
+      "destination": "agents/deliverer.md:13"
+    },
+    {
+      "id": "30ae72ca36f8",
+      "source_before": "agents/deliverer.md:15",
+      "normalized": "write .omp/sdlc/handoffs/<n>-deliver.json.",
+      "destination": "agents/deliverer.md:15"
+    },
+    {
+      "id": "7d0fa4396201",
+      "source_before": "agents/deliverer.md:16",
+      "normalized": "success handoff only after merged + issue closed.",
+      "destination": "agents/deliverer.md:16"
+    },
+    {
+      "id": "78950a60a30a",
+      "source_before": "agents/deliverer.md:17",
+      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-deliver.json",
+      "destination": "agents/deliverer.md:17"
+    },
+    {
+      "id": "a1cb491cbd52",
+      "source_before": "agents/spec-implementer.md:9",
+      "normalized": "you are the nmg-sdlc implement worker.",
+      "destination": "agents/spec-implementer.md:9"
+    },
+    {
+      "id": "96261dea0cd6",
+      "source_before": "agents/spec-implementer.md:11",
+      "normalized": "read skill://write-code and execute it for the given #n.",
+      "destination": "agents/spec-implementer.md:11"
+    },
+    {
+      "id": "f5c491aadb31",
+      "source_before": "agents/spec-implementer.md:12",
+      "normalized": "bundle skill://simplify in this same session after implementation.",
+      "destination": "agents/spec-implementer.md:12"
+    },
+    {
+      "id": "58f559899faa",
+      "source_before": "agents/spec-implementer.md:13",
+      "normalized": "skill-bundled paths go through /skill:skill-creator. if that skill is missing, f",
+      "destination": "agents/spec-implementer.md:13"
+    },
+    {
+      "id": "f6dbf1ac049c",
+      "source_before": "agents/spec-implementer.md:15",
+      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
+      "destination": "agents/spec-implementer.md:15"
+    },
+    {
+      "id": "25b7f14bd381",
+      "source_before": "agents/spec-implementer.md:16",
+      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
+      "destination": "agents/spec-implementer.md:16"
+    },
+    {
+      "id": "1a1e25e03a47",
+      "source_before": "agents/spike-researcher.md:9",
+      "normalized": "used only when write-spec runs interactively on a spike. execute does not launch",
+      "destination": "agents/spike-researcher.md:9"
+    },
+    {
+      "id": "f8e7e01b29b8",
+      "source_before": "agents/spike-researcher.md:11",
+      "normalized": "read skill://write-spec for the given #n.",
+      "destination": "agents/spike-researcher.md:11"
+    },
+    {
+      "id": "fbe3f6d0b92c",
+      "source_before": "agents/spike-researcher.md:12",
+      "normalized": "produce the adr path and body under docs/decisions/.",
+      "destination": "agents/spike-researcher.md:12"
+    },
+    {
+      "id": "44f82d7dc3bc",
+      "source_before": "agents/spike-researcher.md:14",
+      "normalized": "stop after the adr plan payload is complete.",
+      "destination": "agents/spike-researcher.md:14"
+    },
+    {
+      "id": "04683d5d6833",
+      "source_before": "agents/starter.md:10",
+      "normalized": "you are the nmg-sdlc start worker.",
+      "destination": "agents/starter.md:10"
+    },
+    {
+      "id": "94240d1bec5c",
+      "source_before": "agents/starter.md:12",
+      "normalized": "read skill://start-issue and execute it for the given #n.",
+      "destination": "agents/starter.md:12"
+    },
+    {
+      "id": "0a87ada23165",
+      "source_before": "agents/starter.md:14",
+      "normalized": "write .omp/sdlc/handoffs/<n>-start.json.",
+      "destination": "agents/starter.md:14"
+    },
+    {
+      "id": "b6b19afdb9ca",
+      "source_before": "agents/starter.md:15",
+      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-start.json",
+      "destination": "agents/starter.md:15"
+    },
+    {
       "id": "cbc05ff950ed",
-      "source_before": "references/contribution-gate.md:370",
+      "source_before": "references/contribution-gate.md:359",
       "normalized": "classify the approved workflow path before writing:",
-      "destination": "references/contribution-gate.md:370"
+      "destination": "references/contribution-gate.md:359"
     },
     {
       "id": "5170ccb2e3ab",
-      "source_before": "references/contribution-gate.md:372",
+      "source_before": "references/contribution-gate.md:361",
       "normalized": "| state | detection | action | status |",
-      "destination": "references/contribution-gate.md:372",
+      "destination": "references/contribution-gate.md:361",
       "additional_destinations": [
         "references/issue-form.md:21"
       ]
     },
     {
       "id": "77e0eb1f3c00",
-      "source_before": "references/contribution-gate.md:374",
+      "source_before": "references/contribution-gate.md:363",
       "normalized": "| missing workflow | approved path absent | create .github/workflows/ and write ",
-      "destination": "references/contribution-gate.md:374"
+      "destination": "references/contribution-gate.md:363"
     },
     {
       "id": "315a64db3b91",
-      "source_before": "references/contribution-gate.md:375",
+      "source_before": "references/contribution-gate.md:364",
       "normalized": "| current managed workflow | marker present and version equals current | leave u",
-      "destination": "references/contribution-gate.md:375"
+      "destination": "references/contribution-gate.md:364"
     },
     {
       "id": "2192e94d4b53",
-      "source_before": "references/contribution-gate.md:376",
+      "source_before": "references/contribution-gate.md:365",
       "normalized": "| outdated managed workflow | marker present and numeric version lower than curr",
-      "destination": "references/contribution-gate.md:376"
+      "destination": "references/contribution-gate.md:365"
     },
     {
       "id": "995606a2fd61",
-      "source_before": "references/contribution-gate.md:377",
+      "source_before": "references/contribution-gate.md:366",
       "normalized": "| future managed workflow | marker present and numeric version higher than curre",
-      "destination": "references/contribution-gate.md:377"
+      "destination": "references/contribution-gate.md:366"
     },
     {
       "id": "f54c5e1e9959",
-      "source_before": "references/contribution-gate.md:378",
+      "source_before": "references/contribution-gate.md:367",
       "normalized": "| unmanaged path collision | approved path exists without marker | leave unchang",
-      "destination": "references/contribution-gate.md:378"
+      "destination": "references/contribution-gate.md:367"
     },
     {
       "id": "fc2fa1c0b2ca",
-      "source_before": "references/contribution-gate.md:380",
+      "source_before": "references/contribution-gate.md:369",
       "normalized": "preserve every unrelated workflow under .github/workflows/ byte-for-byte. do not",
-      "destination": "references/contribution-gate.md:380"
+      "destination": "references/contribution-gate.md:369"
     },
     {
       "id": "44f16e69f709",
-      "source_before": "references/contribution-gate.md:391",
+      "source_before": "references/contribution-gate.md:380",
       "normalized": "return this stable result shape to the calling skill:",
-      "destination": "references/contribution-gate.md:391",
+      "destination": "references/contribution-gate.md:380",
       "additional_destinations": [
-        "references/issue-form.md:71"
+        "references/issue-form.md:73"
       ]
     },
     {
       "id": "40a524f34bf4",
-      "source_before": "references/contribution-gate.md:400",
+      "source_before": "references/contribution-gate.md:389",
       "normalized": "use these exact status words so summaries and tests can compare results consiste",
-      "destination": "references/contribution-gate.md:400",
+      "destination": "references/contribution-gate.md:389",
       "additional_destinations": [
-        "references/issue-form.md:80"
+        "references/issue-form.md:82"
       ]
     },
     {
@@ -114,1682 +310,16 @@
       "destination": "references/issue-form.md:29"
     },
     {
-      "id": "9bbb4a637fda",
-      "source_before": "references/prompt-config.md:23",
-      "normalized": "before a manual-mode decision, menu, review gate, or clarification prompt calls ",
-      "destination": "references/prompt-config.md:23"
+      "id": "917025c6bea1",
+      "source_before": "skills/draft-issue/references/interview-depth.md:29",
+      "normalized": "interviewanswers",
+      "destination": "skills/draft-issue/references/interview-depth.md:29"
     },
     {
-      "id": "1f0fbe9e1181",
-      "source_before": "references/prompt-config.md:25",
-      "normalized": "run node scripts/ensure-codex-prompt-config.mjs from the plugin root.",
-      "destination": "references/prompt-config.md:25"
-    },
-    {
-      "id": "0c62961fc7af",
-      "source_before": "references/prompt-config.md:26",
-      "normalized": "read the json result from stdout.",
-      "destination": "references/prompt-config.md:26"
-    },
-    {
-      "id": "46c9ed13a1db",
-      "source_before": "references/prompt-config.md:27",
-      "normalized": "if changed is false, continue to the original requestuserinput gate.",
-      "destination": "references/prompt-config.md:27"
-    },
-    {
-      "id": "2b8c066b3f61",
-      "source_before": "references/prompt-config.md:28",
-      "normalized": "if changed is true, stop before the original gate and tell the user the listed s",
-      "destination": "references/prompt-config.md:28"
-    },
-    {
-      "id": "1f57e708e299",
-      "source_before": "references/prompt-config.md:29",
-      "normalized": "if the helper exits non-zero, stop before the original gate and report the faili",
-      "destination": "references/prompt-config.md:29"
-    },
-    {
-      "id": "3f9c4e3b0660",
-      "source_before": "references/prompt-config.md:31",
-      "normalized": "changed-config runs are setup runs, not normal workflow continuations. do not pr",
-      "destination": "references/prompt-config.md:31"
-    },
-    {
-      "id": "c8f8ccd08d5c",
-      "source_before": "references/prompt-config.md:35",
-      "normalized": "successful helper output is deterministic json:",
-      "destination": "references/prompt-config.md:35"
-    },
-    {
-      "id": "740f6d162016",
-      "source_before": "references/prompt-config.md:49",
-      "normalized": "user-facing restart message:",
-      "destination": "references/prompt-config.md:49"
-    },
-    {
-      "id": "4c2aee7049c2",
-      "source_before": "skills/address-pr-comments/SKILL.md:31",
-      "normalized": "determine the target pr and confirm the workspace is ready. failing any predicat",
-      "destination": "skills/address-pr-comments/SKILL.md:31"
-    },
-    {
-      "id": "37ebbf4f7946",
-      "source_before": "skills/address-pr-comments/SKILL.md:33",
-      "normalized": "resolve the pr number.",
-      "destination": "skills/address-pr-comments/SKILL.md:33"
-    },
-    {
-      "id": "a5617b02f1c7",
-      "source_before": "skills/address-pr-comments/SKILL.md:34",
-      "normalized": "if #n is passed as an argument, treat it as the pr number.",
-      "destination": "skills/address-pr-comments/SKILL.md:34"
-    },
-    {
-      "id": "bfa1cd7c7940",
-      "source_before": "skills/address-pr-comments/SKILL.md:35",
-      "normalized": "otherwise, run gh pr view --json number,state,headrefname,headrepositoryowner to",
-      "destination": "skills/address-pr-comments/SKILL.md:35"
-    },
-    {
-      "id": "68b2cb687f8a",
-      "source_before": "skills/address-pr-comments/SKILL.md:36",
-      "normalized": "parse --max-rounds=n from the arguments (default 10). reject values < 1.",
-      "destination": "skills/address-pr-comments/SKILL.md:36"
-    },
-    {
-      "id": "c1636c9266bf",
-      "source_before": "skills/address-pr-comments/SKILL.md:37",
-      "normalized": "confirm pr is open. if state != \"open\" exit non-zero: pr #{n} is not open (state",
-      "destination": "skills/address-pr-comments/SKILL.md:37"
-    },
-    {
-      "id": "923f7753278f",
-      "source_before": "skills/address-pr-comments/SKILL.md:38",
-      "normalized": "confirm the current branch matches the pr head ref. if git branch --show-current",
-      "destination": "skills/address-pr-comments/SKILL.md:38"
-    },
-    {
-      "id": "04491958c7c2",
-      "source_before": "skills/address-pr-comments/SKILL.md:39",
-      "normalized": "confirm the working tree is clean. run git status --porcelain; any non-empty out",
-      "destination": "skills/address-pr-comments/SKILL.md:39"
-    },
-    {
-      "id": "071d85363cd7",
-      "source_before": "skills/address-pr-comments/SKILL.md:43",
-      "normalized": "read references/fetch-threads.md when preconditions pass — the reference covers ",
-      "destination": "skills/address-pr-comments/SKILL.md:43"
-    },
-    {
-      "id": "3e6fb574a922",
-      "source_before": "skills/address-pr-comments/SKILL.md:45",
-      "normalized": "if any of the short-circuit conditions in fetch-threads.md fire, this skill exit",
-      "destination": "skills/address-pr-comments/SKILL.md:45"
-    },
-    {
-      "id": "c3008b76e218",
-      "source_before": "skills/address-pr-comments/SKILL.md:49",
-      "normalized": "read references/classification.md when step 2 has returned one or more unresolve",
-      "destination": "skills/address-pr-comments/SKILL.md:49"
-    },
-    {
-      "id": "a53a48070daa",
-      "source_before": "skills/address-pr-comments/SKILL.md:51",
-      "normalized": "each thread carries its classification and rationale into step 4.",
-      "destination": "skills/address-pr-comments/SKILL.md:51"
-    },
-    {
-      "id": "7c71187710c9",
-      "source_before": "skills/address-pr-comments/SKILL.md:55",
-      "normalized": "for each unresolved thread in the current round, route based on classification:",
-      "destination": "skills/address-pr-comments/SKILL.md:55"
-    },
-    {
-      "id": "956f52559f08",
-      "source_before": "skills/address-pr-comments/SKILL.md:57",
-      "normalized": "clear-fix → read references/fix-loop.md when a thread is classified as clear-fix",
-      "destination": "skills/address-pr-comments/SKILL.md:57"
-    },
-    {
-      "id": "073c19f2cfb9",
-      "source_before": "skills/address-pr-comments/SKILL.md:58",
-      "normalized": "ambiguous or disagreement → read references/escalation.md when a thread is class",
-      "destination": "skills/address-pr-comments/SKILL.md:58"
-    },
-    {
-      "id": "9e7d005daf79",
-      "source_before": "skills/address-pr-comments/SKILL.md:60",
-      "normalized": "track commitsthisround as step 4 iterates.",
-      "destination": "skills/address-pr-comments/SKILL.md:60"
-    },
-    {
-      "id": "66a20136c713",
-      "source_before": "skills/address-pr-comments/SKILL.md:64",
-      "normalized": "read references/polling.md when step 4 has finished processing every thread in t",
-      "destination": "skills/address-pr-comments/SKILL.md:64"
-    },
-    {
-      "id": "18078572f9cb",
-      "source_before": "skills/address-pr-comments/SKILL.md:66",
-      "normalized": "when the loop determines another round is warranted, increment the round counter",
-      "destination": "skills/address-pr-comments/SKILL.md:66"
-    },
-    {
-      "id": "58b63e273b96",
-      "source_before": "skills/address-pr-comments/SKILL.md:68",
-      "normalized": "---",
-      "destination": "skills/address-pr-comments/SKILL.md:68",
-      "additional_destinations": [
-        "skills/draft-issue/references/multi-issue.md:113",
-        "skills/draft-issue/references/multi-issue.md:180",
-        "skills/onboard-project/SKILL.md:149",
-        "skills/open-pr/SKILL.md:142",
-        "skills/run-retro/SKILL.md:167",
-        "skills/start-issue/SKILL.md:350",
-        "skills/verify-code/SKILL.md:211",
-        "skills/write-code/SKILL.md:119",
-        "skills/write-spec/SKILL.md:153",
-        "skills/write-spec/SKILL.md:185"
-      ]
-    },
-    {
-      "id": "e8941ead2c2e",
-      "source_before": "skills/draft-issue/SKILL.md:64",
-      "normalized": "read ../../references/legacy-layout-gate.md when the workflow starts — the gate ",
-      "destination": "skills/draft-issue/SKILL.md:64",
-      "additional_destinations": [
-        "skills/onboard-project/SKILL.md:66"
-      ]
-    },
-    {
-      "id": "5fb777052e75",
-      "source_before": "skills/draft-issue/SKILL.md:68",
-      "normalized": "input: optional argument; steering/product.md if present.",
-      "destination": "skills/draft-issue/SKILL.md:68"
-    },
-    {
-      "id": "87ad5fbf4cdd",
-      "source_before": "skills/draft-issue/SKILL.md:70",
-      "normalized": "process:",
-      "destination": "skills/draft-issue/SKILL.md:70",
-      "additional_destinations": [
-        "skills/draft-issue/SKILL.md:116"
-      ]
-    },
-    {
-      "id": "2dedf8f8da71",
-      "source_before": "skills/draft-issue/SKILL.md:72",
-      "normalized": "if an argument was provided, use it as the starting description. otherwise, pres",
-      "destination": "skills/draft-issue/SKILL.md:72"
-    },
-    {
-      "id": "39f8df0159d7",
-      "source_before": "skills/draft-issue/SKILL.md:73",
-      "normalized": "read steering/product.md for product vision, personas, moscow priorities, and ex",
-      "destination": "skills/draft-issue/SKILL.md:73"
-    },
-    {
-      "id": "7898a7512b71",
-      "source_before": "skills/draft-issue/SKILL.md:75",
-      "normalized": "read ../../references/steering-schema.md when you need the roster of steering do",
-      "destination": "skills/draft-issue/SKILL.md:75"
-    },
-    {
-      "id": "8b1482714c66",
-      "source_before": "skills/draft-issue/SKILL.md:77",
-      "normalized": "output: session.initialdescription, session.productcontext.",
-      "destination": "skills/draft-issue/SKILL.md:77"
-    },
-    {
-      "id": "970a91182936",
-      "source_before": "skills/draft-issue/SKILL.md:81",
-      "normalized": "read references/multi-issue.md when the workflow reaches step 1b — the detector ",
-      "destination": "skills/draft-issue/SKILL.md:81"
-    },
-    {
-      "id": "0756b635c52b",
-      "source_before": "skills/draft-issue/SKILL.md:89",
-      "normalized": "input: initial description from step 1; multi-phase signals from step 1b.",
-      "destination": "skills/draft-issue/SKILL.md:89"
-    },
-    {
-      "id": "9d33587f5433",
-      "source_before": "skills/draft-issue/SKILL.md:91",
-      "normalized": "process: compute epicrecommended = true when any fire:",
-      "destination": "skills/draft-issue/SKILL.md:91"
-    },
-    {
-      "id": "b631ba56d608",
-      "source_before": "skills/draft-issue/SKILL.md:93",
-      "normalized": "the description contains \"in phases\", \"multiple prs\", or \"multi-pr\" (case-insens",
-      "destination": "skills/draft-issue/SKILL.md:93"
-    },
-    {
-      "id": "5de9266014d7",
-      "source_before": "skills/draft-issue/SKILL.md:94",
-      "normalized": "step 1b's distinctcomponents >= 4 and sentencecount >= 3.",
-      "destination": "skills/draft-issue/SKILL.md:94"
-    },
-    {
-      "id": "a5f05384091c",
-      "source_before": "skills/draft-issue/SKILL.md:95",
-      "normalized": "the description contains references to multiple sequential delivery phases (e.g.",
-      "destination": "skills/draft-issue/SKILL.md:95"
-    },
-    {
-      "id": "c1e548921a68",
-      "source_before": "skills/draft-issue/SKILL.md:97",
-      "normalized": "present a requestuserinput gate:",
-      "destination": "skills/draft-issue/SKILL.md:97",
-      "additional_destinations": [
-        "skills/draft-issue/SKILL.md:220"
-      ]
-    },
-    {
-      "id": "a394c8d2c68e",
-      "source_before": "skills/draft-issue/SKILL.md:108",
-      "normalized": "when epicrecommended is true, append (recommended) to the epic option label.",
-      "destination": "skills/draft-issue/SKILL.md:108"
-    },
-    {
-      "id": "a1a9510eaaf0",
-      "source_before": "skills/draft-issue/SKILL.md:110",
-      "normalized": "output: classification ∈ {feature, bug, epic, spike}.",
-      "destination": "skills/draft-issue/SKILL.md:110"
-    },
-    {
-      "id": "c8e51ee88d44",
-      "source_before": "skills/draft-issue/SKILL.md:114",
-      "normalized": "input: project root version file (if present); github milestones via gh api.",
-      "destination": "skills/draft-issue/SKILL.md:114"
-    },
-    {
-      "id": "d49c351fcd03",
-      "source_before": "skills/draft-issue/SKILL.md:118",
-      "normalized": "read the version file at the project root. if it exists and parses as semver (x.",
-      "destination": "skills/draft-issue/SKILL.md:118"
-    },
-    {
-      "id": "fe7090593560",
-      "source_before": "skills/draft-issue/SKILL.md:119",
-      "normalized": "present a requestuserinput gate with options \"v{major} (current major version)\" ",
-      "destination": "skills/draft-issue/SKILL.md:119"
-    },
-    {
-      "id": "7f68950aaf21",
-      "source_before": "skills/draft-issue/SKILL.md:120",
-      "normalized": "ensure the milestone exists: gh api repos/{owner}/{repo}/milestones --jq '.[].ti",
-      "destination": "skills/draft-issue/SKILL.md:120"
-    },
-    {
-      "id": "22608715532d",
-      "source_before": "skills/draft-issue/SKILL.md:122",
-      "normalized": "read ../../references/versioning.md when you need the project's version-file con",
-      "destination": "skills/draft-issue/SKILL.md:122"
-    },
-    {
-      "id": "ce2ff300f0bc",
-      "source_before": "skills/draft-issue/SKILL.md:124",
-      "normalized": "output: milestone — e.g., \"v2\", or null if skipped.",
-      "destination": "skills/draft-issue/SKILL.md:124"
-    },
-    {
-      "id": "a359928ec175",
-      "source_before": "skills/draft-issue/SKILL.md:128",
-      "normalized": "input: classification from step 2; relevant source, specs, and steering docs.",
-      "destination": "skills/draft-issue/SKILL.md:128"
-    },
-    {
-      "id": "3a6e80b4d3f6",
-      "source_before": "skills/draft-issue/SKILL.md:130",
-      "normalized": "process: perform a targeted codebase investigation before the interview.",
-      "destination": "skills/draft-issue/SKILL.md:130"
-    },
-    {
-      "id": "628219e7d6e3",
-      "source_before": "skills/draft-issue/SKILL.md:132",
-      "normalized": "if enhancement / feature: read ../../references/spec-context.md, run bounded rel",
-      "destination": "skills/draft-issue/SKILL.md:132"
-    },
-    {
-      "id": "e6a5fc8d1b82",
-      "source_before": "skills/draft-issue/SKILL.md:134",
-      "normalized": "if bug: text search for code related to the bug (error messages, function names,",
-      "destination": "skills/draft-issue/SKILL.md:134"
-    },
-    {
-      "id": "084bc23546fe",
-      "source_before": "skills/draft-issue/SKILL.md:136",
-      "normalized": "read ../../references/steering-schema.md when you need each steering doc's purpo",
-      "destination": "skills/draft-issue/SKILL.md:136"
-    },
-    {
-      "id": "0d1e3e0a3562",
-      "source_before": "skills/draft-issue/SKILL.md:138",
-      "normalized": "before exiting, capture three signals that step 5 uses for adaptive depth: files",
-      "destination": "skills/draft-issue/SKILL.md:138"
-    },
-    {
-      "id": "050b98836c20",
-      "source_before": "skills/draft-issue/SKILL.md:140",
-      "normalized": "output: investigation.summary plus the three signals.",
-      "destination": "skills/draft-issue/SKILL.md:140"
-    },
-    {
-      "id": "fd1f6cc6740f",
-      "source_before": "skills/draft-issue/SKILL.md:144",
-      "normalized": "read references/interview-depth.md when entering the interview phase — the refer",
-      "destination": "skills/draft-issue/SKILL.md:144"
-    },
-    {
-      "id": "42e9296bf44b",
-      "source_before": "skills/draft-issue/SKILL.md:146",
-      "normalized": "output: depth, depthoverridden, interviewanswers, anythingmissed.",
-      "destination": "skills/draft-issue/SKILL.md:146"
-    },
-    {
-      "id": "9996c4d6ceb6",
-      "source_before": "skills/draft-issue/SKILL.md:150",
-      "normalized": "play back a structured understanding block whose length is proportional to depth",
-      "destination": "skills/draft-issue/SKILL.md:150"
-    },
-    {
-      "id": "98e65d797f32",
-      "source_before": "skills/draft-issue/SKILL.md:161",
-      "normalized": "present a requestuserinput gate: \"does this match your intent?\" → \"[1] looks rig",
-      "destination": "skills/draft-issue/SKILL.md:161"
-    },
-    {
-      "id": "b72262530f10",
-      "source_before": "skills/draft-issue/SKILL.md:163",
-      "normalized": "output: understanding (persona, outcome, ac outline, scope in/out); understandin",
-      "destination": "skills/draft-issue/SKILL.md:163"
-    },
-    {
-      "id": "ceb8d7f084d7",
-      "source_before": "skills/draft-issue/SKILL.md:165",
-      "normalized": "human review gate: blocks step 6 until the user confirms the playback.",
-      "destination": "skills/draft-issue/SKILL.md:165"
-    },
-    {
-      "id": "188b1a17d1a4",
-      "source_before": "skills/draft-issue/SKILL.md:169",
-      "normalized": "input: confirmed understanding; classification; investigation.summary; current i",
-      "destination": "skills/draft-issue/SKILL.md:169"
-    },
-    {
-      "id": "43221402d101",
-      "source_before": "skills/draft-issue/SKILL.md:171",
-      "normalized": "choose the template based on classification:",
-      "destination": "skills/draft-issue/SKILL.md:171"
-    },
-    {
-      "id": "ebda578acb16",
-      "source_before": "skills/draft-issue/SKILL.md:173",
-      "normalized": "read references/feature-template.md when classification === 'feature'.",
-      "destination": "skills/draft-issue/SKILL.md:173"
-    },
-    {
-      "id": "e6e4b99dbb2a",
-      "source_before": "skills/draft-issue/SKILL.md:174",
-      "normalized": "read references/bug-template.md when classification === 'bug'.",
-      "destination": "skills/draft-issue/SKILL.md:174"
-    },
-    {
-      "id": "0d3ef5721729",
-      "source_before": "skills/draft-issue/SKILL.md:175",
-      "normalized": "read references/multi-issue.md when classification === 'epic' — the epic coordin",
-      "destination": "skills/draft-issue/SKILL.md:175"
-    },
-    {
-      "id": "00d8ecc32f5c",
-      "source_before": "skills/draft-issue/SKILL.md:176",
-      "normalized": "read references/spike-template.md when classification === 'spike' — the spike te",
-      "destination": "skills/draft-issue/SKILL.md:176"
-    },
-    {
-      "id": "e6d03896ce23",
-      "source_before": "skills/draft-issue/SKILL.md:178",
-      "normalized": "body cross-ref placeholders (batch mode): when activedag has edges touching the ",
-      "destination": "skills/draft-issue/SKILL.md:178"
-    },
-    {
-      "id": "3f203bde39e1",
-      "source_before": "skills/draft-issue/SKILL.md:180",
-      "normalized": "deliverable prerequisite placeholders (batch mode): read ../../references/delive",
-      "destination": "skills/draft-issue/SKILL.md:180"
-    },
-    {
-      "id": "b341c3c73eb8",
-      "source_before": "skills/draft-issue/SKILL.md:182",
-      "normalized": "epic membership body signal: when coordinationparentnumber is non-null, append a",
-      "destination": "skills/draft-issue/SKILL.md:182"
-    },
-    {
-      "id": "29e5a78224c9",
-      "source_before": "skills/draft-issue/SKILL.md:184",
-      "normalized": "output: draft (issue body markdown), title (concise, action-oriented, starts wit",
-      "destination": "skills/draft-issue/SKILL.md:184"
-    },
-    {
-      "id": "70b4c08235ca",
-      "source_before": "skills/draft-issue/SKILL.md:188",
-      "normalized": "render an inline review summary:",
-      "destination": "skills/draft-issue/SKILL.md:188"
-    },
-    {
-      "id": "fa02720f44e0",
-      "source_before": "skills/draft-issue/SKILL.md:207",
-      "normalized": "for classification === 'epic', replace the executable summary fields with:",
-      "destination": "skills/draft-issue/SKILL.md:207"
-    },
-    {
-      "id": "3c9c23871ccc",
-      "source_before": "skills/draft-issue/SKILL.md:229",
-      "normalized": "on [2] or a free-form other answer, treat the text as the requested change, appl",
-      "destination": "skills/draft-issue/SKILL.md:229"
-    },
-    {
-      "id": "8cedfe0a0dec",
-      "source_before": "skills/draft-issue/SKILL.md:231",
-      "normalized": "consecutive-revise soft guard: maintain consecutiverevises starting at 0. increm",
-      "destination": "skills/draft-issue/SKILL.md:231"
-    },
-    {
-      "id": "dc0065d87a0e",
-      "source_before": "skills/draft-issue/SKILL.md:233",
-      "normalized": "batch-mode abandonment: when session.proposedsplit !== null and session.createdi",
-      "destination": "skills/draft-issue/SKILL.md:233"
-    },
-    {
-      "id": "843cc13a6611",
-      "source_before": "skills/draft-issue/SKILL.md:235",
-      "normalized": "output: approved (true after approve or accept as-is); session.abandoned (true i",
-      "destination": "skills/draft-issue/SKILL.md:235"
-    },
-    {
-      "id": "c12654799888",
-      "source_before": "skills/draft-issue/SKILL.md:237",
-      "normalized": "human review gate: blocks step 8 until approved = true or the user abandons the ",
-      "destination": "skills/draft-issue/SKILL.md:237"
-    },
-    {
-      "id": "6cef80f77b97",
-      "source_before": "skills/draft-issue/SKILL.md:241",
-      "normalized": "gh label list — enumerate existing labels.",
-      "destination": "skills/draft-issue/SKILL.md:241"
-    },
-    {
-      "id": "74687a5ac0b9",
-      "source_before": "skills/draft-issue/SKILL.md:242",
-      "normalized": "create missing labels via gh label create \"label-name\" --description \"...\" --col",
-      "destination": "skills/draft-issue/SKILL.md:242"
-    },
-    {
-      "id": "f3fc1c001acf",
-      "source_before": "skills/draft-issue/SKILL.md:243",
-      "normalized": "determine labels by classification:",
-      "destination": "skills/draft-issue/SKILL.md:243"
-    },
-    {
-      "id": "1d00f2b4b684",
-      "source_before": "skills/draft-issue/SKILL.md:244",
-      "normalized": "feature → enhancement",
-      "destination": "skills/draft-issue/SKILL.md:244"
-    },
-    {
-      "id": "0b5218e84f0e",
-      "source_before": "skills/draft-issue/SKILL.md:245",
-      "normalized": "bug → bug",
-      "destination": "skills/draft-issue/SKILL.md:245"
-    },
-    {
-      "id": "6d6e679062d8",
-      "source_before": "skills/draft-issue/SKILL.md:246",
-      "normalized": "epic → epic + enhancement (both; lazily create the epic label with color 5319e7 ",
-      "destination": "skills/draft-issue/SKILL.md:246"
-    },
-    {
-      "id": "7e5d06a7624c",
-      "source_before": "skills/draft-issue/SKILL.md:247",
-      "normalized": "spike → spike (lazily create with color 0052cc if absent)",
-      "destination": "skills/draft-issue/SKILL.md:247"
-    },
-    {
-      "id": "1ca1e765ab55",
-      "source_before": "skills/draft-issue/SKILL.md:248",
-      "normalized": "create the issue (include --milestone only when step 3 assigned one):",
-      "destination": "skills/draft-issue/SKILL.md:248"
-    },
-    {
-      "id": "bbc0aff80688",
-      "source_before": "skills/draft-issue/SKILL.md:249",
-      "normalized": "```",
-      "destination": "skills/draft-issue/SKILL.md:249",
-      "additional_destinations": [
-        "skills/draft-issue/SKILL.md:251",
-        "skills/onboard-project/SKILL.md:125",
-        "skills/onboard-project/SKILL.md:130",
-        "skills/onboard-project/SKILL.md:134",
-        "skills/onboard-project/SKILL.md:138"
-      ]
-    },
-    {
-      "id": "841970b097d2",
-      "source_before": "skills/draft-issue/SKILL.md:250",
-      "normalized": "gh issue create --title \"...\" --body \"...\" --label \"label1,label2\" --milestone \"",
-      "destination": "skills/draft-issue/SKILL.md:250"
-    },
-    {
-      "id": "97dc58c99c31",
-      "source_before": "skills/draft-issue/SKILL.md:253",
-      "normalized": "output: issuenumber, issueurl, appliedlabels.",
-      "destination": "skills/draft-issue/SKILL.md:253"
-    },
-    {
-      "id": "18123f472d45",
-      "source_before": "skills/draft-issue/SKILL.md:257",
-      "normalized": "render the final status block:",
-      "destination": "skills/draft-issue/SKILL.md:257"
-    },
-    {
-      "id": "79b077e27b17",
-      "source_before": "skills/draft-issue/SKILL.md:265",
-      "normalized": "in batch mode, per-iteration step 9 blocks are compact (one line per iteration) ",
-      "destination": "skills/draft-issue/SKILL.md:265"
-    },
-    {
-      "id": "d7de89cee5ae",
-      "source_before": "skills/draft-issue/SKILL.md:269",
-      "normalized": "read references/multi-issue.md when the per-issue loop has finished — the refere",
-      "destination": "skills/draft-issue/SKILL.md:269"
-    },
-    {
-      "id": "61290bb27380",
-      "source_before": "skills/draft-issue/SKILL.md:273",
-      "normalized": "read references/multi-issue.md when rendering the final batch summary. on the or",
-      "destination": "skills/draft-issue/SKILL.md:273"
-    },
-    {
-      "id": "73f12e6f2770",
-      "source_before": "skills/draft-issue/references/interview-depth.md:10",
-      "normalized": "classification from step 2",
-      "destination": "skills/draft-issue/references/interview-depth.md:10"
-    },
-    {
-      "id": "5d22c0295155",
-      "source_before": "skills/draft-issue/references/interview-depth.md:11",
-      "normalized": "investigation.filesfound, investigation.componentsinvolved, investigation.descri",
-      "destination": "skills/draft-issue/references/interview-depth.md:11"
-    },
-    {
-      "id": "395fbe3f5daf",
-      "source_before": "skills/draft-issue/references/interview-depth.md:12",
-      "normalized": "initial description from step 1",
-      "destination": "skills/draft-issue/references/interview-depth.md:12"
-    },
-    {
-      "id": "cf903bbd567c",
-      "source_before": "skills/draft-issue/references/interview-depth.md:18",
-      "normalized": "compute depth from the step 4 signals:",
-      "destination": "skills/draft-issue/references/interview-depth.md:18"
-    },
-    {
-      "id": "e6920e1b1503",
-      "source_before": "skills/draft-issue/references/interview-depth.md:20",
-      "normalized": "| depth | condition | rounds |",
-      "destination": "skills/draft-issue/references/interview-depth.md:20"
-    },
-    {
-      "id": "a5465459bb03",
-      "source_before": "skills/draft-issue/references/interview-depth.md:22",
-      "normalized": "| core | filesfound ≤ 3 and componentsinvolved ≤ 1 and descriptionvagueness < 0.",
-      "destination": "skills/draft-issue/references/interview-depth.md:22"
-    },
-    {
-      "id": "0213e14dd042",
-      "source_before": "skills/draft-issue/references/interview-depth.md:23",
-      "normalized": "| extended (borderline bias) | descriptionvagueness ∈ [0.10, 0.15) or (component",
-      "destination": "skills/draft-issue/references/interview-depth.md:23"
-    },
-    {
-      "id": "78e7ede6b123",
-      "source_before": "skills/draft-issue/references/interview-depth.md:24",
-      "normalized": "| extended | otherwise (multi-component, many files, or vague description) | 4 r",
-      "destination": "skills/draft-issue/references/interview-depth.md:24"
-    },
-    {
-      "id": "cddcf68c18bc",
-      "source_before": "skills/draft-issue/references/interview-depth.md:26",
-      "normalized": "the borderline row intentionally biases ambiguous cases to the deeper interview ",
-      "destination": "skills/draft-issue/references/interview-depth.md:26"
-    },
-    {
-      "id": "5e3f7df803be",
+      "id": "4bc5035c68e1",
       "source_before": "skills/draft-issue/references/interview-depth.md:30",
-      "normalized": "emit a one-sentence user-visible log line explaining the selection, for example:",
+      "normalized": "no playback confirm, no depth gate, no old input gate, no consecutive revise.",
       "destination": "skills/draft-issue/references/interview-depth.md:30"
-    },
-    {
-      "id": "bcc940047bf7",
-      "source_before": "skills/draft-issue/references/interview-depth.md:32",
-      "normalized": "extended: \"this touches 4 components across 2 skills — i'll ask deeper scope que",
-      "destination": "skills/draft-issue/references/interview-depth.md:32"
-    },
-    {
-      "id": "6b5f5facfd4f",
-      "source_before": "skills/draft-issue/references/interview-depth.md:33",
-      "normalized": "core: \"small scoped change — running a core interview.\"",
-      "destination": "skills/draft-issue/references/interview-depth.md:33"
-    },
-    {
-      "id": "18b99ff11438",
-      "source_before": "skills/draft-issue/references/interview-depth.md:37",
-      "normalized": "immediately after the log line, present a requestuserinput gate with two options",
-      "destination": "skills/draft-issue/references/interview-depth.md:37"
-    },
-    {
-      "id": "c4464c9e0cb6",
-      "source_before": "skills/draft-issue/references/interview-depth.md:48",
-      "normalized": "if the user selects [2], switch depth to the other value and emit a one-line ses",
-      "destination": "skills/draft-issue/references/interview-depth.md:48"
-    },
-    {
-      "id": "44a06a95870b",
-      "source_before": "skills/draft-issue/references/interview-depth.md:52",
-      "normalized": "skip any topics already answered by the initial description or the step 4 invest",
-      "destination": "skills/draft-issue/references/interview-depth.md:52"
-    },
-    {
-      "id": "6f1e66c824c4",
-      "source_before": "skills/draft-issue/references/interview-depth.md:56",
-      "normalized": "| round | core (3 rounds) | extended (4 rounds) |",
-      "destination": "skills/draft-issue/references/interview-depth.md:56"
-    },
-    {
-      "id": "6bee675e2597",
-      "source_before": "skills/draft-issue/references/interview-depth.md:58",
-      "normalized": "| r1 persona & outcome | who benefits? what pain point? what desired outcome? | ",
-      "destination": "skills/draft-issue/references/interview-depth.md:58"
-    },
-    {
-      "id": "ebcf89124c30",
-      "source_before": "skills/draft-issue/references/interview-depth.md:59",
-      "normalized": "| r2 acs, scope, priority | key acs in g/w/t format; in-scope / out-of-scope; mo",
-      "destination": "skills/draft-issue/references/interview-depth.md:59"
-    },
-    {
-      "id": "734ccd533497",
-      "source_before": "skills/draft-issue/references/interview-depth.md:60",
-      "normalized": "| r3 nfrs & edge cases | (omitted) | performance / accessibility / security / i1",
-      "destination": "skills/draft-issue/references/interview-depth.md:60"
-    },
-    {
-      "id": "38b3a6dedc82",
-      "source_before": "skills/draft-issue/references/interview-depth.md:61",
-      "normalized": "| r4 related features & priority | (folded into r2) | existing related features ",
-      "destination": "skills/draft-issue/references/interview-depth.md:61"
-    },
-    {
-      "id": "7f869a064fb2",
-      "source_before": "skills/draft-issue/references/interview-depth.md:65",
-      "normalized": "| round | probes |",
-      "destination": "skills/draft-issue/references/interview-depth.md:65"
-    },
-    {
-      "id": "f0c3e0fa2a0a",
-      "source_before": "skills/draft-issue/references/interview-depth.md:67",
-      "normalized": "| r1 repro | exact reproduction steps; expected vs actual |",
-      "destination": "skills/draft-issue/references/interview-depth.md:67"
-    },
-    {
-      "id": "980974e07410",
-      "source_before": "skills/draft-issue/references/interview-depth.md:68",
-      "normalized": "| r2 env & recency | environment (os, browser, version); frequency; error output",
-      "destination": "skills/draft-issue/references/interview-depth.md:68"
-    },
-    {
-      "id": "b56c86eb2942",
-      "source_before": "skills/draft-issue/references/interview-depth.md:69",
-      "normalized": "| r3 edge cases & regression risk | edge/error states beyond the primary repro; ",
-      "destination": "skills/draft-issue/references/interview-depth.md:69"
-    },
-    {
-      "id": "56097d41a98b",
-      "source_before": "skills/draft-issue/references/interview-depth.md:71",
-      "normalized": "reproduction remains the bug-path primary focus. r3 is always asked, regardless ",
-      "destination": "skills/draft-issue/references/interview-depth.md:71"
-    },
-    {
-      "id": "c2dd939e0db1",
-      "source_before": "skills/draft-issue/references/interview-depth.md:75",
-      "normalized": "regardless of classification or depth, the final round ends with a single free-t",
-      "destination": "skills/draft-issue/references/interview-depth.md:75"
-    },
-    {
-      "id": "d251862e27a7",
-      "source_before": "skills/draft-issue/references/interview-depth.md:77",
-      "normalized": "> \"before i play back my understanding, is there anything i haven't asked that m",
-      "destination": "skills/draft-issue/references/interview-depth.md:77"
-    },
-    {
-      "id": "fc21b468e806",
-      "source_before": "skills/draft-issue/references/interview-depth.md:79",
-      "normalized": "a non-empty answer is folded into the understanding block that feeds step 5c.",
-      "destination": "skills/draft-issue/references/interview-depth.md:79"
-    },
-    {
-      "id": "cd1c35995e83",
-      "source_before": "skills/draft-issue/references/interview-depth.md:83",
-      "normalized": "depth ∈ {core, extended}",
-      "destination": "skills/draft-issue/references/interview-depth.md:83"
-    },
-    {
-      "id": "5a2fdfadc97d",
-      "source_before": "skills/draft-issue/references/interview-depth.md:84",
-      "normalized": "depthoverridden — true if the user chose the non-recommended option",
-      "destination": "skills/draft-issue/references/interview-depth.md:84"
-    },
-    {
-      "id": "590da189c951",
-      "source_before": "skills/draft-issue/references/interview-depth.md:85",
-      "normalized": "interviewanswers — map of round → answers",
-      "destination": "skills/draft-issue/references/interview-depth.md:85"
-    },
-    {
-      "id": "bc9172aef160",
-      "source_before": "skills/draft-issue/references/interview-depth.md:86",
-      "normalized": "anythingmissed — free-text answer or null",
-      "destination": "skills/draft-issue/references/interview-depth.md:86"
-    },
-    {
-      "id": "624c67101e72",
-      "source_before": "skills/draft-issue/references/multi-issue.md:111",
-      "normalized": "this gate blocks step 1d until the user approves, adjusts-then-approves, or coll",
-      "destination": "skills/draft-issue/references/multi-issue.md:111"
-    },
-    {
-      "id": "73cbe98194bd",
-      "source_before": "skills/draft-issue/references/multi-issue.md:178",
-      "normalized": "this gate blocks the per-issue loop until the user approves or flattens.",
-      "destination": "skills/draft-issue/references/multi-issue.md:178"
-    },
-    {
-      "id": "00be3591fcde",
-      "source_before": "skills/onboard-project/SKILL.md:70",
-      "normalized": "gather four signals:",
-      "destination": "skills/onboard-project/SKILL.md:70"
-    },
-    {
-      "id": "5bdc5471f4fa",
-      "source_before": "skills/onboard-project/SKILL.md:72",
-      "normalized": "steering/ presence — file discovery for steering/product.md, steering/tech.md, s",
-      "destination": "skills/onboard-project/SKILL.md:72"
-    },
-    {
-      "id": "c1416002deb5",
-      "source_before": "skills/onboard-project/SKILL.md:73",
-      "normalized": "specs/ presence — file discovery for specs/*/requirements.md.",
-      "destination": "skills/onboard-project/SKILL.md:73"
-    },
-    {
-      "id": "c73ff095c1e9",
-      "source_before": "skills/onboard-project/SKILL.md:74",
-      "normalized": "source-file count beyond scaffold — list tracked files via git ls-files, exclude",
-      "destination": "skills/onboard-project/SKILL.md:74"
-    },
-    {
-      "id": "bec5520062ef",
-      "source_before": "skills/onboard-project/SKILL.md:75",
-      "normalized": "closed-issue presence — gh issue list --state closed --limit 1 --json number (on",
-      "destination": "skills/onboard-project/SKILL.md:75"
-    },
-    {
-      "id": "296982280bc3",
-      "source_before": "skills/onboard-project/SKILL.md:77",
-      "normalized": "classify per the mode detection matrix. print a one-line summary of the detected",
-      "destination": "skills/onboard-project/SKILL.md:77"
-    },
-    {
-      "id": "c59699033607",
-      "source_before": "skills/onboard-project/SKILL.md:83",
-      "normalized": "store the evidence for the step 5 summary. proceed to the branch matching the de",
-      "destination": "skills/onboard-project/SKILL.md:83"
-    },
-    {
-      "id": "1349df6629db",
-      "source_before": "skills/onboard-project/SKILL.md:109",
-      "normalized": "emit a structured summary with these sections:",
-      "destination": "skills/onboard-project/SKILL.md:109"
-    },
-    {
-      "id": "9d28c6640baa",
-      "source_before": "skills/onboard-project/SKILL.md:111",
-      "normalized": "mode detected — greenfield (bootstrap), greenfield-enhancement, brownfield, brow",
-      "destination": "skills/onboard-project/SKILL.md:111"
-    },
-    {
-      "id": "70189e6f0d9d",
-      "source_before": "skills/onboard-project/SKILL.md:112",
-      "normalized": "delegated skills invoked — $nmg-sdlc:upgrade-project and every $nmg-sdlc:draft-i",
-      "destination": "skills/onboard-project/SKILL.md:112"
-    },
-    {
-      "id": "73a4dc7e92a8",
-      "source_before": "skills/onboard-project/SKILL.md:113",
-      "normalized": "greenfield only — interview answers — for each round, the accepted value and whe",
-      "destination": "skills/onboard-project/SKILL.md:113"
-    },
-    {
-      "id": "f8a2b7ef0689",
-      "source_before": "skills/onboard-project/SKILL.md:114",
-      "normalized": "versioning (greenfield, greenfield-enhancement, and brownfield — emitted wheneve",
-      "destination": "skills/onboard-project/SKILL.md:114"
-    },
-    {
-      "id": "47c927d0a57f",
-      "source_before": "skills/onboard-project/SKILL.md:115",
-      "normalized": "version: created @ 0.1.0 | preserved @ <x> | backfilled from <path> @ <x>",
-      "destination": "skills/onboard-project/SKILL.md:115"
-    },
-    {
-      "id": "8cdabace53f3",
-      "source_before": "skills/onboard-project/SKILL.md:116",
-      "normalized": "manifest: <path> set @ 0.1.0 (greenfield only) | <path> preserved @ <x> | no-man",
-      "destination": "skills/onboard-project/SKILL.md:116"
-    },
-    {
-      "id": "6d23257eca29",
-      "source_before": "skills/onboard-project/SKILL.md:117",
-      "normalized": "contribution guide — the status block returned by ../../references/contribution-",
-      "destination": "skills/onboard-project/SKILL.md:117"
-    },
-    {
-      "id": "da9b89044bee",
-      "source_before": "skills/onboard-project/SKILL.md:118",
-      "normalized": "project agents — the status block returned by ../../references/project-agents.md",
-      "destination": "skills/onboard-project/SKILL.md:118"
-    },
-    {
-      "id": "990a9d675d42",
-      "source_before": "skills/onboard-project/SKILL.md:119",
-      "normalized": "contribution gate — the status returned by ../../references/contribution-gate.md",
-      "destination": "skills/onboard-project/SKILL.md:119"
-    },
-    {
-      "id": "a4c4e56244e1",
-      "source_before": "skills/onboard-project/SKILL.md:120",
-      "normalized": "issue form — the stable status block returned by ../../references/issue-form.md.",
-      "destination": "skills/onboard-project/SKILL.md:120"
-    },
-    {
-      "id": "20ee86ab5eff",
-      "source_before": "skills/onboard-project/SKILL.md:121",
-      "normalized": "greenfield only — milestones — single line for v1: marked seeded, skipped (alrea",
-      "destination": "skills/onboard-project/SKILL.md:121"
-    },
-    {
-      "id": "3c1fd2f5c2e6",
-      "source_before": "skills/onboard-project/SKILL.md:122",
-      "normalized": "greenfield only — dependency dag — full ascii rendering, or skipped due to cycle",
-      "destination": "skills/onboard-project/SKILL.md:122"
-    },
-    {
-      "id": "228180342061",
-      "source_before": "skills/onboard-project/SKILL.md:123",
-      "normalized": "greenfield only — starter issues seeded — every issue created with its number, p",
-      "destination": "skills/onboard-project/SKILL.md:123"
-    },
-    {
-      "id": "530cf94379c1",
-      "source_before": "skills/onboard-project/SKILL.md:126",
-      "normalized": "#200 set up basic api (parents: —, blocks: #201, #202)",
-      "destination": "skills/onboard-project/SKILL.md:126"
-    },
-    {
-      "id": "0df71482780b",
-      "source_before": "skills/onboard-project/SKILL.md:127",
-      "normalized": "#201 add user profile (parents: #200, blocks: —)",
-      "destination": "skills/onboard-project/SKILL.md:127"
-    },
-    {
-      "id": "92d1d0a0bc28",
-      "source_before": "skills/onboard-project/SKILL.md:128",
-      "normalized": "#202 add caching layer (parents: #200, blocks: —)",
-      "destination": "skills/onboard-project/SKILL.md:128"
-    },
-    {
-      "id": "119459d7f845",
-      "source_before": "skills/onboard-project/SKILL.md:129",
-      "normalized": "#203 failed — $nmg-sdlc:draft-issue exited 1",
-      "destination": "skills/onboard-project/SKILL.md:129"
-    },
-    {
-      "id": "f279e7effa16",
-      "source_before": "skills/onboard-project/SKILL.md:132",
-      "normalized": "brownfield only — specs produced — every spec directory written this run, with c",
-      "destination": "skills/onboard-project/SKILL.md:132"
-    },
-    {
-      "id": "78bed830fb50",
-      "source_before": "skills/onboard-project/SKILL.md:135",
-      "normalized": "specs/feature-dark-mode/ (#10, #14, #27)",
-      "destination": "skills/onboard-project/SKILL.md:135"
-    },
-    {
-      "id": "2e5d9dc48d6e",
-      "source_before": "skills/onboard-project/SKILL.md:136",
-      "normalized": "specs/bug-login-crash-on-timeout/ (#42)",
-      "destination": "skills/onboard-project/SKILL.md:136"
-    },
-    {
-      "id": "30a3e47b60eb",
-      "source_before": "skills/onboard-project/SKILL.md:137",
-      "normalized": "specs/feature-export-report/ (#61) — partial: ## known gaps noted",
-      "destination": "skills/onboard-project/SKILL.md:137"
-    },
-    {
-      "id": "eca0bb73a350",
-      "source_before": "skills/onboard-project/SKILL.md:140",
-      "normalized": "brownfield only — skipped — issues skipped as duplicate/wontfix/not planned, and",
-      "destination": "skills/onboard-project/SKILL.md:140"
-    },
-    {
-      "id": "c801e6f3d966",
-      "source_before": "skills/onboard-project/SKILL.md:141",
-      "normalized": "enhancement-mode skips (greenfield-enhancement only) — milestones detected as al",
-      "destination": "skills/onboard-project/SKILL.md:141"
-    },
-    {
-      "id": "6a8342c1245f",
-      "source_before": "skills/onboard-project/SKILL.md:142",
-      "normalized": "gaps — any missing artifact files (from step 4), managed-asset gaps, any referen",
-      "destination": "skills/onboard-project/SKILL.md:142"
-    },
-    {
-      "id": "1e92811f4cc4",
-      "source_before": "skills/onboard-project/SKILL.md:143",
-      "normalized": "review reminder — one line reminding the user that reconciled specs (brownfield)",
-      "destination": "skills/onboard-project/SKILL.md:143"
-    },
-    {
-      "id": "64818aa4a61f",
-      "source_before": "skills/onboard-project/SKILL.md:144",
-      "normalized": "next step —",
-      "destination": "skills/onboard-project/SKILL.md:144"
-    },
-    {
-      "id": "0ffffa18df17",
-      "source_before": "skills/onboard-project/SKILL.md:145",
-      "normalized": "greenfield: run $nmg-sdlc:start-issue on the first ready seeded executable issue",
-      "destination": "skills/onboard-project/SKILL.md:145"
-    },
-    {
-      "id": "3fd0b7fae92a",
-      "source_before": "skills/onboard-project/SKILL.md:146",
-      "normalized": "brownfield: review the reconciled specs, then run $nmg-sdlc:draft-issue for new ",
-      "destination": "skills/onboard-project/SKILL.md:146"
-    },
-    {
-      "id": "d8124b94ab3a",
-      "source_before": "skills/onboard-project/SKILL.md:147",
-      "normalized": "already-initialized (after $nmg-sdlc:upgrade-project): run $nmg-sdlc:draft-issue",
-      "destination": "skills/onboard-project/SKILL.md:147"
-    },
-    {
-      "id": "4ca5038e7d06",
-      "source_before": "skills/onboard-project/references/interview.md:28",
-      "normalized": "store the answers as interview_context for use by 2g.2 (steering bootstrap), 2g.",
-      "destination": "skills/onboard-project/references/interview.md:28"
-    },
-    {
-      "id": "f38faf610d8a",
-      "source_before": "skills/open-pr/SKILL.md:49",
-      "normalized": "inspect the invocation arguments for a --major token (alongside the issue number",
-      "destination": "skills/open-pr/SKILL.md:49"
-    },
-    {
-      "id": "4956964cd6b1",
-      "source_before": "skills/open-pr/SKILL.md:51",
-      "normalized": "--major present → set a major_requested flag and remember it through step 2. thi",
-      "destination": "skills/open-pr/SKILL.md:51"
-    },
-    {
-      "id": "e35e4b109808",
-      "source_before": "skills/open-pr/SKILL.md:52",
-      "normalized": "--major absent → major_requested is false and the rest of the workflow behaves n",
-      "destination": "skills/open-pr/SKILL.md:52"
-    },
-    {
-      "id": "971400066ecc",
-      "source_before": "skills/open-pr/SKILL.md:56",
-      "normalized": "read references/preflight.md when steps 1–3 have collected issue context and pre",
-      "destination": "skills/open-pr/SKILL.md:56"
-    },
-    {
-      "id": "c51ec14e1bba",
-      "source_before": "skills/open-pr/SKILL.md:58",
-      "normalized": "gather all information needed for the pr:",
-      "destination": "skills/open-pr/SKILL.md:58"
-    },
-    {
-      "id": "2c5562c68dcb",
-      "source_before": "skills/open-pr/SKILL.md:60",
-      "normalized": "read and classify the issue — hydrate full native relationship evidence.",
-      "destination": "skills/open-pr/SKILL.md:60"
-    },
-    {
-      "id": "11bdf17e1775",
-      "source_before": "skills/open-pr/SKILL.md:61",
-      "normalized": "ordinary continues. a confirmed epic stops without pr mutation because",
-      "destination": "skills/open-pr/SKILL.md:61"
-    },
-    {
-      "id": "289f2b85df18",
-      "source_before": "skills/open-pr/SKILL.md:62",
-      "normalized": "epics are coordination-only. a confirmed child must return valid from",
-      "destination": "skills/open-pr/SKILL.md:62"
-    },
-    {
-      "id": "abfaccfa139f",
-      "source_before": "skills/open-pr/SKILL.md:63",
-      "normalized": "epic-spec-authority.mjs --child n --native-children <complete-list>; use",
-      "destination": "skills/open-pr/SKILL.md:63"
-    },
-    {
-      "id": "947d5f3eb151",
-      "source_before": "skills/open-pr/SKILL.md:64",
-      "normalized": "only requestedchild.specpath, and retain aggregate outcomes/topology as",
-      "destination": "skills/open-pr/SKILL.md:64"
-    },
-    {
-      "id": "8fa5ef52872a",
-      "source_before": "skills/open-pr/SKILL.md:65",
-      "normalized": "bounded context. planned, repair_required, or unverifiable stops before",
-      "destination": "skills/open-pr/SKILL.md:65"
-    },
-    {
-      "id": "ed084e4098ad",
-      "source_before": "skills/open-pr/SKILL.md:66",
-      "normalized": "version, commit, push, or pr mutation.",
-      "destination": "skills/open-pr/SKILL.md:66"
-    },
-    {
-      "id": "de5b9c3c4399",
-      "source_before": "skills/open-pr/SKILL.md:67",
-      "normalized": "check for spec files — for a validated child use its exact manifest path;",
-      "destination": "skills/open-pr/SKILL.md:67"
-    },
-    {
-      "id": "d479e650cc28",
-      "source_before": "skills/open-pr/SKILL.md:68",
-      "normalized": "otherwise discover the ordinary issue package through the existing naming",
-      "destination": "skills/open-pr/SKILL.md:68"
-    },
-    {
-      "id": "abde83efbc65",
-      "source_before": "skills/open-pr/SKILL.md:69",
-      "normalized": "fallback. found match → set a specs-found flag. no match → set",
-      "destination": "skills/open-pr/SKILL.md:69"
-    },
-    {
-      "id": "dbf4586026c2",
-      "source_before": "skills/open-pr/SKILL.md:70",
-      "normalized": "specs-not-found flag.",
-      "destination": "skills/open-pr/SKILL.md:70"
-    },
-    {
-      "id": "46dc962761cf",
-      "source_before": "skills/open-pr/SKILL.md:71",
-      "normalized": "resolve active spec scope (specs-found only) — read ../../references/issue-spec-",
-      "destination": "skills/open-pr/SKILL.md:71"
-    },
-    {
-      "id": "43f46ddfb5e2",
-      "source_before": "skills/open-pr/SKILL.md:72",
-      "normalized": "read spec files (specs-found only):",
-      "destination": "skills/open-pr/SKILL.md:72"
-    },
-    {
-      "id": "3485ce3b75f1",
-      "source_before": "skills/open-pr/SKILL.md:73",
-      "normalized": "specs/{feature-name}/requirements.md for acceptance criteria.",
-      "destination": "skills/open-pr/SKILL.md:73"
-    },
-    {
-      "id": "e4220b9181ac",
-      "source_before": "skills/open-pr/SKILL.md:74",
-      "normalized": "specs/{feature-name}/tasks.md for the testing phase.",
-      "destination": "skills/open-pr/SKILL.md:74"
-    },
-    {
-      "id": "887696e0f6dc",
-      "source_before": "skills/open-pr/SKILL.md:75",
-      "normalized": "specs/{feature-name}/issue-scope.json when the resolver status is scoped.",
-      "destination": "skills/open-pr/SKILL.md:75"
-    },
-    {
-      "id": "c85d65877859",
-      "source_before": "skills/open-pr/SKILL.md:77",
-      "normalized": "skip this sub-step if specs-not-found — acceptance criteria will be extracted fr",
-      "destination": "skills/open-pr/SKILL.md:77"
-    },
-    {
-      "id": "901d059a8648",
-      "source_before": "skills/open-pr/SKILL.md:78",
-      "normalized": "read verification evidence — locate the verification report under the matched sp",
-      "destination": "skills/open-pr/SKILL.md:78"
-    },
-    {
-      "id": "83471eb6fba9",
-      "source_before": "skills/open-pr/SKILL.md:79",
-      "normalized": "read git state:",
-      "destination": "skills/open-pr/SKILL.md:79"
-    },
-    {
-      "id": "c3ca0281b04c",
-      "source_before": "skills/open-pr/SKILL.md:80",
-      "normalized": "git status — eligible changes after delivery preparation.",
-      "destination": "skills/open-pr/SKILL.md:80"
-    },
-    {
-      "id": "c20e5f268b4f",
-      "source_before": "skills/open-pr/SKILL.md:81",
-      "normalized": "git log main..head --oneline — commits on this branch.",
-      "destination": "skills/open-pr/SKILL.md:81"
-    },
-    {
-      "id": "3306658175c5",
-      "source_before": "skills/open-pr/SKILL.md:82",
-      "normalized": "git diff main...head --stat — files changed vs main.",
-      "destination": "skills/open-pr/SKILL.md:82"
-    },
-    {
-      "id": "f8d3368b8ecd",
-      "source_before": "skills/open-pr/SKILL.md:83",
-      "normalized": "read version artifacts for the pr body — read version, changelog.md, and the del",
-      "destination": "skills/open-pr/SKILL.md:83"
-    },
-    {
-      "id": "e47ec592f3fc",
-      "source_before": "skills/open-pr/SKILL.md:87",
-      "normalized": "read references/version-bump.md when a version file exists at the project root a",
-      "destination": "skills/open-pr/SKILL.md:87"
-    },
-    {
-      "id": "339ebcd5606f",
-      "source_before": "skills/open-pr/SKILL.md:91",
-      "normalized": "use references/version-bump.md to update version, changelog.md, .codex-plugin/pl",
-      "destination": "skills/open-pr/SKILL.md:91"
-    },
-    {
-      "id": "455a33a83d9a",
-      "source_before": "skills/open-pr/SKILL.md:95",
-      "normalized": "read references/pr-body.md when assembling the pr title and body — the reference",
-      "destination": "skills/open-pr/SKILL.md:95"
-    },
-    {
-      "id": "092987c66f68",
-      "source_before": "skills/open-pr/SKILL.md:97",
-      "normalized": "spike prs: the pr body template omits the version line entirely and adds type: s",
-      "destination": "skills/open-pr/SKILL.md:97"
-    },
-    {
-      "id": "1a2d092c1620",
-      "source_before": "skills/open-pr/SKILL.md:101",
-      "normalized": "before gh pr create, confirm the delivery-preparation postconditions from refere",
-      "destination": "skills/open-pr/SKILL.md:101"
-    },
-    {
-      "id": "51674671dae5",
-      "source_before": "skills/open-pr/SKILL.md:103",
-      "normalized": "local contains origin/main;",
-      "destination": "skills/open-pr/SKILL.md:103"
-    },
-    {
-      "id": "85b99902ae91",
-      "source_before": "skills/open-pr/SKILL.md:104",
-      "normalized": "git log origin/{branch}..head --oneline is empty;",
-      "destination": "skills/open-pr/SKILL.md:104"
-    },
-    {
-      "id": "7f3a2429e46d",
-      "source_before": "skills/open-pr/SKILL.md:105",
-      "normalized": "the staged and pushed scope matches the approved delivery tree;",
-      "destination": "skills/open-pr/SKILL.md:105"
-    },
-    {
-      "id": "e253ac6a7358",
-      "source_before": "skills/open-pr/SKILL.md:106",
-      "normalized": "deliverycommitcreated accurately records whether this invocation created a commi",
-      "destination": "skills/open-pr/SKILL.md:106"
-    },
-    {
-      "id": "715fdb369402",
-      "source_before": "skills/open-pr/SKILL.md:108",
-      "normalized": "then create the pr:",
-      "destination": "skills/open-pr/SKILL.md:108"
-    },
-    {
-      "id": "1ffca00ab2f2",
-      "source_before": "skills/open-pr/SKILL.md:110",
-      "normalized": "for the ordinary pass path, preserve the existing command:",
-      "destination": "skills/open-pr/SKILL.md:110"
-    },
-    {
-      "id": "303727b94033",
-      "source_before": "skills/open-pr/SKILL.md:116",
-      "normalized": "for qualified pending readiness, do not run the ordinary create command. follow ",
-      "destination": "skills/open-pr/SKILL.md:116"
-    },
-    {
-      "id": "c61aab4e6fa4",
-      "source_before": "skills/open-pr/SKILL.md:118",
-      "normalized": "add labels matching the issue when appropriate. read references/pr-body.md for t",
-      "destination": "skills/open-pr/SKILL.md:118"
-    },
-    {
-      "id": "fcb3e247997f",
-      "source_before": "skills/open-pr/SKILL.md:122",
-      "normalized": "render the prepared-pr block from references/pr-body.md as progress only, then",
-      "destination": "skills/open-pr/SKILL.md:122"
-    },
-    {
-      "id": "7c5946d5410a",
-      "source_before": "skills/open-pr/SKILL.md:123",
-      "normalized": "continue immediately to step 7. never call this completion.",
-      "destination": "skills/open-pr/SKILL.md:123"
-    },
-    {
-      "id": "0ad6036da478",
-      "source_before": "skills/open-pr/SKILL.md:127",
-      "normalized": "read references/ci-monitoring.md when step 7 starts. invoking this skill",
-      "destination": "skills/open-pr/SKILL.md:127"
-    },
-    {
-      "id": "e89db5a6354c",
-      "source_before": "skills/open-pr/SKILL.md:128",
-      "normalized": "authorizes the configured terminal delivery path; do not ask whether to monitor",
-      "destination": "skills/open-pr/SKILL.md:128"
-    },
-    {
-      "id": "cc7be9b40ca5",
-      "source_before": "skills/open-pr/SKILL.md:129",
-      "normalized": "or merge. create or resume one exact pr, fingerprint every observed head/check/",
-      "destination": "skills/open-pr/SKILL.md:129"
-    },
-    {
-      "id": "b9c70a93513e",
-      "source_before": "skills/open-pr/SKILL.md:130",
-      "normalized": "review/thread/merge state, wait for pending evidence, repair safe actionable",
-      "destination": "skills/open-pr/SKILL.md:130"
-    },
-    {
-      "id": "a4e91e4d1955",
-      "source_before": "skills/open-pr/SKILL.md:131",
-      "normalized": "findings, rerun $nmg-sdlc:verify-code #n, push normally, and invalidate all",
-      "destination": "skills/open-pr/SKILL.md:131"
-    },
-    {
-      "id": "47cc9fc3c2c6",
-      "source_before": "skills/open-pr/SKILL.md:132",
-      "normalized": "evidence when the head changes. merge only when success-equivalent checks,",
-      "destination": "skills/open-pr/SKILL.md:132"
-    },
-    {
-      "id": "4711ef9fa07e",
-      "source_before": "skills/open-pr/SKILL.md:133",
-      "normalized": "review decisions, resolved non-outdated threads, final verification evidence,",
-      "destination": "skills/open-pr/SKILL.md:133"
-    },
-    {
-      "id": "99db064957cd",
-      "source_before": "skills/open-pr/SKILL.md:134",
-      "normalized": "and live mergestatestatus: clean all apply to the same head sha.",
-      "destination": "skills/open-pr/SKILL.md:134"
-    },
-    {
-      "id": "99823ab84a45",
-      "source_before": "skills/open-pr/SKILL.md:136",
-      "normalized": "success requires a fresh pr read proving state: merged and a fresh issue read",
-      "destination": "skills/open-pr/SKILL.md:136"
-    },
-    {
-      "id": "b4ec80f34b8f",
-      "source_before": "skills/open-pr/SKILL.md:137",
-      "normalized": "proving child state: closed. then run references/epic-completion.md leaf to",
-      "destination": "skills/open-pr/SKILL.md:137"
-    },
-    {
-      "id": "87be70a23418",
-      "source_before": "skills/open-pr/SKILL.md:138",
-      "normalized": "root and clean up the local branch only after all required proof. otherwise",
-      "destination": "skills/open-pr/SKILL.md:138"
-    },
-    {
-      "id": "cd36d3e60a12",
-      "source_before": "skills/open-pr/SKILL.md:139",
-      "normalized": "return exactly one external-authority blocker naming the evidence, owner, and",
-      "destination": "skills/open-pr/SKILL.md:139"
-    },
-    {
-      "id": "4e6c07438fd5",
-      "source_before": "skills/open-pr/SKILL.md:140",
-      "normalized": "recovery action; an open pr or pending handoff is never success.",
-      "destination": "skills/open-pr/SKILL.md:140"
-    },
-    {
-      "id": "9711433e8e7f",
-      "source_before": "skills/run-retro/SKILL.md:26",
-      "normalized": "use file discovery to find all spec files:",
-      "destination": "skills/run-retro/SKILL.md:26"
-    },
-    {
-      "id": "5cefb6017127",
-      "source_before": "skills/run-retro/SKILL.md:32",
-      "normalized": "then read the first line of each file and collect those whose heading starts wit",
-      "destination": "skills/run-retro/SKILL.md:32"
-    },
-    {
-      "id": "e7bf3034d617",
-      "source_before": "skills/run-retro/SKILL.md:36",
-      "normalized": "read steering/retrospective-state.json if it exists. this state file tracks whic",
-      "destination": "skills/run-retro/SKILL.md:36"
-    },
-    {
-      "id": "02b3965f5517",
-      "source_before": "skills/run-retro/SKILL.md:38",
-      "normalized": "state file schema:",
-      "destination": "skills/run-retro/SKILL.md:38"
-    },
-    {
-      "id": "c8094a036f42",
-      "source_before": "skills/run-retro/SKILL.md:52",
-      "normalized": "| field | type | description |",
-      "destination": "skills/run-retro/SKILL.md:52"
-    },
-    {
-      "id": "75027184b79c",
-      "source_before": "skills/run-retro/SKILL.md:54",
-      "normalized": "| version | integer | schema version (must be 1). |",
-      "destination": "skills/run-retro/SKILL.md:54"
-    },
-    {
-      "id": "5fd448d2e69e",
-      "source_before": "skills/run-retro/SKILL.md:55",
-      "normalized": "| specs | object | map of spec file paths to metadata. keys are relative paths f",
-      "destination": "skills/run-retro/SKILL.md:55"
-    },
-    {
-      "id": "ea7fc2e8cb04",
-      "source_before": "skills/run-retro/SKILL.md:56",
-      "normalized": "| specs[path].hash | string | sha-256 hex digest of the spec file's content at t",
-      "destination": "skills/run-retro/SKILL.md:56"
-    },
-    {
-      "id": "550e755a3411",
-      "source_before": "skills/run-retro/SKILL.md:57",
-      "normalized": "| specs[path].lastanalyzed | string | iso 8601 date (yyyy-mm-dd) when the spec w",
-      "destination": "skills/run-retro/SKILL.md:57"
-    },
-    {
-      "id": "6fa248cb976f",
-      "source_before": "skills/run-retro/SKILL.md:59",
-      "normalized": "loading rules:",
-      "destination": "skills/run-retro/SKILL.md:59"
-    },
-    {
-      "id": "ce3b3db1d95a",
-      "source_before": "skills/run-retro/SKILL.md:61",
-      "normalized": "file does not exist → treat as empty state (first run — every spec is \"new\").",
-      "destination": "skills/run-retro/SKILL.md:61"
-    },
-    {
-      "id": "a51d8b377b03",
-      "source_before": "skills/run-retro/SKILL.md:62",
-      "normalized": "file contains malformed json → warn state file contains invalid json — falling b",
-      "destination": "skills/run-retro/SKILL.md:62"
-    },
-    {
-      "id": "a10565517466",
-      "source_before": "skills/run-retro/SKILL.md:63",
-      "normalized": "file exists but version is not 1 → warn state file has unrecognized version [n] ",
-      "destination": "skills/run-retro/SKILL.md:63"
-    },
-    {
-      "id": "bddc24c0c7c5",
-      "source_before": "skills/run-retro/SKILL.md:65",
-      "normalized": "compute a sha-256 hash of each defect spec's requirements.md using shasum -a 256",
-      "destination": "skills/run-retro/SKILL.md:65"
-    },
-    {
-      "id": "3eafb5a3dfb0",
-      "source_before": "skills/run-retro/SKILL.md:67",
-      "normalized": "partition specs by comparing each computed hash against the loaded state file:",
-      "destination": "skills/run-retro/SKILL.md:67"
-    },
-    {
-      "id": "7d8edbc2b140",
-      "source_before": "skills/run-retro/SKILL.md:69",
-      "normalized": "new — spec path not in state file.",
-      "destination": "skills/run-retro/SKILL.md:69"
-    },
-    {
-      "id": "f17f2805b39a",
-      "source_before": "skills/run-retro/SKILL.md:70",
-      "normalized": "modified — spec path in state file but hash differs.",
-      "destination": "skills/run-retro/SKILL.md:70"
-    },
-    {
-      "id": "7f4e95286bd8",
-      "source_before": "skills/run-retro/SKILL.md:71",
-      "normalized": "unchanged — spec path in state file and hash matches.",
-      "destination": "skills/run-retro/SKILL.md:71"
-    },
-    {
-      "id": "d73be518c743",
-      "source_before": "skills/run-retro/SKILL.md:72",
-      "normalized": "deleted — path in state file but spec no longer exists on disk.",
-      "destination": "skills/run-retro/SKILL.md:72"
-    },
-    {
-      "id": "3b92a06325bf",
-      "source_before": "skills/run-retro/SKILL.md:74",
-      "normalized": "report the partition counts:",
-      "destination": "skills/run-retro/SKILL.md:74"
-    },
-    {
-      "id": "92fc67d46527",
-      "source_before": "skills/run-retro/SKILL.md:82",
-      "normalized": "read references/adr-aging.md when docs/decisions/ exists — the reference covers ",
-      "destination": "skills/run-retro/SKILL.md:82"
-    },
-    {
-      "id": "800e57849305",
-      "source_before": "skills/run-retro/SKILL.md:84",
-      "normalized": "if docs/decisions/ does not exist, skip this step entirely (no error, no warning",
-      "destination": "skills/run-retro/SKILL.md:84"
-    },
-    {
-      "id": "ac74038aa376",
-      "source_before": "skills/run-retro/SKILL.md:86",
-      "normalized": "record the re-spike candidate list in session state for step 7 to append to the ",
-      "destination": "skills/run-retro/SKILL.md:86"
-    },
-    {
-      "id": "530c18427ee6",
-      "source_before": "skills/run-retro/SKILL.md:90",
-      "normalized": "apply eligibility filtering and chain resolution only to new and modified specs ",
-      "destination": "skills/run-retro/SKILL.md:90"
-    },
-    {
-      "id": "538cfb243a97",
-      "source_before": "skills/run-retro/SKILL.md:92",
-      "normalized": "read each new / modified candidate defect spec and extract the related spec: fie",
-      "destination": "skills/run-retro/SKILL.md:92"
-    },
-    {
-      "id": "c40eda67cc68",
-      "source_before": "skills/run-retro/SKILL.md:94",
-      "normalized": "skip defect specs without a related spec field — there is no feature spec to cor",
-      "destination": "skills/run-retro/SKILL.md:94"
-    },
-    {
-      "id": "0d59369569e0",
-      "source_before": "skills/run-retro/SKILL.md:95",
-      "normalized": "warn if a related spec link points to a nonexistent spec directory — log the war",
-      "destination": "skills/run-retro/SKILL.md:95"
-    },
-    {
-      "id": "a44283312f27",
-      "source_before": "skills/run-retro/SKILL.md:97",
-      "normalized": "chain resolution: after extracting the related spec path, read the target's requ",
-      "destination": "skills/run-retro/SKILL.md:97"
-    },
-    {
-      "id": "53f30a82bb09",
-      "source_before": "skills/run-retro/SKILL.md:99",
-      "normalized": "target starts with # requirements: — it is a feature spec. use it directly.",
-      "destination": "skills/run-retro/SKILL.md:99"
-    },
-    {
-      "id": "cfae65ee7a9c",
-      "source_before": "skills/run-retro/SKILL.md:100",
-      "normalized": "target starts with # defect report: — it is another defect spec. follow its rela",
-      "destination": "skills/run-retro/SKILL.md:100"
-    },
-    {
-      "id": "f6441a3befa7",
-      "source_before": "skills/run-retro/SKILL.md:101",
-      "normalized": "maintain a visited set of paths to detect cycles. if a path is visited twice, th",
-      "destination": "skills/run-retro/SKILL.md:101"
-    },
-    {
-      "id": "898c4f0c7995",
-      "source_before": "skills/run-retro/SKILL.md:102",
-      "normalized": "chain is circular or reaches a dead end (missing related spec, nonexistent direc",
-      "destination": "skills/run-retro/SKILL.md:102"
-    },
-    {
-      "id": "4ef509593d60",
-      "source_before": "skills/run-retro/SKILL.md:103",
-      "normalized": "replace the raw related spec value with the resolved feature spec path for use i",
-      "destination": "skills/run-retro/SKILL.md:103"
-    },
-    {
-      "id": "73d869d576a3",
-      "source_before": "skills/run-retro/SKILL.md:105",
-      "normalized": "after filtering and chain resolution, if zero eligible new / modified defect spe",
-      "destination": "skills/run-retro/SKILL.md:105"
-    },
-    {
-      "id": "e192dae58889",
-      "source_before": "skills/run-retro/SKILL.md:111",
-      "normalized": "stop here — do not create or modify retrospective.md.",
-      "destination": "skills/run-retro/SKILL.md:111"
-    },
-    {
-      "id": "91ba72331bbc",
-      "source_before": "skills/run-retro/SKILL.md:113",
-      "normalized": "if zero new / modified specs are eligible but unchanged specs exist with carried",
-      "destination": "skills/run-retro/SKILL.md:113"
-    },
-    {
-      "id": "a73901759276",
-      "source_before": "skills/run-retro/SKILL.md:125",
-      "normalized": "write steering/retrospective.md using templates/retrospective.md.",
-      "destination": "skills/run-retro/SKILL.md:125"
-    },
-    {
-      "id": "347566c0ecfd",
-      "source_before": "skills/run-retro/SKILL.md:127",
-      "normalized": "fill in:",
-      "destination": "skills/run-retro/SKILL.md:127"
-    },
-    {
-      "id": "7f4a95e270a3",
-      "source_before": "skills/run-retro/SKILL.md:129",
-      "normalized": "last updated — today's date.",
-      "destination": "skills/run-retro/SKILL.md:129"
-    },
-    {
-      "id": "85c9fdaae29d",
-      "source_before": "skills/run-retro/SKILL.md:130",
-      "normalized": "defect specs analyzed — count of eligible defect specs processed.",
-      "destination": "skills/run-retro/SKILL.md:130"
-    },
-    {
-      "id": "69df3cfb9aab",
-      "source_before": "skills/run-retro/SKILL.md:131",
-      "normalized": "learnings generated — total count of learnings across all three pattern types.",
-      "destination": "skills/run-retro/SKILL.md:131"
-    },
-    {
-      "id": "a84760c08ca5",
-      "source_before": "skills/run-retro/SKILL.md:132",
-      "normalized": "table rows — one row per learning in the appropriate pattern-type section, with ",
-      "destination": "skills/run-retro/SKILL.md:132"
-    },
-    {
-      "id": "f3e6c59d7860",
-      "source_before": "skills/run-retro/SKILL.md:134",
-      "normalized": "remove placeholder rows from sections with no learnings — leave only the table h",
-      "destination": "skills/run-retro/SKILL.md:134"
-    },
-    {
-      "id": "54a8607a87a0",
-      "source_before": "skills/run-retro/SKILL.md:136",
-      "normalized": "re-spike candidates section: when step 1.6 produced re-spike candidates (adrs ol",
-      "destination": "skills/run-retro/SKILL.md:136"
-    },
-    {
-      "id": "02fb66dadda9",
-      "source_before": "skills/run-retro/SKILL.md:140",
-      "normalized": "write steering/retrospective-state.json to persist the current analysis state fo",
-      "destination": "skills/run-retro/SKILL.md:140"
-    },
-    {
-      "id": "8a5137070be9",
-      "source_before": "skills/run-retro/SKILL.md:142",
-      "normalized": "for each new or modified spec that was analysed: record the computed sha-256 has",
-      "destination": "skills/run-retro/SKILL.md:142"
-    },
-    {
-      "id": "ffb4bc5e9882",
-      "source_before": "skills/run-retro/SKILL.md:143",
-      "normalized": "for each unchanged spec: preserve the existing hash and lastanalyzed date from t",
-      "destination": "skills/run-retro/SKILL.md:143"
-    },
-    {
-      "id": "c46653d42690",
-      "source_before": "skills/run-retro/SKILL.md:144",
-      "normalized": "omit deleted specs — they are no longer in the current defect spec set.",
-      "destination": "skills/run-retro/SKILL.md:144"
-    },
-    {
-      "id": "05e0b1884145",
-      "source_before": "skills/run-retro/SKILL.md:145",
-      "normalized": "set version to 1.",
-      "destination": "skills/run-retro/SKILL.md:145"
-    },
-    {
-      "id": "bfe32723cb9f",
-      "source_before": "skills/run-retro/SKILL.md:147",
-      "normalized": "write the state file as formatted json with 2-space indentation. ensure the stee",
-      "destination": "skills/run-retro/SKILL.md:147"
-    },
-    {
-      "id": "5132982b316c",
-      "source_before": "skills/run-retro/references/learning-extraction.md:59",
-      "normalized": "the carried-forward learnings join the freshly analysed learnings from step 3 as",
-      "destination": "skills/run-retro/references/learning-extraction.md:59"
-    },
-    {
-      "id": "d0054c637126",
-      "source_before": "skills/run-retro/references/transferability.md:66",
-      "normalized": "the surviving classified, filtered learnings form the table rows that step 7 wri",
-      "destination": "skills/run-retro/references/transferability.md:66"
     },
     {
       "id": "483c7103c42d",
@@ -1960,9 +490,9 @@
       "destination": "skills/simplify/SKILL.md:59"
     },
     {
-      "id": "830c88f5e7fa",
+      "id": "8c840a21faff",
       "source_before": "skills/simplify/SKILL.md:61",
-      "normalized": "use codex explorer subagents only when the user explicitly authorizes delegation",
+      "normalized": "use explorer subagents only when the user explicitly authorizes delegation. when",
       "destination": "skills/simplify/SKILL.md:61"
     },
     {
@@ -2026,9 +556,9 @@
       "destination": "skills/simplify/SKILL.md:79"
     },
     {
-      "id": "90c6c49c1bcc",
+      "id": "273634129067",
       "source_before": "skills/simplify/SKILL.md:80",
-      "normalized": "use apply_patch for manual edits and follow the repository's existing style.",
+      "normalized": "use edit or write tools for changes and follow the repository's existing style.",
       "destination": "skills/simplify/SKILL.md:80"
     },
     {
@@ -2074,1018 +604,208 @@
       "destination": "skills/simplify/SKILL.md:93"
     },
     {
-      "id": "4963cc48b604",
-      "source_before": "skills/start-issue/SKILL.md:348",
-      "normalized": "this summary is the handoff contract for downstream skills like $nmg-sdlc:write-",
-      "destination": "skills/start-issue/SKILL.md:348"
+      "id": "3e4ec04f07a1",
+      "source_before": "skills/start-issue/SKILL.md:14",
+      "normalized": "the invocation must supply an explicit issue number argument in the form #n or n",
+      "destination": "skills/start-issue/SKILL.md:14"
     },
     {
-      "id": "4e2ccb29efb3",
-      "source_before": "skills/status/SKILL.md:35",
-      "normalized": "accept $arguments only when it is empty or exactly --json after trimming surroun",
-      "destination": "skills/status/SKILL.md:35"
+      "id": "7de0d98a2724",
+      "source_before": "skills/start-issue/SKILL.md:16",
+      "normalized": "if no argument or argument does not match ^#?([1-9]\\d*)$, write failed handoff i",
+      "destination": "skills/start-issue/SKILL.md:16"
     },
     {
-      "id": "d1753b43c91a",
-      "source_before": "skills/status/SKILL.md:37",
-      "normalized": "for any other value, print this usage line and stop non-zero without inspecting ",
-      "destination": "skills/status/SKILL.md:37"
+      "id": "aa680822b32d",
+      "source_before": "skills/start-issue/SKILL.md:17",
+      "normalized": "reasoncode: noissuenumber",
+      "destination": "skills/start-issue/SKILL.md:17"
     },
     {
-      "id": "514a74601a23",
-      "source_before": "skills/status/SKILL.md:45",
-      "normalized": "resolve the project root with the read-only equivalent of:",
-      "destination": "skills/status/SKILL.md:45"
+      "id": "7cd7cb65e186",
+      "source_before": "skills/start-issue/SKILL.md:18",
+      "normalized": "summary: \"start-issue requires explicit #n argument\"",
+      "destination": "skills/start-issue/SKILL.md:18"
     },
     {
-      "id": "d96f1fe9c4f8",
-      "source_before": "skills/status/SKILL.md:51",
-      "normalized": "resolve the installed plugin root from this loaded skill's own source path: the ",
-      "destination": "skills/status/SKILL.md:51"
-    },
-    {
-      "id": "82d48ffd8cb4",
-      "source_before": "skills/status/SKILL.md:53",
-      "normalized": "if the project root cannot be identified or the bundled cli is missing, report t",
-      "destination": "skills/status/SKILL.md:53"
-    },
-    {
-      "id": "2b25f9e8ab57",
-      "source_before": "skills/status/SKILL.md:57",
-      "normalized": "invoke node.js without a shell using an argument array:",
-      "destination": "skills/status/SKILL.md:57"
-    },
-    {
-      "id": "2a8dc43119ab",
-      "source_before": "skills/status/SKILL.md:64",
-      "normalized": "use the second form only when $arguments is --json. pass the resolved paths as d",
-      "destination": "skills/status/SKILL.md:64"
-    },
-    {
-      "id": "b4b92533636d",
-      "source_before": "skills/status/SKILL.md:66",
-      "normalized": "stream the cli exit code, stdout, and stderr without adding interpretation. in j",
-      "destination": "skills/status/SKILL.md:66"
-    },
-    {
-      "id": "2f370a23b0ee",
-      "source_before": "skills/upgrade-project/SKILL.md:73",
-      "normalized": "resolve the installed plugin root from this skill's own path and load:",
-      "destination": "skills/upgrade-project/SKILL.md:73"
-    },
-    {
-      "id": "58a0616d1197",
-      "source_before": "skills/upgrade-project/SKILL.md:75",
-      "normalized": "../onboard-project/templates/{product,tech,structure}.md",
-      "destination": "skills/upgrade-project/SKILL.md:75"
-    },
-    {
-      "id": "c7e8ea329734",
-      "source_before": "skills/upgrade-project/SKILL.md:76",
-      "normalized": "../run-retro/templates/retrospective.md",
-      "destination": "skills/upgrade-project/SKILL.md:76"
-    },
-    {
-      "id": "c3c204b53f18",
-      "source_before": "skills/upgrade-project/SKILL.md:77",
-      "normalized": "../write-spec/templates/{requirements,design,tasks,feature.gherkin,issue-scope.j",
-      "destination": "skills/upgrade-project/SKILL.md:77"
-    },
-    {
-      "id": "bad86829389c",
-      "source_before": "skills/upgrade-project/SKILL.md:78",
-      "normalized": "the canonical issue form at .github/issue_template/nmg-sdlc-ready-issue.yml",
-      "destination": "skills/upgrade-project/SKILL.md:78"
-    },
-    {
-      "id": "96e27a5a4a1e",
-      "source_before": "skills/upgrade-project/SKILL.md:80",
-      "normalized": "if a source template is unavailable, skip only that category and report the exac",
-      "destination": "skills/upgrade-project/SKILL.md:80"
-    },
-    {
-      "id": "f14bba00c724",
-      "source_before": "skills/upgrade-project/SKILL.md:84",
-      "normalized": "read references/detection.md. record exact relocation findings and include them ",
-      "destination": "skills/upgrade-project/SKILL.md:84"
-    },
-    {
-      "id": "a971c1e43c3a",
-      "source_before": "skills/upgrade-project/SKILL.md:88",
-      "normalized": "for steering documents, compare ## headings with the matching current template, ",
-      "destination": "skills/upgrade-project/SKILL.md:88"
-    },
-    {
-      "id": "524998631c0c",
-      "source_before": "skills/upgrade-project/SKILL.md:90",
-      "normalized": "for ordinary requirements.md, design.md, and tasks.md, detect feature versus def",
-      "destination": "skills/upgrade-project/SKILL.md:90"
-    },
-    {
-      "id": "ae17c4173a23",
-      "source_before": "skills/upgrade-project/SKILL.md:92",
-      "normalized": "read references/migration-steps.md when legacy {issue#}-{slug} directories or si",
-      "destination": "skills/upgrade-project/SKILL.md:92"
-    },
-    {
-      "id": "c0d5d08c43df",
-      "source_before": "skills/upgrade-project/SKILL.md:96",
-      "normalized": "read ../../references/canonical-umbrella-spec.md and references/sealed-spec-reco",
-      "destination": "skills/upgrade-project/SKILL.md:96"
-    },
-    {
-      "id": "dda675a7d3ef",
-      "source_before": "skills/upgrade-project/SKILL.md:98",
-      "normalized": "this category is independent from template reconciliation, managed assets, relea",
-      "destination": "skills/upgrade-project/SKILL.md:98"
-    },
-    {
-      "id": "42e9ea59bc03",
-      "source_before": "skills/upgrade-project/SKILL.md:102",
-      "normalized": "read ../../references/epic-relationships.md and references/epic-identity-recover",
-      "destination": "skills/upgrade-project/SKILL.md:102"
-    },
-    {
-      "id": "87aa8ec5302b",
-      "source_before": "skills/upgrade-project/SKILL.md:104",
-      "normalized": "prove graph completeness before a clean audit result: every requested issue/labe",
-      "destination": "skills/upgrade-project/SKILL.md:104"
-    },
-    {
-      "id": "16e7708bedd2",
-      "source_before": "skills/upgrade-project/SKILL.md:106",
-      "normalized": "the audit is read-only. it must not add labels, change parent links, rewrite bod",
-      "destination": "skills/upgrade-project/SKILL.md:106"
-    },
-    {
-      "id": "d7ad6a9fa7a0",
-      "source_before": "skills/upgrade-project/SKILL.md:110",
-      "normalized": "read ../../references/deliverable-dependencies.md and references/deliverable-dep",
-      "destination": "skills/upgrade-project/SKILL.md:110"
-    },
-    {
-      "id": "ced2ee968a8c",
-      "source_before": "skills/upgrade-project/SKILL.md:112",
-      "normalized": "detect bounded legacy candidates only when a child body line contains a confirme",
-      "destination": "skills/upgrade-project/SKILL.md:112"
-    },
-    {
-      "id": "8653d35f72c6",
-      "source_before": "skills/upgrade-project/SKILL.md:114",
-      "normalized": "this audit is read-only. incomplete pagination, noncanonical specs, degraded sib",
-      "destination": "skills/upgrade-project/SKILL.md:114"
-    },
-    {
-      "id": "769430691ca8",
-      "source_before": "skills/upgrade-project/SKILL.md:118",
-      "normalized": "read ../../references/epic-spec-authority.md and",
-      "destination": "skills/upgrade-project/SKILL.md:118"
-    },
-    {
-      "id": "5e9d74d2f263",
-      "source_before": "skills/upgrade-project/SKILL.md:119",
-      "normalized": "references/epic-lifecycle-recovery.md. for every complete native epic group,",
-      "destination": "skills/upgrade-project/SKILL.md:119"
-    },
-    {
-      "id": "37885114f920",
-      "source_before": "skills/upgrade-project/SKILL.md:120",
-      "normalized": "combine exact default/source trees, graph/checklist identity, aggregate/child",
-      "destination": "skills/upgrade-project/SKILL.md:120"
-    },
-    {
-      "id": "6d24192fd871",
-      "source_before": "skills/upgrade-project/SKILL.md:121",
-      "normalized": "authority, executable ownership, issue state, completion classification, and",
-      "destination": "skills/upgrade-project/SKILL.md:121"
-    },
-    {
-      "id": "6a3eaa7cca20",
-      "source_before": "skills/upgrade-project/SKILL.md:122",
-      "normalized": "fully readable project state. run the deterministic repair planner and record",
-      "destination": "skills/upgrade-project/SKILL.md:122"
-    },
-    {
-      "id": "dcf59d924cbb",
-      "source_before": "skills/upgrade-project/SKILL.md:123",
-      "normalized": "clean, repairproposed, preservedambiguous, or unverifiable with its",
-      "destination": "skills/upgrade-project/SKILL.md:123"
-    },
-    {
-      "id": "8074586b6d46",
-      "source_before": "skills/upgrade-project/SKILL.md:124",
-      "normalized": "digest and exact actions.",
-      "destination": "skills/upgrade-project/SKILL.md:124"
-    },
-    {
-      "id": "1f0aed7b9b3d",
-      "source_before": "skills/upgrade-project/SKILL.md:126",
-      "normalized": "this step is read-only. it proposes stale-complete closure, premature reopen,",
-      "destination": "skills/upgrade-project/SKILL.md:126"
-    },
-    {
-      "id": "883ce9205a14",
-      "source_before": "skills/upgrade-project/SKILL.md:127",
-      "normalized": "project reconciliation, legacy spec split, ownership transfer, and nested repair",
-      "destination": "skills/upgrade-project/SKILL.md:127"
-    },
-    {
-      "id": "1ed54ce00b92",
-      "source_before": "skills/upgrade-project/SKILL.md:128",
-      "normalized": "in one per-epic group. ambiguous ownership is preserved and routed to an explici",
-      "destination": "skills/upgrade-project/SKILL.md:128"
-    },
-    {
-      "id": "0fca33de710b",
-      "source_before": "skills/upgrade-project/SKILL.md:129",
-      "normalized": "missing-child drafting/selection decision; it is never assigned heuristically.",
-      "destination": "skills/upgrade-project/SKILL.md:129"
-    },
-    {
-      "id": "0368498dd0bb",
-      "source_before": "skills/upgrade-project/SKILL.md:133",
-      "normalized": "read references/verification.md for changelog.md and version analysis. preserve ",
-      "destination": "skills/upgrade-project/SKILL.md:133"
-    },
-    {
-      "id": "192d1b8f78fd",
-      "source_before": "skills/upgrade-project/SKILL.md:137",
-      "normalized": "after all three steering documents exist or are approved for creation/reconcilia",
-      "destination": "skills/upgrade-project/SKILL.md:137"
-    },
-    {
-      "id": "54c3a220f0a5",
-      "source_before": "skills/upgrade-project/SKILL.md:139",
-      "normalized": "../../references/contribution-guide.md",
-      "destination": "skills/upgrade-project/SKILL.md:139"
-    },
-    {
-      "id": "db888523a2a9",
-      "source_before": "skills/upgrade-project/SKILL.md:140",
-      "normalized": "../../references/project-agents.md",
-      "destination": "skills/upgrade-project/SKILL.md:140"
-    },
-    {
-      "id": "66429b789da0",
-      "source_before": "skills/upgrade-project/SKILL.md:141",
-      "normalized": "../../references/contribution-gate.md",
-      "destination": "skills/upgrade-project/SKILL.md:141"
-    },
-    {
-      "id": "e8a2cf344355",
-      "source_before": "skills/upgrade-project/SKILL.md:142",
-      "normalized": "../../references/issue-form.md",
-      "destination": "skills/upgrade-project/SKILL.md:142"
-    },
-    {
-      "id": "be6a391ef176",
-      "source_before": "skills/upgrade-project/SKILL.md:144",
-      "normalized": "managed markers and exact target-path ownership rules remain authoritative. miss",
-      "destination": "skills/upgrade-project/SKILL.md:144"
-    },
-    {
-      "id": "26f79fb68db5",
-      "source_before": "skills/upgrade-project/SKILL.md:148",
-      "normalized": "read the cleanup section in references/verification.md. candidate discovery is l",
-      "destination": "skills/upgrade-project/SKILL.md:148"
-    },
-    {
-      "id": "3b4fd69f6717",
-      "source_before": "skills/upgrade-project/SKILL.md:152",
-      "normalized": "show a per-file summary grouped as:",
-      "destination": "skills/upgrade-project/SKILL.md:152"
-    },
-    {
-      "id": "9df2a105e7f1",
-      "source_before": "skills/upgrade-project/SKILL.md:154",
-      "normalized": "legacy layout relocation",
-      "destination": "skills/upgrade-project/SKILL.md:154"
-    },
-    {
-      "id": "b51e6e9ab728",
-      "source_before": "skills/upgrade-project/SKILL.md:155",
-      "normalized": "steering documents",
-      "destination": "skills/upgrade-project/SKILL.md:155"
-    },
-    {
-      "id": "b867edbab3fc",
-      "source_before": "skills/upgrade-project/SKILL.md:156",
-      "normalized": "spec documents and directories",
-      "destination": "skills/upgrade-project/SKILL.md:156"
-    },
-    {
-      "id": "101277352fb1",
-      "source_before": "skills/upgrade-project/SKILL.md:157",
-      "normalized": "related spec links and frontmatter",
-      "destination": "skills/upgrade-project/SKILL.md:157"
-    },
-    {
-      "id": "2e196f94f5c0",
-      "source_before": "skills/upgrade-project/SKILL.md:158",
-      "normalized": "sealed umbrella specs",
-      "destination": "skills/upgrade-project/SKILL.md:158"
-    },
-    {
-      "id": "c6fa97839492",
-      "source_before": "skills/upgrade-project/SKILL.md:159",
-      "normalized": "umbrella identity",
-      "destination": "skills/upgrade-project/SKILL.md:159"
-    },
-    {
-      "id": "b78faa607445",
-      "source_before": "skills/upgrade-project/SKILL.md:160",
-      "normalized": "deliverable dependencies",
-      "destination": "skills/upgrade-project/SKILL.md:160"
-    },
-    {
-      "id": "4b32209c519c",
-      "source_before": "skills/upgrade-project/SKILL.md:161",
-      "normalized": "epic specification and lifecycle",
-      "destination": "skills/upgrade-project/SKILL.md:161"
-    },
-    {
-      "id": "01e1371b14e9",
-      "source_before": "skills/upgrade-project/SKILL.md:162",
-      "normalized": "changelog and version",
-      "destination": "skills/upgrade-project/SKILL.md:162"
-    },
-    {
-      "id": "ae91a10dfece",
-      "source_before": "skills/upgrade-project/SKILL.md:163",
-      "normalized": "contribution guide",
-      "destination": "skills/upgrade-project/SKILL.md:163"
-    },
-    {
-      "id": "b16f336a26d4",
-      "source_before": "skills/upgrade-project/SKILL.md:164",
-      "normalized": "project agents",
-      "destination": "skills/upgrade-project/SKILL.md:164"
-    },
-    {
-      "id": "ce8f220c718c",
-      "source_before": "skills/upgrade-project/SKILL.md:165",
-      "normalized": "contribution gate",
-      "destination": "skills/upgrade-project/SKILL.md:165"
-    },
-    {
-      "id": "e794fd7e6b08",
-      "source_before": "skills/upgrade-project/SKILL.md:166",
-      "normalized": "issue form",
-      "destination": "skills/upgrade-project/SKILL.md:166"
-    },
-    {
-      "id": "375c92d3df0f",
-      "source_before": "skills/upgrade-project/SKILL.md:167",
-      "normalized": "runner artifact cleanup",
-      "destination": "skills/upgrade-project/SKILL.md:167"
-    },
-    {
-      "id": "e9a368e4863f",
-      "source_before": "skills/upgrade-project/SKILL.md:169",
-      "normalized": "for runner artifact cleanup, list every exact file and every exact managed ignor",
-      "destination": "skills/upgrade-project/SKILL.md:169"
-    },
-    {
-      "id": "ba5febd83fd4",
-      "source_before": "skills/upgrade-project/SKILL.md:171",
-      "normalized": "use requestuserinput gates:",
-      "destination": "skills/upgrade-project/SKILL.md:171"
-    },
-    {
-      "id": "9516b28b8d1a",
-      "source_before": "skills/upgrade-project/SKILL.md:173",
-      "normalized": "steering sections: apply all, decline all, or provide a narrowed subset.",
-      "destination": "skills/upgrade-project/SKILL.md:173"
-    },
-    {
-      "id": "c43397c7df9f",
-      "source_before": "skills/upgrade-project/SKILL.md:174",
-      "normalized": "each spec consolidation/deletion group: apply or preserve.",
-      "destination": "skills/upgrade-project/SKILL.md:174"
-    },
-    {
-      "id": "a2bc3169a1f9",
-      "source_before": "skills/upgrade-project/SKILL.md:175",
-      "normalized": "each stranded_recoverable sealed-spec finding: approve that exact path/tree/sour",
-      "destination": "skills/upgrade-project/SKILL.md:175"
-    },
-    {
-      "id": "f236aa4af3b3",
-      "source_before": "skills/upgrade-project/SKILL.md:176",
-      "normalized": "each deterministic umbrella-identity mutation set: approve that exact parent/chi",
-      "destination": "skills/upgrade-project/SKILL.md:176"
-    },
-    {
-      "id": "1050064c38d0",
-      "source_before": "skills/upgrade-project/SKILL.md:177",
-      "normalized": "each deterministic deliverable-dependency manual handoff: approve the exact down",
-      "destination": "skills/upgrade-project/SKILL.md:177"
-    },
-    {
-      "id": "4a6a994926e8",
-      "source_before": "skills/upgrade-project/SKILL.md:178",
-      "normalized": "each epic lifecycle/specification group: apply the exact action/path/field set w",
-      "destination": "skills/upgrade-project/SKILL.md:178"
-    },
-    {
-      "id": "4b67dd33654c",
-      "source_before": "skills/upgrade-project/SKILL.md:179",
-      "normalized": "other non-cleanup changes: apply all, cancel, or narrow and re-present.",
-      "destination": "skills/upgrade-project/SKILL.md:179"
-    },
-    {
-      "id": "edc706ceac27",
-      "source_before": "skills/upgrade-project/SKILL.md:180",
-      "normalized": "runner artifact cleanup: approve the exact deletion batch, decline it, or provid",
-      "destination": "skills/upgrade-project/SKILL.md:180"
-    },
-    {
-      "id": "1b129a865518",
-      "source_before": "skills/upgrade-project/SKILL.md:182",
-      "normalized": "no mutation occurs until the user has accepted a decision-complete plan.",
-      "destination": "skills/upgrade-project/SKILL.md:182"
-    },
-    {
-      "id": "10e72abc12af",
-      "source_before": "skills/upgrade-project/SKILL.md:186",
-      "normalized": "read references/upgrade-procedures.md and apply only the accepted findings. re-r",
-      "destination": "skills/upgrade-project/SKILL.md:186"
-    },
-    {
-      "id": "783960676daa",
-      "source_before": "skills/upgrade-project/SKILL.md:188",
-      "normalized": "route approved sealed-spec findings through references/sealed-spec-recovery.md, ",
-      "destination": "skills/upgrade-project/SKILL.md:188"
-    },
-    {
-      "id": "d43edb5d8bd6",
-      "source_before": "skills/upgrade-project/SKILL.md:190",
-      "normalized": "route approved umbrella-identity findings through references/epic-identity-recov",
-      "destination": "skills/upgrade-project/SKILL.md:190"
-    },
-    {
-      "id": "58754306ae76",
-      "source_before": "skills/upgrade-project/SKILL.md:192",
-      "normalized": "route approved deliverable-dependency findings through references/deliverable-de",
-      "destination": "skills/upgrade-project/SKILL.md:192"
-    },
-    {
-      "id": "f359ed0b319b",
-      "source_before": "skills/upgrade-project/SKILL.md:194",
-      "normalized": "route each approved epic specification/lifecycle group through",
-      "destination": "skills/upgrade-project/SKILL.md:194"
-    },
-    {
-      "id": "66ee7b77574e",
-      "source_before": "skills/upgrade-project/SKILL.md:195",
-      "normalized": "references/epic-lifecycle-recovery.md. require a fresh identical digest before",
-      "destination": "skills/upgrade-project/SKILL.md:195"
-    },
-    {
-      "id": "23c9716353f5",
-      "source_before": "skills/upgrade-project/SKILL.md:196",
-      "normalized": "the first write, apply only exact paths/issues/project fields, and prove a secon",
-      "destination": "skills/upgrade-project/SKILL.md:196"
-    },
-    {
-      "id": "22c1acb67b03",
-      "source_before": "skills/upgrade-project/SKILL.md:197",
-      "normalized": "audit produces no duplicate or remaining approved action.",
-      "destination": "skills/upgrade-project/SKILL.md:197"
-    },
-    {
-      "id": "07970e72627c",
-      "source_before": "skills/upgrade-project/SKILL.md:199",
-      "normalized": "managed contribution-gate and issue-form reconciliation is independent of cleanu",
-      "destination": "skills/upgrade-project/SKILL.md:199"
-    },
-    {
-      "id": "4017d99d517e",
-      "source_before": "skills/upgrade-project/SKILL.md:203",
-      "normalized": "emit stable managed-asset status blocks from their shared contracts, followed by",
-      "destination": "skills/upgrade-project/SKILL.md:203"
-    },
-    {
-      "id": "0b5cf52a05e6",
-      "source_before": "skills/upgrade-project/SKILL.md:214",
-      "normalized": "then summarize applied, declined, already-current, relevance-filtered, and faile",
-      "destination": "skills/upgrade-project/SKILL.md:214"
-    },
-    {
-      "id": "887901859ed0",
-      "source_before": "skills/upgrade-project/SKILL.md:216",
-      "normalized": "before the runner block, emit:",
-      "destination": "skills/upgrade-project/SKILL.md:216"
-    },
-    {
-      "id": "7350988c8658",
-      "source_before": "skills/upgrade-project/SKILL.md:224",
-      "normalized": "for a prepared recovery, direct the user to $nmg-sdlc:write-spec #n for normal r",
-      "destination": "skills/upgrade-project/SKILL.md:224"
-    },
-    {
-      "id": "aff8a41237d0",
-      "source_before": "skills/upgrade-project/SKILL.md:226",
-      "normalized": "before the sealed-spec block, emit:",
-      "destination": "skills/upgrade-project/SKILL.md:226"
-    },
-    {
-      "id": "78f847fdfab1",
-      "source_before": "skills/upgrade-project/SKILL.md:235",
-      "normalized": "before the deliverable-dependencies block, emit:",
-      "destination": "skills/upgrade-project/SKILL.md:235"
-    },
-    {
-      "id": "72dda4ca705c",
-      "source_before": "skills/upgrade-project/SKILL.md:244",
-      "normalized": "before the umbrella-identity block, emit:",
-      "destination": "skills/upgrade-project/SKILL.md:244"
-    },
-    {
-      "id": "755b3781cde4",
-      "source_before": "skills/upgrade-project/references/deliverable-dependency-recovery.md:90",
-      "normalized": "for every finding report consumer, owner, task/artifact, structured record, exec",
-      "destination": "skills/upgrade-project/references/deliverable-dependency-recovery.md:90"
-    },
-    {
-      "id": "a566f0c0f7a4",
-      "source_before": "skills/verify-code/SKILL.md:38",
-      "normalized": "resolve the issue number from the explicit argument or active issue branch befor",
-      "destination": "skills/verify-code/SKILL.md:38"
-    },
-    {
-      "id": "c72d01ffb423",
-      "source_before": "skills/verify-code/SKILL.md:40",
-      "normalized": "role = ordinary → continue unchanged.",
-      "destination": "skills/verify-code/SKILL.md:40",
+      "id": "6b5449db00b6",
+      "source_before": "skills/start-issue/SKILL.md:19",
+      "normalized": "step: \"start\"",
+      "destination": "skills/start-issue/SKILL.md:19",
       "additional_destinations": [
-        "skills/write-code/SKILL.md:60"
+        "skills/start-issue/SKILL.md:38"
       ]
     },
     {
-      "id": "e6ee92e329e2",
-      "source_before": "skills/verify-code/SKILL.md:41",
-      "normalized": "role = epic → stop before loading evidence with epic #e is coordination-only and",
-      "destination": "skills/verify-code/SKILL.md:41"
-    },
-    {
-      "id": "3317178ee6a0",
-      "source_before": "skills/verify-code/SKILL.md:42",
-      "normalized": "role = inconsistent, ambiguous, or unverifiable → stop before loading evidence, ",
-      "destination": "skills/verify-code/SKILL.md:42"
-    },
-    {
-      "id": "1334a8d5c9da",
-      "source_before": "skills/verify-code/SKILL.md:43",
-      "normalized": "role = epic-child → record complete lineage and fully paged native direct childr",
-      "destination": "skills/verify-code/SKILL.md:43",
+      "id": "0f52536dde7d",
+      "source_before": "skills/start-issue/SKILL.md:20",
+      "normalized": "intervention: true",
+      "destination": "skills/start-issue/SKILL.md:20",
       "additional_destinations": [
-        "skills/write-code/SKILL.md:63"
+        "skills/start-issue/SKILL.md:37"
       ]
     },
     {
-      "id": "7f5014c88684",
-      "source_before": "skills/verify-code/SKILL.md:45",
-      "normalized": "continue only for valid; use requestedchild.specpath as the active executable pa",
-      "destination": "skills/verify-code/SKILL.md:45"
+      "id": "1ec1de9df694",
+      "source_before": "skills/start-issue/SKILL.md:21",
+      "normalized": "extract n as integer.",
+      "destination": "skills/start-issue/SKILL.md:21"
     },
     {
-      "id": "da95a6a5dc24",
-      "source_before": "skills/verify-code/SKILL.md:49",
-      "normalized": "read all spec documents:",
-      "destination": "skills/verify-code/SKILL.md:49"
+      "id": "60690206d9e2",
+      "source_before": "skills/start-issue/SKILL.md:23",
+      "normalized": "use bash:",
+      "destination": "skills/start-issue/SKILL.md:23"
     },
     {
-      "id": "4116da47cd30",
-      "source_before": "skills/verify-code/SKILL.md:51",
-      "normalized": "read ../../references/issue-spec-scope.md when step 1 resolves the active execut",
-      "destination": "skills/verify-code/SKILL.md:51"
+      "id": "502850d3997d",
+      "source_before": "skills/start-issue/SKILL.md:30",
+      "normalized": "run:",
+      "destination": "skills/start-issue/SKILL.md:30"
     },
     {
-      "id": "eccb792c372a",
-      "source_before": "skills/verify-code/SKILL.md:53",
-      "normalized": "after the active spec is loaded, read ../../references/spec-context.md and load ",
-      "destination": "skills/verify-code/SKILL.md:53"
+      "id": "f678fe8504e9",
+      "source_before": "skills/start-issue/SKILL.md:35",
+      "normalized": "if gh fails or state is not readable, write failed handoff:",
+      "destination": "skills/start-issue/SKILL.md:35"
     },
     {
-      "id": "6f30be9e6ffc",
-      "source_before": "skills/verify-code/SKILL.md:63",
-      "normalized": "read all steering documents — these define project conventions used throughout v",
-      "destination": "skills/verify-code/SKILL.md:63"
+      "id": "75ebba0bf45b",
+      "source_before": "skills/start-issue/SKILL.md:36",
+      "normalized": "reasoncode: issue_unreadable",
+      "destination": "skills/start-issue/SKILL.md:36"
     },
     {
-      "id": "b3b951684188",
-      "source_before": "skills/verify-code/SKILL.md:72",
-      "normalized": "steering docs define the verification framework (behavioral contracts, checklist",
-      "destination": "skills/verify-code/SKILL.md:72"
+      "id": "b949c066f864",
+      "source_before": "skills/start-issue/SKILL.md:40",
+      "normalized": "parse json for number, title, labels array, body, state.",
+      "destination": "skills/start-issue/SKILL.md:40"
     },
     {
-      "id": "351d5e6f4eb9",
-      "source_before": "skills/verify-code/SKILL.md:74",
-      "normalized": "read references/verification-gates.md when tech.md is being parsed — the referen",
-      "destination": "skills/verify-code/SKILL.md:74"
+      "id": "1c1badae472a",
+      "source_before": "skills/start-issue/SKILL.md:42",
+      "normalized": "compute slug from title (reuse feature-naming rules):",
+      "destination": "skills/start-issue/SKILL.md:42"
     },
     {
-      "id": "dc6272f4237c",
-      "source_before": "skills/verify-code/SKILL.md:78",
-      "normalized": "check the issue's labels:",
-      "destination": "skills/verify-code/SKILL.md:78",
-      "additional_destinations": [
-        "skills/write-code/SKILL.md:42"
-      ]
+      "id": "c110c8dfd3c1",
+      "source_before": "skills/start-issue/SKILL.md:53",
+      "normalized": "expectedbranch = ${n}-${slug}",
+      "destination": "skills/start-issue/SKILL.md:53"
     },
     {
-      "id": "13aa99e928b6",
-      "source_before": "skills/verify-code/SKILL.md:84",
-      "normalized": "if any label is spike, print exactly:",
-      "destination": "skills/verify-code/SKILL.md:84",
-      "additional_destinations": [
-        "skills/write-code/SKILL.md:48"
-      ]
+      "id": "6ba5efd45735",
+      "source_before": "skills/start-issue/SKILL.md:67",
+      "normalized": "for each parent in dependson:",
+      "destination": "skills/start-issue/SKILL.md:67"
     },
     {
-      "id": "a5de0b78ed8d",
-      "source_before": "skills/verify-code/SKILL.md:90",
-      "normalized": "exit 0 — this is a correctness guard, not a failure. do not post a verification ",
-      "destination": "skills/verify-code/SKILL.md:90"
+      "id": "d5f826d7f587",
+      "source_before": "skills/start-issue/SKILL.md:69",
+      "normalized": "run gh issue view p --json state",
+      "destination": "skills/start-issue/SKILL.md:69"
     },
     {
-      "id": "3e8aabc122a9",
-      "source_before": "skills/verify-code/SKILL.md:94",
-      "normalized": "read the github issue for the original acceptance criteria:",
-      "destination": "skills/verify-code/SKILL.md:94"
+      "id": "dd602188b0a2",
+      "source_before": "skills/start-issue/SKILL.md:71",
+      "normalized": "if command fails or cannot parse: reasoncode dependency_unreadable, failed, inte",
+      "destination": "skills/start-issue/SKILL.md:71"
     },
     {
-      "id": "ce25b2655f4f",
-      "source_before": "skills/verify-code/SKILL.md:100",
-      "normalized": "read references/defect-path.md when the spec under verification uses the defect ",
-      "destination": "skills/verify-code/SKILL.md:100"
+      "id": "4364d2013c98",
+      "source_before": "skills/start-issue/SKILL.md:73",
+      "normalized": "if state !== \"closed\": reasoncode dependency_blocked, failed, intervention true",
+      "destination": "skills/start-issue/SKILL.md:73"
     },
     {
-      "id": "31415e1075d2",
-      "source_before": "skills/verify-code/SKILL.md:104",
-      "normalized": "check each acceptance criterion against actual code:",
-      "destination": "skills/verify-code/SKILL.md:104"
+      "id": "20d011899b9d",
+      "source_before": "skills/start-issue/SKILL.md:75",
+      "normalized": "if any parent blocks, write handoff and stop. do not guess.",
+      "destination": "skills/start-issue/SKILL.md:75"
     },
     {
-      "id": "e5350163000b",
-      "source_before": "skills/verify-code/SKILL.md:106",
-      "normalized": "for each mapped delivery ac: find the implementing code via file discovery / tex",
-      "destination": "skills/verify-code/SKILL.md:106"
+      "id": "5b0874b20795",
+      "source_before": "skills/start-issue/SKILL.md:84",
+      "normalized": "if dirty (non-empty after trim) and current !== expectedbranch:",
+      "destination": "skills/start-issue/SKILL.md:84"
     },
     {
-      "id": "9f8d62011b70",
-      "source_before": "skills/verify-code/SKILL.md:107",
-      "normalized": "for each mapped delivery task: verify the file exists and contains the expected ",
-      "destination": "skills/verify-code/SKILL.md:107"
+      "id": "5771e547450e",
+      "source_before": "skills/start-issue/SKILL.md:85",
+      "normalized": "write failed handoff reasoncode: dirty_tree, intervention: true, step: \"start\"",
+      "destination": "skills/start-issue/SKILL.md:85"
     },
     {
-      "id": "e667cd457e37",
-      "source_before": "skills/verify-code/SKILL.md:108",
-      "normalized": "for each declared regression obligation: verify preservation separately and reco",
-      "destination": "skills/verify-code/SKILL.md:108"
+      "id": "c3e5a55075d0",
+      "source_before": "skills/start-issue/SKILL.md:89",
+      "normalized": "if current branch !== expectedbranch:",
+      "destination": "skills/start-issue/SKILL.md:89"
     },
     {
-      "id": "662ed5d90450",
-      "source_before": "skills/verify-code/SKILL.md:109",
-      "normalized": "for each claimed pr-only obligation: map it to active delivery acceptance criter",
-      "destination": "skills/verify-code/SKILL.md:109"
+      "id": "8dc414a245b0",
+      "source_before": "skills/start-issue/SKILL.md:90",
+      "normalized": "```bash",
+      "destination": "skills/start-issue/SKILL.md:90"
     },
     {
-      "id": "68f93c974299",
-      "source_before": "skills/verify-code/SKILL.md:113",
-      "normalized": "run the architecture review inline by default. if the user explicitly authorizes",
-      "destination": "skills/verify-code/SKILL.md:113"
+      "id": "482f645d60b8",
+      "source_before": "skills/start-issue/SKILL.md:91",
+      "normalized": "gh issue develop n --checkout --name ${expectedbranch}",
+      "destination": "skills/start-issue/SKILL.md:91"
     },
     {
-      "id": "94422635d2f3",
-      "source_before": "skills/verify-code/SKILL.md:115",
-      "normalized": "when using a subagent, assume it has no useful conversation context — it only se",
-      "destination": "skills/verify-code/SKILL.md:115"
+      "id": "bbc0aff80688",
+      "source_before": "skills/start-issue/SKILL.md:92",
+      "normalized": "```",
+      "destination": "skills/start-issue/SKILL.md:92"
     },
     {
-      "id": "5aaf3fb3aa7d",
-      "source_before": "skills/verify-code/SKILL.md:117",
-      "normalized": "tech.md — checklist applicability table (scripts vs. skills), script verificatio",
-      "destination": "skills/verify-code/SKILL.md:117"
+      "id": "597d8f9345a0",
+      "source_before": "skills/start-issue/SKILL.md:93",
+      "normalized": "verify afterwards that git branch --show-current === expectedbranch. if not, fai",
+      "destination": "skills/start-issue/SKILL.md:93"
     },
     {
-      "id": "f83f88ad67b9",
-      "source_before": "skills/verify-code/SKILL.md:118",
-      "normalized": "structure.md — architectural invariants (hard contracts that must never be viola",
-      "destination": "skills/verify-code/SKILL.md:118"
+      "id": "af7c92dca5e1",
+      "source_before": "skills/start-issue/SKILL.md:97",
+      "normalized": "do not fail the handoff on errors here.",
+      "destination": "skills/start-issue/SKILL.md:97"
     },
     {
-      "id": "703a30587025",
-      "source_before": "skills/verify-code/SKILL.md:120",
-      "normalized": "| area | checklist | priority |",
-      "destination": "skills/verify-code/SKILL.md:120"
+      "id": "a8ee7e7c0552",
+      "source_before": "skills/start-issue/SKILL.md:99",
+      "normalized": "use node to attempt discovery + mutation (condensed from project rules, wrapped)",
+      "destination": "skills/start-issue/SKILL.md:99"
     },
     {
-      "id": "e3db6143ce9b",
-      "source_before": "skills/verify-code/SKILL.md:122",
-      "normalized": "| solid principles | read checklists/solid-principles.md when evaluating solid c",
-      "destination": "skills/verify-code/SKILL.md:122"
+      "id": "890e39194d73",
+      "source_before": "skills/start-issue/SKILL.md:124",
+      "normalized": "failure here is ignored.",
+      "destination": "skills/start-issue/SKILL.md:124"
     },
     {
-      "id": "47728f1bdf3f",
-      "source_before": "skills/verify-code/SKILL.md:123",
-      "normalized": "| security | read checklists/security.md when evaluating security posture | 2 |",
-      "destination": "skills/verify-code/SKILL.md:123"
+      "id": "7fea64f9d811",
+      "source_before": "skills/start-issue/SKILL.md:132",
+      "normalized": "if labels include \"spike\" (case-insensitive match), next = \"deliver\" else next =",
+      "destination": "skills/start-issue/SKILL.md:132"
     },
     {
-      "id": "dc6f336302dc",
-      "source_before": "skills/verify-code/SKILL.md:124",
-      "normalized": "| performance | read checklists/performance.md when evaluating performance | 3 |",
-      "destination": "skills/verify-code/SKILL.md:124"
+      "id": "88468ec7d793",
+      "source_before": "skills/start-issue/SKILL.md:136",
+      "normalized": "always write .omp/sdlc/handoffs/${n}-start.json",
+      "destination": "skills/start-issue/SKILL.md:136"
     },
     {
-      "id": "931bbaf46262",
-      "source_before": "skills/verify-code/SKILL.md:125",
-      "normalized": "| testability | read checklists/testability.md when evaluating testability | 4 |",
-      "destination": "skills/verify-code/SKILL.md:125"
+      "id": "fd132b347f21",
+      "source_before": "skills/start-issue/SKILL.md:160",
+      "normalized": "output summary:",
+      "destination": "skills/start-issue/SKILL.md:160"
     },
     {
-      "id": "69b0cf57505e",
-      "source_before": "skills/verify-code/SKILL.md:126",
-      "normalized": "| error handling | read checklists/error-handling.md when evaluating error handl",
-      "destination": "skills/verify-code/SKILL.md:126"
-    },
-    {
-      "id": "463a9b8c2fe7",
-      "source_before": "skills/verify-code/SKILL.md:128",
-      "normalized": "for each area: load the checklist, evaluate the implementation against each item",
-      "destination": "skills/verify-code/SKILL.md:128"
-    },
-    {
-      "id": "6c1331ba4adc",
-      "source_before": "skills/verify-code/SKILL.md:134",
-      "normalized": "run git diff main...head --name-only and check if any changed files match these ",
-      "destination": "skills/verify-code/SKILL.md:134"
-    },
-    {
-      "id": "909bef7d933c",
-      "source_before": "skills/verify-code/SKILL.md:136",
-      "normalized": "plugins//skills//skill.md",
-      "destination": "skills/verify-code/SKILL.md:136"
-    },
-    {
-      "id": "487213cd5218",
-      "source_before": "skills/verify-code/SKILL.md:137",
-      "normalized": "plugins//agents/.md",
-      "destination": "skills/verify-code/SKILL.md:137"
-    },
-    {
-      "id": "3e00201442d0",
-      "source_before": "skills/verify-code/SKILL.md:138",
-      "normalized": "skills//skill.md or agents/.md at the repo root (for standalone-plugin repos)",
-      "destination": "skills/verify-code/SKILL.md:138"
-    },
-    {
-      "id": "0e85b7eea64c",
-      "source_before": "skills/verify-code/SKILL.md:140",
-      "normalized": "template-only changes (files in templates/ without an accompanying skill.md chan",
-      "destination": "skills/verify-code/SKILL.md:140"
-    },
-    {
-      "id": "8b2617cb87ad",
-      "source_before": "skills/verify-code/SKILL.md:142",
-      "normalized": "if plugin changes are detected → proceed to 5b–5e (exercise-based verification).",
-      "destination": "skills/verify-code/SKILL.md:142"
-    },
-    {
-      "id": "fe554bab63e7",
-      "source_before": "skills/verify-code/SKILL.md:143",
-      "normalized": "if no plugin changes are detected → run the standard bdd verification below, the",
-      "destination": "skills/verify-code/SKILL.md:143"
-    },
-    {
-      "id": "6f5280c6018f",
-      "source_before": "skills/verify-code/SKILL.md:147",
-      "normalized": "check that bdd tests exist and cover the acceptance criteria:",
-      "destination": "skills/verify-code/SKILL.md:147"
-    },
-    {
-      "id": "71688f716bf9",
-      "source_before": "skills/verify-code/SKILL.md:149",
-      "normalized": "feature files — do .feature files exist at the location specified in tech.md?",
-      "destination": "skills/verify-code/SKILL.md:149"
-    },
-    {
-      "id": "6af75bc0d627",
-      "source_before": "skills/verify-code/SKILL.md:150",
-      "normalized": "scenario coverage — does each ac from requirements.md have a corresponding gherk",
-      "destination": "skills/verify-code/SKILL.md:150"
-    },
-    {
-      "id": "02e46c2dbcb9",
-      "source_before": "skills/verify-code/SKILL.md:151",
-      "normalized": "step definitions — are step definitions implemented for all scenarios?",
-      "destination": "skills/verify-code/SKILL.md:151"
-    },
-    {
-      "id": "5ff8e0b087b5",
-      "source_before": "skills/verify-code/SKILL.md:152",
-      "normalized": "test execution — reference tech.md for the command to run tests.",
-      "destination": "skills/verify-code/SKILL.md:152"
-    },
-    {
-      "id": "1b6ca7672ee6",
-      "source_before": "skills/verify-code/SKILL.md:154",
-      "normalized": "report coverage gaps.",
-      "destination": "skills/verify-code/SKILL.md:154"
-    },
-    {
-      "id": "ce442a4635d6",
-      "source_before": "skills/verify-code/SKILL.md:158",
-      "normalized": "read references/exercise-testing.md when step 5a detected plugin changes — the r",
-      "destination": "skills/verify-code/SKILL.md:158"
-    },
-    {
-      "id": "caeec3bb88eb",
-      "source_before": "skills/verify-code/SKILL.md:160",
-      "normalized": "exercise findings are treated as findings for step 6, just like any other verifi",
-      "destination": "skills/verify-code/SKILL.md:160"
-    },
-    {
-      "id": "32005cf42edc",
-      "source_before": "skills/verify-code/SKILL.md:164",
-      "normalized": "read references/verification-gates.md when gates were extracted in step 1 — the ",
-      "destination": "skills/verify-code/SKILL.md:164"
-    },
-    {
-      "id": "2ff8c545e712",
-      "source_before": "skills/verify-code/SKILL.md:168",
-      "normalized": "read references/autofix-loop.md when steps 3–5 have produced findings — the refe",
-      "destination": "skills/verify-code/SKILL.md:168"
-    },
-    {
-      "id": "26a2b6abdc85",
-      "source_before": "skills/verify-code/SKILL.md:172",
-      "normalized": "read references/report-format.md when authoring the report — the reference cover",
-      "destination": "skills/verify-code/SKILL.md:172"
-    },
-    {
-      "id": "670a2787c9c7",
-      "source_before": "skills/verify-code/SKILL.md:174",
-      "normalized": "when step 3 found claimed pr-only obligations, apply ../../references/pr-depende",
-      "destination": "skills/verify-code/SKILL.md:174"
-    },
-    {
-      "id": "6cea7d614315",
-      "source_before": "skills/verify-code/SKILL.md:176",
-      "normalized": "emit pr evidence pending and one previdencepending marker only when every mapped",
-      "destination": "skills/verify-code/SKILL.md:176"
-    },
-    {
-      "id": "509d8df9b637",
-      "source_before": "skills/verify-code/SKILL.md:177",
-      "normalized": "if an exact matching draft pr exists, capture its headrefoid, the exact declared",
-      "destination": "skills/verify-code/SKILL.md:177"
-    },
-    {
-      "id": "92c38586e8bb",
-      "source_before": "skills/verify-code/SKILL.md:178",
-      "normalized": "before pr creation, the exact pending marker is allowed to name checks that cann",
-      "destination": "skills/verify-code/SKILL.md:178"
-    },
-    {
-      "id": "c9a3e2e9b075",
-      "source_before": "skills/verify-code/SKILL.md:179",
-      "normalized": "once a draft exists, missing or failed declared checks, non-success conclusions,",
-      "destination": "skills/verify-code/SKILL.md:179"
-    },
-    {
-      "id": "fbbfbd7ace61",
-      "source_before": "skills/verify-code/SKILL.md:180",
-      "normalized": "keep the local report and github issue comment structurally identical, including",
-      "destination": "skills/verify-code/SKILL.md:180"
-    },
-    {
-      "id": "a85bc1617365",
-      "source_before": "skills/verify-code/SKILL.md:184",
-      "normalized": "post the verification results as an issue comment following the markdown templat",
-      "destination": "skills/verify-code/SKILL.md:184"
-    },
-    {
-      "id": "86dd3bc04d0a",
-      "source_before": "skills/write-code/SKILL.md:32",
-      "normalized": "determine the issue and feature being implemented:",
-      "destination": "skills/write-code/SKILL.md:32"
-    },
-    {
-      "id": "9bafe0d2c6f9",
-      "source_before": "skills/write-code/SKILL.md:34",
-      "normalized": "from argument — if #n is provided, use that issue number.",
-      "destination": "skills/write-code/SKILL.md:34"
-    },
-    {
-      "id": "4e325bbf07b3",
-      "source_before": "skills/write-code/SKILL.md:35",
-      "normalized": "from branch name — parse the current branch for an issue number. common patterns",
-      "destination": "skills/write-code/SKILL.md:35"
-    },
-    {
-      "id": "e35c860d62c9",
-      "source_before": "skills/write-code/SKILL.md:36",
-      "normalized": "read the issue — gh issue view #n for full context.",
-      "destination": "skills/write-code/SKILL.md:36"
-    },
-    {
-      "id": "3d346ac65c36",
-      "source_before": "skills/write-code/SKILL.md:38",
-      "normalized": "if no issue can be identified, present a requestuserinput gate per ../../referen",
-      "destination": "skills/write-code/SKILL.md:38"
-    },
-    {
-      "id": "7af77e5d5a8b",
-      "source_before": "skills/write-code/SKILL.md:54",
-      "normalized": "exit 0 — this is a correctness guard, not a failure. do not read specs, enter pl",
-      "destination": "skills/write-code/SKILL.md:54"
-    },
-    {
-      "id": "05bb2ecd8843",
-      "source_before": "skills/write-code/SKILL.md:58",
-      "normalized": "before reading the active spec or entering implementation planning, resolve the ",
-      "destination": "skills/write-code/SKILL.md:58"
-    },
-    {
-      "id": "8cfe827aaf03",
-      "source_before": "skills/write-code/SKILL.md:61",
-      "normalized": "role = epic → stop before spec loading with epic #e is coordination-only and can",
-      "destination": "skills/write-code/SKILL.md:61"
-    },
-    {
-      "id": "0de5075d38ee",
-      "source_before": "skills/write-code/SKILL.md:62",
-      "normalized": "role = inconsistent, ambiguous, or unverifiable → stop before spec loading or pl",
-      "destination": "skills/write-code/SKILL.md:62"
-    },
-    {
-      "id": "47fed03801fb",
-      "source_before": "skills/write-code/SKILL.md:65",
-      "normalized": "continue only for valid. resolve the active spec from requestedchild.specpath, r",
-      "destination": "skills/write-code/SKILL.md:65"
-    },
-    {
-      "id": "4634e86ff2d5",
-      "source_before": "skills/write-code/SKILL.md:67",
-      "normalized": "aggregate eo### outcomes and topology cannot enter the delivery id set or satisf",
-      "destination": "skills/write-code/SKILL.md:67"
-    },
-    {
-      "id": "ee7ed3115e72",
-      "source_before": "skills/write-code/SKILL.md:71",
-      "normalized": "load all active specification documents:",
-      "destination": "skills/write-code/SKILL.md:71"
-    },
-    {
-      "id": "c82e2b8fd19b",
-      "source_before": "skills/write-code/SKILL.md:73",
-      "normalized": "read ../../references/issue-spec-scope.md and run its read-only resolver for the",
-      "destination": "skills/write-code/SKILL.md:73"
-    },
-    {
-      "id": "0bea0f680ad5",
-      "source_before": "skills/write-code/SKILL.md:75",
-      "normalized": "then read ../../references/spec-context.md and establish bounded neighboring con",
-      "destination": "skills/write-code/SKILL.md:75"
-    },
-    {
-      "id": "5cbc58de9996",
-      "source_before": "skills/write-code/SKILL.md:85",
-      "normalized": "if specs do not exist, present a requestuserinput gate with the message \"no spec",
-      "destination": "skills/write-code/SKILL.md:85"
-    },
-    {
-      "id": "5da51e479297",
-      "source_before": "skills/write-code/SKILL.md:89",
-      "normalized": "load project conventions:",
-      "destination": "skills/write-code/SKILL.md:89"
-    },
-    {
-      "id": "188bbca2e203",
-      "source_before": "skills/write-code/SKILL.md:107",
-      "normalized": "after all tasks are complete and the bundled simplify pass has completed:",
-      "destination": "skills/write-code/SKILL.md:107"
-    },
-    {
-      "id": "50e58bcfa2dc",
-      "source_before": "skills/write-spec/SKILL.md:151",
-      "normalized": "read references/review-gates.md when this gate fires — § phase 1 contains the re",
-      "destination": "skills/write-spec/SKILL.md:151"
-    },
-    {
-      "id": "ef925daf92cd",
-      "source_before": "skills/write-spec/SKILL.md:183",
-      "normalized": "read references/review-gates.md when this gate fires — § phase 2 contains the de",
-      "destination": "skills/write-spec/SKILL.md:183"
-    },
-    {
-      "id": "b3075b7ace76",
-      "source_before": "skills/write-spec/SKILL.md:235",
-      "normalized": "read references/review-gates.md when this gate fires — § phase 3 contains the ta",
-      "destination": "skills/write-spec/SKILL.md:235"
+      "id": "a6327a6f6d37",
+      "source_before": "skills/start-issue/SKILL.md:172",
+      "normalized": "handoff is the contract. print the nmg line exactly.",
+      "destination": "skills/start-issue/SKILL.md:172"
     }
   ]
 }

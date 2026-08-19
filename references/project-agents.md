@@ -2,7 +2,7 @@
 
 **Consumed by**: `onboard-project` after steering bootstrap or verification succeeds, and `upgrade-project` when analyzing or applying managed project artifact findings.
 
-Use this reference to create or reconcile root `AGENTS.md` guidance that makes nmg-sdlc spec context available to general Codex prompts. This is project content, not plugin metadata. It must be additive, idempotent, and preserve every project-authored instruction outside the managed section.
+Use this reference to create or reconcile root `AGENTS.md` guidance that makes nmg-sdlc spec context available to general OMP prompts. This is project content, not plugin metadata. It must be additive, idempotent, and preserve every project-authored instruction outside the managed section.
 
 ## Preconditions
 
@@ -22,7 +22,7 @@ Use these exact markers for nmg-sdlc-owned content:
 <!-- nmg-sdlc-managed: spec-context -->
 ## nmg-sdlc Spec Context
 
-For SDLC work, project-root `specs/` is the canonical BDD archive. Always identify the active spec first, then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default, and do not use legacy `.codex/specs/` as context.
+For SDLC work, project-root `specs/` is the canonical BDD archive. Specs use directories of the form `specs/{N}-{slug}/` where `N` is the GitHub issue number. Always identify the active spec first (leading directory number must match the issue and every file must declare singular `**Issue**: #N`), then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default. Legacy `.codex/specs/` directories are inputs to `/plan /skill:upgrade-project` only.
 <!-- /nmg-sdlc-managed -->
 ```
 
@@ -35,9 +35,9 @@ Classify root `AGENTS.md`:
 | State | Detection | Action |
 |-------|-----------|--------|
 | Missing | `AGENTS.md` does not exist | Create a concise file containing the managed section |
-| Managed section current | Both markers exist and the section mentions root `specs/`, active spec first, bounded discovery, neighboring specs, and no legacy `.codex/specs/` | Leave unchanged |
+| Managed section current | Both markers exist and the section mentions root `specs/`, `specs/{N}-{slug}/`, active spec first, singular `**Issue**: #N`, bounded discovery, neighboring specs, and legacy `.codex/specs/` only as upgrade input | Leave unchanged |
 | Managed section stale | Both markers exist but required guidance is missing or obsolete | Replace only the marked section |
-| Equivalent project-authored guidance | No markers, but the file already mentions `specs/`, active spec, bounded discovery or capped loading, neighboring or related specs, and avoids legacy `.codex/specs/` | Leave unchanged and report already present |
+| Equivalent project-authored guidance | No markers, but the file already mentions `specs/{N}-{slug}/` or equivalent, active spec, bounded discovery or capped loading, neighboring or related specs, and avoids treating legacy `.codex/specs/` as primary context | Leave unchanged and report already present |
 | Incomplete guidance | File exists without current managed section or equivalent coverage | Append the managed section |
 | Malformed markers | One marker exists without the other | Do not pair the orphan with any later marker; repair it in place by inserting the missing counterpart adjacent to the orphan, then refresh only that repaired managed section and record a malformed-marker gap |
 

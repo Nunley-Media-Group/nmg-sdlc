@@ -1,128 +1,108 @@
 ---
 name: write-code
-description: "Read specs for current branch, enter plan mode, then execute implementation tasks sequentially. Use when user says 'implement the spec', 'start coding', 'build the feature', 'implement issue #N', 'resume implementation', 'how do I implement this', 'how to start coding', 'write the code', or 'build it'. Do NOT use for writing specs, verifying implementations, or creating PRs. Reads requirements, design, and tasks from specs/ and executes them in order. Fourth step in the SDLC pipeline — follows $nmg-sdlc:write-spec and precedes $nmg-sdlc:verify-code."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Skill-bundled edits go through /skill:skill-creator or fail. No plan-mode approval, no gates. Use from /skill:execute for approved spec."
 ---
 
 # Write Code
 
-Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+Direct implementation of approved spec tasks for #N. No user questions. No plan approval. Load only from specs/{N}-{slug}/ .
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
+## Prerequisites Check and Spec Resolver
 
-Read the specifications for the current branch's issue, enter plan mode to design the implementation approach, then execute tasks sequentially.
+1. Determine N:
+   - From explicit arg matching ^#?(\d+)$
+   - Else from current branch: git branch --show-current | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p'
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Implementing against a mixed layout silently writes against the wrong paths.
+   If no N, write failed handoff step:"implement" reasonCode:"no_issue_number" intervention:true
 
-Read `../../references/spec-context.md` when Step 2 resolves the active spec — write-code preserves active-spec-first loading and adds capped neighboring specs only when surrounding contracts can affect implementation scope.
+2. Check issue labels for spike:
+   gh issue view N --json labels
+   If "spike" present (any case): write failed handoff reasonCode:"spike_no_code" intervention:true  (spikes use deliver path)
 
-Read `../../references/epic-relationships.md`, `../../references/epic-spec-authority.md`, and `../../references/canonical-umbrella-spec.md` when the active issue is a child of a confirmed coordination epic. Resolve helpers from the installed plugin root, not the consumer project.
+3. Resolve spec directory (first matching leading number):
+   Use glob tool on path "specs/"
+   Find directories matching ^N-  (take first by name sort)
+   If none or >1 exact leading match, or dir does not exist: spec_not_approved
 
-## Prerequisites
+4. Read frontmatter from the dir files (use read + grep):
+   Required files for feature/bug: requirements.md, design.md, tasks.md, feature.gherkin
+   For each existing:
+     Extract lines matching ^\*\*Issue\*\*:\s*#?N$   and ^\*\*Status\*\*:\s*Approved$
+   If any required file missing the exact match or Status != Approved: write failed handoff reasonCode:"spec_not_approved" intervention:true step:"implement"
 
-1. Specs exist at `specs/{feature-name}/` (created by `$nmg-sdlc:write-spec`).
-2. A feature branch exists for this issue (or will be created).
-3. Steering documents exist at `steering/`.
+   (Spike uses separate ADR path; write-code never implements spikes.)
 
----
+5. Load steering/ for conventions (tech.md, structure.md) using read.
 
-## Workflow
+If spec resolution fails any check, produce the failed handoff and stop before any edit.
 
-### Step 1: Identify Context
+## Execute Tasks in Order
 
-Determine the issue and feature being implemented:
+Read specs/N-SLUG/tasks.md
 
-1. **From argument** — if `#N` is provided, use that issue number.
-2. **From branch name** — parse the current branch for an issue number. Common patterns: `42-feature-name`, `feature/42-name`, `issue-42`. Run `git branch --show-current` to get the current branch.
-3. **Read the issue** — `gh issue view #N` for full context.
+Parse tasks in order: headings matching ^### T(\d+):\s*(.+)$
 
-If no issue can be identified, present a `request_user_input` gate per `../../references/interactive-gates.md`; the predefined option should request an issue number through the free-form `Other` answer, and the workflow maps that text to the issue number before continuing.
+For each task in sequence (lowest to highest T number, follow declared Depends order if present but execute listed sequence):
 
-### Step 1.5: Spike Abort
+- Read full task block: File(s), Type, Depends, Acceptance
+- Use design.md + requirements.md + feature.gherkin + steering/ as context.
+- For the listed File(s):
+  - If path is skill-bundled (matches **/skills/**/SKILL.md or **/skills/**/references/** or **/skills/**/scripts/** or **/skills/**/templates/** or **/skills/**/checklists/** or **/skills/**/assets/** or root references/** or agents/*.md ):
+    - Check if "skill-creator" is advertised in loaded skills list (system reminder or available skills).
+    - If not present: write failed handoff reasonCode:"skill_creator_missing" intervention:true step:"implement"
+    - If present: invoke exactly `/skill:skill-creator` passing the task title, acceptance bullets, target file path, existing file content (read first), and pointer to steering/. Let it produce the edit. Never hand-edit skill-bundled paths.
+  - Else: use edit/write/read/glob/grep/bash tools to implement the change that satisfies the task Acceptance criteria, following design.md architecture and tech.md conventions. Make smallest correct change.
+- After change for the task: self-verify the Acceptance bullets for that task pass.
+- Run narrow test command from tech.md if obvious for the files (dry if possible). Report outcome.
+- Proceed to next task. Do not skip or reorder.
 
-Check the issue's labels:
+If a task file list references a path outside the approved delivery scope or spec, note but continue only on mapped tasks.
 
-```bash
-gh issue view #N --json labels --jq '.labels[].name'
-```
+## Bundle Simplify In-Process
 
-If any label is `spike`, print exactly:
+After last task completes successfully:
 
-```
-Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
-```
+Run simplify logic directly in this session over the files changed on the branch:
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT read specs, enter plan mode, delegate to a worker, or touch any file.
+- `git diff --name-only main...HEAD` (or HEAD if no main) or current dirty + committed on branch.
+- Apply the reuse/quality/efficiency review and behavior-preserving fixes exactly as described by simplify (no separate pane or invoke that creates new).
+- Re-verify after any simplify edits.
 
-### Step 1.75: Epic Spec Authority Gate
+Only after simplify reports clean or applied, proceed.
 
-Before reading the active spec or entering implementation planning, resolve the issue's supported label/body/native relationships through `../../references/epic-relationships.md`. Use GraphQL for native relationships and supported `gh issue view` fields for body/labels; never request `parent` through `gh issue view --json`. Fully hydrate the native parent's body, labels, and paginated `subIssues` connection before deriving identity or sibling authority; a partial parent record makes the result `unverifiable`.
+## Write Handoff
 
-- `role = ordinary` → continue unchanged.
-- `role = epic` → stop before spec loading with `Epic #E is coordination-only and cannot be implemented. Start a ready executable child instead.` Do not plan, delegate, or edit.
-- `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before spec loading or planning and report the shared pairs/signals/gaps.
-- `role = epic-child` → record complete lineage and fully paged native direct children, then run `node <plugin-root>/scripts/epic-spec-authority.mjs --project <project-root> --child N --native-children <complete-list> --json`.
+Write `.omp/sdlc/handoffs/N-implement.json` :
 
-Continue only for `valid`. Resolve the active spec from `requestedChild.specPath`, retain `aggregatePath` as one related bounded-context spec, and retain the authority digest in the plan evidence. `planned` stops with `$nmg-sdlc:write-spec #N`; `repair_required` or `unverifiable` stops before spec loading, plan review, delegation, or edits and routes exact gaps to `$nmg-sdlc:upgrade-project`.
+{
+  "schemaVersion": 1,
+  "issue": N,
+  "step": "implement",
+  "status": "passed",
+  "intervention": false,
+  "summary": "All tasks from tasks.md executed and simplified for #N",
+  "artifacts": [ list of created/modified paths ],
+  "next": "verify",
+  "reasonCode": null
+}
 
-Aggregate `EO###` outcomes and topology cannot enter the delivery ID set or satisfy task completion. Legacy cumulative packages remain readable only for their documented ordinary/legacy boundary; new epic-child work requires the split authority above.
+Print exactly:
+NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/N-implement.json
 
-### Step 2: Read Specs
-
-Load all active specification documents:
-
-Read `../../references/issue-spec-scope.md` and run its read-only resolver for the active issue and resolved executable spec path before implementation planning. Continue only for `scoped` or `implicit_single_issue`. Treat `delivery.acceptanceCriteria`, `delivery.functionalRequirements`, `delivery.tasks`, and `delivery.scenarios` as the complete current implementation slice; `regression` is verification context and never adds implementation tasks. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with the exact gaps. On `unverifiable`, fail closed with `reasonCode` and gaps. Never fall back to all tasks in a multi-issue spec, any cumulative package, or aggregate outcomes/topology.
-
-Then read `../../references/spec-context.md` and establish bounded neighboring context. Fully load related specs only when the ranking reasons show their surrounding contracts can affect implementation scope, and cap related full-spec loading per the shared contract. The active spec remains authoritative; related specs provide constraints, compatibility notes, and blast-radius context, not replacement task sources.
-
-```
-specs/{feature-name}/
-├── requirements.md    — Acceptance criteria, functional requirements
-├── design.md          — Architecture, data flow, component design
-├── tasks.md           — Phased implementation tasks with dependencies
-└── feature.gherkin    — BDD test scenarios
-```
-
-If specs do not exist, present a `request_user_input` gate with the message `"No specs found. Run $nmg-sdlc:write-spec #N first."`; the only predefined action is to stop, and any free-form `Other` answer is treated as a corrected spec path or issue number to re-check before stopping.
-
-### Step 3: Read Steering Documents
-
-Load project conventions:
-
-```
-steering/
-├── tech.md        — Stack, testing standards, coding conventions
-└── structure.md   — Directory layout, naming, patterns
-```
-
-### Steps 4 and 5: Design Approach, Execute Tasks, Route Skill-Bundled Work
-
-Read `references/plan-mode.md` when Steps 1–3 have completed — the reference covers Step 4 plan review, Step 5 inline execution by default, optional Codex `worker` delegation only when the user authorizes subagents, the Implementation Rules table, the deviation-handling ladder, Step 5a skill-bundled routing, and Step 5b bundled `$nmg-sdlc:simplify` invocation.
-
-### Resuming Partial Implementation
-
-Read `references/resumption.md` when the branch already carries some of its tasks' commits — the reference covers the commit-to-task matching rule and the edge cases (fresh branch, unmatchable commits, all-complete-but-not-verified, `tasks.md` amended mid-flight) plus concrete examples for implement-by-number and resume-in-place.
-
-### Step 6: Signal Completion
-
-After all tasks are complete and the bundled simplify pass has completed:
-
-```
+Summary output:
 Implementation complete for issue #N.
+Tasks completed.
+Files: ...
+Next: /skill:verify-code #N
 
-Tasks completed: [X/Y]
-Files created: [list]
-Files modified: [list]
+## Failure Modes (always produce handoff before stop)
 
-Next step: Run `$nmg-sdlc:verify-code #N` to verify implementation and update the issue.
-```
-
----
+- Any precondition fail: spec_not_approved, spike_no_code, skill_creator_missing, no_issue_number, etc. with intervention:true
+- Edit or test failure that blocks: use "implementation_failed" with summary of blocker.
 
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
-                                                                         ▲ You are here
+/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+                                         ▲ You are here (write-code + bundled simplify)
 ```
-
-`$nmg-sdlc:simplify` is bundled with this plugin. It runs between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, including from inside `$nmg-sdlc:write-code`'s completion flow.

@@ -1,233 +1,80 @@
 ---
 name: verify-code
-description: "Verify implementation against spec, fix findings, review architecture and test coverage, update GitHub issue. Use when user says 'verify specs', 'check implementation', 'review the code against spec', 'validate the code', 'check if done', 'run verification for #N', 'how do I verify the implementation', 'how to check if the feature is done', or 'is this ready to merge'. Do NOT use for writing specs, implementing code, or creating PRs. Includes SOLID/security/performance review, exercise testing for plugin changes, and auto-fix of findings. Fifth step in the SDLC pipeline — follows $nmg-sdlc:write-code and precedes $nmg-sdlc:open-pr."
+description: "The architecture-reviewer runs inline verification against the approved specs/{N}-{slug}/ . Writes verification-report.md, comments on the issue, and produces handoff. Pass or PR Evidence Pending advances to deliver; otherwise failed intervention. Use only from automated /skill:execute."
 ---
 
 # Verify Code
 
-Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+Inline architecture and acceptance review by the architecture-reviewer agent. No user questions. No extra task delegation for the review itself.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
+## Spec and Context Load
 
-Verify the implementation against specifications, fix any findings, review architecture and test coverage, then update the GitHub issue with evidence.
+1. Resolve N from arg or current branch name (^\d+-).
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Verification against a mixed layout produces misleading results.
+2. If issue has spike label: write handoff failed reasonCode "spike_no_code" (no verification for spikes).
 
-Read `../../references/feature-naming.md` when resolving the spec directory for an issue and no explicit `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain for legacy `{issue#}-{slug}/` directories.
+3. Resolve spec dir: glob "specs/", first dir whose basename starts with "N-" (leading number match).
 
-Read `../../references/steering-schema.md` when you need to know which steering doc to read for which step — steering docs are required inputs to this skill, not optional references.
+   Read frontmatter **Issue**: #N and **Status**: Approved from requirements.md design.md tasks.md feature.gherkin (as applicable).
 
-Read `../../references/spec-frontmatter.md` when a frontmatter field drives behaviour (e.g., singular `**Issue**` + `**Related Spec**` signals the defect path).
+   Any mismatch or missing Approved → failed handoff reasonCode:"spec_not_approved" intervention:true step:"verify"
 
-Read `../../references/spec-context.md` when Step 1 loads the active spec — verify-code uses bounded related specs during acceptance, architecture, blast-radius, and test-coverage review while keeping the active spec as the primary pass/fail source.
+4. Read the spec files + steering/tech.md structure.md + product.md for rules.
 
-Read `../../references/pr-dependent-verification.md` when an acceptance criterion names GitHub evidence that cannot exist before pull-request creation, or when a matching draft pull request already exists. The shared contract owns the only qualified pending/satisfied marker schema; do not infer delivery readiness from prose or a generic non-Pass status.
+5. Read the verification report template from references/report-format.md and checklists/* for the architecture areas.
 
-## Prerequisites
+## Run Reviews Inline
 
-1. Specs exist at `specs/{feature-name}/`.
-2. Implementation is complete (or believed to be complete).
-3. A GitHub issue exists for tracking.
+- Acceptance: for each AC in requirements (delivery slice), locate code, mark Pass/Fail/Partial/Incomplete. Use grep/read/edit as needed for evidence.
 
----
+- Tasks: confirm listed tasks produced the files/changes expected.
 
-## Workflow
+- Architecture (inline, this is the architecture-reviewer):
+  Load each checklist:
+  - solid-principles.md
+  - security.md
+  - performance.md
+  - testability.md
+  - error-handling.md
+  Score 1-5, note findings. Average reported.
 
-### Step 0.75: Coordination Identity Gate
+- Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on skills/agents/):
+  Use updated exercise instructions (see exercise-testing.md): from disposable project use `omp --print --no-session` (with this extension loaded via OMP config or --load or equivalent) then invoke `/skill:NAME #N` with dry-run/timeout preserved from prior contract. Record output vs ACs.
 
-Resolve the issue number from the explicit argument or active issue branch before loading specs. Read `../../references/epic-relationships.md` and `../../references/epic-spec-authority.md`, hydrate the issue's label/body/native evidence, and derive the shared result.
+- PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
-- `role = ordinary` → continue unchanged.
-- `role = epic` → stop before loading evidence with `Epic #E is coordination-only and has no executable implementation to verify.` Never publish a passing epic verification report.
-- `role = inconsistent`, `ambiguous`, or `unverifiable` → stop before loading evidence, running tests, writing a report, or commenting on GitHub; report the exact pairs/signals/gaps.
-- `role = epic-child` → record complete lineage and fully paged native direct children, then run `node <plugin-root>/scripts/epic-spec-authority.mjs --project <project-root> --child N --native-children <complete-list> --json`.
+- Fix findings where safe and local: apply smallest fixes (route skill-bundled via /skill:skill-creator if loaded, else note). Re-run affected verification after fixes. Unfixable remain in report.
 
-Continue only for `valid`; use `requestedChild.specPath` as the active executable package and retain the aggregate as bounded context. `planned` routes to `$nmg-sdlc:write-spec #N`; `repair_required` or `unverifiable` stops before verification mutation and routes exact gaps/digest to `$nmg-sdlc:upgrade-project`.
+## Generate and Persist Report
 
-### Step 1: Load Specifications and Steering Docs
+Use references/report-format.md + checklists/report-template.md to build:
 
-Read all spec documents:
+specs/N-SLUG/verification-report.md
 
-Read `../../references/issue-spec-scope.md` when Step 1 resolves the active executable issue and spec path. Run its read-only resolver before evaluating implementation. Continue only for `scoped` or `implicit_single_issue`. Current completion is determined only by child `delivery.acceptanceCriteria`, `delivery.tasks`, and `delivery.scenarios`; use child `delivery.functionalRequirements` as delivery context. Aggregate `EO###` outcomes/topology and sibling identifiers never count as implementation or verification evidence. Evaluate only explicitly listed `regression.acceptanceCriteria`, `regression.functionalRequirements`, and `regression.scenarios` as preservation obligations. Exclude all other cumulative elements. On `repair_required`, stop and direct `$nmg-sdlc:write-spec #N` with exact gaps. On `unverifiable`, fail closed without writing a passing report or issue comment.
+With sections: executive summary, AC checklist with evidence, architecture scores + findings, test results, fixes, remaining issues, overall status (Pass | PR Evidence Pending | Partial | Fail | Incomplete)
 
-After the active spec is loaded, read `../../references/spec-context.md` and load only threshold-qualified related specs that can affect acceptance, architecture, blast-radius, or test-coverage judgment. Report `relatedSpecs: none` when no related specs qualify, and record ignored broken related-spec links as gaps. Active spec verification remains the primary pass/fail source.
+Write the file using write tool or node cat.
 
-```
-specs/{feature-name}/
-├── requirements.md    — Acceptance criteria to verify
-├── design.md          — Architecture decisions to validate
-├── tasks.md           — Task completion to confirm
-└── feature.gherkin    — BDD scenarios to check
-```
-
-Read all steering documents — these define project conventions used throughout verification and are required inputs, not optional references:
-
-```
-steering/
-├── tech.md        — Technology stack, coding standards, testing strategy, behavioral contracts
-├── structure.md   — Code organization, naming conventions, architectural invariants
-└── product.md     — Product principles, intent verification postconditions
-```
-
-Steering docs define the verification framework (behavioral contracts, checklist applicability, script verification contracts) and must be loaded before any evaluation begins. They must also be provided to any subagents dispatched during the review.
-
-Read `references/verification-gates.md` when `tech.md` is being parsed — the reference covers how to extract the `## Verification Gates` table (if present) so the extracted gates can be executed in Step 5f. Absence of the section is backward-compatible — no gates are enforced.
-
-### Step 1.5: Spike Abort
-
-Check the issue's labels:
-
+Then:
 ```bash
-gh issue view #N --json labels --jq '.labels[].name'
+gh issue comment N --body "$(cat specs/N-SLUG/verification-report.md | head -c 20000)"
 ```
 
-If any label is `spike`, print exactly:
+## Decide Handoff Status
 
-```
-Spikes don't produce code — run $nmg-sdlc:open-pr to merge the research spec
-```
+Determine overall:
+- If "Pass" or "PR Evidence Pending" in the report status: status="passed", intervention=false, next="deliver"
+- Else: status="failed", intervention=true, next=null or "implement" if re-work
 
-Exit 0 — this is a correctness guard, not a failure. Do NOT post a verification report to the issue, do NOT call the architecture-reviewer subagent, do NOT run exercise testing. The abort fires in both modes.
+Write handoff .omp/sdlc/handoffs/N-verify.json with the decided values, summary of key findings, artifacts:["specs/N-SLUG/verification-report.md"]
 
-### Step 2: Load Issue
+Print NMG_SDLC_HANDOFF: ...
 
-Read the GitHub issue for the original acceptance criteria:
-
-```bash
-gh issue view #N
-```
-
-Read `references/defect-path.md` when the spec under verification uses the defect variant (heading `# Defect Report:` or singular `**Issue**` frontmatter) — the reference narrows verification to reproduction check, regression-scenario validation, blast-radius architecture review, and a minimal-change diff check.
-
-### Step 3: Verify Implementation
-
-Check each acceptance criterion against actual code:
-
-1. **For each mapped delivery AC**: find the implementing code via file discovery / text search, verify the behaviour matches the criterion, mark as Pass / Fail / Partial.
-2. **For each mapped delivery task**: verify the file exists and contains the expected code, check the task's acceptance criteria, mark as Complete / Incomplete / Skipped.
-3. **For each declared regression obligation**: verify preservation separately and record its evidence without counting it as current delivery implementation.
-4. **For each claimed PR-only obligation**: map it to active delivery acceptance criteria and enumerate its exact `required_check`, `check_run`, or `merge_blocking` identity. Record `event: pull_request` for check evidence and reject missing or non-PR event provenance. Treat every other unavailable result as an ordinary finding; arbitrary exceptions and deferred local work do not qualify.
-
-### Step 4: Architecture Review
-
-Run the architecture review inline by default. If the user explicitly authorizes subagents, spawn a Codex `explorer` subagent with a bounded prompt to evaluate the implementation against all five checklists and return structured scores and findings.
-
-When using a subagent, assume it has no useful conversation context — it only sees the prompt you give it. Include the steering doc content in the subagent prompt:
-
-- `tech.md` — checklist applicability table (scripts vs. skills), script verification contracts (preconditions / postconditions / invariants / boundaries), coding standards, cross-platform constraints.
-- `structure.md` — architectural invariants (hard contracts that must never be violated), cross-platform contracts.
-
-| Area | Checklist | Priority |
-|------|-----------|----------|
-| SOLID Principles | Read `checklists/solid-principles.md` when evaluating SOLID compliance | 1 |
-| Security | Read `checklists/security.md` when evaluating security posture | 2 |
-| Performance | Read `checklists/performance.md` when evaluating performance | 3 |
-| Testability | Read `checklists/testability.md` when evaluating testability | 4 |
-| Error Handling | Read `checklists/error-handling.md` when evaluating error handling | 5 |
-
-For each area: load the checklist, evaluate the implementation against each item, score 1–5 (5 = excellent), note any issues found.
-
-### Step 5: Verify Test Coverage
-
-#### 5a: Detect Plugin Changes
-
-Run `git diff main...HEAD --name-only` and check if any changed files match these patterns:
-
-- `plugins/*/skills/*/SKILL.md`
-- `plugins/*/agents/*.md`
-- `skills/*/SKILL.md` or `agents/*.md` at the repo root (for standalone-plugin repos)
-
-Template-only changes (files in `templates/` without an accompanying SKILL.md change) do not trigger exercise testing.
-
-- **If plugin changes are detected** → proceed to 5b–5e (exercise-based verification).
-- **If no plugin changes are detected** → run the Standard BDD Verification below, then skip to Step 6.
-
-#### Standard BDD Verification (non-plugin projects)
-
-Check that BDD tests exist and cover the acceptance criteria:
-
-1. Feature files — do `.feature` files exist at the location specified in `tech.md`?
-2. Scenario coverage — does each AC from requirements.md have a corresponding Gherkin scenario?
-3. Step definitions — are step definitions implemented for all scenarios?
-4. Test execution — reference `tech.md` for the command to run tests.
-
-Report coverage gaps.
-
-#### 5b–5e: Exercise Testing
-
-Read `references/exercise-testing.md` when Step 5a detected plugin changes — the reference covers scaffolding a disposable test project (5b), exercising the changed skill via `codex exec` with dry-run mode for GitHub-integrated skills (5c), evaluating exercise output against acceptance criteria (5d), and cleanup (5e).
-
-Exercise findings are treated as findings for Step 6, just like any other verification finding. If the `codex` CLI is unavailable, skip exercise testing and record the reason for the report (graceful degradation).
-
-#### 5f: Execute Verification Gates
-
-Read `references/verification-gates.md` when gates were extracted in Step 1 — the reference covers per-gate Condition evaluation, Action execution, Pass-Criteria grading, and result recording. If no `## Verification Gates` section was present in `tech.md`, skip this sub-step entirely.
-
-### Step 6: Fix Findings
-
-Read `references/autofix-loop.md` when Steps 3–5 have produced findings — the reference covers the severity-ordered fix loop, the SKILL-BUNDLED FILE DETECTOR and `$skill-creator` probe contract that routes skill-bundled fixes away from direct Codex editing, bundled `$nmg-sdlc:simplify` post-fix simplification (6a-bis), re-running tests (6b), re-verifying changed areas (6c), handling unfixable findings (6d), and the Fix Rules table.
-
-### Step 7: Generate Verification Report
-
-Read `references/report-format.md` when authoring the report — the reference covers the Step 7 local report structure (built from `checklists/report-template.md`) and the Step 8 GitHub issue-comment Markdown template. The report sections include executive summary, acceptance-criteria checklist, architecture-review scores, test coverage, exercise test results (when Step 5a fired), Steering Doc Verification Gates (when extracted from `tech.md`), Fixes Applied (with Routing column), Remaining Issues, and Recommendations.
-
-When Step 3 found claimed PR-only obligations, apply `../../references/pr-dependent-verification.md` before aggregating status:
-
-- Emit `PR Evidence Pending` and one `pr_evidence_pending` marker only when every mapped local delivery and regression obligation, task, scenario, test, architecture finding, and applicable steering gate passes and every remaining item is allowlisted, bounded PR-only evidence.
-- If an exact matching draft PR exists, capture its `headRefOid`, the exact declared check names, conclusions and links, plus any declared merge-blocking observations. Emit Pass with one `pr_evidence_satisfied` marker only when every item succeeds for that exact head SHA.
-- Before PR creation, the exact pending marker is allowed to name checks that cannot exist yet; their absence at that boundary is not a missing-evidence failure.
-- Once a draft exists, missing or failed declared checks, non-success conclusions, post-draft evidence gaps, local failures, Partial, Incomplete, Fail, stale/mismatched scope, failed/incomplete gates, unknown evidence, and malformed results receive no satisfied marker.
-- Keep the local report and GitHub issue comment structurally identical, including both the existing issue-scope marker and the readiness marker when one qualifies.
-
-### Step 8: Update GitHub Issue
-
-Post the verification results as an issue comment following the Markdown template in `references/report-format.md`:
-
-```bash
-gh issue comment #N --body "[verification summary]"
-```
-
-### Step 9: Output
-
-```
-Verification complete for issue #N.
-
-Status: [Pass / PR Evidence Pending / Partial / Fail / Incomplete]
-Acceptance criteria: [X/Y] passing
-Architecture score: [average]
-Test coverage: [X/Y] criteria covered
-Verification gates: [X/Y] passed, [Z] failed, [W] incomplete (omit line if no gates defined)
-Fixes applied: [count]
-Remaining issues: [count]
-
-GitHub issue #N updated with verification report.
-
-[If passing]: Next step: Run `$nmg-sdlc:open-pr #N` for terminal exact-head delivery, merge, and issue closure.
-[If PR evidence pending]: Local verification complete; run `$nmg-sdlc:open-pr #N` for controlled draft delivery validation.
-[If remaining issues]: Deferred items documented — review before creating a PR.
-[If failing]: Critical issues remain — address the items above before creating a PR.
-```
-
----
-
-## Checklist Files
-
-| Checklist | Purpose |
-|-----------|---------|
-| `checklists/solid-principles.md` | SOLID principles compliance |
-| `checklists/security.md` | Security review (OWASP-aligned) |
-| `checklists/performance.md` | Performance patterns |
-| `checklists/testability.md` | Dependency injection and mock patterns |
-| `checklists/error-handling.md` | Error hierarchy and propagation |
-| `checklists/report-template.md` | Verification report template |
-
----
+Report to stdout the status and next step using /skill:open-pr #N on success path.
 
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
-                                                                                 ▲ You are here
+/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+                                                              ▲ You are here (verify by architecture-reviewer)
 ```
-
-`$nmg-sdlc:simplify` is bundled with this plugin. It runs once between `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code`, and again inside the auto-fix loop's 6a-bis after each batch of fixes.

@@ -1,5 +1,5 @@
 name: SDLC-ready issue
-description: Create executable work or a coordination-only epic with SDLC-ready child planning.
+description: Create an executable feature, bug, or spike with SDLC-ready acceptance criteria.
 body:
   - type: dropdown
     id: issue-type
@@ -9,19 +9,14 @@ body:
       options:
         - Feature / Enhancement
         - Bug
-        - Epic
         - Spike
     validations:
       required: true
-  - type: markdown
-    attributes:
-      value: |
-        Epics are coordination-only: they cannot be started or own executable specs. Their children use normal dependency rules. The first ready child creates the aggregate plus its own package; terminal child delivery merges the exact head, closes the child, and closes only fully eligible epic ancestors.
   - type: textarea
     id: context
     attributes:
-      label: User Story, Bug/Spike Context, or Epic Goal
-      description: Provide the user story for a feature, reproduction context for a bug, research context for a spike, or cross-child outcome for a coordination-only epic.
+      label: User Story or Bug/Spike Context
+      description: Provide the user story for a feature, reproduction context for a bug, or research context for a spike.
       placeholder: |
         As a ...
         I want ...
@@ -29,7 +24,6 @@ body:
 
         For bugs: describe observed behavior, expected behavior, and reproduction notes.
         For spikes: describe the decision or gap to research.
-        For epics: describe the outcome achieved only after all children deliver.
     validations:
       required: true
   - type: textarea
@@ -46,8 +40,8 @@ body:
   - type: textarea
     id: acceptance-criteria
     attributes:
-      label: Acceptance Criteria or Epic Outcomes
-      description: For executable work, use Given/When/Then criteria. For an epic, list cross-child outcomes only; children will own executable criteria and Gherkin.
+      label: Acceptance Criteria
+      description: Use Given/When/Then criteria only. Each criterion becomes a Gherkin scenario during /plan /skill:write-spec #N.
       placeholder: |
         AC1: Short name
         Given ...
@@ -58,25 +52,17 @@ body:
         Given ...
         When ...
         Then ...
-
-        Epic only:
-        EO1: Cross-child outcome (no Given/When/Then and no executable ownership)
     validations:
       required: true
   - type: textarea
     id: functional-requirements
     attributes:
-      label: Functional Requirements or Epic Child Plan
-      description: Capture executable requirements, or for an epic list proposed children and genuine sibling/external prerequisites. Epic membership itself is informational.
+      label: Functional Requirements
+      description: Capture executable requirements for this issue only.
       placeholder: |
         | ID | Requirement | Priority | Notes |
         |----|-------------|----------|-------|
         | FR1 | ... | Must | ... |
-
-        Epic only:
-        | Child | Depends On | Summary |
-        |-------|------------|---------|
-        | Child 1 | None | ... |
     validations:
       required: true
   - type: textarea

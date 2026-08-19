@@ -1,17 +1,17 @@
 # Design Template
 
-Use this template only for executable feature/bug children in the **PLAN** phase. The coordination-only `templates/epic-design.md` source writes aggregate topology and cross-child integration to `design.md` inside `specs/epic-*`, never executable implementation design.
+Use this template for executable feature or bug specs. Never create an epic aggregate.
 
 ---
 
 ```markdown
 # Design: [Feature Name]
 
-**Issues**: #[number]
+**Issue**: #[number]
 **Date**: [YYYY-MM-DD]
-**Status**: Draft | In Review | Approved
+**Status**: Draft | Approved
 **Author**: [name]
-
+**Related Spec**: specs/{M}-{slug}/
 ---
 
 ## Overview

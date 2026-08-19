@@ -105,7 +105,7 @@ For valid `pr_evidence_pending`, or an exact resumable `pr_evidence_satisfied` r
 1. Run every existing scope, version, explicit-path staging, commit, refreshed-base merge, safe-push, and pushed-state gate. Never rewrite published history or force-push.
 2. Create with `gh pr create --draft`, or reuse only one open draft whose repository, base, head branch, closing issue, and pending marker match exactly. Never reuse a ready, mismatched, closed, or ambiguous PR.
 3. Capture `H1 = headRefOid`. Poll only the declared names, use `gh pr checks --required` for required contexts, and record exact conclusions/links plus declared merge-blocking observations for H1.
-4. Rerun `$nmg-sdlc:verify-code #N`. Require current issue-scoped Pass and `pr_evidence_satisfied` for H1 with the same evidence identities.
+4. Rerun `/skill:verify-code #N`. Require current issue-scoped Pass and `pr_evidence_satisfied` for H1 with the same evidence identities.
 5. If the report changed, commit it with a scoped conventional message and push through the existing safe-push contract. Capture `H2 = headRefOid`; require H2 to equal the pushed `HEAD` and differ from H1 when a commit was created.
 6. Re-poll every declared required check/check-run identity for exact H2. Re-observe declared merge-blocking behavior. Evidence from H1 cannot satisfy H2.
 7. Write exactly one `nmg-sdlc-delivery-validation` JSON marker into the existing PR body through a temporary body file. It contains schema version 1, `state: final_sha_validated`, issue/spec/PR identity, H2, and the satisfied H2 evidence array. Re-fetch the complete body into another secure temporary file and validate it with the helper's `--pr P --head H2 --delivery-body-file <path>` mode before advancing.
@@ -119,8 +119,8 @@ If H1 verification was committed and pushed but H2 collection or final-marker va
 ## Status Rules
 
 - Apply existing report commit/ancestry/implementation freshness checks to valid pending and satisfied reports.
-- Before or during the controlled draft path, report stage `delivery-validation-pending`, completed artifact `local verification`, missing artifact `PR evidence`, and next action `$nmg-sdlc:open-pr #N`.
+- Before or during the controlled draft path, report stage `delivery-validation-pending`, completed artifact `local verification`, missing artifact `PR evidence`, and next action `/skill:open-pr #N`.
 - Include read-only PR `isDraft`, `headRefOid`, `mergeStateStatus`, and check state when available.
-- A ready open controlled PR remains owned by `$nmg-sdlc:open-pr #N` and reports delivery in progress only when its re-fetched final marker validates against the current head. A ready or merged controlled PR with pending, missing, stale, or invalid final delivery evidence fails closed.
+- A ready open controlled PR remains owned by `/skill:open-pr #N` and reports delivery in progress only when its re-fetched final marker validates against the current head. A ready or merged controlled PR with pending, missing, stale, or invalid final delivery evidence fails closed.
 - Successful terminal state requires the exact PR to be `MERGED`, its verified head to match the merge evidence, and the executable issue to be `CLOSED`. Eligible epic closure follows as a separately proven post-merge reconciliation.
 - Never advance from marker prose alone or mutate state.

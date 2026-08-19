@@ -6,24 +6,29 @@ All notable changes to this project will be documented in this file.
 
 This project uses semantic versioning with a deliberate convention: **bug fixes bump patch, enhancements bump minor — even when an enhancement introduces a breaking change**. Breaking changes are not auto-promoted to a major bump; instead, they are called out prominently in the changelog entry (look for `(BREAKING)` next to the section heading and migration notes inline).
 
-Major-version bumps are reserved for explicit maintenance milestones and require the user to request and approve `--major` through `$nmg-sdlc:open-pr`.
+Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-08-16
-
 ### Changed (BREAKING)
 
-- **BREAKING CHANGE:** Made epics coordination-only across the nmg-sdlc lifecycle: `start-issue` excludes them while children follow normal dependency rules, aggregate specs no longer own executable work, `open-pr` continues through exact-head merge and issue closure, eligible epic ancestors close automatically, and legacy backlog repair requires an exact drift-checked approval.
+- **BREAKING CHANGE (3.0.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is native `/plan /skill:draft-issue`, `/plan /skill:write-spec #N`, `/skill:execute [#N …]`, and `/skill:status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, cumulative multi-issue specs/ownership manifests, and the prior runner.
+
+### Changed
+
+- This repository's CI now runs Jest contract tests and OMP plugin-surface verification on every pull request. Skill-inventory audit no longer requires an `### Inventory Removals` heading in the PR body.
+
 
 ### Migration Notes
 
-- Run `$nmg-sdlc:upgrade-project` in existing projects to audit legacy cumulative epic specs, relationship/checklist drift, and stale issue or Project state. Review and approve each exact per-epic repair separately; ambiguous ownership is preserved for an explicit child decision.
+- Install via `omp plugin install <repo-or-marketplace>` and `herdr integration install omp`.
+- Interactive grooming and spec approval now run under native `/plan /skill:<name>`.
+- Use `/skill:execute` (inside Herdr) for automated delivery to exact-head merge + issue closure.
+- Run `/plan /skill:upgrade-project` on existing projects to modernize legacy spec layouts (`feature-*` / `bug-*` / `.codex/specs/`), split cumulative specs, flatten coordination artifacts, and reconcile frontmatter. All repairs require explicit approval.
+- `package.json` + `src/extension.ts` now declare the OMP extension (in addition to `VERSION`).
+- See updated `README.md`, `AGENTS.md`, and `CONTRIBUTING.md` for the v3 journey and invocation list.
 
-## [2.0.10] - 2026-08-16
-
-### Fixed
-
+## [2.1.0] - 2026-08-16
 - Fixed issue #175 by backfilling bare `$nmg-sdlc:start-issue` discovery after readiness filtering, excluding confirmed all-`Done` Project items from automatic shortlists, and preserving explicit issue-number recovery with a reopen warning.
 
 ## [2.0.9] - 2026-08-14

@@ -1,290 +1,152 @@
 ---
 name: draft-issue
-description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when user says 'create issue', 'new feature', 'report a bug', 'log a bug', 'request a feature', 'I need a...', 'file an issue', 'draft an issue', 'how do I create an issue', or 'how to file a feature request'. Do NOT use for writing specs, implementing code, or creating PRs. Supports feature and bug templates with codebase investigation and milestone assignment. First step in the SDLC pipeline — followed by $nmg-sdlc:start-issue."
+description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when `/plan /skill:draft-issue`. Supports feature, bug and spike templates. First step — next is write-spec."
 ---
 
 # Draft Issue
 
-Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+Read `../../references/codex-tooling.md` (maps to current OMP tools: read/grep/glob/ask/write to local:// and xd://propose).
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
+Read `../../references/interactive-gates.md` (replaced by native /plan + ask + xd://propose contract).
 
-Read `../../references/spec-context.md` when Step 4 investigates a feature or enhancement — draft-issue uses bounded relevant-spec discovery to understand surrounding contracts without loading every spec body.
+## Step 0: Plan-Mode Precondition (if write/edit tools available)
 
-Interview the user to understand their need, then create a well-groomed GitHub issue with BDD acceptance criteria. The skill adapts its interview depth to issue complexity and plays back its understanding before drafting so the result is aligned with intent before a single byte lands in GitHub.
-
-## Core Principles
-
-| Principle | Description |
-|-----------|-------------|
-| **Interactive-Only** | Issue drafting is a human-judgment activity — the skill always runs the full interactive workflow |
-| **Interview-First** | Gather context before drafting; play back understanding before synthesis |
-| **Adaptive Depth** | Scale interview depth to issue complexity; let the user override |
-| **Readable Gates** | Review-gate summaries are legible without opening files |
-| **BDD-Ready Output** | Every acceptance criterion is written as Given/When/Then |
-
-## When to Use
-
-- Starting new work on a feature, bug fix, or enhancement
-- The user has an idea but hasn't formalized it yet
-- You need a trackable GitHub issue before writing specs
-
-## Workflow Overview
+If the current context provides write or edit tools (writable tree / native plan active), print exactly this line (append space + trimmed $ARGUMENTS when non-empty) and stop. Do nothing else. No GitHub calls, no interviews, no proposals.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                   $nmg-sdlc:draft-issue Skill                         │
-├──────────────────────────────────────────────────────────────┤
-│  Step 1:  Gather Context                                      │
-│  Step 1b: Detect Multi-Issue Prompt                          │
-│  Step 1c: Split-Confirm Menu  ◀── Human Review Gate          │
-│  Step 1d: Infer Dependency DAG + Graph-Confirm ◀── Gate      │
-│  ────────── Per-Issue Loop (for each planned issue) ──────── │
-│  Step 2:  Classify Issue Type (Feature | Bug | Epic)         │
-│  Step 3:  Assign Milestone                                   │
-│  Step 4:  Investigate Codebase  →  investigation signals     │
-│  Step 5:  Interview the User (adaptive depth)                │
-│  Step 5b: Playback and Confirm  ◀── Human Review Gate        │
-│  Step 6:  Synthesize into Issue Body                         │
-│  Step 7:  Present Draft for Review  ◀── Human Review Gate    │
-│  Step 8:  Create the Issue                                   │
-│  Step 9:  Output                                             │
-│  ──────────────────────────────────────────────────────────  │
-│  Step 10: Autolink Batch                                     │
-│  Step 11: Batch Summary                                      │
-└──────────────────────────────────────────────────────────────┘
+Run /plan /skill:draft-issue
 ```
 
-Single-issue prompts bypass Steps 1c, 1d, and the batch phases — Step 1b emits a `"single-issue detected"` trail note and the flow falls straight into Step 2. Step 11 renders a trivial summary (M=1, N=1) with no autolinking block.
+(Example with arg: `Run /plan /skill:draft-issue add dark mode`)
 
-## Workflow
+## Core Flow (when Step 0 did not stop)
 
-### Step 0: Legacy-Layout Precondition
+1. Gather need: if $ARGUMENTS present use as initialDescription. Else use one ask for the need (free-form via Other if needed, but prefer short).
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate checks for legacy `.codex/steering/` and `.codex/specs/` trees and aborts with a pointer to `$nmg-sdlc:upgrade-project` before any drafting happens.
+2. If multi-issue signals (see references/multi-issue.md), run detection, then ONE ask to confirm split (options: approve split / adjust / single). Max questions budget: 3 total across whole run.
 
-### Step 1: Gather Context
+3. Classification ask (exactly these 3 options, recommended first based on text):
 
-**Input**: optional argument; `steering/product.md` if present.
+   Use ask:
 
-**Process**:
+   question: "What type of issue is this?"
 
-1. If an argument was provided, use it as the starting description. Otherwise, present a `request_user_input` gate whose free-form `Other` answer captures what the user needs, then use that text as the starting description.
-2. Read `steering/product.md` for product vision, personas, MoSCoW priorities, and existing user journeys.
+   options:
 
-Read `../../references/steering-schema.md` when you need the roster of steering documents and their read-timing.
+   - "Enhancement — New capability or improvement to existing behavior (recommended for most)"
 
-**Output**: `session.initialDescription`, `session.productContext`.
+   - "Bug — Something is broken or behaving incorrectly"
 
-### Step 1b–1d: Detect, Confirm, and Graph a Multi-Issue Prompt
+   - "Spike — Research/evaluation producing a decision (ADR) not code"
 
-Read `references/multi-issue.md` when the workflow reaches Step 1b — the detector runs for every prompt, single- or multi-issue, and emits a `"single-issue detected"` trail note on the single-issue path before the flow drops directly into Step 2 (one iteration).
+   Map to: feature | bug | spike. Never epic.
 
-### Per-Issue Loop
+4. Milestone (if root VERSION parses as semver X.Y.Z):
 
-Read `references/multi-issue.md` when you need the shared read-only `SessionState`, per-iteration `DraftState` schema, topological loop ordering, or the single-issue-path rules — the reference applies on both the single-issue (one iteration) and multi-issue (N iterations) paths. Steps 2–9 below run once per planned issue.
+   Read VERSION.
 
-### Step 2: Classify Issue Type
+   Extract major.
 
-**Input**: initial description from Step 1; multi-phase signals from Step 1b.
+   One ask:
 
-**Process**: compute `epicRecommended = true` when ANY fire:
+   options:
 
-- The description contains "in phases", "multiple PRs", or "multi-PR" (case-insensitive, word-boundary match).
-- Step 1b's `distinctComponents >= 4` AND `sentenceCount >= 3`.
-- The description contains references to multiple sequential delivery phases (e.g., "first … then … finally …").
+   - `v${major} (current)`
 
-Present a `request_user_input` gate:
+   - `v${major+1} (next)`
 
-```
-question: "What type of issue is this?"
-options:
-  - "Bug" — Something is broken or behaving incorrectly
-  - "Enhancement / Feature" — New capability or improvement to existing behavior
-  - "Epic" — A coordinated set of child issues delivering one logical feature across multiple PRs
-  - "Spike" — A research/evaluation task producing a decision (ADR) not code
-```
+   Recommended first. Record milestone or null.
 
-When `epicRecommended` is true, append `(Recommended)` to the Epic option label.
+   (The plan execution will ensure the milestone exists via gh before create if chosen.)
 
-**Output**: `classification` ∈ {`feature`, `bug`, `epic`, `spike`}.
+5. Investigate (use glob/grep/read, no subagents unless scoped):
 
-### Step 3: Assign Milestone
+   - For enhancement/feature: read relevant steering, use glob for specs/ and source; summarize Current State.
 
-**Input**: project root `VERSION` file (if present); GitHub milestones via `gh api`.
+   - For bug: search error/func, read files, form root-cause hypothesis.
 
-**Process**:
+   - For spike: collect research context from description + steering.
 
-1. Read the `VERSION` file at the project root. If it exists and parses as semver (`X.Y.Z`), extract the major (`2.11.0` → `2`). Otherwise skip milestone assignment entirely (omit `--milestone` from `gh issue create` in Step 8).
-2. Present a `request_user_input` gate with options `"v{major} (current major version)"` and `"v{major+1} (next major version)"`.
-3. Ensure the milestone exists: `gh api repos/{owner}/{repo}/milestones --jq '.[].title'`. If the chosen milestone is missing, create it via `gh api repos/{owner}/{repo}/milestones --method POST --field title="v{N}"`. If creation fails (permission denied, API error), proceed without milestone and note the failure in Step 9 output.
+   Record signals for depth.
 
-Read `../../references/versioning.md` when you need the project's VERSION-file conventions.
+6. Interview (adaptive, but total asks <=3 across all, including above):
 
-**Output**: `milestone` — e.g., `"v2"`, or `null` if skipped.
+   Use at most the remaining ask slots (2-4 options preferred, rec first).
 
-### Step 4: Investigate Codebase
+   Core probes: persona/outcome, key ACs, scope in/out, for bug: repro/expected.
 
-**Input**: `classification` from Step 2; relevant source, specs, and steering docs.
+   One "anything missed?" if slots allow.
 
-**Process**: perform a targeted codebase investigation before the interview.
+   Do NOT use ask for final approval or review of draft. Synthesis happens, then propose.
 
-**If Enhancement / Feature**: read `../../references/spec-context.md`, run bounded relevant-spec discovery against project-root `specs/`, and read only threshold-qualified related specs before code investigation; file discovery/text search source files related to the area; read `steering/tech.md` and `steering/structure.md` if they exist; summarize a **Current State** block covering what exists today, surrounding spec contracts and ranking gaps when relevant, how it works, patterns to preserve, and relevant steering constraints. If no related code or specs are found, note the greenfield addition and move on.
+7. Synthesize per classification using the payload templates:
 
-**If Bug**: text search for code related to the bug (error messages, function names, file patterns); `Read` the relevant files and trace logic through affected paths; read `steering/tech.md` and `steering/structure.md` if they exist; form a **root-cause hypothesis** covering the affected code, the incorrect behavior or assumption, why it manifests as the reported bug, and relevant steering constraints. Confirm with the user via `request_user_input` gate (`"Yes, that matches"` / `"Not quite — let me clarify"`); a free-form `Other` answer is treated as corrective bug context. On "not quite" or `Other`, collect one clarification and revise. If investigation is inconclusive, note what is known and proceed with the user's description alone.
+   Read references/feature-template.md | bug-template.md | spike-template.md as execution payload.
 
-Read `../../references/steering-schema.md` when you need each steering doc's purpose and read-timing.
+   Fill from understanding + investigation.
 
-Before exiting, capture three signals that Step 5 uses for adaptive depth: `filesFound` (int, count of text search/file discovery hits examined); `componentsInvolved` (int, count of distinct top-level dirs or skills/modules matched); `descriptionVagueness` (float 0–1, ratio of vague tokens — `"stuff"`, `"things"`, `"something"`, `"somehow"`, pronouns — to total tokens).
+   For multi (from references/multi-issue.md): insert at end of each body the topo Depends on: / Blocks: lines using summaries (human readable). No placeholders for later rewrite.
 
-**Output**: `investigation.summary` plus the three signals.
+8. Build per-issue plan entries in topo order (single = 1).
 
-### Step 5: Interview the User
+   Each:
 
-Read `references/interview-depth.md` when entering the interview phase — the reference covers the adaptive-depth heuristic, the user-override prompt, the Feature and Bug probe rounds, and the end-of-interview "anything I missed?" probe.
+   - classification: feature|bug|spike
 
-**Output**: `depth`, `depthOverridden`, `interviewAnswers`, `anythingMissed`.
+   - title: verb-first concise
 
-### Step 5b: Playback and Confirm
+   - milestone: "vX" | null
 
-Play back a structured understanding block whose length is proportional to `depth` — matching friction to stakes. Core-depth uses a one-line confirm (persona, outcome, in-scope bullets, out-of-scope bullets). Extended-depth uses a structured block with labelled fields — Persona, Outcome, ACs (numbered one-line outline), Scope in, Scope out:
+   - labels: ["enhancement"] | ["bug"] | ["spike"]
 
-```
-Understanding check:
-  Persona:   [type]
-  Outcome:   [action + benefit]
-  ACs:       [numbered one-line outline]
-  Scope in:  [bullets]
-  Scope out: [bullets]
-```
+   - body: full markdown (from template fill + dep lines)
 
-Present a `request_user_input` gate: `"Does this match your intent?"` → `"[1] Looks right — draft the issue"` / `"[2] Something's off — let me clarify"`. On `[2]` or a free-form `Other` answer, treat the text as the clarification, revise the understanding, re-render at the same depth, and re-present the gate. Loop until `[1]`.
+   - ghCreateArgs: exact argv array e.g. ["gh","issue","create","--title", t, "--body", b, "--label", l, (milestone? ["--milestone", m] : []) ]
 
-**Output**: `understanding` (persona, outcome, AC outline, scope in/out); `understandingConfirmed` must be true before Step 6.
+9. Write the plan file:
 
-**Human Review Gate**: blocks Step 6 until the user confirms the playback.
+   Derive slug = "draft-" + kebab(need or first title)  (lowercase, non alnum to -, collapse)
 
-### Step 6: Synthesize into Issue Body
+   Write full structured content (JSON or markdown table of the list) to:
 
-**Input**: confirmed `understanding`; `classification`; `investigation.summary`; current iteration's `planId` and `scopeId`; read-only `activeDag` (the outer `session.dag`, or the Step 10-local child DAG during epic fan-out); read-only `activeDeliverablePrerequisites` from the approved graph; and nullable `coordinationParentNumber` supplied only for an epic child.
+   local://draft-<slug>-plan.md
 
-Choose the template based on `classification`:
+10. Finish:
 
-Read `references/feature-template.md` when `classification === 'feature'`.
-Read `references/bug-template.md` when `classification === 'bug'`.
-Read `references/multi-issue.md` when `classification === 'epic'` — the Epic Coordination template lives there alongside the multi-issue pipeline.
-Read `references/spike-template.md` when `classification === 'spike'` — the spike template replaces User Story / Acceptance Criteria with Research Questions, Candidate Set, Time-box, Expected Output Shape, and Honest-Gap Protocol. Spike issues do not carry acceptance criteria (the deliverable is an ADR, not a working feature).
+    Write plain text to xd://propose :
 
-**Body cross-ref placeholders (batch mode)**: when `activeDag` has edges touching the current iteration's `planId`, append scope-bound placeholder lines at the end of the body — `Depends on: <A1>, <A2>` / `Blocks: <A4>`. The `<askId>` tokens are resolved to real `#N` references in Step 10 using only created records with the same `scopeId`. Do not read the outer `session.dag` or resolve an identically named plan ID from another scope when a child-scoped DAG is active. On the ordinary single-issue path, no DAG placeholders are added.
+    ```
+    draft-<slug>
+    <chosen primary title>
+    ```
 
-**Deliverable prerequisite placeholders (batch mode)**: read `../../references/deliverable-dependencies.md`. For every approved `activeDeliverablePrerequisites` record consumed by this iteration, append `- Requires deliverable from <ownerAskId>: <task/artifact description>`. Its owner must also be a parent of this iteration in `activeDag`, so the existing `Depends on:` placeholder carries the matching whole-issue execution edge. A prose-only task checkpoint stops before drafting.
+    (The /plan system will present for approval; execution of approved plan runs the ghCreateArgs in order and emits "Run /plan /skill:write-spec #N" for the created issues.)
 
-**Epic membership body signal**: when `coordinationParentNumber` is non-null, append a separate line-anchored `Depends on: #P` record for that exact epic. This coordination signal is not inserted into `activeDag`, `dependsOn`, or `blocks`; those fields remain genuine execution dependencies.
+## Multi-Issue Notes
 
-**Output**: `draft` (issue body markdown), `title` (concise, action-oriented, starts with a verb).
+- One ask only for split confirm (see references/multi-issue.md for updated rules).
 
-### Step 7: Present Draft for Review
+- One plan file covers all; lists in topo order.
 
-Render an inline review summary:
+- Bodies contain the Depends on: / Blocks: lines (parseable later).
 
-```
-Issue Draft Summary — [title]
-
-User Story: [one-liner]         ← "Bug Summary: [one-liner]" for bug reports
-
-Acceptance Criteria ([N] total):
-  AC1: [Name] — Given [...] When [...] Then [...]
-  ...
-
-Functional Requirements:
-  FR1: [req] (Must)
-  ...
-
-Out of Scope: [comma-separated list]
-Labels: [applied labels]
-```
-
-For `classification === 'epic'`, replace the executable summary fields with:
-
-```text
-Epic Coordination Draft — [title]
-
-Goal: [cross-child outcome]
-Delivery Phases: [N proposed children with genuine sibling/external prerequisites]
-Success Criteria: delegated to child acceptance criteria
-Executable ownership: none (no ACs, FRs, tasks, or Gherkin on the epic)
-Lifecycle: coordination-only; the epic cannot be started
-Labels: epic, enhancement
-```
-
-Present a `request_user_input` gate:
-
-```
-question: "Approve this draft?"
-options:
-  - "[1] Approve — create the issue"
-  - "[2] Revise — I'll describe what to change"
-```
-
-On `[2]` or a free-form `Other` answer, treat the text as the requested change, apply the changes wholesale (revise iterations do NOT preserve previous drafts as diffs), re-render the summary and `request_user_input` gate. Loop until `[1]`.
-
-**Consecutive-revise soft guard**: maintain `consecutiveRevises` starting at `0`. Increment on `[2] Revise` (or `[1] Keep revising` on the expanded menu); reset on any selection that exits or restarts the loop. When `consecutiveRevises == 3`, the next round expands the menu to three options — `"[1] Keep revising"` / `"[2] Reset and re-interview"` / `"[3] Accept as-is"`. `[1]` returns to the two-option menu; `[2]` jumps back to Step 5 with `classification` and `milestone` preserved and resets the counter; `[3]` proceeds to Step 8. The skill does not auto-terminate — the user stays in control.
-
-**Batch-mode abandonment**: when `session.proposedSplit !== null` and `session.createdIssues.length < session.proposedSplit.asks.length`, every review menu gains a trailing `"[Abandon] Stop the batch — keep created issues, skip the rest"`. Selecting `[Abandon]` sets `session.abandoned = true`, skips remaining iterations, and jumps directly to Step 11. No rollback or deletion of already-created issues is attempted.
-
-**Output**: `approved` (true after Approve or Accept as-is); `session.abandoned` (true if user abandoned); final `draft` and `title`.
-
-**Human Review Gate**: blocks Step 8 until `approved = true` or the user abandons the batch.
-
-### Step 8: Create the Issue
-
-1. `gh label list` — enumerate existing labels.
-2. Create missing labels via `gh label create "label-name" --description "..." --color "hex"`.
-3. Determine labels by classification:
-   - Feature → `enhancement`
-   - Bug → `bug`
-   - Epic → `epic` + `enhancement` (BOTH; lazily create the `epic` label with color `5319E7` if absent)
-   - Spike → `spike` (lazily create with color `0052CC` if absent)
-4. Create the issue (include `--milestone` only when Step 3 assigned one):
-   ```
-   gh issue create --title "..." --body "..." --label "label1,label2" --milestone "v{N}"
-   ```
-
-**Output**: `issueNumber`, `issueUrl`, `appliedLabels`.
-
-### Step 9: Output
-
-Render the final status block:
-
-```
-Issue #N created: [title]
-URL: [issue URL]
-Labels: [labels applied]
-```
-
-In batch mode, per-iteration Step 9 blocks are compact (one line per iteration) and the combined summary is rendered in Step 11. In single-issue mode for an ordinary executable issue, Step 9 ends with `"Next step: Run $nmg-sdlc:start-issue #N …"` and Steps 10/11 render as a trivial summary. Never emit that handoff for `classification === 'epic'`; Step 10 must materialize and verify its children first.
-
-### Step 10: Autolink Batch
-
-Read `references/multi-issue.md` when the Per-Issue Loop has finished — the reference covers the `gh` capability probe, DAG edge wiring, body cross-ref placeholder resolution, and the Epic child-creation flow. On an ordinary single-issue path, Step 10 is a no-op (no edges); a single epic is not an ordinary path and must create its child batch.
-
-### Step 11: Batch Summary
-
-Read `references/multi-issue.md` when rendering the final batch summary. On the ordinary single-issue path, Step 11 collapses to the `"Issue #N created ... Next step: $nmg-sdlc:start-issue #N"` block emitted by Step 9 (M=1, N=1, no autolinking block). An epic summary names the first ready executable child and states that the epic itself cannot be started.
+- No epic coordination, no fan-out, no child creation inside this skill.
 
 ## Guidelines
 
-- **Title**: Concise, action-oriented, starts with a verb (e.g., "Add precipitation overlay to map")
-- **Acceptance criteria**: Always in Given/When/Then format for executable feature/bug children. Epics have only cross-child outcomes and topology.
-- **Scope**: Be explicit about what's out of scope to prevent creep
-- **Priority**: Use MoSCoW (Must/Should/Could/Won't) for requirements
-- **No implementation details**: The issue describes *what*, not *how*
+- Title: concise, verb first.
+
+- ACs: Given/When/Then.
+
+- No implementation details in bodies.
+
+- Scope explicit.
 
 ## Integration with SDLC Workflow
 
-```text
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
+```
+/plan /skill:draft-issue [need]  →  (approved plan executes gh creates)  →  Run /plan /skill:write-spec #N
      ▲ You are here
 ```
 
-If this skill creates an epic, the downstream `#<executable>` is its first ready child under normal dependency rules. The epic is informational lineage and never enters the pipeline itself.
+Next-step text after plan approval/execution: Run /plan /skill:write-spec #N

@@ -4,7 +4,7 @@
 **Status**: Complete
 **Author**: Codex
 **Severity**: High
-**Related Spec**: `specs/feature-automation-mode-support/`
+**Related Spec**: `specs/11-automation-mode-support/`
 
 ---
 

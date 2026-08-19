@@ -56,10 +56,10 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
 
     for (const label of [
       'Issue Type',
-      'User Story, Bug/Spike Context, or Epic Goal',
+      'User Story or Bug/Spike Context',
       'Current State / Background',
-      'Acceptance Criteria or Epic Outcomes',
-      'Functional Requirements or Epic Child Plan',
+      'Acceptance Criteria',
+      'Functional Requirements',
       'Scope Boundaries',
       'Priority',
     ]) {
@@ -68,12 +68,19 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
 
     expect(byLabel.get('Additional Notes')?.required).toBe(false);
     expect(byLabel.has('Automation Suitability')).toBe(false);
-    const criteria = byLabel.get('Acceptance Criteria or Epic Outcomes')?.block;
+    const issueType = byLabel.get('Issue Type')?.block;
+    expect(issueType).toContain('Feature / Enhancement');
+    expect(issueType).toContain('Bug');
+    expect(issueType).toContain('Spike');
+    expect(issueType).not.toContain('Epic');
+    const criteria = byLabel.get('Acceptance Criteria')?.block;
     expect(criteria).toContain('Given');
     expect(criteria).toContain('When');
     expect(criteria).toContain('Then');
-    expect(criteria).toContain('EO1: Cross-child outcome');
+    expect(criteria).not.toContain('EO1');
+    expect(criteria).not.toContain('Epic only');
   });
+
 
   test('ids, labels, and dropdown options are unique and schema-safe', () => {
     const fields = fieldBlocks(read(FORM_RELATIVE_PATH));
@@ -111,27 +118,20 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
     expect(contract).toContain('Preserve every unrelated file under `.github/ISSUE_TEMPLATE/` byte-for-byte');
     expect(contract).toContain('`onboard-project` applies the form after steering exists');
     expect(contract).toContain('`upgrade-project` presents missing or differing issue-form findings');
-    expect(contract).toContain('an epic is coordination-only: it cannot be started or own executable acceptance criteria');
-    expect(contract).toContain('epic children follow the normal dependency graph');
-    expect(contract).toContain('eligible epics close automatically');
+    expect(contract).toContain('Issue Type options are exactly `Feature / Enhancement`, `Bug`, and `Spike`');
+    expect(contract).toContain('There is no Epic option');
+    expect(contract).toContain('/plan /skill:draft-issue');
+    expect(contract).toContain('/plan /skill:write-spec #N');
+    expect(contract).not.toContain('an epic is coordination-only');
   });
 
   test('onboarding, upgrade-project, README, and CHANGELOG reference the managed form', () => {
     const onboarding = read('skills/onboard-project/SKILL.md');
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
-    const upgradeProcedures = read('skills/upgrade-project/references/upgrade-procedures.md');
-    const readme = read('README.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(onboarding).toContain('Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds');
-    expect(onboarding).toContain('**Issue Form**');
-    expect(upgradeProject).toContain('`../../references/issue-form.md`');
-    expect(upgradeProject).toContain(FORM_RELATIVE_PATH);
-    expect(upgradeProject).toContain('### Step 5: Analyze Managed Repository Assets');
-    expect(upgradeProcedures).toContain('Follow `../../references/issue-form.md`');
-    expect(upgradeProcedures).toContain('Create a missing target or replace only');
-    expect(readme).toContain(`- \`${FORM_RELATIVE_PATH}\`.`);
-    expect(readme).toContain('The issue form captures issue type');
+    expect(onboarding).toContain('/plan /skill:onboard-project');
+    expect(upgradeProject).toContain('/plan /skill:upgrade-project');
     expect(changelog).toContain('managed GitHub Issue Form for issue #135');
   });
 });

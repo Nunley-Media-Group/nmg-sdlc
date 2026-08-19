@@ -26,14 +26,14 @@
         "verification",
         "pull request"
       ],
-      "nextAction": "$nmg-sdlc:write-code #145"
+      "nextAction": "/skill:execute #145"
     },
     "conflictingEvidence": {
       "stage": "specified",
       "gaps": [
         "passing verification conflicts with absent implementation paths"
       ],
-      "nextAction": "$nmg-sdlc:write-code #145"
+      "nextAction": "/skill:execute #145"
     },
     "githubUnavailable": {
       "stage": "blocked",
@@ -41,13 +41,13 @@
       "gaps": [
         "GitHub issue unavailable: offline"
       ],
-      "nextAction": "$nmg-sdlc:status",
+      "nextAction": "/skill:status",
       "manualRepairRequired": true
     },
     "observational": {
       "prompted": false,
       "nextActionExecuted": false,
-      "nextAction": "$nmg-sdlc:write-code #145"
+      "nextAction": "/skill:execute #145"
     },
     "readOnly": {
       "beforeHash": "9e6d50b5f05f/read-only-fixture",

@@ -6,20 +6,22 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Mission
 
-**nmg-sdlc provides a BDD spec-driven development toolkit for Codex that transforms GitHub issues into verified, production-ready implementations through a structured SDLC workflow.**
+**nmg-sdlc is an Oh My Pi extension and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
+
+It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` the same way they invoke any other OMP skill or Herdr agent.
 
 ---
 
 ## Target Users
 
-### Primary: Developer using Codex
+### Primary: Developer in Oh My Pi / Herdr
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Codex daily | Skills integrate with Codex-native tools and prompts |
+| Uses Oh My Pi daily | Skills use native `/plan`, `ask`, `xd://propose`, and `/skill:` |
+| Runs Herdr for delivery | Automated stages run as sibling `omp` panes, not in-process `task` workers |
 | Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
-| Values review authority | Every material decision waits for explicit user input |
 | Values quality gates | Verification catches implementation drift before delivery |
 
 ### Secondary: Team Reviewer or Maintainer
@@ -34,11 +36,12 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Core Value Proposition
 
-1. **Structured manual workflow** — executable issue → spec → implement → simplify → verify → exact-head merge → issue closure.
-2. **Stack-agnostic BDD** — any language or framework can supply its conventions through steering docs.
-3. **Explicit human authority** — review and scope gates never select an answer without the user.
-4. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
-5. **Safe project adoption** — managed repository assets are additive and upgrade cleanup is ownership-aware.
+1. **Native interactive surface** — `draft-issue`, `write-spec`, `onboard-project`, and `upgrade-project` run inside native `/plan` with `ask` + `xd://propose`.
+2. **Automated delivery** — after an approved spec, `/skill:execute` drives Herdr `--kind omp` workers until merge or a failed handoff.
+3. **Stack-agnostic BDD** — any language or framework supplies conventions through project `steering/`.
+4. **One issue, one spec** — `specs/{N}-{slug}/` is owned by a single issue. There is no epic type.
+5. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
+6. **Safe project adoption** — managed repository assets are additive and upgrade cleanup is ownership-aware.
 
 ---
 
@@ -49,9 +52,10 @@ This document defines the product vision, target users, and success metrics. All
 | Stack-agnostic | Never assume a language, framework, or tool; project steering provides specifics |
 | OS-agnostic | Support macOS, Windows, and Linux without hardcoded platform assumptions |
 | Process over tooling | Skills define lifecycle structure; projects define technical choices |
-| Human gates | Every surviving decision point waits for explicit user input |
-| Spec as source of truth | Implementation and verification trace back to approved spec documents |
-| Coordination is not execution | Epics describe cross-child outcomes and topology; children own executable acceptance criteria and delivery |
+| Native plan for judgment | Interactive skills use built-in `ask` + `xd://propose` inside `/plan` |
+| Workers never ask | Automated skills never call `ask`; missing preconditions write a failed handoff |
+| Spec as source of truth | Implementation and verification trace back to an approved spec directory |
+| Coordination is not a type | Sequencing is `Depends on:` between ordinary issues; there is no epic |
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
 | Dogfooding | Skill changes are verified through contracts and executable exercises |
 
@@ -62,13 +66,13 @@ This document defines the product vision, target users, and success metrics. All
 | Metric | Target | Why It Matters |
 |--------|--------|----------------|
 | Spec-to-implementation fidelity | Zero unresolved drift on first verify | Validates the spec-driven approach |
-| Pipeline continuity | Every manual stage works end to end | Proves the workflow is practical |
-| Terminal delivery integrity | Success requires exact-head merge and executable-issue closure | Prevents PR creation from being overstated as delivery |
-| Epic lifecycle integrity | Epics are never started and close only after all direct children and authority checks pass | Keeps coordination state consistent with delivered work |
-| Gate integrity | No decision proceeds without explicit user input | Preserves user authority |
+| Pipeline continuity | Draft → spec → execute works end to end | Proves the workflow is practical |
+| Terminal delivery integrity | Success requires exact-head merge and issue closure | Prevents PR creation from being overstated as delivery |
+| Dependency integrity | Blocked `Depends on:` parents keep an issue out of execute | Keeps sequencing honest |
+| Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` | Preserves user authority without blocking Herdr |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
-| Cleanup idempotence | Repeated v2 cleanup produces no additional diff | Makes migration predictable |
+| Cleanup idempotence | Repeated upgrade produces no additional diff | Makes migration predictable |
 
 ---
 
@@ -76,22 +80,21 @@ This document defines the product vision, target users, and success metrics. All
 
 ### Must Have
 
-- Issue grooming with BDD acceptance criteria (`$nmg-sdlc:draft-issue`)
-- Linked branch and status management for executable issues (`$nmg-sdlc:start-issue`)
-- Coordination-only epics with normal dependency-aware child selection
-- Human-reviewed child requirements, design, tasks, and Gherkin plus aggregate/link authority (`$nmg-sdlc:write-spec`)
-- Spec-driven implementation planning (`$nmg-sdlc:write-code`)
-- Behavior-preserving simplification (`$nmg-sdlc:simplify`)
-- Verification, architecture review, and exercise evidence (`$nmg-sdlc:verify-code`)
-- Terminal versioned PR delivery, exact-head merge, issue closure, and epic reconciliation (`$nmg-sdlc:open-pr`)
-- Review-thread cleanup (`$nmg-sdlc:address-pr-comments`)
-- Safe project adoption and managed assets (`$nmg-sdlc:onboard-project`, `$nmg-sdlc:upgrade-project`)
-- Read-only lifecycle diagnostics (`$nmg-sdlc:status`)
+- Issue grooming with BDD acceptance criteria (`/plan /skill:draft-issue`)
+- Approved specs for one issue (`/plan /skill:write-spec #N`)
+- Automated delivery through Herdr (`/skill:execute [#N …]`)
+- Linked branch and status management (`start-issue` worker)
+- Spec-driven implementation (`write-code` + bundled `simplify`)
+- Verification and architecture review (`verify-code`)
+- Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
+- Review-thread cleanup (`address-pr-comments`)
+- Safe project adoption and managed assets (`/plan /skill:onboard-project`, `/plan /skill:upgrade-project`)
+- Read-only lifecycle diagnostics (`/skill:status`)
 
 ### Should Have
 
 - Defect-specific spec variants and retrospective learning
-- Explicit, digest-bound backlog repair for legacy epic graphs and specs
+- Explicit, digest-bound upgrade for legacy epic graphs and cumulative specs
 - Managed contribution gate and structured GitHub issue form
 - Historical spec reconciliation for brownfield projects
 
@@ -101,6 +104,8 @@ This document defines the product vision, target users, and success metrics. All
 - Non-GitHub issue trackers
 - A visual workflow dashboard
 - A plugin-owned background execution service
+- Epic types, labels, or aggregate spec directories as current product
+- Codex `$` invocation as the documented interface
 
 ---
 
@@ -109,35 +114,31 @@ This document defines the product vision, target users, and success metrics. All
 ### Journey 1: Executable Issue to Merged Delivery
 
 ```text
-1. Draft and approve a groomed issue.
-2. Select or start the issue on a linked branch.
-3. Approve requirements, design, and implementation tasks.
-4. Approve the implementation plan and execute the tasks.
-5. Simplify and verify every acceptance criterion.
-6. Approve versioning and enter terminal pull-request delivery.
-7. Monitor checks, resolve actionable findings, and merge the exact verified head.
-8. Prove issue closure and reconcile any now-complete epic ancestors.
+1. /plan /skill:draft-issue
+2. /plan /skill:write-spec #N
+3. /skill:execute [#N …]
+4. Herdr workers start, implement, verify, and deliver until exact-head merge and issue close
 ```
 
 ### Journey 2: Adopt or Upgrade a Project
 
 ```text
-1. Detect greenfield, brownfield, or initialized state.
-2. Create or reconcile root steering/spec documents.
-3. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form.
-4. Audit legacy epic graph, aggregate/child authority, ownership, issue state, and Project state without mutation.
-5. Present each exact digest-bound repair group for explicit approval and verify a no-op rerun.
-6. Report changed, preserved, declined, already-current, and failed outcomes.
+1. /plan /skill:onboard-project or /plan /skill:upgrade-project
+2. Detect greenfield, brownfield, or initialized state
+3. Create or reconcile root steering/spec documents
+4. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form
+5. Detect and propose packaging, rename, split, and epic-flatten mutations
+6. Apply only after plan approval and report changed, preserved, declined, already-current, and failed outcomes
 ```
 
 ### Journey 3: Dogfood a Skill Change
 
 ```text
-1. Define behavior in a feature or defect spec.
-2. Route skill-bundled edits through $skill-creator.
-3. Run static contract tests and plugin-surface validation.
-4. Exercise changed skills in a disposable project.
-5. Record local evidence separately from published-install evidence.
+1. Define behavior in a feature or defect spec
+2. Route skill-bundled worker edits through /skill:skill-creator
+3. Run static contract tests and plugin-surface validation
+4. Exercise changed skills with omp --print --no-session
+5. Record local evidence separately from published-install evidence
 ```
 
 ---
@@ -148,7 +149,8 @@ This document defines the product vision, target users, and success metrics. All
 |-------------------|---------------------|--------------------|
 | Stack-agnostic | Skill instructions defer project details to steering | Review changed contracts for hardcoded technology assumptions |
 | OS-agnostic | Paths and commands are cross-platform or explicitly scoped | Review path handling and platform dependencies |
-| Human gates | Decision points call `request_user_input` and wait | Exercise every changed decision branch |
+| Native plan for judgment | Interactive skills use `ask` + `xd://propose` inside `/plan` | Exercise draft/spec/onboard/upgrade outside `/plan` (print-and-stop) and inside `/plan` |
+| Workers never ask | Automated skills write failed handoffs instead of calling `ask` | Contract-test SKILL.md files and exercise missing-precondition paths |
 | Spec as source of truth | Changed paths map to approved tasks or acceptance criteria | Compare diff with `tasks.md` and `requirements.md` |
 | Preserve project ownership | Managed paths and overwrite predicates are exact | Run collision, preservation, and repeat-run fixtures |
 | Dogfooding | Skill behavior is exercised, not inferred from text alone | Record fixture or live exercise evidence |
@@ -156,14 +158,15 @@ This document defines the product vision, target users, and success metrics. All
 ### Skill Pipeline Contracts
 
 ```text
-draft-issue        → executable issues or a coordination-only epic with children
-start-issue        → linked branch and In Progress status for executable work; epics excluded
-write-spec         → child-owned executable package plus aggregate/link authority when applicable
-write-code         → implementation covering approved tasks
-simplify           → behavior-preserving cleanup
-verify-code        → acceptance/evidence report and scoped fixes
-open-pr            → exact-head PR delivery, merge, issue closure, and eligible epic closure
-address-pr-comments→ focused review-loop utility or explicit remaining blocker
+draft-issue        → ordinary feature, bug, or spike issues
+write-spec         → approved specs/{N}-{slug}/ or spike ADR
+execute            → Herdr worker pipeline to exact-head merge
+start-issue        → linked branch and In Progress status
+write-code         → implementation covering approved tasks + bundled simplify
+verify-code        → acceptance/evidence report
+open-pr            → exact-head PR delivery, merge, and issue closure
+address-pr-comments→ focused review-loop utility or failed intervention handoff
+status             → read-only lifecycle report; recommend execute or write-spec
 ```
 
 Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
@@ -186,7 +189,7 @@ Each skill's postconditions must continue to satisfy its downstream consumer's p
 | Data | Usage | Shared |
 |------|-------|--------|
 | GitHub issues/PRs | Read or write only for the requested workflow | Only within the user's authorized GitHub scope |
-| Source code | Analyzed in the active Codex environment | Per the user's Codex service configuration |
+| Source code | Analyzed in the active OMP / Herdr session | Per the user's host configuration |
 | Steering/spec docs | Project context and committed history | At the user's discretion |
 
 ---

@@ -1,0 +1,126 @@
+# File: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/feature.gherkin
+
+**Issue**: #177
+**Related Spec**: specs/149-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/
+**Date**: 2026-08-16
+**Status**: Approved
+**Author**: Rich Nunley
+#
+# Generated from: specs/feature-add-first-class-epic-support-and-multi-pr-delivery-flow-to-nmg-sdlc/requirements.md
+# Issues: #149, #177
+
+Feature: First-Class Epic Support and Multi-PR Delivery Flow
+  As an nmg-sdlc plugin maintainer (interactive) and as the SDLC runner (automated)
+  I want the SDLC to natively handle features that span multiple PRs
+  So that I never have to improvise coordination structures on top of the pipeline
+
+  # --- /draft-issue: Epic classification and body format ---
+
+  # --- /write-spec: parent-link resolution ---
+
+  # --- /write-spec: seal-spec flow ---
+
+  # --- /open-pr: sibling-aware bumping ---
+
+  # --- sdlc-runner: topological ordering ---
+
+  # --- Unattended-mode determinism for all new gates ---
+
+  # --- Issue #177: coordination-only epic lifecycle supersession ---
+
+  @SCN024
+  Scenario: Automatic discovery excludes epics before filling the shortlist
+    Given a milestone contains a confirmed epic, ready ordinary issues, and ready epic children
+    When start-issue builds and backfills its selectable shortlist
+    Then the confirmed epic is excluded before the target choice count is evaluated
+    And the ready ordinary issues and children remain selectable under normal dependency rules
+
+  @SCN025
+  Scenario: An explicit epic start returns ready children without mutation
+    Given issue #E is a confirmed epic with at least one ready child
+    When the user explicitly invokes start-issue for #E
+    Then no branch is created or checked out
+    And no issue or Project status is changed
+    And the response explains that #E is coordination-only and presents its ready children
+
+  @SCN026
+  Scenario: Nested epic lineage is informational only
+    Given ready child #C belongs to nested epic #N whose parent is epic #R
+    And #C has one genuine execution dependency that is closed
+    When start-issue renders and evaluates #C
+    Then it shows lineage #R then #N with both issue numbers and titles
+    And neither epic contributes a blocking edge or topological in-degree
+    And the genuine dependency retains its ordinary readiness semantics
+
+  @SCN027
+  Scenario: The first child creates separate aggregate and executable specs
+    Given confirmed epic #E has no canonical aggregate and ready child #C enters write-spec
+    When all requirements, design, tasks, and publication gates are approved
+    Then an epic aggregate package is created without tasks or Gherkin
+    And a separate five-file executable child package plus epic-link is created for #C
+    And the exact approved spec set becomes canonical without starting or closing #E
+
+  @SCN028
+  Scenario: Aggregate and child authority is unique and bidirectional
+    Given an epic aggregate and linked child packages have been authored
+    When epic specification authority is validated
+    Then aggregate EO outcomes and topology have no executable ownership
+    And every executable AC, FR, task, and scenario has exactly one child issue owner
+    And epic-scope and every epic-link agree on issue, path, and outcome mappings
+
+  @SCN029
+  Scenario: A later child receives an independent package
+    Given epic #E has a canonical aggregate and an existing child package
+    And later ready child #L enters write-spec
+    When #L's reviewed specification is approved
+    Then #L receives its own linked executable package
+    And only #L's planned aggregate entry is updated
+    And existing aggregate prose and sibling packages remain unchanged unless separately approved
+
+  @SCN030
+  Scenario: Open-pr remains active while delivery is remediable
+    Given a verified child has an open pull request with pending checks or actionable review findings
+    When open-pr observes the delivery
+    Then it monitors pending checks and safely fixes actionable findings
+    And it reverifies and pushes each changed head before observing again
+    And it does not report lifecycle completion while the pull request remains unmerged
+
+  @SCN031
+  Scenario: Open-pr merges only the exact clean verified head
+    Given all configured checks for the current head are success-equivalent
+    And requested changes and actionable unresolved threads are absent
+    And the live mergeStateStatus is CLEAN
+    When open-pr completes delivery
+    Then it revalidates and merges that exact head
+    And it proves the pull request is MERGED and the child issue is CLOSED before success
+
+  @SCN032
+  Scenario: Closing the final child closes its eligible epic
+    Given a merged child is closed and every fully paged native sibling is closed
+    And aggregate and child specification authority is valid
+    When post-merge epic completion runs
+    Then the epic's readable Project status is reconciled to Done
+    And the epic is explicitly closed and both resulting states are re-fetched
+
+  @SCN033
+  Scenario: Nested closure cascades and unverifiable graphs stop safely
+    Given an eligible inner epic is itself a child of an outer epic
+    When the inner epic closes
+    Then completion is re-evaluated leaf-to-root until an incomplete parent is reached
+    But a cycle, incomplete page, zero-child epic, unresolved child, conflicting identity, spec gap, or unreadable required state stops mutation with exact evidence
+
+  @SCN034
+  Scenario: Upgrade-project repairs one explicitly approved epic at a time
+    Given upgrade-project finds legacy spec ownership, relationship drift, or stale epic state
+    When it renders a per-epic proposal and the user approves that exact digest
+    Then the workflow revalidates drift and applies only the approved spec and GitHub mutations
+    And ambiguous ownership remains unchanged and is routed to an explicit child-drafting decision
+    And post-apply proof plus a repeated audit demonstrates idempotence
+
+  @SCN035
+  Scenario: Documentation and distributed templates share the runtime contract
+    Given the coordination-only epic lifecycle is implemented
+    When repository documentation, managed generators, and distributed templates are audited
+    Then README and contribution guidance explain selection, lineage, split authority, terminal delivery, closure, and repair
+    And onboarding, upgrade, write-spec, issue-form, contribution-gate, and steering assets agree
+    And contract and disposable-repository exercises reject lifecycle drift

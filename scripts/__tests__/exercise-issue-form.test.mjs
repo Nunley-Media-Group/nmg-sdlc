@@ -112,4 +112,13 @@ describe('managed issue form exercise coverage (issue #135)', () => {
     expect(fs.readFileSync(unrelatedTemplate, 'utf8')).toBe('name: Project question\n');
     expect(fs.readFileSync(unrelatedWorkflow, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
+
+  test('canonical form has three issue types and no Epic', () => {
+    const source = canonicalForm();
+    expect(source).toContain('Feature / Enhancement');
+    expect(source).toContain('Bug');
+    expect(source).toContain('Spike');
+    expect(source).not.toContain('Epic');
+  });
+
 });

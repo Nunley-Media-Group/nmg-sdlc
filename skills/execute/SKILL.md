@@ -1,0 +1,239 @@
+---
+name: execute
+description: "Orchestrate automated delivery for approved specs through Herdr OMP worker sessions. Use when the user says execute, run the backlog, ship the next issue, /skill:execute, or passes issue numbers to deliver. Defaults to the first ready backlog issue. Accepts a space-separated list of issue numbers. Do NOT use to draft issues or write specs."
+---
+
+# Execute
+
+Automated orchestrator. Runs only in the main Herdr pane. Never edits product code, never implements tasks, never opens PRs. Delegates all work to sibling Herdr `--kind omp` workers via documented launch sequence.
+
+Read this file and the Herdr skill documentation before starting.
+
+## Preflight (orchestrator only)
+
+- `HERDR_ENV` must be exactly `1`, `HERDR_SOCKET_PATH` and `HERDR_PANE_ID` must be set. If any missing, print that execute requires a Herdr OMP session and stop with no mutations.
+- Run `herdr integration status`. The output must contain a line matching `^omp:\s+(?!not installed)`. Observed shape example: `omp: current (v8) (/Users/.../herdr-omp-agent-state.ts)`. If missing or the command fails, print exactly `Run: herdr integration install omp` and stop.
+- `gh auth status` must succeed.
+- Working tree must be clean, or the current branch must already equal `{N}-{slug}` for the target issue (resume case). Do not stash, discard, or reset user work. Fail closed on dirty tree for a new issue.
+
+Never run `herdr server stop`. Never pass `--kind pi` to any agent start. Stay inside the caller's Herdr session and workspace. Do not create new sessions, tabs, or worktrees unless already present.
+
+## Argument handling
+
+Trim `$ARGUMENTS`.
+
+- Empty after trim → use default backlog resolution.
+- Otherwise split on whitespace. Each token must match `^#?\d+$`. Collect unique numbers preserving first-occurrence order. Any other token prints `Usage: /skill:execute [#N ...]` and stops non-zero.
+- More than 20 numbers → stop non-zero with the usage line.
+
+Use the helper to classify:
+
+```
+node scripts/sdlc-execute.mjs parse-args "<trimmed arguments>"
+```
+
+The helper returns JSON `{ "issues": [N, ...], "defaultBacklog": bool }`.
+
+## Backlog selection (when defaultBacklog true)
+
+Invoke:
+
+```
+node scripts/sdlc-execute.mjs backlog
+```
+
+The helper runs:
+
+- `gh issue list --state open --limit 100 --json number,title,labels,body,projectItems`
+- For every issue body, reuse `parseBodyRelationships` (imported from `scripts/epic-relationships.mjs`; do not reimplement the Depends-on regex).
+- Hydrate every `dependsOn` parent number via one GraphQL batch (`gh api graphql`) or individual `gh issue view --json state`. Any GraphQL or `gh` failure → exit 1 from helper; do not guess ready issues.
+- An issue is blocked (dropped) if any parent state is not `CLOSED` (case-insensitive match on the state value).
+- Drop the issue if every readable Project status (from `projectItems` shapes containing `statusName`, `status.name`, or legacy title) is exactly `Done` (case-insensitive). Absent or unreadable Project items do not count as Done; keep the issue.
+- Sort surviving issues by number ascending.
+- Print the first number (or nothing) to stdout.
+
+If the selected issue (default or explicit) has no approved spec, print `Run /plan /skill:write-spec #N` and stop the queue. Do not advance to later issues.
+
+Check approved via helper:
+
+```
+node scripts/sdlc-execute.mjs spec-status --issue N
+```
+
+Returns `{ "dir": "specs/N-slug" or null, "approved": bool }`.
+
+A spec dir is resolved by `resolveSpecDir(root, N)`: the unique directory under `specs/` whose name matches `^N-`. Zero or multiple matches → not approved.
+
+A directory counts approved only when at least one of its `.md` / `feature.gherkin` files carries both `**Issue**: #N` (singular) and `**Status**: Approved`.
+
+For spikes the label check (below) decides whether to skip `implement`/`verify`; the ADR under `docs/decisions/` is the approved artifact produced by write-spec.
+
+## Run state
+
+Persist after every transition using the helper:
+
+```
+node scripts/sdlc-execute.mjs read-run
+node scripts/sdlc-execute.mjs write-run '<json>'
+```
+
+Schema (authoritative on disk):
+
+```json
+{
+  "schemaVersion": 1,
+  "issues": [42, 57],
+  "currentIssue": 42,
+  "currentStep": "verify",
+  "completed": { "42": ["start", "implement"] },
+  "failed": null,
+  "startedAt": "ISO-8601"
+}
+```
+
+`completed[issue]` is the ordered prefix of steps already successfully finished for that issue.
+
+On session start the extension may also append a `com.nmg-sdlc.run` entry; disk file wins on conflict.
+
+Handoff files live at `.omp/sdlc/handoffs/<N>-<step>.json`. Use `validate-handoff --file <path>` before trusting content.
+
+Handoff schema:
+
+```json
+{
+  "schemaVersion": 1,
+  "issue": 42,
+  "step": "verify",
+  "status": "passed",
+  "intervention": false,
+  "summary": "one paragraph",
+  "artifacts": ["specs/42-slug/verification-report.md"],
+  "next": "deliver",
+  "reasonCode": null
+}
+```
+
+`status` ∈ {passed, failed, blocked}. `step` ∈ {start, implement, verify, deliver}. `intervention` true means the pane must remain open for a human.
+
+## Per-issue pipeline
+
+Process issues in the supplied (or backlog) order. One issue reaches `MERGED` + `CLOSED` before the next issue begins.
+
+For current issue:
+
+1. If no approved spec → stop queue, tell user to run `/plan /skill:write-spec #N`.
+2. Fetch labels for the issue (`gh issue view N --json labels`). If it carries the `spike` label, the pipeline is only `start` (if needed) then `deliver`. Skip implement and verify.
+3. Compute the next step to perform:
+   - Use `nextStep(completedForIssue)` from helper, or inspect last handoff for the issue.
+   - If a live agent `sN-*` exists for a prior step of this issue, see Resume rules.
+4. Launch the required worker step (see Worker launch sequence).
+5. After the worker settles, read the handoff (source of truth), validate it, apply close-vs-keep table.
+6. On successful `deliver` step: only after the PR is `MERGED` and issue `CLOSED`, delete the local branch (best-effort). Then advance to next issue in list.
+7. Update `run.json` after each transition: set `currentIssue`, `currentStep`, append to `completed[N]`, clear or set `failed`.
+
+## Worker launch sequence (exact)
+
+1. Determine split direction:
+   ```
+   herdr pane layout --pane "$HERDR_PANE_ID"
+   ```
+   Parse the first numeric `width` and `height` found under `.result` then at top level. If `width >= height` use `right`, else `down`. If either dimension absent, default to `down`.
+
+2. Split (do not focus):
+   ```
+   herdr pane split --current --direction <right|down> --cwd "$PWD" --no-focus
+   ```
+   Capture new pane id from `.result.pane.pane_id`.
+
+3. Start agent (default timeout, never override):
+   ```
+   herdr agent start s<N>-<step> --kind omp --pane <pane_id>
+   ```
+   Agent names are `s` + issue + `-` + step (e.g. `s42-implement`). Must match `^[a-z][a-z0-9_-]{0,31}$`. Never use `sdlc-` prefix.
+
+4. Send prompt and wait:
+   ```
+   herdr agent prompt s<N>-<step> "<exact prompt>" --wait
+   ```
+
+5. After prompt settles, inspect with `herdr agent get s<N>-<step>` and read the handoff file.
+
+The worker prompt (exact shape, fill tokens, `/skill` line after start):
+
+```
+You are the nmg-sdlc <step> worker for issue #<N>.
+Read skill://<skill> and execute it for #<N> with no user questions.
+Write the handoff file then stop.
+
+Handoff path: .omp/sdlc/handoffs/<N>-<step>.json
+On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-<step>.json
+
+/skill:<skill> #N
+```
+
+Step → skill mapping: `start` → `start-issue`, `implement` → `write-code`, `verify` → `verify-code`, `deliver` → `open-pr`.
+
+Obtain the prompt text from the helper:
+
+```
+node scripts/sdlc-execute.mjs   # (internal workerPrompt export used by callers that need the string)
+```
+
+## Close vs keep table (source of truth = handoff file, never TTY)
+
+| Condition | Action |
+|-----------|--------|
+| Agent state `idle` or `done` AND handoff `status=passed` AND `intervention=false` | Read summary into orchestrator context; `herdr pane close <pane_id>` (only panes created by this execute run); advance to next step or issue. |
+| Agent state `blocked` | Keep pane; send notification; set `run.failed`; stop the queue. |
+| Agent state `unknown` or prompt result indicates `agent_prompt_stalled` | Keep pane; treat as failed. |
+| Handoff file missing after `idle`/`done` | Keep pane; reasonCode `missing_handoff`. |
+| Handoff `status=failed` or `blocked` or `intervention=true` | Keep pane; stop queue. |
+| Process error inside worker (gh/git/test failure) | Worker itself writes a failed handoff; keep the pane. |
+
+After a keep-open decision, always also print the sentence in the orchestrator pane.
+
+Notification command (exact, Herdr 0.8.0):
+
+```
+herdr notification show "nmg-sdlc stopped" --body "Stopped on #<N> <step>. Worker pane <pane_id> agent s<N>-<step> left open." --sound request
+```
+
+If the notification result is not `shown` (e.g. `disabled`, `rate_limited`), the print in the orchestrator pane is still required.
+
+## Resume rules
+
+Re-invoking `/skill:execute` (no args or same issue list):
+
+- If `.omp/sdlc/run.json` names the current issue and a live agent whose name matches `s<N>-*` exists for it, do not create a second split or worker. Print the existing pane and agent ids and stop.
+- If no live agent but `completed` already lists a prefix of steps for the issue, skip directly to the first missing step.
+- If the last recorded handoff for the step was `failed` and the user re-runs after manual repair inside the kept pane:
+  - If the old agent is still live and now `idle`, re-read the handoff file. If it now reports `passed`, close the pane and continue.
+  - If the agent is gone, launch a fresh worker for that step.
+- Never reopen a successfully closed pane from a prior run.
+
+## Helper functions exported for callers and tests
+
+- `parseArgs(inputString)` → `{issues, defaultBacklog}` or error shape.
+- `selectBacklog()` → first ready issue number or null (throws on gh/GraphQL failure).
+- `specStatus(issueN, root?)` → `{dir, approved}`.
+- `validateHandoff(filePath)` → boolean.
+- `readRun(root?)`, `writeRun(data, root?)`.
+- `resolveSpecDir(root, issueN)`, `nextStep(completedArray)`, `workerPrompt({step, issue, skill})`.
+
+All gh and filesystem operations inside the helper are read-only except the explicit `write-run` path.
+
+## Integration with SDLC Workflow
+
+Execute is the automated orchestrator; it lives only in the main Herdr pane.
+
+```
+/skill:execute [#N ...]
+        │
+        ├── preflight (Herdr env + integration + gh + clean tree)
+        ├── resolve list (backlog or explicit)
+        ├── per-issue: start? → implement? → verify? → deliver
+        │     (one worker pane at a time, sibling to main)
+        └── on final deliver success for an issue: branch delete after MERGED+CLOSED, advance
+```
+
+It never performs the work of `start-issue`, `write-code`, `verify-code`, or `open-pr` itself. Those run exclusively inside the spawned `--kind omp` workers. Interactive steps (`draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`) are invoked only via native `/plan`.

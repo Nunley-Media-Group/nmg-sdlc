@@ -1,276 +1,78 @@
 ---
 name: upgrade-project
-description: "Upgrade an existing project to the latest nmg-sdlc contract: relocate legacy steering/spec directories, reconcile current templates and managed repository assets, and offer ownership-aware cleanup of obsolete v2 runner artifacts. Use when user says 'upgrade project', 'update templates', 'check for outdated docs', 'sync with latest plugin', 'relocate specs', 'how do I update my project', or 'bring my project up to date'. Preserves project-authored content and requires explicit approval before mutation. Utility skill — run after plugin updates, outside the main SDLC pipeline."
+description: "Upgrade existing project to latest contract: detect/propose packaging, legacy layout, renames, splits, epic flatten, frontmatter, v2 cleanup. Use when `/plan /skill:upgrade-project`. Actual changes via helper script after plan approval."
 ---
 
 # Upgrade Project
 
-Read `../../references/codex-tooling.md` when the workflow starts for Codex-native inspection and editing behavior.
+Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called by approved plan execution).
 
-Read `../../references/interactive-gates.md` before every user decision. Present complete findings through `request_user_input`, wait for an explicit response, and finalize a decision-complete `<proposed_plan>` before mutation.
+## Step 0
 
-Bring an existing project forward to the current nmg-sdlc contract while preserving project-authored content. This skill owns:
+If write/edit available: print
 
-1. Legacy `.codex/steering/` and `.codex/specs/` relocation to project-root `steering/` and `specs/`.
-2. Steering/spec template reconciliation and legacy spec-directory migration.
-3. `CHANGELOG.md` and `VERSION` reconciliation.
-4. Managed contribution guide, project `AGENTS.md`, contribution gate, and structured issue form reconciliation.
-5. Interactive v2 cleanup of exact obsolete runner artifacts.
-6. Read-only sealed umbrella-spec audit and explicitly approved recovery preparation.
-7. Read-only umbrella-identity audit and explicitly approved GitHub metadata repair.
-8. Read-only cross-child deliverable audit and explicitly approved manual whole-issue dependency repair handoff.
-9. Read-only per-epic specification/lifecycle audit and exact approved repair in either close or reopen direction.
+Run /plan /skill:upgrade-project
 
-`$nmg-sdlc:upgrade-project` is the only skill that resolves the legacy-layout gate from `../../references/legacy-layout-gate.md`. It reads current templates at runtime so newly introduced sections can be proposed without rewriting existing content.
++ args and stop.
 
-## Safety Boundary
+## Detectors (read only, glob/read/gh)
 
-- Inspect before proposing; list exact paths and exact `.gitignore` lines before any deletion.
-- Never delete, move, or overwrite project-authored content merely because its name resembles an nmg-sdlc artifact.
-- Never parse, display, execute, or signal content from `.codex/sdlc-state.json`.
-- Never mutate repository settings, secrets, branch protection, or unrelated GitHub metadata. Epic identity, specification/lifecycle, issue-state, Project, and deliverable body mutations are allowed only through their separately approved, freshly revalidated per-epic recovery contracts.
-- Preserve unrelated workflows and issue templates byte-for-byte.
-- A repeated run must produce no additional diff and report the cleanup state as already clean.
+1. Packaging: if .codex-plugin/plugin.json and no root package.json with omp.extensions → propose OMP plugin install + herdr. Note nmg-pi optional.
 
-## What Gets Analyzed
+2. Legacy layout: .codex/steering/ or .codex/specs/ → propose relocate to root steering/ specs/ (git mv).
 
-```text
-.codex/steering/ and .codex/specs/       — legacy canonical-directory relocation
-.codex/migration-exclusions.json         — legacy exclusions-file rename
-steering/*.md                            — current steering sections
-specs/*/{requirements,design,tasks}.md  — current spec sections and frontmatter
-specs/*/                                 — legacy directory naming/consolidation
-bounded refs/heads/* and refs/remotes/origin/* — sealed umbrella-spec evidence (Git trees only)
-current-repository GitHub issue graph         — umbrella labels, native relationships, and supported body representations
-per-epic aggregate/child authority + issue/Project state — close/reopen, split, transfer, and nested repair proposals
-canonical umbrella task ownership + child bodies — cross-child deliverable records and bounded legacy checkpoint candidates
-.codex/upgrade-exclusions.json          — previously declined steering sections
-CHANGELOG.md and VERSION                — release-document consistency
-CONTRIBUTING.md and README.md           — managed contribution guidance
-AGENTS.md                               — managed bounded spec-context section
-.github/workflows/nmg-sdlc-contribution-gate.yml
-.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml
-sdlc-config.json                        — exact v2 cleanup candidate; contents are not read
-.codex/unattended-mode                  — exact v2 cleanup candidate; contents are not read
-.codex/sdlc-state.json                  — exact v2 cleanup candidate; contents are not read
-.gitignore                              — exact owned entries inside recognized blocks only
-```
+3. Directory rename: specs/feature-*/ bug-*/ or {N}-old → specs/{primaryN}-slug/ (from **Issue** or **Issues** first num). Collision ask.
 
-`feature.gherkin` files are generated, not template-reconciled.
+4. Cumulative split: plural **Issues** or issue-scope.json multi → per-N dirs, copy owned, add Related Spec pointers, remove manifest.
 
-Read these shared contracts only when their category is reached:
+5. Epic flatten: specs/epic-*/ + epic-link → per child {childN}-slug with **Issue** #child , historical note in owner; delete epic dirs/links. Convert edges to Depends on: body lines. Propose label clean only on explicit ask.
 
-- `../../references/spec-frontmatter.md`
-- `../../references/contribution-guide.md`
-- `../../references/project-agents.md`
-- `../../references/contribution-gate.md`
-- `../../references/issue-form.md`
+7. v2 cleanup: sdlc-config.json , legacy runner indicator file, legacy runner state , managed .gitignore blocks → propose delete.
 
-## Workflow
+8. This repo specs/ handled same.
+Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form , propose reconcile to current (v3 list).
 
-### Step 1: Resolve Current Templates
+Read references/detection.md etc for details (update in tree).
 
-Resolve the installed plugin root from this skill's own path and load:
+## Ask ( <=3 total )
 
-- `../onboard-project/templates/{product,tech,structure}.md`
-- `../run-retro/templates/retrospective.md`
-- `../write-spec/templates/{requirements,design,tasks,feature.gherkin,issue-scope.json,epic-requirements,epic-design,epic-scope.json,epic-link.json}`
-- the canonical issue form at `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`
+Use ask for choices on each category group or conflicts (rec first, 2-4 opts):
 
-If a source template is unavailable, skip only that category and report the exact missing path.
+e.g. for layout: "Relocate legacy .codex/* ? (recommended yes)"
 
-### Step 2: Detect Legacy Layout
+For splits/renames: approve group or preserve per item.
 
-Read `references/detection.md`. Record exact relocation findings and include them in the findings gate. Do not relocate before approval.
+For epic: explicit per group "Flatten this epic group?"
 
-### Step 3: Analyze Steering and Specs
+Runner cleanup: approve batch or narrow.
 
-For steering documents, compare `##` headings with the matching current template, apply the relevance heuristics and `.codex/upgrade-exclusions.json` rules from `references/upgrade-procedures.md`, and propose missing sections in template order.
+No silent apply.
 
-For ordinary `requirements.md`, `design.md`, and `tasks.md`, detect feature versus defect variants and compare only with the matching template variant. Validate defect `**Related Spec**:` links. Skip generated Gherkin files. Never use generic template reconciliation to turn an epic into an executable package; `specs/epic-*`, legacy cumulative epic packages, and child link/ownership drift belong exclusively to Step 3.8.
+## Plan
 
-Read `references/migration-steps.md` when legacy `{issue#}-{slug}` directories or singular `**Issue**` frontmatter are found. Consolidations and deletions always remain explicit findings.
+Write local://upgrade-{slug or date}-plan.md with:
 
-### Step 3.5: Audit Sealed Umbrella Specs
+- findings per category
 
-Read `../../references/canonical-umbrella-spec.md` and `references/sealed-spec-recovery.md`. Run audit mode from the installed plugin root against the consumer project. Record each exact path as canonical, canonical with history marker lost, stranded but unambiguously recoverable, divergent, ambiguous/unrecoverable, or unverifiable.
+- exact actions / file writes / deletes proposed
 
-This category is independent from template reconciliation, managed assets, release documents, and runner cleanup. Analysis reads only bounded Git tree metadata/content for multi-PR-triggered spec paths and never changes the worktree, index, refs, branches, or GitHub.
+- argv for helper e.g. ["node", "scripts/sdlc-upgrade.mjs", "--project", ".", "--apply", "--categories", "layout,rename,split,frontmatter,cleanup"]
 
-### Step 3.6: Audit Umbrella Identity
+## After Propose
 
-Read `../../references/epic-relationships.md` and `references/epic-identity-recovery.md`. Fetch the current repository's issue graph and classify every issue that has an `epic`, `epic-child-of-N`, native parent/sub-issue, or supported body relationship signal. Page the repository issue connection by `endCursor` until `hasNextPage` is false, then fully page labels and native `subIssues` for every retained issue and expand each native parent record. Parse every supported line-anchored `Depends on:`, `Blocks:`, and Child Issues checklist representation before classification. Record durable, legacy, inconsistent, ambiguous, unverifiable, native-degraded, and checklist-drift findings with exact issue numbers and signals.
+xd://propose the slug + "Upgrade plan for current layout/packaging"
 
-Prove graph completeness before a clean audit result: every requested issue/label/sub-issue page must be consumed and every referenced target must be hydrated. A missing cursor, malformed page, permission denial, rate limit, or other failed request marks the affected records `unverifiable`, marks the overall identity audit incomplete, and prevents both a clean result and any repair proposal derived from the partial graph. Preserve all successfully fetched evidence for reporting; never interpret an omitted page or inaccessible relationship as absence.
+Approved plan execution runs the helper script with the chosen scope (the skill does not call it directly; the plan does).
 
-The audit is read-only. It must not add labels, change parent links, rewrite bodies, close/reopen issues, or infer repair approval. Only deterministic repairs meeting the recovery reference's evidence threshold become proposals; all other findings remain preserved for manual resolution.
+## Generated
 
-### Step 3.7: Audit Deliverable Dependencies
-
-Read `../../references/deliverable-dependencies.md` and `references/deliverable-dependency-recovery.md`. Reuse only complete native-authoritative umbrella identity results from Step 3.6 and canonical parent specs from Step 3.5. Inventory task/artifact ownership across confirmed children, parse exact structured requirement records, normalize whole-issue execution dependencies, and fully page every required owner's `closedByPullRequestsReferences` against the live repository default branch.
-
-Detect bounded legacy candidates only when a child body line contains a confirmed sibling reference plus a task ID or artifact/checkpoint phrase defined by the shared contract. Legacy prose is report-only evidence until task ownership and the user-approved repair make the pair exact. Record valid-ready, valid-blocked, missing-edge, plan-drift, legacy-candidate, ambiguous, and unverifiable findings with the downstream child, owner, task/artifact text, body line, edge state, and merged-delivery evidence.
-
-This audit is read-only. Incomplete pagination, noncanonical specs, degraded sibling authority, ambiguous ownership, or missing target metadata prevents a clean result and prevents a manual repair handoff. Only one exact whole-issue body/graph edit meeting the recovery reference's threshold may be offered. Because GitHub exposes no documented server-enforced issue-body compare-and-set, this skill never executes the full-body write. Baseline extraction is guidance for a separately reviewed issue/spec change, not an automatic mutation.
-
-### Step 3.8: Audit Epic Specification and Lifecycle State
-
-Read `../../references/epic-spec-authority.md` and
-`references/epic-lifecycle-recovery.md`. For every complete native epic group,
-combine exact default/source trees, graph/checklist identity, aggregate/child
-authority, executable ownership, issue state, completion classification, and
-fully readable Project state. Run the deterministic repair planner and record
-`clean`, `repair_proposed`, `preserved_ambiguous`, or `unverifiable` with its
-digest and exact actions.
-
-This step is read-only. It proposes stale-complete closure, premature reopen,
-Project reconciliation, legacy spec split, ownership transfer, and nested repair
-in one per-epic group. Ambiguous ownership is preserved and routed to an explicit
-missing-child drafting/selection decision; it is never assigned heuristically.
-
-### Step 4: Analyze Release Documents
-
-Read `references/verification.md` for `CHANGELOG.md` and `VERSION` analysis. Preserve all manual release notes.
-
-### Step 5: Analyze Managed Repository Assets
-
-After all three steering documents exist or are approved for creation/reconciliation, analyze:
-
-1. `../../references/contribution-guide.md`
-2. `../../references/project-agents.md`
-3. `../../references/contribution-gate.md`
-4. `../../references/issue-form.md`
-
-Managed markers and exact target-path ownership rules remain authoritative. Missing assets and stale managed assets are findings; unmanaged workflow collisions are preserved and reported. Current managed content must explain coordination-only epics, normal child dependency rules, aggregate/child authority, terminal merge/closure, automatic eligible-ancestor closure, and exact approved repair.
-
-### Step 6: Analyze V2 Runner Artifact Cleanup
-
-Read the cleanup section in `references/verification.md`. Candidate discovery is limited to the three exact project-root-relative paths and recognized `.gitignore` blocks listed above. Do not read candidate-file contents.
-
-### Step 7: Present Findings
-
-Show a per-file summary grouped as:
-
-- Legacy Layout Relocation
-- Steering Documents
-- Spec Documents and Directories
-- Related Spec Links and Frontmatter
-- Sealed Umbrella Specs
-- Umbrella Identity
-- Deliverable Dependencies
-- Epic Specification and Lifecycle
-- CHANGELOG and VERSION
-- Contribution Guide
-- Project AGENTS
-- Contribution Gate
-- Issue Form
-- Runner Artifact Cleanup
-
-For Runner Artifact Cleanup, list every exact file and every exact managed ignore entry proposed for deletion. Also list preserved unmanaged matches and read failures. If no cleanup candidates exist, show `Runner Artifact Cleanup: already clean`.
-
-Use `request_user_input` gates:
-
-1. Steering sections: apply all, decline all, or provide a narrowed subset.
-2. Each spec consolidation/deletion group: apply or preserve.
-3. Each `stranded_recoverable` sealed-spec finding: approve that exact path/tree/source identity, preserve it, or narrow and re-present. No other sealed status is recoverable.
-4. Each deterministic umbrella-identity mutation set: approve that exact parent/children/evidence/commands set, preserve it, or narrow and re-present. Ambiguous or unverifiable findings are never offered as executable repairs.
-5. Each deterministic deliverable-dependency manual handoff: approve the exact downstream issue, owner, structured bullet, normalized `Depends on:` line, canonical ownership, labels/states, native relationships, default branch, closing-PR/merge evidence, and body/spec/relationship digests; preserve it; or narrow and re-present. Approval never authorizes an unconditional body overwrite. Baseline extraction, ambiguous ownership, and unverifiable findings are never offered as in-place repairs.
-6. Each epic lifecycle/specification group: apply the exact action/path/field set with its digest, preserve it, or narrow and re-present. One epic approval never covers another; ambiguous/unverifiable groups are not executable.
-7. Other non-cleanup changes: apply all, cancel, or narrow and re-present.
-8. Runner Artifact Cleanup: approve the exact deletion batch, decline it, or provide a narrowed subset and re-present the exact batch.
-
-No mutation occurs until the user has accepted a decision-complete plan.
-
-### Step 8: Apply Approved Changes
-
-Read `references/upgrade-procedures.md` and apply only the accepted findings. Re-read every changed text artifact and re-inspect every deleted path. Persist newly declined steering sections in `.codex/upgrade-exclusions.json` without removing prior decisions.
-
-Route approved sealed-spec findings through `references/sealed-spec-recovery.md`, including its fresh reclassification and exact-source checks.
-
-Route approved umbrella-identity findings through `references/epic-identity-recovery.md`, including exact-evidence re-fetch, drift comparison, narrowly scoped GitHub commands, and post-apply idempotence audit.
-
-Route approved deliverable-dependency findings through `references/deliverable-dependency-recovery.md`, including full snapshot re-fetch, body/spec-digest and relationship drift comparison, exact manual line-edit instructions, post-edit classification after operator confirmation, and second-audit no-op proof. Do not run an issue-body mutation command.
-
-Route each approved epic specification/lifecycle group through
-`references/epic-lifecycle-recovery.md`. Require a fresh identical digest before
-the first write, apply only exact paths/issues/Project fields, and prove a second
-audit produces no duplicate or remaining approved action.
-
-Managed contribution-gate and issue-form reconciliation is independent of cleanup approval. Declining cleanup must not suppress approved asset reconciliation; cleanup approval must not broaden asset ownership.
-
-### Step 9: Report
-
-Emit stable managed-asset status blocks from their shared contracts, followed by:
-
-```text
-Runner Artifact Cleanup:
-- sdlc-config.json: removed | already clean | preserved (unmanaged) | failed (<reason>)
-- .codex/unattended-mode: removed | already clean | preserved (unmanaged) | failed (<reason>)
-- .codex/sdlc-state.json: removed | already clean | preserved (unmanaged) | failed (<reason>)
-- .gitignore managed entries: removed | already clean | preserved (unmanaged) | failed (<reason>)
-- Gaps: none | <comma-separated exact paths and failures>
-```
-
-Then summarize applied, declined, already-current, relevance-filtered, and failed findings. If every category was already current and cleanup was already clean, report `Everything is up to date — no upgrade needed.`
-
-Before the runner block, emit:
-
-```text
-Sealed Umbrella Specs:
-- specs/<slug>/: canonical | canonical (history marker lost) | prepared for publication | preserved (divergent) | preserved (ambiguous) | failed (<reason>)
-- Gaps: none | <comma-separated exact paths and failures>
-```
-
-For a prepared recovery, direct the user to `$nmg-sdlc:write-spec #N` for normal reviewed spec-only publication. Do not claim default-branch publication until that later workflow proves it.
-
-Before the sealed-spec block, emit:
-
-```text
-Deliverable Dependencies:
-- child #C requires #P (<task/artifact>): ready | blocked | manual repair required | already consistent | preserved (baseline extraction) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
-- Execution/body/spec agreement: clean | drift (<exact child/owner pairs>)
-- Gaps: none | <comma-separated exact records and failures>
-```
-
-Before the deliverable-dependencies block, emit:
-
-```text
-Umbrella Identity:
-- parent #N / child #C: durable | legacy | repaired | preserved (inconsistent) | preserved (ambiguous) | preserved (unverifiable) | failed (<reason>)
-- Native/checklist reconciliation: clean | degraded | drift (<exact issue numbers>)
-- Gaps: none | <comma-separated exact records and failures>
-```
-
-Before the umbrella-identity block, emit:
-
-```text
-Epic Specification and Lifecycle:
-- epic #E: clean | repaired | prepared spec split | preserved (ambiguous ownership) | preserved (unverifiable) | failed (<reason>)
-- Issue state: open | closed | reopened | closed automatically | unchanged
-- Project state: Done | In Progress | not applicable | preserved (<reason>)
-- Evidence digest: <sha256> | not available
-- Gaps: none | <exact records and failures>
-```
-
-## Error States
-
-| Condition | Behavior |
-|-----------|----------|
-| Template read failure | Skip that category; report the exact source path |
-| Ambiguous legacy-layout collision | Preserve both trees; ask for user direction |
-| Cleanup candidate is not a regular file | Preserve it as unmanaged; report the exact path |
-| `.gitignore` read failure | Do not edit it; report the read failure |
-| Cleanup deletion/edit failure | Stop that exact operation, preserve all other scope, and report the exact path |
-| Managed workflow path collision | Preserve the unmarked workflow and report a gap |
-| Canonical issue form unavailable | Preserve the target and report a gap |
-| Sealed-spec default refresh or Git read failure | Preserve every candidate; report `unverifiable` with the exact reason code |
-| Approved recovery evidence changed | Stop that exact recovery; preserve the worktree/index and report a stale-finding gap |
-| Default/source spec trees diverge | Preserve default as canonical and never overwrite it |
-| Approved umbrella issue evidence changed | Stop that exact metadata repair before mutation and report the changed labels, body digest, or relationship set |
-| Umbrella repair target is ambiguous or unverifiable | Preserve every record and do not offer executable repair commands |
-| Deliverable audit graph/spec/closing-PR evidence is incomplete | Preserve every finding as unverifiable and do not claim a clean audit |
-| Approved deliverable ownership, body, label/state, relationship, default-branch, or closing-PR evidence changed | Stop that exact manual handoff and report every changed snapshot field |
+Assets use exact v3 invocations list.
 
 ## Integration with SDLC Workflow
 
-This utility runs after plugin updates or from already-initialized onboarding. It does not add a numbered delivery stage. After a successful upgrade, continue with `$nmg-sdlc:draft-issue` or `$nmg-sdlc:start-issue`.
+Utility, run after plugin updates or from onboard.
+
+```
+/plan /skill:upgrade-project  →  (plan + approved helper)  →  /plan /skill:draft-issue
+     ▲ You are here
+```

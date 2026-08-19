@@ -1,9 +1,8 @@
-# Technical Steering Template
+# Tech Stack
 
-Generate this document during `$nmg-sdlc:onboard-project` (Step 2G.2 — steering bootstrap). Pre-fill the tech stack, testing, and coding standards from codebase analysis.
+Generate during onboard bootstrap. Pre-fill from discovery.
 
 ---
-
 ```markdown
 # [Project Name] Technical Steering
 
@@ -22,22 +21,11 @@ All technical decisions should align with these guidelines.
   Microservices
   Serverless functions
 -->
-```
+- Use /plan /skill:draft-issue , /plan /skill:write-spec #N , /skill:execute #N .
+
+No coordination-only epics; all labeled issues are executable with Depends on: .
 
 ---
-
-## nmg-sdlc Lifecycle Authority
-
-- `$nmg-sdlc:start-issue` excludes coordination-only epics in both automatic and explicit selection. Children follow normal dependency/deliverable rules and display epic lineage only as information.
-- The first ready child publishes a three-file epic aggregate plus its separate executable package; later children own separate packages and matching manifest rows.
-- Implementation and verification use only the active child's `issue-scope.json` delivery slice. Aggregate outcomes cannot satisfy executable work.
-- `$nmg-sdlc:open-pr` remains active through review/check remediation, exact-head merge, child closure, and eligible epic-ancestor reconciliation. It never force-pushes.
-- `$nmg-sdlc:upgrade-project` audits legacy epic graph/spec/issue/Project drift without mutation and applies only separately approved, digest-revalidated repairs.
-
----
-
-## Technology Stack
-
 <!-- Pre-fill from package.json, pubspec.yaml, Cargo.toml, go.mod, etc. -->
 
 | Layer | Technology | Version |
@@ -49,17 +37,15 @@ All technical decisions should align with these guidelines.
 ### External Services
 
 | Service | Purpose | Notes |
-|---------|---------|-------|
-| [service] | [purpose] | [rate limits, etc.] |
+address-pr-comments may address review thread only when author matches config. Human threads outside automated fix.
 
-### Automated Review
+---
 
-`$nmg-sdlc:address-pr-comments` may address a review thread only when its author
-matches this configuration. Human-reviewer threads always remain outside the
-automated fix loop.
+<!-- TODO: Fill stack files with version. -->
 
-| Predicate | Value | Meaning |
-|-----------|-------|---------|
+<!-- The open-pr reads this table for version files to update. -->
+
+| File | Path | Notes |
 | `bots` | `true` | Any GitHub author with `__typename: Bot` is eligible. |
 | `logins` | `["coderabbitai"]` | Explicit automated-reviewer logins are eligible in addition to the Bot predicate. |
 
@@ -69,42 +55,32 @@ automated fix loop.
 
 <!-- Pre-fill VERSION from the project root if it exists. -->
 
-The `VERSION` file (plain text semver at project root) is the **single source of truth** for the project's current version. Stack-specific files (e.g., `package.json`, `Cargo.toml`, `pubspec.yaml`) are kept in sync via the mapping table below.
+<!-- TODO: Fill stack files with version field. -->
 
-<!-- TODO: Fill in the stack-specific files that contain a version field. -->
-<!-- The $nmg-sdlc:open-pr skill reads this table to know which files to update when bumping the version. -->
+<!-- The open-pr reads table to know files to update on bump. -->
 
 | File | Path | Notes |
 |------|------|-------|
-| [file] | [path-to-version-field] | [e.g., "npm version field"] |
 
 ### Path Syntax
+<!-- The open-pr skill reads this table to know version files. -->
 
-- **JSON files**: Use dot-notation (e.g., `version` for a root-level key, `packages.mylib.version` for nested)
-- **TOML files**: Use dot-notation matching TOML keys (e.g., `package.version`)
-- **Plain text files**: Use `line:N` for the line number containing the version, or omit Path if the entire file is the version string
-
-### Version Bump Classification
-
-The `$nmg-sdlc:open-pr` skill reads this table to classify version bumps. Modify this table to change the classification rules — no skill changes are needed.
-
-<!-- TODO: Add or modify label→bump mappings to match your project's labeling conventions. -->
-
+| File | Path | Notes |
 | Label | Bump Type | Description |
 |-------|-----------|-------------|
 | `bug` | patch | Bug fix — backwards-compatible |
 | `enhancement` | minor | New feature — backwards-compatible |
+The execute / open-pr reads table to classify bumps.
 
-**Default**: If an issue's labels do not match any row, the bump type is **minor**.
+<!-- TODO: label to bump map -->
 
-**Major bumps require explicit confirmation.** They are never triggered by labels, milestones, or breaking changes. A developer must opt in via `$nmg-sdlc:open-pr #N --major` and approve the major-version gate.
+---
 
-**Breaking changes use minor bumps.** A `### Changed (BREAKING)` sub-section in a CHANGELOG version entry does NOT override the bump type. Communicate the breaking nature via a `**BREAKING CHANGE:**` bold prefix on the affected bullet, and (recommended) add a `### Migration Notes` sub-section to the entry. Example:
+**Major bumps require explicit in approved spec requirements or design line: **Version bump**: major .**
 
-```markdown
-## [1.50.0] - 2026-04-19
+Breaking use minor unless that line present.
 
-### Changed (BREAKING)
+---
 
 - **BREAKING CHANGE:** Renamed `foo()` to `bar()`; update callers accordingly.
 
@@ -197,47 +173,30 @@ Replace any calls to `foo(x)` with `bar(x)` — the signature is otherwise uncha
 | Columns | [convention] | [example] |
 | Primary keys | [convention] | [example] |
 
----
-
-## Testing Standards
-
-### BDD Testing (Required for nmg-sdlc)
-
-**Every acceptance criterion MUST have a Gherkin test.**
-
-<!-- TODO: Fill in your BDD framework details. This is critical for $nmg-sdlc:write-spec and $nmg-sdlc:verify-code. -->
+<!-- TODO: BDD framework. Critical for write-spec and verify-code. -->
 
 | Layer | Framework | Location |
-|-------|-----------|----------|
-| [layer] | [BDD framework] | [path to feature files] |
 
-### Gherkin Feature Files
+---
 
+Declare verification steps that verify-code enforces as hard gates.
+
+<!-- TODO define -->
+
+---
 ```gherkin
 # [path to feature files]
 Feature: Example
   As a [user type]
-  I want [action]
-  So that [benefit]
+| Layer | Framework | Location |
 
-  Scenario: Example scenario
-    Given [precondition]
-    When [action]
-    Then [expected outcome]
-```
+---
 
-### Step Definitions
+Declare verification steps that verify-code enforces.
 
-```
-// [language] step definition pattern
-// Path: [path to step definitions]
+<!-- TODO define gates -->
 
-// Adapt to your BDD framework:
-// - jest-cucumber (JavaScript/TypeScript)
-// - pytest-bdd (Python)
-// - SpecFlow (C#)
-// - godog (Go)
-// - flutter_gherkin (Dart)
+---
 // - Cucumber (Java/Ruby)
 ```
 
@@ -266,17 +225,11 @@ Feature: Example
  \________________/ - Business logic
 ```
 
+Declare verification steps that verify-code enforces as hard gates. Each gate specifies when applies, command, success.
+
+<!-- TODO define gates. -->
+
 ---
-
-## Verification Gates
-
-Declare mandatory verification steps that `$nmg-sdlc:verify-code` enforces as hard gates. Each gate specifies when it applies, what command to run, and how to determine success.
-
-<!-- TODO: Define project-specific verification gates. Remove or replace the example rows below. -->
-
-| Gate | Condition | Action | Pass Criteria |
-|------|-----------|--------|---------------|
-| Unit Tests | Always | `npm test` | Exit code 0 |
 | E2E Tests | `e2e/` directory exists | `npm run test:e2e` | Exit code 0 |
 | Integration Tests | `*.integration.test.*` files exist in `tests/` | `npm run test:integration` | Exit code 0 AND `coverage/lcov.info` file generated |
 

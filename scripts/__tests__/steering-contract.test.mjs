@@ -26,19 +26,22 @@ function frontmatterKeys(source) {
     .map((line) => line.slice(0, line.indexOf(':')));
 }
 
-describe('repo steering contract (issue #142)', () => {
-  test('uses the standalone nmg-sdlc identity and repository', () => {
+describe('repo steering contract (v3)', () => {
+  test('uses the OMP extension identity and package manifest', () => {
     const product = read('steering/product.md');
     const tech = read('steering/tech.md');
     const structure = read('steering/structure.md');
-    const manifest = JSON.parse(read('.codex-plugin/plugin.json'));
+    const manifest = JSON.parse(read('package.json'));
 
     expect(product).toMatch(/^# nmg-sdlc Product Steering$/m);
-    expect(product).toContain('**nmg-sdlc provides a BDD spec-driven development toolkit');
+    expect(product).toContain('Oh My Pi extension and a Herdr workflow');
     expect(tech).toMatch(/^# nmg-sdlc Technical Steering$/m);
     expect(structure).toMatch(/^# nmg-sdlc Code Structure Steering$/m);
-    expect(manifest.repository).toBe('https://github.com/Nunley-Media-Group/nmg-sdlc');
-    expect(structure).toContain(`"repository": "${manifest.repository}"`);
+    expect(manifest.name).toBe('nmg-sdlc');
+    expect(manifest.omp.extensions).toEqual(['./src/extension.ts']);
+    expect(structure).toContain('package.json');
+    expect(structure).toContain('src/extension.ts');
+    expect(structure).not.toContain('.codex-plugin/');
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
@@ -50,7 +53,7 @@ describe('repo steering contract (issue #142)', () => {
     expect(`${tech}\n${structure}`).not.toMatch(/\[(?:convention|example|token)\]/);
   });
 
-  test('documents the active skill and reusable agent prompt contracts', () => {
+  test('documents OMP skills and installable agents', () => {
     const tech = read('steering/tech.md');
     const skillFiles = markdownFiles('skills', 'SKILL.md');
     const agentDirectory = path.join(repoRoot, 'agents');
@@ -59,7 +62,7 @@ describe('repo steering contract (issue #142)', () => {
       .map((name) => path.join(agentDirectory, name));
 
     expect(tech).toContain('SKILL.md frontmatter declares only `name` and `description`');
-    expect(tech).toContain('reusable prompt contracts included in built-in Codex subagent prompts');
+    expect(tech).toContain('installable OMP task agents');
     expect(tech).not.toContain('allowedTools');
     expect(tech).not.toContain('disallowedTools');
     expect(tech).not.toContain('maxTurns');
@@ -69,14 +72,16 @@ describe('repo steering contract (issue #142)', () => {
       expect(frontmatterKeys(fs.readFileSync(filePath, 'utf8'))).toEqual(['name', 'description']);
     }
     for (const filePath of agentFiles) {
-      expect(frontmatterKeys(fs.readFileSync(filePath, 'utf8'))).toEqual(['name', 'description']);
+      const keys = frontmatterKeys(fs.readFileSync(filePath, 'utf8'));
+      expect(keys).toEqual(expect.arrayContaining(['name', 'description']));
+      expect(keys.every((key) => ['name', 'description', 'model', 'autoloadSkills', 'tools'].includes(key))).toBe(true);
     }
   });
 
-  test('preserves intentional external marketplace guidance', () => {
+  test('documents OMP plugin install rather than Codex marketplace add', () => {
     const readme = read('README.md');
 
-    expect(readme).toContain('[nmg-plugins marketplace](https://github.com/Nunley-Media-Group/nmg-plugins)');
-    expect(readme).toContain('codex plugin marketplace add Nunley-Media-Group/nmg-plugins');
+    expect(readme).toContain('omp plugin install');
+    expect(readme).not.toContain('codex plugin marketplace add');
   });
 });

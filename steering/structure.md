@@ -8,51 +8,22 @@ This document defines repository organization, naming conventions, and architect
 
 ```text
 nmg-sdlc/
-├── .codex-plugin/
-│   └── plugin.json               # Codex plugin manifest
+├── package.json                  # OMP plugin manifest (version + omp.extensions)
+├── src/extension.ts              # Extension factory
+├── .claude-plugin/plugin.json    # Minimal catalog manifest → ./skills/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/           # Canonical managed issue form
 │   └── workflows/                # Repository CI
-├── agents/                       # Reusable prompt contracts for optional delegation
+├── agents/                       # OMP task agents
 ├── references/                   # Cross-skill contracts loaded on demand
-│   ├── codex-tooling.md
-│   ├── interactive-gates.md
-│   ├── legacy-layout-gate.md
-│   ├── spec-context.md
-│   ├── epic-relationships.md
-│   ├── epic-spec-authority.md
-│   ├── versioning.md
-│   ├── contribution-gate.md
-│   └── issue-form.md
-├── skills/                       # One directory per public or compatibility skill
-│   ├── onboard-project/
-│   ├── draft-issue/
-│   ├── start-issue/
-│   ├── write-spec/
-│   ├── write-code/
-│   ├── simplify/
-│   ├── verify-code/
-│   ├── open-pr/
-│   ├── address-pr-comments/
-│   ├── status/
-│   ├── upgrade-project/
-│   └── run-retro/
+├── skills/                       # Public skills including execute/
 ├── scripts/                      # Contract validators, exercises, status CLI, and Jest tests
-│   ├── __fixtures__/
-│   ├── __tests__/
-│   ├── sdlc-status.mjs
-│   ├── epic-spec-authority.mjs
-│   ├── epic-lifecycle-repair.mjs
-│   ├── pr-delivery-state.mjs
-│   ├── skill-exercise-runner.mjs
-│   ├── skill-inventory-audit.mjs
-│   └── verify-plugin-surface.mjs
-├── specs/                        # Canonical BDD archive
-├── steering/                     # Product, technical, structure, and retrospective guidance
-├── AGENTS.md                     # Repository instructions for Codex
-├── CHANGELOG.md                  # Versioned changelog with [Unreleased]
-├── README.md                     # Public documentation
-├── VERSION                       # Plugin version source
+├── specs/                        # specs/{N}-{slug}/
+├── steering/
+├── AGENTS.md
+├── CHANGELOG.md
+├── README.md
+├── VERSION
 └── LICENSE
 ```
 
@@ -61,18 +32,19 @@ nmg-sdlc/
 ## Layer Architecture
 
 ```text
-.codex-plugin/plugin.json
-        │ declares plugin identity
+package.json + src/extension.ts
+        │ declares OMP identity and /execute
         ▼
 skills/*/SKILL.md
         │ points on demand
         ├──────────────► references/*.md
         ├──────────────► skills/*/references/*.md
         ├──────────────► skills/*/templates/*
-        └──────────────► agents/*.md (only with user-authorized delegation)
+        └──────────────► agents/*.md (installable OMP agents)
 
 scripts/
         ├── validates active plugin contracts
+        ├── classifies execute / upgrade / status
         ├── runs deterministic exercise fixtures
         └── reports read-only lifecycle status
 ```
@@ -81,13 +53,14 @@ scripts/
 
 | Layer | Does | Does Not Do |
 |-------|------|-------------|
-| Plugin manifest | Declares identity, repository, version, and component paths | Define workflow logic |
+| Plugin manifest | Declares identity, version, and `omp.extensions` | Define workflow logic |
+| Extension factory | Registers `/execute`, prints `/plan` hints, appends run entries | Interview users or spawn Herdr workers |
 | Skill entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more skills | Hold one-skill-only details |
 | Per-skill references | Hold variants, algorithms, and extended examples for one skill | Become public command entrypoints |
 | Templates | Define generated artifact structure | Contain mutable project state |
-| Agent prompts | Define structured optional delegation output | Act as installable custom agents or bypass user authorization |
-| Scripts | Validate, exercise, or inspect contracts deterministically | Own lifecycle decisions that belong in skills |
+| Agents | Define installable OMP worker contracts | Bypass the Herdr isolation boundary for pipeline steps |
+| Scripts | Validate, classify, or inspect contracts deterministically | Own lifecycle decisions that belong in skills |
 | Specs | Record approved requirements/design/tasks and historical behavior | Serve as active plugin loader content |
 | Steering | Define stable product and engineering decisions | Replace feature-specific specs |
 
@@ -101,9 +74,9 @@ scripts/
 |---------|------------|---------|
 | Skill directories | kebab-case | `write-spec/` |
 | Skill support | `references/`, `templates/`, `checklists/`, `scripts/`, `assets/` | `verify-code/checklists/` |
-| Feature specs | `feature-{kebab-case-slug}` | `feature-dark-mode/` |
-| Defect specs | `bug-{kebab-case-slug}` | `bug-login-timeout/` |
-| Epic aggregates | `epic-{kebab-case-slug}` | `epic-offline-navigation/` |
+| Specs | `specs/{N}-{slug}/` | `specs/71-add-dark-mode-toggle/` |
+
+New writes never create `feature-`, `bug-`, or `epic-` prefixes. Variant is the issue label plus heading (`# Requirements:` vs `# Defect Report:`). Legacy prefixed directories are `upgrade-project` inputs only.
 
 ### Files
 
@@ -113,16 +86,16 @@ scripts/
 | Markdown/reference files | kebab-case | `interactive-gates.md` |
 | Scripts | kebab-case `.mjs` or `.sh` | `verify-plugin-surface.mjs` |
 | JSON metadata | kebab-case where file naming is ours | `skill-inventory.baseline.json` |
-| Executable spec artifacts | Fixed names | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`, `issue-scope.json` |
-| Epic aggregate artifacts | Fixed names | `requirements.md`, `design.md`, `epic-scope.json` |
-| Epic child link | Fixed name in child package | `epic-link.json` |
+| Executable spec artifacts | Fixed names | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
+
+`issue-scope.json`, `epic-scope.json`, and `epic-link.json` are not current types. Upgrade may read leftover files as legacy detectors.
 
 ### Commits and Versions
 
 | Element | Convention | Example |
 |---------|------------|---------|
 | Commit subjects | Conventional commits | `feat:`, `fix:`, `docs:`, `chore:` |
-| Version | Semver | `2.0.0` |
+| Version | Semver | `3.0.0` |
 | Pending changelog | `## [Unreleased]` | One active section |
 
 ---
@@ -144,7 +117,7 @@ Read `references/detail.md` when the detailed branch is reached.
 ## Workflow
 
 1. Inspect preconditions.
-2. Present any required user decision.
+2. Interview inside /plan or write a worker handoff.
 3. Apply the approved scope.
 4. Verify postconditions.
 
@@ -155,22 +128,24 @@ Describe upstream and downstream contracts.
 
 Skill frontmatter contains only `name` and `description`. Detailed content belongs in on-demand references so entrypoints remain under 500 lines and context-efficient.
 
-### Agent Prompt Contract
+### Agent File
 
-Agent files use the same two-key frontmatter rule, define one bounded delegated responsibility, and return structured evidence. They are included in built-in Codex subagent prompts only after explicit user authorization.
+Agent files are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `autoloadSkills`, `tools`. Bodies execute a named skill for `#N`, forbid `ask`, write the handoff file, print `NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-<step>.json`, and stop.
 
 ### Plugin Manifest
 
 ```json
 {
   "name": "nmg-sdlc",
-  "version": "2.0.0",
-  "description": "BDD spec-driven development toolkit",
-  "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc"
+  "version": "3.0.0",
+  "omp": {
+    "extensions": ["./src/extension.ts"],
+    "skills": ["./skills"]
+  }
 }
 ```
 
-The example version is illustrative. `VERSION` and the live manifest version must remain synchronized by the delivery workflow.
+The example version is illustrative. `VERSION` and the live `package.json` version must remain synchronized by the delivery workflow.
 
 ---
 
@@ -178,17 +153,15 @@ The example version is illustrative. `VERSION` and the live manifest version mus
 
 ### Skill-Authoring Boundary
 
-Every file under `skills/{skill}/`, every shared `references/*.md`, and every `agents/*.md` prompt contract is skill-bundled. Creation or modification must be driven through `$skill-creator`; there is no direct-edit fallback.
+Every file under `skills/{skill}/`, every shared `references/*.md`, and every `agents/*.md` is skill-bundled. Worker creation or modification must be driven through `/skill:skill-creator`. The v3 landing of this repository edits files directly.
 
 ### Interactive-Gate Boundary
 
-Decision points use `request_user_input` and wait indefinitely for explicit user input. No repository file changes this behavior, and no default is selected because the user has not answered.
+Interactive skills use built-in `ask` inside native `/plan` and finish at `xd://propose`. If write/edit tools are available, they print `Run /plan /skill:<name>` and stop. Automated skills never call `ask`.
 
 ### Spec Context Boundary
 
-Project-root `specs/` is canonical. Load the active spec first, inspect bounded metadata across neighbors, then load only relevant specs. Historical specs remain intact and are excluded from active plugin-surface claims.
-
-Epics are coordination-only and never receive a branch or executable spec. A `specs/epic-*` aggregate contains exactly cross-child outcomes, design/topology, and `epic-scope.json`; it has no `tasks.md`, `feature.gherkin`, or executable ownership. Every child uses a separate normal package whose `epic-link.json` agrees with the aggregate manifest. Lifecycle consumers execute and verify only the active child's `issue-scope.json` slice.
+Project-root `specs/` is canonical. The active spec is `specs/{N}-{slug}/`. Load that directory first, then neighbors named by `**Related Spec**` and bounded metadata only. There are no ownership manifests. Historical specs remain intact and are excluded from active plugin-surface claims.
 
 ### Managed-Artifact Boundary
 
@@ -199,7 +172,7 @@ Epics are coordination-only and never receive a branch or executable spec. A `sp
 
 ### Git and GitHub Boundary
 
-Only the skill that owns a stage performs that mutation. Implementation does not imply delivery, and local test success does not imply GitHub mergeability. Invoking `$nmg-sdlc:open-pr` enters the terminal delivery stage: PR creation is intermediate, and success requires exact-head merge plus executable-issue closure. That stage may explicitly close only eligible, fully revalidated epic ancestors after the child closes. Backlog repair remains a separate, per-epic, explicitly approved `$nmg-sdlc:upgrade-project` mutation.
+Only the skill that owns a stage performs that mutation. Implementation does not imply delivery, and local test success does not imply GitHub mergeability. Invoking `/skill:execute` enters automated delivery: PR creation is intermediate, and success requires exact-head merge plus issue closure. Backlog repair remains a separate, explicitly approved `/plan /skill:upgrade-project` mutation.
 
 ---
 
@@ -219,12 +192,12 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 
 | Extension | Location | Contract |
 |-----------|----------|----------|
-| New public workflow | `skills/{name}/SKILL.md` | Add manifest/inventory/docs/tests and Integration section |
+| New public workflow | `skills/{name}/SKILL.md` | Add inventory/docs/tests and Integration section |
 | Shared rule | `references/{name}.md` | Must have at least two consumers |
 | One-skill detail | `skills/{name}/references/` | Load only at the triggering branch |
 | Generated structure | `skills/{name}/templates/` | Keep placeholders explicit and stack-agnostic |
 | Deterministic validation | `scripts/*.mjs` plus Jest coverage | Stable exit codes and diagnostics |
-| Optional delegation | `agents/*.md` | User-authorized, bounded, structured output |
+| Installable worker | `agents/*.md` | OMP task agent with handoff contract |
 
 ---
 

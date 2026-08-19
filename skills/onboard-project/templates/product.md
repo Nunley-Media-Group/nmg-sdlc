@@ -1,6 +1,6 @@
-# Product Steering Template
+# Project Vision & Personas
 
-Generate this document during `$nmg-sdlc:onboard-project` (Step 2G.2 — steering bootstrap). Pre-fill what you can discover from the codebase, and leave the rest as templates for the user to customize.
+Generate during onboard (steering bootstrap). Pre-fill from codebase discovery, leave rest for customize.
 
 ---
 
@@ -57,57 +57,15 @@ All feature development should align with these guidelines.
 | [principle] | [What this means for product decisions] |
 
 <!-- TODO: Principles guide decision-making when requirements conflict -->
+- Epics removed in v3. All work uses normal dependency graph with Depends on: / Blocks: body lines. Children are ordinary executable issues.
+
+Use /plan /skill:draft-issue for new, /plan /skill:write-spec #N , /skill:execute .
 
 ---
 
-## nmg-sdlc Work Coordination
-
-- Epics are coordination-only and cannot be selected by `$nmg-sdlc:start-issue`.
-- Epic children are executable issues governed by the project's normal dependency graph; confirmed epic lineage is informational.
-- Cross-child outcomes/topology live in a three-file `specs/epic-*` aggregate, while each child owns its acceptance criteria, tasks, Gherkin, and delivery.
-- `$nmg-sdlc:open-pr` is terminal through exact-head merge and issue closure, then closes only fully eligible epic ancestors.
-- Legacy backlog repair is read-only until an exact per-epic proposal is explicitly approved and revalidated for drift.
+<!-- TODO: MoSCOW ... helps write-spec scope -->
 
 ---
-
-## Success Metrics
-
-| Metric | Target | Why It Matters |
-|--------|--------|----------------|
-| [metric] | [target] | [rationale] |
-| [metric] | [target] | [rationale] |
-| [metric] | [target] | [rationale] |
-
----
-
-## Feature Prioritization
-
-### Must Have (MVP)
-- [Core feature 1]
-- [Core feature 2]
-
-### Should Have
-- [Important feature 1]
-- [Important feature 2]
-
-### Could Have
-- [Nice-to-have 1]
-
-### Won't Have (Now)
-- [Explicitly deferred 1]
-
-<!-- TODO: MoSCoW prioritization helps $nmg-sdlc:write-spec scope features correctly -->
-
----
-
-## Key User Journeys
-
-### Journey 1: [Primary User Flow]
-
-```
-1. [Step]
-2. [Step]
-3. [Step]
 ```
 
 ### Journey 2: [Secondary User Flow]

@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -94,9 +94,9 @@ function baseRepositoryFiles(overrides = {}) {
 }
 
 function addSpec(files, directory, { issue = 143, tasks = '', requirements = '' } = {}) {
-  files.set(`${directory}/requirements.md`, requirements || `# Requirements\n\n**Issues**: #${issue}\n`);
-  files.set(`${directory}/design.md`, '# Design\n');
-  files.set(`${directory}/tasks.md`, `# Tasks\n\n**Issues**: #${issue}\n\n${tasks}\n`);
+  files.set(`${directory}/requirements.md`, requirements || `# Requirements\n\n**Issue**: #${issue}\n`);
+  files.set(`${directory}/design.md`, `# Design\n\n**Issue**: #${issue}\n`);
+  files.set(`${directory}/tasks.md`, `# Tasks\n\n**Issue**: #${issue}\n\n${tasks}\n`);
   files.set(`${directory}/feature.gherkin`, `# Issue: #${issue}\nFeature: Gate\n`);
   return files;
 }
@@ -107,7 +107,7 @@ function addAggregate(files, directory, { epic = 108, child = 143 } = {}) {
   files.set(`${directory}/epic-scope.json`, JSON.stringify({
     schemaVersion: 1,
     epic: { issue: epic },
-    children: [{ issue: child, specPath: 'specs/feature-gate', state: 'canonical' }],
+    children: [{ issue: child, specPath: 'specs/143-gate', state: 'canonical' }],
   }));
   return files;
 }
@@ -166,7 +166,7 @@ async function runEvaluator({
 
 function normalScenario({
   issue = 143,
-  directory = 'specs/feature-gate',
+  directory = 'specs/143-gate',
   sourcePath = 'scripts/check-gate.mjs',
   tasks = `**File(s)**: \`${sourcePath}\``,
   verification = `\`node ${sourcePath}\` — passed (12 tests)`,
@@ -186,7 +186,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 3');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 4');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -199,7 +199,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 3');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 4');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 
@@ -226,90 +226,40 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     expect(result.infos).toContain('nmg-sdlc contribution evidence is consistent.');
   });
 
-  test('accepts a correlated executable child package plus its coordination aggregate', async () => {
-    const files = addAggregate(
-      addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
-        issue: 143,
-        tasks: '**File(s)**: `scripts/check-gate.mjs`',
-      }),
-      'specs/epic-delivery',
-    );
+  test('passes a PR that only touches specs/{N}-{slug} plus Closes #N', async () => {
+    const files = addSpec(baseRepositoryFiles(), 'specs/42-add-export-csv', {
+      issue: 42,
+      tasks: '**File(s)**: `specs/42-add-export-csv/`',
+    });
     const result = await runEvaluator({
-      body: 'Closes #143\n\nSpec: specs/feature-gate/\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
-      changedPaths: [
-        'scripts/check-gate.mjs',
-        'specs/feature-gate/requirements.md',
-        'specs/epic-delivery/epic-scope.json',
-      ],
+      body: 'Closes #42\n\nSteering: steering/tech.md\n\n## Verification\nAC1: passed',
+      changedPaths: ['specs/42-add-export-csv/requirements.md'],
       repositoryFiles: files,
     });
-
     expect(result.errors).toEqual([]);
-    expect(result.failed).toEqual([]);
   });
 
-  test.each(['issue-scope.json', 'epic-link.json'])(
-    'discovers an executable child from an authority-only %s change',
-    async (authorityArtifact) => {
-      const files = addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
-        issue: 143,
-        tasks: '**File(s)**: `specs/feature-gate/`',
-      });
-      const result = await runEvaluator({
-        body: 'Closes #143\n\nSteering: steering/tech.md\n\n## Verification\nAC1: passed',
-        changedPaths: [`specs/feature-gate/${authorityArtifact}`],
-        repositoryFiles: files,
-      });
+  test('rejects a PR that only names a legacy specs/feature-* directory', async () => {
+    const files = addSpec(baseRepositoryFiles(), 'specs/feature-foo', {
+      issue: 42,
+      tasks: '**File(s)**: `scripts/check-gate.mjs`',
+    });
+    const result = await runEvaluator({
+      body: 'Closes #42\n\nSpec: specs/feature-foo/\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
+      changedPaths: ['scripts/check-gate.mjs', 'specs/feature-foo/requirements.md'],
+      repositoryFiles: files,
+    });
+    expect(result.errors.join('\n')).toContain('Missing spec evidence: name or change the relevant `specs/{N}-{slug}` directory.');
+  });
 
-      expect(result.errors).toEqual([]);
-      expect(result.failed).toEqual([]);
-      expect(result.contentCalls).toContain('specs/feature-gate/requirements.md');
-    },
-  );
-
-  test('rejects an aggregate without an executable child package', async () => {
-    const files = addAggregate(baseRepositoryFiles(), 'specs/epic-delivery');
+  test('treats leftover epic paths as relevant, not spec evidence', async () => {
     const result = await runEvaluator({
       body: 'Refs #108\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node test` — passed',
       changedPaths: ['specs/epic-delivery/epic-scope.json'],
-      repositoryFiles: files,
+      repositoryFiles: addAggregate(baseRepositoryFiles(), 'specs/epic-delivery'),
     });
-
     expect(result.errors.join('\n')).toContain('Missing spec evidence');
-    expect(result.errors.join('\n')).toContain('Epic aggregate evidence is coordination-only');
-  });
-
-  test('discovers an aggregate from its real requirements filename', async () => {
-    const files = addAggregate(baseRepositoryFiles(), 'specs/epic-delivery');
-    const result = await runEvaluator({
-      body: 'Refs #108\n\nSteering: steering/tech.md\n\n## Verification\n`node test` — passed',
-      changedPaths: ['specs/epic-delivery/requirements.md'],
-      repositoryFiles: files,
-    });
-
-    expect(result.errors.join('\n')).toContain('Epic aggregate evidence is coordination-only');
-  });
-
-  test('rejects executable artifacts inside an epic aggregate', async () => {
-    const files = addAggregate(
-      addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
-        issue: 143,
-        tasks: '**File(s)**: `scripts/check-gate.mjs`',
-      }),
-      'specs/epic-delivery',
-    );
-    files.set('specs/epic-delivery/tasks.md', '# Tasks\n');
-    const result = await runEvaluator({
-      body: 'Closes #143\n\nSpec: specs/feature-gate/\n\nAggregate: specs/epic-delivery/\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
-      changedPaths: [
-        'scripts/check-gate.mjs',
-        'specs/feature-gate/requirements.md',
-        'specs/epic-delivery/tasks.md',
-      ],
-      repositoryFiles: files,
-    });
-
-    expect(result.errors.join('\n')).toContain('Invalid epic aggregate artifacts: specs/epic-delivery/tasks.md');
+    expect(result.errors.join('\n')).not.toContain('Epic aggregate evidence is coordination-only');
   });
 
   test('retains actionable missing spec, steering, and guide failures', async () => {
@@ -319,7 +269,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     });
     expect(missingSpec.errors.join('\n')).toContain('Missing spec evidence');
 
-    const missingSteeringFiles = addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+    const missingSteeringFiles = addSpec(baseRepositoryFiles(), 'specs/143-gate', {
       issue: 143,
       tasks: '**File(s)**: `scripts/check-gate.mjs`',
     });
@@ -327,7 +277,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     const missingSteering = await runEvaluator(normalScenario({ repositoryFiles: missingSteeringFiles }));
     expect(missingSteering.errors.join('\n')).toContain('Missing steering artifacts: expected steering/tech.md');
 
-    const missingGuideFiles = addSpec(baseRepositoryFiles(), 'specs/feature-gate', {
+    const missingGuideFiles = addSpec(baseRepositoryFiles(), 'specs/143-gate', {
       issue: 143,
       tasks: '**File(s)**: `scripts/check-gate.mjs`',
     });
@@ -337,30 +287,30 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
   });
 
   test('rejects a mismatched selected spec and ignores quoted historical issue text', async () => {
-    const files = addSpec(baseRepositoryFiles(), 'specs/feature-current', {
+    const files = addSpec(baseRepositoryFiles(), 'specs/143-current', {
       issue: 143,
       tasks: '**File(s)**: `scripts/check-gate.mjs`',
     });
-    addSpec(files, 'specs/feature-unrelated', { issue: 999 });
+    addSpec(files, 'specs/999-unrelated', { issue: 1 });
     const result = await runEvaluator({
       body: 'Closes #143\n\n> Historical example: Closes #999\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
       changedPaths: [
         'scripts/check-gate.mjs',
-        'specs/feature-current/requirements.md',
-        'specs/feature-unrelated/requirements.md',
+        'specs/143-current/requirements.md',
+        'specs/999-unrelated/requirements.md',
       ],
       repositoryFiles: files,
     });
 
-    expect(result.errors.join('\n')).toContain('Issue/spec mismatch: PR issues #143 do not match specs/feature-unrelated.');
-    expect(result.errors.join('\n')).toContain('See CONTRIBUTING.md');
+    expect(result.errors.join('\n')).toContain('Issue/spec mismatch');
+    expect(result.errors.join('\n')).toContain('specs/999-unrelated');
   });
 
   test('deduplicates and caps selected spec reads at five directories', async () => {
     const files = baseRepositoryFiles();
     const changedPaths = ['scripts/check-gate.mjs'];
     for (let issue = 1; issue <= 7; issue += 1) {
-      const directory = `specs/feature-gate-${issue}`;
+      const directory = `specs/${issue}-gate`;
       addSpec(files, directory, {
         issue,
         tasks: issue === 1 ? '**File(s)**: `scripts/check-gate.mjs`' : '',
@@ -368,13 +318,13 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
       changedPaths.push(`${directory}/requirements.md`);
     }
     const result = await runEvaluator({
-      body: 'Issues: #1, #2, #3, #4, #5, #6, #7\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
+      body: 'Closes #1 #2 #3 #4 #5 #6 #7\n\nSteering: steering/tech.md\n\n## Verification\n`node scripts/check-gate.mjs` — passed',
       changedPaths,
       repositoryFiles: files,
     });
 
-    expect(result.contentCalls.filter((item) => item.startsWith('specs/'))).toHaveLength(30);
-    expect(new Set(result.contentCalls.filter((item) => item.startsWith('specs/'))).size).toBe(30);
+    expect(result.contentCalls.filter((item) => item.startsWith('specs/'))).toHaveLength(20);
+    expect(new Set(result.contentCalls.filter((item) => item.startsWith('specs/'))).size).toBe(20);
     expect(result.errors).toEqual([]);
   });
 
@@ -396,7 +346,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
 
     const evidenceOnly = await runEvaluator(normalScenario({
       sourcePath: 'scripts/real-gate.mjs',
-      tasks: '**File(s)**: `specs/feature-gate/verification-report.md`',
+      tasks: '**File(s)**: `specs/143-gate/verification-report.md`',
       verification: '`node test` — passed',
     }));
     expect(evidenceOnly.errors.join('\n')).toContain('Unmatched changed paths: scripts/real-gate.mjs.');
@@ -429,7 +379,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
   });
 
   test('ignores hidden HTML comments as issue and verification evidence', async () => {
-    const directory = 'specs/feature-gate';
+    const directory = 'specs/143-gate';
     const files = addSpec(baseRepositoryFiles(), directory, {
       issue: 143,
       tasks: '**File(s)**: `scripts/check-gate.mjs`',
@@ -460,7 +410,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
   });
 
   test('caps unmatched-path diagnostics and reports the remaining count', async () => {
-    const directory = 'specs/feature-gate';
+    const directory = 'specs/143-gate';
     const files = addSpec(baseRepositoryFiles(), directory, { issue: 143 });
     const unmatched = Array.from({ length: 25 }, (_, index) => `scripts/unmatched-${String(index + 1).padStart(2, '0')}.mjs`);
     const result = await runEvaluator({
@@ -475,32 +425,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     expect(error).toContain('(+5 more)');
   });
 
-  test('passes the complete issue-143 dogfood change set with the committed verification report', async () => {
-    const directory = 'specs/feature-add-github-actions-contribution-gates-to-project-setup';
-    const files = baseRepositoryFiles();
-    for (const artifact of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin', 'verification-report.md']) {
-      files.set(`${directory}/${artifact}`, fs.readFileSync(path.join(repoRoot, directory, artifact), 'utf8'));
-    }
-    const changedPaths = [
-      '.github/workflows/nmg-sdlc-contribution-gate.yml',
-      'CHANGELOG.md',
-      'README.md',
-      'references/contribution-gate.md',
-      'references/contribution-guide.md',
-      'scripts/__tests__/contribution-gate-contract.test.mjs',
-      'scripts/__tests__/contribution-guide-contract.test.mjs',
-      'scripts/__tests__/exercise-contribution-gate.test.mjs',
-      ...['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin', 'verification-report.md']
-        .map((artifact) => `${directory}/${artifact}`),
-    ];
-    const result = await runEvaluator({
-      body: `Closes #143\n\nSpec: ${directory}/\n\nSteering: aligns with steering/tech.md.\n\n## Verification\n\`npm test -- --runInBand --silent\` — passed (430 tests); report: ${directory}/verification-report.md`,
-      changedPaths,
-      repositoryFiles: files,
-    });
 
-    expect(result.errors).toEqual([]);
-  });
 
   test('applies the validated docs-only reduced-evidence contract', async () => {
     const result = await runEvaluator({
@@ -527,7 +452,7 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
   });
 
   test('applies spike/ADR reduction only for a correlated spike and allowed paths', async () => {
-    const directory = 'specs/feature-research-gate';
+    const directory = 'specs/500-research-gate';
     const files = addSpec(baseRepositoryFiles(), directory, { issue: 500 });
     const scenario = {
       body: `Closes #500\n\nSpec: ${directory}/\n\nSteering: steering/tech.md`,

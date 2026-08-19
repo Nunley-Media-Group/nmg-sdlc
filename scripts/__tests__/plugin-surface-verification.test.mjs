@@ -25,13 +25,18 @@ function writeJson(relativeRoot, relativePath, value) {
   return write(relativeRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function scaffoldSurface(root = makeTemporaryRoot(), manifestSkills = './skills/') {
+function scaffoldSurface(root = makeTemporaryRoot(), manifestSkills = './skills') {
   fs.mkdirSync(root, { recursive: true });
-  writeJson(root, '.codex-plugin/plugin.json', {
+  writeJson(root, 'package.json', {
     name: 'nmg-sdlc',
     version: '9.9.9',
-    skills: manifestSkills,
+    omp: {
+      extensions: ['./src/extension.ts'],
+      skills: [manifestSkills],
+    },
   });
+  write(root, 'VERSION', '9.9.9\n');
+  write(root, 'src/extension.ts', 'export default function nmgSdlc() {}\n');
   write(root, 'skills/open-pr/SKILL.md', [
     '---',
     'name: open-pr',
@@ -72,7 +77,7 @@ afterEach(() => {
 
 describe('plugin surface verification (issues #148 and #151)', () => {
   it('maps exactly ten valid Gherkin scenarios one-to-one to AC1 through AC10', () => {
-    const specRoot = path.join(repoRoot, 'specs', 'feature-remove-the-automated-sdlc-loop-and-unattended-mode');
+    const specRoot = path.join(repoRoot, 'specs', '151-remove-the-automated-sdlc-loop-and-unattended-mode');
     const requirements = fs.readFileSync(path.join(specRoot, 'requirements.md'), 'utf8');
     const gherkin = fs.readFileSync(path.join(specRoot, 'feature.gherkin'), 'utf8');
     const acceptanceCriteria = [...requirements.matchAll(/^### (AC\d+): (.+)$/gm)]
@@ -125,7 +130,10 @@ describe('plugin surface verification (issues #148 and #151)', () => {
 
   it('accepts a staged release copied from the manifest-declared plugin tree', () => {
     const stagedRoot = makeTemporaryRoot('nmg-sdlc-staged-release-');
-    fs.cpSync(path.join(repoRoot, '.codex-plugin'), path.join(stagedRoot, '.codex-plugin'), { recursive: true });
+    fs.cpSync(path.join(repoRoot, 'package.json'), path.join(stagedRoot, 'package.json'));
+    fs.cpSync(path.join(repoRoot, 'VERSION'), path.join(stagedRoot, 'VERSION'));
+    fs.cpSync(path.join(repoRoot, 'src'), path.join(stagedRoot, 'src'), { recursive: true });
+    fs.cpSync(path.join(repoRoot, '.claude-plugin'), path.join(stagedRoot, '.claude-plugin'), { recursive: true });
     fs.cpSync(path.join(repoRoot, 'skills'), path.join(stagedRoot, 'skills'), { recursive: true });
     writeJson(stagedRoot, 'scripts/skill-inventory.baseline.json', {
       generated_at: 'staged-release',
@@ -399,7 +407,7 @@ describe('plugin surface verification (issues #148 and #151)', () => {
       name: 'malformed manifest',
       prepare() {
         const root = makeTemporaryRoot();
-        write(root, '.codex-plugin/plugin.json', '{not-json}\n');
+        write(root, 'package.json', '{not-json}\n');
         return root;
       },
       expected: 'plugin manifest is malformed JSON',

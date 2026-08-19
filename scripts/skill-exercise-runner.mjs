@@ -560,7 +560,7 @@ function evaluateStatusArtifact(artifact) {
         && specified.branch === '145-add-lifecycle-status-command-for-active-sdlc-work'
         && specified.completedArtifacts?.includes('spec package')
         && specified.missingArtifacts?.includes('implementation')
-        && specified.nextAction === '$nmg-sdlc:write-code #145'
+        && specified.nextAction === '/skill:execute #145'
         ? 'pass' : 'fail',
       'specified stage, issue/branch, artifacts, and write-code action captured',
     ),
@@ -568,7 +568,7 @@ function evaluateStatusArtifact(artifact) {
       'S3',
       conflict.stage === 'specified'
         && conflict.gaps?.some((gap) => /verification conflicts/i.test(gap))
-        && conflict.nextAction === '$nmg-sdlc:write-code #145'
+        && conflict.nextAction === '/skill:execute #145'
         ? 'pass' : 'fail',
       'conflicting verification stops at specified with a named gap',
     ),
@@ -577,7 +577,7 @@ function evaluateStatusArtifact(artifact) {
       unavailable.stage === 'blocked'
         && unavailable.issue === 145
         && unavailable.gaps?.some((gap) => /GitHub.*unavailable/i.test(gap))
-        && unavailable.nextAction === '$nmg-sdlc:status'
+        && unavailable.nextAction === '/skill:status'
         && unavailable.manualRepairRequired === true
         ? 'pass' : 'fail',
       'active-issue delivery evidence remains blocked with a named GitHub gap and status recovery action',
@@ -586,7 +586,7 @@ function evaluateStatusArtifact(artifact) {
       'S5',
       observational.prompted === false
         && observational.nextActionExecuted === false
-        && observational.nextAction === '$nmg-sdlc:write-code #145'
+        && observational.nextAction === '/skill:execute #145'
         ? 'pass' : 'fail',
       'status reports but does not prompt or execute the next action',
     ),

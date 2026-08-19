@@ -2,77 +2,71 @@
 
 ## Project Context
 
-`nmg-sdlc` is a Codex plugin that turns executable GitHub issues into BDD specs, implementation work, simplification, verification, and terminal pull-request delivery. Contributors should keep changes stack-agnostic, OS-agnostic, and aligned with the issue -> spec -> code -> simplify -> verify -> exact-head merge -> issue closure workflow described in `README.md`.
+`nmg-sdlc` is an Oh My Pi extension that turns executable GitHub issues into BDD specs, implementation work, simplification, verification, and terminal pull-request delivery via Herdr automated workers. Contributors should keep changes stack-agnostic, OS-agnostic, and aligned with the issue -> spec (via `/plan`) -> automated delivery (via `/skill:execute`) -> exact-head merge -> issue closure workflow described in `README.md`.
 
 Before drafting issues, writing specs, or changing implementation files, review:
 
 - `steering/product.md` for the plugin mission, target users, product principles, and success metrics.
-- `steering/tech.md` for Codex plugin architecture, versioning, compatibility, security, verification, and resource-authoring rules.
+- `steering/tech.md` for OMP extension architecture, versioning, compatibility, security, verification, and resource-authoring rules.
 - `steering/structure.md` for repository layout, naming conventions, layer responsibilities, and anti-patterns.
 
 Existing source files, closed issue specs, and retrospective learnings are project context. Preserve that history when enhancing existing behavior.
 
 ## Issue and Spec Workflow
 
-Start work from a clear GitHub issue with acceptance criteria. Feature and bug work should flow through nmg-sdlc specs under `specs/`:
+Start work from a clear GitHub issue with acceptance criteria. Feature, bug, and spike work should flow through nmg-sdlc specs under `specs/`:
 
-- Use `$nmg-sdlc:draft-issue` for new issue discovery and acceptance-criteria drafting.
-- Use `$nmg-sdlc:start-issue` to create the linked feature branch and move an executable issue into progress.
-- Use `$nmg-sdlc:write-spec` to create or amend `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`.
+- Use `/plan /skill:draft-issue [need]` for new issue discovery and acceptance-criteria drafting.
+- Use `/plan /skill:write-spec #N` to create or amend the executable spec under `specs/{N}-{slug}/` (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` for features/bugs; ADR for spikes).
 - Keep specs committed with their feature branches instead of leaving them as untracked local files.
 
-Feature specs use `specs/feature-{slug}/`. Bug specs use `specs/bug-{slug}/`. Legacy spec naming is tolerated only as upgrade input.
+Specs use `specs/{N}-{slug}/` (N = issue number, slug derived from title). Legacy `feature-*` / `bug-*` naming is tolerated only as upgrade input via `/plan /skill:upgrade-project`.
 
-Epics are coordination-only. They are never selectable by `$nmg-sdlc:start-issue`, never receive a branch or executable tasks/Gherkin, and never enter implementation, verification, or pull-request delivery. Their children remain ordinary executable issues: confirmed epic membership is informational lineage, while sibling and external prerequisites follow the normal dependency and deliverable graph rules.
-
-The first ready child creates a three-file `specs/epic-{slug}/` aggregate (`requirements.md`, `design.md`, and `epic-scope.json`) plus its own normal five-file package and `epic-link.json`. Later children own separate packages and matching aggregate manifest rows. Cross-child outcomes and topology belong to the aggregate; every executable AC, FR, task, and scenario belongs to exactly one child. Do not append child tasks or Gherkin to an aggregate or use aggregate outcomes as implementation/verification evidence.
+There is no epic type. Sequencing and coordination use ordinary `Depends on:` / `Blocks:` lines between issues. One issue owns exactly one spec directory with singular `**Issue**: #N` frontmatter.
 
 ## Steering Expectations
 
 Steering docs are part of the contract for this project:
 
-- Product changes should support a structured, issue-driven SDLC in which epics coordinate and child issues execute.
-- Technical changes must preserve cross-platform behavior, use Node.js ESM conventions for scripts, avoid hardcoded platform separators, and respect the `VERSION` plus `.codex-plugin/plugin.json` versioning flow.
-- Skill-bundled file changes must follow the `skill-creator` requirement in `steering/tech.md`.
+- Product changes should support a structured, issue-driven SDLC using native `/plan` for interactive stages and Herdr `omp` workers for automated delivery.
+- Technical changes must preserve cross-platform behavior, use Node.js ESM conventions for scripts, avoid hardcoded platform separators, and respect the `VERSION` + `package.json` versioning flow.
+- Skill-bundled file changes must follow the `skill-creator` requirement in `steering/tech.md` when the skill is present.
 - Structure changes should keep reusable rules in `references/`, skill-specific branches under `skills/{skill}/references/`, templates under each owning skill, and runner behavior in `scripts/`.
 
 When steering and a proposed implementation conflict, update the issue or spec before changing code.
 
 ## Implementation and Verification
 
-Implement from the approved spec and keep edits scoped to the issue. Run `$nmg-sdlc:simplify` before final verification when behavior-preserving cleanup is available.
+Implement from the approved spec and keep edits scoped to the issue. Run simplification before final verification when behavior-preserving cleanup is available.
 
 Verification should cover the behavior promised by the spec:
 
 - Run relevant script tests and audits from `scripts/`.
 - Exercise changed skills when the behavior depends on prompt workflows, not just static text.
-- Verify generated or managed artifacts such as `README.md`, `CONTRIBUTING.md`, steering templates, issue forms, contribution workflows, `CHANGELOG.md`, `VERSION`, and plugin manifest metadata stay in sync.
-- Use `$nmg-sdlc:verify-code` before `$nmg-sdlc:open-pr`.
+- Verify generated or managed artifacts such as `README.md`, `CONTRIBUTING.md`, steering templates, issue forms, contribution workflows, `CHANGELOG.md`, `VERSION`, `package.json`, and extension metadata stay in sync.
+- Use verification evidence before delivery.
 
-Pull requests should reference the executable issue and child spec, include a practical test plan, and close only that issue. `$nmg-sdlc:open-pr` owns monitoring, review/CI remediation, exact-head merge, issue-closure proof, and eligible epic-ancestor reconciliation. Opening a PR is progress, not successful delivery. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
+Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. Delivery continues through exact-head merge and issue closure. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
 
-Legacy backlog correction belongs to `$nmg-sdlc:upgrade-project`. Its audit is read-only and groups graph, aggregate/child specs, ownership, issue state, and Project state per epic. Every mutation group requires exact approval and a fresh matching digest; repairs may close a stale-complete epic or reopen a prematurely closed one. Ambiguous ownership is preserved for an explicit child/ownership decision, and a successful repair must rehydrate its targets and produce a no-op second audit.
+Legacy backlog correction and layout modernization belong to `/plan /skill:upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
 
 ## nmg-sdlc Contribution Workflow
 
 Before requesting review, confirm the pull request is ready for the managed nmg-sdlc contribution gate:
 
-- Link the GitHub issue in the PR body or spec frontmatter, using `Closes #N`, `Fixes #N`, or `**Issues**: #N`.
-- Link or update the relevant `specs/feature-*` or `specs/bug-*` artifacts, including `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` when generated.
-- For an epic child, link its `epic-link.json` and the matching `specs/epic-*/epic-scope.json` manifest row; never use the aggregate as the executable spec.
+- Link the GitHub issue in the PR body or spec frontmatter, using `Closes #N`, `Fixes #N`, or `**Issue**: #N`.
+- Link or update the relevant `specs/{N}-{slug}/` artifacts, including `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` (or the matching ADR) when generated.
 - Explain steering alignment against `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.
-- Summarize verification evidence from tests, exercise runs, `$nmg-sdlc:verify-code`, or a committed `verification-report.md`.
+- Summarize verification evidence from tests, exercise runs, verification results, or a committed `verification-report.md`.
 - Include reviewer context for known gaps, intentionally deferred work, or follow-up issues.
 
 If the contribution gate fails, fix the missing evidence category instead of bypassing the workflow. Missing issue, spec, steering, verification, or guide evidence should be remediated in the PR body or committed artifacts before re-running the gate.
 
-For epic-child changes, an aggregate without a correlated child package is incomplete evidence. A package containing executable epic tasks/Gherkin, conflicting link/manifest ownership, closing text aimed at an epic, or a delivery summary that stops at PR creation must be repaired before review.
-
 ### Evidence Consistency
 
-The version-3 contribution gate evaluates a connected evidence graph rather than accepting unrelated keywords:
+The contribution gate evaluates a connected evidence graph rather than accepting unrelated keywords:
 
-- **Issue/spec identity**: reference the current issue explicitly, such as `Closes #143`, and ensure every selected spec directory names that same issue in `**Issues**: #143` or its current body. Quoted examples, HTML comments, historical sections, and unrelated specs do not correlate.
+- **Issue/spec identity**: reference the current issue explicitly, such as `Closes #143`, and ensure the selected spec directory names that same issue in singular `**Issue**: #143` or its current body. Quoted examples, HTML comments, historical sections, and unrelated specs do not correlate.
 - **Exact path evidence**: name an affected path exactly when a task or verification entry covers one file, such as `scripts/check-gate.mjs`.
 - **Directory-prefix evidence**: use an explicit directory ending in `/`, such as `scripts/__tests__/`, when the evidence covers that directory. A basename alone is insufficient.
 - **Path-specific behavior evidence**: use a structured entry such as `Behavior for scripts/check-gate.mjs: rejects mismatched issue/spec sets` when behavior is more useful than a file-operation description.

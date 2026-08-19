@@ -1,3 +1,4 @@
 node_modules/
 scripts/node_modules/
 .pi-glla/
+.omp/sdlc/

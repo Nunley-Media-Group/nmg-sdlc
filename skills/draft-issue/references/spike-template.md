@@ -33,26 +33,24 @@ Rationale: a spike without a time-box drifts. The researcher must commit to a sc
 
 ## Expected Output Shape
 
-After Phase 0 research completes, the Human Review Gate (HRG) chooses one:
-
-- [ ] **ADR only (single-PR)** — findings appended to the spike issue as a comment; ADR shipped in the same PR as the gap-analysis file.
-- [ ] **ADR + umbrella + child implementation issues** — umbrella issue created; child issues capture each independent implementation component.
-- [ ] **ADR + re-drafted spike scope** — spike issue body edited with refined scope; `$nmg-sdlc:write-spec` re-runs to revisit the research with narrower questions.
+The research produces a gap-analysis ADR under docs/decisions/ (YYYY-MM-DD-slug.md) plus recommendation. The ADR is the primary artifact.
 
 ## Honest-Gap Protocol
 
 The researcher MUST explicitly enumerate what was NOT determined — silent gaps are failure.
 
-If a candidate cannot be evaluated within the time-box, list it under "Honest Gaps" in the research output and propose a follow-up spike. A partial answer with an honest gap acknowledgement is more valuable than silence.
+If a candidate cannot be evaluated within the time-box, list it under "Honest Gaps".
 
 ## Out of Scope
 
 {What this spike will NOT attempt. Be explicit — prevents the researcher from over-scoping the research and ensures the time-box is achievable.}
 ```
 
-## Authoring Guidance
+## Authoring Guidance (v3)
 
-- **Title**: start with "Spike:" or "Evaluate:" or "Investigate:" — makes the issue type obvious at a glance (e.g., "Spike: evaluate OAuth vs session-cookie auth for the API gateway").
-- **No acceptance criteria**: spike issues do not have ACs. The deliverable is the ADR and scope-shape decision, not a working feature. `$nmg-sdlc:verify-code` and `$nmg-sdlc:write-code` abort on spike-labelled issues.
-- **Time-box is required**: a spike without a time-box becomes scope creep. The researcher stops when the time-box is reached and reports what was found, including honest gaps.
-- **Candidate Set at draft time**: filling in known candidates accelerates the researcher and focuses research. Leave as a placeholder if the candidates are entirely unknown — the researcher will enumerate them during Phase 0.
+- Title starts with "Spike: Evaluate..." or "Investigate...".
+- No ACs (ADR is the deliverable; see write-spec spike path for ADR creation).
+- Time-box required to bound research.
+- Candidate set accelerates; honest gaps must be listed.
+
+For multi-issue the caller appends Depends on:/Blocks: lines using topo plan data before the plan file is written.

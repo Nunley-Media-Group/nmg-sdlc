@@ -1,77 +1,66 @@
 ---
 name: address-pr-comments
-description: "Close the automated PR review loop locally: read unresolved threads on an open PR, classify each as clear-fix / ambiguous / disagreement, apply fixes via $nmg-sdlc:write-code + $nmg-sdlc:verify-code, reply and resolve successful threads, push normally, and loop until review-clean. Use when the user explicitly asks to address PR comments or when $nmg-sdlc:open-pr invokes this contract during terminal delivery. Do NOT use for PR creation, CI-only failures, merge, issue/epic closure, or human-reviewer comments; those remain owned by $nmg-sdlc:open-pr or the human reviewer. Focused utility, not a post-delivery pipeline stage."
+description: "Address bot PR review threads on open PR from automated delivery. Clear bot findings: apply fix via edit + verify inline, reply+resolve. Ambiguous or human threads: failed handoff with intervention. No user questions. Invoked from open-pr terminal loop or execute."
 ---
 
 # Address PR Comments
 
-Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+Focused bot-only automated review closer. Called in same session by open-pr.
 
-Read `../../references/interactive-gates.md` when the workflow reaches any user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
+## Preconditions
 
-Read the automated reviewer's unresolved threads on the current branch's pull request, fix each `clear-fix` thread via `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code` (with a postcondition gate before replying and resolving), push without force, poll for the reviewer to re-run, and loop until the PR is review-clean or a configured round cap is reached.
+- Open PR for the branch (from open-pr)
+- Working tree clean
+- N or current branch identifies the issue
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before Step 1 if legacy `.codex/steering/` or `.codex/specs/` trees are still present. Running this skill against a mixed layout would drive `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` against the wrong paths.
+## Fetch Unresolved Threads
 
-Read `../../references/feature-naming.md` when you need the spec directory for the issue and no `{feature-name}` is in hand — the reference covers the `feature-{slug}` / `bug-{slug}` convention and the `**Issues**` frontmatter fallback chain.
+Use gh api graphql for reviewThreads on the PR (first 100, comments).
 
-## Prerequisites
+Filter to unresolved.
 
-1. An open GitHub PR exists for the current feature branch (created by `$nmg-sdlc:open-pr`).
-2. The automated reviewer (per `steering/tech.md` → Automated Review) has posted — or will post — review threads on the PR.
-3. `$nmg-sdlc:write-code` and `$nmg-sdlc:verify-code` skills are available in the current session.
-4. Working tree is clean (no staged or unstaged changes).
+Apply automated reviewer identity from steering/tech.md (bots: true, logins: ["coderabbitai"] plus __typename Bot).
 
----
+If no unresolved bot threads: short-circuit success (no-op for this round).
 
-## Workflow
+## Classify (bots only)
 
-### Step 1: Resolve PR and Validate Preconditions
+For each unresolved bot thread:
+- clear-fix: the comment describes an obvious, local, safe, behavior-preserving change with file:line context.
+- Otherwise (ambiguous instruction, disagreement, needs design, human-like): treat as non-clear.
 
-Determine the target PR and confirm the workspace is ready. Failing any predicate here means the rest of the workflow cannot run safely, so exit non-zero with a single-line diagnostic naming the failed predicate — do not attempt recovery.
+## Route
 
-1. **Resolve the PR number.**
-   - If `#N` is passed as an argument, treat it as the PR number.
-   - Otherwise, run `gh pr view --json number,state,headRefName,headRepositoryOwner` to derive the PR from the current branch. If no PR is associated with the branch, exit non-zero: `No pull request associated with the current branch — run $nmg-sdlc:open-pr first.`
-2. **Parse `--max-rounds=N`** from the arguments (default `10`). Reject values `< 1`.
-3. **Confirm PR is open.** If `state != "OPEN"` exit non-zero: `PR #{N} is not open (state: {state}) — cannot address review comments on a closed PR.`
-4. **Confirm the current branch matches the PR head ref.** If `git branch --show-current` differs from the PR's `headRefName`, exit non-zero: `Current branch does not match PR #N's head ref ({headRefName}) — check out the PR branch and re-run.` This check is a cross-PR safety guard — it prevents this skill from ever writing against a PR the user is not on.
-5. **Confirm the working tree is clean.** Run `git status --porcelain`; any non-empty output means unstaged or staged changes are present. Exit non-zero: `Working tree is not clean — commit or stash local changes before running $nmg-sdlc:address-pr-comments.`
+- clear-fix: 
+  - read the hunk/file
+  - use edit (or /skill:skill-creator if the path is skill-bundled) to apply the minimal fix
+  - run relevant verify (inline) or tests
+  - if now clean, gh api to reply to thread and resolveReviewThread mutation
+  - commit with "fix: address review ... (#N)"
+  - push (no force)
+- any non-clear bot or any human thread present: write failed handoff
+  reasonCode: "human_review" or "ambiguous_thread"
+  intervention: true
+  step: "deliver"
+  Stop. Do not resolve or merge.
 
-### Step 2: Fetch Unresolved Review Threads
+Loop bounded rounds (default 10) with push + short poll for re-review between.
 
-Read `references/fetch-threads.md` when preconditions pass — the reference covers the full `gh api graphql` query shape for `reviewThreads(first:100)` with `comments(first:50)`, the automated-reviewer identity filter driven by `steering/tech.md` → Automated Review, the distinct short-circuit exits for "reviewer ran but nothing unresolved" vs "reviewer never ran", the > 100 threads fallback, and the security rule that review bodies are passed to subsequent commands via `-f body=<value>` only (never string-interpolated).
+## Handoff from this utility (when called standalone)
 
-If any of the short-circuit conditions in `fetch-threads.md` fire, this skill exits from Step 2 directly. Otherwise, proceed to Step 3 with the filtered unresolved-thread set.
+On clean bots or after fixes: passed, but typically returns control to open-pr which does the merge proof.
 
-### Step 3: Classify Each Thread
+When invoked from open-pr for bots, no separate handoff unless top level fail.
 
-Read `references/classification.md` when Step 2 has returned one or more unresolved threads — the reference covers the three classifications (`clear-fix`, `ambiguous`, `disagreement`), the per-class criteria, the one-sentence rationale format that carries through to reply bodies and user decisions, and worked examples for each class.
+If this skill is top-level and finishes clean, handoff passed step deliver? But contract routes through open-pr.
 
-Each thread carries its classification and rationale into Step 4.
+For direct: produce appropriate handoff.
 
-### Step 4: Route Each Thread — Fix or Escalate
-
-For each unresolved thread in the current round, route based on classification:
-
-- **`clear-fix`** → Read `references/fix-loop.md` when a thread is classified as `clear-fix` — the reference covers the in-session invocation of `$nmg-sdlc:write-code` + `$nmg-sdlc:verify-code` with synthetic task context (thread body, file, line, diff hunk), the postcondition gate (commit SHA changed, fix commit touches the referenced file, `$nmg-sdlc:verify-code` reports no regressions), the reply-and-resolve path via `gh api` REST + GraphQL `resolveReviewThread` mutation, and the commit-message convention (`fix: address review finding on {file}:{line}`).
-- **`ambiguous`** or **`disagreement`** → Read `references/escalation.md` when a thread is classified as `ambiguous` or `disagreement` — the reference covers the `request_user_input` gate menu (`Fix it anyway` / `Skip — leave unresolved` / `Reply without fixing`). Skipped threads join the in-process skipped-set so the round loop in Step 5 will not re-evaluate them.
-
-Track `commits_this_round` as Step 4 iterates.
-
-### Step 5: Push, Poll, and Loop
-
-Read `references/polling.md` when Step 4 has finished processing every thread in the current round — the reference covers the no-force `git push` (and the non-fast-forward rejection exit), the polling constants mirrored from `skills/open-pr/references/ci-monitoring.md` (30 s interval, 30 min timeout, 60 polls max), and the round-cap and re-review-timeout exits.
-
-When the loop determines another round is warranted, increment the round counter and return to Step 3 with the re-fetched thread set. Otherwise, emit the terminal exit message defined in `references/polling.md` for the reached termination state and return.
-
----
+Always end by writing handoff when it owns the step.
 
 ## Integration with SDLC Workflow
 
 ```
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
-                                                                                                                                  ▲ You are here
+/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+                                                                                       ▲ address bots inline inside deliver
 ```
-
-`$nmg-sdlc:address-pr-comments` is a focused utility over one open PR. A review-clean result proves only the automated-thread condition; it does not prove CI success, mergeability, merge, child closure, or epic closure. When invoked standalone, the next owning command remains `$nmg-sdlc:open-pr #N`, which rehydrates the exact head and completes terminal delivery. When invoked from `open-pr`, control returns to that same delivery loop.
