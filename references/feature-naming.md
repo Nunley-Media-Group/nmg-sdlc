@@ -25,7 +25,7 @@ New writes never create `feature-`, `bug-`, or `epic-` prefixes. Variant is the 
 
 ## Branch names
 
-Branch name remains `{N}-{slug}` via `gh issue develop N --checkout --name N-slug`.
+Branch name remains `{N}-{slug}` via `gh issue develop N --checkout --name N-slug --base <defaultBranch>`.
 
 ## Discovery for a given issue
 

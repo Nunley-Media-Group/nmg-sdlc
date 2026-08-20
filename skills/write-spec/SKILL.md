@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: "Create BDD specifications for an executable GitHub issue. Use when /sdlc-write-spec #N. After approval, publishes specs/{N}-{slug}/ on branch {N}-{slug}, commits, pushes, then asks to continue or finish."
+description: "Create BDD specifications for an executable GitHub issue. Use when /sdlc-write-spec #N. After approval, publishes specs/{N}-{slug}/ from the default branch, commits, pushes, squash-merges a docs-only spec PR, then asks to continue or finish."
 ---
 
 # Write Spec
@@ -104,7 +104,7 @@ Content includes:
 
 - frontmatter rules: singular **Issue**, Status Approved on approval
 
-- helper commands and continue-loop rules (prepare, write Approved package, commit-push, then ask Continue/Finished)
+- helper commands and continue-loop rules (prepare, write Approved package, commit-push, merge spec PR into the default branch, then ask Continue/Finished)
 
 Only the first spec in a session uses `xd://propose`. Continuation never calls `xd://propose`.
 
@@ -118,9 +118,11 @@ Exact order after first propose approval:
 
 3. `node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
 
-4. Append `N` to in-memory `published[]`.
+4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Opens a docs-only PR into the repository default branch and squash-merges it. PR title is `docs: approve spec for #N`. PR body must not use `Closes #N` or any other closing keyword. Failure → stop; leave the spec branch and files. After success the helper is on the default branch with the merged spec.
 
-5. Continue loop. Do not print execute yet.
+5. Append `N` to in-memory `published[]`.
+
+6. Continue loop. Do not print execute yet.
 
 If this was an existing undelivered package: append row to ## Change History : | #N | today | Spec revised before delivery |
 
@@ -143,7 +145,7 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-Stay on the last spec branch. Stop.
+Stay on the repository default branch (the spec is already merged). Stop.
 
 Continue / candidate / Other `#M`:
 
@@ -153,7 +155,7 @@ Continue / candidate / Other `#M`:
 
 - Closed/merged and approved → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
 
-- Else: `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep last spec branch; do not guess `main`). Then Discovery → Classification → Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → append `M` → loop. No second `xd://propose`.
+- Else: `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`). Then Discovery → Classification → Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
 
 ## Finish (first spec only)
 

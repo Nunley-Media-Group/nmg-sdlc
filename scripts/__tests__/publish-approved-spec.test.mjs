@@ -42,16 +42,26 @@ function makeRepo() {
   const bin = makeRoot();
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh
+printf '%s\\n' "$*" >> .gh-log
 if [ "$1" = "issue" ] && [ "$2" = "develop" ]; then
   name=""
+  base=""
   while [ $# -gt 0 ]; do
     if [ "$1" = "--name" ]; then
       name="$2"
       shift 2
       continue
     fi
+    if [ "$1" = "--base" ]; then
+      base="$2"
+      shift 2
+      continue
+    fi
     shift
   done
+  if [ -z "$base" ]; then
+    exit 1
+  fi
   git checkout -b "$name"
   exit $?
 fi
@@ -59,11 +69,31 @@ if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
   printf '%s\\n' main
   exit 0
 fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '%s\\n' '[]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+  printf '%s\\n' 'https://github.com/example/repo/pull/99'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  echo "$*" | grep -q -- '--squash' || exit 1
+  branch=$(git branch --show-current)
+  git checkout main
+  git merge --squash "$branch"
+  git commit -m "docs: approve spec squash"
+  git push origin main
+  git checkout "$branch"
+  exit 0
+fi
 exit 1
 `);
   fs.chmodSync(path.join(bin, 'gh'), 0o755);
   execFileSync('git', ['init', '--bare'], { cwd: remote, encoding: 'utf8' });
   git(root, ['init', '-b', 'main']);
+  git(root, ['config', 'user.name', 'Test']);
+  git(root, ['config', 'user.email', 'test@example.com']);
   fs.writeFileSync(path.join(root, 'README.md'), 'root\n');
   git(root, ['add', 'README.md']);
   git(root, ['commit', '-m', 'init']);
@@ -159,5 +189,43 @@ describe('publish-approved-spec', () => {
       pushed: true,
     });
     expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(first);
+  });
+
+  it('prepare passes --base default to gh issue develop', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain('--base main');
+  });
+
+  it('merge squash-merges a docs-only PR into the default branch without Closes', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
+    expect(result.status).toBe(0);
+    expect(parse(result)).toEqual({
+      ok: true,
+      branch: 'main',
+      pr: 99,
+      merged: true,
+      squash: true,
+    });
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(log).toContain('pr create --base main --head 42-add-x --title docs: approve spec for #42');
+    expect(log).not.toMatch(/Closes #42|Fixes #42|Resolves #42/i);
+    expect(log).toMatch(/pr merge 99 --squash --delete-branch/);
+  });
+
+  it('merge rejects an unapproved package', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    fs.mkdirSync(path.join(root, 'specs', '42-add-x'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'specs', '42-add-x', 'requirements.md'), '**Issue**: #42\n**Status**: Draft\n');
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
   });
 });

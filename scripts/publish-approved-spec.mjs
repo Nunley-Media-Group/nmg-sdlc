@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Publish an approved specs/{N}-{slug}/ package onto branch {N}-{slug}.
- * JSON stdout. Never force-push. Never git add -A.
+ * Publish an approved specs/{N}-{slug}/ package onto a branch cut from the
+ * repository default, then squash-merge that spec-only PR. JSON stdout.
+ * Never force-push. Never git add -A. Spec PRs must not close the issue.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -75,6 +76,22 @@ function porcelain() {
   return git(['status', '--porcelain']).stdout;
 }
 
+function readDefaultBranch() {
+  const viewed = run('gh', [
+    'repo',
+    'view',
+    '--json',
+    'defaultBranchRef',
+    '--jq',
+    '.defaultBranchRef.name',
+  ]);
+  const name = viewed.status === 0 ? viewed.stdout.trim() : '';
+  if (!name) {
+    fail('default_branch_unreadable', { stderr: viewed.stderr || '' });
+  }
+  return name;
+}
+
 function ensureOnBranch(issueN, name) {
   if (currentBranch() === name) return;
   const dirty = porcelain();
@@ -82,13 +99,41 @@ function ensureOnBranch(issueN, name) {
     process.stderr.write(dirty);
     fail('dirty_tree', { porcelain: dirty });
   }
-  const developed = run('gh', ['issue', 'develop', String(issueN), '--checkout', '--name', name]);
+  const base = readDefaultBranch();
+  const developed = run('gh', [
+    'issue',
+    'develop',
+    String(issueN),
+    '--checkout',
+    '--name',
+    name,
+    '--base',
+    base,
+  ]);
   if (developed.status !== 0 || currentBranch() !== name) {
     fail('branch_checkout_failed', {
       stderr: developed.stderr || '',
       stdout: developed.stdout || '',
     });
   }
+}
+
+function firstPrNumber(stdout) {
+  try {
+    const rows = JSON.parse(stdout);
+    const number = rows?.[0]?.number;
+    if (Number.isInteger(number) && number > 0) return number;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function parseCreatedPr(stdout) {
+  const url = String(stdout || '').trim().split('\n').at(-1) || '';
+  const match = url.match(/\/pull\/(\d+)\s*$/);
+  if (!match) return null;
+  return Number.parseInt(match[1], 10);
 }
 
 function prepare(argv) {
@@ -138,23 +183,84 @@ function commitPush(argv) {
 }
 
 function defaultBranch() {
-  const viewed = run('gh', [
-    'repo',
-    'view',
-    '--json',
-    'defaultBranchRef',
-    '--jq',
-    '.defaultBranchRef.name',
-  ]);
-  const name = viewed.status === 0 ? viewed.stdout.trim() : '';
-  if (!name) {
-    fail('default_branch_unreadable', { stderr: viewed.stderr || '' });
-  }
+  const name = readDefaultBranch();
   const checkedOut = git(['checkout', name]);
   if (checkedOut.status !== 0 || currentBranch() !== name) {
     fail('default_checkout_failed', { stderr: checkedOut.stderr || '' });
   }
   ok({ branch: name });
+}
+
+function mergeSpec(argv) {
+  const issueN = parseIssue(flag(argv, '--issue'));
+  const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
+  if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
+    fail('spec_not_approved');
+  }
+  ensureOnBranch(issueN, branch);
+
+  const base = readDefaultBranch();
+  if (base === branch) {
+    fail('invalid_arguments', { detail: 'spec branch must not equal the default branch' });
+  }
+
+  const listed = run('gh', [
+    'pr',
+    'list',
+    '--head',
+    branch,
+    '--base',
+    base,
+    '--json',
+    'number',
+    '--limit',
+    '1',
+  ]);
+  let pr = listed.status === 0 ? firstPrNumber(listed.stdout) : null;
+  if (pr == null) {
+    const title = `docs: approve spec for #${issueN}`;
+    const body = `Approved specification package for #${issueN}.\n\nThis pull request publishes the spec only.`;
+    const created = run('gh', [
+      'pr',
+      'create',
+      '--base',
+      base,
+      '--head',
+      branch,
+      '--title',
+      title,
+      '--body',
+      body,
+    ]);
+    pr = created.status === 0 ? parseCreatedPr(created.stdout) : null;
+    if (created.status !== 0 || pr == null) {
+      fail('pr_create_failed', {
+        stderr: created.stderr || '',
+        stdout: created.stdout || '',
+      });
+    }
+  }
+
+  const merged = run('gh', ['pr', 'merge', String(pr), '--squash', '--delete-branch']);
+  if (merged.status !== 0) {
+    fail('pr_merge_failed', { stderr: merged.stderr || '', stdout: merged.stdout || '' });
+  }
+
+  const checkedOut = git(['checkout', base]);
+  if (checkedOut.status !== 0 || currentBranch() !== base) {
+    fail('default_checkout_failed', { stderr: checkedOut.stderr || '' });
+  }
+  const pulled = git(['pull', '--ff-only', 'origin', base]);
+  if (pulled.status !== 0) {
+    fail('default_checkout_failed', { stderr: pulled.stderr || '', stdout: pulled.stdout || '' });
+  }
+
+  ok({
+    branch: base,
+    pr,
+    merged: true,
+    squash: true,
+  });
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -167,12 +273,16 @@ function main(argv = process.argv.slice(2)) {
     commitPush(rest);
     return;
   }
+  if (command === 'merge') {
+    mergeSpec(rest);
+    return;
+  }
   if (command === 'default-branch') {
     defaultBranch();
     return;
   }
   fail('invalid_arguments', {
-    detail: 'Usage: node scripts/publish-approved-spec.mjs <prepare|commit-push|default-branch> ...',
+    detail: 'Usage: node scripts/publish-approved-spec.mjs <prepare|commit-push|merge|default-branch> ...',
   });
 }
 

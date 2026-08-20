@@ -7,6 +7,7 @@
 ```
 node scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}
 node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}
+node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}
 node scripts/publish-approved-spec.mjs default-branch
 ```
 
@@ -18,11 +19,15 @@ JSON stdout. Non-zero plus `reasonCode` on failure. Never force-push. Never `git
 
 `prepare` and `commit-push` abort with `dirty_tree` when `git status --porcelain` is non-empty and the current branch is not already `{N}-{slug}`. They print the porcelain. Do not stash, discard, or guess another branch.
 
-If current ≠ `{N}-{slug}` they run `gh issue develop N --checkout --name {N}-{slug}` (same argv as start-issue Step 5). Current still wrong → `branch_checkout_failed`. Stop; do not write files on prepare failure.
+If current ≠ `{N}-{slug}` they run `gh issue develop N --checkout --name {N}-{slug} --base <defaultBranch>` (same argv as start-issue Step 5). `<defaultBranch>` comes from `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`. Empty → `default_branch_unreadable`. Current still wrong → `branch_checkout_failed`. Stop; do not write files on prepare failure.
 
 ## Commit subject and push
 
 `commit-push` stages only `specs/{N}-{slug}`. Commit subject is exactly `docs: approve spec for #N`. Then `git push -u origin HEAD`. Non-fast-forward → `push_rejected`. Identical tree → `skippedCommit: true` and still pushes.
+
+## Merge spec into the default branch
+
+`merge` requires the approved four-file package. It opens a docs-only PR (`docs: approve spec for #N`) into the repository default branch when none exists, then `gh pr merge --squash --delete-branch`. The PR body must mention `#N` without `Closes`, `Fixes`, `Resolves`, or any other GitHub closing keyword. The issue stays open for `/sdlc-execute`. After a successful squash-merge the helper checks out the default branch and fast-forwards it. Failure → `pr_create_failed` or `pr_merge_failed`; leave the spec branch.
 
 Unapproved four-file package → `spec_not_approved`. Do not invent a second brancher.
 

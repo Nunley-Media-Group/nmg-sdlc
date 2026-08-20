@@ -87,8 +87,13 @@ If dirty (non-empty after trim) AND current !== expectedBranch:
 ### Step 5: Create/Switch Branch
 
 If current branch !== expectedBranch:
+  Resolve the repository default branch:
   ```bash
-  gh issue develop N --checkout --name ${expectedBranch}
+  defaultBranch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+  ```
+  If empty or the command fails: reasonCode `default_branch_unreadable`, failed, intervention true.
+  ```bash
+  gh issue develop N --checkout --name ${expectedBranch} --base ${defaultBranch}
   ```
   Verify afterwards that `git branch --show-current` === expectedBranch. If not, fail with `branch_checkout_failed`
 
