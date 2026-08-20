@@ -393,6 +393,7 @@ export function workerPrompt({ step, issue, skill } = {}) {
     `Execute the following inlined workflow for #${issue} with no user questions.`,
     'Write the handoff file then stop.',
     '',
+    `$ARGUMENTS: #${issue}`,
     `Handoff path: .omp/sdlc/handoffs/${issue}-${step}.json`,
     `On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/${issue}-${step}.json`,
     '',

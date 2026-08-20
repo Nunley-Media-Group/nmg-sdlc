@@ -21,6 +21,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - This repository's CI now runs Jest contract tests and OMP plugin-surface verification on every pull request. Skill-inventory audit no longer requires an `### Inventory Removals` heading in the PR body.
 - Interactive `/sdlc-*` commands enter native `/plan` from the TUI `input` event (rewrite to builtin `/plan` + workflow; already-in-plan sessions skip the prefix). Headless print/RPC invocations fail closed (`Run /sdlc-<command> in the TUI.`). Automated `/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` are file commands in `commands/*.md` so `omp --print` expands them as the initial prompt. Interactive write-spec is not a file command.
 
+### Fixed
+
+- `/sdlc-execute` worker prompts now include `$ARGUMENTS: #N` so start-issue and later steps receive the explicit issue number.
+
 ### Migration Notes
 
 - Install via `omp plugin install <repo-or-marketplace>` and `herdr integration install omp`.

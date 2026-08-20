@@ -158,6 +158,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   it('workerPrompt and CLI inline start-issue without /skill:', () => {
     const prompt = workerPrompt({ step: 'start', issue: 42 });
     expect(prompt).toContain('# Start Issue');
+    expect(prompt).toContain('$ARGUMENTS: #42');
     expect(prompt).not.toMatch(/\/skill:/);
 
     const cli = spawnSync(process.execPath, [SCRIPT, 'worker-prompt', '--step', 'start', '--issue', '42'], {
