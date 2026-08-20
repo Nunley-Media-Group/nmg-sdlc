@@ -1,6 +1,6 @@
 ---
 name: write-code
-description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Skill-bundled edits go through /skill:skill-creator or fail. No plan-mode approval, no gates. Use from /skill:execute for approved spec."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Skill-bundled edits go through the skill-creator file on disk if present or fail. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
 ---
 
 # Write Code
@@ -46,9 +46,9 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 - Use design.md + requirements.md + feature.gherkin + steering/ as context.
 - For the listed File(s):
   - If path is skill-bundled (matches **/skills/**/SKILL.md or **/skills/**/references/** or **/skills/**/scripts/** or **/skills/**/templates/** or **/skills/**/checklists/** or **/skills/**/assets/** or root references/** or agents/*.md ):
-    - Check if "skill-creator" is advertised in loaded skills list (system reminder or available skills).
+    - Check if the skill-creator file is present on disk (using glob or bash `test -f skills/skill-creator/SKILL.md`).
     - If not present: write failed handoff reasonCode:"skill_creator_missing" intervention:true step:"implement"
-    - If present: invoke exactly `/skill:skill-creator` passing the task title, acceptance bullets, target file path, existing file content (read first), and pointer to steering/. Let it produce the edit. Never hand-edit skill-bundled paths.
+    - If present: read `skills/skill-creator/SKILL.md` and follow the editing procedure described in that file, passing the task title, acceptance bullets, target file path, existing file content (read first), and pointer to steering/. Let it produce the edit. Never hand-edit skill-bundled paths.
   - Else: use edit/write/read/glob/grep/bash tools to implement the change that satisfies the task Acceptance criteria, following design.md architecture and tech.md conventions. Make smallest correct change.
 - After change for the task: self-verify the Acceptance bullets for that task pass.
 - Run narrow test command from tech.md if obvious for the files (dry if possible). Report outcome.
@@ -91,7 +91,7 @@ Summary output:
 Implementation complete for issue #N.
 Tasks completed.
 Files: ...
-Next: /skill:verify-code #N
+Next: /sdlc-verify-code #N
 
 ## Failure Modes (always produce handoff before stop)
 
@@ -101,6 +101,6 @@ Next: /skill:verify-code #N
 ## Integration with SDLC Workflow
 
 ```
-/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
                                          ▲ You are here (write-code + bundled simplify)
 ```

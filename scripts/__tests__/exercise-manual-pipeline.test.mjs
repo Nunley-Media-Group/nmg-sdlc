@@ -10,9 +10,9 @@ function read(relativePath) {
 }
 
 describe('v3 SDLC pipeline surface', () => {
-  test('interactive skills print the native /plan line', () => {
-    expect(read('skills/draft-issue/SKILL.md')).toContain('Run /plan /skill:draft-issue');
-    expect(read('skills/write-spec/SKILL.md')).toContain('Run /plan /skill:write-spec');
+  test('interactive skills use public /sdlc-* commands', () => {
+    expect(read('skills/draft-issue/SKILL.md')).toContain('/sdlc-draft-issue');
+    expect(read('skills/write-spec/SKILL.md')).toContain('/sdlc-write-spec');
     expect(read('references/interactive-gates.md')).toContain('xd://propose');
   });
 

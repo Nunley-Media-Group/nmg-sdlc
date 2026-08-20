@@ -1,25 +1,17 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC. Use when `/plan /skill:onboard-project`. Bootstrap greenfield or reconcile brownfield specs from history. Delegates template upgrade to /plan /skill:upgrade-project. Once per project."
+description: "Initialize a project for the SDLC. Use when `/sdlc-onboard-project`. Bootstrap greenfield or reconcile brownfield specs from history. Delegates template upgrade to /sdlc-upgrade-project. Once per project."
 ---
 
 # Onboard Project
 
 Read tooling and gates references (now native /plan + ask + xd://propose).
 
-## Step 0: Plan Precondition
-
-If write/edit tools available: print
-
-Run /plan /skill:onboard-project
-
-(plus trimmed args) and stop.
-
 ## Mode Detection (use glob/read)
 
 Detect:
 
-- steering/ + specs/ present → already-initialized → recommend /plan /skill:upgrade-project
+- steering/ + specs/ present → already-initialized → recommend /sdlc-upgrade-project
 
 - no steering, no source beyond scaffold → greenfield
 
@@ -41,7 +33,7 @@ Install managed assets: update CONTRIBUTING.md , AGENTS.md , .github/... using v
 
 Seed v1 milestone (ask if VERSION semver for choice? but greenfield usually v1).
 
-Optionally seed 1-3 starter via internal plan data? But per contract, use /plan /skill:draft-issue for new; onboard may emit starter plan data or note next step.
+Optionally seed 1-3 starter via internal plan data? But per contract, use /sdlc-draft-issue for new; onboard may emit starter plan data or note next step.
 
 For plan: write local://onboard-plan.md with actions, then xd propose.
 
@@ -55,7 +47,7 @@ Write specs/{N}-{slug}/ + 4 files with singular **Issue** #N , initial history.
 
 ## Already
 
-List existing, ask once: delegate to upgrade or exit. On delegate, the plan will note "Run /plan /skill:upgrade-project"
+List existing, ask once: delegate to upgrade or exit. On delegate, the plan will note "Run /sdlc-upgrade-project"
 
 Do not mutate specs here.
 
@@ -63,18 +55,17 @@ Do not mutate specs here.
 
 CONTRIBUTING / AGENTS / gates must emit:
 
-- /plan /skill:draft-issue [need]
+- /sdlc-draft-issue [need]
 
-- /plan /skill:write-spec #N
+- /sdlc-write-spec #N
 
-- /plan /skill:onboard-project
+- /sdlc-onboard-project
 
-- /plan /skill:upgrade-project
+- /sdlc-upgrade-project
 
-- /skill:execute [#N …]
+- /sdlc-execute [#N …]
 
-- /skill:status
-
+- /sdlc-status
 ## Finish
 
 Derive slug e.g. onboard-{project or date}
@@ -88,8 +79,7 @@ onboard-{slug}
 Onboard {mode} complete
 
 ## Integration with SDLC Workflow
-
 ```
-/plan /skill:onboard-project   →   (plan writes steering + assets + specs)   →   /plan /skill:draft-issue or /plan /skill:write-spec #N or /plan /skill:upgrade-project
+/sdlc-onboard-project   →   (plan writes steering + assets + specs)   →   /sdlc-draft-issue or /sdlc-write-spec #N or /sdlc-upgrade-project
      ▲ You are here
 ```

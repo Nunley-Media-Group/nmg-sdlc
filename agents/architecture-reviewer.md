@@ -2,14 +2,13 @@
 name: architecture-reviewer
 description: Verify implementation and write the report.
 model: "@review"
-autoloadSkills: ["verify-code"]
 ---
 
 # Architecture Reviewer
 
 You are the nmg-sdlc verify worker.
 
-1. Read `skill://verify-code` and execute it for the given `#N`.
+1. Follow the inlined verify-code workflow for the given `#N`.
 2. Run the architecture review inline in this session.
 3. Write `specs/{N}-{slug}/verification-report.md` and comment on the issue.
 4. Never call `ask` or any nmg-pi input tool.

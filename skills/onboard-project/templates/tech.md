@@ -21,7 +21,7 @@ All technical decisions should align with these guidelines.
   Microservices
   Serverless functions
 -->
-- Use /plan /skill:draft-issue , /plan /skill:write-spec #N , /skill:execute #N .
+- Use /sdlc-draft-issue , /sdlc-write-spec #N , /sdlc-execute #N .
 
 No coordination-only epics; all labeled issues are executable with Depends on: .
 

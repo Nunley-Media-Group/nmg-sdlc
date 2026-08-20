@@ -25,9 +25,9 @@ describe('status skill contract', () => {
     expect(source).not.toContain('coordination-only');
   });
 
-  it('is discoverable from the OMP package skills directory', () => {
+  it('is bundled as a workflow file the extension reads', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-    expect(manifest.omp.skills).toEqual(['./skills']);
+    expect(manifest.omp).not.toHaveProperty('skills');
     expect(fs.existsSync(skillPath)).toBe(true);
   });
 });

@@ -130,7 +130,7 @@ Skill frontmatter contains only `name` and `description`. Detailed content belon
 
 ### Agent File
 
-Agent files are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `autoloadSkills`, `tools`. Bodies execute a named skill for `#N`, forbid `ask`, write the handoff file, print `NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-<step>.json`, and stop.
+Agent files are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `tools`. Bodies follow the inlined workflow for `#N`, forbid `ask`, write the handoff file, print `NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-<step>.json`, and stop.
 
 ### Plugin Manifest
 
@@ -139,8 +139,7 @@ Agent files are installable OMP task agents. Required frontmatter: `name` and `d
   "name": "nmg-sdlc",
   "version": "3.0.0",
   "omp": {
-    "extensions": ["./src/extension.ts"],
-    "skills": ["./skills"]
+    "extensions": ["./src/extension.ts"]
   }
 }
 ```
@@ -153,11 +152,11 @@ The example version is illustrative. `VERSION` and the live `package.json` versi
 
 ### Skill-Authoring Boundary
 
-Every file under `skills/{skill}/`, every shared `references/*.md`, and every `agents/*.md` is skill-bundled. Worker creation or modification must be driven through `/skill:skill-creator`. The v3 landing of this repository edits files directly.
+Every file under `skills/{skill}/`, every shared `references/*.md`, and every `agents/*.md` is skill-bundled. Worker creation or modification must go through the skill-creator file if present on disk, else fail with `skill_creator_missing`. The v3 landing of this repository edits files directly.
 
 ### Interactive-Gate Boundary
 
-Interactive skills use built-in `ask` inside native `/plan` and finish at `xd://propose`. If write/edit tools are available, they print `Run /plan /skill:<name>` and stop. Automated skills never call `ask`.
+Interactive `/sdlc-*` commands enter `/plan` in src/extension.ts (workflow files never tell the user to type `/plan` or a legacy skill trigger). They use built-in `ask` inside native `/plan` and finish at `xd://propose`. Automated skills never call `ask`.
 
 ### Spec Context Boundary
 

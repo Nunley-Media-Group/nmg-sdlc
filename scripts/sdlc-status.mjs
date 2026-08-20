@@ -2,7 +2,7 @@
 
 /**
  * Read-only SDLC status for nmg-sdlc v3.
- * Usage: /skill:status [--json]
+ * Usage: /sdlc-status [--json]
  */
 
 import { spawnSync } from 'node:child_process';

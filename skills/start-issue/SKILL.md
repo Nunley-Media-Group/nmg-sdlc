@@ -1,6 +1,6 @@
 ---
 name: start-issue
-description: "Select an executable GitHub issue, create a linked feature branch, and set it to In Progress. Requires explicit #N. Re-proves Depends on parents. No picker, no milestone gate, no ready-to-start gate, leftover spike or epic labels are ordinary. Use when /skill:execute needs to begin delivery for #N."
+description: "Select an executable GitHub issue, create a linked feature branch, and set it to In Progress. Requires explicit #N. Re-proves Depends on parents. No picker, no milestone gate, no ready-to-start gate, leftover spike or epic labels are ordinary. Use when /sdlc-execute needs to begin delivery for #N."
 ---
 
 # Start Issue
@@ -164,7 +164,7 @@ Branch: EXPECTED_BRANCH
 Labels: ...
 Status: In Progress (best-effort project)
 
-Next step: Run /skill:execute or continue with /plan /skill:write-spec #N if spec missing.
+Next step: Run /sdlc-execute or continue with /sdlc-write-spec #N if spec missing.
 ```
 
 Handoff is the contract. Print the NMG line exactly.
@@ -172,6 +172,6 @@ Handoff is the contract. Print the NMG line exactly.
 ## Integration with SDLC Workflow
 
 ```
-/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
                           ▲ You are here (automated)
 ```

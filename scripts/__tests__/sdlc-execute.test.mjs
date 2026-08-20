@@ -1,14 +1,20 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseArgs,
   selectBacklog,
   validateHandoff,
   nextStep,
   isSpecApproved,
+  specStatus,
+  workerPrompt,
 } from '../sdlc-execute.mjs';
+
+const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
 
 const temporaryRoots = [];
 
@@ -44,7 +50,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
-    expect(() => parseArgs('foo')).toThrow(/Usage: \/skill:execute \[#N \.\.\.\]/);
+    expect(() => parseArgs('foo')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
     const twentyOne = Array.from({ length: 21 }, (_, index) => `#${index + 1}`).join(' ');
     expect(() => parseArgs(twentyOne)).toThrow();
   });
@@ -149,5 +155,90 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(isSpecApproved(extraStatus, 42)).toBe(false);
   });
 
+  it('workerPrompt and CLI inline start-issue without /skill:', () => {
+    const prompt = workerPrompt({ step: 'start', issue: 42 });
+    expect(prompt).toContain('# Start Issue');
+    expect(prompt).not.toMatch(/\/skill:/);
+
+    const cli = spawnSync(process.execPath, [SCRIPT, 'worker-prompt', '--step', 'start', '--issue', '42'], {
+      encoding: 'utf8',
+    });
+    expect(cli.status).toBe(0);
+    expect(cli.stdout).toContain('# Start Issue');
+    expect(cli.stdout).not.toMatch(/\/skill:/);
+  });
+
+  it('specStatus keeps a worktree Draft unapproved when origin is Approved', () => {
+    const { root } = makeGitRepo();
+    const specDir = path.join(root, 'specs', '42-add-x');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42);
+    git(root, ['checkout', '-b', '42-add-x']);
+    git(root, ['add', 'specs/42-add-x']);
+    git(root, ['commit', '-m', 'docs: approve spec for #42']);
+    git(root, ['push', '-u', 'origin', 'HEAD']);
+    git(root, ['checkout', 'main']);
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42, { status: '**Status**: Draft' });
+    expect(specStatus(42, root)).toEqual({
+      dir: specDir,
+      approved: false,
+    });
+  });
+
+  it('specStatus treats a unique origin approved branch as approved', () => {
+    const { root } = makeGitRepo();
+    const specDir = path.join(root, 'specs', '42-add-x');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42);
+    git(root, ['checkout', '-b', '42-add-x']);
+    git(root, ['add', 'specs/42-add-x']);
+    git(root, ['commit', '-m', 'docs: approve spec for #42']);
+    git(root, ['push', '-u', 'origin', 'HEAD']);
+    git(root, ['checkout', 'main']);
+    git(root, ['branch', '-D', '42-add-x']);
+    fs.rmSync(path.join(root, 'specs'), { recursive: true, force: true });
+    expect(specStatus(42, root)).toEqual({
+      dir: 'specs/42-add-x',
+      approved: true,
+      ref: 'origin/42-add-x',
+    });
+  });
+
+  it('specStatus treats two local issue branches as unapproved', () => {
+    const { root } = makeGitRepo();
+    git(root, ['checkout', '-b', '42-add-x']);
+    git(root, ['checkout', 'main']);
+    git(root, ['checkout', '-b', '42-other']);
+    git(root, ['checkout', 'main']);
+    expect(specStatus(42, root)).toEqual({ dir: null, approved: false });
+  });
 
 });
+
+function git(cwd, args) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    },
+  });
+}
+
+function makeGitRepo() {
+  const root = makeSpecDir();
+  const remote = makeSpecDir();
+  execFileSync('git', ['init', '--bare'], { cwd: remote, encoding: 'utf8' });
+  git(root, ['init', '-b', 'main']);
+  fs.writeFileSync(path.join(root, 'README.md'), 'root\n');
+  git(root, ['add', 'README.md']);
+  git(root, ['commit', '-m', 'init']);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-u', 'origin', 'HEAD']);
+  return { root, remote };
+}

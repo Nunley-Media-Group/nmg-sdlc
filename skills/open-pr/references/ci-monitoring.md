@@ -4,10 +4,10 @@ Poll state (PR, checks exact event:pr, reviews, threads, issue close refs, merge
 
 Head change → discard prior, re-verify + re-observe.
 
-Safe actionable → fix (skill-bundled via /skill:skill-creator), re-verify, push, restart loop.
+Safe actionable → fix (skill-bundled via the skill-creator file on disk if present), re-verify, push, restart loop.
 
 For unresolved review threads:
-- bot (Bot typename or coderabbitai login or per tech automated list): invoke address logic (/skill:address-pr-comments or equivalent clear-fix apply+resolve) in same session.
+- bot (Bot typename or coderabbitai login or per tech automated list): follow inlined address-pr-comments logic (or equivalent clear-fix apply+resolve) in same session.
 - human or ambiguous: produce failed handoff intervention:true reasonCode human_review ; do not merge.
 
 Ready only when all: success checks, no active CHANGES_REQUESTED, resolved non-outdated (for bots), merge CLEAN, not draft, verification matches head.

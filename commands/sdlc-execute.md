@@ -1,7 +1,8 @@
 ---
-name: execute
-description: "Orchestrate automated delivery for approved specs through Herdr OMP worker sessions. Use when the user says execute, run the backlog, ship the next issue, /sdlc-execute, or passes issue numbers to deliver. Defaults to the first ready backlog issue. Accepts a space-separated list of issue numbers. Do NOT use to draft issues or write specs."
+name: sdlc-execute
+description: "Run automated SDLC delivery"
 ---
+
 
 # Execute
 

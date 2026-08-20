@@ -1,6 +1,6 @@
 # Working-Tree Cleanliness Precondition
 
-**Consumed by**: `start-issue` Step 4, `open-pr` Step 1.
+**Consumed by**: `start-issue` Step 4, `open-pr` Step 1, write-spec `prepare` / `commit-push`.
 
 Before any operation that must not carry uncommitted work into a new state (branch creation, PR push, etc.), the working tree must be clean. A dirty tree risks carrying half-finished work into a state where it does not belong. The gate below aborts early so the skill does not produce a record that future work would then have to untangle.
 

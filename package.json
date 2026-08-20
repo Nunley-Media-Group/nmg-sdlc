@@ -6,8 +6,7 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "omp": {
-    "extensions": ["./src/extension.ts"],
-    "skills": ["./skills"]
+    "extensions": ["./src/extension.ts"]
   },
   "keywords": ["omp-plugin", "pi-extension", "sdlc", "herdr", "bdd"]
 }

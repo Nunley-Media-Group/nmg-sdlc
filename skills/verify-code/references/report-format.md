@@ -101,7 +101,7 @@ Use this Markdown structure:
 |----------|----------|----------|-------|-----|---------|
 | [sev] | [cat] | `path/to/file` | [what was wrong] | [what was done] | `skill-creator` or `direct` |
 
-The Routing column records how the fix was applied: `skill-creator` when the fix was routed through `$skill-creator` per Step 6a, `direct` for standard Codex editing fixes.
+The Routing column records how the fix was applied: `skill-creator` when the fix was routed through the skill-creator file on disk (when present) per Step 6a, `direct` for standard editing fixes.
 
 ### Remaining Issues
 

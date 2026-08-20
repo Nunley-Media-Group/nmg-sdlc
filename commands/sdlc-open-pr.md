@@ -1,7 +1,8 @@
 ---
-name: open-pr
-description: "Deliver verified issue via exact PR until head merged and issue closed. Auto version bump. Bot review threads handled by address-pr-comments inline; human threads fail with intervention. Success only on MERGED + CLOSED proof. Delete branch only after. From /sdlc-execute deliver step."
+name: sdlc-open-pr
+description: "Deliver verified work through exact-head PR merge"
 ---
+
 
 # Open PR
 

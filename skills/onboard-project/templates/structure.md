@@ -88,7 +88,7 @@ project/
 
 Executable work uses specs/{N}-slug/ . No epic aggregates.
 
-Use /plan /skill:draft-issue , /plan /skill:write-spec #N and /skill:execute .
+Use /sdlc-draft-issue , /sdlc-write-spec #N and /sdlc-execute .
 
 ---
 class [Name] {

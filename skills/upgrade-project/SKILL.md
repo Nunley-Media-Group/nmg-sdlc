@@ -1,19 +1,12 @@
 ---
 name: upgrade-project
-description: "Upgrade existing project to latest contract: detect/propose packaging, legacy layout, renames, splits, epic flatten, frontmatter, v2 cleanup. Use when `/plan /skill:upgrade-project`. Actual changes via helper script after plan approval."
+description: "Upgrade existing project to latest contract: detect/propose packaging, legacy layout, renames, splits, epic flatten, frontmatter, v2 cleanup. Use when `/sdlc-upgrade-project`. Actual changes via helper script after plan approval."
 ---
 
 # Upgrade Project
 
 Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called by approved plan execution).
 
-## Step 0
-
-If write/edit available: print
-
-Run /plan /skill:upgrade-project
-
-+ args and stop.
 
 ## Detectors (read only, glob/read/gh)
 
@@ -75,6 +68,6 @@ Assets use exact v3 invocations list.
 Utility, run after plugin updates or from onboard.
 
 ```
-/plan /skill:upgrade-project  →  (plan + approved helper)  →  /plan /skill:draft-issue
+/sdlc-upgrade-project  →  (plan + approved helper)  →  /sdlc-draft-issue
      ▲ You are here
 ```

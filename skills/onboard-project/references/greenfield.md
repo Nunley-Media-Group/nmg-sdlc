@@ -6,14 +6,14 @@ Init VERSION + specs/ .
 
 Managed assets use v3 list in CONTRIBUTING/AGENTS:
 
-Run /plan /skill:draft-issue for new work
+Run /sdlc-draft-issue for new work
 
-Run /plan /skill:write-spec #N after issues
+Run /sdlc-write-spec #N after issues
 
-Run /plan /skill:upgrade-project for drift
+Run /sdlc-upgrade-project for drift
 
 No epic language.
 
-After, emit plan with actions taken + next "Run /plan /skill:draft-issue or /plan /skill:write-spec on first"
+After, emit plan with actions taken + next "Run /sdlc-draft-issue or /sdlc-write-spec on first"
 
 Brownfield re-uses steering bootstrap logic.

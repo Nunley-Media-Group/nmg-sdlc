@@ -81,8 +81,8 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
     const onboarding = read('skills/onboard-project/SKILL.md');
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
 
-    expect(onboarding).toContain('/plan /skill:onboard-project');
-    expect(upgradeProject).toContain('/plan /skill:upgrade-project');
+    expect(onboarding).toContain('/sdlc-onboard-project');
+    expect(upgradeProject).toContain('/sdlc-upgrade-project');
     expect(upgradeProject).toContain('scripts/sdlc-upgrade.mjs');
   });
 

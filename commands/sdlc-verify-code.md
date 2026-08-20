@@ -1,7 +1,8 @@
 ---
-name: verify-code
-description: "The architecture-reviewer runs inline verification against the approved specs/{N}-{slug}/ . Writes verification-report.md, comments on the issue, and produces handoff. Pass or PR Evidence Pending advances to deliver; otherwise failed intervention. Use only from automated /sdlc-execute."
+name: sdlc-verify-code
+description: "Verify implementation against the approved spec"
 ---
+
 
 # Verify Code
 

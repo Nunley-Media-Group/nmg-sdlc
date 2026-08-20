@@ -1,6 +1,6 @@
 ---
 name: draft-issue
-description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when `/plan /skill:draft-issue`. Supports feature and bug templates. First step — next is write-spec."
+description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when `/sdlc-draft-issue`. Supports feature and bug templates. First step — next is write-spec."
 ---
 
 # Draft Issue
@@ -9,17 +9,7 @@ Read `../../references/codex-tooling.md` (maps to current OMP tools: read/grep/g
 
 Read `../../references/interactive-gates.md` (replaced by native /plan + ask + xd://propose contract).
 
-## Step 0: Plan-Mode Precondition (if write/edit tools available)
-
-If the current context provides write or edit tools (writable tree / native plan active), print exactly this line (append space + trimmed $ARGUMENTS when non-empty) and stop. Do nothing else. No GitHub calls, no interviews, no proposals.
-
-```
-Run /plan /skill:draft-issue
-```
-
-(Example with arg: `Run /plan /skill:draft-issue add dark mode`)
-
-## Core Flow (when Step 0 did not stop)
+## Core Flow
 
 1. Gather need: if $ARGUMENTS present use as initialDescription. Else use one ask for the need (free-form via Other if needed, but prefer short).
 
@@ -110,14 +100,11 @@ Run /plan /skill:draft-issue
 10. Finish:
 
     Write plain text to xd://propose :
-
     ```
     draft-<slug>
     <chosen primary title>
     ```
-
-    (The /plan system will present for approval; execution of approved plan runs the ghCreateArgs in order and emits "Run /plan /skill:write-spec #N" for the created issues.)
-
+    (The /plan system will present for approval; execution of approved plan runs the ghCreateArgs in order and emits "/sdlc-write-spec #N" for the created issues.)
 ## Multi-Issue Notes
 
 - One ask only for split confirm (see references/multi-issue.md for updated rules).
@@ -141,10 +128,9 @@ Run /plan /skill:draft-issue
 - Scope explicit.
 
 ## Integration with SDLC Workflow
-
 ```
-/plan /skill:draft-issue [need]  →  (approved plan executes gh creates)  →  Run /plan /skill:write-spec #N
+/sdlc-draft-issue [need]  →  (approved plan executes gh creates)  →  /sdlc-write-spec #N
      ▲ You are here
 ```
 
-Next-step text after plan approval/execution: Run /plan /skill:write-spec #N
+Next-step text after plan approval/execution: /sdlc-write-spec #N

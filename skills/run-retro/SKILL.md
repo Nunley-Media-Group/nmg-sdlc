@@ -1,17 +1,9 @@
 ---
 name: run-retro
-description: "Analyze defect specs for gaps, produce steering/retrospective.md. Use when `/plan /skill:run-retro`. Utility, periodic."
+description: "Analyze defect specs for gaps, produce steering/retrospective.md. Use when `/sdlc-run-retro`. Utility, periodic."
 ---
 
 # Run Retro
-
-## Step 0
-
-If write/edit: print
-
-Run /plan /skill:run-retro
-
-stop.
 
 ## Flow
 
@@ -51,4 +43,4 @@ Outside pipeline. Feeds write-spec Phase 1.
 
 Use v3 list in any output notes:
 
- /plan /skill:write-spec #N etc.
+ /sdlc-write-spec #N etc.

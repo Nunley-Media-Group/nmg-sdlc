@@ -1,6 +1,6 @@
 ---
 name: address-pr-comments
-description: "Address bot PR review threads on open PR from automated delivery. Clear bot findings: apply fix via edit + verify inline, reply+resolve. Ambiguous or human threads: failed handoff with intervention. No user questions. Invoked from open-pr terminal loop or execute."
+description: "Address bot PR review threads on open PR from automated delivery. Clear bot findings: apply fix via edit + verify inline, reply+resolve. Ambiguous or human threads: failed handoff with intervention. No user questions. Invoked from open-pr terminal loop or /sdlc-execute."
 ---
 
 # Address PR Comments
@@ -33,7 +33,7 @@ For each unresolved bot thread:
 
 - clear-fix: 
   - read the hunk/file
-  - use edit (or /skill:skill-creator if the path is skill-bundled) to apply the minimal fix
+  - use edit (or follow the skill-creator file on disk if the path is skill-bundled and the file is present) to apply the minimal fix
   - run relevant verify (inline) or tests
   - if now clean, gh api to reply to thread and resolveReviewThread mutation
   - commit with "fix: address review ... (#N)"
@@ -61,6 +61,6 @@ Always end by writing handoff when it owns the step.
 ## Integration with SDLC Workflow
 
 ```
-/plan /skill:draft-issue [need] → /plan /skill:write-spec #N → /skill:execute [#N …] → /skill:status
+/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
                                                                                        ▲ address bots inline inside deliver
 ```

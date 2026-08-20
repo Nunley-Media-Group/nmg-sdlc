@@ -13,7 +13,7 @@
 
 ## Plan-mode entry
 
-If write/edit tools are available (working tree writable / native plan mode off), do not interview and do not mutate. Print exactly `Run /plan /skill:<name>` plus original args and stop. OMP runs `/skill:` tokens inside `/plan` inline prompts.
+Interactive `/sdlc-*` commands enter native `/plan` from the TUI `input` event: `src/extension.ts` rewrites `/sdlc-write-spec #N` (and the other interactive commands) to `/plan` plus the workflow body so Oh My Pi's builtin `handlePlanModeCommand` runs. Already-in-plan sessions receive the workflow only, so `/plan` does not toggle off. `registerCommand` on a session with `hasUI !== true` (print/RPC) fails closed and writes `Run /sdlc-<command> in the TUI.` Automated `/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` are package `commands/*.md` file commands, not extension handlers. Do not add `commands/sdlc-write-spec.md`. Workflow files never tell the user to type `/plan` or `/skill:`. Interview + `xd://propose` unchanged. After write-spec approval, execution publishes then `ask` Continue/Finished (not plan approval). Automated commands never call `ask`.
 
 ## Interview
 

@@ -1,7 +1,8 @@
 ---
-name: status
-description: "Inspect and report current SDLC lifecycle state without mutation. Accepts --json. Recommends /sdlc-execute when approved spec exists and issue unblocked; /sdlc-write-spec #N when ready issue lacks approved spec. Use /sdlc-status [--json]"
+name: sdlc-status
+description: "Report read-only SDLC status"
 ---
+
 
 # Status
 

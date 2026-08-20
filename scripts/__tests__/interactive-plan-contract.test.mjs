@@ -19,23 +19,28 @@ const AUTOMATED = [
 ];
 
 describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
-  it('draft-issue prints the exact /plan line and has no Epic or Spike option', () => {
+  it('draft-issue has no Epic or Spike option and does not bounce to /skill:', () => {
     const source = read('skills/draft-issue/SKILL.md');
 
-    expect(source).toContain('Run /plan /skill:draft-issue');
+    expect(source).toContain('/sdlc-draft-issue');
     expect(source).toContain('Bug');
     expect(source).toContain('Enhancement');
     expect(source).not.toMatch(/\bSpike\b/);
     expect(source).toContain('xd://propose');
+    expect(source).not.toContain('/skill:');
     expect(source).not.toMatch(/classification[^\n]{0,80}Epic|Epic option|epicRecommended/i);
   });
 
-  it('write-spec finishes at xd://propose', () => {
+  it('write-spec finishes at xd://propose then publishes', () => {
     const source = read('skills/write-spec/SKILL.md');
 
-    expect(source).toContain('Run /plan /skill:write-spec');
+    expect(source).toContain('/sdlc-write-spec');
     expect(source).toContain('xd://propose');
-    expect(source).toContain('Usage: /plan /skill:write-spec #N');
+    expect(source).toContain('Usage: /sdlc-write-spec #N');
+    expect(source).toContain('publish-approved-spec.mjs');
+    expect(source).toContain('Finished — stop writing specs');
+    expect(source).toContain('docs: approve spec for #N');
+    expect(source).not.toContain('/skill:');
   });
 
   it('automated skills do not call ask', () => {

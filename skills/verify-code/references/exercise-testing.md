@@ -22,19 +22,34 @@ For GitHub-integrated skills, append the dry-run instructions (unchanged):
 
 **Step 5c-i: Run via omp harness (replaces codex exec)**
 
-From the disposable project directory, use:
+Load this repository as an extension (`--extension src/extension.ts --plugin-dir <repo> --add-dir <repo>`). Do not pass `--load` — that flag does not exist.
+
+`omp --print /sdlc-NAME` works for **automated** commands (`/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, `/sdlc-open-pr`) because those are file commands under `commands/*.md`. Print expands them as the initial prompt. Requires `--plugin-dir <nmg-sdlc-root>` (or an installed plugin). Do not `registerCommand` those names — an extension handler wins and print drops `sendUserMessage`.
+
+Interactive `/sdlc-*` are TUI-only. Print/RPC `registerCommand` fails closed.
+
+From the disposable project directory:
+
 ```bash
-omp --print --no-session \
-  --load /path/to/this/nmg-sdlc/repo  \
-  -- " /skill:CHANGED_SKILL_NAME [args] "
+# Automated (print expands commands/*.md)
+omp --print --no-session --no-extensions --no-skills \
+  --plugin-dir /path/to/this/nmg-sdlc \
+  --add-dir /path/to/this/nmg-sdlc \
+  --auto-approve --max-time 300 \
+  "/sdlc-CHANGED_SKILL_NAME [args]"
+
+# Or the RPC harness (also expands file commands when --plugin-dir is set)
+node /path/to/this/nmg-sdlc/scripts/exercise-omp.mjs \
+  --cwd . \
+  --timeout-ms 300000 \
+  -- /sdlc-CHANGED_SKILL_NAME [args]
 ```
-(Adjust --load / extension load mechanism for the OMP session to bring in the skills/ from the nmg-sdlc source under test.)
 
-For dry-run GitHub skills: the prompt to the harness is the skill invocation first, followed by the dry-run instructions block.
+For dry-run GitHub skills: put the skill invocation first after `--`, then the dry-run instructions as additional prompt text only if the command is not a registered slash command. Prefer appending dry-run constraints in a follow-up RPC prompt, or include them after `$ARGUMENTS` in the workflow. Capture stdout+stderr to exercise-output.txt.
 
-Use a 5-minute (300s) timeout on the omp invocation. Capture stdout+stderr to exercise-output.txt .
+Interactive `/sdlc-*` commands enter native `/plan` only in the TUI (input rewrite). Print/RPC `registerCommand` for those names fails closed (`Run /sdlc-<command> in the TUI.`). Record that limitation when exercising draft-issue / write-spec / onboard / upgrade / run-retro.
 
-If the omp harness or equivalent is unavailable in the env, record "omp harness not available for exercise" and degrade gracefully (still evaluate any local artifacts produced).
+If the omp harness is unavailable, record "omp harness not available for exercise" and degrade gracefully (still evaluate any local artifacts produced).
 
 **Timeout and error rules preserved**: 5 min bound. On timeout capture partial output. Non-zero capture error output for later evaluation as finding.
 
@@ -50,4 +65,4 @@ Always rm -rf the temp project dir.
 
 ## Notes for OMP/Herdr
 
-The exercise exercises the published /skill: surface with the exact same skill text that Herdr workers will receive. Keep dry-run and timeout contract identical to prior.
+The exercise exercises the published /sdlc- surface with the exact same skill text that Herdr workers will receive. Keep dry-run and timeout contract identical to prior.

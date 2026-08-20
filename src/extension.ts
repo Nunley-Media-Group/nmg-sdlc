@@ -1,11 +1,20 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  INTERACTIVE_COMMANDS,
+  interactiveHeadlessMessage,
+  isInteractiveHeadless,
+  rewriteInteractiveInput,
+  sessionModeFromEntries,
+  withArguments,
+  workflowBody,
+} from "./sdlc-commands.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
   registerCommand(name: string, options: {
     description?: string;
-    handler: (args: string, ctx: { ui?: { notify?: (msg: string, kind?: string) => void } }) => void | Promise<void>;
+    handler: (args: string, ctx: CommandContext) => void | Promise<void>;
   }): void;
   sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
   appendEntry(customType: string, data?: unknown): void;
@@ -14,22 +23,10 @@ type ExtensionAPI = {
 
 type CommandContext = {
   ui?: { notify?: (msg: string, kind?: string) => void };
+  hasUI?: boolean;
+  mode?: string;
+  sessionManager?: { getEntries?: () => Array<{ type?: string; mode?: string }> };
 };
-
-const INTERACTIVE_COMMANDS = [
-  ["sdlc-draft-issue", "draft-issue", "Draft a groomed GitHub issue"],
-  ["sdlc-write-spec", "write-spec", "Write an approved spec for an issue"],
-  ["sdlc-onboard-project", "onboard-project", "Initialize or reconcile a project"],
-  ["sdlc-upgrade-project", "upgrade-project", "Propose contract and layout upgrades"],
-  ["sdlc-run-retro", "run-retro", "Update steering retrospective from defect specs"],
-] as const;
-
-const AUTOMATED_COMMANDS = [
-  ["sdlc-execute", "execute", "Run automated SDLC delivery"],
-  ["sdlc-status", "status", "Report read-only SDLC status"],
-  ["sdlc-verify-code", "verify-code", "Verify implementation against the approved spec"],
-  ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],
-] as const;
 
 function readRunState(): unknown | null {
   try {
@@ -42,25 +39,31 @@ function readRunState(): unknown | null {
 export default function nmgSdlc(pi: ExtensionAPI): void {
   pi.setLabel("NMG SDLC");
 
+  pi.on("input", (event, ctx) => {
+    const input = (event ?? {}) as { text?: string; source?: string };
+    const session = (ctx ?? {}) as CommandContext;
+    return rewriteInteractiveInput(input.text ?? "", {
+      source: input.source,
+      sessionMode: sessionModeFromEntries(session.sessionManager?.getEntries?.()),
+    });
+  });
+
   for (const [name, skill, description] of INTERACTIVE_COMMANDS) {
     pi.registerCommand(name, {
       description,
-      handler: (args) => {
-        const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
-        pi.sendUserMessage(`/plan /skill:${skill}${suffix}`);
+      handler: (args, ctx) => {
+        if (isInteractiveHeadless(ctx)) {
+          process.stderr.write(interactiveHeadlessMessage(name));
+          return;
+        }
+        pi.sendUserMessage(`/plan\n\n${withArguments(workflowBody(skill), args)}`);
       },
     });
   }
 
-  for (const [name, skill, description] of AUTOMATED_COMMANDS) {
-    pi.registerCommand(name, {
-      description,
-      handler: (args) => {
-        const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
-        pi.sendUserMessage(`/skill:${skill}${suffix}`);
-      },
-    });
-  }
+  // Automated /sdlc-* are file commands in commands/*.md so print/RPC expand
+  // them as the initial prompt. Do not registerCommand those names: extension
+  // handlers win and sendUserMessage is dropped in print mode.
 
   pi.on("session_start", async (_event, ctx) => {
     const session = (ctx ?? {}) as CommandContext;
@@ -74,3 +77,4 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     }
   });
 }
+

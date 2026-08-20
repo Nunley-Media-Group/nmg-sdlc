@@ -145,7 +145,7 @@ Use this template to generate the final verification report.
 |-------|-------|
 | **Skill Exercised** | [skill name] |
 | **Test Project** | [temp dir path] |
-| **Exercise Method** | `omp --print --no-session` (skills loaded) |
+| **Exercise Method** | `node scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME` |
 | **Interactive gate handling** | N/A (automated worker) |
 | **Duration** | [seconds] |
 

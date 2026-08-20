@@ -1,177 +1,177 @@
 {
-  "generated_at": "2026-08-20T00:17:42.409Z",
+  "generated_at": "2026-08-20T03:10:06.589Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
       "id": "bb7b8d0fa8af",
-      "source_before": "agents/architecture-reviewer.md:10",
+      "source_before": "agents/architecture-reviewer.md:9",
       "normalized": "you are the nmg-sdlc verify worker.",
-      "destination": "agents/architecture-reviewer.md:10"
+      "destination": "agents/architecture-reviewer.md:9"
     },
     {
-      "id": "61e30b9494de",
-      "source_before": "agents/architecture-reviewer.md:12",
-      "normalized": "read skill://verify-code and execute it for the given #n.",
-      "destination": "agents/architecture-reviewer.md:12"
+      "id": "06482742168f",
+      "source_before": "agents/architecture-reviewer.md:11",
+      "normalized": "follow the inlined verify-code workflow for the given #n.",
+      "destination": "agents/architecture-reviewer.md:11"
     },
     {
       "id": "e9e35b59469c",
-      "source_before": "agents/architecture-reviewer.md:13",
+      "source_before": "agents/architecture-reviewer.md:12",
       "normalized": "run the architecture review inline in this session.",
-      "destination": "agents/architecture-reviewer.md:13"
+      "destination": "agents/architecture-reviewer.md:12"
     },
     {
       "id": "dcaaf17f3f15",
-      "source_before": "agents/architecture-reviewer.md:14",
+      "source_before": "agents/architecture-reviewer.md:13",
       "normalized": "write specs/{n}-{slug}/verification-report.md and comment on the issue.",
-      "destination": "agents/architecture-reviewer.md:14"
+      "destination": "agents/architecture-reviewer.md:13"
     },
     {
       "id": "f0f70126e95d",
-      "source_before": "agents/architecture-reviewer.md:15",
+      "source_before": "agents/architecture-reviewer.md:14",
       "normalized": "never call ask or any nmg-pi input tool.",
-      "destination": "agents/architecture-reviewer.md:15",
+      "destination": "agents/architecture-reviewer.md:14",
       "additional_destinations": [
-        "agents/deliverer.md:14",
-        "agents/spec-implementer.md:14",
-        "agents/starter.md:13"
+        "agents/deliverer.md:13",
+        "agents/spec-implementer.md:13",
+        "agents/starter.md:12"
       ]
     },
     {
       "id": "8341e996950a",
-      "source_before": "agents/architecture-reviewer.md:16",
+      "source_before": "agents/architecture-reviewer.md:15",
       "normalized": "write .omp/sdlc/handoffs/<n>-verify.json.",
-      "destination": "agents/architecture-reviewer.md:16"
+      "destination": "agents/architecture-reviewer.md:15"
     },
     {
       "id": "33546cebc481",
-      "source_before": "agents/architecture-reviewer.md:17",
+      "source_before": "agents/architecture-reviewer.md:16",
       "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-verify.json",
-      "destination": "agents/architecture-reviewer.md:17"
+      "destination": "agents/architecture-reviewer.md:16"
     },
     {
       "id": "81436d8b192b",
-      "source_before": "agents/architecture-reviewer.md:18",
+      "source_before": "agents/architecture-reviewer.md:17",
       "normalized": "stop.",
-      "destination": "agents/architecture-reviewer.md:18",
+      "destination": "agents/architecture-reviewer.md:17",
       "additional_destinations": [
-        "agents/deliverer.md:18",
-        "agents/spec-implementer.md:17",
-        "agents/starter.md:16"
+        "agents/deliverer.md:17",
+        "agents/spec-implementer.md:16",
+        "agents/starter.md:15"
       ]
     },
     {
       "id": "529e6b386cf2",
-      "source_before": "agents/architecture-reviewer.md:20",
+      "source_before": "agents/architecture-reviewer.md:19",
       "normalized": "execute does not use the omp task tool for this step.",
-      "destination": "agents/architecture-reviewer.md:20",
+      "destination": "agents/architecture-reviewer.md:19",
       "additional_destinations": [
-        "agents/deliverer.md:20",
-        "agents/spec-implementer.md:19",
-        "agents/starter.md:18"
+        "agents/deliverer.md:19",
+        "agents/spec-implementer.md:18",
+        "agents/starter.md:17"
       ]
     },
     {
       "id": "ee9ee8e5d3d5",
-      "source_before": "agents/deliverer.md:9",
+      "source_before": "agents/deliverer.md:8",
       "normalized": "you are the nmg-sdlc deliver worker.",
-      "destination": "agents/deliverer.md:9"
+      "destination": "agents/deliverer.md:8"
     },
     {
-      "id": "4361b2e497c4",
-      "source_before": "agents/deliverer.md:11",
-      "normalized": "read skill://open-pr and execute it for the given #n.",
-      "destination": "agents/deliverer.md:11"
+      "id": "fe6dfb2ad8cb",
+      "source_before": "agents/deliverer.md:10",
+      "normalized": "follow the inlined open-pr workflow for the given #n.",
+      "destination": "agents/deliverer.md:10"
     },
     {
       "id": "f19f8ba8a528",
-      "source_before": "agents/deliverer.md:12",
+      "source_before": "agents/deliverer.md:11",
       "normalized": "bot review threads (__typename: bot or login coderabbitai) are fixed in this sam",
-      "destination": "agents/deliverer.md:12"
+      "destination": "agents/deliverer.md:11"
     },
     {
       "id": "644e40a64928",
-      "source_before": "agents/deliverer.md:13",
+      "source_before": "agents/deliverer.md:12",
       "normalized": "human-reviewer threads fail the handoff with intervention: true and reasoncode: ",
-      "destination": "agents/deliverer.md:13"
+      "destination": "agents/deliverer.md:12"
     },
     {
       "id": "30ae72ca36f8",
-      "source_before": "agents/deliverer.md:15",
+      "source_before": "agents/deliverer.md:14",
       "normalized": "write .omp/sdlc/handoffs/<n>-deliver.json.",
-      "destination": "agents/deliverer.md:15"
+      "destination": "agents/deliverer.md:14"
     },
     {
       "id": "7d0fa4396201",
-      "source_before": "agents/deliverer.md:16",
+      "source_before": "agents/deliverer.md:15",
       "normalized": "success handoff only after merged + issue closed.",
-      "destination": "agents/deliverer.md:16"
+      "destination": "agents/deliverer.md:15"
     },
     {
       "id": "78950a60a30a",
-      "source_before": "agents/deliverer.md:17",
+      "source_before": "agents/deliverer.md:16",
       "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-deliver.json",
-      "destination": "agents/deliverer.md:17"
+      "destination": "agents/deliverer.md:16"
     },
     {
       "id": "a1cb491cbd52",
-      "source_before": "agents/spec-implementer.md:9",
+      "source_before": "agents/spec-implementer.md:8",
       "normalized": "you are the nmg-sdlc implement worker.",
-      "destination": "agents/spec-implementer.md:9"
+      "destination": "agents/spec-implementer.md:8"
     },
     {
-      "id": "96261dea0cd6",
+      "id": "fb19a7b23fd6",
+      "source_before": "agents/spec-implementer.md:10",
+      "normalized": "follow the inlined write-code workflow for the given #n.",
+      "destination": "agents/spec-implementer.md:10"
+    },
+    {
+      "id": "89fdc0ac3ee4",
       "source_before": "agents/spec-implementer.md:11",
-      "normalized": "read skill://write-code and execute it for the given #n.",
+      "normalized": "then follow the inlined simplify workflow in this same session.",
       "destination": "agents/spec-implementer.md:11"
     },
     {
-      "id": "f5c491aadb31",
+      "id": "1a2c48e2b791",
       "source_before": "agents/spec-implementer.md:12",
-      "normalized": "bundle skill://simplify in this same session after implementation.",
+      "normalized": "skill-bundled edits in this repo still go through the skill-creator file if pres",
       "destination": "agents/spec-implementer.md:12"
     },
     {
-      "id": "58f559899faa",
-      "source_before": "agents/spec-implementer.md:13",
-      "normalized": "skill-bundled paths go through /skill:skill-creator. if that skill is missing, f",
-      "destination": "agents/spec-implementer.md:13"
-    },
-    {
       "id": "f6dbf1ac049c",
-      "source_before": "agents/spec-implementer.md:15",
+      "source_before": "agents/spec-implementer.md:14",
       "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
-      "destination": "agents/spec-implementer.md:15"
+      "destination": "agents/spec-implementer.md:14"
     },
     {
       "id": "25b7f14bd381",
-      "source_before": "agents/spec-implementer.md:16",
+      "source_before": "agents/spec-implementer.md:15",
       "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
-      "destination": "agents/spec-implementer.md:16"
+      "destination": "agents/spec-implementer.md:15"
     },
     {
       "id": "04683d5d6833",
-      "source_before": "agents/starter.md:10",
+      "source_before": "agents/starter.md:9",
       "normalized": "you are the nmg-sdlc start worker.",
-      "destination": "agents/starter.md:10"
+      "destination": "agents/starter.md:9"
     },
     {
-      "id": "94240d1bec5c",
-      "source_before": "agents/starter.md:12",
-      "normalized": "read skill://start-issue and execute it for the given #n.",
-      "destination": "agents/starter.md:12"
+      "id": "52dcc9a5501b",
+      "source_before": "agents/starter.md:11",
+      "normalized": "follow the inlined start-issue workflow for the given #n.",
+      "destination": "agents/starter.md:11"
     },
     {
       "id": "0a87ada23165",
-      "source_before": "agents/starter.md:14",
+      "source_before": "agents/starter.md:13",
       "normalized": "write .omp/sdlc/handoffs/<n>-start.json.",
-      "destination": "agents/starter.md:14"
+      "destination": "agents/starter.md:13"
     },
     {
       "id": "b6b19afdb9ca",
-      "source_before": "agents/starter.md:15",
+      "source_before": "agents/starter.md:14",
       "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-start.json",
-      "destination": "agents/starter.md:15"
+      "destination": "agents/starter.md:14"
     },
     {
       "id": "cbc05ff950ed",

@@ -25,12 +25,33 @@ const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 
 const VALID_STEPS = ['start', 'implement', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
+const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
   verify: 'verify-code',
   deliver: 'open-pr',
 };
+const STEP_EXTRA_WORKFLOWS = {
+  implement: ['simplify'],
+  deliver: ['address-pr-comments'],
+};
+
+function usageError() {
+  return 'Usage: /sdlc-execute [#N ...]';
+}
+
+function stripWorkflowFrontmatter(source) {
+  return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+}
+
+function readWorkflowBody(name) {
+  const file = join(__dirname, '..', 'skills', name, 'SKILL.md');
+  if (!existsSync(file)) {
+    throw new Error(`missing workflow: ${name}`);
+  }
+  return stripWorkflowFrontmatter(readFileSync(file, 'utf8'));
+}
 
 export function parseArgs(input = '') {
   const trimmed = String(input || '').trim();
@@ -206,18 +227,23 @@ export function resolveSpecDir(root, issueN) {
   return join(specsDir, matches[0]);
 }
 
+function parseFrontmatterStatusAndIssue(source, expectedIssue) {
+  const issueMatch = source.match(/^\*\*Issue\*\*:\s*#(\d+)\s*$/m);
+  const statusMatch = source.match(/^\*\*Status\*\*:\s*(Draft|Approved)\s*$/im);
+  const issueNumber = issueMatch ? Number(issueMatch[1]) : null;
+  const status = statusMatch ? statusMatch[1].trim().toLowerCase() : null;
+  return {
+    issueOk: issueNumber === expectedIssue,
+    status,
+  };
+}
+
 function readFrontmatterStatusAndIssue(filePath, expectedIssue) {
   if (!existsSync(filePath)) return { present: false };
   try {
-    const source = readFileSync(filePath, 'utf8');
-    const issueMatch = source.match(/^\*\*Issue\*\*:\s*#(\d+)\s*$/m);
-    const statusMatch = source.match(/^\*\*Status\*\*:\s*(Draft|Approved)\s*$/im);
-    const issueNumber = issueMatch ? Number(issueMatch[1]) : null;
-    const status = statusMatch ? statusMatch[1].trim().toLowerCase() : null;
     return {
       present: true,
-      issueOk: issueNumber === expectedIssue,
-      status,
+      ...parseFrontmatterStatusAndIssue(readFileSync(filePath, 'utf8'), expectedIssue),
     };
   } catch {
     return { present: true, error: true };
@@ -226,8 +252,7 @@ function readFrontmatterStatusAndIssue(filePath, expectedIssue) {
 
 export function isSpecApproved(specDir, issueN) {
   if (!specDir || !existsSync(specDir)) return false;
-  const required = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
-  return required.every((name) => {
+  return REQUIRED_SPEC_FILES.every((name) => {
     const info = readFrontmatterStatusAndIssue(join(specDir, name), issueN);
     return info.present === true
       && info.error !== true
@@ -236,10 +261,59 @@ export function isSpecApproved(specDir, issueN) {
   });
 }
 
+function gitForEachRef(root, pattern) {
+  const result = spawnSync('git', ['-C', root, 'for-each-ref', '--format=%(refname:short)', pattern], {
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) return [];
+  return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function matchingIssueBranches(shortRefs, issueN, remotePrefix) {
+  const prefixRe = new RegExp(`^${issueN}-`);
+  const matches = [];
+  for (const short of shortRefs) {
+    const name = remotePrefix && short.startsWith(`${remotePrefix}/`)
+      ? short.slice(remotePrefix.length + 1)
+      : short;
+    if (prefixRe.test(name)) {
+      matches.push({ name, ref: short });
+    }
+  }
+  return matches;
+}
+
+function specApprovedOnRef(root, ref, specRel, issueN) {
+  return REQUIRED_SPEC_FILES.every((file) => {
+    const result = spawnSync('git', ['-C', root, 'show', `${ref}:${specRel}/${file}`], {
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) return false;
+    const info = parseFrontmatterStatusAndIssue(result.stdout, issueN);
+    return info.issueOk === true && info.status === 'approved';
+  });
+}
+
 export function specStatus(issueN, root = process.cwd()) {
   const dir = resolveSpecDir(root, issueN);
-  if (!dir) return { dir: null, approved: false };
-  return { dir, approved: isSpecApproved(dir, issueN) };
+  if (dir) {
+    return { dir, approved: isSpecApproved(dir, issueN) };
+  }
+
+  const local = matchingIssueBranches(gitForEachRef(root, 'refs/heads'), issueN);
+  if (local.length > 1) return { dir: null, approved: false };
+
+  const candidates = local.length === 1
+    ? local
+    : matchingIssueBranches(gitForEachRef(root, 'refs/remotes/origin'), issueN, 'origin');
+  if (candidates.length !== 1) return { dir: null, approved: false };
+
+  const { name, ref } = candidates[0];
+  const specRel = `specs/${name}`;
+  if (!specApprovedOnRef(root, ref, specRel, issueN)) {
+    return { dir: null, approved: false };
+  }
+  return { dir: specRel, approved: true, ref };
 }
 
 export function validateHandoff(input) {
@@ -312,20 +386,18 @@ export function workerPrompt({ step, issue, skill } = {}) {
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
   if (!skillName) throw new Error('no skill for step');
+  const extras = STEP_EXTRA_WORKFLOWS[step] || [];
+  const workflows = [readWorkflowBody(skillName), ...extras.map(readWorkflowBody)];
   return [
     `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
-    `Read skill://${skillName} and execute it for #${issue} with no user questions.`,
+    `Execute the following inlined workflow for #${issue} with no user questions.`,
     'Write the handoff file then stop.',
     '',
     `Handoff path: .omp/sdlc/handoffs/${issue}-${step}.json`,
     `On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/${issue}-${step}.json`,
     '',
-    `/skill:${skillName} #${issue}`,
+    ...workflows,
   ].join('\n');
-}
-
-function usageError() {
-  return 'Usage: /skill:execute [#N ...]';
 }
 
 function runCli(argv = process.argv.slice(2)) {
@@ -400,6 +472,24 @@ function runCli(argv = process.argv.slice(2)) {
     } catch (e) {
       console.error('invalid json or schema for write-run');
       process.exit(1);
+    }
+  }
+  if (sub === 'worker-prompt') {
+    const stepIndex = rest.indexOf('--step');
+    const issueIndex = rest.indexOf('--issue');
+    const step = stepIndex >= 0 ? rest[stepIndex + 1] : '';
+    const issueRaw = issueIndex >= 0 ? rest[issueIndex + 1] : '';
+    const issue = Number.parseInt(issueRaw, 10);
+    if (!VALID_STEPS.includes(step) || !Number.isInteger(issue) || issue <= 0) {
+      console.error('Usage: node sdlc-execute.mjs worker-prompt --step <start|implement|verify|deliver> --issue N');
+      process.exit(2);
+    }
+    try {
+      process.stdout.write(`${workerPrompt({ step, issue })}\n`);
+      process.exit(0);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(2);
     }
   }
   console.error(`unknown subcommand: ${sub}`);

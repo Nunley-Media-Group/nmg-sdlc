@@ -135,7 +135,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 
 ```text
 1. Define behavior in a feature or defect spec
-2. Route skill-bundled worker edits through /skill:skill-creator
+2. Route skill-bundled worker edits through the skill-creator file if present on disk, else `skill_creator_missing`
 3. Run static contract tests and plugin-surface validation
 4. Exercise changed skills with omp --print --no-session
 5. Record local evidence separately from published-install evidence

@@ -25,7 +25,8 @@ describe('native /plan interactive contract', () => {
     expect(source).toContain('/sdlc-execute');
     expect(source).toContain('xd://propose');
     expect(source).toContain('built-in `ask`');
-    expect(source).toContain('Run /plan /skill:<name>');
+    expect(source).toContain('src/extension.ts');
+    expect(source).not.toContain('Run /plan /skill:<name>');
     expect(source).not.toContain('request_user_input');
     expect(source).not.toContain('<proposed_plan>');
     expect(source).not.toContain('prompt-config.md');

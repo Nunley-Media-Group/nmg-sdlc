@@ -59,7 +59,7 @@ All feature development should align with these guidelines.
 <!-- TODO: Principles guide decision-making when requirements conflict -->
 - Epics removed in v3. All work uses normal dependency graph with Depends on: / Blocks: body lines. Children are ordinary executable issues.
 
-Use /plan /skill:draft-issue for new, /plan /skill:write-spec #N , /skill:execute .
+Use /sdlc-draft-issue for new, /sdlc-write-spec #N , /sdlc-execute .
 
 ---
 

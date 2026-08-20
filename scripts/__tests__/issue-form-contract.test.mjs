@@ -130,8 +130,8 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(onboarding).toContain('/plan /skill:onboard-project');
-    expect(upgradeProject).toContain('/plan /skill:upgrade-project');
+    expect(onboarding).toContain('/sdlc-onboard-project');
+    expect(upgradeProject).toContain('/sdlc-upgrade-project');
     expect(changelog).toContain('managed GitHub Issue Form for issue #135');
   });
 });

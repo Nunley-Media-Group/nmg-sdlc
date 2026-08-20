@@ -22,4 +22,4 @@ On spike-flatten collision: stamp the ADR only when the existing directory alrea
 
 ## After apply
 
-Report applied, skipped:collision, skipped:unverifiable, and failed ids. Recommend `/plan /skill:write-spec #N` for any Draft package created from a leftover spike.
+Report applied, skipped:collision, skipped:unverifiable, and failed ids. Recommend `/sdlc-write-spec #N` for any Draft package created from a leftover spike.

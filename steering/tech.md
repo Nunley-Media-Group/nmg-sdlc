@@ -101,7 +101,7 @@ Before introducing a new OMP-facing feature or changing model/tool behavior, ver
 
 ### Skill Bundles
 
-**Authoring rule for workers:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited through `/skill:skill-creator` when that skill is loaded. If it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
+**Authoring rule for workers:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by going through the skill-creator file if present on disk; if it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
 
 SKILL.md frontmatter declares only `name` and `description`.
 
@@ -118,16 +118,16 @@ SKILL.md frontmatter declares only `name` and `description`.
 
 ### Agent Files
 
-Files under `agents/` are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `autoloadSkills`, `tools`.
+Files under `agents/` are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
 
 `model` is only `@fast`, `@review`, or `@good` when those roles are documented as configured. If a role is unset, omit `model`. Never hardcode provider model ids.
 
-| File | `name` | `model` | `autoloadSkills` |
-|------|--------|---------|------------------|
-| `agents/starter.md` | `starter` | `@fast` | `["start-issue"]` |
-| `agents/spec-implementer.md` | `spec-implementer` | omit | `["write-code","simplify","skill-creator"]` |
-| `agents/architecture-reviewer.md` | `architecture-reviewer` | `@review` | `["verify-code"]` |
-| `agents/deliverer.md` | `deliverer` | omit | `["open-pr","address-pr-comments"]` |
+| File | `name` | `model` |
+|------|--------|---------|
+| `agents/starter.md` | `starter` | `@fast` |
+| `agents/spec-implementer.md` | `spec-implementer` | omit |
+| `agents/architecture-reviewer.md` | `architecture-reviewer` | `@review` |
+| `agents/deliverer.md` | `deliverer` | omit |
 
 `execute` does not use the OMP `task` tool for pipeline steps. Herdr sessions are the isolation boundary.
 
@@ -137,7 +137,7 @@ Files under `agents/` are installable OMP task agents. Required frontmatter: `na
 |--------|----------|
 | Location | root `package.json` |
 | Extensions | `omp.extensions` is exactly `["./src/extension.ts"]` |
-| Skills | package-root `skills/` (directory convention; `omp.skills` may also list `["./skills"]`) |
+| Workflows | package-root `skills/` is bundled workflow files the extension reads; do not declare `omp.skills` |
 | Agents | package-root `agents/*.md` via OMP `listOmpExtensionRoots` |
 | Catalog pointer | `.claude-plugin/plugin.json` → `./skills/` |
 | Version | Semver synchronized with `VERSION` by delivery |
@@ -263,7 +263,7 @@ Never infer a stronger layer from a weaker one.
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
-| Skill creator validation | Skill-bundled files changed in a worker | Validate each affected skill through `/skill:skill-creator` | All bundles valid, or handoff `skill_creator_missing` |
+| Skill creator validation | Skill-bundled files changed in a worker | Validate each affected skill through the skill-creator file if present on disk, or handoff `skill_creator_missing` | All bundles valid, or handoff `skill_creator_missing` |
 | Skill exercise | Changed skill has a deterministic fixture | `node scripts/skill-exercise-runner.mjs --skill <name>` | Exit 0 and rubric satisfied |
 | Prompt quality | Skill contract changed | Review against Prompt Quality Criteria | Every criterion satisfied |
 | Git hygiene | Any tracked text changed | `git diff --check` | Exit 0 |
@@ -294,7 +294,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 - Skills do not mutate beyond their declared stage.
 - Pull-request delivery is incomplete until exact-head merge and issue closure are proven.
 - Dirty unrelated work is preserved.
-- Skill-bundled worker edits route through `/skill:skill-creator`.
+- Skill-bundled worker edits go through the skill-creator file if present on disk, else `skill_creator_missing`.
 - Active spec context is bounded; historical specs are preserved.
 - Remote writes require the owning workflow and exact target.
 

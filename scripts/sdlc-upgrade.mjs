@@ -273,8 +273,8 @@ function seedConvertedSpikeSpec(issueN, slug, adrRel, adrBody) {
   ].join('\n');
   return {
     'requirements.md': `# Requirements: Converted spike #${issueN}\n\n${fm}---\n\n## User Story\n\n**As a** maintainer\n**I want** this leftover spike converted to an ordinary spec\n**So that** execute can require an approved four-file package\n\n## Acceptance Criteria\n\n### AC1: Ordinary spec exists\n\n**Given** leftover spike research\n**When** upgrade converts it\n**Then** specs/${issueN}-${slug}/ exists with singular **Issue**: #${issueN}\n\n## Change History\n\n| Issue | Date | Summary |\n|-------|------|---------|\n| #${issueN} | ${date} | Converted leftover spike ADR |\n${history}`,
-    'design.md': `# Design: Converted spike #${issueN}\n\n${fm}---\n\n## Overview\n\nSeeded from leftover spike ADR \`${adrRel}\`. Replace this design during \`/plan /skill:write-spec #${issueN}\`.\n${history}`,
-    'tasks.md': `# Tasks: Converted spike #${issueN}\n\n${fm}---\n\n### T001: Author the ordinary implementation spec\n\n**File(s)**: \`specs/${issueN}-${slug}/\`\n**Type**: Modify\n**Depends**: None\n**Acceptance**:\n- [ ] \`/plan /skill:write-spec #${issueN}\` rewrites this package as an approved feature or bug spec\n`,
+    'design.md': `# Design: Converted spike #${issueN}\n\n${fm}---\n\n## Overview\n\nSeeded from leftover spike ADR \`${adrRel}\`. Replace this design during \`/sdlc-write-spec #${issueN}\`.\n${history}`,
+    'tasks.md': `# Tasks: Converted spike #${issueN}\n\n${fm}---\n\n### T001: Author the ordinary implementation spec\n\n**File(s)**: \`specs/${issueN}-${slug}/\`\n**Type**: Modify\n**Depends**: None\n**Acceptance**:\n- [ ] \`/sdlc-write-spec #${issueN}\` rewrites this package as an approved feature or bug spec\n`,
     'feature.gherkin': `${fm}Feature: Converted leftover spike #${issueN}\n  @SCN001\n  Scenario: Ordinary spec directory exists\n    Given leftover spike research for #${issueN}\n    When upgrade-project is approved for that spike\n    Then specs/${issueN}-${slug}/ exists\n`,
   };
 }
