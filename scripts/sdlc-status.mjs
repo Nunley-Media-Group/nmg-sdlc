@@ -376,8 +376,8 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
   };
 }
 
-function phaseCommand(name, issueNumber) {
-  return issueNumber ? `/skill:${name} #${issueNumber}` : `/skill:${name}`;
+function sdlcCommand(name, issueNumber) {
+  return issueNumber ? `/sdlc-${name} #${issueNumber}` : `/sdlc-${name}`;
 }
 
 function artifactSummary(evidence, stage) {
@@ -446,38 +446,38 @@ export function inferLifecycle(evidence) {
     gaps.push(`deliverable dependencies ${deliverableStatus}: ${deliverableGaps}`);
     stage = 'blocked';
     nextAction = deliverableStatus === 'repair_required'
-      ? { command: '/skill:upgrade-project', reason: 'deliverable repair', manualRepairRequired: false }
-      : { command: '/skill:status', reason: 'depends on closed parents', manualRepairRequired: deliverableStatus === 'unverifiable' };
+      ? { command: '/sdlc-upgrade-project', reason: 'deliverable repair', manualRepairRequired: false }
+      : { command: '/sdlc-status', reason: 'depends on closed parents', manualRepairRequired: deliverableStatus === 'unverifiable' };
   } else if ((evidence.issue?.dependsOn || []).length > 0) {
     gaps.push("blocked by Depends on: parents not closed");
     stage = "blocked";
-    nextAction = { command: "/skill:status", reason: "depends on closed parents", manualRepairRequired: false };
+    nextAction = { command: "/sdlc-status", reason: "depends on closed parents", manualRepairRequired: false };
   } else if (scopeBlocked) {
     const scopeGaps = evidence.spec.scope.gaps?.length ? evidence.spec.scope.gaps.join('; ') : evidence.spec.scope.reasonCode;
     gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
     stage = issueNumber && evidence.project.branch !== 'main' ? 'started' : 'unknown';
-    nextAction = { command: phaseCommand('write-spec', issueNumber), reason: 'write spec', manualRepairRequired: false };
+    nextAction = { command: issueNumber ? `/sdlc-write-spec #${issueNumber}` : `/sdlc-write-spec`, reason: 'write spec', manualRepairRequired: false };
   } else if (exposedPrDependentVerification) {
     stage = 'delivery-validation-pending';
-    nextAction = { command: phaseCommand('open-pr', issueNumber), reason: 'PR evidence pending', manualRepairRequired: false };
+    nextAction = { command: sdlcCommand('open-pr', issueNumber), reason: 'PR evidence pending', manualRepairRequired: false };
   } else if (verificationPass && evidence.pullRequest && prState === 'OPEN' && !evidence.pullRequest.isDraft) {
     stage = 'review';
-    nextAction = { command: phaseCommand('open-pr', issueNumber), reason: 'await merge', manualRepairRequired: false };
+    nextAction = { command: sdlcCommand('open-pr', issueNumber), reason: 'await merge', manualRepairRequired: false };
   } else if (verificationPass || deliveryValidationPending) {
     stage = 'verified';
-    nextAction = { command: phaseCommand('open-pr', issueNumber), reason: 'ready to deliver', manualRepairRequired: false };
+    nextAction = { command: sdlcCommand('open-pr', issueNumber), reason: 'ready to deliver', manualRepairRequired: false };
   } else if (implementationPresent) {
     stage = 'implementing';
-    nextAction = { command: phaseCommand('verify-code', issueNumber), reason: 'verify after implement', manualRepairRequired: false };
+    nextAction = { command: sdlcCommand('verify-code', issueNumber), reason: 'verify after implement', manualRepairRequired: false };
   } else if (specApproved) {
     stage = 'specified';
-    nextAction = { command: issueNumber ? `/skill:execute #${issueNumber}` : `/skill:execute`, reason: 'approved spec exists and unblocked; recommend /skill:execute', manualRepairRequired: false };
+    nextAction = { command: sdlcCommand('execute', issueNumber), reason: 'approved spec exists and unblocked; recommend /sdlc-execute', manualRepairRequired: false };
   } else if (issueNumber) {
     stage = 'ready';
-    nextAction = { command: `/plan /skill:write-spec #${issueNumber}`, reason: 'first ready issue has no approved spec', manualRepairRequired: false };
+    nextAction = { command: `/sdlc-write-spec #${issueNumber}`, reason: 'first ready issue has no approved spec', manualRepairRequired: false };
   } else {
     stage = 'unknown';
-    nextAction = { command: '/plan /skill:draft-issue', reason: 'no active issue', manualRepairRequired: false };
+    nextAction = { command: '/sdlc-draft-issue', reason: 'no active issue', manualRepairRequired: false };
   }
 
   const artifacts = artifactSummary(evidence, stage);
@@ -542,7 +542,7 @@ export function renderJson(status) {
 }
 
 function usage() {
-  return `Usage: /skill:status [--json]\n`;
+  return `Usage: /sdlc-status [--json]\n`;
 }
 
 export function runCli(argv, options = {}) {

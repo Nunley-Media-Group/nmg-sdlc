@@ -39,7 +39,7 @@ body:
     id: acceptance-criteria
     attributes:
       label: Acceptance Criteria
-      description: Use Given/When/Then criteria only. Each criterion becomes a Gherkin scenario during /plan /skill:write-spec #N.
+      description: Use Given/When/Then criteria only. Each criterion becomes a Gherkin scenario during /sdlc-write-spec #N.
       placeholder: |
         AC1: Short name
         Given ...

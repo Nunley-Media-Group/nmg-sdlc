@@ -120,8 +120,8 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
     expect(contract).toContain('`upgrade-project` presents missing or differing issue-form findings');
     expect(contract).toContain('Issue Type options are exactly `Feature / Enhancement` and `Bug`');
     expect(contract).toContain('There is no Epic or Spike option');
-    expect(contract).toContain('/plan /skill:draft-issue');
-    expect(contract).toContain('/plan /skill:write-spec #N');
+    expect(contract).toContain('/sdlc-draft-issue');
+    expect(contract).toContain('/sdlc-write-spec #N');
     expect(contract).not.toContain('an epic is coordination-only');
   });
 

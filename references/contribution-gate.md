@@ -309,7 +309,7 @@ jobs:
             }
 
             if (!(await pathExists('CONTRIBUTING.md'))) {
-              failures.push('Missing `CONTRIBUTING.md`: run /plan /skill:onboard-project or /plan /skill:upgrade-project so contributors can remediate this gate.');
+              failures.push('Missing `CONTRIBUTING.md`: run /sdlc-onboard-project or /sdlc-upgrade-project so contributors can remediate this gate.');
             }
 
             if (failures.length > 0) {

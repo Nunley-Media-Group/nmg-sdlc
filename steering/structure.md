@@ -33,7 +33,7 @@ nmg-sdlc/
 
 ```text
 package.json + src/extension.ts
-        │ declares OMP identity and /execute
+        │ declares OMP identity and /sdlc-* commands
         ▼
 skills/*/SKILL.md
         │ points on demand
@@ -54,7 +54,7 @@ scripts/
 | Layer | Does | Does Not Do |
 |-------|------|-------------|
 | Plugin manifest | Declares identity, version, and `omp.extensions` | Define workflow logic |
-| Extension factory | Registers `/execute`, prints `/plan` hints, appends run entries | Interview users or spawn Herdr workers |
+| Extension factory | Registers `/sdlc-*` commands, dispatches to plan/skill workers, appends run entries | Interview users or spawn Herdr workers |
 | Skill entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more skills | Hold one-skill-only details |
 | Per-skill references | Hold variants, algorithms, and extended examples for one skill | Become public command entrypoints |
@@ -172,7 +172,7 @@ Project-root `specs/` is canonical. The active spec is `specs/{N}-{slug}/`. Load
 
 ### Git and GitHub Boundary
 
-Only the skill that owns a stage performs that mutation. Implementation does not imply delivery, and local test success does not imply GitHub mergeability. Invoking `/skill:execute` enters automated delivery: PR creation is intermediate, and success requires exact-head merge plus issue closure. Backlog repair remains a separate, explicitly approved `/plan /skill:upgrade-project` mutation.
+Only the skill that owns a stage performs that mutation. Implementation does not imply delivery, and local test success does not imply GitHub mergeability. Invoking `/sdlc-execute` enters automated delivery: PR creation is intermediate, and success requires exact-head merge plus issue closure. Backlog repair remains a separate, explicitly approved `/sdlc-upgrade-project` mutation.
 
 ---
 

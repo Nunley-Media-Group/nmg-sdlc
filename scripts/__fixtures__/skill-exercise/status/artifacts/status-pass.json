@@ -26,14 +26,14 @@
         "verification",
         "pull request"
       ],
-      "nextAction": "/skill:execute #145"
+      "nextAction": "/sdlc-execute #145"
     },
     "conflictingEvidence": {
       "stage": "specified",
       "gaps": [
         "passing verification conflicts with absent implementation paths"
       ],
-      "nextAction": "/skill:execute #145"
+      "nextAction": "/sdlc-execute #145"
     },
     "githubUnavailable": {
       "stage": "blocked",
@@ -41,13 +41,13 @@
       "gaps": [
         "GitHub issue unavailable: offline"
       ],
-      "nextAction": "/skill:status",
+      "nextAction": "/sdlc-status",
       "manualRepairRequired": true
     },
     "observational": {
       "prompted": false,
       "nextActionExecuted": false,
-      "nextAction": "/skill:execute #145"
+      "nextAction": "/sdlc-execute #145"
     },
     "readOnly": {
       "beforeHash": "9e6d50b5f05f/read-only-fixture",

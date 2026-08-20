@@ -43,7 +43,7 @@ Equivalent issue/spec/steering coverage is present when either condition is true
 - The guide contains `## nmg-sdlc Contribution Workflow`.
 - The guide has contributor workflow text that mentions GitHub issues, specs, and steering expectations near one another.
 
-Equivalent lifecycle, PR-readiness, and gate-remediation coverage is present when the guide states that specs live under `specs/{N}-{slug}/` owned by a singular issue, interactive work uses `/plan /skill:draft-issue` and `/plan /skill:write-spec #N`, automated delivery uses `/skill:execute`, PRs are intermediate and success requires exact-head merge + issue closure, and also mentions issue/spec correlation, changed-path evidence, specific verification results, validated exceptions, and the managed contribution gate or its broken-evidence failure categories near one another.
+Equivalent lifecycle, PR-readiness, and gate-remediation coverage is present when the guide states that specs live under `specs/{N}-{slug}/` owned by a singular issue, interactive work uses `/sdlc-draft-issue` and `/sdlc-write-spec #N`, automated delivery uses `/sdlc-execute`, PRs are intermediate and success requires exact-head merge + issue closure, and also mentions issue/spec correlation, changed-path evidence, specific verification results, validated exceptions, and the managed contribution gate or its broken-evidence failure categories near one another.
 
 Be conservative. If an existing guide has close equivalent coverage, report `already present` instead of duplicating a near-identical section.
 
@@ -68,10 +68,10 @@ Generated content must cover:
 - Contributors should start work from a clear GitHub issue with acceptance criteria.
 - Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
 - Contributors should consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before drafting issues, writing specs, or implementing code.
-- Interactive work uses `/plan /skill:draft-issue [need]` and `/plan /skill:write-spec #N`.
-- Automated delivery after an approved spec uses `/skill:execute [#N …]` which drives Herdr omp worker panes through implementation, verification, and delivery.
-- `/skill:execute` continues through exact-head merge and issue closure.
-- `/plan /skill:upgrade-project` reconciles contracts and proposes legacy layout repairs (never silently).
+- Interactive work uses `/sdlc-draft-issue [need]` and `/sdlc-write-spec #N`.
+- Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which drives Herdr omp worker panes through implementation, verification, and delivery.
+- `/sdlc-execute` continues through exact-head merge and issue closure.
+- `/sdlc-upgrade-project` reconciles contracts and proposes legacy layout repairs (never silently).
 - PRs should include a readiness checklist covering issue linkage, spec artifacts, steering alignment, implementation scope, verification evidence, and review readiness.
 - The managed GitHub Actions contribution gate checks for issue, spec, steering, verification, and guide evidence; failures should name the missing category and point contributors back to this guide.
 - Existing code and reconciled specs are contribution context for brownfield projects.

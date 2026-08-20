@@ -17,9 +17,9 @@ describe('contribution guide contract', () => {
     expect(contract).toContain('steering/tech.md');
     expect(contract).toContain('steering/structure.md');
     expect(contract).toContain('specs/{N}-{slug}');
-    expect(contract).toContain('/plan /skill:draft-issue');
-    expect(contract).toContain('/plan /skill:write-spec #N');
-    expect(contract).toContain('/skill:execute');
+    expect(contract).toContain('/sdlc-draft-issue');
+    expect(contract).toContain('/sdlc-write-spec #N');
+    expect(contract).toContain('/sdlc-execute');
     expect(contract).toContain('SDLC-Exception: docs-only');
     expect(contract).not.toContain('epics cannot be started');
     expect(contract).not.toContain('$nmg-sdlc:');

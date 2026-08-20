@@ -4,19 +4,19 @@ Spec-driven delivery for Oh My Pi and Herdr.
 
 ## Overview
 
-nmg-sdlc is a stack-agnostic BDD spec-driven development toolkit. It turns GitHub issues into verified implementations through native Oh My Pi `/plan` flows for grooming and spec approval, followed by automated delivery.
+nmg-sdlc is a stack-agnostic BDD spec-driven development toolkit. It turns GitHub issues into verified implementations through extension commands. Interactive commands enter native `/plan` for grooming and spec approval; `/sdlc-execute` drives automated delivery.
 
 Primary user journey:
 
 ```text
-/plan /skill:draft-issue [need]
-  → /plan /skill:write-spec #N
-  → /skill:execute [#N …]
+/sdlc-draft-issue [need]
+  → /sdlc-write-spec #N
+  → /sdlc-execute [#N …]
 ```
 
-`/skill:status` is the read-only diagnostic available at any point.
+`/sdlc-status` is the read-only diagnostic available at any point.
 
-Interactive skills (`draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`) run inside native `/plan` using built-in `ask` + `xd://propose`. Automated stages after spec approval are driven by `/skill:execute`, which orchestrates Herdr `omp` worker panes.
+Public commands are registered by `src/extension.ts` with an `sdlc-` prefix. Interactive commands (`sdlc-draft-issue`, `sdlc-write-spec`, `sdlc-onboard-project`, `sdlc-upgrade-project`) enter native `/plan` using built-in `ask` + `xd://propose`. Automated stages after spec approval are driven by `/sdlc-execute`, which orchestrates Herdr `omp` worker panes.
 
 Project `steering/` documents encode product and engineering conventions for the stack. `run-retro` derives reusable learnings from past defect specs into `steering/retrospective.md`.
 
@@ -40,13 +40,13 @@ Private repositories may require a `GITHUB_TOKEN` with appropriate read access.
 
 Interactive flows use native OMP `/plan`. Run onboarding from the project root:
 
-```bash
-/plan /skill:onboard-project
+```text
+/sdlc-onboard-project
 ```
 
 - Greenfield projects receive a product/technology interview, root steering documents, `VERSION` + manifest initialization, a `v1` milestone seed, and starter issues.
 - Brownfield projects reconcile specs from closed issues, merged PR evidence, and the current source tree.
-- Already-initialized projects delegate contract reconciliation to `/plan /skill:upgrade-project`.
+- Already-initialized projects delegate contract reconciliation to `/sdlc-upgrade-project`.
 
 Onboarding and upgrade manage these repository artifacts:
 
@@ -94,55 +94,55 @@ Every spec file begins with singular frontmatter:
 
 ### Draft an Issue
 
-```bash
-/plan /skill:draft-issue "add user authentication"
+```text
+/sdlc-draft-issue "add user authentication"
 ```
 
 Classifies the request (Bug / Enhancement), investigates relevant code, interviews via native `ask`, drafts BDD acceptance criteria as Given/When/Then plus functional requirements, and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
 
 ### Write Specs
 
-```bash
-/plan /skill:write-spec #42
+```text
+/sdlc-write-spec #42
 ```
 
 Creates or updates the executable spec package under `specs/{N}-{slug}/`. The spec frontmatter is set to `**Status**: Approved`.
 
 ### Automated Delivery
 
-```bash
-/skill:execute #42
-/skill:execute          # selects from ready backlog when no argument
+```text
+/sdlc-execute #42
+/sdlc-execute          # selects from ready backlog when no argument
 ```
 
-After an approved spec, `/skill:execute` drives automated SDLC delivery using Herdr `omp` worker panes for the remaining stages: implementation (write-code + simplify), verification, and delivery (open-pr). It creates sibling panes, writes handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
+After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for the remaining stages: implementation (write-code + simplify), verification, and delivery (open-pr). It creates sibling panes, writes handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
 
 `open-pr` (via execute) handles staging approved paths, version bump (per steering/tech.md rules), commit, push, PR creation or resume, remediation of actionable findings, exact-head merge, and issue closure. Success requires the PR to be `MERGED` and the issue `CLOSED`.
 
 ### Address Review Comments
 
-`/skill:execute` includes `address-pr-comments` in the delivery loop for automated-reviewer threads.
+`/sdlc-execute` includes `address-pr-comments` in the delivery loop for automated-reviewer threads.
 
 ### Lifecycle Status
 
-```bash
-/skill:status
-/skill:status --json
+```text
+/sdlc-status
+/sdlc-status --json
 ```
 
 Status reports read-only git state, active spec, verification evidence, issue/PR state, and next recommended action. It never prompts or mutates. An executing run also surfaces via `.omp/sdlc/run.json` and custom session entries.
 
 ## Project Upgrades
 
-```bash
-/plan /skill:upgrade-project
+```text
+/sdlc-upgrade-project
 ```
 
 Reconciles steering/spec trees, templates, and managed assets. Detects and proposes (never silently applies) layout modernizations such as legacy spec directory renames, cumulative splits, leftover spike conversion, and removal of obsolete v2 runner files. All changes require explicit per-group approval. Legacy directories remain readable until upgraded.
 
 ## Versioning
 
-`VERSION` is the source of truth and must stay synchronized with `package.json` `"version"`. `/skill:execute` (via open-pr) consults `steering/tech.md` for label-to-bump rules:
+`VERSION` is the source of truth and must stay synchronized with `package.json` `"version"`. `/sdlc-execute` (via open-pr) consults `steering/tech.md` for label-to-bump rules:
 
 | Issue label   | Default bump |
 |---------------|--------------|
@@ -157,20 +157,23 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 
 `steering/tech.md` may declare project-specific gates. Applicable gates become mandatory evidence for `verify-code`.
 
-## Skills Reference
+## Commands
 
-| Skill                        | Invocation                          | Purpose |
+| Command                      | Invocation                          | Purpose |
 |------------------------------|-------------------------------------|---------|
-| onboard-project              | /plan /skill:onboard-project        | Initialize or reconcile a project with steering and managed assets |
-| draft-issue                  | /plan /skill:draft-issue [need]     | Create a groomed GitHub issue with BDD acceptance criteria |
-| write-spec                   | /plan /skill:write-spec #N          | Publish `specs/{N}-{slug}/` (or ADR for spikes) and mark Approved |
-| execute                      | /skill:execute [#N …]               | Drive automated delivery through Herdr omp workers to merge + close |
-| status                       | /skill:status [--json]              | Report current manual lifecycle state |
-| upgrade-project              | /plan /skill:upgrade-project        | Reconcile contracts and propose legacy repairs |
-| simplify                     | (internal to execute)               | Behavior-preserving cleanup on changed files |
-| address-pr-comments          | (internal to execute)               | Close automated-reviewer feedback loops |
+| sdlc-onboard-project         | /sdlc-onboard-project               | Initialize or reconcile a project with steering and managed assets |
+| sdlc-draft-issue             | /sdlc-draft-issue [need]            | Create a groomed GitHub issue with BDD acceptance criteria |
+| sdlc-write-spec              | /sdlc-write-spec #N                 | Publish `specs/{N}-{slug}/` and mark Approved |
+| sdlc-execute                 | /sdlc-execute [#N …]                | Drive automated delivery through Herdr omp workers to merge + close |
+| sdlc-status                  | /sdlc-status [--json]               | Report current manual lifecycle state |
+| sdlc-verify-code             | /sdlc-verify-code #N                | Verify an already-implemented branch against the approved spec |
+| sdlc-open-pr                 | /sdlc-open-pr #N                    | Deliver a verified branch through exact-head merge |
+| sdlc-upgrade-project         | /sdlc-upgrade-project               | Reconcile contracts and propose legacy repairs |
+| sdlc-run-retro               | /sdlc-run-retro                     | Derive steering learnings from defect specs |
+| simplify                     | (internal to write-code)            | Behavior-preserving cleanup on changed files |
+| address-pr-comments          | (internal to open-pr)               | Close automated-reviewer feedback loops |
 
-Other stages (start-issue, write-code, verify-code, open-pr) are orchestrated by execute after spec approval.
+`/sdlc-execute` still owns the full start → implement → verify → deliver queue. `/sdlc-verify-code` and `/sdlc-open-pr` are the phase commands for trees that already have implementation or verification evidence.
 
 ## License
 

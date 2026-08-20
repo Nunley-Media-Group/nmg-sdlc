@@ -8,7 +8,7 @@ This document defines the product vision, target users, and success metrics. All
 
 **nmg-sdlc is an Oh My Pi extension and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
 
-It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` the same way they invoke any other OMP skill or Herdr agent.
+It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as extension commands.
 
 ---
 
@@ -18,7 +18,7 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Oh My Pi daily | Skills use native `/plan`, `ask`, `xd://propose`, and `/skill:` |
+| Uses Oh My Pi daily | Public commands are `/sdlc-*`; interactive ones enter native `/plan` with `ask` and `xd://propose` |
 | Runs Herdr for delivery | Automated stages run as sibling `omp` panes, not in-process `task` workers |
 | Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
@@ -36,8 +36,8 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 
 ## Core Value Proposition
 
-1. **Native interactive surface** — `draft-issue`, `write-spec`, `onboard-project`, and `upgrade-project` run inside native `/plan` with `ask` + `xd://propose`.
-2. **Automated delivery** — after an approved spec, `/skill:execute` drives Herdr `--kind omp` workers until merge or a failed handoff.
+1. **Native interactive surface** — `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, and `/sdlc-upgrade-project` run inside native `/plan` with `ask` + `xd://propose`.
+2. **Automated delivery** — after an approved spec, `/sdlc-execute` drives Herdr `--kind omp` workers until merge or a failed handoff.
 3. **Stack-agnostic BDD** — any language or framework supplies conventions through project `steering/`.
 4. **One issue, one spec** — `specs/{N}-{slug}/` is owned by a single issue. There is no epic type.
 5. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
@@ -80,16 +80,16 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 
 ### Must Have
 
-- Issue grooming with BDD acceptance criteria (`/plan /skill:draft-issue`)
-- Approved specs for one issue (`/plan /skill:write-spec #N`)
-- Automated delivery through Herdr (`/skill:execute [#N …]`)
+- Issue grooming with BDD acceptance criteria (`/sdlc-draft-issue`)
+- Approved specs for one issue (`/sdlc-write-spec #N`)
+- Automated delivery through Herdr (`/sdlc-execute [#N …]`)
 - Linked branch and status management (`start-issue` worker)
 - Spec-driven implementation (`write-code` + bundled `simplify`)
 - Verification and architecture review (`verify-code`)
 - Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
 - Review-thread cleanup (`address-pr-comments`)
-- Safe project adoption and managed assets (`/plan /skill:onboard-project`, `/plan /skill:upgrade-project`)
-- Read-only lifecycle diagnostics (`/skill:status`)
+- Safe project adoption and managed assets (`/sdlc-onboard-project`, `/sdlc-upgrade-project`)
+- Read-only lifecycle diagnostics (`/sdlc-status`)
 
 ### Should Have
 
@@ -114,16 +114,16 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 ### Journey 1: Executable Issue to Merged Delivery
 
 ```text
-1. /plan /skill:draft-issue
-2. /plan /skill:write-spec #N
-3. /skill:execute [#N …]
+1. /sdlc-draft-issue
+2. /sdlc-write-spec #N
+3. /sdlc-execute [#N …]
 4. Herdr workers start, implement, verify, and deliver until exact-head merge and issue close
 ```
 
 ### Journey 2: Adopt or Upgrade a Project
 
 ```text
-1. /plan /skill:onboard-project or /plan /skill:upgrade-project
+1. /sdlc-onboard-project or /sdlc-upgrade-project
 2. Detect greenfield, brownfield, or initialized state
 3. Create or reconcile root steering/spec documents
 4. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form

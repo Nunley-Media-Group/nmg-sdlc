@@ -58,13 +58,13 @@ The form must capture these sections in the resulting GitHub issue body:
 
 Issue Type options are exactly `Feature / Enhancement` and `Bug`. There is no Epic or Spike option.
 
-Executable feature/bug acceptance guidance must use Given/When/Then examples so `/plan /skill:write-spec #N` can translate each criterion into a Gherkin scenario. There is no epic type, epic markdown block, EO outcome list, or child-plan table.
+Executable feature/bug acceptance guidance must use Given/When/Then examples so `/sdlc-write-spec #N` can translate each criterion into a Gherkin scenario. There is no epic type, epic markdown block, EO outcome list, or child-plan table.
 
 ## Lifecycle Behavior
 
 - `onboard-project` applies the form after steering exists because the form is a managed setup artifact.
 - `upgrade-project` presents missing or differing issue-form findings in its normal non-destructive managed-artifact batch.
-- The canonical form tells contributors to groom with `/plan /skill:draft-issue` and spec with `/plan /skill:write-spec #N`. Terminal delivery is `/skill:execute` through exact-head merge and issue closure.
+- The canonical form tells contributors to groom with `/sdlc-draft-issue` and spec with `/sdlc-write-spec #N`. Terminal delivery is `/sdlc-execute` through exact-head merge and issue closure.
 - Differing files at the approved issue-form path are replaced after approval and reported as `overwritten`.
 - Record every created, overwritten, already-present, or skipped outcome in the final summary.
 

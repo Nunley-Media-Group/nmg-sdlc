@@ -12,19 +12,19 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Changed (BREAKING)
 
-- **BREAKING CHANGE (3.0.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is native `/plan /skill:draft-issue`, `/plan /skill:write-spec #N`, `/skill:execute [#N …]`, and `/skill:status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/plan /skill:upgrade-project`.
+- **BREAKING CHANGE (3.0.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is `/sdlc-draft-issue`, `/sdlc-write-spec #N`, `/sdlc-execute [#N …]`, and `/sdlc-status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/sdlc-upgrade-project`.
 
 ### Changed
 
+- Public extension commands are now `/sdlc-*` (`/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, `/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-run-retro`). Unprefixed `/execute`, `/draft-issue`, and `/write-spec` commands are removed. Interactive commands still enter native `/plan`. `/sdlc-execute` owns the full queue; `/sdlc-verify-code` and `/sdlc-open-pr` are phase commands when implementation or verification evidence already exists.
 - This repository's CI now runs Jest contract tests and OMP plugin-surface verification on every pull request. Skill-inventory audit no longer requires an `### Inventory Removals` heading in the PR body.
-
 
 ### Migration Notes
 
 - Install via `omp plugin install <repo-or-marketplace>` and `herdr integration install omp`.
-- Interactive grooming and spec approval now run under native `/plan /skill:<name>`.
-- Use `/skill:execute` (inside Herdr) for automated delivery to exact-head merge + issue closure.
-- Run `/plan /skill:upgrade-project` on existing projects to modernize legacy spec layouts (`feature-*` / `bug-*` / `.codex/specs/`), split cumulative specs, flatten coordination artifacts, and reconcile frontmatter. All repairs require explicit approval.
+- Interactive grooming and spec approval use `/sdlc-draft-issue` and `/sdlc-write-spec #N`.
+- Use `/sdlc-execute` (inside Herdr) for automated delivery to exact-head merge + issue closure.
+- Run `/sdlc-upgrade-project` on existing projects to modernize legacy spec layouts (`feature-*` / `bug-*` / `.codex/specs/`), split cumulative specs, flatten coordination artifacts, and reconcile frontmatter. All repairs require explicit approval.
 - `package.json` + `src/extension.ts` now declare the OMP extension (in addition to `VERSION`).
 - See updated `README.md`, `AGENTS.md`, and `CONTRIBUTING.md` for the v3 journey and invocation list.
 

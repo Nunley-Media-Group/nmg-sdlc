@@ -20,9 +20,9 @@ describe('native /plan interactive contract', () => {
   it('documents native /plan, ask, and xd://propose', () => {
     const source = read('references/interactive-gates.md');
 
-    expect(source).toContain('/plan /skill:draft-issue');
-    expect(source).toContain('/plan /skill:write-spec #N');
-    expect(source).toContain('/skill:execute');
+    expect(source).toContain('/sdlc-draft-issue');
+    expect(source).toContain('/sdlc-write-spec #N');
+    expect(source).toContain('/sdlc-execute');
     expect(source).toContain('xd://propose');
     expect(source).toContain('built-in `ask`');
     expect(source).toContain('Run /plan /skill:<name>');

@@ -39,7 +39,7 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
     expect(template).toContain("['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']");
     expect(template).toContain('resolveSpecDirectories');
     expect(template).toContain('specs/{N}-{slug}');
-    expect(template).toContain('/plan /skill:onboard-project');
+    expect(template).toContain('/sdlc-onboard-project');
     expect(template).toContain('classifyChangedPath');
     expect(template).toContain('Unmatched changed paths');
     expect(template).toContain('hasSpecificVerification');

@@ -16,7 +16,7 @@ Native /plan interactive skills
 draft-issue → write-spec → onboard-project / upgrade-project
         │
         ▼
-/skill:execute (main Herdr pane)
+/sdlc-execute (main Herdr pane)
         │
         ├── herdr pane split + herdr agent start --kind omp
         ├── .omp/sdlc/run.json + handoffs
@@ -330,7 +330,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 | Variable | Purpose |
 |----------|---------|
 | `GITHUB_TOKEN` | Authenticated GitHub operations and private marketplace access |
-| `HERDR_ENV` | Must be `1` for `/skill:execute` |
+| `HERDR_ENV` | Must be `1` for `/sdlc-execute` |
 | `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
 | `HERDR_PANE_ID` | Calling pane id for execute splits |
 

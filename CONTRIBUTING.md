@@ -2,7 +2,7 @@
 
 ## Project Context
 
-`nmg-sdlc` is an Oh My Pi extension that turns executable GitHub issues into BDD specs, implementation work, simplification, verification, and terminal pull-request delivery via Herdr automated workers. Contributors should keep changes stack-agnostic, OS-agnostic, and aligned with the issue -> spec (via `/plan`) -> automated delivery (via `/skill:execute`) -> exact-head merge -> issue closure workflow described in `README.md`.
+`nmg-sdlc` is an Oh My Pi extension that turns executable GitHub issues into BDD specs, implementation work, simplification, verification, and terminal pull-request delivery via Herdr automated workers. Contributors should keep changes stack-agnostic, OS-agnostic, and aligned with the issue -> spec (`/sdlc-draft-issue`, `/sdlc-write-spec`) -> automated delivery (`/sdlc-execute`) -> exact-head merge -> issue closure workflow described in `README.md`.
 
 Before drafting issues, writing specs, or changing implementation files, review:
 
@@ -16,11 +16,11 @@ Existing source files, closed issue specs, and retrospective learnings are proje
 
 Start work from a clear GitHub issue with acceptance criteria. Feature and bug work should flow through nmg-sdlc specs under `specs/`:
 
-- Use `/plan /skill:draft-issue [need]` for new issue discovery and acceptance-criteria drafting.
-- Use `/plan /skill:write-spec #N` to create or amend the executable spec under `specs/{N}-{slug}/` (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`).
+- Use `/sdlc-draft-issue [need]` for new issue discovery and acceptance-criteria drafting.
+- Use `/sdlc-write-spec #N` to create or amend the executable spec under `specs/{N}-{slug}/` (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`).
 - Keep specs committed with their feature branches instead of leaving them as untracked local files.
 
-Specs use `specs/{N}-{slug}/` (N = issue number, slug derived from title). Legacy `feature-*` / `bug-*` naming is tolerated only as upgrade input via `/plan /skill:upgrade-project`.
+Specs use `specs/{N}-{slug}/` (N = issue number, slug derived from title). Legacy `feature-*` / `bug-*` naming is tolerated only as upgrade input via `/sdlc-upgrade-project`.
 
 There is no epic type. Sequencing and coordination use ordinary `Depends on:` / `Blocks:` lines between issues. One issue owns exactly one spec directory with singular `**Issue**: #N` frontmatter.
 
@@ -48,7 +48,7 @@ Verification should cover the behavior promised by the spec:
 
 Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. Delivery continues through exact-head merge and issue closure. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
 
-Legacy backlog correction and layout modernization belong to `/plan /skill:upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
+Legacy backlog correction and layout modernization belong to `/sdlc-upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
 
 ## nmg-sdlc Contribution Workflow
 

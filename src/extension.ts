@@ -16,6 +16,21 @@ type CommandContext = {
   ui?: { notify?: (msg: string, kind?: string) => void };
 };
 
+const INTERACTIVE_COMMANDS = [
+  ["sdlc-draft-issue", "draft-issue", "Draft a groomed GitHub issue"],
+  ["sdlc-write-spec", "write-spec", "Write an approved spec for an issue"],
+  ["sdlc-onboard-project", "onboard-project", "Initialize or reconcile a project"],
+  ["sdlc-upgrade-project", "upgrade-project", "Propose contract and layout upgrades"],
+  ["sdlc-run-retro", "run-retro", "Update steering retrospective from defect specs"],
+] as const;
+
+const AUTOMATED_COMMANDS = [
+  ["sdlc-execute", "execute", "Run automated SDLC delivery"],
+  ["sdlc-status", "status", "Report read-only SDLC status"],
+  ["sdlc-verify-code", "verify-code", "Verify implementation against the approved spec"],
+  ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],
+] as const;
+
 function readRunState(): unknown | null {
   try {
     return JSON.parse(readFileSync(join(process.cwd(), ".omp", "sdlc", "run.json"), "utf8"));
@@ -27,33 +42,25 @@ function readRunState(): unknown | null {
 export default function nmgSdlc(pi: ExtensionAPI): void {
   pi.setLabel("NMG SDLC");
 
-  pi.registerCommand("execute", {
-    description: "Run automated SDLC delivery",
-    handler: (args) => {
-      const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
-      pi.sendUserMessage(`/skill:execute${suffix}`);
-    },
-  });
+  for (const [name, skill, description] of INTERACTIVE_COMMANDS) {
+    pi.registerCommand(name, {
+      description,
+      handler: (args) => {
+        const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
+        pi.sendUserMessage(`/plan /skill:${skill}${suffix}`);
+      },
+    });
+  }
 
-  pi.registerCommand("draft-issue", {
-    description: "Print the native /plan invocation for draft-issue",
-    handler: (args, ctx: CommandContext) => {
-      const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
-      const line = `Run /plan /skill:draft-issue${suffix}`;
-      ctx?.ui?.notify?.(line);
-      return line;
-    },
-  });
-
-  pi.registerCommand("write-spec", {
-    description: "Print the native /plan invocation for write-spec",
-    handler: (args, ctx: CommandContext) => {
-      const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
-      const line = `Run /plan /skill:write-spec${suffix}`;
-      ctx?.ui?.notify?.(line);
-      return line;
-    },
-  });
+  for (const [name, skill, description] of AUTOMATED_COMMANDS) {
+    pi.registerCommand(name, {
+      description,
+      handler: (args) => {
+        const suffix = typeof args === "string" && args.trim() ? ` ${args.trim()}` : "";
+        pi.sendUserMessage(`/skill:${skill}${suffix}`);
+      },
+    });
+  }
 
   pi.on("session_start", async (_event, ctx) => {
     const session = (ctx ?? {}) as CommandContext;

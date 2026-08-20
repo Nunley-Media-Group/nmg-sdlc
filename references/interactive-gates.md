@@ -4,12 +4,12 @@
 
 ## Primary invocations
 
-- `/plan /skill:draft-issue [need]`
-- `/plan /skill:write-spec #N`
-- `/plan /skill:onboard-project`
-- `/plan /skill:upgrade-project`
-- `/skill:execute [#N …]`
-- `/skill:status`
+- `/sdlc-draft-issue [need]`
+- `/sdlc-write-spec #N`
+- `/sdlc-onboard-project`
+- `/sdlc-upgrade-project`
+- `/sdlc-execute [#N …]`
+- `/sdlc-status`
 
 ## Plan-mode entry
 

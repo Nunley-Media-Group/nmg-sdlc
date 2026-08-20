@@ -1,6 +1,6 @@
 ---
 name: status
-description: "Inspect and report current SDLC lifecycle state without mutation. Accepts --json. Recommends /skill:execute when approved spec exists and issue unblocked; /plan /skill:write-spec #N when ready issue lacks approved spec. Use /skill:status [--json]"
+description: "Inspect and report current SDLC lifecycle state without mutation. Accepts --json. Recommends /sdlc-execute when approved spec exists and issue unblocked; /sdlc-write-spec #N when ready issue lacks approved spec. Use /sdlc-status [--json]"
 ---
 
 # Status
@@ -12,7 +12,7 @@ Read-only lifecycle report. Delegates to bundled scripts/sdlc-status.mjs .
 Only empty or exactly `--json` accepted.
 
 Any other → print:
-Usage: /skill:status [--json]
+Usage: /sdlc-status [--json]
 and exit non-zero.
 
 ## Execution
@@ -34,8 +34,10 @@ Depends-on blocked/ready state from parseBodyRelationships is retained.
 
 ## Recommendations (from evidence)
 
-- If first ready (unblocked by Depends-on) issue has approved spec/{N}-*/ (Status Approved + Issue match): recommend `/skill:execute`
-- Else if ready issue exists but no approved spec: recommend `/plan /skill:write-spec #N`
+- If first ready (unblocked by Depends-on) issue has approved spec/{N}-*/ (Status Approved + Issue match): recommend `/sdlc-execute`
+- Else if implementation exists without current verification: recommend `/sdlc-verify-code #N`
+- Else if verification passed or a PR is in flight: recommend `/sdlc-open-pr #N`
+- Else if ready issue exists but no approved spec: recommend `/sdlc-write-spec #N`
 - Report current step from run.json or inferred (start/implement/verify/deliver or blocked).
 - Dirty tree, unmerged PR etc reported as state.
 

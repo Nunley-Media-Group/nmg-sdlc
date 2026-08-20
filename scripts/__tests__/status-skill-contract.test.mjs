@@ -15,10 +15,10 @@ describe('status skill contract', () => {
     expect(keys).toEqual(['name', 'description']);
   });
 
-  it('documents /skill:status [--json] and execute/write-spec recommendations', () => {
-    expect(source).toContain('Usage: /skill:status [--json]');
-    expect(source).toContain('/skill:execute');
-    expect(source).toContain('/plan /skill:write-spec #N');
+  it('documents /sdlc-status [--json] and execute/write-spec recommendations', () => {
+    expect(source).toContain('Usage: /sdlc-status [--json]');
+    expect(source).toContain('/sdlc-execute');
+    expect(source).toContain('/sdlc-write-spec #N');
     expect(source).not.toContain('request_user_input');
     expect(source).not.toContain('$nmg-sdlc:');
     expect(source).not.toContain('epicAuthority');
