@@ -191,10 +191,13 @@ describe('publish-approved-spec', () => {
     expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(first);
   });
 
-  it('prepare passes --base default to gh issue develop', () => {
+  it('prepare cuts {N}-{slug} from origin/default without gh issue develop', () => {
     const { root, env } = makeRepo();
+    const main = git(root, ['rev-parse', 'origin/main']).trim();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain('--base main');
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
+    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(main);
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('issue develop');
   });
 
   it('merge squash-merges a docs-only PR into the default branch without Closes', () => {

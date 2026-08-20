@@ -100,20 +100,18 @@ function ensureOnBranch(issueN, name) {
     fail('dirty_tree', { porcelain: dirty });
   }
   const base = readDefaultBranch();
-  const developed = run('gh', [
-    'issue',
-    'develop',
-    String(issueN),
-    '--checkout',
-    '--name',
-    name,
-    '--base',
-    base,
-  ]);
-  if (developed.status !== 0 || currentBranch() !== name) {
+  const fetched = git(['fetch', 'origin', base]);
+  if (fetched.status !== 0) {
     fail('branch_checkout_failed', {
-      stderr: developed.stderr || '',
-      stdout: developed.stdout || '',
+      stderr: fetched.stderr || '',
+      stdout: fetched.stdout || '',
+    });
+  }
+  const checkedOut = git(['checkout', '-B', name, `origin/${base}`]);
+  if (checkedOut.status !== 0 || currentBranch() !== name) {
+    fail('branch_checkout_failed', {
+      stderr: checkedOut.stderr || '',
+      stdout: checkedOut.stdout || '',
     });
   }
 }

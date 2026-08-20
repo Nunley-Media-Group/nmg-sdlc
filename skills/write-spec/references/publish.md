@@ -19,7 +19,7 @@ JSON stdout. Non-zero plus `reasonCode` on failure. Never force-push. Never `git
 
 `prepare` and `commit-push` abort with `dirty_tree` when `git status --porcelain` is non-empty and the current branch is not already `{N}-{slug}`. They print the porcelain. Do not stash, discard, or guess another branch.
 
-If current ≠ `{N}-{slug}` they run `gh issue develop N --checkout --name {N}-{slug} --base <defaultBranch>` (same argv as start-issue Step 5). `<defaultBranch>` comes from `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`. Empty → `default_branch_unreadable`. Current still wrong → `branch_checkout_failed`. Stop; do not write files on prepare failure.
+If current ≠ `{N}-{slug}` they fetch the default branch and run `git checkout -B {N}-{slug} origin/<defaultBranch>`. Do not call `gh issue develop` here — that development-links the branch and a later spec merge would auto-close #N. `<defaultBranch>` comes from `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`. Empty → `default_branch_unreadable`. Current still wrong → `branch_checkout_failed`. Stop; do not write files on prepare failure. start-issue still uses `gh issue develop … --base <defaultBranch>` for implementation.
 
 ## Commit subject and push
 
