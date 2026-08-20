@@ -105,7 +105,7 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 - A visual workflow dashboard
 - A plugin-owned background execution service
 - Epic types, labels, or aggregate spec directories as current product
-- Codex `$` invocation as the documented interface
+- Spike types, labels, ADR-only specs, or spike skip paths as current product
 
 ---
 
@@ -158,8 +158,8 @@ It is not a Codex plugin. Users invoke `/plan /skill:…` and `/skill:execute` t
 ### Skill Pipeline Contracts
 
 ```text
-draft-issue        → ordinary feature, bug, or spike issues
-write-spec         → approved specs/{N}-{slug}/ or spike ADR
+draft-issue        → ordinary feature or bug issues
+write-spec         → approved specs/{N}-{slug}/
 execute            → Herdr worker pipeline to exact-head merge
 start-issue        → linked branch and In Progress status
 write-code         → implementation covering approved tasks + bundled simplify

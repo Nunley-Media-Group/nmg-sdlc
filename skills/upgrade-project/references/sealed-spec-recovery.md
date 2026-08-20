@@ -1,3 +1,3 @@
 # Sealed (v3)
 
-Spike ADRs and normal specs only. No sealed umbrella.
+Ordinary `specs/{N}-{slug}/` packages only. No sealed umbrella. No spike ADR-only packages.

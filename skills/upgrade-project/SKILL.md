@@ -27,6 +27,8 @@ Run /plan /skill:upgrade-project
 
 5. Epic flatten: specs/epic-*/ + epic-link → per child {childN}-slug with **Issue** #child , historical note in owner; delete epic dirs/links. Convert edges to Depends on: body lines. Propose label clean only on explicit ask.
 
+6. Leftover spikes: convert unmarked spike ADRs under docs/decisions/ into Draft specs/{N}-{slug}/ four-file packages and stamp `**SDLC-Migrated**` on the ADR. Delete leftover spike-researcher/template files. Remove Spike from the issue form. Unparseable ADRs stay unverifiable.
+
 7. v2 cleanup: sdlc-config.json , legacy runner indicator file, legacy runner state , managed .gitignore blocks → propose delete.
 
 8. This repo specs/ handled same.

@@ -19,9 +19,8 @@ There is no `--major` CLI flag and no interactive version gate.
 |-------|------|
 | `bug` | patch |
 | `enhancement` | minor |
-| `spike` | skip |
 
-Default unmatched issues to minor. Never infer major.
+Default unmatched issues to minor. Never infer major. A leftover `spike` label is unmatched and defaults to minor.
 
 ## Approved major note
 

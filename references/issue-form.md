@@ -48,7 +48,7 @@ The form must capture these sections in the resulting GitHub issue body:
 | Field | Required |
 |-------|----------|
 | Issue Type | Yes |
-| User Story or Bug/Spike Context | Yes |
+| User Story or Bug Context | Yes |
 | Current State / Background | Yes |
 | Acceptance Criteria | Yes |
 | Functional Requirements | Yes |
@@ -56,7 +56,7 @@ The form must capture these sections in the resulting GitHub issue body:
 | Priority | Yes |
 | Additional Notes | No |
 
-Issue Type options are exactly `Feature / Enhancement`, `Bug`, and `Spike`. There is no Epic option.
+Issue Type options are exactly `Feature / Enhancement` and `Bug`. There is no Epic or Spike option.
 
 Executable feature/bug acceptance guidance must use Given/When/Then examples so `/plan /skill:write-spec #N` can translate each criterion into a Gherkin scenario. There is no epic type, epic markdown block, EO outcome list, or child-plan table.
 

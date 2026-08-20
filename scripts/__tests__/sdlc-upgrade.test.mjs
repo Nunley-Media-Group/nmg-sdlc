@@ -101,3 +101,38 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/requirements.md'), 'utf8')).not.toMatch(/\*\*Issues\*\*/);
   });
 });
+
+describe('sdlc-upgrade leftover spikes', () => {
+  it('converts a spike ADR into an ordinary spec and marks the ADR migrated', () => {
+    const root = makeRoot();
+    write(root, 'docs/decisions/2026-08-01-evaluate-cache.md', [
+      '# Spike: Evaluate cache',
+      '',
+      '**Issue**: #11',
+      '',
+      'Research notes.',
+    ].join('\n'));
+
+    const ids = detectUpgrade(root).items.filter((item) => item.kind === 'spike-flatten').map((item) => item.id);
+    expect(ids).toEqual(['spike-flatten:docs/decisions/2026-08-01-evaluate-cache.md']);
+    applyUpgrade(root, ids);
+
+    expect(fs.existsSync(path.join(root, 'specs/11-evaluate-cache/requirements.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(root, 'specs/11-evaluate-cache/requirements.md'), 'utf8')).toContain('**Issue**: #11');
+    expect(fs.readFileSync(path.join(root, 'specs/11-evaluate-cache/feature.gherkin'), 'utf8')).toContain('**Status**: Draft');
+    expect(fs.readFileSync(path.join(root, 'docs/decisions/2026-08-01-evaluate-cache.md'), 'utf8')).toContain('**SDLC-Migrated**: specs/11-evaluate-cache');
+    expect(detectUpgrade(root).items.filter((item) => item.kind === 'spike-flatten')).toEqual([]);
+  });
+
+  it('does not stamp an unrelated colliding directory', () => {
+    const root = makeRoot();
+    write(root, 'docs/decisions/2026-08-01-evaluate-cache.md', '# Spike\n\n**Issue**: #11\n');
+    write(root, 'specs/11-evaluate-cache/requirements.md', '# Other\n\n**Issue**: #99\n');
+
+    const item = detectUpgrade(root).items.find((entry) => entry.kind === 'spike-flatten');
+    expect(item.actionable).toBe(false);
+    const result = applyUpgrade(root, [item.id]);
+    expect(result.results[0].status).toBe('skipped:collision');
+    expect(fs.readFileSync(path.join(root, 'docs/decisions/2026-08-01-evaluate-cache.md'), 'utf8')).not.toContain('**SDLC-Migrated**');
+  });
+});

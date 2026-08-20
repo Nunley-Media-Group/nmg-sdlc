@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: "Create BDD specifications for an executable GitHub issue. Use when `/plan /skill:write-spec #N`. Spike produces ADR only. Feature/bug produce requirements+design+tasks+gherkin. Third step after draft; precedes execute."
+description: "Create BDD specifications for an executable GitHub issue. Use when `/plan /skill:write-spec #N`. Feature/bug produce requirements+design+tasks+gherkin. Third step after draft; precedes execute."
 ---
 
 # Write Spec
@@ -35,7 +35,7 @@ Use glob `specs/${N}-*/` (or read gh issue for title if needed to derive slug).
 
 Never write into a directory whose leading number != N.
 
-Read gh issue #N --json title,body,labels,state to get title, check labels for spike/bug, check state.
+Read gh issue #N --json title,body,labels,state to get title, check labels for bug, check state.
 
 If the dir exists and has **Status**: Approved and the issue is closed/merged: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
 
@@ -43,13 +43,11 @@ If open or undelivered: rewrite in place and (later) append revision to Change H
 
 ## Classification from labels / body
 
-- spike label → spike path
-
 - bug label → bug path (defect templates)
 
 - else feature
 
-Precedence spike > bug.
+Never treat a leftover `spike` label as a separate path. `upgrade-project` converts leftover spike artifacts. This skill always writes an ordinary `specs/{N}-{slug}/` package.
 
 ## Interview (max 3 asks total)
 
@@ -57,17 +55,7 @@ Use ask (rec first) only for prefs if any (e.g. confirm slug on conflict, or sco
 
 No review gates (deleted 3 gates, epic role, umbrella).
 
-## For Spike
-
-Plan contains:
-
-- ADR path: docs/decisions/{YYYY-MM-DD}-{slug}.md
-
-- full ADR body (gap analysis from issue + steering + research via read/glob)
-
-No Gherkin, no specs/ dir created.
-
-## For Feature / Bug
+## Feature / Bug package
 
 Plan Approach section includes the **full text** of:
 
@@ -78,6 +66,17 @@ Plan Approach section includes the **full text** of:
 - tasks.md
 
 - feature.gherkin
+
+Every written file, including `feature.gherkin` and defect variants, must carry:
+
+```
+**Issue**: #N
+**Date**: YYYY-MM-DD
+**Status**: Draft
+**Author**: ...
+```
+
+Approval rewrites **Status** to Approved on all four files. Defect `tasks.md` and defect Gherkin use Draft | Approved only — never Planning / In Progress / Complete / In Review.
 
 Use templates from templates/ (read at runtime), fill from issue body + steering + investigation (read steering/*, glob source for patterns).
 
@@ -97,13 +96,11 @@ Content includes:
 
 - title
 
-- classification: feature|bug|spike
+- classification: feature|bug
 
-- targetDir or adrPath
+- targetDir
 
-- For feature/bug: the full file contents to write on approval
-
-- For spike: the adrPath and full body
+- the full file contents to write on approval
 
 - frontmatter rules: singular **Issue**, Status Approved on approval
 
@@ -113,7 +110,7 @@ Content includes:
 
 - Set **Status**: Approved on every spec file written.
 
-- For feature/bug also ensure specs/{N}-slug/ dir.
+- Ensure specs/{N}-slug/ exists and contains all four required files.
 
 - Fail closed if any written file has **Issue** field != #N .
 
@@ -134,7 +131,7 @@ to xd://propose
 ## Integration with SDLC Workflow
 
 ```
-/plan /skill:write-spec #N   →   (approved plan writes specs/{N}-slug/ or ADR)   →   /skill:execute #N
+/plan /skill:write-spec #N   →   (approved plan writes specs/{N}-slug/)   →   /skill:execute #N
      ▲ You are here
 ```
 

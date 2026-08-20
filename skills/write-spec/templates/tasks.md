@@ -301,8 +301,9 @@ Before moving to IMPLEMENT phase:
 
 **Issue**: #[number]
 **Date**: [YYYY-MM-DD]
-**Status**: Planning | In Progress | Complete
+**Status**: Draft | Approved
 **Author**: [name]
+**Related Spec**: specs/{M}-{slug}/
 
 ---
 

@@ -58,14 +58,18 @@ node scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
    - GitHub proposals (separate items): remove `epic` / `epic-child-of-N` labels and native sub-issue parent links. These apply ONLY when the approved item id for that github action is included.
    - Convert remaining real execution edges (non-coordination) into `Depends on:` body lines (reuse `parseBodyRelationships` contract; do not fork the regex).
 
-6. **Frontmatter normalization**
+6. **Leftover spikes**
+   - Signals: unmarked `docs/decisions/*.md` whose first 4k contains `spike`; leftover `agents/spike-researcher.md` / spike templates; issue form `Spike` option.
+   - Convert parseable ADRs into Draft `specs/{N}-{slug}/` four-file packages and stamp `**SDLC-Migrated**: specs/{N}-{slug}/` on the ADR. Skip already-stamped ADRs.
+   - If the target dir exists: stamp only when all four files have matching `**Issue**: #N`; otherwise `skipped:collision`.
+   - Unparseable ADRs are unverifiable.
+7. **Frontmatter normalization**
    - Plural `**Issues**` → singular `**Issue**` (N must match target directory leading number).
-   - Status `Amended` → `Approved` (if verification-report.md present in the source) else `Draft` (open without report).
-   - Applied as part of rename/split/flatten, or as standalone fix items for already-N dirs that still carry plural/Amended.
-
-7. **Repeat run (already current)**
-   - All specs are `specs/{N}-{slug}/` with matching singular `**Issue**: #N`, no `specs/epic-*`, no `epic-link.json`/`epic-scope.json`/`issue-scope.json` at any specs/ depth.
-8. **v2 runner cleanup (kept)**
+   - Status `Amended` / `Planning` / `In Review` → `Approved` if verification-report.md present, else `Draft`.
+   - Applied as part of rename/split/flatten, or as standalone fix items for already-N dirs that still carry plural/Amended. Includes `feature.gherkin`.
+8. **Repeat run (already current)**
+   - All specs are `specs/{N}-{slug}/` with matching singular `**Issue**: #N`, no `specs/epic-*`, no leftover unmarked spike ADRs, no `epic-link.json`/`epic-scope.json`/`issue-scope.json` at any specs/ depth.
+9. **v2 runner cleanup (kept)**
    - Exact paths: `sdlc-config.json`, the legacy v2 runner indicator file, the legacy v2 runner state file.
    - Managed `.gitignore` blocks under headers `# SDLC runner config`, `# SDLC runner artifacts`.
    - Delete only exact regular files; never inspect contents or follow symlinks into state.

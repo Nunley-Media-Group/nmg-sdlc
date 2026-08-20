@@ -268,9 +268,9 @@ Before moving to TASKS phase:
 
 **Issue**: #[number]
 **Date**: [YYYY-MM-DD]
-**Status**: Draft | In Review | Approved
+**Status**: Draft | Approved
 **Author**: [name]
-
+**Related Spec**: specs/{M}-{slug}/
 ---
 
 ## Root Cause

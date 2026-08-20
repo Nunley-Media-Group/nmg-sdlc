@@ -56,7 +56,7 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
 
     for (const label of [
       'Issue Type',
-      'User Story or Bug/Spike Context',
+      'User Story or Bug Context',
       'Current State / Background',
       'Acceptance Criteria',
       'Functional Requirements',
@@ -71,7 +71,7 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
     const issueType = byLabel.get('Issue Type')?.block;
     expect(issueType).toContain('Feature / Enhancement');
     expect(issueType).toContain('Bug');
-    expect(issueType).toContain('Spike');
+    expect(issueType).not.toContain('Spike');
     expect(issueType).not.toContain('Epic');
     const criteria = byLabel.get('Acceptance Criteria')?.block;
     expect(criteria).toContain('Given');
@@ -118,8 +118,8 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
     expect(contract).toContain('Preserve every unrelated file under `.github/ISSUE_TEMPLATE/` byte-for-byte');
     expect(contract).toContain('`onboard-project` applies the form after steering exists');
     expect(contract).toContain('`upgrade-project` presents missing or differing issue-form findings');
-    expect(contract).toContain('Issue Type options are exactly `Feature / Enhancement`, `Bug`, and `Spike`');
-    expect(contract).toContain('There is no Epic option');
+    expect(contract).toContain('Issue Type options are exactly `Feature / Enhancement` and `Bug`');
+    expect(contract).toContain('There is no Epic or Spike option');
     expect(contract).toContain('/plan /skill:draft-issue');
     expect(contract).toContain('/plan /skill:write-spec #N');
     expect(contract).not.toContain('an epic is coordination-only');

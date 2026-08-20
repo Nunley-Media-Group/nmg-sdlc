@@ -2,8 +2,6 @@
 
 Use ask() max within total 3 question budget for any needed clarification on gaps.
 
-No old gate. No defer-to-spike creation here (draft-issue owns that).
+No old gate. No spike path. Gaps go to ## Open Questions in the plan.
 
-Gaps go to ## Open Questions or spike recommendation in plan.
-
-Spike label bypasses to ADR path.
+A leftover `spike` label is not an ADR bypass. Always author the ordinary four-file package.

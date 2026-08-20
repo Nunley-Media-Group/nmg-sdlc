@@ -11,7 +11,7 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 
 1. Resolve N from arg or current branch name (^\d+-).
 
-2. If issue has spike label: write handoff failed reasonCode "spike_no_code" (no verification for spikes).
+2. A leftover `spike` label is not a skip or fail reason. Verify the approved `specs/{N}-{slug}/` package.
 
 3. Resolve spec dir: glob "specs/", first dir whose basename starts with "N-" (leading number match).
 

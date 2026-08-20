@@ -12,19 +12,10 @@ After prior asks have consumed their slots:
 
 Present one ask:
 
-question: classification === 'bug' ? 'Reproduction and risk?' : (classification === 'spike' ? 'Research focus and output?' : 'Persona, outcome, ACs and scope?')
+question: classification === 'bug' ? 'Reproduction and risk?' : 'Persona, outcome, ACs and scope?'
 
 options (rec first):
-  - "Synthesize directly from the initial description + investigation summary (recommended)"
-  - "Let me adjust the persona / ACs / repro / research questions"
 
-If one slot remains after the above, follow with:
-
-question: "Anything I have not asked that matters?"
-options: [ "No, proceed (recommended)", "Yes — [free text in Other]" ]
-
-A non-empty missed answer is folded in.
-
-## Output
-- interviewAnswers
-No playback confirm, no depth gate, no old input gate, no consecutive revise.
+- "Synthesize directly from the initial description + investigation summary (recommended)"
+- "Focus the next answer on missing acceptance criteria"
+- "Focus the next answer on out-of-scope boundaries"

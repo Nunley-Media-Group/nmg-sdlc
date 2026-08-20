@@ -15,9 +15,7 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
 
    If no N, write failed handoff step:"implement" reasonCode:"no_issue_number" intervention:true
 
-2. Check issue labels for spike:
-   gh issue view N --json labels
-   If "spike" present (any case): write failed handoff reasonCode:"spike_no_code" intervention:true  (spikes use deliver path)
+2. A leftover `spike` label is not a special case. Continue as an ordinary feature/bug implementation. `upgrade-project` converts leftover spike artifacts before new drafts.
 
 3. Resolve spec directory (first matching leading number):
    Use glob tool on path "specs/"
@@ -30,7 +28,7 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
      Extract lines matching ^\*\*Issue\*\*:\s*#?N$   and ^\*\*Status\*\*:\s*Approved$
    If any required file missing the exact match or Status != Approved: write failed handoff reasonCode:"spec_not_approved" intervention:true step:"implement"
 
-   (Spike uses separate ADR path; write-code never implements spikes.)
+
 
 5. Load steering/ for conventions (tech.md, structure.md) using read.
 
@@ -97,7 +95,7 @@ Next: /skill:verify-code #N
 
 ## Failure Modes (always produce handoff before stop)
 
-- Any precondition fail: spec_not_approved, spike_no_code, skill_creator_missing, no_issue_number, etc. with intervention:true
+- Any precondition fail: spec_not_approved, skill_creator_missing, no_issue_number, etc. with intervention:true
 - Edit or test failure that blocks: use "implementation_failed" with summary of blocker.
 
 ## Integration with SDLC Workflow

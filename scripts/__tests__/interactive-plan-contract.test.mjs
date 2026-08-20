@@ -19,13 +19,13 @@ const AUTOMATED = [
 ];
 
 describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
-  it('draft-issue prints the exact /plan line and has no Epic option', () => {
+  it('draft-issue prints the exact /plan line and has no Epic or Spike option', () => {
     const source = read('skills/draft-issue/SKILL.md');
 
     expect(source).toContain('Run /plan /skill:draft-issue');
     expect(source).toContain('Bug');
     expect(source).toContain('Enhancement');
-    expect(source).toContain('Spike');
+    expect(source).not.toMatch(/\bSpike\b/);
     expect(source).toContain('xd://propose');
     expect(source).not.toMatch(/classification[^\n]{0,80}Epic|Epic option|epicRecommended/i);
   });

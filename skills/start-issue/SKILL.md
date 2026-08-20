@@ -1,6 +1,6 @@
 ---
 name: start-issue
-description: "Select an executable GitHub issue, create a linked feature branch, and set it to In Progress. Requires explicit #N. Re-proves Depends on parents. No picker, no milestone gate, no ready-to-start gate, epic label is ordinary. Use when /skill:execute needs to begin delivery for #N."
+description: "Select an executable GitHub issue, create a linked feature branch, and set it to In Progress. Requires explicit #N. Re-proves Depends on parents. No picker, no milestone gate, no ready-to-start gate, leftover spike or epic labels are ordinary. Use when /skill:execute needs to begin delivery for #N."
 ---
 
 # Start Issue
@@ -123,13 +123,11 @@ try {
 
 Failure here is ignored.
 
-### Step 7: Detect Spike for Next Step
+### Step 7: Next Step
 
-```bash
-labels=$(gh issue view N --json labels --jq '.labels[].name' | cat)
-```
+next = "implement"
 
-If labels include "spike" (case-insensitive match), next = "deliver" else next = "implement"
+A leftover `spike` label does not skip implement/verify.
 
 ### Step 8: Write Handoff and Report
 

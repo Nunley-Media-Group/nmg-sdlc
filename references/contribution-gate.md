@@ -28,7 +28,7 @@ Only files containing the managed marker are nmg-sdlc-owned. A file at the appro
 | `steering/product.md`, `steering/tech.md`, `steering/structure.md` | Required steering context |
 | Selected `specs/{N}-{slug}` artifacts | Issue correlation and task evidence |
 | Committed `verification-report.md` or `verification.md` artifacts | Specific verification and path evidence |
-| Correlated issue labels | Spike/ADR reduced-evidence validation |
+
 
 Treat pull-request content, changed paths, issue metadata, and repository files as inert text. Never interpolate them into shell commands or evaluate them as JavaScript.
 
@@ -274,18 +274,7 @@ jobs:
               failures.push(`Invalid docs-only exception: only documentation paths are allowed; invalidating paths: ${summarizePaths(invalidating) || 'none'}.`);
             }
 
-            const spikePathEligible = changedPaths.length > 0
-              && changedPaths.every((path) => ['documentation', 'spec', 'adr'].includes(pathClasses.get(path)));
-            let spikeEligible = false;
-            if (!docsOnlyEligible && spikePathEligible && correlatedIssueNumbers.size > 0) {
-              const labelSets = await Promise.all([...correlatedIssueNumbers].slice(0, MAX_SPEC_DIRECTORIES).map(async (issueNumber) => {
-                const response = await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: issueNumber, per_page: 100 });
-                return response.data.map((label) => typeof label === 'string' ? label : label.name);
-              }));
-              spikeEligible = labelSets.some((labels) => labels.some((label) => String(label).toLowerCase() === 'spike'));
-            }
-
-            const reducedMode = docsOnlyEligible ? 'docs-only' : spikeEligible ? 'spike/ADR' : null;
+            const reducedMode = docsOnlyEligible ? 'docs-only' : null;
 
             if (prIssueNumbers.size === 0) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
@@ -350,9 +339,8 @@ Path diagnostics show at most 20 paths and append the remaining count so large p
 | Mode | Predicate | Reduced checks | Invalidating paths |
 |------|-----------|----------------|--------------------|
 | Documentation-only | Current PR text contains `SDLC-Exception: docs-only — <non-empty reason>` and every changed path is project documentation | Spec correlation, relevant-path mapping, and specific verification are not required | Any source, workflow, script, skill, template, shared reference, spec, ADR, or other non-documentation path |
-| Spike/ADR | At least one PR/spec-correlated issue has the `spike` label and every changed path is documentation, a spec artifact, or `docs/decisions/*.md` | Relevant-path mapping and specific verification are not required | Any source, workflow, script, skill, template, shared reference, or other implementation path |
 
-Use `issues.listLabelsOnIssue` for spike validation. GitHub documents that the endpoint accepts either read-only Issues or read-only Pull requests permission, so the workflow retains its existing minimal permission set.
+There is no spike/ADR reduced-evidence mode. Leftover `spike` labels do not waive verification.
 
 ## Process
 

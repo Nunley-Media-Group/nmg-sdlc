@@ -1,3 +1,3 @@
-# ADR Aging (v3)
+# ADR Aging
 
-Scan docs/decisions/ , git log date, flag >180d as re-spike candidates in retro section.
+Scan docs/decisions/, git log date, flag >180d as stale decision candidates in the retro section. Migrated leftover spike ADRs (`**SDLC-Migrated**`) are historical notes, not a type.

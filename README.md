@@ -98,7 +98,7 @@ Every spec file begins with singular frontmatter:
 /plan /skill:draft-issue "add user authentication"
 ```
 
-Classifies the request (Bug / Enhancement / Spike), investigates relevant code, interviews via native `ask`, drafts BDD acceptance criteria as Given/When/Then plus functional requirements, and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
+Classifies the request (Bug / Enhancement), investigates relevant code, interviews via native `ask`, drafts BDD acceptance criteria as Given/When/Then plus functional requirements, and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
 
 ### Write Specs
 
@@ -106,7 +106,7 @@ Classifies the request (Bug / Enhancement / Spike), investigates relevant code, 
 /plan /skill:write-spec #42
 ```
 
-Creates or updates the executable spec package under `specs/{N}-{slug}/`. For spikes this produces an ADR under `docs/decisions/`. The spec frontmatter is set to `**Status**: Approved`. Spikes do not produce Gherkin.
+Creates or updates the executable spec package under `specs/{N}-{slug}/`. The spec frontmatter is set to `**Status**: Approved`.
 
 ### Automated Delivery
 
@@ -138,7 +138,7 @@ Status reports read-only git state, active spec, verification evidence, issue/PR
 /plan /skill:upgrade-project
 ```
 
-Reconciles steering/spec trees, templates, and managed assets. Detects and proposes (never silently applies) layout modernizations such as legacy spec directory renames, cumulative splits, and removal of obsolete v2 runner files. All changes require explicit per-group approval. Legacy directories remain readable until upgraded.
+Reconciles steering/spec trees, templates, and managed assets. Detects and proposes (never silently applies) layout modernizations such as legacy spec directory renames, cumulative splits, leftover spike conversion, and removal of obsolete v2 runner files. All changes require explicit per-group approval. Legacy directories remain readable until upgraded.
 
 ## Versioning
 
@@ -148,7 +148,6 @@ Reconciles steering/spec trees, templates, and managed assets. Detects and propo
 |---------------|--------------|
 | `bug`         | Patch        |
 | `enhancement` | Minor        |
-| `spike`       | Skip         |
 
 Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: major` line (case-insensitive) inside an approved `requirements.md` or `design.md`. If the issue title/body contains `BREAKING` and that marker is absent, delivery fails closed.
 

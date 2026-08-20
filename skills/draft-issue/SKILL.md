@@ -1,6 +1,6 @@
 ---
 name: draft-issue
-description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when `/plan /skill:draft-issue`. Supports feature, bug and spike templates. First step — next is write-spec."
+description: "Interview user about a feature need, create groomed GitHub issue with BDD acceptance criteria. Use when `/plan /skill:draft-issue`. Supports feature and bug templates. First step — next is write-spec."
 ---
 
 # Draft Issue
@@ -25,7 +25,7 @@ Run /plan /skill:draft-issue
 
 2. If multi-issue signals (see references/multi-issue.md), run detection, then ONE ask to confirm split (options: approve split / adjust / single). Max questions budget: 3 total across whole run.
 
-3. Classification ask (exactly these 3 options, recommended first based on text):
+3. Classification ask (exactly these 2 options, recommended first based on text):
 
    Use ask:
 
@@ -37,9 +37,7 @@ Run /plan /skill:draft-issue
 
    - "Bug — Something is broken or behaving incorrectly"
 
-   - "Spike — Research/evaluation producing a decision (ADR) not code"
-
-   Map to: feature | bug | spike. Never epic.
+   Map to: feature | bug. Never epic. Never spike.
 
 4. Milestone (if root VERSION parses as semver X.Y.Z):
 
@@ -65,8 +63,6 @@ Run /plan /skill:draft-issue
 
    - For bug: search error/func, read files, form root-cause hypothesis.
 
-   - For spike: collect research context from description + steering.
-
    Record signals for depth.
 
 6. Interview (adaptive, but total asks <=3 across all, including above):
@@ -81,7 +77,7 @@ Run /plan /skill:draft-issue
 
 7. Synthesize per classification using the payload templates:
 
-   Read references/feature-template.md | bug-template.md | spike-template.md as execution payload.
+   Read references/feature-template.md | bug-template.md as execution payload.
 
    Fill from understanding + investigation.
 
@@ -91,13 +87,13 @@ Run /plan /skill:draft-issue
 
    Each:
 
-   - classification: feature|bug|spike
+   - classification: feature|bug
 
    - title: verb-first concise
 
    - milestone: "vX" | null
 
-   - labels: ["enhancement"] | ["bug"] | ["spike"]
+   - labels: ["enhancement"] | ["bug"]
 
    - body: full markdown (from template fill + dep lines)
 
@@ -131,6 +127,8 @@ Run /plan /skill:draft-issue
 - Bodies contain the Depends on: / Blocks: lines (parseable later).
 
 - No epic coordination, no fan-out, no child creation inside this skill.
+
+- Leftover spike issues are upgrade inputs, not a draft-issue type.
 
 ## Guidelines
 

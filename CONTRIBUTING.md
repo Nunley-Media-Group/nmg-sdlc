@@ -14,10 +14,10 @@ Existing source files, closed issue specs, and retrospective learnings are proje
 
 ## Issue and Spec Workflow
 
-Start work from a clear GitHub issue with acceptance criteria. Feature, bug, and spike work should flow through nmg-sdlc specs under `specs/`:
+Start work from a clear GitHub issue with acceptance criteria. Feature and bug work should flow through nmg-sdlc specs under `specs/`:
 
 - Use `/plan /skill:draft-issue [need]` for new issue discovery and acceptance-criteria drafting.
-- Use `/plan /skill:write-spec #N` to create or amend the executable spec under `specs/{N}-{slug}/` (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` for features/bugs; ADR for spikes).
+- Use `/plan /skill:write-spec #N` to create or amend the executable spec under `specs/{N}-{slug}/` (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`).
 - Keep specs committed with their feature branches instead of leaving them as untracked local files.
 
 Specs use `specs/{N}-{slug}/` (N = issue number, slug derived from title). Legacy `feature-*` / `bug-*` naming is tolerated only as upgrade input via `/plan /skill:upgrade-project`.
@@ -78,6 +78,5 @@ Reduced-evidence modes are validated contracts, not bypasses:
 | Mode | Declaration and validation | Reduced checks | Still required | Invalidating paths |
 |------|----------------------------|----------------|----------------|--------------------|
 | Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, and all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
-| Spike/ADR | A PR/spec-correlated issue has the `spike` label and every change is documentation, a spec artifact, or `docs/decisions/*.md` | Relevant-path mapping and specific verification | Current issue/spec correlation, steering artifacts and alignment, guide discoverability, and all other checks | Source, workflow, script, skill, template, shared reference, or any other implementation path |
 
 Remove an invalid exception or split invalidating implementation changes into a normally evidenced pull request. A marker, label, or rationale never overrides incompatible changed paths.

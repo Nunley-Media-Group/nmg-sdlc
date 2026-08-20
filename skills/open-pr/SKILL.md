@@ -15,7 +15,7 @@ Resolve specs/N-SLUG/ using first leading-N dir + frontmatter **Issue**:#N **Sta
 
 Read issue full (title, body, labels, state).
 
-If labels contain "spike": skip version bump entirely.
+A leftover `spike` label does not skip the version bump. Classify from the bug/enhancement matrix only.
 
 Check for BREAKING:
 - if title or body contains "BREAKING" (case-insens)
@@ -26,7 +26,7 @@ Read verification report from spec dir. Require local pass or valid pr_evidence_
 
 ## Version Bump (automatic, no gate)
 
-Read steering/tech.md for ## Versioning / bump matrix (label → patch|minor ; default minor; spike→skip).
+Read steering/tech.md for ## Versioning / bump matrix (label → patch|minor ; default minor). There is no spike skip.
 
 Read current VERSION if present.
 

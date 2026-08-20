@@ -45,8 +45,8 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
     expect(template).toContain('hasSpecificVerification');
     expect(template).toContain('Missing specific verification');
     expect(template).toContain('SDLC-Exception');
-    expect(template).toContain('listLabelsOnIssue');
-    expect(template).toContain("label).toLowerCase() === 'spike'");
+    expect(template).not.toContain("label).toLowerCase() === 'spike'");
+    expect(template).not.toContain('listLabelsOnIssue');
     expect(template).not.toContain('const AGGREGATE_ARTIFACTS');
     expect(template).not.toContain('resolveAggregateDirectories');
     expect(template).not.toContain('invalidAggregatePaths');
@@ -92,7 +92,7 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
 
     expect(guide).toContain('specs/{N}-{slug}');
     expect(guide).toContain('SDLC-Exception: docs-only');
-    expect(guide).toContain('Spike/ADR');
+    expect(guide).not.toContain('Spike/ADR');
     expect(changelog).toContain('issue #143');
   });
 });

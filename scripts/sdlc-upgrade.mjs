@@ -184,6 +184,112 @@ function hasAnyIssueScope(root) {
   return scan(specsDir);
 }
 
+function extractIssueFromAdr(content) {
+  const text = String(content || '');
+  const patterns = [
+    /^\*\*Issue\*\*:\s*#?([1-9]\d*)\s*$/m,
+    /^#\s*Issue:\s*#?([1-9]\d*)/m,
+    /\bIssue:\s*#([1-9]\d*)/i,
+    /\bissue\s+#([1-9]\d*)/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
+function isSpikeAdr(content, filename) {
+  const text = String(content || '');
+  if (/^\*\*SDLC-Migrated\*\*:/m.test(text)) return false;
+  const head = `${filename}\n${text.slice(0, 4000)}`;
+  return /\bspike\b/i.test(head);
+}
+function slugFromAdrFilename(filename) {
+  return deriveSlug(String(filename || '').replace(/\.md$/i, '').replace(/^\d{4}-\d{2}-\d{2}-/, ''));
+}
+
+function listSpikeAdrs(root) {
+  const dir = path.join(root, 'docs', 'decisions');
+  if (!isDir(dir)) return [];
+  const found = [];
+  for (const ent of listDir(dir)) {
+    if (!ent.isFile() || !ent.name.endsWith('.md')) continue;
+    const full = path.join(dir, ent.name);
+    const txt = safeRead(full) || '';
+    if (!isSpikeAdr(txt, ent.name)) continue;
+    found.push({
+      name: ent.name,
+      full,
+      rel: `docs/decisions/${ent.name}`,
+      issue: extractIssueFromAdr(txt),
+      slug: slugFromAdrFilename(ent.name),
+      body: txt,
+    });
+  }
+  return found;
+}
+
+function leftoverSpikeBundles(root) {
+  const candidates = [
+    'agents/spike-researcher.md',
+    'skills/draft-issue/references/spike-template.md',
+    'skills/write-spec/references/spike-variant.md',
+  ];
+  return candidates.filter((rel) => isFile(path.join(root, rel)));
+}
+
+function issueFormHasSpike(root) {
+  const p = path.join(root, '.github', 'ISSUE_TEMPLATE', 'nmg-sdlc-ready-issue.yml');
+  const txt = safeRead(p);
+  return Boolean(txt && /^\s*-\s*Spike\s*$/m.test(txt));
+}
+
+function hasLeftoverSpikeArtifacts(root) {
+  return leftoverSpikeBundles(root).length > 0
+    || listSpikeAdrs(root).length > 0
+    || issueFormHasSpike(root);
+}
+
+function seedConvertedSpikeSpec(issueN, slug, adrRel, adrBody) {
+  const date = new Date().toISOString().slice(0, 10);
+  const fm = [
+    `**Issue**: #${issueN}`,
+    `**Date**: ${date}`,
+    '**Status**: Draft',
+    '**Author**: Unknown',
+    `**Related Spec**: ${adrRel}`,
+    '',
+  ].join('\n');
+  const quote = String(adrBody || '').split(/\r?\n/).slice(0, 12).map((line) => `> ${line}`).join('\n');
+  const history = [
+    '',
+    '## Historical spike',
+    '',
+    `Converted from leftover spike ADR \`${adrRel}\`. Research is not an executable type.`,
+    '',
+    quote,
+    '',
+  ].join('\n');
+  return {
+    'requirements.md': `# Requirements: Converted spike #${issueN}\n\n${fm}---\n\n## User Story\n\n**As a** maintainer\n**I want** this leftover spike converted to an ordinary spec\n**So that** execute can require an approved four-file package\n\n## Acceptance Criteria\n\n### AC1: Ordinary spec exists\n\n**Given** leftover spike research\n**When** upgrade converts it\n**Then** specs/${issueN}-${slug}/ exists with singular **Issue**: #${issueN}\n\n## Change History\n\n| Issue | Date | Summary |\n|-------|------|---------|\n| #${issueN} | ${date} | Converted leftover spike ADR |\n${history}`,
+    'design.md': `# Design: Converted spike #${issueN}\n\n${fm}---\n\n## Overview\n\nSeeded from leftover spike ADR \`${adrRel}\`. Replace this design during \`/plan /skill:write-spec #${issueN}\`.\n${history}`,
+    'tasks.md': `# Tasks: Converted spike #${issueN}\n\n${fm}---\n\n### T001: Author the ordinary implementation spec\n\n**File(s)**: \`specs/${issueN}-${slug}/\`\n**Type**: Modify\n**Depends**: None\n**Acceptance**:\n- [ ] \`/plan /skill:write-spec #${issueN}\` rewrites this package as an approved feature or bug spec\n`,
+    'feature.gherkin': `${fm}Feature: Converted leftover spike #${issueN}\n  @SCN001\n  Scenario: Ordinary spec directory exists\n    Given leftover spike research for #${issueN}\n    When upgrade-project is approved for that spike\n    Then specs/${issueN}-${slug}/ exists\n`,
+  };
+}
+
+function isCompleteIssueSpec(dirFull, issueN) {
+  if (!isDir(dirFull) || !Number.isInteger(issueN)) return false;
+  const required = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+  return required.every((name) => {
+    const txt = safeRead(path.join(dirFull, name)) || '';
+    return new RegExp(`^\\*\\*Issue\\*\\*:\\s*#${issueN}\\s*$`, 'm').test(txt);
+  });
+}
+
+
+
 function readSpecFile(dirFull, name) {
   return safeRead(path.join(dirFull, name));
 }
@@ -194,8 +300,6 @@ function hasVerificationReport(dirFull) {
 
 function computeStatusAfter(dirFull, originalStatus) {
   if (hasVerificationReport(dirFull)) return 'Approved';
-  if (originalStatus === 'Amended') return 'Draft';
-  // preserve sane existing or default
   if (originalStatus === 'Approved' || originalStatus === 'Draft') return originalStatus;
   return 'Draft';
 }
@@ -204,11 +308,15 @@ function rewriteFrontmatter(content, targetN, targetStatus) {
   let c = String(content || '');
   c = c.replace(/^\*\*Issues?\*\*:\s*.*$/gm, `**Issue**: #${targetN}`);
   c = c.replace(/^\*\*Status\*\*:\s*.*$/gm, `**Status**: ${targetStatus}`);
+  c = c.replace(/^#\s*Issue:\s*.*$/gm, `**Issue**: #${targetN}`);
   if (!/^\*\*Issue\*\*:/m.test(c)) {
     c = c.replace(/^(# .+)$/m, `$1\n\n**Issue**: #${targetN}\n**Date**: ${new Date().toISOString().slice(0, 10)}\n**Status**: ${targetStatus}\n**Author**: Unknown`);
   }
   if (!/^\*\*Date\*\*:/m.test(c)) {
     c = c.replace(/^(\*\*Issue\*\*:[^\n]*)/m, `$1\n**Date**: ${new Date().toISOString().slice(0, 10)}`);
+  }
+  if (!/^\*\*Status\*\*:/m.test(c)) {
+    c = c.replace(/^(\*\*Date\*\*:[^\n]*)/m, `$1\n**Status**: ${targetStatus}`);
   }
   if (!/^\*\*Author\*\*:/m.test(c)) {
     c = c.replace(/^(\*\*Status\*\*:[^\n]*)/m, `$1\n**Author**: Unknown`);
@@ -598,6 +706,46 @@ function detectUpgrade(root) {
     }
   }
 
+  // 9. Leftover spikes
+  for (const adr of listSpikeAdrs(rootAbs)) {
+    const targetName = adr.issue ? `${adr.issue}-${adr.slug}` : null;
+    const targetRel = targetName ? `specs/${targetName}` : null;
+    const collision = Boolean(targetRel && isDir(path.join(rootAbs, targetRel)));
+    const existingValid = Boolean(targetRel && isCompleteIssueSpec(path.join(rootAbs, targetRel), adr.issue));
+    items.push({
+      id: `spike-flatten:${adr.rel}`,
+      kind: 'spike-flatten',
+      description: adr.issue
+        ? `Convert leftover spike ADR ${adr.rel} into ordinary ${targetRel} (Draft) and mark the ADR migrated.`
+        : `Leftover spike ADR ${adr.rel} has no parseable issue number; choose a target manually.`,
+      from: adr.rel,
+      to: targetRel,
+      issue: adr.issue,
+      slug: adr.slug,
+      collision,
+      existingValid,
+      actionable: Boolean(adr.issue) && (!collision || existingValid),
+    });
+  }
+  for (const rel of leftoverSpikeBundles(rootAbs)) {
+    items.push({
+      id: `spike-remove:${rel}`,
+      kind: 'spike-remove',
+      description: `Delete leftover spike bundle ${rel}.`,
+      rel,
+      actionable: true,
+    });
+  }
+  if (issueFormHasSpike(rootAbs)) {
+    items.push({
+      id: 'spike-issue-form',
+      kind: 'spike-issue-form',
+      description: 'Remove Spike from the managed issue form options.',
+      rel: '.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml',
+      actionable: true,
+    });
+  }
+
   // 7. Repeat-run already current
   const alreadyLinear = specDirs.every((d) => /^\d+-[a-z0-9-]/.test(d.name));
   const fmOk = specDirs.every((d) => {
@@ -605,11 +753,11 @@ function detectUpgrade(root) {
     const ns = extractIssueNumbersFromContent(req);
     return ns.length === 1 && d.name.startsWith(`${ns[0]}-`);
   });
-  if (alreadyLinear && fmOk && !hasEpics && !hasScopes) {
+  if (alreadyLinear && fmOk && !hasEpics && !hasScopes && !hasLeftoverSpikeArtifacts(rootAbs)) {
     items.push({
       id: 'repeat-run-already-current',
       kind: 'already-current',
-      description: 'All specs are linear specs/{N}-{slug}/ with singular **Issue** and no epic/scope artifacts.',
+      description: 'All specs are linear specs/{N}-{slug}/ with singular **Issue** and no epic/scope/spike artifacts.',
       actionable: false,
     });
   }
@@ -689,7 +837,7 @@ function applyFrontmatterFix(root, item) {
   const dirFull = path.join(root, item.rel);
   if (!isDir(dirFull)) return { id: item.id, status: 'skipped:missing' };
   let changed = false;
-  for (const fname of ['requirements.md', 'design.md', 'tasks.md']) {
+  for (const fname of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
     const fp = path.join(dirFull, fname);
     const txt = safeRead(fp);
     if (!txt) continue;
@@ -866,15 +1014,73 @@ function applyV2Cleanup(root, item) {
   }
 }
 
+function stampMigratedSpikeAdr(adrFull, specRel) {
+  const current = safeRead(adrFull) || '';
+  if (/^\*\*SDLC-Migrated\*\*:/m.test(current)) return;
+  const stamp = `**SDLC-Migrated**: ${specRel}\n`;
+  fs.writeFileSync(adrFull, stamp + current);
+}
+
+function applySpikeFlatten(root, item) {
+  if (!item.issue || !item.to) {
+    return { id: item.id, status: 'skipped:unverifiable' };
+  }
+  const toFull = path.join(root, item.to);
+  const adrFull = path.join(root, item.from);
+  const adrBody = safeRead(adrFull) || '';
+  try {
+    if (isDir(toFull)) {
+      if (!isCompleteIssueSpec(toFull, item.issue)) {
+        return { id: item.id, status: 'skipped:collision' };
+      }
+    } else {
+      ensureDir(toFull);
+      const files = seedConvertedSpikeSpec(item.issue, item.slug, item.from, adrBody);
+      for (const [name, body] of Object.entries(files)) {
+        fs.writeFileSync(path.join(toFull, name), body);
+      }
+    }
+    stampMigratedSpikeAdr(adrFull, item.to);
+    return { id: item.id, status: 'applied', created: [item.to] };
+  } catch (e) {
+    return { id: item.id, status: `failed:${e.message}` };
+  }
+}
+
+function applySpikeRemove(root, item) {
+  const p = path.join(root, item.rel);
+  if (!isFile(p)) return { id: item.id, status: 'already-current' };
+  try {
+    fs.unlinkSync(p);
+    return { id: item.id, status: isFile(p) ? 'failed:still-present' : 'applied' };
+  } catch (e) {
+    return { id: item.id, status: `failed:${e.message}` };
+  }
+}
+
+function applySpikeIssueForm(root, item) {
+  const p = path.join(root, item.rel || '.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml');
+  const txt = safeRead(p);
+  if (!txt) return { id: item.id, status: 'skipped:missing' };
+  const updated = txt
+    .replace(/\n\s*-\s*Spike\s*(?:\n|$)/g, '\n')
+    .replace(/feature, bug, or spike/gi, 'feature or bug')
+    .replace(/Bug\/Spike/g, 'Bug')
+    .replace(/\n\s*For spikes:[^\n]*/g, '');
+  if (updated === txt) return { id: item.id, status: 'already-current' };
+  fs.writeFileSync(p, updated);
+  return { id: item.id, status: 'applied' };
+}
+
 function applyUpgrade(root, approvedItemIds = []) {
   const rootAbs = path.resolve(root);
   const report = detectUpgrade(rootAbs);
   const approvedSet = new Set(approvedItemIds);
   const results = [];
 
-  // order: packaging/legacy first (non spec), then renames, splits, flattens, frontmatter, cleanup
+  // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'frontmatter-fix': 5, 'v2-cleanup': 6, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -889,11 +1095,15 @@ function applyUpgrade(root, approvedItemIds = []) {
       res = applyCumulativeSplit(rootAbs, item);
     } else if (item.kind === 'epic-flatten') {
       res = applyEpicFlatten(rootAbs, item);
+    } else if (item.kind === 'spike-flatten') {
+      res = applySpikeFlatten(rootAbs, item);
+    } else if (item.kind === 'spike-remove') {
+      res = applySpikeRemove(rootAbs, item);
+    } else if (item.kind === 'spike-issue-form') {
+      res = applySpikeIssueForm(rootAbs, item);
     } else if (item.kind === 'v2-cleanup') {
       res = applyV2Cleanup(rootAbs, item);
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {
-      // packaging and legacy layout are detected only; actual relocate is still in the skill's legacy path or no-op here.
-      // For v3 contract, report as applied when approved (skill may do the .codex move).
       res = { id: item.id, status: 'applied (detector-only; see upgrade skill for legacy layout)' };
     } else {
       res = { id: item.id, status: 'skipped:unknown-kind' };

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T23:44:36.802Z",
+  "generated_at": "2026-08-20T00:17:42.409Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -34,7 +34,6 @@
       "additional_destinations": [
         "agents/deliverer.md:14",
         "agents/spec-implementer.md:14",
-        "agents/spike-researcher.md:13",
         "agents/starter.md:13"
       ]
     },
@@ -151,30 +150,6 @@
       "destination": "agents/spec-implementer.md:16"
     },
     {
-      "id": "1a1e25e03a47",
-      "source_before": "agents/spike-researcher.md:9",
-      "normalized": "used only when write-spec runs interactively on a spike. execute does not launch",
-      "destination": "agents/spike-researcher.md:9"
-    },
-    {
-      "id": "f8e7e01b29b8",
-      "source_before": "agents/spike-researcher.md:11",
-      "normalized": "read skill://write-spec for the given #n.",
-      "destination": "agents/spike-researcher.md:11"
-    },
-    {
-      "id": "fbe3f6d0b92c",
-      "source_before": "agents/spike-researcher.md:12",
-      "normalized": "produce the adr path and body under docs/decisions/.",
-      "destination": "agents/spike-researcher.md:12"
-    },
-    {
-      "id": "44f82d7dc3bc",
-      "source_before": "agents/spike-researcher.md:14",
-      "normalized": "stop after the adr plan payload is complete.",
-      "destination": "agents/spike-researcher.md:14"
-    },
-    {
       "id": "04683d5d6833",
       "source_before": "agents/starter.md:10",
       "normalized": "you are the nmg-sdlc start worker.",
@@ -200,69 +175,69 @@
     },
     {
       "id": "cbc05ff950ed",
-      "source_before": "references/contribution-gate.md:359",
+      "source_before": "references/contribution-gate.md:347",
       "normalized": "classify the approved workflow path before writing:",
-      "destination": "references/contribution-gate.md:359"
+      "destination": "references/contribution-gate.md:347"
     },
     {
       "id": "5170ccb2e3ab",
-      "source_before": "references/contribution-gate.md:361",
+      "source_before": "references/contribution-gate.md:349",
       "normalized": "| state | detection | action | status |",
-      "destination": "references/contribution-gate.md:361",
+      "destination": "references/contribution-gate.md:349",
       "additional_destinations": [
         "references/issue-form.md:21"
       ]
     },
     {
       "id": "77e0eb1f3c00",
-      "source_before": "references/contribution-gate.md:363",
+      "source_before": "references/contribution-gate.md:351",
       "normalized": "| missing workflow | approved path absent | create .github/workflows/ and write ",
-      "destination": "references/contribution-gate.md:363"
+      "destination": "references/contribution-gate.md:351"
     },
     {
       "id": "315a64db3b91",
-      "source_before": "references/contribution-gate.md:364",
+      "source_before": "references/contribution-gate.md:352",
       "normalized": "| current managed workflow | marker present and version equals current | leave u",
-      "destination": "references/contribution-gate.md:364"
+      "destination": "references/contribution-gate.md:352"
     },
     {
       "id": "2192e94d4b53",
-      "source_before": "references/contribution-gate.md:365",
+      "source_before": "references/contribution-gate.md:353",
       "normalized": "| outdated managed workflow | marker present and numeric version lower than curr",
-      "destination": "references/contribution-gate.md:365"
+      "destination": "references/contribution-gate.md:353"
     },
     {
       "id": "995606a2fd61",
-      "source_before": "references/contribution-gate.md:366",
+      "source_before": "references/contribution-gate.md:354",
       "normalized": "| future managed workflow | marker present and numeric version higher than curre",
-      "destination": "references/contribution-gate.md:366"
+      "destination": "references/contribution-gate.md:354"
     },
     {
       "id": "f54c5e1e9959",
-      "source_before": "references/contribution-gate.md:367",
+      "source_before": "references/contribution-gate.md:355",
       "normalized": "| unmanaged path collision | approved path exists without marker | leave unchang",
-      "destination": "references/contribution-gate.md:367"
+      "destination": "references/contribution-gate.md:355"
     },
     {
       "id": "fc2fa1c0b2ca",
-      "source_before": "references/contribution-gate.md:369",
+      "source_before": "references/contribution-gate.md:357",
       "normalized": "preserve every unrelated workflow under .github/workflows/ byte-for-byte. do not",
-      "destination": "references/contribution-gate.md:369"
+      "destination": "references/contribution-gate.md:357"
     },
     {
       "id": "44f16e69f709",
-      "source_before": "references/contribution-gate.md:380",
+      "source_before": "references/contribution-gate.md:368",
       "normalized": "return this stable result shape to the calling skill:",
-      "destination": "references/contribution-gate.md:380",
+      "destination": "references/contribution-gate.md:368",
       "additional_destinations": [
         "references/issue-form.md:73"
       ]
     },
     {
       "id": "40a524f34bf4",
-      "source_before": "references/contribution-gate.md:389",
+      "source_before": "references/contribution-gate.md:377",
       "normalized": "use these exact status words so summaries and tests can compare results consiste",
-      "destination": "references/contribution-gate.md:389",
+      "destination": "references/contribution-gate.md:377",
       "additional_destinations": [
         "references/issue-form.md:82"
       ]
@@ -308,18 +283,6 @@
       "source_before": "references/issue-form.md:29",
       "normalized": "preserve every unrelated file under .github/issue_template/ byte-for-byte. do no",
       "destination": "references/issue-form.md:29"
-    },
-    {
-      "id": "917025c6bea1",
-      "source_before": "skills/draft-issue/references/interview-depth.md:29",
-      "normalized": "interviewanswers",
-      "destination": "skills/draft-issue/references/interview-depth.md:29"
-    },
-    {
-      "id": "4bc5035c68e1",
-      "source_before": "skills/draft-issue/references/interview-depth.md:30",
-      "normalized": "no playback confirm, no depth gate, no old input gate, no consecutive revise.",
-      "destination": "skills/draft-issue/references/interview-depth.md:30"
     },
     {
       "id": "483c7103c42d",
@@ -784,28 +747,34 @@
       "destination": "skills/start-issue/SKILL.md:124"
     },
     {
-      "id": "7fea64f9d811",
-      "source_before": "skills/start-issue/SKILL.md:132",
-      "normalized": "if labels include \"spike\" (case-insensitive match), next = \"deliver\" else next =",
-      "destination": "skills/start-issue/SKILL.md:132"
+      "id": "d5d588b9c65f",
+      "source_before": "skills/start-issue/SKILL.md:128",
+      "normalized": "next = \"implement\"",
+      "destination": "skills/start-issue/SKILL.md:128"
+    },
+    {
+      "id": "79b3d12fa1b6",
+      "source_before": "skills/start-issue/SKILL.md:130",
+      "normalized": "a leftover spike label does not skip implement/verify.",
+      "destination": "skills/start-issue/SKILL.md:130"
     },
     {
       "id": "88468ec7d793",
-      "source_before": "skills/start-issue/SKILL.md:136",
+      "source_before": "skills/start-issue/SKILL.md:134",
       "normalized": "always write .omp/sdlc/handoffs/${n}-start.json",
-      "destination": "skills/start-issue/SKILL.md:136"
+      "destination": "skills/start-issue/SKILL.md:134"
     },
     {
       "id": "fd132b347f21",
-      "source_before": "skills/start-issue/SKILL.md:160",
+      "source_before": "skills/start-issue/SKILL.md:158",
       "normalized": "output summary:",
-      "destination": "skills/start-issue/SKILL.md:160"
+      "destination": "skills/start-issue/SKILL.md:158"
     },
     {
       "id": "a6327a6f6d37",
-      "source_before": "skills/start-issue/SKILL.md:172",
+      "source_before": "skills/start-issue/SKILL.md:170",
       "normalized": "handoff is the contract. print the nmg line exactly.",
-      "destination": "skills/start-issue/SKILL.md:172"
+      "destination": "skills/start-issue/SKILL.md:170"
     }
   ]
 }

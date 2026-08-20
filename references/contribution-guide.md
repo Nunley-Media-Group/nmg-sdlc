@@ -66,7 +66,7 @@ When `CONTRIBUTING.md` is absent, create it at the project root with this struct
 Generated content must cover:
 
 - Contributors should start work from a clear GitHub issue with acceptance criteria.
-- Feature, bug, and spike implementation should flow through nmg-sdlc specs in `specs/`.
+- Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
 - Contributors should consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before drafting issues, writing specs, or implementing code.
 - Interactive work uses `/plan /skill:draft-issue [need]` and `/plan /skill:write-spec #N`.
 - Automated delivery after an approved spec uses `/skill:execute [#N …]` which drives Herdr omp worker panes through implementation, verification, and delivery.
@@ -80,7 +80,7 @@ Generated content must cover:
 The default guide must include concrete sections or bullets for:
 
 - Issue quality: a linked GitHub issue with a user story or bug context, BDD acceptance criteria (Given/When/Then), scope, and out-of-scope notes.
-- Spec location and frontmatter: executable work uses `specs/{N}-{slug}/` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` (or ADR for spikes) and singular `**Issue**: #N`. Legacy `feature-*` / `bug-*` are upgrade inputs only.
+- Spec location and frontmatter: executable work uses `specs/{N}-{slug}/` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` and singular `**Issue**: #N`. Legacy `feature-*` / `bug-*` are upgrade inputs only.
 - Steering alignment: how the change respects `product.md`, `tech.md`, and `structure.md`.
 - Implementation scope: stay within the approved spec, avoid unrelated refactors, and preserve existing project-owned files.
 - Verification evidence: summarize tests, verification results, steering verification gates, or `verification-report.md`.
@@ -103,7 +103,6 @@ Document the reduced-evidence contracts without presenting them as bypasses:
 | Mode | Declaration and validation | Reduced checks | Still required | Invalidating paths |
 |------|----------------------------|----------------|----------------|--------------------|
 | Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
-| Spike/ADR | A PR/spec-correlated issue has the `spike` label and every change is documentation, a spec artifact, or `docs/decisions/*.md` | Relevant-path mapping and specific verification | Current issue/spec correlation, steering artifacts and alignment, guide discoverability, all other checks | Source, workflow, script, skill, template, shared reference, or any other implementation path |
 
 Tell contributors to remove an invalid exception or split invalidating implementation changes into a normally evidenced PR. A marker, label, or rationale never overrides incompatible changed paths.
 

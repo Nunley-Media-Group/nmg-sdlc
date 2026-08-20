@@ -82,9 +82,8 @@ During the v3 landing, all three are `3.0.0`.
 |-------|-----------|-------------|
 | `bug` | patch | Backwards-compatible defect fix |
 | `enhancement` | minor | Backwards-compatible capability |
-| `spike` | skip | Research ADR only |
 
-Default unmatched issues to minor. Never infer major.
+Default unmatched issues to minor. Never infer major. A leftover `spike` label is unmatched.
 
 Approved major note used by `open-pr`: a line in the approved spec `requirements.md` or `design.md` matching `^\*\*Version bump\*\*:\s*major\s*$` (case-insensitive). If the issue title or body contains `BREAKING` and that line is absent, fail closed with `reasonCode: major_bump_required`. There is no `--major` CLI flag and no interactive version gate.
 
@@ -129,7 +128,6 @@ Files under `agents/` are installable OMP task agents. Required frontmatter: `na
 | `agents/spec-implementer.md` | `spec-implementer` | omit | `["write-code","simplify","skill-creator"]` |
 | `agents/architecture-reviewer.md` | `architecture-reviewer` | `@review` | `["verify-code"]` |
 | `agents/deliverer.md` | `deliverer` | omit | `["open-pr","address-pr-comments"]` |
-| `agents/spike-researcher.md` | `spike-researcher` | omit | `["write-spec"]` |
 
 `execute` does not use the OMP `task` tool for pipeline steps. Herdr sessions are the isolation boundary.
 

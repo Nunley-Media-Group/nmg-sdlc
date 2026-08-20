@@ -451,30 +451,19 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     expect(sourceChange.errors.join('\n')).toContain('invalidating paths: scripts/check-gate.mjs');
   });
 
-  test('applies spike/ADR reduction only for a correlated spike and allowed paths', async () => {
+  test('does not apply a spike/ADR reduced-evidence contract', async () => {
     const directory = 'specs/500-research-gate';
     const files = addSpec(baseRepositoryFiles(), directory, { issue: 500 });
     const scenario = {
       body: `Closes #500\n\nSpec: ${directory}/\n\nSteering: steering/tech.md`,
       changedPaths: [`${directory}/requirements.md`, 'docs/decisions/2026-08-12-gate.md', 'README.md'],
       repositoryFiles: files,
+      issueLabels: { 500: ['spike'] },
     };
 
-    const valid = await runEvaluator({ ...scenario, issueLabels: { 500: ['spike'] } });
-    expect(valid.errors).toEqual([]);
-    expect(valid.infos.join('\n')).toContain('validated spike/ADR reduced-evidence contract');
-    expect(valid.labelCalls).toEqual([500]);
-
-    const missingLabel = await runEvaluator(scenario);
-    expect(missingLabel.errors.join('\n')).toContain('Missing specific verification');
-    expect(missingLabel.infos.join('\n')).not.toContain('reduced-evidence contract');
-
-    const sourceChange = await runEvaluator({
-      ...scenario,
-      changedPaths: [...scenario.changedPaths, 'scripts/research.mjs'],
-      issueLabels: { 500: ['spike'] },
-    });
-    expect(sourceChange.errors.join('\n')).toContain('Unmatched changed paths: scripts/research.mjs');
-    expect(sourceChange.labelCalls).toEqual([]);
+    const result = await runEvaluator(scenario);
+    expect(result.errors.join('\n')).toContain('Missing specific verification');
+    expect(result.infos.join('\n')).not.toContain('spike/ADR');
+    expect(result.labelCalls).toEqual([]);
   });
 });

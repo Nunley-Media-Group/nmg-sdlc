@@ -1,5 +1,5 @@
 name: SDLC-ready issue
-description: Create an executable feature, bug, or spike with SDLC-ready acceptance criteria.
+description: Create an executable feature or bug with SDLC-ready acceptance criteria.
 body:
   - type: dropdown
     id: issue-type
@@ -9,21 +9,19 @@ body:
       options:
         - Feature / Enhancement
         - Bug
-        - Spike
     validations:
       required: true
   - type: textarea
     id: context
     attributes:
-      label: User Story or Bug/Spike Context
-      description: Provide the user story for a feature, reproduction context for a bug, or research context for a spike.
+      label: User Story or Bug Context
+      description: Provide the user story for a feature or reproduction context for a bug.
       placeholder: |
         As a ...
         I want ...
         So that ...
 
         For bugs: describe observed behavior, expected behavior, and reproduction notes.
-        For spikes: describe the decision or gap to research.
     validations:
       required: true
   - type: textarea

@@ -64,9 +64,9 @@ Returns `{ "dir": "specs/N-slug" or null, "approved": bool }`.
 
 A spec dir is resolved by `resolveSpecDir(root, N)`: the unique directory under `specs/` whose name matches `^N-`. Zero or multiple matches → not approved.
 
-A directory counts approved only when at least one of its `.md` / `feature.gherkin` files carries both `**Issue**: #N` (singular) and `**Status**: Approved`.
+A directory counts approved only when every required artifact (`requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`) carries both `**Issue**: #N` (singular) and `**Status**: Approved`.
 
-For spikes the label check (below) decides whether to skip `implement`/`verify`; the ADR under `docs/decisions/` is the approved artifact produced by write-spec.
+There is no spike path. A leftover `spike` label does not skip implement/verify and does not count as an approved ADR.
 
 ## Run state
 
@@ -122,8 +122,7 @@ Process issues in the supplied (or backlog) order. One issue reaches `MERGED` + 
 For current issue:
 
 1. If no approved spec → stop queue, tell user to run `/plan /skill:write-spec #N`.
-2. Fetch labels for the issue (`gh issue view N --json labels`). If it carries the `spike` label, the pipeline is only `start` (if needed) then `deliver`. Skip implement and verify.
-3. Compute the next step to perform:
+2. Compute the next step to perform:
    - Use `nextStep(completedForIssue)` from helper, or inspect last handoff for the issue.
    - If a live agent `sN-*` exists for a prior step of this issue, see Resume rules.
 4. Launch the required worker step (see Worker launch sequence).

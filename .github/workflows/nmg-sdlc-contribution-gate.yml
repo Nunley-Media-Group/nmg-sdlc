@@ -235,18 +235,7 @@ jobs:
               failures.push(`Invalid docs-only exception: only documentation paths are allowed; invalidating paths: ${summarizePaths(invalidating) || 'none'}.`);
             }
 
-            const spikePathEligible = changedPaths.length > 0
-              && changedPaths.every((path) => ['documentation', 'spec', 'adr'].includes(pathClasses.get(path)));
-            let spikeEligible = false;
-            if (!docsOnlyEligible && spikePathEligible && correlatedIssueNumbers.size > 0) {
-              const labelSets = await Promise.all([...correlatedIssueNumbers].slice(0, MAX_SPEC_DIRECTORIES).map(async (issueNumber) => {
-                const response = await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: issueNumber, per_page: 100 });
-                return response.data.map((label) => typeof label === 'string' ? label : label.name);
-              }));
-              spikeEligible = labelSets.some((labels) => labels.some((label) => String(label).toLowerCase() === 'spike'));
-            }
-
-            const reducedMode = docsOnlyEligible ? 'docs-only' : spikeEligible ? 'spike/ADR' : null;
+            const reducedMode = docsOnlyEligible ? 'docs-only' : null;
 
             if (prIssueNumbers.size === 0) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
