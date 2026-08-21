@@ -1,11 +1,11 @@
-# nmg-sdlc 3.0 Repository Rewrite Contract
+# nmg-sdlc 3.1 Repository Rewrite Contract
 
-**Release**: 3.0.0
+**Release**: 3.1.0
 **Runtime**: Oh My Pi
 **Orchestration**: Herdr OMP workers
 **Exception**: `repository-rewrite`
 
-This is the owner-approved current capability contract for the breaking 3.0.0 cutover. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs remain available in Git history and are intentionally absent from the working tree.
+This is the owner-approved current capability contract for the breaking 3.1.0 cutover. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs remain available in Git history and are intentionally absent from the working tree.
 
 The machine-readable source is `references/rewrite-contract.json`. The numeric BDD archive retains only capabilities with genuine matching GitHub issue owners; new rewrite-only behavior is documented here until a future executable issue changes it.
 
@@ -239,4 +239,4 @@ Acceptance:
 
 ## Verification invariant
 
-`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active skill and public command maps to the rewrite contract, deprecated stubs retain their exact redirect, and the contract release matches `VERSION` and `package.json`.
+`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active workflow and public command maps to the rewrite contract, deprecated stubs retain their exact redirect, and the contract release matches `VERSION` and `package.json`.

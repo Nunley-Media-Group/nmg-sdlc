@@ -10,9 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-21
+
 ### Changed (BREAKING)
 
-- **BREAKING CHANGE (3.0.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is `/sdlc-draft-issue`, `/sdlc-write-spec #N`, `/sdlc-execute [#N …]`, and `/sdlc-status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/sdlc-upgrade-project`.
+- **BREAKING CHANGE (3.1.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is `/sdlc-draft-issue`, `/sdlc-write-spec #N`, `/sdlc-execute [#N …]`, and `/sdlc-status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/sdlc-upgrade-project`.
 
 ### Changed
 

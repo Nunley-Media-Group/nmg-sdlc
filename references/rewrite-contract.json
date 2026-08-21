@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "release": "3.0.0",
+  "release": "3.1.0",
   "runtime": "Oh My Pi",
   "orchestrator": "Herdr OMP workers",
   "exception": "repository-rewrite",

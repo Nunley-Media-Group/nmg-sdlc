@@ -1,7 +1,7 @@
-# nmg-sdlc 3.0 Rewrite Verification
+# nmg-sdlc 3.1 Rewrite Verification
 
-**Release**: 3.0.0
-**Verified**: 2026-08-20
+**Release**: 3.1.0
+**Verified**: 2026-08-21
 **Exception**: `repository-rewrite`
 
 ## Decision
@@ -22,6 +22,9 @@ The rewrite is grounded in the branch history rather than a synthetic issue:
 | `f42e83e` | Removed development linking from spec-publication branches. |
 | `b8e83a5` | Passed explicit issue numbers into execute worker prompts. |
 | `1e3f4e0` | Regenerated the skill-inventory baseline for the rewrite. |
+| `8483289` | Relocated loader-discoverable skills to private workflow resources and removed legacy catalog packaging. |
+| `2296e25` | Repaired execute prompt loading through the shared workflow reader. |
+| `798725a` | Hardened status evidence handling after workflow relocation. |
 
 Full predecessor specifications and removed implementation remain recoverable through Git history. The working tree retains only genuinely owned current BDD contracts.
 
@@ -39,7 +42,7 @@ Full predecessor specifications and removed implementation remain recoverable th
 
 ## Verification results
 
-- `cd scripts && npm test` — passed: 32 suites, 272 tests; 1 suite and 1 test skipped.
+- `cd scripts && npm test` — passed: 32 suites, 279 tests; 1 suite and 1 test skipped.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
 - `node scripts/verify-current-specs.mjs` — passed: 15 genuine issue specs, 15 rewrite capabilities, 13 active workflow mappings, 1 deprecated stub.
 - `node scripts/skill-inventory-audit.mjs --check` — passed: 127 items mapped.

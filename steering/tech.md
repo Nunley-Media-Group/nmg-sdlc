@@ -73,7 +73,7 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 | `VERSION` | file text | Source of truth |
 | `package.json` | `version` | OMP plugin manifest version |
 
-During the v3 landing, both files are `3.0.0`.
+During the v3 landing, both files are `3.1.0`.
 
 ### Version Bump Classification
 
