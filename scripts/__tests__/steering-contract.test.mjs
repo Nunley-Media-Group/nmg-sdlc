@@ -42,6 +42,7 @@ describe('repo steering contract (v3)', () => {
     expect(structure).toContain('package.json');
     expect(structure).toContain('src/extension.ts');
     expect(structure).not.toContain('.codex-plugin/');
+    expect(structure).not.toContain('.claude-plugin/');
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
@@ -53,15 +54,15 @@ describe('repo steering contract (v3)', () => {
     expect(`${tech}\n${structure}`).not.toMatch(/\[(?:convention|example|token)\]/);
   });
 
-  test('documents OMP skills and installable agents', () => {
+  test('documents private workflows and installable agents', () => {
     const tech = read('steering/tech.md');
-    const skillFiles = markdownFiles('skills', 'SKILL.md');
+    const skillFiles = markdownFiles('workflows', 'WORKFLOW.md');
     const agentDirectory = path.join(repoRoot, 'agents');
     const agentFiles = fs.readdirSync(agentDirectory)
       .filter((name) => name.endsWith('.md'))
       .map((name) => path.join(agentDirectory, name));
 
-    expect(tech).toContain('SKILL.md frontmatter declares only `name` and `description`');
+    expect(tech).toContain('WORKFLOW.md frontmatter declares only `name` and `description`');
     expect(tech).toContain('installable OMP task agents');
     expect(tech).not.toContain('allowedTools');
     expect(tech).not.toContain('disallowedTools');

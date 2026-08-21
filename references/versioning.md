@@ -8,7 +8,6 @@
 |------|-------|
 | `VERSION` | file text |
 | `package.json` | `version` |
-| `.claude-plugin/plugin.json` | `version` |
 | `CHANGELOG.md` | `[Unreleased]` → versioned heading |
 
 There is no `--major` CLI flag and no interactive version gate.

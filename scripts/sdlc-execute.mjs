@@ -15,9 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { parseBodyRelationships } from './epic-relationships.mjs';
+import { workflowBody } from '../src/sdlc-workflows.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
@@ -41,17 +41,6 @@ function usageError() {
   return 'Usage: /sdlc-execute [#N ...]';
 }
 
-function stripWorkflowFrontmatter(source) {
-  return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-}
-
-function readWorkflowBody(name) {
-  const file = join(__dirname, '..', 'skills', name, 'SKILL.md');
-  if (!existsSync(file)) {
-    throw new Error(`missing workflow: ${name}`);
-  }
-  return stripWorkflowFrontmatter(readFileSync(file, 'utf8'));
-}
 
 export function parseArgs(input = '') {
   const trimmed = String(input || '').trim();
@@ -364,7 +353,8 @@ export function writeRun(runData, root = process.cwd()) {
   const p = join(root, RUN_FILE);
   const d = dirname(p);
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
-  if (!existsSync(HANDOFF_DIR)) mkdirSync(HANDOFF_DIR, { recursive: true });
+  const handoffDir = join(root, HANDOFF_DIR);
+  if (!existsSync(handoffDir)) mkdirSync(handoffDir, { recursive: true });
   const content = JSON.stringify(runData, null, 2) + '\n';
   writeFileSync(p, content);
 }
@@ -387,7 +377,7 @@ export function workerPrompt({ step, issue, skill } = {}) {
   const skillName = skill || STEP_SKILL[step];
   if (!skillName) throw new Error('no skill for step');
   const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [readWorkflowBody(skillName), ...extras.map(readWorkflowBody)];
+  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))];
   return [
     `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
     `Execute the following inlined workflow for #${issue} with no user questions.`,

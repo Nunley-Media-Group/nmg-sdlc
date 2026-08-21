@@ -1,11 +1,11 @@
-# nmg-sdlc 3.0 Repository Rewrite Contract
+# nmg-sdlc 3.1 Repository Rewrite Contract
 
-**Release**: 3.0.0
+**Release**: 3.1.0
 **Runtime**: Oh My Pi
 **Orchestration**: Herdr OMP workers
 **Exception**: `repository-rewrite`
 
-This is the owner-approved current capability contract for the breaking 3.0.0 cutover. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs remain available in Git history and are intentionally absent from the working tree.
+This is the owner-approved current capability contract for the breaking 3.1.0 cutover. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs remain available in Git history and are intentionally absent from the working tree.
 
 The machine-readable source is `references/rewrite-contract.json`. The numeric BDD archive retains only capabilities with genuine matching GitHub issue owners; new rewrite-only behavior is documented here until a future executable issue changes it.
 
@@ -14,7 +14,7 @@ The machine-readable source is `references/rewrite-contract.json`. The numeric B
 Resolve eligible automated review threads while preserving human ownership and exact-head safety.
 
 - Surface: `automated review remediation stage`
-- Sources: `skills/address-pr-comments/`
+- Sources: `workflows/address-pr-comments/`
 - Verification: `scripts/__tests__/open-pr-delivery-contract.test.mjs`
 
 Acceptance:
@@ -45,7 +45,7 @@ Acceptance:
 Interview for a feature or bug and create one executable GitHub issue with BDD acceptance criteria.
 
 - Surface: `/sdlc-draft-issue`
-- Sources: `skills/draft-issue/`
+- Sources: `workflows/draft-issue/`
 - Verification: `scripts/__tests__/exercise-issue-form.test.mjs`
 
 Acceptance:
@@ -59,7 +59,7 @@ Acceptance:
 Orchestrate approved issue delivery through isolated sibling Herdr OMP workers.
 
 - Surface: `/sdlc-execute [#N ...]`
-- Sources: `skills/execute/`, `scripts/sdlc-execute.mjs`, `agents/`
+- Sources: `workflows/execute/`, `scripts/sdlc-execute.mjs`, `agents/`
 - Verification: `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-commands.test.mjs`
 
 Acceptance:
@@ -89,7 +89,7 @@ Acceptance:
 Initialize greenfield or reconcile brownfield projects with current steering, spec, contribution, and OMP contracts.
 
 - Surface: `/sdlc-onboard-project`
-- Sources: `skills/onboard-project/`
+- Sources: `workflows/onboard-project/`
 - Verification: `scripts/__tests__/exercise-contribution-gate.test.mjs`, `scripts/__tests__/steering-contract.test.mjs`
 
 Acceptance:
@@ -104,7 +104,7 @@ Acceptance:
 Deliver one verified issue through exact-head pull-request merge and issue closure.
 
 - Surface: `/sdlc-open-pr #N`
-- Sources: `skills/open-pr/`, `skills/address-pr-comments/`
+- Sources: `workflows/open-pr/`, `workflows/address-pr-comments/`
 - Verification: `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-commands.test.mjs`
 
 Acceptance:
@@ -119,7 +119,7 @@ Acceptance:
 Preserve a strict migration alias while upgrades detect and propose current OMP contract repairs.
 
 - Surface: `/sdlc-migrate-project and /sdlc-upgrade-project`
-- Sources: `skills/migrate-project/`, `skills/upgrade-project/`, `scripts/sdlc-upgrade.mjs`
+- Sources: `workflows/migrate-project/`, `workflows/upgrade-project/`, `scripts/sdlc-upgrade.mjs`
 - Verification: `scripts/__tests__/sdlc-upgrade.test.mjs`
 
 Acceptance:
@@ -134,7 +134,7 @@ Acceptance:
 Analyze new or changed defect specs incrementally and update steering/retrospective.md without changing delivery state.
 
 - Surface: `/sdlc-run-retro`
-- Sources: `skills/run-retro/`
+- Sources: `workflows/run-retro/`
 - Verification: `scripts/__tests__/`
 
 Acceptance:
@@ -148,7 +148,7 @@ Acceptance:
 Apply worthwhile behavior-preserving cleanup to the changed implementation surface.
 
 - Surface: `automated simplify stage`
-- Sources: `skills/simplify/`
+- Sources: `workflows/simplify/`
 - Verification: `scripts/__tests__/simplify-contract.test.mjs`
 
 Acceptance:
@@ -163,7 +163,7 @@ Acceptance:
 Start one explicit executable issue on a clean linked branch after proving dependencies.
 
 - Surface: `automated start stage`
-- Sources: `skills/start-issue/`
+- Sources: `workflows/start-issue/`
 - Verification: `scripts/__tests__/start-issue-selection-contract.test.mjs`
 
 Acceptance:
@@ -178,7 +178,7 @@ Acceptance:
 Report current SDLC lifecycle evidence and the exact next action without mutation.
 
 - Surface: `/sdlc-status [--json]`
-- Sources: `skills/status/`, `scripts/sdlc-status.mjs`
+- Sources: `workflows/status/`, `scripts/sdlc-status.mjs`
 - Verification: `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__tests__/status-skill-contract.test.mjs`
 
 Acceptance:
@@ -193,7 +193,7 @@ Acceptance:
 Verify the current implementation against its approved spec and emit durable delivery evidence.
 
 - Surface: `/sdlc-verify-code #N`
-- Sources: `skills/verify-code/`, `agents/architecture-reviewer.md`
+- Sources: `workflows/verify-code/`, `agents/architecture-reviewer.md`
 - Verification: `scripts/__tests__/plugin-surface-verification.test.mjs`
 
 Acceptance:
@@ -208,7 +208,7 @@ Acceptance:
 Implement an approved issue spec in task order and perform in-process behavior-preserving simplification.
 
 - Surface: `automated implementation stage`
-- Sources: `skills/write-code/`, `agents/spec-implementer.md`
+- Sources: `workflows/write-code/`, `agents/spec-implementer.md`
 - Verification: `scripts/__tests__/sdlc-execute.test.mjs`
 
 Acceptance:
@@ -223,7 +223,7 @@ Acceptance:
 Create, approve, and publish one issue-owned BDD spec package from the default branch.
 
 - Surface: `/sdlc-write-spec #N`
-- Sources: `skills/write-spec/`, `scripts/publish-approved-spec.mjs`
+- Sources: `workflows/write-spec/`, `scripts/publish-approved-spec.mjs`
 - Verification: `scripts/__tests__/publish-approved-spec.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`
 
 Acceptance:
@@ -239,4 +239,4 @@ Acceptance:
 
 ## Verification invariant
 
-`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active skill and public command maps to the rewrite contract, deprecated stubs retain their exact redirect, and the contract release matches `VERSION` and `package.json`.
+`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active workflow and public command maps to the rewrite contract, deprecated stubs retain their exact redirect, and the contract release matches `VERSION` and `package.json`.

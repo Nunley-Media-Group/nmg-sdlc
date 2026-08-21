@@ -35,9 +35,9 @@ function amendmentSlice(relPath, marker) {
 
 describe('bundled simplify contract', () => {
   test('live surfaces use bundled /skill:simplify wording', () => {
-    const skillFiles = walk(path.join(REPO_ROOT, 'skills'), (rel) => (
-      /^skills\/[^/]+\/SKILL\.md$/.test(rel)
-      || /^skills\/[^/]+\/references\/.+\.md$/.test(rel)
+    const skillFiles = walk(path.join(REPO_ROOT, 'workflows'), (rel) => (
+      /^workflows\/[^/]+\/WORKFLOW\.md$/.test(rel)
+      || /^workflows\/[^/]+\/references\/.+\.md$/.test(rel)
     ));
 
     const surfaces = new Map([
@@ -70,8 +70,8 @@ describe('bundled simplify contract', () => {
     expect(violations).toEqual([]);
 
     const requiredMentions = [
-      'skills/simplify/SKILL.md',
-      'skills/write-code/SKILL.md',
+      'workflows/simplify/WORKFLOW.md',
+      'workflows/write-code/WORKFLOW.md',
     ];
 
     for (const rel of requiredMentions) {

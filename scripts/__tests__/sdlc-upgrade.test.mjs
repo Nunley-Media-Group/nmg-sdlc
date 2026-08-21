@@ -136,3 +136,49 @@ describe('sdlc-upgrade leftover spikes', () => {
     expect(fs.readFileSync(path.join(root, 'docs/decisions/2026-08-01-evaluate-cache.md'), 'utf8')).not.toContain('**SDLC-Migrated**');
   });
 });
+
+describe('sdlc-upgrade AGENTS spike language', () => {
+  it('removes exact spike wording while preserving managed content', () => {
+    const root = makeRoot();
+    write(root, 'AGENTS.md', [
+      'agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)',
+      'docs/decisions/               # ADR directory (populated by write-spec for spikes)',
+      '<!-- nmg-sdlc-managed: spec-context -->',
+      '',
+    ].join('\n'));
+
+    expect(detectUpgrade(root).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'agents-spike-language', actionable: true }),
+    ]));
+    const result = applyUpgrade(root, ['agents-spike-language']);
+    const updated = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+
+    expect(result.results[0].status).toBe('applied');
+    expect(updated).toContain('# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)');
+    expect(updated).toContain('# ADR directory');
+    expect(updated).not.toMatch(/spike/i);
+    expect(updated).toContain('<!-- nmg-sdlc-managed: spec-context -->');
+    expect(detectUpgrade(root).items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'agents-spike-language' }),
+    ]));
+  });
+
+  it('leaves AGENTS.md unchanged when spike wording remains unverifiable', () => {
+    const root = makeRoot();
+    const source = [
+      'agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)',
+      'docs/decisions/               # ADR directory (populated by write-spec for spikes)',
+      'spike leftover',
+      '',
+    ].join('\n');
+    write(root, 'AGENTS.md', source);
+
+    expect(detectUpgrade(root).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'agents-spike-language', actionable: true }),
+    ]));
+    const result = applyUpgrade(root, ['agents-spike-language']);
+
+    expect(result.results[0].status).toBe('skipped:unverifiable');
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe(source);
+  });
+});

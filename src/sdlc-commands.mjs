@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
+
+export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 
 export const INTERACTIVE_COMMANDS = [
   ["sdlc-draft-issue", "draft-issue", "Draft a groomed GitHub issue"],
@@ -23,12 +23,6 @@ const INTERACTIVE_SLASH_RE = new RegExp(
   `^/(${INTERACTIVE_COMMANDS.map(([name]) => name).join("|")})(?:\\s+([\\s\\S]*))?$`,
 );
 
-export const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-export function workflowBody(name, root = packageRoot) {
-  const source = readFileSync(join(root, "skills", name, "SKILL.md"), "utf8");
-  return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
-}
 
 export function withArguments(body, args) {
   const trimmed = typeof args === "string" ? args.trim() : "";

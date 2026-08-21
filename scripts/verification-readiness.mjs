@@ -15,9 +15,9 @@ const SPEC_PATTERN = /^specs\/[a-z0-9][a-z0-9-]*$/;
 const HTTP_URL_PATTERN = /^https?:\/\/\S+$/i;
 const IDENTIFIER_PATTERN = /^(?:AC|FR|T|SCN)\d+$/;
 const IMPLEMENTATION_STATUS_PATTERN = /^#{1,6}\s+(?:\*\*)?Implementation Status(?:\*\*)?\s*:\s*(?:\*\*)?(PR Evidence Pending|Pass|Partial|Incomplete|Fail)(?:\*\*)?\s*$/gmi;
-const SCOPE_MARKER_PATTERN = /^<!-- nmg-sdlc-issue-scope: (\{.*\}) -->\s*$/gm;
-const READINESS_MARKER_PATTERN = /^<!-- nmg-sdlc-pr-readiness: (\{.*\}) -->\s*$/gm;
-const DELIVERY_MARKER_PATTERN = /^<!-- nmg-sdlc-delivery-validation: (\{.*\}) -->\s*$/gm;
+const SCOPE_MARKER_PATTERN = /^<!-- nmg-sdlc-issue-scope:\s*([^\r\n]*)$/gm;
+const READINESS_MARKER_PATTERN = /^<!-- nmg-sdlc-pr-readiness:\s*([^\r\n]*)$/gm;
+const DELIVERY_MARKER_PATTERN = /^<!-- nmg-sdlc-delivery-validation:\s*([^\r\n]*)$/gm;
 
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);
@@ -38,7 +38,10 @@ function exactKeys(value, expected) {
 
 function markerPayloads(content, pattern) {
   const values = [];
-  for (const match of String(content).matchAll(pattern)) values.push(match[1]);
+  for (const match of String(content).matchAll(pattern)) {
+    const raw = match[1].trim();
+    values.push(raw.endsWith('-->') ? raw.slice(0, -3).trim() : '');
+  }
   return values;
 }
 

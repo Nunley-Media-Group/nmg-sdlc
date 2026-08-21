@@ -7,16 +7,15 @@
 ## Repository Structure
 
 ```
-package.json                  # OMP plugin manifest (version + omp.extensions + skills dir)
+package.json                  # OMP plugin manifest (version + omp.extensions)
 src/extension.ts              # Extension factory (registers /sdlc-* commands)
-.claude-plugin/plugin.json    # Minimal catalog manifest pointing at ./skills/
-skills/                       # Skill definitions (one directory per skill, SKILL.md entrypoints)
-agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)
-references/                   # Shared reference contracts loaded on demand by skills
+workflows/                    # Private workflow files (one directory per workflow, WORKFLOW.md entrypoints)
+agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)
+references/                   # Shared reference contracts loaded on demand by workflows
 scripts/                      # Deterministic validators, status CLI, exercise runners, and tests
 specs/                        # BDD specs for the plugin's own development cycle (specs/{N}-{slug}/)
 steering/                     # Product, tech, and structure steering documents
-docs/decisions/               # ADR directory (populated by write-spec for spikes)
+docs/decisions/               # ADR directory
 VERSION                       # Version source (kept in sync with package.json)
 CHANGELOG.md                  # Keep an [Unreleased] section for pending changes
 README.md                     # Public docs: workflow, installation, skills reference
@@ -35,8 +34,8 @@ When making changes that affect how users interact with the extension (new skill
 
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`
 - `CHANGELOG.md` uses `[Unreleased]` for pending changes; delivery rolls it to a versioned heading at release
-- Skills live in `skills/{skill-name}/SKILL.md`
-- All skills include an "Integration with SDLC Workflow" section
+- Workflows live in `workflows/{name}/WORKFLOW.md`
+- All workflows include an "Integration with SDLC Workflow" section
 - `specs/` files must be committed with their feature branches, not left as untracked local files
 
 <!-- nmg-sdlc-managed: spec-context -->

@@ -150,7 +150,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Stack-agnostic | Skill instructions defer project details to steering | Review changed contracts for hardcoded technology assumptions |
 | OS-agnostic | Paths and commands are cross-platform or explicitly scoped | Review path handling and platform dependencies |
 | Native plan for judgment | Interactive skills use `ask` + `xd://propose` inside `/plan` | Exercise draft/spec/onboard/upgrade outside `/plan` (print-and-stop) and inside `/plan` |
-| Workers never ask | Automated skills write failed handoffs instead of calling `ask` | Contract-test SKILL.md files and exercise missing-precondition paths |
+| Workers never ask | Automated skills write failed handoffs instead of calling `ask` | Contract-test WORKFLOW.md files and exercise missing-precondition paths |
 | Spec as source of truth | Changed paths map to approved tasks or acceptance criteria | Compare diff with `tasks.md` and `requirements.md` |
 | Preserve project ownership | Managed paths and overwrite predicates are exact | Run collision, preservation, and repeat-run fixtures |
 | Dogfooding | Skill behavior is exercised, not inferred from text alone | Record fixture or live exercise evidence |

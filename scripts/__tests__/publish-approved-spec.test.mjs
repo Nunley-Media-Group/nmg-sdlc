@@ -150,6 +150,7 @@ describe('publish-approved-spec', () => {
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
     writeApproved(path.join(root, 'specs', '42-add-x'), 42);
     fs.writeFileSync(path.join(root, 'README.md'), 'changed\n');
+    git(root, ['add', 'README.md']);
     const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).toBe(0);
     expect(parse(result)).toMatchObject({
@@ -162,6 +163,7 @@ describe('publish-approved-spec', () => {
     const names = git(root, ['show', '--pretty=', '--name-only', 'HEAD']).trim().split('\n');
     expect(names.every((name) => name.startsWith('specs/42-add-x/'))).toBe(true);
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/42-add-x'])).toContain('specs/42-add-x/requirements.md');
+    expect(git(root, ['diff', '--cached', '--name-only']).trim()).toBe('README.md');
   });
 
   it('commit-push rejects an unapproved package', () => {

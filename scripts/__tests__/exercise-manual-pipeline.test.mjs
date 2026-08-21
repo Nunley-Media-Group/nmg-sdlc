@@ -11,21 +11,21 @@ function read(relativePath) {
 
 describe('v3 SDLC pipeline surface', () => {
   test('interactive skills use public /sdlc-* commands', () => {
-    expect(read('skills/draft-issue/SKILL.md')).toContain('/sdlc-draft-issue');
-    expect(read('skills/write-spec/SKILL.md')).toContain('/sdlc-write-spec');
+    expect(read('workflows/draft-issue/WORKFLOW.md')).toContain('/sdlc-draft-issue');
+    expect(read('workflows/write-spec/WORKFLOW.md')).toContain('/sdlc-write-spec');
     expect(read('references/interactive-gates.md')).toContain('xd://propose');
   });
 
   test('automated skills never call ask', () => {
     for (const name of ['start-issue', 'write-code', 'verify-code', 'open-pr']) {
-      const source = read(`skills/${name}/SKILL.md`);
+      const source = read(`workflows/${name}/WORKFLOW.md`);
       expect(source).not.toContain('request_user_input');
       expect(source).not.toMatch(/\bask\b/);
     }
   });
 
   test('execute exists as the automated orchestrator', () => {
-    expect(read('skills/execute/SKILL.md')).toContain('name: execute');
+    expect(read('workflows/execute/WORKFLOW.md')).toContain('name: execute');
     expect(fs.existsSync(path.join(repoRoot, 'scripts', 'sdlc-execute.mjs'))).toBe(true);
   });
 });

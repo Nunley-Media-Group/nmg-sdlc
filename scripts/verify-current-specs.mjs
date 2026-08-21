@@ -24,7 +24,7 @@ export const CURRENT_SPEC_DIRECTORIES = [
   '151-remove-the-automated-sdlc-loop-and-unattended-mode',
 ].sort();
 
-const SKILL_CAPABILITY = new Map([
+const WORKFLOW_CAPABILITY = new Map([
   ['address-pr-comments', 'address-pr-comments'],
   ['draft-issue', 'draft-issue'],
   ['execute', 'execute'],
@@ -69,7 +69,7 @@ const COMMAND_CAPABILITY = new Map([
   ['sdlc-open-pr', 'open-pr'],
 ]);
 
-const DEPRECATED_SKILL_STUBS = new Map([
+const DEPRECATED_WORKFLOW_STUBS = new Map([
   ['migrate-project', 'Run /sdlc-upgrade-project'],
 ]);
 
@@ -165,23 +165,23 @@ export function verifyCurrentSpecs(projectRoot) {
     }
   }
 
-  const skills = listDirectories(path.join(projectRoot, 'skills'));
-  for (const skill of skills) {
-    const deprecatedMessage = DEPRECATED_SKILL_STUBS.get(skill);
+  const workflows = listDirectories(path.join(projectRoot, 'workflows'));
+  for (const workflow of workflows) {
+    const deprecatedMessage = DEPRECATED_WORKFLOW_STUBS.get(workflow);
     if (deprecatedMessage) {
-      const skillText = fs.readFileSync(path.join(projectRoot, 'skills', skill, 'SKILL.md'), 'utf8');
-      if (!skillText.includes(deprecatedMessage)) errors.push(`Deprecated skill ${skill} lacks its exact redirect contract`);
+      const workflowText = fs.readFileSync(path.join(projectRoot, 'workflows', workflow, 'WORKFLOW.md'), 'utf8');
+      if (!workflowText.includes(deprecatedMessage)) errors.push(`Deprecated workflow ${workflow} lacks its exact redirect contract`);
       continue;
     }
-    const capability = SKILL_CAPABILITY.get(skill);
+    const capability = WORKFLOW_CAPABILITY.get(workflow);
     if (!capability) {
-      errors.push(`Active skill lacks a rewrite capability mapping: ${skill}`);
+      errors.push(`Active workflow lacks a rewrite capability mapping: ${workflow}`);
       continue;
     }
-    if (!capabilities.has(capability)) errors.push(`Active skill ${skill} maps to missing rewrite capability ${capability}`);
+    if (!capabilities.has(capability)) errors.push(`Active workflow ${workflow} maps to missing rewrite capability ${capability}`);
   }
-  for (const skill of SKILL_CAPABILITY.keys()) {
-    if (!skills.includes(skill)) errors.push(`Rewrite contract maps missing active skill: ${skill}`);
+  for (const workflow of WORKFLOW_CAPABILITY.keys()) {
+    if (!workflows.includes(workflow)) errors.push(`Rewrite contract maps missing active workflow: ${workflow}`);
   }
 
   for (const [capability, issue] of CAPABILITY_SPEC) {
@@ -210,6 +210,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const error of errors) console.error(`- ${error}`);
     process.exitCode = 1;
   } else {
-    console.log(`Current spec verification passed: ${CURRENT_SPEC_DIRECTORIES.length} genuine issue specs, 15 rewrite capabilities, ${SKILL_CAPABILITY.size} active skill mappings, ${DEPRECATED_SKILL_STUBS.size} deprecated stub.`);
+    console.log(`Current spec verification passed: ${CURRENT_SPEC_DIRECTORIES.length} genuine issue specs, 15 rewrite capabilities, ${WORKFLOW_CAPABILITY.size} active workflow mappings, ${DEPRECATED_WORKFLOW_STUBS.size} deprecated stub.`);
   }
 }

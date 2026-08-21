@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "release": "3.0.0",
+  "release": "3.1.0",
   "runtime": "Oh My Pi",
   "orchestrator": "Herdr OMP workers",
   "exception": "repository-rewrite",
@@ -12,7 +12,7 @@
       "surface": "automated review remediation stage",
       "purpose": "Resolve eligible automated review threads while preserving human ownership and exact-head safety.",
       "sources": [
-        "skills/address-pr-comments/"
+        "workflows/address-pr-comments/"
       ],
       "verification": [
         "scripts/__tests__/open-pr-delivery-contract.test.mjs"
@@ -52,7 +52,7 @@
       "surface": "/sdlc-draft-issue",
       "purpose": "Interview for a feature or bug and create one executable GitHub issue with BDD acceptance criteria.",
       "sources": [
-        "skills/draft-issue/"
+        "workflows/draft-issue/"
       ],
       "verification": [
         "scripts/__tests__/exercise-issue-form.test.mjs"
@@ -69,7 +69,7 @@
       "surface": "/sdlc-execute [#N ...]",
       "purpose": "Orchestrate approved issue delivery through isolated sibling Herdr OMP workers.",
       "sources": [
-        "skills/execute/",
+        "workflows/execute/",
         "scripts/sdlc-execute.mjs",
         "agents/"
       ],
@@ -111,7 +111,7 @@
       "surface": "/sdlc-onboard-project",
       "purpose": "Initialize greenfield or reconcile brownfield projects with current steering, spec, contribution, and OMP contracts.",
       "sources": [
-        "skills/onboard-project/"
+        "workflows/onboard-project/"
       ],
       "verification": [
         "scripts/__tests__/exercise-contribution-gate.test.mjs",
@@ -130,8 +130,8 @@
       "surface": "/sdlc-open-pr #N",
       "purpose": "Deliver one verified issue through exact-head pull-request merge and issue closure.",
       "sources": [
-        "skills/open-pr/",
-        "skills/address-pr-comments/"
+        "workflows/open-pr/",
+        "workflows/address-pr-comments/"
       ],
       "verification": [
         "scripts/__tests__/open-pr-delivery-contract.test.mjs",
@@ -150,8 +150,8 @@
       "surface": "/sdlc-migrate-project and /sdlc-upgrade-project",
       "purpose": "Preserve a strict migration alias while upgrades detect and propose current OMP contract repairs.",
       "sources": [
-        "skills/migrate-project/",
-        "skills/upgrade-project/",
+        "workflows/migrate-project/",
+        "workflows/upgrade-project/",
         "scripts/sdlc-upgrade.mjs"
       ],
       "verification": [
@@ -170,7 +170,7 @@
       "surface": "/sdlc-run-retro",
       "purpose": "Analyze new or changed defect specs incrementally and update steering/retrospective.md without changing delivery state.",
       "sources": [
-        "skills/run-retro/"
+        "workflows/run-retro/"
       ],
       "verification": [
         "scripts/__tests__/"
@@ -187,7 +187,7 @@
       "surface": "automated simplify stage",
       "purpose": "Apply worthwhile behavior-preserving cleanup to the changed implementation surface.",
       "sources": [
-        "skills/simplify/"
+        "workflows/simplify/"
       ],
       "verification": [
         "scripts/__tests__/simplify-contract.test.mjs"
@@ -205,7 +205,7 @@
       "surface": "automated start stage",
       "purpose": "Start one explicit executable issue on a clean linked branch after proving dependencies.",
       "sources": [
-        "skills/start-issue/"
+        "workflows/start-issue/"
       ],
       "verification": [
         "scripts/__tests__/start-issue-selection-contract.test.mjs"
@@ -223,7 +223,7 @@
       "surface": "/sdlc-status [--json]",
       "purpose": "Report current SDLC lifecycle evidence and the exact next action without mutation.",
       "sources": [
-        "skills/status/",
+        "workflows/status/",
         "scripts/sdlc-status.mjs"
       ],
       "verification": [
@@ -243,7 +243,7 @@
       "surface": "/sdlc-verify-code #N",
       "purpose": "Verify the current implementation against its approved spec and emit durable delivery evidence.",
       "sources": [
-        "skills/verify-code/",
+        "workflows/verify-code/",
         "agents/architecture-reviewer.md"
       ],
       "verification": [
@@ -262,7 +262,7 @@
       "surface": "automated implementation stage",
       "purpose": "Implement an approved issue spec in task order and perform in-process behavior-preserving simplification.",
       "sources": [
-        "skills/write-code/",
+        "workflows/write-code/",
         "agents/spec-implementer.md"
       ],
       "verification": [
@@ -281,7 +281,7 @@
       "surface": "/sdlc-write-spec #N",
       "purpose": "Create, approve, and publish one issue-owned BDD spec package from the default branch.",
       "sources": [
-        "skills/write-spec/",
+        "workflows/write-spec/",
         "scripts/publish-approved-spec.mjs"
       ],
       "verification": [

@@ -248,11 +248,11 @@ function scaffoldExercise() {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-start-backfill-'));
   const plugin = path.join(project, 'plugin');
   const bin = path.join(project, 'bin');
-  fs.mkdirSync(path.join(plugin, 'skills'), { recursive: true });
+  fs.mkdirSync(path.join(plugin, 'workflows'), { recursive: true });
   fs.mkdirSync(bin, { recursive: true });
   fs.mkdirSync(path.join(project, 'steering'), { recursive: true });
 
-  fs.cpSync(path.join(repoRoot, 'skills', 'start-issue'), path.join(plugin, 'skills', 'start-issue'), { recursive: true });
+  fs.cpSync(path.join(repoRoot, 'workflows', 'start-issue'), path.join(plugin, 'workflows', 'start-issue'), { recursive: true });
   fs.cpSync(path.join(repoRoot, 'references'), path.join(plugin, 'references'), { recursive: true });
   fs.writeFileSync(path.join(project, 'README.md'), '# Disposable start-issue backfill exercise\n');
   fs.writeFileSync(path.join(project, 'steering', 'product.md'), '# Product\nFixture.\n');
@@ -284,7 +284,7 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
     const { project, bin, writeLog, gitWriteLog, realGit, initialGit } = scaffoldExercise();
     try {
       const prompt = [
-        'Read plugin/skills/start-issue/SKILL.md and every reference required for Steps 1 and 1a.',
+        'Read plugin/workflows/start-issue/WORKFLOW.md and every reference required for Steps 1 and 1a.',
         'Exercise bare start-issue discovery with no issue-number argument against the gh executable on PATH.',
         'Stop after the automatic candidate window settles: do not call request_user_input, create a branch, update an issue, or change files.',
         'Report only these five evidence lines:',

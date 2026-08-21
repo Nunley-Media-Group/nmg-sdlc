@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const skillPath = path.join(repoRoot, 'skills', 'status', 'SKILL.md');
+const skillPath = path.join(repoRoot, 'workflows', 'status', 'WORKFLOW.md');
 const source = fs.readFileSync(skillPath, 'utf8');
 
 describe('status skill contract', () => {

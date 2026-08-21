@@ -3,7 +3,7 @@ name: Skill Inventory Audit
 on:
   pull_request:
     paths:
-      - 'skills/**/SKILL.md'
+      - 'workflows/**/WORKFLOW.md'
       - 'agents/**/*.md'
       - '**/references/**'
       - 'scripts/skill-inventory.baseline.json'

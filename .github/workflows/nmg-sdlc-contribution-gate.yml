@@ -108,7 +108,7 @@ jobs:
             }
 
             function classifyChangedPath(path) {
-              if (/^(?:skills|scripts|references|agents)\//.test(path)
+              if (/^(?:workflows|scripts|references|agents)\//.test(path)
                 || /(^|\/)templates\//.test(path)
                 || /^\.github\/workflows\//.test(path)) return 'relevant';
               if (/^specs\/\d+-[^/]+\//.test(path)) return 'spec';

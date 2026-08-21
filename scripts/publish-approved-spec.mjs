@@ -154,13 +154,13 @@ function commitPush(argv) {
     fail('add_failed', { stderr: added.stderr || '' });
   }
 
-  const cached = git(['diff', '--cached', '--quiet']);
+  const cached = git(['diff', '--cached', '--quiet', '--', dir]);
   let skippedCommit = false;
   let commit = null;
   if (cached.status === 0) {
     skippedCommit = true;
   } else {
-    const committed = git(['commit', '-m', `docs: approve spec for #${issueN}`]);
+    const committed = git(['commit', '--only', '-m', `docs: approve spec for #${issueN}`, '--', dir]);
     if (committed.status !== 0) {
       fail('commit_failed', { stderr: committed.stderr || '', stdout: committed.stdout || '' });
     }

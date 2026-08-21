@@ -222,20 +222,20 @@ describe('hashId', () => {
 // ---------------------------------------------------------------------------
 
 describe('scan', () => {
-  test('finds both SKILL.md and per-skill references files', () => {
+  test('finds both WORKFLOW.md and per-workflow references files', () => {
     const files = findTrackedFiles(GOOD_FIXTURE);
     expect(files).toEqual([
-      'plugins/nmg-sdlc/skills/canary/SKILL.md',
-      'plugins/nmg-sdlc/skills/canary/references/notes.md',
+      'plugins/nmg-sdlc/workflows/canary/WORKFLOW.md',
+      'plugins/nmg-sdlc/workflows/canary/references/notes.md',
     ]);
   });
 
   test('finds package-root OMP agent files', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inventory-agents-'));
     try {
-      fs.mkdirSync(path.join(tmpDir, 'skills', 'status'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'workflows', 'status'), { recursive: true });
       fs.mkdirSync(path.join(tmpDir, 'agents'), { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, 'skills', 'status', 'SKILL.md'), [
+      fs.writeFileSync(path.join(tmpDir, 'workflows', 'status', 'WORKFLOW.md'), [
         '---',
         'name: status',
         'description: "Status."',
@@ -255,7 +255,7 @@ describe('scan', () => {
       ].join('\n'));
       expect(findTrackedFiles(tmpDir)).toEqual([
         'agents/starter.md',
-        'skills/status/SKILL.md',
+        'workflows/status/WORKFLOW.md',
       ]);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -291,16 +291,16 @@ describe('scan', () => {
 // ---------------------------------------------------------------------------
 
 describe('validateSkillMetadata', () => {
-  test('current skill descriptions fit the Codex loader limit', () => {
+  test('current workflow descriptions fit the loader limit', () => {
     expect(validateSkillMetadata(REPO_ROOT)).toEqual([]);
   });
 
-  test('flags SKILL.md descriptions longer than 1024 characters', () => {
+  test('flags WORKFLOW.md descriptions longer than 1024 characters', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metadata-'));
-    const skillDir = path.join(tmpDir, 'skills', 'too-long');
+    const skillDir = path.join(tmpDir, 'workflows', 'too-long');
     try {
       fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+      fs.writeFileSync(path.join(skillDir, 'WORKFLOW.md'), [
         '---',
         'name: too-long',
         `description: "${'x'.repeat(1025)}"`,
@@ -311,7 +311,7 @@ describe('validateSkillMetadata', () => {
 
       expect(validateSkillMetadata(tmpDir)).toEqual([
         expect.objectContaining({
-          file: 'skills/too-long/SKILL.md',
+          file: 'workflows/too-long/WORKFLOW.md',
           field: 'description',
           length: 1025,
           max: 1024,
@@ -324,16 +324,16 @@ describe('validateSkillMetadata', () => {
 });
 
 describe('validateSkillStructure', () => {
-  test('current skills include Integration with SDLC Workflow sections', () => {
+  test('current workflows include Integration with SDLC Workflow sections', () => {
     expect(validateSkillStructure(REPO_ROOT)).toEqual([]);
   });
 
-  test('flags SKILL.md files missing Integration with SDLC Workflow', () => {
+  test('flags WORKFLOW.md files missing Integration with SDLC Workflow', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'structure-'));
-    const skillDir = path.join(tmpDir, 'skills', 'missing-section');
+    const skillDir = path.join(tmpDir, 'workflows', 'missing-section');
     try {
       fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+      fs.writeFileSync(path.join(skillDir, 'WORKFLOW.md'), [
         '---',
         'name: missing-section',
         'description: "Missing the required workflow integration section."',
@@ -347,7 +347,7 @@ describe('validateSkillStructure', () => {
 
       expect(validateSkillStructure(tmpDir)).toEqual([
         {
-          file: 'skills/missing-section/SKILL.md',
+          file: 'workflows/missing-section/WORKFLOW.md',
           section: 'Integration with SDLC Workflow',
           message: 'missing required Integration with SDLC Workflow section',
         },

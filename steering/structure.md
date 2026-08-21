@@ -10,13 +10,12 @@ This document defines repository organization, naming conventions, and architect
 nmg-sdlc/
 ├── package.json                  # OMP plugin manifest (version + omp.extensions)
 ├── src/extension.ts              # Extension factory
-├── .claude-plugin/plugin.json    # Minimal catalog manifest → ./skills/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/           # Canonical managed issue form
 │   └── workflows/                # Repository CI
 ├── agents/                       # OMP task agents
-├── references/                   # Cross-skill contracts loaded on demand
-├── skills/                       # Public skills including execute/
+├── references/                   # Cross-workflow contracts loaded on demand
+├── workflows/                    # Private workflow files including execute/
 ├── scripts/                      # Contract validators, exercises, status CLI, and Jest tests
 ├── specs/                        # specs/{N}-{slug}/
 ├── steering/
@@ -35,11 +34,11 @@ nmg-sdlc/
 package.json + src/extension.ts
         │ declares OMP identity and /sdlc-* commands
         ▼
-skills/*/SKILL.md
+workflows/*/WORKFLOW.md
         │ points on demand
         ├──────────────► references/*.md
-        ├──────────────► skills/*/references/*.md
-        ├──────────────► skills/*/templates/*
+        ├──────────────► workflows/*/references/*.md
+        ├──────────────► workflows/*/templates/*
         └──────────────► agents/*.md (installable OMP agents)
 
 scripts/
@@ -55,12 +54,12 @@ scripts/
 |-------|------|-------------|
 | Plugin manifest | Declares identity, version, and `omp.extensions` | Define workflow logic |
 | Extension factory | Registers `/sdlc-*` commands, dispatches to plan/skill workers, appends run entries | Interview users or spawn Herdr workers |
-| Skill entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
-| Shared references | Hold rules consumed by two or more skills | Hold one-skill-only details |
-| Per-skill references | Hold variants, algorithms, and extended examples for one skill | Become public command entrypoints |
+| Workflow entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
+| Shared references | Hold rules consumed by two or more workflows | Hold one-workflow-only details |
+| Per-workflow references | Hold variants, algorithms, and extended examples for one workflow | Become public command entrypoints |
 | Templates | Define generated artifact structure | Contain mutable project state |
 | Agents | Define installable OMP worker contracts | Bypass the Herdr isolation boundary for pipeline steps |
-| Scripts | Validate, classify, or inspect contracts deterministically | Own lifecycle decisions that belong in skills |
+| Scripts | Validate, classify, or inspect contracts deterministically | Own lifecycle decisions that belong in workflows |
 | Specs | Record approved requirements/design/tasks and historical behavior | Serve as active plugin loader content |
 | Steering | Define stable product and engineering decisions | Replace feature-specific specs |
 
@@ -82,7 +81,7 @@ New writes never create `feature-`, `bug-`, or `epic-` prefixes. Variant is the 
 
 | Element | Convention | Example |
 |---------|------------|---------|
-| Skill entrypoint | Uppercase `SKILL.md` | `skills/write-code/SKILL.md` |
+| Workflow entrypoint | Uppercase `WORKFLOW.md` | `workflows/write-code/WORKFLOW.md` |
 | Markdown/reference files | kebab-case | `interactive-gates.md` |
 | Scripts | kebab-case `.mjs` or `.sh` | `verify-plugin-surface.mjs` |
 | JSON metadata | kebab-case where file naming is ours | `skill-inventory.baseline.json` |
@@ -150,9 +149,9 @@ The example version is illustrative. `VERSION` and the live `package.json` versi
 
 ## Architectural Boundaries
 
-### Skill-Authoring Boundary
+### Workflow-Authoring Boundary
 
-Every file under `skills/{skill}/`, every shared `references/*.md`, and every `agents/*.md` is skill-bundled. Worker creation or modification must go through the skill-creator file if present on disk, else fail with `skill_creator_missing`. The v3 landing of this repository edits files directly.
+Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must go through the skill-creator file if present on disk, else fail with `skill_creator_missing`. The v3 landing of this repository edits files directly.
 
 ### Interactive-Gate Boundary
 
@@ -191,10 +190,10 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 
 | Extension | Location | Contract |
 |-----------|----------|----------|
-| New public workflow | `skills/{name}/SKILL.md` | Add inventory/docs/tests and Integration section |
+| New public workflow | `workflows/{name}/WORKFLOW.md` | Add inventory/docs/tests and Integration section |
 | Shared rule | `references/{name}.md` | Must have at least two consumers |
-| One-skill detail | `skills/{name}/references/` | Load only at the triggering branch |
-| Generated structure | `skills/{name}/templates/` | Keep placeholders explicit and stack-agnostic |
+| One-workflow detail | `workflows/{name}/references/` | Load only at the triggering branch |
+| Generated structure | `workflows/{name}/templates/` | Keep placeholders explicit and stack-agnostic |
 | Deterministic validation | `scripts/*.mjs` plus Jest coverage | Stable exit codes and diagnostics |
 | Installable worker | `agents/*.md` | OMP task agent with handoff contract |
 

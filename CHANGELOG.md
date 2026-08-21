@@ -10,14 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-21
+
 ### Changed (BREAKING)
 
-- **BREAKING CHANGE (3.0.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is `/sdlc-draft-issue`, `/sdlc-write-spec #N`, `/sdlc-execute [#N …]`, and `/sdlc-status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/sdlc-upgrade-project`.
+- **BREAKING CHANGE (3.1.0):** Complete rewrite as an Oh My Pi extension + Herdr workflow. Primary surface is `/sdlc-draft-issue`, `/sdlc-write-spec #N`, `/sdlc-execute [#N …]`, and `/sdlc-status`. Installation uses `omp plugin install` (this repo or marketplace) plus `herdr integration install omp` once per machine. Specs are strictly `specs/{N}-{slug}/` owned by a singular `**Issue**: #N` (Status Draft|Approved). Removed Codex packaging and `$` invocation surface, request_user_input gates on automated stages, epic type, spike type, cumulative multi-issue specs/ownership manifests, and the prior runner. Leftover spike ADRs convert through `/sdlc-upgrade-project`.
 
 ### Changed
 
 - Public extension commands are now `/sdlc-*` (`/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, `/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-run-retro`). Unprefixed `/execute`, `/draft-issue`, and `/write-spec` commands are removed. Interactive commands still enter native `/plan`. `/sdlc-execute` owns the full queue; `/sdlc-verify-code` and `/sdlc-open-pr` are phase commands when implementation or verification evidence already exists.
-- `/sdlc-write-spec #N` now publishes an Approved `specs/{N}-{slug}/` package on a git branch cut from the repository default (not `gh issue develop`), commits `docs: approve spec for #N`, pushes, squash-merges a docs-only spec PR (no `Closes #N`, issue stays open), then asks Continue/Finished. `/sdlc-execute` start-issue cuts implementation from that same default with `gh issue develop --base`. Public commands inline bundled workflow files from `skills/` instead of emitting `/skill:`.
+- `/sdlc-write-spec #N` now publishes an Approved `specs/{N}-{slug}/` package on a git branch cut from the repository default (not `gh issue develop`), commits `docs: approve spec for #N`, pushes, squash-merges a docs-only spec PR (no `Closes #N`, issue stays open), then asks Continue/Finished. `/sdlc-execute` start-issue cuts implementation from that same default with `gh issue develop --base`. Public commands inline private bundled workflow files from `workflows/`; the package no longer exposes OMP skills or Claude/Codex catalog packaging.
 - This repository's CI now runs Jest contract tests and OMP plugin-surface verification on every pull request. Skill-inventory audit no longer requires an `### Inventory Removals` heading in the PR body.
 - Interactive `/sdlc-*` commands enter native `/plan` from the TUI `input` event (rewrite to builtin `/plan` + workflow; already-in-plan sessions skip the prefix). Headless print/RPC invocations fail closed (`Run /sdlc-<command> in the TUI.`). Automated `/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` are file commands in `commands/*.md` so `omp --print` expands them as the initial prompt. Interactive write-spec is not a file command.
 - The managed contribution gate is version 5 and supports a strict `repository-rewrite` exception for owner-approved `feat!:` clean cutovers. It waives only current PR issue/spec identity and still requires the explicit rewrite contract, durable rewrite verification, repository contract paths, steering, exact path mapping, and specific verification.
@@ -26,6 +28,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - `/sdlc-execute` worker prompts now include `$ARGUMENTS: #N` so start-issue and later steps receive the explicit issue number.
+- `/sdlc-status` now resolves unique spec directories without duplicating absolute paths, uses the repository's discovered default branch, shares execute's all-artifact approval check, and validates nested readiness/delivery markers against live scope and PR-head evidence. Approved-spec publication excludes unrelated staged changes, rooted execute state keeps handoffs beside `run.json`, and malformed relocated reference paths are removed.
 
 ### Migration Notes
 
