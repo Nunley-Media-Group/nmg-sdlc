@@ -91,3 +91,13 @@ Feature: Reduce injected SDLC workflow tokens while keeping file-command surface
     Then status passes without a reference pointer
     And draft-issue still requires at least one conforming reference pointer
     And inventory metadata failures do not claim removed structure validation ran
+
+  @SCN010
+  Scenario: Ordinary release bumps preserve historical rewrite evidence
+    Given references/rewrite-contract.json records the 3.1.0 repository rewrite
+    And VERSION and package.json are bumped to 3.2.0
+    When scripts/verify-current-specs.mjs validates current specs and rewrite coverage
+    Then the historical rewrite release does not have to equal the current package release
+    And scripts/__tests__/current-specs.test.mjs covers the separated lifecycles
+    And references/rewrite-contract.md describes the rewrite release as historical
+    And CHANGELOG.md, VERSION, and package.json remain synchronized

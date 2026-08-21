@@ -97,6 +97,15 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 **And** `draft-issue` still requires at least one conforming pointer
 **And** skill-inventory metadata failures no longer claim that removed structure validation ran
 
+### AC10: Release delivery preserves the historical rewrite contract
+
+**Given** issue delivery updates `VERSION` and `package.json` to a later release
+**When** `scripts/verify-current-specs.mjs` validates the repository
+**Then** it does not require the historical repository-rewrite release to equal the current package release
+**And** `scripts/__tests__/current-specs.test.mjs` proves the historical release remains valid after an ordinary version bump
+**And** `references/rewrite-contract.md` describes the rewrite release as historical rather than current-version synchronization
+**And** `CHANGELOG.md`, `VERSION`, and `package.json` remain synchronized for the delivered release
+
 ---
 
 ## Functional Requirements
@@ -113,6 +122,7 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 | FR8 | Resolve and read `skill://skill-creator` for skill-bundled edits instead of probing a repository-local path. | Must | Absence of repository-local `skills/` is not a failure. |
 | FR9 | Normalize the two existing `draft-issue` shared-reference pointers to `Read \`path\` when ...` without changing either target or instruction meaning. | Must | This is the only authorized pre-Integration prose change in `draft-issue`. |
 | FR10 | Make deterministic pointer checks accept zero pointers for compact workflows while keeping the stricter `draft-issue` requirement, and correct the stale inventory diagnostic. | Must | Focused tests must prove both branches. |
+| FR11 | Decouple historical repository-rewrite release identity from ordinary package version bumps in `scripts/verify-current-specs.mjs`, cover it in `scripts/__tests__/current-specs.test.mjs`, and correct `references/rewrite-contract.md`; keep delivery artifacts `CHANGELOG.md`, `VERSION`, and `package.json` synchronized. | Must | The 3.1.0 rewrite evidence remains immutable historical evidence while 3.2.0 is delivered. |
 
 ---
 

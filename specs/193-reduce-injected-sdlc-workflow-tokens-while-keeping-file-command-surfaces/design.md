@@ -22,3 +22,5 @@ The deterministic exercise pointer grammar is `Read \`path\` when ...`. Normaliz
 
 Pointer validation is conditional by workflow shape: `draft-issue` continues to require one or more conforming pointers, while a compact workflow such as `status` may validly contain none. The inventory validator reports only the metadata validation it still executes after structure validation is removed.
 
+Ordinary delivery versions and the repository-rewrite evidence have different lifecycles. `references/rewrite-contract.json` and `references/rewrite-contract.md` identify the historical 3.1.0 cutover; `VERSION`, `package.json`, and `CHANGELOG.md` identify the current release. `scripts/verify-current-specs.mjs` must validate the rewrite contract's shape and coverage without requiring its historical `release` field to equal the current package version. `scripts/__tests__/current-specs.test.mjs` guards that separation while delivery publishes 3.2.0.
+

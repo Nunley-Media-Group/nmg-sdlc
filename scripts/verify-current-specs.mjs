@@ -133,11 +133,6 @@ export function verifyCurrentSpecs(projectRoot) {
 
   const contractPath = path.join(projectRoot, 'references', 'rewrite-contract.json');
   const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
-  const packageVersion = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
-  const version = fs.readFileSync(path.join(projectRoot, 'VERSION'), 'utf8').trim();
-  if (contract.release !== packageVersion || contract.release !== version) {
-    errors.push(`Rewrite contract release ${contract.release} does not match package ${packageVersion} and VERSION ${version}`);
-  }
   if (contract.exception !== 'repository-rewrite') errors.push('Rewrite contract lacks repository-rewrite identity');
 
   const contractGuide = fs.readFileSync(path.join(projectRoot, 'references', 'rewrite-contract.md'), 'utf8');

@@ -23,7 +23,7 @@
 
 **Total Issues**: 0
 
-All nine acceptance criteria and ten tasks pass. The issue-owned spec now covers the exact `draft-issue` pointer normalization and both verifier defects found during the first review. Contract tests, focused tests, all applicable deterministic skill exercises, inventory validation, plugin-surface validation, live `/sdlc-status --json` exercise, prompt review, and diff hygiene pass.
+All ten acceptance criteria and eleven tasks pass. The issue-owned spec now covers the exact `draft-issue` pointer normalization, both verifier defects found during the first review, and the hosted release-lifecycle defect found after the 3.2.0 bump. Contract tests, focused tests, all applicable deterministic skill exercises, inventory validation, plugin-surface validation, live `/sdlc-status --json` exercise, prompt review, and diff hygiene pass.
 
 ---
 
@@ -33,10 +33,10 @@ All nine acceptance criteria and ten tasks pass. The issue-owned spec now covers
 - Spec: `specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces`
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC9]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009]
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC9, AC10]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR11]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009, SCN010]
 - Regression: AC []; FR []; scenarios []
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":193,"specPath":"specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":193,"specPath":"specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10","FR11"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010","T011"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Delivery Validation
 
@@ -58,6 +58,7 @@ All nine acceptance criteria and ten tasks pass. The issue-owned spec now covers
 | AC7 | Resolve installed skill creator without a repository-local copy | Pass | Worker contracts use `skill://skill-creator`; repository-local probes and `skill_creator_missing` are absent; focused resolution tests pass. |
 | AC8 | Normalize both draft shared-reference pointers to deterministic grammar | Pass | `workflows/draft-issue/WORKFLOW.md:8,10` use `Read \`path\` when ...`; both original paths and meanings are preserved; draft exercise reports D3 pass with 2 pointers and 0 non-conforming. |
 | AC9 | Keep pointer and inventory validation accurate | Pass | `referencePointerCheck` permits zero pointers for compact workflows, still fails a pointerless `draft-issue`, and accepts the repaired draft workflow; inventory diagnostic names only metadata validation; focused tests pass. |
+| AC10 | Preserve historical rewrite identity across ordinary release bumps | Pass | `scripts/verify-current-specs.mjs` no longer equates the historical rewrite release with current package versions; focused coverage proves `references/rewrite-contract.json` 3.1.0 remains valid with `VERSION` and `package.json` at 3.2.0. |
 
 ---
 
@@ -81,6 +82,7 @@ The singular issue package declares no separate regression slice. Preserved publ
 | T008 | Complete | Installed skill-creator resolution is present and tested. |
 | T009 | Complete | Both draft pointers are normalized with paths and meaning preserved; draft exercise passes. |
 | T010 | Complete | Compact/draft pointer branches are focused-tested; stale inventory diagnostic is corrected. |
+| T011 | Complete | Historical rewrite evidence and ordinary release versions now have independent validation lifecycles; the focused and full contract suites pass. |
 
 ---
 
@@ -137,12 +139,13 @@ Workflow prose owns orchestration, deterministic scripts own validation/status, 
 | AC7 | SCN007 | Skill resolution tests | Yes |
 | AC8 | SCN008 | Draft deterministic exercise | Yes |
 | AC9 | SCN009 | Focused runner and inventory tests | Yes |
+| AC10 | SCN010 | Current-spec verifier lifecycle regression | Yes |
 
 ### Coverage Summary
 
-- Feature files: 1 file, 9 scenarios.
+- Feature files: 1 file, 10 scenarios.
 - Step implementation: Jest contracts plus deterministic/live exercises.
-- Full suite: 34 suites passed, 1 intentional environment-gated suite skipped; 298 tests passed, 1 intentionally skipped, 0 failed.
+- Full suite: 34 suites passed, 1 intentional environment-gated suite skipped; 299 tests passed, 1 intentionally skipped, 0 failed.
 - Focused repair suite: 3 suites, 51 tests passed.
 
 ---
@@ -173,7 +176,7 @@ Workflow prose owns orchestration, deterministic scripts own validation/status, 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test`: 298 passed, 1 intentional environment-gated skip, 0 failed. |
+| Contract tests | Pass | `cd scripts && npm test`: 299 passed, 1 intentional environment-gated skip, 0 failed. |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean, 127 items mapped; baseline unaffected. |
 | OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed. |
 | Skill creator validation | Pass | Installed `skill://skill-creator` resolved/read before the workflow-bundled pointer edit; repository validators pass. |
@@ -192,6 +195,7 @@ Workflow prose owns orchestration, deterministic scripts own validation/status, 
 | High | Prompt contract | `workflows/draft-issue/WORKFLOW.md:8,10` | Both shared-reference instructions failed mandatory D3 grammar. | Normalized both to `Read \`path\` when ...` while preserving paths and behavior under issue-owned AC8/FR9/T009/SCN008. | `skill-creator` |
 | High | Testing | `scripts/skill-exercise-runner.mjs`, `scripts/__tests__/skill-exercise-runner.test.mjs` | Generic D3 rejected compact workflows with no pointers. | Added pure conditional pointer validation: compact zero-pointer workflows pass; draft still requires and validates pointers; focused tests cover both branches. | `direct` |
 | Low | Error Handling | `scripts/skill-inventory-audit.mjs` | Metadata error text still claimed removed structure validation ran. | Corrected diagnostic to `loader-facing metadata error(s)`. | `direct` |
+| High | Testing / release lifecycle | `scripts/verify-current-specs.mjs`, `scripts/__tests__/current-specs.test.mjs`, `references/rewrite-contract.md` | The historical 3.1.0 repository-rewrite release was incorrectly required to equal every later ordinary package version, causing hosted contract verification to fail after the mandatory 3.2.0 bump. | Removed the false equality invariant, documented independent lifecycles, and added a regression proving the historical contract remains valid with the later package version. | `direct` |
 
 ---
 

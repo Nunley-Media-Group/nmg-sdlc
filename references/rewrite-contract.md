@@ -239,4 +239,4 @@ Acceptance:
 
 ## Verification invariant
 
-`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active workflow and public command maps to the rewrite contract, deprecated stubs retain their exact redirect, and the contract release matches `VERSION` and `package.json`.
+`node scripts/verify-current-specs.mjs` proves that only genuinely owned current issue specs remain, every active workflow and public command maps to the historical rewrite contract, deprecated stubs retain their exact redirect, and the contract keeps its repository-rewrite identity independently of later ordinary package releases.

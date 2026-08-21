@@ -14,8 +14,8 @@
 | Audit / steering | 2 | [ ] |
 | Ceilings / surface | 2 | [ ] |
 | Worker reliability | 2 | [ ] |
-| Verification repairs | 2 | [ ] |
-| **Total** | 10 | |
+| Verification repairs | 3 | [ ] |
+| **Total** | 11 | |
 
 ---
 
@@ -141,6 +141,18 @@
 - [ ] `draft-issue` still requires at least one conforming pointer
 - [ ] Focused tests prove both pointer-validation branches
 - [ ] Inventory metadata errors no longer mention removed structure validation
+
+### T011: Separate historical rewrite identity from release version
+
+**File(s)**: `scripts/verify-current-specs.mjs`, `scripts/__tests__/current-specs.test.mjs`, `references/rewrite-contract.md`, `CHANGELOG.md`, `VERSION`, `package.json`
+**Type**: Modify
+**Depends**: T010
+**Acceptance**:
+- [ ] Ordinary version bumps do not require rewriting the historical `references/rewrite-contract.json` release
+- [ ] `scripts/__tests__/current-specs.test.mjs` proves a later package/VERSION pair passes with the historical rewrite release unchanged
+- [ ] `references/rewrite-contract.md` no longer claims the historical release must match the current package version
+- [ ] `CHANGELOG.md`, `VERSION`, and `package.json` publish 3.2.0 together
+- [ ] `cd scripts && npm test` exits 0
 
 ---
 
