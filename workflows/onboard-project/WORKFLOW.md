@@ -77,9 +77,3 @@ Write to xd://propose:
 onboard-{slug}
 
 Onboard {mode} complete
-
-## Integration with SDLC Workflow
-```
-/sdlc-onboard-project   →   (plan writes steering + assets + specs)   →   /sdlc-draft-issue or /sdlc-write-spec #N or /sdlc-upgrade-project
-     ▲ You are here
-```

@@ -36,11 +36,3 @@ run-retro
 Update retrospective
 
 Plan execution applies the write if approved.
-
-## Integration with SDLC Workflow
-
-Outside pipeline. Feeds write-spec Phase 1.
-
-Use v3 list in any output notes:
-
- /sdlc-write-spec #N etc.

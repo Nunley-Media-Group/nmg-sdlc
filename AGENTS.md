@@ -35,7 +35,6 @@ When making changes that affect how users interact with the extension (new skill
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`
 - `CHANGELOG.md` uses `[Unreleased]` for pending changes; delivery rolls it to a versioned heading at release
 - Workflows live in `workflows/{name}/WORKFLOW.md`
-- All workflows include an "Integration with SDLC Workflow" section
 - `specs/` files must be committed with their feature branches, not left as untracked local files
 
 <!-- nmg-sdlc-managed: spec-context -->

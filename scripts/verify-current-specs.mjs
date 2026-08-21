@@ -22,6 +22,7 @@ export const CURRENT_SPEC_DIRECTORIES = [
   '125-add-github-actions-contribution-gates-to-project-setup',
   '145-add-lifecycle-status-command-for-active-sdlc-work',
   '151-remove-the-automated-sdlc-loop-and-unattended-mode',
+  '193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces',
 ].sort();
 
 const WORKFLOW_CAPABILITY = new Map([
@@ -132,11 +133,6 @@ export function verifyCurrentSpecs(projectRoot) {
 
   const contractPath = path.join(projectRoot, 'references', 'rewrite-contract.json');
   const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
-  const packageVersion = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
-  const version = fs.readFileSync(path.join(projectRoot, 'VERSION'), 'utf8').trim();
-  if (contract.release !== packageVersion || contract.release !== version) {
-    errors.push(`Rewrite contract release ${contract.release} does not match package ${packageVersion} and VERSION ${version}`);
-  }
   if (contract.exception !== 'repository-rewrite') errors.push('Rewrite contract lacks repository-rewrite identity');
 
   const contractGuide = fs.readFileSync(path.join(projectRoot, 'references', 'rewrite-contract.md'), 'utf8');

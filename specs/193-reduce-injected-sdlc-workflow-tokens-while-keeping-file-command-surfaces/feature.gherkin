@@ -2,6 +2,7 @@
 **Date**: 2026-08-21
 **Status**: Approved
 **Author**: NMG
+# Issue: #193
 
 # File: specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces/feature.gherkin
 #
@@ -57,3 +58,46 @@ Feature: Reduce injected SDLC workflow tokens while keeping file-command surface
     Then src/extension.ts still does not registerCommand for AUTOMATED_COMMANDS
     And there is still no commands/sdlc-write-spec.md
     And interactive commands still rewrite to native /plan in the TUI and still fail closed without UI
+
+  @SCN006
+  Scenario: A visibly pasted stalled worker prompt is submitted once
+    Given herdr agent prompt returned agent_prompt_stalled with the exact prompt visibly pasted
+    When execute recovers the worker submission
+    Then execute sends one logical Enter
+    And proves the worker reaches working before waiting for settlement
+    And applies the ordinary handoff close-or-keep rules after settlement
+    And keeps the pane only when recovery cannot start or settle correctly
+
+  @SCN007
+  Scenario: Skill-bundled edits resolve the installed skill creator
+    Given a worker must edit a skill-bundled path
+    And the repository has no skills/skill-creator/SKILL.md
+    When the worker loads the authoring procedure
+    Then it resolves and reads skill://skill-creator
+    And it does not fail with skill_creator_missing solely because the repository-local path is absent
+
+  @SCN008
+  Scenario: Draft shared-reference pointers satisfy deterministic grammar
+    Given draft-issue has existing pointers to codex-tooling.md and interactive-gates.md
+    When the pointers are normalized for deterministic validation
+    Then each instruction uses the "Read `path` when ..." grammar
+    And both referenced paths and existing behaviors are preserved
+    And the draft-issue skill exercise passes
+
+  @SCN009
+  Scenario: Pointer and inventory validation describe current contracts
+    Given status is a compact workflow with no reference pointers
+    When deterministic pointer checks run for status and draft-issue
+    Then status passes without a reference pointer
+    And draft-issue still requires at least one conforming reference pointer
+    And inventory metadata failures do not claim removed structure validation ran
+
+  @SCN010
+  Scenario: Ordinary release bumps preserve historical rewrite evidence
+    Given references/rewrite-contract.json records the 3.1.0 repository rewrite
+    And VERSION and package.json are bumped to 3.2.0
+    When scripts/verify-current-specs.mjs validates current specs and rewrite coverage
+    Then the historical rewrite release does not have to equal the current package release
+    And scripts/__tests__/current-specs.test.mjs covers the separated lifecycles
+    And references/rewrite-contract.md describes the rewrite release as historical
+    And CHANGELOG.md, VERSION, and package.json remain synchronized

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T05:24:04.925Z",
+  "generated_at": "2026-08-21T08:44:43.016Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -132,9 +132,9 @@
       "destination": "agents/spec-implementer.md:11"
     },
     {
-      "id": "1a2c48e2b791",
+      "id": "c5c105bfe5bf",
       "source_before": "agents/spec-implementer.md:12",
-      "normalized": "skill-bundled edits in this repo still go through the skill-creator file if pres",
+      "normalized": "resolve and read skill://skill-creator before editing any skill-bundled path, th",
       "destination": "agents/spec-implementer.md:12"
     },
     {

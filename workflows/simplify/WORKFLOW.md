@@ -91,11 +91,3 @@ Report:
 - Validation run
 
 If no worthwhile cleanup is found, say the scoped files were already clean.
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-```
-
-`simplify` is bundled and runs in-process inside write-code after tasks complete, and may be re-invoked after fixes in verify-code.

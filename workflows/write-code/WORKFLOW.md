@@ -1,6 +1,6 @@
 ---
 name: write-code
-description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Skill-bundled edits go through the skill-creator file on disk if present or fail. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Resolve and read skill://skill-creator before skill-bundled edits. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
 ---
 
 # Write Code
@@ -46,9 +46,8 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 - Use design.md + requirements.md + feature.gherkin + steering/ as context.
 - For the listed File(s):
   - If path is skill-bundled (matches **/workflows/**/WORKFLOW.md or **/workflows/**/references/** or **/workflows/**/scripts/** or **/workflows/**/templates/** or **/workflows/**/checklists/** or **/workflows/**/assets/** or root references/** or agents/*.md ):
-    - Check if the skill-creator file is present on disk (using glob or bash `test -f skills/skill-creator/SKILL.md`).
-    - If not present: write failed handoff reasonCode:"skill_creator_missing" intervention:true step:"implement"
-    - If present: read `skills/skill-creator/SKILL.md` and follow the editing procedure described in that file, passing the task title, acceptance bullets, target file path, existing file content (read first), and pointer to steering/. Let it produce the edit. Never hand-edit skill-bundled paths.
+    - Resolve and read `skill://skill-creator`.
+    - Follow its editing procedure with the task title, acceptance bullets, target path, existing file content, and steering context. Never bypass the resolved skill for skill-bundled paths.
   - Else: use edit/write/read/glob/grep/bash tools to implement the change that satisfies the task Acceptance criteria, following design.md architecture and tech.md conventions. Make smallest correct change.
 - After change for the task: self-verify the Acceptance bullets for that task pass.
 - Run narrow test command from tech.md if obvious for the files (dry if possible). Report outcome.
@@ -95,12 +94,5 @@ Next: /sdlc-verify-code #N
 
 ## Failure Modes (always produce handoff before stop)
 
-- Any precondition fail: spec_not_approved, skill_creator_missing, no_issue_number, etc. with intervention:true
+- Any precondition fail: spec_not_approved, no_issue_number, etc. with intervention:true
 - Edit or test failure that blocks: use "implementation_failed" with summary of blocker.
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-                                         ▲ You are here (write-code + bundled simplify)
-```

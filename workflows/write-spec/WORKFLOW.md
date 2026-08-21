@@ -166,12 +166,3 @@ spec-{N}
 <title from gh or derived>
 
 to xd://propose
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-write-spec #N   →   (approved plan publishes specs/{N}-{slug}/)   →   /sdlc-execute #N
-     ▲ You are here
-```
-
-Do not create specs/ dirs for other issues except through the continue loop. Reuse parseBodyRelationships if relationships mentioned (no fork).

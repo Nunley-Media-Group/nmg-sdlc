@@ -13,7 +13,9 @@
 | Workflows | 2 | [ ] |
 | Audit / steering | 2 | [ ] |
 | Ceilings / surface | 2 | [ ] |
-| **Total** | 6 | |
+| Worker reliability | 2 | [ ] |
+| Verification repairs | 3 | [ ] |
+| **Total** | 11 | |
 
 ---
 
@@ -24,7 +26,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Each file no longer contains `## Integration with SDLC Workflow`
-- [ ] No other heading or step in these files is rewritten
+- [ ] No other heading or step in these files is rewritten except the exact T009 pointer normalization
 - [ ] `workflows/start-issue/WORKFLOW.md` still contains `# Start Issue` and the listed reasonCodes
 - [ ] `workflows/write-code/WORKFLOW.md` still contains its pre-Integration behavioral steps
 - [ ] `workflows/verify-code/WORKFLOW.md` still contains its pre-Integration behavioral steps
@@ -94,7 +96,66 @@
 - [ ] `README.md` still contains the `/sdlc-draft-issue [need]` → `/sdlc-write-spec #N` → `/sdlc-execute [#N …]` diagram
 - [ ] Interactive rewrite still uses `/plan` and still fails closed without UI
 
+### T007: Recover stalled execute prompt submission
+
+**File(s)**: `workflows/execute/WORKFLOW.md`, `scripts/__tests__/sdlc-execute.test.mjs`, `commands/sdlc-execute.md`
+**Type**: Modify
+**Depends**: T005
+**Acceptance**:
+- [ ] A visibly pasted `agent_prompt_stalled` prompt is submitted with `herdr agent send-keys s<N>-<step> enter`
+- [ ] Execute proves the worker reaches `working`, waits for settlement, and then applies ordinary handoff rules
+- [ ] Failed recovery keeps the worker pane open and fails the step
+- [ ] The prompt is never resent
+- [ ] The generated execute file command matches its workflow source
+
+### T008: Resolve installed skill creator
+
+**File(s)**: `workflows/write-code/WORKFLOW.md`, `workflows/write-code/references/plan-mode.md`, `workflows/verify-code/WORKFLOW.md`, `workflows/verify-code/references/autofix-loop.md`, `agents/spec-implementer.md`, `steering/product.md`, `steering/tech.md`, `steering/structure.md`, `scripts/__tests__/skill-creator-resolution.test.mjs`
+**Type**: Create | Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] Skill-bundled edits resolve and read `skill://skill-creator`
+- [ ] Contracts no longer probe `skills/skill-creator/SKILL.md`
+- [ ] A missing repository-local `skills/` directory does not produce `skill_creator_missing`
+- [ ] Focused tests cover installed-skill resolution
+
+### T009: Normalize draft reference pointer grammar
+
+**File(s)**: `workflows/draft-issue/WORKFLOW.md`
+**Type**: Modify
+**Depends**: T001
+**Acceptance**:
+- [ ] The `../../references/codex-tooling.md` pointer uses `Read \`path\` when ...`
+- [ ] The `../../references/interactive-gates.md` pointer uses `Read \`path\` when ...`
+- [ ] Both target paths and instruction meanings are preserved
+- [ ] No other pre-Integration `draft-issue` prose changes
+- [ ] `node scripts/skill-exercise-runner.mjs --skill draft-issue` exits 0
+
+### T010: Repair verification gate accuracy
+
+**File(s)**: `scripts/skill-exercise-runner.mjs`, `scripts/__tests__/skill-exercise-runner.test.mjs`, `scripts/skill-inventory-audit.mjs`
+**Type**: Modify
+**Depends**: T002, T003, T009
+**Acceptance**:
+- [ ] Compact workflows with zero reference pointers pass D3
+- [ ] `draft-issue` still requires at least one conforming pointer
+- [ ] Focused tests prove both pointer-validation branches
+- [ ] Inventory metadata errors no longer mention removed structure validation
+
+### T011: Separate historical rewrite identity from release version
+
+**File(s)**: `scripts/verify-current-specs.mjs`, `scripts/__tests__/current-specs.test.mjs`, `references/rewrite-contract.md`, `CHANGELOG.md`, `VERSION`, `package.json`
+**Type**: Modify
+**Depends**: T010
+**Acceptance**:
+- [ ] Ordinary version bumps do not require rewriting the historical `references/rewrite-contract.json` release
+- [ ] `scripts/__tests__/current-specs.test.mjs` proves a later package/VERSION pair passes with the historical rewrite release unchanged
+- [ ] `references/rewrite-contract.md` no longer claims the historical release must match the current package version
+- [ ] `CHANGELOG.md`, `VERSION`, and `package.json` publish 3.2.0 together
+- [ ] `cd scripts && npm test` exits 0
+
 ---
+
 
 ## Dependency Graph
 

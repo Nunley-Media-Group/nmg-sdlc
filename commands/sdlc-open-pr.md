@@ -93,10 +93,3 @@ Only then:
 Print NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/N-deliver.json
 
 If any proof missing, failed handoff with appropriate reason (e.g. merge_failed).
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-                                                                                       ▲ You are here (open-pr + bot address inline)
-```

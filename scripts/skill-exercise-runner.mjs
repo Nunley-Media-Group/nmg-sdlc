@@ -153,6 +153,21 @@ function countLines(source) {
   return n;
 }
 
+export function referencePointerCheck(skillName, source) {
+  const pointerLines = source.split('\n').filter((line) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(line));
+  const nonConforming = pointerLines.filter((line) => !POINTER_RE.test(line));
+  const pointersRequired = skillName === 'draft-issue';
+  const pointersValid = nonConforming.length === 0 && (!pointersRequired || pointerLines.length > 0);
+  return {
+    id: 'D3',
+    name: 'every reference pointer matches the AC7 grammar',
+    status: pointersValid ? 'pass' : 'fail',
+    detail: pointerLines.length === 0
+      ? (pointersRequired ? 'no reference pointers found' : 'no reference pointers (none required)')
+      : `${pointerLines.length} pointers, ${nonConforming.length} non-conforming`,
+  };
+}
+
 /**
  * Build the deterministic-check list for a given skill. Each check returns
  * `{ id, name, status: 'pass' | 'fail' | 'skipped', detail?: string }`.
@@ -202,17 +217,11 @@ function deterministicChecks(skillName, baseRef) {
     detail: frontmatterOk ? (model ? `model ${model}` : 'no model override and no legacy provider terms') : 'expected absent/gpt-* model and no legacy provider terms',
   });
 
-  // D3: every reference pointer matches the AC7 grammar
-  const pointerLines = source.split('\n').filter((l) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(l));
-  const nonConforming = pointerLines.filter((l) => !POINTER_RE.test(l));
-  results.push({
-    id: 'D3',
-    name: 'every reference pointer matches the AC7 grammar',
-    status: pointerLines.length > 0 && nonConforming.length === 0 ? 'pass' : (pointerLines.length === 0 ? 'fail' : 'fail'),
-    detail: pointerLines.length === 0
-      ? 'no reference pointers found'
-      : `${pointerLines.length} pointers, ${nonConforming.length} non-conforming`,
-  });
+  // D3: draft-issue must progressively disclose through at least one
+  // reference; other compact workflows may have no reference pointers.
+  const pointerCheck = referencePointerCheck(skillName, source);
+  const pointerLines = source.split('\n').filter((line) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(line));
+  results.push(pointerCheck);
 
   // D4: per-skill references/ count ≤ 5
   let refFiles = [];

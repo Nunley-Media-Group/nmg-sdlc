@@ -5,9 +5,9 @@ description: "Interview user about a feature need, create groomed GitHub issue w
 
 # Draft Issue
 
-Read `../../references/codex-tooling.md` (maps to current OMP tools: read/grep/glob/ask/write to local:// and xd://propose).
+Read `../../references/codex-tooling.md` when mapping the workflow's read, grep, glob, ask, local-file, and proposal operations to current OMP tools.
 
-Read `../../references/interactive-gates.md` (replaced by native /plan + ask + xd://propose contract).
+Read `../../references/interactive-gates.md` when applying the native `/plan`, `ask`, and `xd://propose` contract.
 
 ## Core Flow
 
@@ -126,11 +126,3 @@ Read `../../references/interactive-gates.md` (replaced by native /plan + ask + x
 - No implementation details in bodies.
 
 - Scope explicit.
-
-## Integration with SDLC Workflow
-```
-/sdlc-draft-issue [need]  →  (approved plan executes gh creates)  →  /sdlc-write-spec #N
-     ▲ You are here
-```
-
-Next-step text after plan approval/execution: /sdlc-write-spec #N
