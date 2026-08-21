@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-21
+
 ### Changed
 
 - Reduced injected SDLC prompt size by removing workflow Integration sections, compacting the status workflow, and enforcing post-render UTF-8 byte ceilings.
