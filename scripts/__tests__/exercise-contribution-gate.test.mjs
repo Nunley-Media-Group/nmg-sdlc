@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 5;
+const CURRENT_VERSION = 6;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -182,11 +182,11 @@ function normalScenario({
 }
 
 describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', () => {
-  test('onboarding-style setup creates version 5 and rerun is idempotent', () => {
+  test('onboarding-style setup creates version 6 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 5');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 6');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -199,7 +199,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 5');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 6');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 
@@ -217,7 +217,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
   });
 });
 
-describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
+describe('exact embedded contribution evaluator (issues #143, #177, and #199)', () => {
   test('passes a coherent issue, spec, path, steering, verification, and guide graph', async () => {
     const result = await runEvaluator(normalScenario());
 
@@ -425,6 +425,51 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
     expect(error).toContain('(+5 more)');
   });
 
+
+
+  test('applies the validated spec-only write-spec contract', async () => {
+    const directory = 'specs/42-add-x';
+    const files = addSpec(baseRepositoryFiles(), directory, { issue: 42 });
+    const result = await runEvaluator({
+      title: 'docs: approve spec for #42',
+      body: 'Approved specification package for #42.\n\nThis pull request publishes the spec only.',
+      changedPaths: [
+        `${directory}/requirements.md`,
+        `${directory}/design.md`,
+        `${directory}/tasks.md`,
+        `${directory}/feature.gherkin`,
+      ],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.infos.join('\n')).toContain('validated spec-only reduced-evidence contract');
+  });
+
+  test('keeps docs-only invalid for spec paths on write-spec-shaped PRs', async () => {
+    const directory = 'specs/42-add-x';
+    const files = addSpec(baseRepositoryFiles(), directory, { issue: 42 });
+    const result = await runEvaluator({
+      title: 'docs: approve spec for #42',
+      body: 'Approved specification package for #42.\n\nThis pull request publishes the spec only.\n\nSDLC-Exception: docs-only — publish the spec',
+      changedPaths: [
+        `${directory}/requirements.md`,
+        `${directory}/design.md`,
+        `${directory}/tasks.md`,
+        `${directory}/feature.gherkin`,
+      ],
+      repositoryFiles: files,
+    });
+
+    expect(result.errors.join('\n')).toContain('Invalid docs-only exception');
+    expect(result.errors.join('\n')).toContain(`invalidating paths: ${directory}/requirements.md`);
+  });
+
+  test('still requires specific verification for implementation PRs', async () => {
+    const result = await runEvaluator(normalScenario({ verification: '' }));
+
+    expect(result.errors.join('\n')).toContain('Missing specific verification');
+  });
 
 
   test('applies the validated docs-only reduced-evidence contract', async () => {

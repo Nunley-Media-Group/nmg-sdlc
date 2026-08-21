@@ -94,14 +94,32 @@ function issueFromDirectory(directory) {
   return match ? Number(match[1]) : null;
 }
 
-export function verifyCurrentSpecs(projectRoot) {
+function stripFencedCode(text) {
+  let fence = null;
+  return text.split(/\r?\n/).filter((line) => {
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence !== null) {
+      if (marker
+        && marker[1][0] === fence[0]
+        && marker[1].length >= fence.length
+        && marker[2].trim() === '') {
+        fence = null;
+      }
+      return false;
+    }
+    if (marker) {
+      fence = marker[1];
+      return false;
+    }
+    return true;
+  }).join('\n');
+}
+
+export function verifySpecArchive(specsRoot, requiredDirectories = CURRENT_SPEC_DIRECTORIES) {
   const errors = [];
-  const specsRoot = path.join(projectRoot, 'specs');
   const actualDirectories = listDirectories(specsRoot);
-  const missingDirectories = CURRENT_SPEC_DIRECTORIES.filter((directory) => !actualDirectories.includes(directory));
-  const staleDirectories = actualDirectories.filter((directory) => !CURRENT_SPEC_DIRECTORIES.includes(directory));
+  const missingDirectories = requiredDirectories.filter((directory) => !actualDirectories.includes(directory));
   if (missingDirectories.length) errors.push(`Missing current spec directories: ${missingDirectories.join(', ')}`);
-  if (staleDirectories.length) errors.push(`Obsolete or mismatched spec directories remain: ${staleDirectories.join(', ')}`);
 
   for (const directory of actualDirectories) {
     const issue = issueFromDirectory(directory);
@@ -117,21 +135,31 @@ export function verifyCurrentSpecs(projectRoot) {
         continue;
       }
       const text = fs.readFileSync(artifactPath, 'utf8');
-      const identity = artifact === 'feature.gherkin' ? `# Issue: #${issue}` : `**Issue**: #${issue}`;
-      if (!text.includes(identity)) errors.push(`${directory}/${artifact} lacks singular ${identity}`);
+      const hasIssue = artifact === 'feature.gherkin'
+        ? (text.includes(`**Issue**: #${issue}`) || text.includes(`# Issue: #${issue}`))
+        : text.includes(`**Issue**: #${issue}`);
+      if (!hasIssue) errors.push(`${directory}/${artifact} lacks singular **Issue**: #${issue}`);
       if (artifact === 'requirements.md' && !text.includes('**Status**: Approved')) {
         errors.push(`${directory}/requirements.md is not Approved`);
       }
+      const proseText = stripFencedCode(text);
       for (const [pattern, label] of STALE_PATTERNS) {
         pattern.lastIndex = 0;
-        if (pattern.test(text) && !(issue === 151 && label === 'removed unattended mode')) {
+        if (pattern.test(proseText) && !(issue === 151 && label === 'removed unattended mode')) {
           errors.push(`${directory}/${artifact} contains ${label}`);
         }
       }
     }
   }
+  return errors;
+}
 
+export function verifyCurrentSpecs(projectRoot) {
+  const specsRoot = path.join(projectRoot, 'specs');
+  const errors = verifySpecArchive(specsRoot);
+  const actualDirectories = listDirectories(specsRoot);
   const contractPath = path.join(projectRoot, 'references', 'rewrite-contract.json');
+
   const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
   if (contract.exception !== 'repository-rewrite') errors.push('Rewrite contract lacks repository-rewrite identity');
 
@@ -206,6 +234,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const error of errors) console.error(`- ${error}`);
     process.exitCode = 1;
   } else {
-    console.log(`Current spec verification passed: ${CURRENT_SPEC_DIRECTORIES.length} genuine issue specs, 15 rewrite capabilities, ${WORKFLOW_CAPABILITY.size} active workflow mappings, ${DEPRECATED_WORKFLOW_STUBS.size} deprecated stub.`);
+    const actualDirectories = listDirectories(path.join(projectRoot, 'specs'));
+    console.log(`Current spec verification passed: ${actualDirectories.length} genuine issue specs, ${CURRENT_SPEC_DIRECTORIES.length} required archive, 15 rewrite capabilities, ${WORKFLOW_CAPABILITY.size} active workflow mappings, ${DEPRECATED_WORKFLOW_STUBS.size} deprecated stub.`);
   }
 }
