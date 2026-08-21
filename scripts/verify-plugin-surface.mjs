@@ -32,13 +32,13 @@ const REMOVED_PATHS = [
   'scripts/__tests__/runner-config-contract.test.mjs',
   'scripts/__tests__/select-next-issue-from-milestone.test.mjs',
   '.codex-plugin/plugin.json',
+  '.claude-plugin',
 ];
 const ACTIVE_TEXT_FILES = [
   'README.md',
   '.gitignore',
   'package.json',
   'src/extension.ts',
-  '.claude-plugin/plugin.json',
   'steering/product.md',
   'steering/tech.md',
   'steering/structure.md',
@@ -120,57 +120,6 @@ function parseJson(source, filePath, description) {
   }
 }
 
-function declaredSkillsPath(manifest) {
-  const listed = manifest?.omp?.skills;
-  if (Array.isArray(listed) && typeof listed[0] === 'string' && listed[0].trim() !== '') {
-    return listed[0];
-  }
-  return './skills';
-}
-
-function resolveSkillsRoot(root, declaredPath) {
-  if (typeof declaredPath !== 'string' || declaredPath.trim() === '') {
-    throw new SurfaceInputError('manifest field omp.skills must be a non-empty relative path');
-  }
-
-  const portable = declaredPath.replaceAll('\\', '/');
-  const segments = portable.split('/').filter((segment) => segment !== '' && segment !== '.');
-  const hasWindowsDrive = /^[A-Za-z]:[\\/]/.test(declaredPath);
-
-  if (!portable.startsWith('./')) {
-    throw new SurfaceInputError(`manifest field "skills" must start with "./": ${declaredPath}`);
-  }
-  if (path.isAbsolute(declaredPath) || hasWindowsDrive) {
-    throw new SurfaceInputError(`manifest field "skills" must not be absolute: ${declaredPath}`);
-  }
-  if (segments.length === 0 || segments.includes('..')) {
-    throw new SurfaceInputError(`manifest field "skills" must not traverse outside the plugin root: ${declaredPath}`);
-  }
-
-  const skillsRoot = path.resolve(root, ...segments);
-  const relative = path.relative(root, skillsRoot);
-  if (relative === '' || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-    throw new SurfaceInputError(`manifest field "skills" resolves outside the plugin root: ${declaredPath}`);
-  }
-
-  requireReadableDirectory(skillsRoot, 'manifest-declared skills directory');
-
-  let realRoot;
-  let realSkillsRoot;
-  try {
-    realRoot = fs.realpathSync(root);
-    realSkillsRoot = fs.realpathSync(skillsRoot);
-  } catch (error) {
-    throw new SurfaceInputError(`could not resolve the selected plugin surface: ${error.message}`);
-  }
-
-  const realRelative = path.relative(realRoot, realSkillsRoot);
-  if (realRelative === '' || realRelative.startsWith(`..${path.sep}`) || realRelative === '..' || path.isAbsolute(realRelative)) {
-    throw new SurfaceInputError(`manifest-declared skills directory resolves outside the plugin root: ${declaredPath}`);
-  }
-
-  return skillsRoot;
-}
 
 function readFrontmatter(source) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
@@ -184,7 +133,7 @@ function addViolation(violations, kind, file, detail = '') {
 }
 
 function isMigrationDocumentation(file) {
-  return file === 'README.md' || file.startsWith('skills/upgrade-project/');
+  return file === 'README.md' || file.startsWith('workflows/upgrade-project/');
 }
 
 function allowsHistoricalAlias(file) {
@@ -253,14 +202,14 @@ function inspectLoaderFacingText(source, file, violations) {
   }
 }
 
-function walkSkillsTree(root, skillsRoot, violations) {
+function walkWorkflowsTree(root, workflowsRoot, violations) {
   function walk(directory) {
     let entries;
     try {
       entries = fs.readdirSync(directory, { withFileTypes: true })
         .sort((left, right) => left.name.localeCompare(right.name));
     } catch (error) {
-      throw new SurfaceInputError(`could not inspect skills directory ${directory}: ${error.message}`);
+      throw new SurfaceInputError(`could not inspect workflows directory ${directory}: ${error.message}`);
     }
 
     for (const entry of entries) {
@@ -286,14 +235,14 @@ function walkSkillsTree(root, skillsRoot, violations) {
       try {
         source = fs.readFileSync(absolute, 'utf8');
       } catch (error) {
-        throw new SurfaceInputError(`could not read active skill file ${absolute}: ${error.message}`);
+        throw new SurfaceInputError(`could not read active workflow file ${absolute}: ${error.message}`);
       }
       if (source.includes('\0')) continue;
       inspectLoaderFacingText(source, relative, violations);
     }
   }
 
-  walk(skillsRoot);
+  walk(workflowsRoot);
 }
 
 function inspectOptionalActiveFile(root, portable, violations) {
@@ -355,7 +304,7 @@ function inspectRemovedPaths(root, violations) {
 
 function inspectInventoryValue(value, jsonPath, file, violations) {
   if (typeof value === 'string') {
-    if (/skills[\\/](?:commit-push|end-loop|init-config|run-loop)(?:[\\/]|$)/i.test(value)
+    if (/workflows[\\/](?:commit-push|end-loop|init-config|run-loop)(?:[\\/]|$)/i.test(value)
       || REMOVED_COMMAND_PATTERN.test(value)
       || /\bcommitPush\b/.test(value)
       || REMOVED_RUNTIME_PATTERN.test(value)
@@ -399,17 +348,27 @@ export function validatePluginSurface(rootArgument, label) {
     throw new SurfaceInputError(`package.json omp.extensions must equal ${JSON.stringify(EXPECTED_EXTENSIONS)}`);
   }
 
-  const skillsRoot = resolveSkillsRoot(root, declaredSkillsPath(manifest));
-  const openPrFile = path.join(skillsRoot, 'open-pr', 'SKILL.md');
-  const openPrSource = readRequiredFile(openPrFile, 'open-pr skill definition');
-  if (!/^name:\s*["']?open-pr["']?\s*$/im.test(readFrontmatter(openPrSource))) {
-    throw new SurfaceInputError(`open-pr is not discoverable from ${relativePath(root, openPrFile)}: expected frontmatter name "open-pr"`);
+  const violations = [];
+  if (Object.hasOwn(manifest?.omp ?? {}, 'skills')) {
+    addViolation(violations, 'omp-skills-declared', 'package.json');
   }
 
-  const violations = [];
+  const leftoverSkills = lstatOptional(path.join(root, 'skills'), 'leftover skills directory');
+  if (leftoverSkills?.isDirectory()) {
+    addViolation(violations, 'leftover-skills-directory', 'skills');
+  }
+
+  const workflowsRoot = path.join(root, 'workflows');
+  requireReadableDirectory(workflowsRoot, 'workflows directory');
+  const openPrFile = path.join(workflowsRoot, 'open-pr', 'WORKFLOW.md');
+  const openPrSource = readRequiredFile(openPrFile, 'open-pr workflow');
+  if (!/^name:\s*["']?open-pr["']?\s*$/im.test(readFrontmatter(openPrSource))) {
+    throw new SurfaceInputError(`open-pr is not present at ${relativePath(root, openPrFile)}: expected frontmatter name "open-pr"`);
+  }
+
   inspectRemovedPaths(root, violations);
   inspectLoaderFacingText(manifestSource, toPortablePath(MANIFEST_PATH), violations);
-  walkSkillsTree(root, skillsRoot, violations);
+  walkWorkflowsTree(root, workflowsRoot, violations);
   ACTIVE_TEXT_FILES.forEach((file) => inspectOptionalActiveFile(root, file, violations));
   ACTIVE_TEXT_DIRECTORIES.forEach((directory) => walkOptionalActiveDirectory(root, directory, violations));
 

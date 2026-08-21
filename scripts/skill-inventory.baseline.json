@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T03:26:08.060Z",
+  "generated_at": "2026-08-21T05:24:04.925Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -286,519 +286,519 @@
     },
     {
       "id": "483c7103c42d",
-      "source_before": "skills/simplify/SKILL.md:14",
+      "source_before": "workflows/simplify/WORKFLOW.md:14",
       "normalized": "discover files to review in this order:",
-      "destination": "skills/simplify/SKILL.md:14"
+      "destination": "workflows/simplify/WORKFLOW.md:14"
     },
     {
       "id": "2a8a74c8a448",
-      "source_before": "skills/simplify/SKILL.md:16",
+      "source_before": "workflows/simplify/WORKFLOW.md:16",
       "normalized": "run git diff --name-only to list unstaged changed files.",
-      "destination": "skills/simplify/SKILL.md:16"
+      "destination": "workflows/simplify/WORKFLOW.md:16"
     },
     {
       "id": "4afd4a6d19bc",
-      "source_before": "skills/simplify/SKILL.md:17",
+      "source_before": "workflows/simplify/WORKFLOW.md:17",
       "normalized": "if staged changes exist, run git diff head --name-only so staged and unstaged fi",
-      "destination": "skills/simplify/SKILL.md:17"
+      "destination": "workflows/simplify/WORKFLOW.md:17"
     },
     {
       "id": "f3ad9840d554",
-      "source_before": "skills/simplify/SKILL.md:18",
+      "source_before": "workflows/simplify/WORKFLOW.md:18",
       "normalized": "if the git diff is empty, review files the user explicitly mentioned or files ed",
-      "destination": "skills/simplify/SKILL.md:18"
+      "destination": "workflows/simplify/WORKFLOW.md:18"
     },
     {
       "id": "4d22fd81ab95",
-      "source_before": "skills/simplify/SKILL.md:19",
+      "source_before": "workflows/simplify/WORKFLOW.md:19",
       "normalized": "exclude generated artifacts, dependency directories, lockfile-only changes, and ",
-      "destination": "skills/simplify/SKILL.md:19"
+      "destination": "workflows/simplify/WORKFLOW.md:19"
     },
     {
       "id": "fa5bbf968a92",
-      "source_before": "skills/simplify/SKILL.md:21",
+      "source_before": "workflows/simplify/WORKFLOW.md:21",
       "normalized": "if no reviewable files can be identified, report that no changed or referenced f",
-      "destination": "skills/simplify/SKILL.md:21"
+      "destination": "workflows/simplify/WORKFLOW.md:21"
     },
     {
       "id": "ef954748ee19",
-      "source_before": "skills/simplify/SKILL.md:25",
+      "source_before": "workflows/simplify/WORKFLOW.md:25",
       "normalized": "for each scoped file:",
-      "destination": "skills/simplify/SKILL.md:25"
+      "destination": "workflows/simplify/WORKFLOW.md:25"
     },
     {
       "id": "c98d38ae442c",
-      "source_before": "skills/simplify/SKILL.md:27",
+      "source_before": "workflows/simplify/WORKFLOW.md:27",
       "normalized": "search adjacent modules and shared utilities for existing helpers, patterns, con",
-      "destination": "skills/simplify/SKILL.md:27"
+      "destination": "workflows/simplify/WORKFLOW.md:27"
     },
     {
       "id": "d5568ed563a2",
-      "source_before": "skills/simplify/SKILL.md:28",
+      "source_before": "workflows/simplify/WORKFLOW.md:28",
       "normalized": "flag duplicated functions, hand-rolled parsing, repeated conditionals, or inline",
-      "destination": "skills/simplify/SKILL.md:28"
+      "destination": "workflows/simplify/WORKFLOW.md:28"
     },
     {
       "id": "5ce65349d055",
-      "source_before": "skills/simplify/SKILL.md:29",
+      "source_before": "workflows/simplify/WORKFLOW.md:29",
       "normalized": "skip replacement suggestions that would broaden dependencies, obscure intent, or",
-      "destination": "skills/simplify/SKILL.md:29"
+      "destination": "workflows/simplify/WORKFLOW.md:29"
     },
     {
       "id": "222c70d337ed",
-      "source_before": "skills/simplify/SKILL.md:33",
+      "source_before": "workflows/simplify/WORKFLOW.md:33",
       "normalized": "check the scoped diff for:",
-      "destination": "skills/simplify/SKILL.md:33"
+      "destination": "workflows/simplify/WORKFLOW.md:33"
     },
     {
       "id": "09dd5d160246",
-      "source_before": "skills/simplify/SKILL.md:35",
+      "source_before": "workflows/simplify/WORKFLOW.md:35",
       "normalized": "redundant state or derived values stored unnecessarily",
-      "destination": "skills/simplify/SKILL.md:35"
+      "destination": "workflows/simplify/WORKFLOW.md:35"
     },
     {
       "id": "f7fb47ea9a3c",
-      "source_before": "skills/simplify/SKILL.md:36",
+      "source_before": "workflows/simplify/WORKFLOW.md:36",
       "normalized": "parameter sprawl and avoidable argument threading",
-      "destination": "skills/simplify/SKILL.md:36"
+      "destination": "workflows/simplify/WORKFLOW.md:36"
     },
     {
       "id": "39649e191b5e",
-      "source_before": "skills/simplify/SKILL.md:37",
+      "source_before": "workflows/simplify/WORKFLOW.md:37",
       "normalized": "copy-paste variation between similar branches",
-      "destination": "skills/simplify/SKILL.md:37"
+      "destination": "workflows/simplify/WORKFLOW.md:37"
     },
     {
       "id": "60d882e56c4c",
-      "source_before": "skills/simplify/SKILL.md:38",
+      "source_before": "workflows/simplify/WORKFLOW.md:38",
       "normalized": "leaky abstractions or helpers with unclear ownership",
-      "destination": "skills/simplify/SKILL.md:38"
+      "destination": "workflows/simplify/WORKFLOW.md:38"
     },
     {
       "id": "735bf0d77725",
-      "source_before": "skills/simplify/SKILL.md:39",
+      "source_before": "workflows/simplify/WORKFLOW.md:39",
       "normalized": "stringly typed code where a local constant, enum-like map, or structured value a",
-      "destination": "skills/simplify/SKILL.md:39"
+      "destination": "workflows/simplify/WORKFLOW.md:39"
     },
     {
       "id": "c6343fddc5b5",
-      "source_before": "skills/simplify/SKILL.md:40",
+      "source_before": "workflows/simplify/WORKFLOW.md:40",
       "normalized": "unnecessary jsx, markup, or conditional nesting",
-      "destination": "skills/simplify/SKILL.md:40"
+      "destination": "workflows/simplify/WORKFLOW.md:40"
     },
     {
       "id": "ec370f7d54ca",
-      "source_before": "skills/simplify/SKILL.md:41",
+      "source_before": "workflows/simplify/WORKFLOW.md:41",
       "normalized": "nested conditionals that can be flattened without losing clarity",
-      "destination": "skills/simplify/SKILL.md:41"
+      "destination": "workflows/simplify/WORKFLOW.md:41"
     },
     {
       "id": "b0c78a6e92af",
-      "source_before": "skills/simplify/SKILL.md:42",
+      "source_before": "workflows/simplify/WORKFLOW.md:42",
       "normalized": "comments that restate obvious code instead of explaining intent",
-      "destination": "skills/simplify/SKILL.md:42"
+      "destination": "workflows/simplify/WORKFLOW.md:42"
     },
     {
       "id": "1951fc8ff38b",
-      "source_before": "skills/simplify/SKILL.md:46",
+      "source_before": "workflows/simplify/WORKFLOW.md:46",
       "normalized": "check for behavior-preserving efficiency improvements:",
-      "destination": "skills/simplify/SKILL.md:46"
+      "destination": "workflows/simplify/WORKFLOW.md:46"
     },
     {
       "id": "ff15446a9c4e",
-      "source_before": "skills/simplify/SKILL.md:48",
+      "source_before": "workflows/simplify/WORKFLOW.md:48",
       "normalized": "unnecessary repeated work inside loops or hot paths",
-      "destination": "skills/simplify/SKILL.md:48"
+      "destination": "workflows/simplify/WORKFLOW.md:48"
     },
     {
       "id": "3128614c226c",
-      "source_before": "skills/simplify/SKILL.md:49",
+      "source_before": "workflows/simplify/WORKFLOW.md:49",
       "normalized": "missed concurrency for independent operations",
-      "destination": "skills/simplify/SKILL.md:49"
+      "destination": "workflows/simplify/WORKFLOW.md:49"
     },
     {
       "id": "21ede2dc3e8e",
-      "source_before": "skills/simplify/SKILL.md:50",
+      "source_before": "workflows/simplify/WORKFLOW.md:50",
       "normalized": "recurring no-op updates",
-      "destination": "skills/simplify/SKILL.md:50"
+      "destination": "workflows/simplify/WORKFLOW.md:50"
     },
     {
       "id": "624aa8dc945c",
-      "source_before": "skills/simplify/SKILL.md:51",
+      "source_before": "workflows/simplify/WORKFLOW.md:51",
       "normalized": "existence pre-checks that duplicate later work",
-      "destination": "skills/simplify/SKILL.md:51"
+      "destination": "workflows/simplify/WORKFLOW.md:51"
     },
     {
       "id": "6de260db6635",
-      "source_before": "skills/simplify/SKILL.md:52",
+      "source_before": "workflows/simplify/WORKFLOW.md:52",
       "normalized": "broad scans or file operations where a narrower scope is available",
-      "destination": "skills/simplify/SKILL.md:52"
+      "destination": "workflows/simplify/WORKFLOW.md:52"
     },
     {
       "id": "e0990490e833",
-      "source_before": "skills/simplify/SKILL.md:53",
+      "source_before": "workflows/simplify/WORKFLOW.md:53",
       "normalized": "retained references, listeners, or timers that can leak memory",
-      "destination": "skills/simplify/SKILL.md:53"
+      "destination": "workflows/simplify/WORKFLOW.md:53"
     },
     {
       "id": "fcea88c5619d",
-      "source_before": "skills/simplify/SKILL.md:55",
+      "source_before": "workflows/simplify/WORKFLOW.md:55",
       "normalized": "skip any efficiency change that would require new dependencies, alter ordering g",
-      "destination": "skills/simplify/SKILL.md:55"
+      "destination": "workflows/simplify/WORKFLOW.md:55"
     },
     {
       "id": "9d6e10390480",
-      "source_before": "skills/simplify/SKILL.md:59",
+      "source_before": "workflows/simplify/WORKFLOW.md:59",
       "normalized": "run the review inline by default.",
-      "destination": "skills/simplify/SKILL.md:59"
+      "destination": "workflows/simplify/WORKFLOW.md:59"
     },
     {
       "id": "8c840a21faff",
-      "source_before": "skills/simplify/SKILL.md:61",
+      "source_before": "workflows/simplify/WORKFLOW.md:61",
       "normalized": "use explorer subagents only when the user explicitly authorizes delegation. when",
-      "destination": "skills/simplify/SKILL.md:61"
+      "destination": "workflows/simplify/WORKFLOW.md:61"
     },
     {
       "id": "e631dd853c0b",
-      "source_before": "skills/simplify/SKILL.md:63",
+      "source_before": "workflows/simplify/WORKFLOW.md:63",
       "normalized": "| explorer | scope | output |",
-      "destination": "skills/simplify/SKILL.md:63"
+      "destination": "workflows/simplify/WORKFLOW.md:63"
     },
     {
       "id": "b6d3cefdcba1",
-      "source_before": "skills/simplify/SKILL.md:65",
+      "source_before": "workflows/simplify/WORKFLOW.md:65",
       "normalized": "| reuse | existing helpers, adjacent patterns, duplicated functions, and shared ",
-      "destination": "skills/simplify/SKILL.md:65"
+      "destination": "workflows/simplify/WORKFLOW.md:65"
     },
     {
       "id": "06bf25459af1",
-      "source_before": "skills/simplify/SKILL.md:66",
+      "source_before": "workflows/simplify/WORKFLOW.md:66",
       "normalized": "| quality | state shape, abstraction boundaries, conditionals, comments, and dup",
-      "destination": "skills/simplify/SKILL.md:66"
+      "destination": "workflows/simplify/WORKFLOW.md:66"
     },
     {
       "id": "7bca825221ec",
-      "source_before": "skills/simplify/SKILL.md:67",
+      "source_before": "workflows/simplify/WORKFLOW.md:67",
       "normalized": "| efficiency | avoidable work, repeated no-ops, hot paths, concurrency, and broa",
-      "destination": "skills/simplify/SKILL.md:67"
+      "destination": "workflows/simplify/WORKFLOW.md:67"
     },
     {
       "id": "9bdcbaa5719e",
-      "source_before": "skills/simplify/SKILL.md:69",
+      "source_before": "workflows/simplify/WORKFLOW.md:69",
       "normalized": "explorer output is advisory. the parent skill decides what to change and applies",
-      "destination": "skills/simplify/SKILL.md:69"
+      "destination": "workflows/simplify/WORKFLOW.md:69"
     },
     {
       "id": "218e17eaddb1",
-      "source_before": "skills/simplify/SKILL.md:73",
+      "source_before": "workflows/simplify/WORKFLOW.md:73",
       "normalized": "aggregate findings from reuse, quality, and efficiency review.",
-      "destination": "skills/simplify/SKILL.md:73"
+      "destination": "workflows/simplify/WORKFLOW.md:73"
     },
     {
       "id": "7860556062b3",
-      "source_before": "skills/simplify/SKILL.md:75",
+      "source_before": "workflows/simplify/WORKFLOW.md:75",
       "normalized": "for each finding:",
-      "destination": "skills/simplify/SKILL.md:75"
+      "destination": "workflows/simplify/WORKFLOW.md:75"
     },
     {
       "id": "5fa07cd44f60",
-      "source_before": "skills/simplify/SKILL.md:77",
+      "source_before": "workflows/simplify/WORKFLOW.md:77",
       "normalized": "apply the smallest behavior-preserving cleanup that clearly improves the code.",
-      "destination": "skills/simplify/SKILL.md:77"
+      "destination": "workflows/simplify/WORKFLOW.md:77"
     },
     {
       "id": "507db543b3fd",
-      "source_before": "skills/simplify/SKILL.md:78",
+      "source_before": "workflows/simplify/WORKFLOW.md:78",
       "normalized": "do not change feature behavior, public contracts, user-visible copy, persistence",
-      "destination": "skills/simplify/SKILL.md:78"
+      "destination": "workflows/simplify/WORKFLOW.md:78"
     },
     {
       "id": "19a888d3a890",
-      "source_before": "skills/simplify/SKILL.md:79",
+      "source_before": "workflows/simplify/WORKFLOW.md:79",
       "normalized": "skip false positives, risky refactors, and changes whose value is not clear.",
-      "destination": "skills/simplify/SKILL.md:79"
+      "destination": "workflows/simplify/WORKFLOW.md:79"
     },
     {
       "id": "273634129067",
-      "source_before": "skills/simplify/SKILL.md:80",
+      "source_before": "workflows/simplify/WORKFLOW.md:80",
       "normalized": "use edit or write tools for changes and follow the repository's existing style.",
-      "destination": "skills/simplify/SKILL.md:80"
+      "destination": "workflows/simplify/WORKFLOW.md:80"
     },
     {
       "id": "4ac070b5e410",
-      "source_before": "skills/simplify/SKILL.md:82",
+      "source_before": "workflows/simplify/WORKFLOW.md:82",
       "normalized": "after edits, run the narrowest relevant validation command when one is obvious f",
-      "destination": "skills/simplify/SKILL.md:82"
+      "destination": "workflows/simplify/WORKFLOW.md:82"
     },
     {
       "id": "4954726def12",
-      "source_before": "skills/simplify/SKILL.md:86",
+      "source_before": "workflows/simplify/WORKFLOW.md:86",
       "normalized": "report:",
-      "destination": "skills/simplify/SKILL.md:86"
+      "destination": "workflows/simplify/WORKFLOW.md:86"
     },
     {
       "id": "89286022aa4c",
-      "source_before": "skills/simplify/SKILL.md:88",
+      "source_before": "workflows/simplify/WORKFLOW.md:88",
       "normalized": "files reviewed",
-      "destination": "skills/simplify/SKILL.md:88"
+      "destination": "workflows/simplify/WORKFLOW.md:88"
     },
     {
       "id": "0b44e573cc62",
-      "source_before": "skills/simplify/SKILL.md:89",
+      "source_before": "workflows/simplify/WORKFLOW.md:89",
       "normalized": "fixes applied",
-      "destination": "skills/simplify/SKILL.md:89"
+      "destination": "workflows/simplify/WORKFLOW.md:89"
     },
     {
       "id": "429a67fd8256",
-      "source_before": "skills/simplify/SKILL.md:90",
+      "source_before": "workflows/simplify/WORKFLOW.md:90",
       "normalized": "findings skipped and why",
-      "destination": "skills/simplify/SKILL.md:90"
+      "destination": "workflows/simplify/WORKFLOW.md:90"
     },
     {
       "id": "4c2799940452",
-      "source_before": "skills/simplify/SKILL.md:91",
+      "source_before": "workflows/simplify/WORKFLOW.md:91",
       "normalized": "validation run",
-      "destination": "skills/simplify/SKILL.md:91"
+      "destination": "workflows/simplify/WORKFLOW.md:91"
     },
     {
       "id": "7413e91e390b",
-      "source_before": "skills/simplify/SKILL.md:93",
+      "source_before": "workflows/simplify/WORKFLOW.md:93",
       "normalized": "if no worthwhile cleanup is found, say the scoped files were already clean.",
-      "destination": "skills/simplify/SKILL.md:93"
+      "destination": "workflows/simplify/WORKFLOW.md:93"
     },
     {
       "id": "3e4ec04f07a1",
-      "source_before": "skills/start-issue/SKILL.md:14",
+      "source_before": "workflows/start-issue/WORKFLOW.md:14",
       "normalized": "the invocation must supply an explicit issue number argument in the form #n or n",
-      "destination": "skills/start-issue/SKILL.md:14"
+      "destination": "workflows/start-issue/WORKFLOW.md:14"
     },
     {
       "id": "7de0d98a2724",
-      "source_before": "skills/start-issue/SKILL.md:16",
+      "source_before": "workflows/start-issue/WORKFLOW.md:16",
       "normalized": "if no argument or argument does not match ^#?([1-9]\\d*)$, write failed handoff i",
-      "destination": "skills/start-issue/SKILL.md:16"
+      "destination": "workflows/start-issue/WORKFLOW.md:16"
     },
     {
       "id": "aa680822b32d",
-      "source_before": "skills/start-issue/SKILL.md:17",
+      "source_before": "workflows/start-issue/WORKFLOW.md:17",
       "normalized": "reasoncode: noissuenumber",
-      "destination": "skills/start-issue/SKILL.md:17"
+      "destination": "workflows/start-issue/WORKFLOW.md:17"
     },
     {
       "id": "7cd7cb65e186",
-      "source_before": "skills/start-issue/SKILL.md:18",
+      "source_before": "workflows/start-issue/WORKFLOW.md:18",
       "normalized": "summary: \"start-issue requires explicit #n argument\"",
-      "destination": "skills/start-issue/SKILL.md:18"
+      "destination": "workflows/start-issue/WORKFLOW.md:18"
     },
     {
       "id": "6b5449db00b6",
-      "source_before": "skills/start-issue/SKILL.md:19",
+      "source_before": "workflows/start-issue/WORKFLOW.md:19",
       "normalized": "step: \"start\"",
-      "destination": "skills/start-issue/SKILL.md:19",
+      "destination": "workflows/start-issue/WORKFLOW.md:19",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:38"
+        "workflows/start-issue/WORKFLOW.md:38"
       ]
     },
     {
       "id": "0f52536dde7d",
-      "source_before": "skills/start-issue/SKILL.md:20",
+      "source_before": "workflows/start-issue/WORKFLOW.md:20",
       "normalized": "intervention: true",
-      "destination": "skills/start-issue/SKILL.md:20",
+      "destination": "workflows/start-issue/WORKFLOW.md:20",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:37"
+        "workflows/start-issue/WORKFLOW.md:37"
       ]
     },
     {
       "id": "1ec1de9df694",
-      "source_before": "skills/start-issue/SKILL.md:21",
+      "source_before": "workflows/start-issue/WORKFLOW.md:21",
       "normalized": "extract n as integer.",
-      "destination": "skills/start-issue/SKILL.md:21"
+      "destination": "workflows/start-issue/WORKFLOW.md:21"
     },
     {
       "id": "60690206d9e2",
-      "source_before": "skills/start-issue/SKILL.md:23",
+      "source_before": "workflows/start-issue/WORKFLOW.md:23",
       "normalized": "use bash:",
-      "destination": "skills/start-issue/SKILL.md:23"
+      "destination": "workflows/start-issue/WORKFLOW.md:23"
     },
     {
       "id": "502850d3997d",
-      "source_before": "skills/start-issue/SKILL.md:30",
+      "source_before": "workflows/start-issue/WORKFLOW.md:30",
       "normalized": "run:",
-      "destination": "skills/start-issue/SKILL.md:30"
+      "destination": "workflows/start-issue/WORKFLOW.md:30"
     },
     {
       "id": "f678fe8504e9",
-      "source_before": "skills/start-issue/SKILL.md:35",
+      "source_before": "workflows/start-issue/WORKFLOW.md:35",
       "normalized": "if gh fails or state is not readable, write failed handoff:",
-      "destination": "skills/start-issue/SKILL.md:35"
+      "destination": "workflows/start-issue/WORKFLOW.md:35"
     },
     {
       "id": "75ebba0bf45b",
-      "source_before": "skills/start-issue/SKILL.md:36",
+      "source_before": "workflows/start-issue/WORKFLOW.md:36",
       "normalized": "reasoncode: issue_unreadable",
-      "destination": "skills/start-issue/SKILL.md:36"
+      "destination": "workflows/start-issue/WORKFLOW.md:36"
     },
     {
       "id": "b949c066f864",
-      "source_before": "skills/start-issue/SKILL.md:40",
+      "source_before": "workflows/start-issue/WORKFLOW.md:40",
       "normalized": "parse json for number, title, labels array, body, state.",
-      "destination": "skills/start-issue/SKILL.md:40"
+      "destination": "workflows/start-issue/WORKFLOW.md:40"
     },
     {
       "id": "1c1badae472a",
-      "source_before": "skills/start-issue/SKILL.md:42",
+      "source_before": "workflows/start-issue/WORKFLOW.md:42",
       "normalized": "compute slug from title (reuse feature-naming rules):",
-      "destination": "skills/start-issue/SKILL.md:42"
+      "destination": "workflows/start-issue/WORKFLOW.md:42"
     },
     {
       "id": "c110c8dfd3c1",
-      "source_before": "skills/start-issue/SKILL.md:53",
+      "source_before": "workflows/start-issue/WORKFLOW.md:53",
       "normalized": "expectedbranch = ${n}-${slug}",
-      "destination": "skills/start-issue/SKILL.md:53"
+      "destination": "workflows/start-issue/WORKFLOW.md:53"
     },
     {
       "id": "6ba5efd45735",
-      "source_before": "skills/start-issue/SKILL.md:67",
+      "source_before": "workflows/start-issue/WORKFLOW.md:67",
       "normalized": "for each parent in dependson:",
-      "destination": "skills/start-issue/SKILL.md:67"
+      "destination": "workflows/start-issue/WORKFLOW.md:67"
     },
     {
       "id": "d5f826d7f587",
-      "source_before": "skills/start-issue/SKILL.md:69",
+      "source_before": "workflows/start-issue/WORKFLOW.md:69",
       "normalized": "run gh issue view p --json state",
-      "destination": "skills/start-issue/SKILL.md:69"
+      "destination": "workflows/start-issue/WORKFLOW.md:69"
     },
     {
       "id": "dd602188b0a2",
-      "source_before": "skills/start-issue/SKILL.md:71",
+      "source_before": "workflows/start-issue/WORKFLOW.md:71",
       "normalized": "if command fails or cannot parse: reasoncode dependency_unreadable, failed, inte",
-      "destination": "skills/start-issue/SKILL.md:71"
+      "destination": "workflows/start-issue/WORKFLOW.md:71"
     },
     {
       "id": "4364d2013c98",
-      "source_before": "skills/start-issue/SKILL.md:73",
+      "source_before": "workflows/start-issue/WORKFLOW.md:73",
       "normalized": "if state !== \"closed\": reasoncode dependency_blocked, failed, intervention true",
-      "destination": "skills/start-issue/SKILL.md:73"
+      "destination": "workflows/start-issue/WORKFLOW.md:73"
     },
     {
       "id": "20d011899b9d",
-      "source_before": "skills/start-issue/SKILL.md:75",
+      "source_before": "workflows/start-issue/WORKFLOW.md:75",
       "normalized": "if any parent blocks, write handoff and stop. do not guess.",
-      "destination": "skills/start-issue/SKILL.md:75"
+      "destination": "workflows/start-issue/WORKFLOW.md:75"
     },
     {
       "id": "5b0874b20795",
-      "source_before": "skills/start-issue/SKILL.md:84",
+      "source_before": "workflows/start-issue/WORKFLOW.md:84",
       "normalized": "if dirty (non-empty after trim) and current !== expectedbranch:",
-      "destination": "skills/start-issue/SKILL.md:84"
+      "destination": "workflows/start-issue/WORKFLOW.md:84"
     },
     {
       "id": "5771e547450e",
-      "source_before": "skills/start-issue/SKILL.md:85",
+      "source_before": "workflows/start-issue/WORKFLOW.md:85",
       "normalized": "write failed handoff reasoncode: dirty_tree, intervention: true, step: \"start\"",
-      "destination": "skills/start-issue/SKILL.md:85"
+      "destination": "workflows/start-issue/WORKFLOW.md:85"
     },
     {
       "id": "c3e5a55075d0",
-      "source_before": "skills/start-issue/SKILL.md:89",
+      "source_before": "workflows/start-issue/WORKFLOW.md:89",
       "normalized": "if current branch !== expectedbranch:",
-      "destination": "skills/start-issue/SKILL.md:89"
+      "destination": "workflows/start-issue/WORKFLOW.md:89"
     },
     {
       "id": "d6ff913ed2b5",
-      "source_before": "skills/start-issue/SKILL.md:90",
+      "source_before": "workflows/start-issue/WORKFLOW.md:90",
       "normalized": "resolve the repository default branch:",
-      "destination": "skills/start-issue/SKILL.md:90"
+      "destination": "workflows/start-issue/WORKFLOW.md:90"
     },
     {
       "id": "8dc414a245b0",
-      "source_before": "skills/start-issue/SKILL.md:91",
+      "source_before": "workflows/start-issue/WORKFLOW.md:91",
       "normalized": "```bash",
-      "destination": "skills/start-issue/SKILL.md:91",
+      "destination": "workflows/start-issue/WORKFLOW.md:91",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:95"
+        "workflows/start-issue/WORKFLOW.md:95"
       ]
     },
     {
       "id": "5806082da195",
-      "source_before": "skills/start-issue/SKILL.md:92",
+      "source_before": "workflows/start-issue/WORKFLOW.md:92",
       "normalized": "defaultbranch=$(gh repo view --json defaultbranchref --jq .defaultbranchref.name",
-      "destination": "skills/start-issue/SKILL.md:92"
+      "destination": "workflows/start-issue/WORKFLOW.md:92"
     },
     {
       "id": "bbc0aff80688",
-      "source_before": "skills/start-issue/SKILL.md:93",
+      "source_before": "workflows/start-issue/WORKFLOW.md:93",
       "normalized": "```",
-      "destination": "skills/start-issue/SKILL.md:93",
+      "destination": "workflows/start-issue/WORKFLOW.md:93",
       "additional_destinations": [
-        "skills/start-issue/SKILL.md:97"
+        "workflows/start-issue/WORKFLOW.md:97"
       ]
     },
     {
       "id": "afc9d2eb6974",
-      "source_before": "skills/start-issue/SKILL.md:94",
+      "source_before": "workflows/start-issue/WORKFLOW.md:94",
       "normalized": "if empty or the command fails: reasoncode defaultbranchunreadable, failed, inter",
-      "destination": "skills/start-issue/SKILL.md:94"
+      "destination": "workflows/start-issue/WORKFLOW.md:94"
     },
     {
       "id": "2404397ea153",
-      "source_before": "skills/start-issue/SKILL.md:96",
+      "source_before": "workflows/start-issue/WORKFLOW.md:96",
       "normalized": "gh issue develop n --checkout --name ${expectedbranch} --base ${defaultbranch}",
-      "destination": "skills/start-issue/SKILL.md:96"
+      "destination": "workflows/start-issue/WORKFLOW.md:96"
     },
     {
       "id": "597d8f9345a0",
-      "source_before": "skills/start-issue/SKILL.md:98",
+      "source_before": "workflows/start-issue/WORKFLOW.md:98",
       "normalized": "verify afterwards that git branch --show-current === expectedbranch. if not, fai",
-      "destination": "skills/start-issue/SKILL.md:98"
+      "destination": "workflows/start-issue/WORKFLOW.md:98"
     },
     {
       "id": "af7c92dca5e1",
-      "source_before": "skills/start-issue/SKILL.md:102",
+      "source_before": "workflows/start-issue/WORKFLOW.md:102",
       "normalized": "do not fail the handoff on errors here.",
-      "destination": "skills/start-issue/SKILL.md:102"
+      "destination": "workflows/start-issue/WORKFLOW.md:102"
     },
     {
       "id": "a8ee7e7c0552",
-      "source_before": "skills/start-issue/SKILL.md:104",
+      "source_before": "workflows/start-issue/WORKFLOW.md:104",
       "normalized": "use node to attempt discovery + mutation (condensed from project rules, wrapped)",
-      "destination": "skills/start-issue/SKILL.md:104"
+      "destination": "workflows/start-issue/WORKFLOW.md:104"
     },
     {
       "id": "890e39194d73",
-      "source_before": "skills/start-issue/SKILL.md:129",
+      "source_before": "workflows/start-issue/WORKFLOW.md:129",
       "normalized": "failure here is ignored.",
-      "destination": "skills/start-issue/SKILL.md:129"
+      "destination": "workflows/start-issue/WORKFLOW.md:129"
     },
     {
       "id": "d5d588b9c65f",
-      "source_before": "skills/start-issue/SKILL.md:133",
+      "source_before": "workflows/start-issue/WORKFLOW.md:133",
       "normalized": "next = \"implement\"",
-      "destination": "skills/start-issue/SKILL.md:133"
+      "destination": "workflows/start-issue/WORKFLOW.md:133"
     },
     {
       "id": "79b3d12fa1b6",
-      "source_before": "skills/start-issue/SKILL.md:135",
+      "source_before": "workflows/start-issue/WORKFLOW.md:135",
       "normalized": "a leftover spike label does not skip implement/verify.",
-      "destination": "skills/start-issue/SKILL.md:135"
+      "destination": "workflows/start-issue/WORKFLOW.md:135"
     },
     {
       "id": "88468ec7d793",
-      "source_before": "skills/start-issue/SKILL.md:139",
+      "source_before": "workflows/start-issue/WORKFLOW.md:139",
       "normalized": "always write .omp/sdlc/handoffs/${n}-start.json",
-      "destination": "skills/start-issue/SKILL.md:139"
+      "destination": "workflows/start-issue/WORKFLOW.md:139"
     },
     {
       "id": "fd132b347f21",
-      "source_before": "skills/start-issue/SKILL.md:163",
+      "source_before": "workflows/start-issue/WORKFLOW.md:163",
       "normalized": "output summary:",
-      "destination": "skills/start-issue/SKILL.md:163"
+      "destination": "workflows/start-issue/WORKFLOW.md:163"
     },
     {
       "id": "a6327a6f6d37",
-      "source_before": "skills/start-issue/SKILL.md:175",
+      "source_before": "workflows/start-issue/WORKFLOW.md:175",
       "normalized": "handoff is the contract. print the nmg line exactly.",
-      "destination": "skills/start-issue/SKILL.md:175"
+      "destination": "workflows/start-issue/WORKFLOW.md:175"
     }
   ]
 }

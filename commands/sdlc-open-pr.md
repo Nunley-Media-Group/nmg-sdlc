@@ -40,7 +40,6 @@ Compute new semver.
 Update (always stage together):
 - VERSION
 - package.json version (if present, use json edit)
-- .claude-plugin/plugin.json version (if present)
 - CHANGELOG.md : move [Unreleased] content under new ## [X.Y.Z] - DATE heading, leave [Unreleased] empty
 - any other files listed in tech.md versioned-files table
 

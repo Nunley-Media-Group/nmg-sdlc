@@ -79,8 +79,8 @@ describe('contribution gate contract (issues #125, #143, and current repository 
   });
 
   test('onboarding and upgrade distribute the versioned shared contract', () => {
-    const onboarding = read('skills/onboard-project/SKILL.md');
-    const upgradeProject = read('skills/upgrade-project/SKILL.md');
+    const onboarding = read('workflows/onboard-project/WORKFLOW.md');
+    const upgradeProject = read('workflows/upgrade-project/WORKFLOW.md');
 
     expect(onboarding).toContain('/sdlc-onboard-project');
     expect(upgradeProject).toContain('/sdlc-upgrade-project');

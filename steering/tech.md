@@ -72,9 +72,8 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 |------|------|-------|
 | `VERSION` | file text | Source of truth |
 | `package.json` | `version` | OMP plugin manifest version |
-| `.claude-plugin/plugin.json` | `version` | Marketplace catalog pointer |
 
-During the v3 landing, all three are `3.0.0`.
+During the v3 landing, both files are `3.0.0`.
 
 ### Version Bump Classification
 
@@ -87,7 +86,7 @@ Default unmatched issues to minor. Never infer major. A leftover `spike` label i
 
 Approved major note used by `open-pr`: a line in the approved spec `requirements.md` or `design.md` matching `^\*\*Version bump\*\*:\s*major\s*$` (case-insensitive). If the issue title or body contains `BREAKING` and that line is absent, fail closed with `reasonCode: major_bump_required`. There is no `--major` CLI flag and no interactive version gate.
 
-`open-pr` reads this table, updates `VERSION`, `package.json` `version`, `.claude-plugin/plugin.json` `version`, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
+`open-pr` reads this table, updates `VERSION`, `package.json` `version`, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
 
 The delivery stage continues through checks, review remediation, exact-head merge, and issue closure. A prepared or open PR is not a successful terminal state.
 
@@ -99,17 +98,17 @@ Breaking changes still use the accepted bump unless the approved major note is p
 
 Before introducing a new OMP-facing feature or changing model/tool behavior, verify current official Oh My Pi documentation.
 
-### Skill Bundles
+### Workflow Bundles
 
-**Authoring rule for workers:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by going through the skill-creator file if present on disk; if it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
+**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by going through the skill-creator file at `skills/skill-creator/SKILL.md` if present on disk; if it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
 
-SKILL.md frontmatter declares only `name` and `description`.
+WORKFLOW.md frontmatter declares only `name` and `description`.
 
 | Aspect | Standard |
 |--------|----------|
-| Trigger description | State what the skill does, when to use it, and important exclusions |
+| Trigger description | State what the workflow does, when to use it, and important exclusions |
 | Entry size | Keep under 500 lines; move details to on-demand references |
-| Integration | Every skill includes `Integration with SDLC Workflow` |
+| Integration | Every workflow includes `Integration with SDLC Workflow` |
 | Arguments | Treat `$ARGUMENTS` as untrusted data and validate accepted shapes |
 | Interactive decisions | Built-in `ask` inside native `/plan` only |
 | Worker decisions | Failed handoff; never `ask` |
@@ -137,9 +136,8 @@ Files under `agents/` are installable OMP task agents. Required frontmatter: `na
 |--------|----------|
 | Location | root `package.json` |
 | Extensions | `omp.extensions` is exactly `["./src/extension.ts"]` |
-| Workflows | package-root `skills/` is bundled workflow files the extension reads; do not declare `omp.skills` |
+| Workflows | package-root `workflows/` is bundled workflow files the extension and execute helper read; do not declare `omp.skills`; do not keep a `skills/` directory |
 | Agents | package-root `agents/*.md` via OMP `listOmpExtensionRoots` |
-| Catalog pointer | `.claude-plugin/plugin.json` → `./skills/` |
 | Version | Semver synchronized with `VERSION` by delivery |
 | Validation | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
 

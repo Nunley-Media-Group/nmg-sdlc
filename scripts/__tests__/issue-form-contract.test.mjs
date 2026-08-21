@@ -126,8 +126,8 @@ describe('managed GitHub issue form contract (issues #135 and #177)', () => {
   });
 
   test('onboarding, upgrade-project, README, and CHANGELOG reference the managed form', () => {
-    const onboarding = read('skills/onboard-project/SKILL.md');
-    const upgradeProject = read('skills/upgrade-project/SKILL.md');
+    const onboarding = read('workflows/onboard-project/WORKFLOW.md');
+    const upgradeProject = read('workflows/upgrade-project/WORKFLOW.md');
     const changelog = read('CHANGELOG.md');
 
     expect(onboarding).toContain('/sdlc-onboard-project');

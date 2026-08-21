@@ -99,7 +99,7 @@ function readFile(absPath) {
 }
 
 function extractFrontmatter(source) {
-  // A SKILL.md frontmatter block is delimited by `---` at lines 1 and N.
+  // A WORKFLOW.md frontmatter block is delimited by `---` at lines 1 and N.
   const lines = source.split('\n');
   if (lines[0] !== '---') return null;
   const end = lines.indexOf('---', 1);
@@ -138,9 +138,9 @@ function toRepoRel(absPath) {
 }
 
 function resolvePluginRoot() {
-  if (fs.existsSync(path.join(REPO_ROOT, 'skills'))) return REPO_ROOT;
+  if (fs.existsSync(path.join(REPO_ROOT, 'workflows'))) return REPO_ROOT;
   const legacyRoot = path.join(REPO_ROOT, 'plugins', 'nmg-sdlc');
-  if (fs.existsSync(path.join(legacyRoot, 'skills'))) return legacyRoot;
+  if (fs.existsSync(path.join(legacyRoot, 'workflows'))) return legacyRoot;
   return REPO_ROOT;
 }
 
@@ -159,10 +159,11 @@ function countLines(source) {
  */
 function deterministicChecks(skillName, baseRef) {
   const pluginRoot = resolvePluginRoot();
-  const skillAbs = path.join(pluginRoot, 'skills', skillName, 'SKILL.md');
+  const skillAbs = path.join(pluginRoot, 'workflows', skillName, 'WORKFLOW.md');
   const skillPath = toRepoRel(skillAbs);
+  const previousSkillPath = path.join('skills', skillName, 'SKILL.md').split(path.sep).join('/');
   const legacySkillPath = path.join('plugins', 'nmg-sdlc', 'skills', skillName, 'SKILL.md').split(path.sep).join('/');
-  const refDir = path.join(pluginRoot, 'skills', skillName, 'references');
+  const refDir = path.join(pluginRoot, 'workflows', skillName, 'references');
 
   const source = readFile(skillAbs);
   const frontmatter = extractFrontmatter(source);
@@ -179,13 +180,15 @@ function deterministicChecks(skillName, baseRef) {
   const lines = countLines(source);
   results.push({
     id: 'D1',
-    name: `SKILL.md line count ≤ ${lineLimit}`,
+    name: `WORKFLOW.md line count ≤ ${lineLimit}`,
     status: lines <= lineLimit ? 'pass' : 'fail',
     detail: `${lines} lines`,
   });
 
   // D2: frontmatter is valid for Codex.
-  const baseSource = gitShow(baseRef, skillPath) ?? gitShow(baseRef, legacySkillPath);
+  const baseSource = gitShow(baseRef, skillPath)
+    ?? gitShow(baseRef, previousSkillPath)
+    ?? gitShow(baseRef, legacySkillPath);
   const model = fmField(frontmatter, 'model');
   const legacyModelPattern = ['op' + 'us', 'son' + 'net', 'hai' + 'ku'].join('|');
   const hasLegacyModel = new RegExp(`\\b(${legacyModelPattern})\\b`, 'i').test(frontmatter);
@@ -231,7 +234,7 @@ function deterministicChecks(skillName, baseRef) {
     const refRel = m[1];
     const resolved = refRel.startsWith('../../')
       ? path.join(pluginRoot, refRel.slice('../../'.length))
-      : path.join(pluginRoot, 'skills', skillName, refRel);
+      : path.join(pluginRoot, 'workflows', skillName, refRel);
     if (!fs.existsSync(resolved)) missing.push(refRel);
   }
   results.push({

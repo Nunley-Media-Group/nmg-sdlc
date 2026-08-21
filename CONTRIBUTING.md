@@ -31,7 +31,7 @@ Steering docs are part of the contract for this project:
 - Product changes should support a structured, issue-driven SDLC using native `/plan` for interactive stages and Herdr `omp` workers for automated delivery.
 - Technical changes must preserve cross-platform behavior, use Node.js ESM conventions for scripts, avoid hardcoded platform separators, and respect the `VERSION` + `package.json` versioning flow.
 - Skill-bundled file changes must follow the `skill-creator` requirement in `steering/tech.md` when the skill is present.
-- Structure changes should keep reusable rules in `references/`, skill-specific branches under `skills/{skill}/references/`, templates under each owning skill, and runner behavior in `scripts/`.
+- Structure changes should keep reusable rules in `references/`, workflow-specific branches under `workflows/{name}/references/`, templates under each owning workflow, and runner behavior in `scripts/`.
 
 When steering and a proposed implementation conflict, update the issue or spec before changing code.
 

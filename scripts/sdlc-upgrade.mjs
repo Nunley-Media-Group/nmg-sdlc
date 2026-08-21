@@ -233,8 +233,8 @@ function listSpikeAdrs(root) {
 function leftoverSpikeBundles(root) {
   const candidates = [
     'agents/spike-researcher.md',
-    'skills/draft-issue/references/spike-template.md',
-    'skills/write-spec/references/spike-variant.md',
+    'workflows/draft-issue/references/spike-template.md',
+    'workflows/write-spec/references/spike-variant.md',
   ];
   return candidates.filter((rel) => isFile(path.join(root, rel)));
 }
@@ -745,6 +745,16 @@ function detectUpgrade(root) {
       actionable: true,
     });
   }
+  const agentsTxt = safeRead(path.join(rootAbs, 'AGENTS.md')) || '';
+  if (/spike/i.test(agentsTxt)) {
+    items.push({
+      id: 'agents-spike-language',
+      kind: 'agents-spike-language',
+      description: 'Remove leftover spike language from AGENTS.md.',
+      rel: 'AGENTS.md',
+      actionable: true,
+    });
+  }
 
   // 7. Repeat-run already current
   const alreadyLinear = specDirs.every((d) => /^\d+-[a-z0-9-]/.test(d.name));
@@ -753,7 +763,7 @@ function detectUpgrade(root) {
     const ns = extractIssueNumbersFromContent(req);
     return ns.length === 1 && d.name.startsWith(`${ns[0]}-`);
   });
-  if (alreadyLinear && fmOk && !hasEpics && !hasScopes && !hasLeftoverSpikeArtifacts(rootAbs)) {
+  if (alreadyLinear && fmOk && !hasEpics && !hasScopes && !hasLeftoverSpikeArtifacts(rootAbs) && !/spike/i.test(agentsTxt)) {
     items.push({
       id: 'repeat-run-already-current',
       kind: 'already-current',
@@ -1072,6 +1082,19 @@ function applySpikeIssueForm(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
+function applyAgentsSpikeLanguage(root, item) {
+  const p = path.join(root, item.rel || 'AGENTS.md');
+  const txt = safeRead(p);
+  if (!txt) return { id: item.id, status: 'skipped:missing' };
+  const updated = txt
+    .replace('# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)', '# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)')
+    .replace('# ADR directory (populated by write-spec for spikes)', '# ADR directory');
+  if (/spike/i.test(updated)) return { id: item.id, status: 'skipped:unverifiable' };
+  if (updated === txt) return { id: item.id, status: 'already-current' };
+  fs.writeFileSync(p, updated);
+  return { id: item.id, status: 'applied' };
+}
+
 function applyUpgrade(root, approvedItemIds = []) {
   const rootAbs = path.resolve(root);
   const report = detectUpgrade(rootAbs);
@@ -1080,7 +1103,7 @@ function applyUpgrade(root, approvedItemIds = []) {
 
   // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -1101,6 +1124,8 @@ function applyUpgrade(root, approvedItemIds = []) {
       res = applySpikeRemove(rootAbs, item);
     } else if (item.kind === 'spike-issue-form') {
       res = applySpikeIssueForm(rootAbs, item);
+    } else if (item.kind === 'agents-spike-language') {
+      res = applyAgentsSpikeLanguage(rootAbs, item);
     } else if (item.kind === 'v2-cleanup') {
       res = applyV2Cleanup(rootAbs, item);
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

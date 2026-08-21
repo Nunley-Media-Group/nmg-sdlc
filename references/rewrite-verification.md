@@ -33,22 +33,22 @@ Full predecessor specifications and removed implementation remain recoverable th
 - every retained artifact has matching singular `**Issue**: #N` identity and Approved requirements;
 - no obsolete or mismatched spec directory remains;
 - all 15 rewrite capabilities have source and acceptance coverage;
-- all 13 active skills and all 9 public `/sdlc-*` commands map to the rewrite contract;
+- all 13 active workflows and all 9 public `/sdlc-*` commands map to the rewrite contract;
 - the deprecated `migrate-project` stub retains its exact redirect;
 - rewrite-contract, `VERSION`, and `package.json` releases match.
 
 ## Verification results
 
-- `cd scripts && npm test` — passed: 32 suites, 269 tests; 1 suite and 1 test skipped.
+- `cd scripts && npm test` — passed: 32 suites, 272 tests; 1 suite and 1 test skipped.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
-- `node scripts/verify-current-specs.mjs` — passed: 15 genuine issue specs, 15 rewrite capabilities, 13 active skill mappings, 1 deprecated stub.
+- `node scripts/verify-current-specs.mjs` — passed: 15 genuine issue specs, 15 rewrite capabilities, 13 active workflow mappings, 1 deprecated stub.
 - `node scripts/skill-inventory-audit.mjs --check` — passed: 127 items mapped.
 
 ## Changed-path mapping
 
-- OMP package and extension: `package.json`, `VERSION`, `.claude-plugin/`, `.codex-plugin/`, `src/`, `commands/`.
+- OMP package and extension: `package.json`, `VERSION`, `src/`, `commands/`.
 - Workflow and policy: `.github/`, `.gitignore`, `AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`, `steering/`.
-- SDLC behavior: `skills/`, `agents/`, `scripts/`, `references/`.
+- SDLC behavior: `workflows/`, `agents/`, `scripts/`, `references/`.
 - Current BDD contracts: `specs/`.
 
 All mapped paths are covered by the current rewrite contract, retained BDD contracts, or the verification commands above.

@@ -20,7 +20,7 @@ const AUTOMATED = [
 
 describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
   it('draft-issue has no Epic or Spike option and does not bounce to /skill:', () => {
-    const source = read('skills/draft-issue/SKILL.md');
+    const source = read('workflows/draft-issue/WORKFLOW.md');
 
     expect(source).toContain('/sdlc-draft-issue');
     expect(source).toContain('Bug');
@@ -32,7 +32,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
   });
 
   it('write-spec finishes at xd://propose then publishes', () => {
-    const source = read('skills/write-spec/SKILL.md');
+    const source = read('workflows/write-spec/WORKFLOW.md');
 
     expect(source).toContain('/sdlc-write-spec');
     expect(source).toContain('xd://propose');
@@ -47,7 +47,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
 
   it('automated skills do not call ask', () => {
     for (const name of AUTOMATED) {
-      const source = read(`skills/${name}/SKILL.md`);
+      const source = read(`workflows/${name}/WORKFLOW.md`);
       expect(`${name}\n${source}`).not.toMatch(/\bask\b/);
       expect(source).not.toContain('request_user_input');
     }

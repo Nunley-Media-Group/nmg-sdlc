@@ -9,7 +9,7 @@ function read(relativePath) {
 }
 
 describe('start-issue explicit issue contract', () => {
-  const skill = read('skills/start-issue/SKILL.md');
+  const skill = read('workflows/start-issue/WORKFLOW.md');
 
   test('requires an explicit issue number and has no picker', () => {
     expect(skill).toMatch(/#N|#\{?N\}?|issue number/i);

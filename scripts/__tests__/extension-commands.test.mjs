@@ -44,7 +44,7 @@ describe('extension sdlc- commands', () => {
     expect(helpers).toContain('Run /${commandName} in the TUI.');
   });
 
-  it('ships automated /sdlc-* as file commands synced to skill bodies', async () => {
+  it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
     const { AUTOMATED_COMMANDS, renderAutomatedCommandMarkdown } = await import('../../src/sdlc-commands.mjs');
     const source = read('src/extension.ts');
     expect(source).not.toMatch(/for \(const \[name, skill, description\] of AUTOMATED_COMMANDS\)/);
@@ -58,5 +58,7 @@ describe('extension sdlc- commands', () => {
     const manifest = JSON.parse(read('package.json'));
     expect(manifest.omp.extensions).toEqual(['./src/extension.ts']);
     expect(manifest.omp).not.toHaveProperty('skills');
+    expect(fs.existsSync(path.join(repoRoot, 'skills'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, '.claude-plugin'))).toBe(false);
   });
 });

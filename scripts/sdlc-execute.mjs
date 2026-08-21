@@ -10,14 +10,14 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve as pathResolve } from 'node:path';
+import { join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { parseBodyRelationships } from './epic-relationships.mjs';
+import { workflowBody } from '../src/sdlc-workflows.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
@@ -41,17 +41,6 @@ function usageError() {
   return 'Usage: /sdlc-execute [#N ...]';
 }
 
-function stripWorkflowFrontmatter(source) {
-  return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-}
-
-function readWorkflowBody(name) {
-  const file = join(__dirname, '..', 'skills', name, 'SKILL.md');
-  if (!existsSync(file)) {
-    throw new Error(`missing workflow: ${name}`);
-  }
-  return stripWorkflowFrontmatter(readFileSync(file, 'utf8'));
-}
 
 export function parseArgs(input = '') {
   const trimmed = String(input || '').trim();
@@ -387,7 +376,7 @@ export function workerPrompt({ step, issue, skill } = {}) {
   const skillName = skill || STEP_SKILL[step];
   if (!skillName) throw new Error('no skill for step');
   const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [readWorkflowBody(skillName), ...extras.map(readWorkflowBody)];
+  const workflows = [workflowBody(skillName), ...extras.map(workflowBody)];
   return [
     `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
     `Execute the following inlined workflow for #${issue} with no user questions.`,

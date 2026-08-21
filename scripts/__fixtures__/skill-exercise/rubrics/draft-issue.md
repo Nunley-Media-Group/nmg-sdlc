@@ -9,10 +9,10 @@ Two classes of check: **deterministic** (byte- or structure-equivalent — these
 
 | ID | Check | Pass Criteria | Maps To |
 |----|-------|---------------|---------|
-| D1 | SKILL.md line count | `wc -l skills/draft-issue/SKILL.md ≤ 320` | AC1 (issue #146) |
+| D1 | WORKFLOW.md line count | `wc -l workflows/draft-issue/WORKFLOW.md ≤ 320` | AC1 (issue #146) |
 | D2 | Frontmatter Codex compatibility | Frontmatter either omits `model` or uses a `gpt-*` model, and contains no legacy provider model terms | Codex compatibility |
-| D3 | Pointer grammar | `grep -cE '^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when ' skills/draft-issue/SKILL.md` ≥ 1 and every reference-pointer line in the file matches the grammar | AC3 (issue #146) / AC7 (epic) |
-| D4 | Reference file budget | `ls skills/draft-issue/references/ | wc -l ≤ 6` | AC8 (epic) |
+| D3 | Pointer grammar | `grep -cE '^Read \`(\.\./\.\./)?references/[^\`]+\.md\` when ' workflows/draft-issue/WORKFLOW.md` ≥ 1 and every reference-pointer line in the file matches the grammar | AC3 (issue #146) / AC7 (epic) |
+| D4 | Reference file budget | `ls workflows/draft-issue/references/ | wc -l ≤ 6` | AC8 (epic) |
 | D5 | Every referenced file exists | Every path named in a pointer line resolves to a real file | Pointer correctness |
 | D6 | Audit passes | `node scripts/skill-inventory-audit.mjs --check` exits 0 | AC5 (issue #146) / AC6 (epic) |
 | D7 | Loader-facing metadata | The surviving `name:` is stable and `description:` is non-empty and at most 1024 characters; intentional trigger-description migrations are allowed | AC4 (epic) |
@@ -42,7 +42,7 @@ Captured artifacts produce `pass` or `fail` for applicable criteria. A criterion
 
 ## Pre-Refactor Baseline
 
-The pre-refactor baseline for command-surface checks is derived from `git show main:skills/draft-issue/SKILL.md` at the merge-base of this branch, with legacy monorepo paths supported for older baselines. Model-authored artifacts (R1–R6) are evaluated from deterministic fixture artifacts by default, or from captured live Codex output when `RUN_EXERCISE_TESTS=1` is explicitly enabled.
+The pre-refactor baseline for command-surface checks is derived from `git show main:workflows/draft-issue/WORKFLOW.md` at the merge-base of this branch, with legacy skill and monorepo paths supported for older baselines. Model-authored artifacts (R1–R6) are evaluated from deterministic fixture artifacts by default, or from captured live Codex output when `RUN_EXERCISE_TESTS=1` is explicitly enabled.
 
 ## Invocation
 

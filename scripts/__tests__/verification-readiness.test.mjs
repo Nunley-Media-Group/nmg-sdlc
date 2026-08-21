@@ -137,7 +137,7 @@ describe('verification readiness contract', () => {
 
   it('keeps the report scaffold canonical and places readiness immediately after scope', () => {
     const template = fs.readFileSync(
-      path.join(repoRoot, 'skills', 'verify-code', 'checklists', 'report-template.md'),
+      path.join(repoRoot, 'workflows', 'verify-code', 'checklists', 'report-template.md'),
       'utf8',
     );
     expect(template).toContain('### Implementation Status: Pass / PR Evidence Pending / Partial / Incomplete / Fail');

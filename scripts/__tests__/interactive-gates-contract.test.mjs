@@ -11,8 +11,8 @@ function read(relativePath) {
 }
 
 function skillFiles() {
-  return fs.readdirSync(path.join(REPO_ROOT, 'skills'))
-    .map((name) => `skills/${name}/SKILL.md`)
+  return fs.readdirSync(path.join(REPO_ROOT, 'workflows'))
+    .map((name) => `workflows/${name}/WORKFLOW.md`)
     .filter((relativePath) => fs.existsSync(path.join(REPO_ROOT, relativePath)));
 }
 

@@ -3,11 +3,11 @@
 /**
  * Skill Inventory Audit
  *
- * Deterministic content-inventory check that guards SKILL.md edits against
- * silent content loss. Walks every skills/* /SKILL.md and references/* .md in
- * the Codex plugin root, extracts inventory items from
- * tracked sections, normalizes and hashes each one, and either produces a
- * baseline (--baseline) or checks the current tree against a committed
+ * Deterministic content-inventory check that guards WORKFLOW.md edits against
+ * silent content loss. Walks every workflow entrypoint and references/*.md
+ * in the plugin root, extracts inventory items from tracked sections,
+ * normalizes and hashes each one, and either produces a baseline (--baseline)
+ * or checks the current tree against a committed
  * baseline (--check, default).
  *
  * Modes:
@@ -220,27 +220,27 @@ function walk(root, predicate, acc = [], baseRoot = root) {
   return acc;
 }
 
-/** Resolve the Codex plugin root, with legacy monorepo fixtures supported for older tests. */
+/** Resolve the plugin root, with nested fixtures supported for tests. */
 function resolvePluginRoot(repoRoot) {
-  const rootLayout = path.join(repoRoot, 'skills');
+  const rootLayout = path.join(repoRoot, 'workflows');
   if (fs.existsSync(rootLayout)) return repoRoot;
 
-  const legacyLayout = path.join(repoRoot, 'plugins', 'nmg-sdlc');
-  if (fs.existsSync(path.join(legacyLayout, 'skills'))) return legacyLayout;
+  const nestedLayout = path.join(repoRoot, 'plugins', 'nmg-sdlc');
+  if (fs.existsSync(path.join(nestedLayout, 'workflows'))) return nestedLayout;
 
   return repoRoot;
 }
 
-/** Build an array of audit-tracked file paths (SKILL.md, agents, references) under a plugin root. */
+/** Build an array of audit-tracked workflow, agent, and reference paths under a plugin root. */
 export function findTrackedFiles(repoRoot) {
   const pluginRoot = resolvePluginRoot(repoRoot);
   if (!fs.existsSync(pluginRoot)) return [];
   return walk(pluginRoot, (rel) => {
     const pluginRel = path.relative(pluginRoot, path.join(repoRoot, rel)).split(path.sep).join('/');
-    if (/^skills\/[^/]+\/SKILL\.md$/.test(pluginRel)) return true;
+    if (/^workflows\/[^/]+\/WORKFLOW\.md$/.test(pluginRel)) return true;
     if (/^agents\/.+\.md$/.test(pluginRel)) return true;
     if (/^references\/.+\.md$/.test(pluginRel)) return true;
-    if (/^skills\/[^/]+\/references\/.+\.md$/.test(pluginRel)) return true;
+    if (/^workflows\/[^/]+\/references\/.+\.md$/.test(pluginRel)) return true;
     return false;
   }, [], repoRoot).sort();
 }
@@ -256,10 +256,10 @@ function extractDoubleQuotedField(frontmatter, fieldName) {
   return match ? match[1].replace(/\\"/g, '"') : null;
 }
 
-/** Validate loader-facing SKILL.md metadata constraints. */
+/** Validate loader-facing WORKFLOW.md metadata constraints. */
 export function validateSkillMetadata(repoRoot) {
   const errors = [];
-  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)skills\/[^/]+\/SKILL\.md$/.test(rel));
+  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)workflows\/[^/]+\/WORKFLOW\.md$/.test(rel));
 
   for (const rel of skillFiles) {
     const abs = path.join(repoRoot, rel);
@@ -285,10 +285,10 @@ export function validateSkillMetadata(repoRoot) {
   return errors;
 }
 
-/** Validate required SKILL.md structure sections. */
+/** Validate required WORKFLOW.md structure sections. */
 export function validateSkillStructure(repoRoot) {
   const errors = [];
-  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)skills\/[^/]+\/SKILL\.md$/.test(rel));
+  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)workflows\/[^/]+\/WORKFLOW\.md$/.test(rel));
 
   for (const rel of skillFiles) {
     const abs = path.join(repoRoot, rel);
