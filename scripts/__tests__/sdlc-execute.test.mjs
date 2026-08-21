@@ -12,6 +12,7 @@ import {
   isSpecApproved,
   specStatus,
   workerPrompt,
+  writeRun,
 } from '../sdlc-execute.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
@@ -153,6 +154,13 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     const extraStatus = makeSpecDir();
     writeApproved(extraStatus, 42, { status: '**Status**: Approved extra' });
     expect(isSpecApproved(extraStatus, 42)).toBe(false);
+  });
+
+  it('writeRun creates run and handoff state beneath the supplied root', () => {
+    const root = makeSpecDir();
+    writeRun({ schemaVersion: 1 }, root);
+    expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'run.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'handoffs'))).toBe(true);
   });
 
   it('workerPrompt and CLI inline start-issue without /skill:', () => {

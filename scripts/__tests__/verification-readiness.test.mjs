@@ -111,6 +111,19 @@ describe('verification readiness contract', () => {
     })).toMatchObject({ status: 'pass', reasonCode: 'ordinary_pass', gaps: [] });
   });
 
+  it('rejects a malformed optional readiness marker instead of treating it as an ordinary pass', () => {
+    const malformed = report('Pass').replace(
+      '\n\n',
+      '\n\n<!-- nmg-sdlc-pr-readiness: {"state": -->\n\n',
+    );
+    const result = inspectVerificationReadiness({
+      content: malformed,
+      options: { expectedScope: SCOPE },
+    });
+    expect(result).toMatchObject({ status: 'unverifiable' });
+    expect(result.gaps.join('\n')).toContain('PR-readiness marker is invalid JSON');
+  });
+
   it('ignores misleading prose and rejects duplicate canonical status headings', () => {
     const misleading = report('Partial').replace(
       '# Verification Report',

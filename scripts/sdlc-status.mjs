@@ -22,6 +22,7 @@ import {
   inspectVerificationReadiness,
   MAX_VERIFICATION_REPORT_BYTES,
 } from './verification-readiness.mjs';
+import { isSpecApproved } from './sdlc-execute.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -104,13 +105,16 @@ function readBounded(fsApi, filePath, maxBytes = 64 * 1024) {
 
 export function findFeatureDir(specsDir, issueNumber, branchSlug, adapters = {}) {
   const fsApi = adapters.fs ?? fs;
-  if (!fsApi.existsSync(specsDir)) return null;
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0 || !fsApi.existsSync(specsDir)) return null;
   const entries = fsApi.readdirSync(specsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .filter((name) => name.startsWith(`${issueNumber}-`))
     .sort();
-  return entries[0] ? path.join(specsDir, entries[0]) : null;
+  const branchMatch = branchSlug ? `${issueNumber}-${branchSlug}` : null;
+  if (branchMatch && entries.includes(branchMatch)) return branchMatch;
+  if (entries.length > 1) throw new Error(`multiple spec directories found for #${issueNumber}: ${entries.join(', ')}`);
+  return entries[0] ?? null;
 }
 
 export function checkRequiredSpecFiles(featureDir, adapters = {}) {
@@ -122,30 +126,6 @@ export function checkRequiredSpecFiles(featureDir, adapters = {}) {
   return { complete: missing.length === 0, missingFiles: missing };
 }
 
-function stableJson(value) {
-  return JSON.stringify(value, Object.keys(value || {}).sort());
-}
-
-function issueScopeProjection(scope) {
-  if (!scope) return null;
-  return {
-    status: scope.status,
-    delivery: scope.delivery || { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
-    regression: scope.regression || { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
-  };
-}
-
-function verifyReportScope(content, scope) {
-  if (!content || !scope) return true;
-  const markerMatch = content.match(/<!--\s*nmg-sdlc-issue-scope:\s*(\{[^}]*\})\s*-->/);
-  if (!markerMatch) return true;
-  try {
-    const marker = JSON.parse(markerMatch[1]);
-    return stableJson(issueScopeProjection(scope)) === stableJson(issueScopeProjection(marker));
-  } catch {
-    return false;
-  }
-}
 
 export function collectVerification(projectRoot, spec, pullRequest, untrackedImplementationPaths, adapters, gaps) {
   if (!spec?.path) return null;
@@ -153,32 +133,57 @@ export function collectVerification(projectRoot, spec, pullRequest, untrackedImp
   if (!adapters.fs.existsSync(reportPath)) return null;
   const relativeReportPath = toGitPath(path.relative(projectRoot, reportPath));
   const content = readBounded(adapters.fs, reportPath, MAX_VERIFICATION_REPORT_BYTES);
-  const statusMatch = content.match(/Implementation Status:\s*(Pass|PR Evidence Pending|Partial|Fail|Incomplete)/i);
-  const status = statusMatch ? statusMatch[1] : 'unknown';
-  const current = verifyReportScope(content, spec.scope);
-  let readinessStatus = null;
+  const expectedHeadSha = pullRequest?.headRefOid;
+  const readiness = inspectVerificationReadiness({
+    content,
+    options: {
+      expectedIssueNumber: spec.scope?.issueNumber,
+      expectedSpecPath: spec.path,
+      expectedScope: spec.scope,
+      expectedHeadSha,
+    },
+  });
+  const verificationGaps = [...readiness.gaps];
+  if (untrackedImplementationPaths.length > 0) {
+    verificationGaps.push(
+      `untracked implementation paths invalidate verification: ${untrackedImplementationPaths.join(', ')}`,
+    );
+  }
+
+  const readinessStatus = ['pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)
+    ? readiness.status
+    : null;
   let deliveryValidationStatus = null;
-  const pendingMatch = content.match(/<!--\s*nmg-sdlc-pr-readiness:\s*(\{[^}]*\})\s*-->/);
-  if (pendingMatch) {
-    try {
-      const r = JSON.parse(pendingMatch[1]);
-      readinessStatus = r.state;
-    } catch {}
+  let deliveryValidationGaps = [];
+  if (content.includes('<!-- nmg-sdlc-delivery-validation:')) {
+    const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence;
+    const delivery = inspectDeliveryValidation({
+      content,
+      options: {
+        expectedIssueNumber: spec.scope?.issueNumber,
+        expectedSpecPath: spec.path,
+        expectedPullRequestNumber: pullRequest?.number,
+        expectedHeadSha,
+        deliveryAcceptanceCriteria: spec.scope?.delivery?.acceptanceCriteria,
+        expectedEvidenceIdentities: Array.isArray(declaredEvidence)
+          ? declaredEvidence.map(evidenceIdentity)
+          : undefined,
+      },
+    });
+    deliveryValidationStatus = delivery.status;
+    deliveryValidationGaps = delivery.gaps;
+    verificationGaps.push(...delivery.gaps);
   }
-  const finalMatch = content.match(/<!--\s*nmg-sdlc-delivery-validation:\s*(\{[^}]*\})\s*-->/);
-  if (finalMatch) {
-    try {
-      const r = JSON.parse(finalMatch[1]);
-      deliveryValidationStatus = r.state;
-    } catch {}
-  }
+  gaps.push(...verificationGaps.map((gap) => `verification evidence: ${gap}`));
+
   return {
     path: relativeReportPath,
-    status,
-    current,
+    status: readiness.implementationStatus ?? 'unknown',
+    current: readiness.status !== 'unverifiable' && untrackedImplementationPaths.length === 0,
     readinessStatus,
     deliveryValidationStatus,
-    deliveryValidationGaps: [],
+    deliveryValidationGaps,
+    gaps: [...new Set(verificationGaps)],
   };
 }
 
@@ -259,6 +264,32 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
   }
   return result;
 }
+function discoverDefaultBranch(projectRoot, adapters) {
+  const remoteHead = adapters.run(
+    'git',
+    ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
+    { cwd: projectRoot, timeout: 10_000 },
+  );
+  if (remoteHead.ok) {
+    const ref = remoteHead.stdout.trim();
+    if (ref.startsWith('origin/') && ref.length > 'origin/'.length) {
+      return { name: ref.slice('origin/'.length), gap: null };
+    }
+  }
+
+  const repository = adapters.run(
+    'gh',
+    ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+    { cwd: projectRoot, timeout: 10_000 },
+  );
+  const name = repository.ok ? repository.stdout.trim() : '';
+  if (name) return { name, gap: null };
+
+  const detail = boundedMessage(commandFailure(repository))
+    || boundedMessage(commandFailure(remoteHead))
+    || 'no remote default-branch evidence';
+  return { name: null, gap: `default branch unavailable: ${detail}` };
+}
 
 export function collectEvidence(projectPath, adapterOverrides = {}) {
   const adapters = createAdapters(adapterOverrides);
@@ -285,21 +316,27 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
   const statusLines = statusResult.stdout.split(/\r?\n/).filter(Boolean);
   const worktreePaths = statusLines.map(parseStatusPath).filter(Boolean);
   const gaps = [];
-
-  const diffResult = adapters.run('git', ['diff', '--name-only', 'main...HEAD'], { cwd: projectRoot });
-  const commitResult = adapters.run('git', ['log', '--format=%H%x09%s', 'main..HEAD'], { cwd: projectRoot });
-  const branchPaths = diffResult.ok ? diffResult.stdout.split(/\r?\n/).filter(Boolean) : [];
-  if (!diffResult.ok && branch !== 'main') {
-    gaps.push(`base-relative git evidence unavailable: ${boundedMessage(commandFailure(diffResult))}`);
-  }
-  const baseRelativeCommits = commitResult.ok
-    ? commitResult.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
-        const [sha, ...subject] = line.split('\t');
-        return { sha, subject: subject.join('\t') };
-      })
-    : [];
-  if (!commitResult.ok && branch !== 'main') {
-    gaps.push(`base-relative commit evidence unavailable: ${boundedMessage(commandFailure(commitResult))}`);
+  const defaultBranchEvidence = discoverDefaultBranch(projectRoot, adapters);
+  if (defaultBranchEvidence.gap) gaps.push(defaultBranchEvidence.gap);
+  const defaultBranch = defaultBranchEvidence.name;
+  let branchPaths = [];
+  let baseRelativeCommits = [];
+  if (defaultBranch) {
+    const diffResult = adapters.run('git', ['diff', '--name-only', `${defaultBranch}...HEAD`], { cwd: projectRoot });
+    const commitResult = adapters.run('git', ['log', '--format=%H%x09%s', `${defaultBranch}..HEAD`], { cwd: projectRoot });
+    branchPaths = diffResult.ok ? diffResult.stdout.split(/\r?\n/).filter(Boolean) : [];
+    if (!diffResult.ok && branch !== defaultBranch) {
+      gaps.push(`base-relative git evidence unavailable: ${boundedMessage(commandFailure(diffResult))}`);
+    }
+    baseRelativeCommits = commitResult.ok
+      ? commitResult.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
+          const [sha, ...subject] = line.split('\t');
+          return { sha, subject: subject.join('\t') };
+        })
+      : [];
+    if (!commitResult.ok && branch !== defaultBranch) {
+      gaps.push(`base-relative commit evidence unavailable: ${boundedMessage(commandFailure(commitResult))}`);
+    }
   }
 
   const changedPaths = [...new Set([...branchPaths, ...worktreePaths])].sort();
@@ -316,13 +353,11 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     const specsDir = path.join(projectRoot, 'specs');
     const featureName = findFeatureDir(specsDir, activeIssueNumber, branchContext?.slug, adapters);
     if (featureName) {
-      const full = path.join(projectRoot, featureName);
+      const full = path.join(specsDir, featureName);
       const check = checkRequiredSpecFiles(full, adapters);
-      const front = readBounded(adapters.fs, path.join(full, 'requirements.md'), 4096);
-      const approved = /\*\*Status\*\*:\s*Approved/i.test(front) && new RegExp(`\\*\\*Issue\\*\\*:\\s*#?${activeIssueNumber}`).test(front);
       spec = {
         path: toGitPath(path.relative(projectRoot, full)),
-        complete: check.complete && approved,
+        complete: check.complete && isSpecApproved(full, activeIssueNumber),
         missingFiles: check.missingFiles,
       };
       if (Number.isInteger(activeIssueNumber) && activeIssueNumber > 0) {
@@ -363,6 +398,7 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     project: {
       root: projectRoot,
       branch,
+      defaultBranch,
       dirty: statusLines.length > 0,
       changedPaths,
       implementationPaths,
@@ -386,8 +422,10 @@ function artifactSummary(evidence, stage) {
     && evidence.verification.current === true;
   const deliveryValidationPending = stage === 'delivery-validation-pending';
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(evidence.spec?.scope?.status);
+  const onDefaultBranch = evidence.project.defaultBranch != null
+    && evidence.project.branch === evidence.project.defaultBranch;
   const specReady = evidence.spec?.complete && !scopeBlocked;
-  if (evidence.issue?.number && evidence.project.branch !== 'main') completed.push('issue branch');
+  if (evidence.issue?.number && !onDefaultBranch) completed.push('issue branch');
   if (specReady) completed.push('spec package');
   if (evidence.project.implementationPaths.length > 0) completed.push('implementation');
   if (deliveryValidationPending) completed.push('local verification');
@@ -396,7 +434,7 @@ function artifactSummary(evidence, stage) {
   if (stage === 'complete') completed.push('merged delivery');
 
   const missing = [];
-  if (!evidence.issue?.number && evidence.project.branch === 'main') missing.push('issue branch');
+  if (!evidence.issue?.number && (onDefaultBranch || !parseIssueBranch(evidence.project.branch))) missing.push('issue branch');
   if (!specReady) missing.push(scopeBlocked ? 'issue scope repair' : 'spec package');
   if (evidence.project.implementationPaths.length === 0) missing.push('implementation');
   if (deliveryValidationPending) missing.push('PR evidence');
@@ -434,6 +472,8 @@ export function inferLifecycle(evidence) {
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
   const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
   const deliverableBlocked = ['blocked', 'repair_required', 'unverifiable'].includes(deliverableStatus);
+  const onDefaultBranch = evidence.project.defaultBranch != null
+    && evidence.project.branch === evidence.project.defaultBranch;
   let stage;
   let nextAction;
 
@@ -455,7 +495,7 @@ export function inferLifecycle(evidence) {
   } else if (scopeBlocked) {
     const scopeGaps = evidence.spec.scope.gaps?.length ? evidence.spec.scope.gaps.join('; ') : evidence.spec.scope.reasonCode;
     gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
-    stage = issueNumber && evidence.project.branch !== 'main' ? 'started' : 'unknown';
+    stage = issueNumber && !onDefaultBranch ? 'started' : 'unknown';
     nextAction = { command: issueNumber ? `/sdlc-write-spec #${issueNumber}` : `/sdlc-write-spec`, reason: 'write spec', manualRepairRequired: false };
   } else if (exposedPrDependentVerification) {
     stage = 'delivery-validation-pending';

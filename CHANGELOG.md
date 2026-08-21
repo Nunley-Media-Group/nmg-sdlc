@@ -26,6 +26,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - `/sdlc-execute` worker prompts now include `$ARGUMENTS: #N` so start-issue and later steps receive the explicit issue number.
+- `/sdlc-status` now resolves unique spec directories without duplicating absolute paths, uses the repository's discovered default branch, shares execute's all-artifact approval check, and validates nested readiness/delivery markers against live scope and PR-head evidence. Approved-spec publication excludes unrelated staged changes, rooted execute state keeps handoffs beside `run.json`, and malformed relocated reference paths are removed.
 
 ### Migration Notes
 

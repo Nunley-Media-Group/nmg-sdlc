@@ -60,5 +60,13 @@ describe('extension sdlc- commands', () => {
     expect(manifest.omp).not.toHaveProperty('skills');
     expect(fs.existsSync(path.join(repoRoot, 'skills'))).toBe(false);
     expect(fs.existsSync(path.join(repoRoot, '.claude-plugin'))).toBe(false);
+    expect(fs.existsSync(path.join(
+      repoRoot,
+      'workflows/address-pr-comments/references/fetch-threads.md;skills/address-pr-comments/references/fix-loop.md;skills/address-pr-comments/references/polling.md',
+    ))).toBe(false);
+    expect(fs.existsSync(path.join(
+      repoRoot,
+      'workflows/start-issue/references/milestone-selection.md;skills/start-issue/references/stale-remote-branch.md;skills/start-issue/references/project-status.md',
+    ))).toBe(false);
   });
 });

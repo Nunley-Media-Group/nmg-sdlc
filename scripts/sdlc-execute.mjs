@@ -353,7 +353,8 @@ export function writeRun(runData, root = process.cwd()) {
   const p = join(root, RUN_FILE);
   const d = dirname(p);
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
-  if (!existsSync(HANDOFF_DIR)) mkdirSync(HANDOFF_DIR, { recursive: true });
+  const handoffDir = join(root, HANDOFF_DIR);
+  if (!existsSync(handoffDir)) mkdirSync(handoffDir, { recursive: true });
   const content = JSON.stringify(runData, null, 2) + '\n';
   writeFileSync(p, content);
 }
