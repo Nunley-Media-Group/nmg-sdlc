@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-08-21
+
+### Fixed
+
+- Approved spec-only pull requests now pass contribution-gate evidence checks and contract verification while implementation pull requests retain full evidence requirements.
+
 ## [3.2.0] - 2026-08-21
 
 ### Changed

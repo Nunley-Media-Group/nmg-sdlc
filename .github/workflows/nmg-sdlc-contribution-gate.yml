@@ -1,5 +1,5 @@
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 5
+# nmg-sdlc-managed-version: 6
 name: nmg-sdlc contribution gate
 
 on:
@@ -236,6 +236,23 @@ jobs:
             const docsOnlyEligible = Boolean(docsReason)
               && changedPaths.length > 0
               && changedPaths.every((path) => pathClasses.get(path) === 'documentation');
+            function writeSpecOnlyEligible() {
+              const titleMatch = String(pr.title || '').trim().match(/^docs: approve spec for #(\d+)$/);
+              if (!titleMatch) return false;
+              const issueN = Number(titleMatch[1]);
+              if (!prIssueNumbers.has(issueN)) return false;
+              if (changedPaths.length === 0) return false;
+              if (!changedPaths.every((path) => pathClasses.get(path) === 'spec')) return false;
+              const directories = new Set();
+              for (const changedPath of changedPaths) {
+                const match = changedPath.match(/^(specs\/(\d+)-[^/]+)\//);
+                if (!match || Number(match[2]) !== issueN) return false;
+                directories.add(match[1]);
+              }
+              return directories.size === 1;
+            }
+
+            const specOnlyEligible = writeSpecOnlyEligible();
             const rewriteRequiredPaths = [
               'package.json',
               'VERSION',
@@ -266,7 +283,7 @@ jobs:
               failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
-            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : null;
+            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : specOnlyEligible ? 'spec-only' : null;
 
             if (prIssueNumbers.size === 0 && !rewriteEligible) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
@@ -288,7 +305,7 @@ jobs:
               || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
             if (missingSteering.length > 0) {
               failures.push(`Missing steering artifacts: expected ${missingSteering.join(', ')}.`);
-            } else if (!steeringReferenced) {
+            } else if (!steeringReferenced && reducedMode !== 'spec-only') {
               failures.push('Missing steering evidence: explain alignment with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
             }
 
@@ -296,7 +313,7 @@ jobs:
               failures.push(`Unmatched changed paths: ${summarizePaths(unmatchedPaths)}. Name each path, an explicit containing directory, or a path-specific behavior in tasks or verification evidence.`);
             }
 
-            if (reducedMode !== 'docs-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
+            if (reducedMode !== 'docs-only' && reducedMode !== 'spec-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
               failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
             }
 

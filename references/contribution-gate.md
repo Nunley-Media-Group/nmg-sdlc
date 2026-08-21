@@ -10,8 +10,8 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 5` |
-| Current numeric version | `5` |
+| Managed version | `# nmg-sdlc-managed-version: 6` |
+| Current numeric version | `6` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
 | Maximum paths per diagnostic | `20` |
@@ -38,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 5
+# nmg-sdlc-managed-version: 6
 name: nmg-sdlc contribution gate
 
 on:
@@ -275,6 +275,23 @@ jobs:
             const docsOnlyEligible = Boolean(docsReason)
               && changedPaths.length > 0
               && changedPaths.every((path) => pathClasses.get(path) === 'documentation');
+            function writeSpecOnlyEligible() {
+              const titleMatch = String(pr.title || '').trim().match(/^docs: approve spec for #(\d+)$/);
+              if (!titleMatch) return false;
+              const issueN = Number(titleMatch[1]);
+              if (!prIssueNumbers.has(issueN)) return false;
+              if (changedPaths.length === 0) return false;
+              if (!changedPaths.every((path) => pathClasses.get(path) === 'spec')) return false;
+              const directories = new Set();
+              for (const changedPath of changedPaths) {
+                const match = changedPath.match(/^(specs\/(\d+)-[^/]+)\//);
+                if (!match || Number(match[2]) !== issueN) return false;
+                directories.add(match[1]);
+              }
+              return directories.size === 1;
+            }
+
+            const specOnlyEligible = writeSpecOnlyEligible();
             const rewriteRequiredPaths = [
               'package.json',
               'VERSION',
@@ -305,7 +322,7 @@ jobs:
               failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
-            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : null;
+            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : specOnlyEligible ? 'spec-only' : null;
 
             if (prIssueNumbers.size === 0 && !rewriteEligible) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
@@ -327,7 +344,7 @@ jobs:
               || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
             if (missingSteering.length > 0) {
               failures.push(`Missing steering artifacts: expected ${missingSteering.join(', ')}.`);
-            } else if (!steeringReferenced) {
+            } else if (!steeringReferenced && reducedMode !== 'spec-only') {
               failures.push('Missing steering evidence: explain alignment with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
             }
 
@@ -335,7 +352,7 @@ jobs:
               failures.push(`Unmatched changed paths: ${summarizePaths(unmatchedPaths)}. Name each path, an explicit containing directory, or a path-specific behavior in tasks or verification evidence.`);
             }
 
-            if (reducedMode !== 'docs-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
+            if (reducedMode !== 'docs-only' && reducedMode !== 'spec-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
               failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
             }
 
@@ -371,6 +388,7 @@ Path diagnostics show at most 20 paths and append the remaining count so large p
 |------|-----------|----------------|--------------------|
 | Documentation-only | Current PR text contains `SDLC-Exception: docs-only — <non-empty reason>` and every changed path is project documentation | Spec correlation, relevant-path mapping, and specific verification are not required | Any source, workflow, script, skill, template, shared reference, spec, ADR, or other non-documentation path |
 | Repository rewrite | Current PR text contains `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; `package.json`, `VERSION`, public guides, all steering files, the managed gate, and `references/rewrite-contract.{json,md}` and `references/rewrite-verification.md` change | Current issue/spec identity only | Missing rewrite contract path, non-breaking title, unmatched relevant path, missing steering, or missing specific verification |
+| Spec-only write-spec | Title matches `^docs: approve spec for #(\d+)$`; that issue number appears in current PR text; every changed path is class `spec` under exactly one `specs/{N}-{slug}/` whose leading number is that issue | Steering alignment text and specific verification are not required | Any non-spec path; title mismatch; multiple spec directories; issue number mismatch |
 
 There is no spike/ADR reduced-evidence mode. Leftover `spike` labels do not waive verification.
 
