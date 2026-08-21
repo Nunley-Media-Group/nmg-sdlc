@@ -3,7 +3,7 @@
 **Consumed by**: `draft-issue` Step 6.
 **Triggering condition**: `classification === 'feature'`.
 
-Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Feature or Enhancement. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` from Step 4. Epic classification uses a separate template — see `references/multi-issue.md` for the Epic Coordination template.
+Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Feature or Enhancement. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` from Step 4.
 
 ## Template Structure vs. Bug Template
 
@@ -76,8 +76,9 @@ Each criterion uses Given/When/Then format. These become Gherkin BDD test scenar
 [Any additional context, links, references, or technical considerations]
 ```
 
-## Authoring Guidance
+## Authoring Guidance (v3)
 
-The general issue-quality guidance (title shape, AC format, scope discipline, MoSCoW priorities, no-implementation-details rule) is defined once in the consuming SKILL.md `## Guidelines` section — do not duplicate it here. Template-specific rules:
-
-- When the iteration has DAG neighbors (batch mode), append placeholder cross-ref lines at the end of the body (`Depends on: <A1>, <A2>` / `Blocks: <A4>`). Step 10 rewrites each `<askId>` token to a real `#N` once siblings have been created.
+- Title: concise verb-first.
+- ACs in G/W/T become Gherkin.
+- Scope explicit to prevent creep.
+- For multi the caller has already appended the Depends on:/Blocks: lines (topo summaries) to the body text before plan emission.

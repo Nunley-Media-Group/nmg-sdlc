@@ -1,0 +1,18 @@
+# Issue: #1
+Feature: Run Retrospective
+  Analyze new or changed defect specs incrementally and update steering/retrospective.md without changing delivery state.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-run-retro exercises this capability
+    Then Given defect specs changed, when the command runs, then it follows related-spec chains and records transferable patterns.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-run-retro exercises this capability
+    Then Given unchanged defect inputs, when rerun, then the persisted hash state prevents duplicate analysis.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-run-retro exercises this capability
+    Then Given an interactive invocation, when review is required, then native plan and bounded ask gates are used before writes.

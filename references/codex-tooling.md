@@ -1,26 +1,15 @@
-# Codex Tooling
+# OMP and Herdr Tooling
 
-Use this reference whenever a skill describes tool use. The skill text should describe Codex-native behavior, not legacy tool names.
+**Consumed by**: interactive and automated skills that previously pointed at this filename.
 
-## Tool Translation
+| Need | Tool |
+|------|------|
+| Read a file or URL | `read` |
+| Search | `grep` |
+| Find paths | `glob` |
+| Interview | built-in `ask` |
+| Finish a plan | `write` to `xd://propose` |
+| Persist a plan | `local://<slug>-plan.md` |
+| Deliver | Herdr CLI (`herdr pane`, `herdr agent`, `herdr notification`, `herdr integration`) |
 
-| Legacy wording | Codex-native instruction |
-|----------------|--------------------------|
-| `Read` | Read files with normal file-inspection commands such as `sed`, `nl`, or `rg`, or use an available MCP resource when one is provided. |
-| `Glob` | Discover files with `rg --files` first; use `find` or shell globs when `rg` is unavailable or a directory traversal is clearer. |
-| `Grep` | Search with `rg` first; use another local search tool only when `rg` is unavailable. |
-| `Write` / `Edit` / `MultiEdit` | Edit files with `apply_patch` for manual changes. Formatting commands and mechanical rewrites may run through the shell. |
-| `Bash(...)` | Run shell commands through the Codex shell tool, respecting sandboxing and approval rules. |
-| Legacy web fetch/search wording | Use Codex web browsing for internet sources and prefer primary sources. Use the in-app browser only for local browser targets or explicit browser inspection. |
-| Legacy task-delegation wording | Do not name legacy task tools. If the user explicitly authorizes delegation, use Codex subagents (`explorer` for read-only exploration, `worker` for implementation); otherwise perform the work inline. |
-| `plan approval` | Use `references/interactive-gates.md`: collect all required user decisions in Plan Mode with `request_user_input`, emit a decision-complete `<proposed_plan>`, and auto-execute after that plan is accepted. |
-| Legacy question widgets | Do not name legacy widgets in skill instructions. Use `references/interactive-gates.md`: ask with `request_user_input` during Plan Mode, stop until the user answers, then finalize one `<proposed_plan>` before executing. |
-| `Skill` | Do not name a tool. Invoke another skill by telling Codex to use that skill. |
-
-## Skill Authoring Rules
-
-- Keep `SKILL.md` frontmatter to `name` and `description`; detailed UI metadata belongs in `agents/openai.yaml` when needed.
-- Prefer imperative workflow instructions over low-level tool names unless the exact shell command is the contract.
-- Make interactive gates Codex-native: say what choice the user must make, ask through `request_user_input` in Plan Mode, and stop for the user's reply.
-- Use Codex subagents only when the user explicitly asks for delegation; every subagent task needs a bounded scope and clear output contract.
-- Codex plugins can bundle skills, apps, MCP server configuration, and assets. Do not document `agents/*.md` as installable plugin components; use them as reusable prompt contracts that skills include when spawning built-in Codex subagents.
+Do not register `/plan` or a `plan_mode` tool. Do not call nmg-pi input tools. Workers never call `ask`.

@@ -1,0 +1,23 @@
+# Issue: #5
+Feature: Write Specification
+  Create, approve, and publish one issue-owned BDD spec package from the default branch.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-write-spec #N exercises this capability
+    Then Given an executable issue number, when specification runs, then one specs/{N}-{slug}/ package with singular Issue frontmatter is produced.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-write-spec #N exercises this capability
+    Then Given the user approves the plan, when publication runs, then requirements.md, design.md, tasks.md, and feature.gherkin are committed and pushed.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-write-spec #N exercises this capability
+    Then Given the spec PR is ready, when published, then it is squash-merged into the default branch without development-linking or closing the implementation issue.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-write-spec #N exercises this capability
+    Then Given publication succeeds, when the loop continues, then the user may explicitly continue to implementation or finish.

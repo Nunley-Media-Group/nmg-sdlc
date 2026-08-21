@@ -1,0 +1,23 @@
+# Issue: #86
+Feature: Address Pull Request Comments
+  Resolve eligible automated review threads while preserving human ownership and exact-head safety.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated review remediation stage exercises this capability
+    Then Given an unresolved automated-review thread with an actionable finding, when remediation runs, then the source is fixed and verified before reply and resolution.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated review remediation stage exercises this capability
+    Then Given an ambiguous or human-authored thread, when encountered, then it remains unresolved and delivery returns intervention.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated review remediation stage exercises this capability
+    Then Given a fix changes the head, when review continues, then the updated exact head is pushed and rechecked.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated review remediation stage exercises this capability
+    Then Given no eligible findings remain, when the stage completes, then control returns to open-pr.

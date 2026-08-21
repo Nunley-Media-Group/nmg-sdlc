@@ -121,6 +121,38 @@ export function extractClauses(source) {
   return out;
 }
 
+/** Extract inventory clauses from an OMP agent file: every non-empty body line. */
+export function extractAgentClauses(source) {
+  const lines = source.split('\n');
+  const out = [];
+  let inFence = false;
+  let inFrontmatter = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, '');
+    if (i === 0 && line === '---') {
+      inFrontmatter = true;
+      continue;
+    }
+    if (inFrontmatter) {
+      if (line === '---') inFrontmatter = false;
+      continue;
+    }
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/^#{1,6} /.test(line)) continue;
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    if (/^\|?\s*-{3,}\s*(\|\s*-{3,}\s*)+\|?$/.test(trimmed)) continue;
+    out.push({ line: i + 1, text: trimmed, heading: null });
+  }
+  return out;
+}
+
+
 // ---------------------------------------------------------------------------
 // Normalization: produce a stable key and content for hashing.
 // ---------------------------------------------------------------------------
@@ -199,13 +231,14 @@ function resolvePluginRoot(repoRoot) {
   return repoRoot;
 }
 
-/** Build an array of audit-tracked file paths (SKILL.md + references/*.md) under a plugin root. */
+/** Build an array of audit-tracked file paths (SKILL.md, agents, references) under a plugin root. */
 export function findTrackedFiles(repoRoot) {
   const pluginRoot = resolvePluginRoot(repoRoot);
   if (!fs.existsSync(pluginRoot)) return [];
   return walk(pluginRoot, (rel) => {
     const pluginRel = path.relative(pluginRoot, path.join(repoRoot, rel)).split(path.sep).join('/');
     if (/^skills\/[^/]+\/SKILL\.md$/.test(pluginRel)) return true;
+    if (/^agents\/.+\.md$/.test(pluginRel)) return true;
     if (/^references\/.+\.md$/.test(pluginRel)) return true;
     if (/^skills\/[^/]+\/references\/.+\.md$/.test(pluginRel)) return true;
     return false;
@@ -277,12 +310,13 @@ export function scan(repoRoot) {
   const files = findTrackedFiles(repoRoot);
   const items = [];
   const seen = new Map(); // id → existing item (for collision detection)
-
   for (const rel of files) {
     const abs = path.join(repoRoot, rel);
     const source = fs.readFileSync(abs, 'utf8');
-    const clauses = extractClauses(source);
-
+    const pluginRel = rel.replace(/^plugins\/nmg-sdlc\//, '');
+    const clauses = /^agents\/.+\.md$/.test(pluginRel)
+      ? extractAgentClauses(source)
+      : extractClauses(source);
     for (const c of clauses) {
       const normalized = normalize(c.text);
       if (!normalized) continue;
@@ -384,7 +418,7 @@ export function runCheck(repoRoot, baselinePath) {
   console.error('Content appears to have been dropped without a matching baseline regeneration.');
   console.error('If the removal is intentional, regenerate the baseline with:');
   console.error('  node scripts/skill-inventory-audit.mjs --baseline');
-  console.error('and document each removed item under an `### Inventory Removals` heading in the PR body.');
+  console.error('and commit the regenerated `scripts/skill-inventory.baseline.json`.');
   return 1;
 }
 

@@ -10,11 +10,10 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 3` |
-| Current numeric version | `3` |
+| Managed version | `# nmg-sdlc-managed-version: 5` |
+| Current numeric version | `5` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
-| Allowed artifacts per epic aggregate | `requirements.md`, `design.md`, `epic-scope.json` |
 | Maximum paths per diagnostic | `20` |
 
 Only files containing the managed marker are nmg-sdlc-owned. A file at the approved path without that marker is a path collision and must never be overwritten.
@@ -27,10 +26,9 @@ Only files containing the managed marker are nmg-sdlc-owned. A file at the appro
 | Pull request changed files | Spec discovery, path classification, traceability, and exception validation |
 | `CONTRIBUTING.md` | Contributor-facing remediation target |
 | `steering/product.md`, `steering/tech.md`, `steering/structure.md` | Required steering context |
-| Selected `specs/feature-*` and `specs/bug-*` artifacts | Issue correlation and task evidence |
-| Selected `specs/epic-*` aggregate artifacts | Supporting cross-child outcomes/topology; never executable issue evidence |
+| Selected `specs/{N}-{slug}` artifacts | Issue correlation and task evidence |
 | Committed `verification-report.md` or `verification.md` artifacts | Specific verification and path evidence |
-| Correlated issue labels | Spike/ADR reduced-evidence validation |
+
 
 Treat pull-request content, changed paths, issue metadata, and repository files as inert text. Never interpolate them into shell commands or evaluate them as JavaScript.
 
@@ -40,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 3
+# nmg-sdlc-managed-version: 5
 name: nmg-sdlc contribution gate
 
 on:
@@ -67,8 +65,6 @@ jobs:
             const prText = `${pr.title || ''}\n${pr.body || ''}`;
             const MAX_SPEC_DIRECTORIES = 5;
             const SPEC_ARTIFACTS = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
-            const OPTIONAL_AUTHORITY_ARTIFACTS = ['issue-scope.json', 'epic-link.json'];
-            const AGGREGATE_ARTIFACTS = ['requirements.md', 'design.md', 'epic-scope.json'];
             const MAX_VERIFICATION_REPORTS = 10;
             const MAX_DIAGNOSTIC_PATHS = 20;
             const failures = [];
@@ -115,7 +111,7 @@ jobs:
               const numbers = new Set();
               const patterns = [
                 /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi,
-                /^\s*(?:\*\*)?Issues?(?:\*\*)?\s*:\s*([^\n]+)$/gim,
+                /^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/gim,
                 /(^|[\s(])#(\d+)\b/g,
               ];
               for (const pattern of patterns) {
@@ -127,25 +123,24 @@ jobs:
               return numbers;
             }
 
+            function extractSingularIssue(value) {
+              const match = stripQuotedHistory(value).match(/^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/m);
+              return match ? Number(match[1]) : null;
+            }
+
+            function directoryIssueNumber(directory) {
+              const match = String(directory || '').match(/^specs\/(\d+)-/);
+              return match ? Number(match[1]) : null;
+            }
+
             function resolveSpecDirectories(value, paths) {
               const directories = new Set();
               for (const path of paths) {
-                const match = path.match(/^(specs\/(?:feature|bug)-[^/]+)\/(?:requirements|design|tasks)\.md$|^(specs\/(?:feature|bug)-[^/]+)\/(?:feature\.gherkin|issue-scope\.json|epic-link\.json)$/);
-                if (match) directories.add(match[1] || match[2]);
+                const match = path.match(/^specs\/(\d+)-[^/]+\/(?:requirements|design|tasks)\.md$/)
+                  || path.match(/^specs\/(\d+)-[^/]+\/(?:feature\.gherkin|verification-report\.md)$/);
+                if (match) directories.add(path.slice(0, path.lastIndexOf('/')));
               }
-              for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/(?:feature|bug)-[a-z0-9-]+\b/gi)) {
-                directories.add(normalizePath(match[0]));
-              }
-              return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
-            }
-
-            function resolveAggregateDirectories(value, paths) {
-              const directories = new Set();
-              for (const path of paths) {
-                const match = path.match(/^(specs\/epic-[^/]+)\/(?:requirements\.md|design\.md|epic-scope\.json)$/);
-                if (match) directories.add(match[1]);
-              }
-              for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/epic-[a-z0-9-]+\b/gi)) {
+              for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/\d+-[a-z0-9-]+\b/gi)) {
                 directories.add(normalizePath(match[0]));
               }
               return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
@@ -155,8 +150,7 @@ jobs:
               if (/^(?:skills|scripts|references|agents)\//.test(path)
                 || /(^|\/)templates\//.test(path)
                 || /^\.github\/workflows\//.test(path)) return 'relevant';
-              if (/^specs\/(?:feature|bug)-[^/]+\//.test(path)) return 'spec';
-              if (/^specs\/epic-[^/]+\//.test(path)) return 'aggregate';
+              if (/^specs\/\d+-[^/]+\//.test(path)) return 'spec';
               if (/^docs\/decisions\/.+\.md$/i.test(path)) return 'adr';
               if (/(^|\/)(?:verification-report|verification)\.md$/i.test(path)) return 'evidence';
               if (/^(?:README|CONTRIBUTING|CHANGELOG)\.md$/i.test(path)
@@ -217,6 +211,11 @@ jobs:
               return match ? match[1].trim() : null;
             }
 
+            function repositoryRewriteDeclaration(value) {
+              const match = stripQuotedHistory(value).match(/\bSDLC-Exception\s*:\s*repository-rewrite\s*(?:—|--?\s*|:)\s*(\S[^\n]*)/i);
+              return match ? match[1].trim() : null;
+            }
+
             async function pathExists(path) {
               try {
                 await github.rest.repos.getContent({ owner, repo, path, ref });
@@ -241,19 +240,21 @@ jobs:
             const prIssueNumbers = extractIssueNumbers(prText);
             const specDirectories = resolveSpecDirectories(prText, changedPaths);
             const specRecords = await Promise.all(specDirectories.map(async (directory) => {
-              const artifacts = await Promise.all([...SPEC_ARTIFACTS, ...OPTIONAL_AUTHORITY_ARTIFACTS].map((artifact) => readText(`${directory}/${artifact}`)));
+              const artifacts = await Promise.all(SPEC_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)));
               const text = artifacts.join('\n');
               return { directory, text, tasksText: artifacts[2], issueNumbers: extractIssueNumbers(text) };
             }));
             const specText = specRecords.map((record) => record.text).join('\n');
-            const mismatchedSpecs = specRecords.filter((record) => ![...record.issueNumbers].some((number) => prIssueNumbers.has(number)));
-            const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => [...record.issueNumbers].filter((number) => prIssueNumbers.has(number))));
-            const aggregateDirectories = resolveAggregateDirectories(prText, changedPaths);
-            const aggregateTexts = await Promise.all(aggregateDirectories.map(async (directory) => (
-              (await Promise.all(AGGREGATE_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)))).join('\n')
-            )));
-            const invalidAggregatePaths = changedPaths.filter((path) => /^specs\/epic-[^/]+\//.test(path)
-              && !/^specs\/epic-[^/]+\/(?:requirements\.md|design\.md|epic-scope\.json)$/.test(path));
+            const mismatchedSpecs = specRecords.filter((record) => {
+              const dirN = directoryIssueNumber(record.directory);
+              if (dirN === null) return true;
+              if (prIssueNumbers.has(dirN)) return false;
+              return extractSingularIssue(record.text) !== dirN;
+            });
+            const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => {
+              const dirN = directoryIssueNumber(record.directory);
+              return dirN !== null && (prIssueNumbers.has(dirN) || extractSingularIssue(record.text) === dirN) ? [dirN] : [];
+            }));
 
             const pathClasses = new Map(changedPaths.map((path) => [path, classifyChangedPath(path)]));
             const relevantPaths = changedPaths.filter((path) => pathClasses.get(path) === 'relevant');
@@ -266,53 +267,62 @@ jobs:
             const mappingEvidence = normalizePath(`${taskEvidence}\n${verificationEvidence}`);
             const unmatchedPaths = relevantPaths.filter((path) => !pathMentioned(path, mappingEvidence));
 
-            const docsMarkerPresent = /\bSDLC-Exception\s*:\s*docs-only\b/i.test(stripQuotedHistory(prText));
+            const prTextWithoutHistory = stripQuotedHistory(prText);
+            const docsMarkerPresent = /\bSDLC-Exception\s*:\s*docs-only\b/i.test(prTextWithoutHistory);
+            const rewriteMarkerPresent = /\bSDLC-Exception\s*:\s*repository-rewrite\b/i.test(prTextWithoutHistory);
             const docsReason = docsOnlyDeclaration(prText);
+            const rewriteReason = repositoryRewriteDeclaration(prText);
             const docsOnlyEligible = Boolean(docsReason)
               && changedPaths.length > 0
               && changedPaths.every((path) => pathClasses.get(path) === 'documentation');
-            if (docsMarkerPresent && !docsReason) {
+            const rewriteRequiredPaths = [
+              'package.json',
+              'VERSION',
+              'README.md',
+              'CONTRIBUTING.md',
+              'steering/product.md',
+              'steering/tech.md',
+              'steering/structure.md',
+              '.github/workflows/nmg-sdlc-contribution-gate.yml',
+              'references/rewrite-contract.json',
+              'references/rewrite-contract.md',
+              'references/rewrite-verification.md',
+            ];
+            const rewriteEligible = Boolean(rewriteReason)
+              && /^feat!:/i.test(String(pr.title || '').trim())
+              && rewriteRequiredPaths.every((path) => changedPaths.includes(path));
+            if (docsMarkerPresent && rewriteMarkerPresent) {
+              failures.push('Invalid SDLC exception: declare exactly one reduced-evidence mode.');
+            } else if (docsMarkerPresent && !docsReason) {
               failures.push('Invalid docs-only exception: provide a non-empty rationale after `SDLC-Exception: docs-only —`.');
             } else if (docsReason && !docsOnlyEligible) {
               const invalidating = changedPaths.filter((path) => pathClasses.get(path) !== 'documentation');
               failures.push(`Invalid docs-only exception: only documentation paths are allowed; invalidating paths: ${summarizePaths(invalidating) || 'none'}.`);
+            } else if (rewriteMarkerPresent && !rewriteReason) {
+              failures.push('Invalid repository-rewrite exception: provide a non-empty rationale after `SDLC-Exception: repository-rewrite —`.');
+            } else if (rewriteReason && !rewriteEligible) {
+              const missing = rewriteRequiredPaths.filter((path) => !changedPaths.includes(path));
+              failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
-            const spikePathEligible = changedPaths.length > 0
-              && changedPaths.every((path) => ['documentation', 'spec', 'adr'].includes(pathClasses.get(path)));
-            let spikeEligible = false;
-            if (!docsOnlyEligible && spikePathEligible && correlatedIssueNumbers.size > 0) {
-              const labelSets = await Promise.all([...correlatedIssueNumbers].slice(0, MAX_SPEC_DIRECTORIES).map(async (issueNumber) => {
-                const response = await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: issueNumber, per_page: 100 });
-                return response.data.map((label) => typeof label === 'string' ? label : label.name);
-              }));
-              spikeEligible = labelSets.some((labels) => labels.some((label) => String(label).toLowerCase() === 'spike'));
-            }
+            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : null;
 
-            const reducedMode = docsOnlyEligible ? 'docs-only' : spikeEligible ? 'spike/ADR' : null;
-
-            if (prIssueNumbers.size === 0) {
+            if (prIssueNumbers.size === 0 && !rewriteEligible) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
             }
 
-            if (!docsOnlyEligible) {
+            if (!docsOnlyEligible && !rewriteEligible) {
               if (specDirectories.length === 0) {
-                failures.push('Missing spec evidence: name or change the relevant `specs/feature-*` or `specs/bug-*` directory.');
+                failures.push('Missing spec evidence: name or change the relevant `specs/{N}-{slug}` directory.');
               } else if (mismatchedSpecs.length > 0) {
                 failures.push(`Issue/spec mismatch: PR issues ${[...prIssueNumbers].map((number) => `#${number}`).join(', ') || 'none'} do not match ${mismatchedSpecs.map((record) => record.directory).join(', ')}.`);
-              }
-              if (aggregateDirectories.length > 0 && specDirectories.length === 0) {
-                failures.push('Epic aggregate evidence is coordination-only: include the active child `specs/feature-*` or `specs/bug-*` package; an aggregate cannot satisfy executable issue evidence.');
-              }
-              if (invalidAggregatePaths.length > 0) {
-                failures.push(`Invalid epic aggregate artifacts: ${summarizePaths(invalidAggregatePaths)}. Aggregates may contain only requirements.md, design.md, and epic-scope.json.`);
               }
             }
 
             const steeringFiles = ['steering/product.md', 'steering/tech.md', 'steering/structure.md'];
             const steeringPresence = await Promise.all(steeringFiles.map(pathExists));
             const missingSteering = steeringFiles.filter((_, index) => !steeringPresence[index]);
-            const currentEvidence = stripQuotedHistory(`${prText}\n${specText}\n${aggregateTexts.join('\n')}`);
+            const currentEvidence = stripQuotedHistory(`${prText}\n${specText}`);
             const steeringReferenced = /\bsteering\b|steering\/(?:product|tech|structure)\.md|product\.md|tech\.md|structure\.md/i.test(currentEvidence)
               || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
             if (missingSteering.length > 0) {
@@ -321,16 +331,16 @@ jobs:
               failures.push('Missing steering evidence: explain alignment with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
             }
 
-            if (!reducedMode && unmatchedPaths.length > 0) {
+            if (reducedMode !== 'docs-only' && unmatchedPaths.length > 0) {
               failures.push(`Unmatched changed paths: ${summarizePaths(unmatchedPaths)}. Name each path, an explicit containing directory, or a path-specific behavior in tasks or verification evidence.`);
             }
 
-            if (!reducedMode && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
+            if (reducedMode !== 'docs-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
               failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
             }
 
             if (!(await pathExists('CONTRIBUTING.md'))) {
-              failures.push('Missing `CONTRIBUTING.md`: run `$nmg-sdlc:onboard-project` or `$nmg-sdlc:upgrade-project` so contributors can remediate this gate.');
+              failures.push('Missing `CONTRIBUTING.md`: run /sdlc-onboard-project or /sdlc-upgrade-project so contributors can remediate this gate.');
             }
 
             if (failures.length > 0) {
@@ -345,14 +355,13 @@ jobs:
 
 Evaluate evidence in this order:
 
-1. Extract issue numbers only from current pull-request text. Ignore fenced examples, blockquotes, HTML comments, and explicitly historical sections.
-2. Resolve executable spec directories from changed expected artifacts and explicit pull-request paths. Deduplicate, sort, cap at five directories, and read the four required artifacts plus optional `issue-scope.json` and `epic-link.json` authority files.
-3. Require every selected executable spec directory to share at least one issue number with the pull request. An issue from another spec cannot satisfy the mismatched directory.
-4. Resolve `specs/epic-*` separately. An aggregate is supporting coordination evidence only, requires an executable child package in the same non-docs contribution, and may contain only `requirements.md`, `design.md`, and `epic-scope.json`.
-5. Classify each changed path. `skills/`, `scripts/`, `references/`, `agents/`, template directories, workflows, and otherwise non-documentation paths are relevant implementation paths; executable specs, epic aggregates, verification reports, documentation, and ADRs are separate evidence classes.
-6. Require every relevant path to appear as an exact normalized path, an explicit containing-directory prefix ending in `/`, or a structured `Behavior for <path>: <description>` entry in selected task or verification evidence. Basename-only and similarly named paths do not match.
-7. Accept verification only from the current Verification, Test Plan, or Validation section plus at most ten committed verification artifacts. A command paired with an outcome, a non-empty report, an `ACN: passed|failed` result, or a changed-path-specific result is concrete; generic keywords are not.
-8. Validate reduced-evidence paths before applying them. The reduced contract never waives current issue linkage, required steering files/evidence, guide discoverability, or any non-exempt check.
+1. Extract issue numbers only from current pull-request text. Ignore fenced examples, blockquotes, HTML comments, and explicitly historical sections. Plural `**Issues**` is not current evidence.
+2. Resolve executable spec directories from changed `specs/{N}-{slug}` artifacts and explicit pull-request paths. Deduplicate, sort, and cap at five directories. Read the four required artifacts.
+3. Require every selected directory's leading number to appear in PR issue numbers or in that directory's singular `**Issue**: #N`.
+4. Classify each changed path. `specs/{N}-{slug}/` is spec evidence. Legacy `feature-*` / `bug-*` / `epic-*` paths are relevant only, so a leftover rename PR must name them in tasks.
+5. Require every relevant path to appear as an exact normalized path, an explicit containing-directory prefix ending in `/`, or a structured `Behavior for <path>: <description>` entry in selected task or verification evidence. Basename-only and similarly named paths do not match.
+6. Accept verification only from the current Verification, Test Plan, or Validation section plus at most ten committed verification artifacts. A command paired with an outcome, a non-empty report, an `ACN: passed|failed` result, or a changed-path-specific result is concrete; generic keywords are not.
+7. Validate reduced-evidence predicates before applying them. Documentation-only work retains current issue linkage. A repository rewrite may waive only current issue/spec identity when a `feat!:` PR changes every required repository contract path, including the explicit rewrite contract; steering, relevant-path mapping, specific verification, and guide discoverability remain mandatory.
 
 Path diagnostics show at most 20 paths and append the remaining count so large pull requests stay actionable without producing unbounded annotations.
 
@@ -361,9 +370,9 @@ Path diagnostics show at most 20 paths and append the remaining count so large p
 | Mode | Predicate | Reduced checks | Invalidating paths |
 |------|-----------|----------------|--------------------|
 | Documentation-only | Current PR text contains `SDLC-Exception: docs-only — <non-empty reason>` and every changed path is project documentation | Spec correlation, relevant-path mapping, and specific verification are not required | Any source, workflow, script, skill, template, shared reference, spec, ADR, or other non-documentation path |
-| Spike/ADR | At least one PR/spec-correlated issue has the `spike` label and every changed path is documentation, a spec artifact, or `docs/decisions/*.md` | Relevant-path mapping and specific verification are not required | Any source, workflow, script, skill, template, shared reference, or other implementation path |
+| Repository rewrite | Current PR text contains `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; `package.json`, `VERSION`, public guides, all steering files, the managed gate, and `references/rewrite-contract.{json,md}` and `references/rewrite-verification.md` change | Current issue/spec identity only | Missing rewrite contract path, non-breaking title, unmatched relevant path, missing steering, or missing specific verification |
 
-Use `issues.listLabelsOnIssue` for spike validation. GitHub documents that the endpoint accepts either read-only Issues or read-only Pull requests permission, so the workflow retains its existing minimal permission set.
+There is no spike/ADR reduced-evidence mode. Leftover `spike` labels do not waive verification.
 
 ## Process
 

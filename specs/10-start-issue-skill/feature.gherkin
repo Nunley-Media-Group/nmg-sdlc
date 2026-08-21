@@ -1,0 +1,23 @@
+# Issue: #10
+Feature: Start Issue
+  Start one explicit executable issue on a clean linked branch after proving dependencies.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated start stage exercises this capability
+    Then Given no explicit #N argument, when invoked, then the stage fails closed without a picker or prompt.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated start stage exercises this capability
+    Then Given an issue with unresolved Depends on parents, when starting, then no branch or project mutation occurs.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated start stage exercises this capability
+    Then Given clean state and satisfied dependencies, when starting, then the issue branch is linked and the issue moves to In Progress.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated start stage exercises this capability
+    Then Given leftover unsupported labels, when starting, then they do not create alternate issue types or bypass normal delivery.

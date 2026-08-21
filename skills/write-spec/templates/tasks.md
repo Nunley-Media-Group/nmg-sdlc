@@ -1,6 +1,6 @@
 # Tasks Template
 
-Use this template only for executable feature/bug children in the **TASKS** phase. Never create tasks for an epic or place child tasks in its aggregate.
+Use this template for executable feature or bug specs. Never create epic tasks.
 
 Reference `steering/structure.md` to map task file paths to the project's actual directory layout.
 
@@ -9,11 +9,11 @@ Reference `steering/structure.md` to map task file paths to the project's actual
 ```markdown
 # Tasks: [Feature Name]
 
-**Issues**: #[number]
+**Issue**: #[number]
 **Date**: [YYYY-MM-DD]
-**Status**: Planning | In Progress | Complete
+**Status**: Draft | Approved
 **Author**: [name]
-
+**Related Spec**: specs/{M}-{slug}/
 ---
 
 ## Summary
@@ -301,8 +301,9 @@ Before moving to IMPLEMENT phase:
 
 **Issue**: #[number]
 **Date**: [YYYY-MM-DD]
-**Status**: Planning | In Progress | Complete
+**Status**: Draft | Approved
 **Author**: [name]
+**Related Spec**: specs/{M}-{slug}/
 
 ---
 

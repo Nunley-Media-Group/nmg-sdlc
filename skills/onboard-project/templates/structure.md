@@ -1,9 +1,8 @@
-# Code Structure Steering Template
+# Project Structure
 
-Generate this document during `$nmg-sdlc:onboard-project` (Step 2G.2 — steering bootstrap). Pre-fill the project layout, layer architecture, and naming conventions from codebase analysis.
+Generate during onboard. Pre-fill layout from git ls-files analysis.
 
 ---
-
 ```markdown
 # [Project Name] Code Structure Steering
 
@@ -87,27 +86,11 @@ project/
 
 ## File Templates
 
-<!-- Pre-fill with patterns discovered from existing code -->
+Executable work uses specs/{N}-slug/ . No epic aggregates.
 
-### nmg-sdlc Specification Layout
+Use /sdlc-draft-issue , /sdlc-write-spec #N and /sdlc-execute .
 
-Executable feature and bug work uses a normal package under `specs/feature-*` or `specs/bug-*` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin`, and issue ownership metadata. An epic is coordination-only, cannot be started, and uses only:
-
-```text
-specs/epic-<slug>/
-├── requirements.md
-├── design.md
-└── epic-scope.json
-```
-
-Every epic child remains in its own normal package, follows normal dependency rules, exposes epic membership as informational lineage, and links to the aggregate through `epic-link.json`. Do not place `tasks.md`, `feature.gherkin`, or executable AC/FR/task/scenario ownership in an epic aggregate.
-
-### [Layer 1 Template]
-
-```
-// Pseudocode — replace with project language
-
-// [path pattern]
+---
 class [Name] {
   constructor(dependencies) { }
 

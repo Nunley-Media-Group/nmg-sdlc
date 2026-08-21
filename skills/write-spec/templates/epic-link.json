@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "epicIssue": 0,
-  "epicSpecPath": "specs/epic-[parent-title-slug]",
-  "childIssue": 0,
-  "childSpecPath": "specs/feature-[child-title-slug]",
-  "outcomes": ["EO001"]
-}

@@ -5,7 +5,7 @@ The status exercise evaluates the committed JSON artifact against six determinis
 | ID | Criterion |
 |----|-----------|
 | S1 | Schema version 1 and every stable top-level status field are captured. |
-| S2 | A complete spec with no implementation infers `specified` and recommends `$nmg-sdlc:write-code #145`. |
+| S2 | A complete spec with no implementation infers `specified` and recommends `/sdlc-execute #145`. |
 | S3 | Passing verification without implementation evidence stops at `specified` and records the conflict. |
 | S4 | Unavailable GitHub evidence preserves the strongest supported local stage and records a named gap. |
 | S5 | Status reports its next action without prompting or executing that action. |

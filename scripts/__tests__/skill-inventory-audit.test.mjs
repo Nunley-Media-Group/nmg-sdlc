@@ -1,22 +1,12 @@
-/**
- * BDD Test Suite for skill-inventory-audit.mjs
- *
- * Derived from: specs/feature-refactor-skill-md-progressive-disclosure/
- * Issue: #145
- *
- * Covers extraction rules, normalization, hashing stability, mode flags,
- * exit codes, and the canary fixture.
- */
-
-import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, expect, test } from '@jest/globals';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-
 import {
   extractClauses,
+  extractAgentClauses,
   normalize,
   hashId,
   scan,
@@ -153,6 +143,27 @@ describe('extractClauses', () => {
   });
 });
 
+describe('extractAgentClauses', () => {
+  test('captures body lines and skips frontmatter and headings', () => {
+    const source = [
+      '---',
+      'name: starter',
+      'description: Start a branch.',
+      '---',
+      '',
+      '# Starter',
+      '',
+      'Read skill://start-issue.',
+      'Never call ask.',
+    ].join('\n');
+    expect(extractAgentClauses(source).map((clause) => clause.text)).toEqual([
+      'Read skill://start-issue.',
+      'Never call ask.',
+    ]);
+  });
+});
+
+
 // ---------------------------------------------------------------------------
 // Normalization
 // ---------------------------------------------------------------------------
@@ -218,6 +229,39 @@ describe('scan', () => {
       'plugins/nmg-sdlc/skills/canary/references/notes.md',
     ]);
   });
+
+  test('finds package-root OMP agent files', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inventory-agents-'));
+    try {
+      fs.mkdirSync(path.join(tmpDir, 'skills', 'status'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'agents'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'skills', 'status', 'SKILL.md'), [
+        '---',
+        'name: status',
+        'description: "Status."',
+        '---',
+        '',
+        '# Status',
+        '',
+      ].join('\n'));
+      fs.writeFileSync(path.join(tmpDir, 'agents', 'starter.md'), [
+        '---',
+        'name: starter',
+        'description: Start a branch.',
+        '---',
+        '',
+        '# Starter',
+        '',
+      ].join('\n'));
+      expect(findTrackedFiles(tmpDir)).toEqual([
+        'agents/starter.md',
+        'skills/status/SKILL.md',
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
 
   test('scan produces non-empty inventory over the good fixture', () => {
     const inventory = scan(GOOD_FIXTURE);

@@ -1,199 +1,85 @@
 ---
 name: onboard-project
-description: "Initialize a project for the SDLC: bootstrap greenfield projects with steering interview, managed contribution assets, VERSION + manifest setup, v1 milestone seeding, and starter issues via $nmg-sdlc:draft-issue; or reconcile brownfield specs from closed issues, merged PR diffs, and the current source tree. Use when user says 'onboard project', 'bootstrap project', 'initialize project', 'adopt nmg-sdlc', 'set up nmg-sdlc', 'I need specs for an existing codebase', or 'reconcile specs from history'. Do NOT use for new feature specs (use $nmg-sdlc:write-spec), template upgrades (use $nmg-sdlc:upgrade-project), or issue/PR creation. Delegates to $nmg-sdlc:upgrade-project and $nmg-sdlc:draft-issue where appropriate. Pipeline position: runs once per project lifetime, before $nmg-sdlc:draft-issue."
+description: "Initialize a project for the SDLC. Use when `/sdlc-onboard-project`. Bootstrap greenfield or reconcile brownfield specs from history. Delegates template upgrade to /sdlc-upgrade-project. Once per project."
 ---
 
 # Onboard Project
 
-Read `../../references/codex-tooling.md` when the workflow starts — it maps legacy tool wording to Codex-native file inspection, shell, editing, web, interactive-gate, and subagent behavior.
+Read tooling and gates references (now native /plan + ask + xd://propose).
 
-Read `../../references/interactive-gates.md` when the workflow reaches any manual-mode user decision, menu, review gate, or clarification prompt — Codex asks through `request_user_input` in Plan Mode, then finalizes a `<proposed_plan>` before execution.
+## Mode Detection (use glob/read)
 
-Single entry point for adopting nmg-sdlc on a project that isn't already spec-driven. Detects whether the project is **greenfield** (no code, no specs), **greenfield-enhancement** (steering exists, specs do not — re-run on a previously bootstrapped project), **brownfield** (existing code and closed issues but no specs), or **already-initialized**, then routes work to the matching branch.
+Detect:
 
-This skill **delegates rather than duplicates**:
+- steering/ + specs/ present → already-initialized → recommend /sdlc-upgrade-project
 
-- Template drift on already-initialized projects → `$nmg-sdlc:upgrade-project`
-- Starter-issue authoring → `$nmg-sdlc:draft-issue` (one invocation per seeded candidate)
-- Spec template structure → read from `../write-spec/templates/`
+- no steering, no source beyond scaffold → greenfield
 
-Steering bootstrap and steering enhancement run **inside** this skill. Steering templates live at `templates/`. The skill owns mode detection, the Step 5 summary, and the per-mode routing; the variant-specific work lives in the references below so a typical run only loads the branch it actually takes.
+- steering but no specs, no source → greenfield-enhancement
 
-## When to Use
+- source + closed issues, no specs → brownfield
 
-- First-time adoption of nmg-sdlc in a brand-new project.
-- First-time adoption in an existing codebase that already has shipped features and closed issues.
-- When you need specs reverse-engineered from the historical record so the SDLC pipeline has something to consume.
+Use git ls-files + gh issue list (closed, limit) + glob specs/*-*/requirements.md
 
-## When NOT to Use
+## Greenfield / Enhancement
 
-- To write a spec for a new feature (use `$nmg-sdlc:write-spec`).
-- To update existing specs to current templates (use `$nmg-sdlc:upgrade-project`).
-- To create GitHub issues or PRs (use `$nmg-sdlc:draft-issue` or `$nmg-sdlc:open-pr`).
+Use ask (rec first, max 3 total qs) for vision/personas/success, tech stack, deployment if needed.
 
-## Prerequisites
+Bootstrap or enhance steering/product tech structure from templates/ (read runtime).
 
-- `gh` CLI authenticated (`gh auth status` passes) — required for brownfield reconciliation.
-- Git-initialized repository.
-- `nmg-sdlc` plugin installed at current version.
+Init VERSION (0.1.0 or from manifest), create specs/ empty.
 
-Read `../../references/steering-schema.md` when bootstrapping or enhancing the steering layer — the doc roster every branch reads or writes lives there.
+Install managed assets: update CONTRIBUTING.md , AGENTS.md , .github/... using v3 snippets (see references/).
 
-Read `../../references/contribution-guide.md` when steering bootstrap or verification succeeds — onboarding uses that shared contract to create or update `CONTRIBUTING.md`, preserve existing contributor policy, insert a README link when possible, and return contribution-guide status for Step 5.
+Seed v1 milestone (ask if VERSION semver for choice? but greenfield usually v1).
 
-Read `../../references/project-agents.md` when steering bootstrap or verification succeeds — onboarding uses that shared contract to create or update root `AGENTS.md` spec-context guidance, preserve project-authored instructions, and return AGENTS.md status for Step 5.
+Optionally seed 1-3 starter via internal plan data? But per contract, use /sdlc-draft-issue for new; onboard may emit starter plan data or note next step.
 
-Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds — onboarding installs or reconciles both managed GitHub assets and records their stable status blocks for Step 5.
+For plan: write local://onboard-plan.md with actions, then xd propose.
 
-## Mode Detection Matrix
+## Brownfield
 
-| `steering/` exists | `specs/` has specs | Source files beyond scaffold | Closed issues exist | Mode |
-|--------------------|--------------------|------------------------------|---------------------|------|
-| Any | **Yes** | Any | Any | **Already initialized** |
-| No | No | No | No | **Greenfield** (bootstrap mode) |
-| Yes | No | No | No | **Greenfield-Enhancement** (steering pre-seeded) |
-| Any | No | **Yes** | Yes | **Brownfield** |
-| Any | No | Yes | **No** | **Brownfield-no-issues** (deterministic — backfill specs from source tree) |
+gh auth, bootstrap steering if needed, reconcile closed issues (non dup/wont) into per {N}-slug specs using template fill + PR evidence if linked + source.
 
-**Scaffold allowlist** (files that do NOT count as source): `README.md`, `.gitignore`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `LICENSE`, `LICENSE.md`, `LICENSE.txt`.
+Source backfill if no closed.
 
-**Exclude from file count**: `node_modules/`, `.git/`, and any hidden directory (names starting with `.`).
+Write specs/{N}-{slug}/ + 4 files with singular **Issue** #N , initial history.
 
-## Workflow
+## Already
 
-### Step 0: Legacy-Layout Precondition
+List existing, ask once: delegate to upgrade or exit. On delegate, the plan will note "Run /sdlc-upgrade-project"
 
-Read `../../references/legacy-layout-gate.md` when the workflow starts — the gate aborts before mode detection if the legacy `.codex/{steering,specs}/` layout is still in place.
+Do not mutate specs here.
 
-### Step 1: Detect Mode
+## Generate Snippets (v3 list)
 
-Gather four signals:
+CONTRIBUTING / AGENTS / gates must emit:
 
-1. **`steering/` presence** — file discovery for `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-2. **`specs/` presence** — file discovery for `specs/*/requirements.md`.
-3. **Source-file count beyond scaffold** — list tracked files via `git ls-files`, exclude the scaffold allowlist and hidden/excluded directories, count the remainder.
-4. **Closed-issue presence** — `gh issue list --state closed --limit 1 --json number` (one-item probe, just to detect whether any exist).
+- /sdlc-draft-issue [need]
 
-Classify per the Mode Detection Matrix. Print a one-line summary of the detected mode and the evidence used, e.g.:
+- /sdlc-write-spec #N
 
-```
-Brownfield detected: 12 closed issues, 47 source files, no specs/.
-```
+- /sdlc-onboard-project
 
-Store the evidence for the Step 5 summary. Proceed to the branch matching the detected mode.
+- /sdlc-upgrade-project
 
-### Step 2G: Greenfield (or Greenfield-Enhancement)
+- /sdlc-execute [#N …]
 
-Read `references/greenfield.md` when Step 1 detects greenfield or greenfield-enhancement — the seven sub-steps (interview, steering bootstrap/enhance, managed contribution assets, VERSION + manifest init, v1 milestone seeding, candidate generation, DAG inference, seeding loop) live there. Both modes run the same sub-steps; behaviour diverges per the **Bootstrap vs Enhancement** notes embedded in each.
+- /sdlc-status
+## Finish
 
-After Step 2G's seeding loop completes, jump to Step 5 (Summary). Greenfield does not reconcile specs.
+Derive slug e.g. onboard-{project or date}
 
-### Step 2I: Already-Initialized — Route to $nmg-sdlc:upgrade-project
+Write local://onboard-{slug}-plan.md (contains mode, files written or to write, next actions)
 
-1. List the existing spec directories under `specs/` so the user can audit what is already present.
-2. Ask through `request_user_input`: `[1] Delegate to $nmg-sdlc:upgrade-project now`, `[2] Exit without changes`.
-3. On accept, invoke `$nmg-sdlc:upgrade-project` (delegated) and exit after it returns — jump to Step 5 summary.
-4. On decline, exit cleanly — jump to Step 5 summary with no specs modified.
-5. This branch MUST NOT read, modify, or overwrite any existing spec file.
+Write to xd://propose:
 
-### Step 2B: Brownfield — Preflight
+onboard-{slug}
 
-Read `references/brownfield.md` when Step 1 detects brownfield — the preflight (Step 2B) handles `gh auth`, steering bootstrap if missing, the brownfield-no-issues empty state, and template loading; the same reference covers the reconciliation loop (Step 3B: fetch closed issues, per-issue evidence gathering, template variant selection, consolidation grouping, per-spec synthesis) and the post-reconciliation verification (Step 4: four-file existence + design-md path-extraction). On reference completion, jump to Step 5.
-
-### Steps 3B and 4: Reconciliation Loop and Verification
-
-Both live in `references/brownfield.md` as covered above (Step 3B is the per-issue loop; Step 4 verifies what was produced). Greenfield skips Step 4.
-
-### Step 5: Summary Report
-
-Emit a structured summary with these sections:
-
-1. **Mode detected** — greenfield (bootstrap), greenfield-enhancement, brownfield, brownfield-no-issues (source-backfill), or already-initialized.
-2. **Delegated skills invoked** — `$nmg-sdlc:upgrade-project` and every `$nmg-sdlc:draft-issue` invocation that ran, with success/failure status.
-3. **Greenfield only — Interview answers** — for each round, the accepted value and whether it preserved an existing steering value or came from user input.
-4. **Versioning** (greenfield, greenfield-enhancement, and brownfield — emitted whenever Step 2G.2a or 2B.0a ran) — two-line outcome block emitted before milestones:
-   - VERSION: `created @ 0.1.0` | `preserved @ <X>` | `backfilled from <path> @ <X>`
-   - Manifest: `<path> set @ 0.1.0` (greenfield only) | `<path> preserved @ <X>` | `no-manifest`
-5. **Contribution Guide** — the status block returned by `../../references/contribution-guide.md`, including `CONTRIBUTING.md`, README link, and gaps.
-6. **Project AGENTS** — the status block returned by `../../references/project-agents.md`, including `AGENTS.md` and gaps.
-7. **Contribution Gate** — the status returned by `../../references/contribution-gate.md`, including the workflow path and gaps.
-8. **Issue Form** — the stable status block returned by `../../references/issue-form.md`.
-9. **Greenfield only — Milestones** — single line for `v1`: marked `seeded`, `skipped (already exists)`, or `failed (<reason>)`. If a legacy `v1 (MVP)` milestone was detected during the dual-name idempotency probe, add a second line: `Legacy milestone "v1 (MVP)" detected — consider renaming to "v1"`.
-10. **Greenfield only — Dependency DAG** — full ASCII rendering, OR `skipped due to cycle (<participants>)`, OR `skipped at user request`.
-11. **Greenfield only — Starter issues seeded** — every issue created with its number, parent/child neighbors, and per-issue gap if any:
-
-   ```
-   #200 Set up basic API           (parents: —, blocks: #201, #202)
-   #201 Add user profile           (parents: #200, blocks: —)
-   #202 Add caching layer          (parents: #200, blocks: —)
-   #203 FAILED — $nmg-sdlc:draft-issue exited 1
-   ```
-
-12. **Brownfield only — Specs produced** — every spec directory written this run, with contributing issue numbers in parentheses, e.g.:
-
-   ```
-   specs/feature-dark-mode/        (#10, #14, #27)
-   specs/bug-login-crash-on-timeout/ (#42)
-   specs/feature-export-report/    (#61) — partial: ## Known Gaps noted
-   ```
-
-13. **Brownfield only — Skipped** — issues skipped as `duplicate`/`wontfix`/`not planned`, and spec dirs skipped because they already existed.
-14. **Enhancement-mode skips** (greenfield-enhancement only) — milestones detected as already-seeded, candidates dropped because the title matched an existing `seeded-by-onboard` issue, and any sections in steering files left untouched because the interview answer matched the existing value.
-15. **Gaps** — any missing artifact files (from Step 4), managed-asset gaps, any referenced source files that no longer exist in the working tree, partial spec directories from Write failures, milestone-creation failures, per-issue seeding failures, VERSION/manifest read failures, and manifest parse failures.
-16. **Review reminder** — one line reminding the user that reconciled specs (brownfield) may contain internal URLs, reproduction data, or other content copied from closed issues and should be reviewed before committing.
-17. **Next step** —
-    - Greenfield: `Run $nmg-sdlc:start-issue on the first ready seeded executable issue (never an epic), or $nmg-sdlc:draft-issue to add more.`
-    - Brownfield: `Review the reconciled specs, then run $nmg-sdlc:draft-issue for new work or $nmg-sdlc:upgrade-project to bring reconciled specs up to the latest templates.`
-    - Already-initialized (after `$nmg-sdlc:upgrade-project`): `Run $nmg-sdlc:draft-issue for the next feature.`
-
----
-
-## Error States
-
-| Condition | Behavior |
-|-----------|----------|
-| Legacy `.codex/steering/` or `.codex/specs/` layout detected | Abort in Step 0 per `../../references/legacy-layout-gate.md` |
-| `gh auth status` fails in brownfield mode | Abort in Step 2B with `gh auth login` pointer |
-| Steering bootstrap leaves any of the three files missing | Abort the greenfield flow; gap recorded for summary |
-| `VERSION` read failure (Step 2G.2a / 2B.0a) | Logged; VERSION outcome recorded as `read-failure`; init step skipped for VERSION; manifest probe still runs; gap recorded |
-| Manifest version-field parse failure (malformed JSON/TOML) | Logged with the failing probe command output; manifest outcome recorded as `parse-failure`; VERSION-only path fires; gap recorded |
-| Polyglot repo — wrong manifest detected | Detection is first-match-wins against the documented order; Step 5 summary names the detected manifest path so the choice is auditable; user can rename or remove the unintended manifest before re-running |
-| Milestone creation fails (greenfield) | Per-milestone gap recorded; loop continues; run does not abort |
-| Dependency DAG cycle detected (greenfield) | Wiring step skipped entirely; seeding loop proceeds without autolinks; recorded for summary |
-| `$nmg-sdlc:draft-issue` invocation fails for one candidate (greenfield) | Per-issue gap recorded; loop continues with remaining candidates |
-| Single issue fails reconciliation (brownfield) | Recorded as gap; run continues |
-| Spec dir already exists at target slug (brownfield) | Skipped, recorded in summary |
-| Spec references removed source file (brownfield) | Spec still written; gap recorded in summary |
-
----
+Onboard {mode} complete
 
 ## Integration with SDLC Workflow
-
-This is the one-time adoption step for projects that aren't yet spec-driven. It runs before `$nmg-sdlc:draft-issue` and produces the artifacts the pipeline depends on (`steering/` docs and, for brownfield, a seed population of specs).
-
 ```
-                       ┌─────────────────────────────────────────────────┐
-                       │ $nmg-sdlc:onboard-project (once per project)             │
-                       │   ├── greenfield  → interview (vision/tech)      │
-                       │   │                 → steering bootstrap        │
-                       │   │                 → VERSION + manifest init   │
-                       │   │                   (Step 2G.2a)              │
-                       │   │                 → managed contribution assets│
-                       │   │                 → seed v1 milestone         │
-                       │   │                 → seed 3–7 starter issues   │
-                       │   │                   via $nmg-sdlc:draft-issue loop     │
-                       │   ├── greenfield-enhancement (re-run)           │
-                       │   │                 → in-place steering Edit    │
-                       │   │                 → skip already-seeded       │
-                       │   ├── brownfield  → VERSION init (Step 2B.0a)   │
-                       │   │                 → steering bootstrap (if)   │
-                       │   │                 → reconcile specs (incl.    │
-                       │   │                   source-tree backfill when │
-                       │   │                   no closed issues exist)   │
-                       │   └── initialized → $nmg-sdlc:upgrade-project            │
-                       └────────────────────┬────────────────────────────┘
-                                            ▼
-$nmg-sdlc:draft-issue  →  $nmg-sdlc:start-issue #<executable>  →  $nmg-sdlc:write-spec #N  →  $nmg-sdlc:write-code #N  →  $nmg-sdlc:simplify  →  $nmg-sdlc:verify-code #N  →  $nmg-sdlc:open-pr #N (review + merge + closure)
+/sdlc-onboard-project   →   (plan writes steering + assets + specs)   →   /sdlc-draft-issue or /sdlc-write-spec #N or /sdlc-upgrade-project
+     ▲ You are here
 ```
-
-Managed guidance must state that epics are coordination-only and cannot be started; children use normal dependency rules and show epic lineage only as information. New epic work uses a three-file aggregate plus separate executable child packages. Terminal delivery proves exact-head merge and child closure before eligible epic ancestors close. Legacy epic graph/spec/state drift is audited read-only and repaired only through exact per-epic `$nmg-sdlc:upgrade-project` approval.

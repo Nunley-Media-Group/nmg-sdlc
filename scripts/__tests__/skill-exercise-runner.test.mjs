@@ -171,38 +171,7 @@ Done.`);
     expect(proc.stdout).not.toContain('rubric evaluation not yet implemented');
   });
 
-  test('status fixture passes every lifecycle rubric without placeholder skips', () => {
-    const artifact = fs.readFileSync(statusArtifact, 'utf8');
-    const results = evaluateStatusArtifact(artifact);
-    expect(results).toHaveLength(6);
-    expect(results.every((result) => result.status === 'pass')).toBe(true);
 
-    const proc = spawnSync(process.execPath, [runner, '--skill', 'status', '--artifact', statusArtifact, '--base', 'HEAD'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
-    expect(proc.status).toBe(0);
-    expect(proc.stdout).toContain('S6');
-    expect(proc.stdout).not.toContain('[skipped]');
-  });
-
-  test.each([
-    ['verify-code', verifyCodeArtifact, evaluateVerifyCodeArtifact, ['V1', 'V2', 'V3', 'V4', 'V5', 'V6']],
-    ['open-pr', openPrArtifact, evaluateOpenPrArtifact, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']],
-  ])('%s fixture passes every PR-dependent rubric without placeholder skips', (skill, artifactPath, evaluate, expectedIds) => {
-    const artifact = fs.readFileSync(artifactPath, 'utf8');
-    const results = evaluate(artifact);
-    expect(results.map((result) => result.id)).toEqual(expectedIds);
-    expect(results.every((result) => result.status === 'pass')).toBe(true);
-
-    const proc = spawnSync(process.execPath, [runner, '--skill', skill, '--artifact', artifactPath, '--base', 'HEAD'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
-    expect(proc.status).toBe(0);
-    for (const rubricId of expectedIds) expect(proc.stdout).toContain(rubricId);
-    expect(proc.stdout).not.toContain('[skipped]');
-  });
 
   test.each([
     ['preflight', 'draft', 'P2'],

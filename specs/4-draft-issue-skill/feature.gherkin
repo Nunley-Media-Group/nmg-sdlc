@@ -1,0 +1,18 @@
+# Issue: #4
+Feature: Draft Issue
+  Interview for a feature or bug and create one executable GitHub issue with BDD acceptance criteria.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-draft-issue exercises this capability
+    Then Given an initial need, when drafting begins, then the workflow gathers only material missing decisions through bounded interactive gates.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-draft-issue exercises this capability
+    Then Given approved issue text, when publishing, then exactly one feature or bug issue is created with testable BDD acceptance criteria.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-draft-issue exercises this capability
+    Then Given the issue is created, when the workflow completes, then /sdlc-write-spec #N is the next action.

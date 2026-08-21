@@ -1,0 +1,28 @@
+# Issue: #125
+Feature: Contribution Evidence Gate
+  Validate a connected issue, spec, steering, changed-path, and verification evidence graph with narrow documented exceptions.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When managed pull-request workflow exercises this capability
+    Then Given normal feature or bug work, when the PR gate runs, then the current issue and singular matching spec are required.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When managed pull-request workflow exercises this capability
+    Then Given documentation-only work, when the documented marker and path predicate hold, then only the defined evidence is reduced.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When managed pull-request workflow exercises this capability
+    Then Given a full breaking repository rewrite, when the repository-rewrite marker, feat!: title, contract paths, current specs, path mapping, steering, and verification all hold, then historical issue identity alone is waived.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When managed pull-request workflow exercises this capability
+    Then Given quoted, hidden, unrelated, or incomplete evidence, when evaluated, then it remains inert and produces actionable failures.
+
+  Scenario: AC5 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When managed pull-request workflow exercises this capability
+    Then Given onboarding or upgrade, when the managed workflow is installed, then version 5 is reconciled without overwriting unmanaged or newer workflows.

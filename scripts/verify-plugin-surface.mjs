@@ -14,10 +14,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-const TEXT_EXTENSIONS = new Set(['.json', '.md', '.txt', '.yaml', '.yml']);
-const MANIFEST_PATH = path.join('.codex-plugin', 'plugin.json');
+const TEXT_EXTENSIONS = new Set(['.json', '.md', '.txt', '.yaml', '.yml', '.ts']);
+const MANIFEST_PATH = 'package.json';
+const VERSION_PATH = 'VERSION';
 const INVENTORY_PATH = path.join('scripts', 'skill-inventory.baseline.json');
 const REMOVED_SKILL_NAMES = new Set(['commit-push', 'end-loop', 'init-config', 'run-loop']);
+const EXPECTED_EXTENSIONS = ['./src/extension.ts'];
 const REMOVED_PATHS = [
   'skills/commit-push',
   'skills/end-loop',
@@ -29,10 +31,14 @@ const REMOVED_PATHS = [
   'scripts/__tests__/sdlc-runner.test.mjs',
   'scripts/__tests__/runner-config-contract.test.mjs',
   'scripts/__tests__/select-next-issue-from-milestone.test.mjs',
+  '.codex-plugin/plugin.json',
 ];
 const ACTIVE_TEXT_FILES = [
   'README.md',
   '.gitignore',
+  'package.json',
+  'src/extension.ts',
+  '.claude-plugin/plugin.json',
   'steering/product.md',
   'steering/tech.md',
   'steering/structure.md',
@@ -47,6 +53,7 @@ const ACTIVE_TEXT_DIRECTORIES = [
   'scripts/__fixtures__/skill-exercise',
 ];
 const REMOVED_COMMAND_PATTERN = /\$nmg-sdlc:(?:commit-push|end-loop|init-config|run-loop)\b/i;
+const NMG_SDLC_ALIAS_PATTERN = /\$nmg-sdlc:/;
 const REMOVED_FRONTMATTER_PATTERN = /\b(?:commit-push|end-loop|init-config|run-loop)\b/i;
 const REMOVED_RUNTIME_PATTERN = /(?:\.codex\/(?:unattended-mode|sdlc-state\.json)|\bsdlc-config\.json\b|\bsdlc-runner\.mjs\b)/i;
 const AUTOMATION_CONTRACT_PATTERN = /(?:\bautomatable\b|(?<![\/.-])\bunattended\b|Done\. Awaiting orchestrator\.)/i;
@@ -113,9 +120,17 @@ function parseJson(source, filePath, description) {
   }
 }
 
+function declaredSkillsPath(manifest) {
+  const listed = manifest?.omp?.skills;
+  if (Array.isArray(listed) && typeof listed[0] === 'string' && listed[0].trim() !== '') {
+    return listed[0];
+  }
+  return './skills';
+}
+
 function resolveSkillsRoot(root, declaredPath) {
   if (typeof declaredPath !== 'string' || declaredPath.trim() === '') {
-    throw new SurfaceInputError(`manifest field "skills" must be a non-empty relative path`);
+    throw new SurfaceInputError('manifest field omp.skills must be a non-empty relative path');
   }
 
   const portable = declaredPath.replaceAll('\\', '/');
@@ -172,6 +187,10 @@ function isMigrationDocumentation(file) {
   return file === 'README.md' || file.startsWith('skills/upgrade-project/');
 }
 
+function allowsHistoricalAlias(file) {
+  return file === 'CHANGELOG.md' || file.startsWith('specs/');
+}
+
 function activeInspectionSource(source, file) {
   if (file !== 'steering/retrospective.md') return source;
 
@@ -219,6 +238,10 @@ function inspectLoaderFacingText(source, file, violations) {
     || /\bcommitPush\b/.test(source)
     || /DIVERGED:\s*re-run\s+commit-push\b/i.test(source)) {
     addViolation(violations, 'loader-workflow-token', file);
+  }
+
+  if (NMG_SDLC_ALIAS_PATTERN.test(source) && !allowsHistoricalAlias(file)) {
+    addViolation(violations, 'nmg-sdlc-alias', file);
   }
 
   if (AUTOMATION_CONTRACT_PATTERN.test(source)) {
@@ -365,7 +388,18 @@ export function validatePluginSurface(rootArgument, label) {
     throw new SurfaceInputError(`plugin manifest must contain a JSON object: ${manifestFile}`);
   }
 
-  const skillsRoot = resolveSkillsRoot(root, manifest.skills);
+  const versionSource = readRequiredFile(path.join(root, VERSION_PATH), 'VERSION').trim();
+  if (manifest.version !== versionSource) {
+    throw new SurfaceInputError(`plugin version ${JSON.stringify(manifest.version)} must equal VERSION ${JSON.stringify(versionSource)}`);
+  }
+  const extensions = manifest?.omp?.extensions;
+  if (!Array.isArray(extensions)
+    || extensions.length !== EXPECTED_EXTENSIONS.length
+    || extensions.some((item, index) => item !== EXPECTED_EXTENSIONS[index])) {
+    throw new SurfaceInputError(`package.json omp.extensions must equal ${JSON.stringify(EXPECTED_EXTENSIONS)}`);
+  }
+
+  const skillsRoot = resolveSkillsRoot(root, declaredSkillsPath(manifest));
   const openPrFile = path.join(skillsRoot, 'open-pr', 'SKILL.md');
   const openPrSource = readRequiredFile(openPrFile, 'open-pr skill definition');
   if (!/^name:\s*["']?open-pr["']?\s*$/im.test(readFrontmatter(openPrSource))) {

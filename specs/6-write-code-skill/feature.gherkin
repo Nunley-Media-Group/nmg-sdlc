@@ -1,0 +1,23 @@
+# Issue: #6
+Feature: Write Code
+  Implement an approved issue spec in task order and perform in-process behavior-preserving simplification.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated implementation stage exercises this capability
+    Then Given an explicit issue or issue branch, when implementation begins, then only the matching approved spec package is authoritative.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated implementation stage exercises this capability
+    Then Given ordered tasks, when work proceeds, then tasks are completed in declared order with observable verification.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated implementation stage exercises this capability
+    Then Given a skill-bundled edit, when skill-creator is installed, then its on-disk authoring contract is followed; absence fails closed.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated implementation stage exercises this capability
+    Then Given implementation completes, when cleanup runs, then simplify preserves the specified behavior.

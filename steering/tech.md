@@ -6,28 +6,32 @@ This document defines the technical architecture, development standards, verific
 
 ## Architecture Overview
 
-nmg-sdlc is a prompt-driven Codex plugin with deterministic validators and exercise tooling:
+nmg-sdlc is an Oh My Pi extension with skills, agents, a Herdr CLI supervisor, and Node classifiers:
 
 ```text
-Codex plugin manifest
+package.json + src/extension.ts
         │
         ▼
-Manual skill pipeline
-draft → start executable child → spec → implement → simplify → verify → terminal delivery
+Native /plan interactive skills
+draft-issue → write-spec → onboard-project / upgrade-project
         │
-        ├── project steering and bounded spec context
-        ├── managed repository assets
+        ▼
+/sdlc-execute (main Herdr pane)
+        │
+        ├── herdr pane split + herdr agent start --kind omp
+        ├── .omp/sdlc/run.json + handoffs
         └── GitHub issue/PR evidence
 
 Contract scripts
-        ├── prompt configuration repair
         ├── lifecycle status inspection
+        ├── execute helpers (parse, backlog, handoff, run state)
+        ├── upgrade detectors
         ├── skill inventory audit
         ├── plugin-surface validation
         └── deterministic exercise fixtures
 ```
 
-Every workflow decision is interactive. Scripts may inspect, classify, or validate contracts, but do not select product scope or advance lifecycle state on their own. Epic membership is coordination metadata: epics cannot enter the executable pipeline, while their children use the ordinary dependency graph.
+Interactive skills interview with built-in `ask` and finish at `xd://propose`. Scripts may inspect, classify, or validate contracts, but do not select product scope. Automated workers never call `ask`. Sequencing is `Depends on:` between ordinary issues.
 
 ---
 
@@ -35,16 +39,19 @@ Every workflow decision is interactive. Scripts may inspect, classify, or valida
 
 | Component | Technology | Minimum |
 |-----------|------------|---------|
-| Skill and reference contracts | Markdown + YAML frontmatter | Codex plugin-compatible |
+| Extension factory | `src/extension.ts` default export | OMP `omp.extensions` |
+| Skill and reference contracts | Markdown + YAML frontmatter | OMP skill loader |
+| Task agents | `agents/*.md` | OMP `listOmpExtensionRoots` |
+| Delivery supervisor | Herdr CLI | Herdr 0.8.0 hook contract (`HERDR_ENV=1`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`) |
 | BDD specifications | Gherkin | Gherkin 6+ |
 | Contract and inspection scripts | Node.js ESM | Node.js 20+ |
 | Test suite | Jest ESM | Jest 29+ |
 | GitHub integration | `gh` CLI / GraphQL where required | Authenticated current CLI |
-| Plugin packaging | `.codex-plugin/plugin.json` | Current Codex plugin schema |
+| Plugin packaging | root `package.json` | `omp.extensions` = `["./src/extension.ts"]` |
 
 ### Automated Review
 
-`$nmg-sdlc:address-pr-comments` may address a review thread only when its author
+`address-pr-comments` may address a review thread only when its author
 matches this configuration. Human-reviewer threads always remain outside the
 automated fix loop.
 
@@ -59,11 +66,15 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 
 ## Versioning
 
-`VERSION` is the single version source. Stack-specific files are synchronized during `$nmg-sdlc:open-pr`.
+`VERSION` is the single version source. Stack-specific files are synchronized during `open-pr`.
 
 | File | Path | Notes |
 |------|------|-------|
-| `.codex-plugin/plugin.json` | `version` | Plugin manifest version |
+| `VERSION` | file text | Source of truth |
+| `package.json` | `version` | OMP plugin manifest version |
+| `.claude-plugin/plugin.json` | `version` | Marketplace catalog pointer |
+
+During the v3 landing, all three are `3.0.0`.
 
 ### Version Bump Classification
 
@@ -71,25 +82,26 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 |-------|-----------|-------------|
 | `bug` | patch | Backwards-compatible defect fix |
 | `enhancement` | minor | Backwards-compatible capability |
-| `spike` | skip | Research ADR only |
 
-Default unmatched issues to minor. Major bumps are never inferred: the user must pass `$nmg-sdlc:open-pr #N --major` and approve the displayed major-version gate.
+Default unmatched issues to minor. Never infer major. A leftover `spike` label is unmatched.
 
-`$nmg-sdlc:open-pr` reads this table, updates `VERSION`, the manifest, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
+Approved major note used by `open-pr`: a line in the approved spec `requirements.md` or `design.md` matching `^\*\*Version bump\*\*:\s*major\s*$` (case-insensitive). If the issue title or body contains `BREAKING` and that line is absent, fail closed with `reasonCode: major_bump_required`. There is no `--major` CLI flag and no interactive version gate.
 
-The delivery stage continues through checks, review remediation, exact-head merge, executable-issue closure, and eligible epic-ancestor reconciliation. A prepared or open PR is not a successful terminal state.
+`open-pr` reads this table, updates `VERSION`, `package.json` `version`, `.claude-plugin/plugin.json` `version`, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
 
-Breaking changes still use the accepted bump unless the user explicitly chooses major. Mark them under `### Changed (BREAKING)` and provide migration notes.
+The delivery stage continues through checks, review remediation, exact-head merge, and issue closure. A prepared or open PR is not a successful terminal state.
+
+Breaking changes still use the accepted bump unless the approved major note is present. Mark them under `### Changed (BREAKING)` and provide migration notes.
 
 ---
 
-## Codex Plugin Standards
+## OMP Extension Standards
 
-Before introducing a new Codex-facing feature or changing model/tool behavior, verify current official Codex documentation.
+Before introducing a new OMP-facing feature or changing model/tool behavior, verify current official Oh My Pi documentation.
 
 ### Skill Bundles
 
-**Authoring rule:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` prompt contract must be created or edited through `$skill-creator`. There is no hand-edit fallback. If the skill is unavailable, stop and tell the user which dependency is missing.
+**Authoring rule for workers:** Every file under `skills/{skill}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by going through the skill-creator file if present on disk; if it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
 
 SKILL.md frontmatter declares only `name` and `description`.
 
@@ -99,25 +111,39 @@ SKILL.md frontmatter declares only `name` and `description`.
 | Entry size | Keep under 500 lines; move details to on-demand references |
 | Integration | Every skill includes `Integration with SDLC Workflow` |
 | Arguments | Treat `$ARGUMENTS` as untrusted data and validate accepted shapes |
-| Decisions | Use `request_user_input` and wait for explicit user response |
+| Interactive decisions | Built-in `ask` inside native `/plan` only |
+| Worker decisions | Failed handoff; never `ask` |
 | Supporting content | Place single-skill details within that skill bundle |
 | Shared content | Use root `references/` only for contracts with multiple consumers |
 
-### Agent Prompt Contracts
+### Agent Files
 
-Files under `agents/` are reusable prompt contracts included in built-in Codex subagent prompts. They are not installable plugin components. Delegation is optional and only occurs after explicit user authorization.
+Files under `agents/` are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
 
-Agent files use `name` and `description` frontmatter only, define one bounded task, inherit the parent session's available tools and permissions, and return structured evidence.
+`model` is only `@fast`, `@review`, or `@good` when those roles are documented as configured. If a role is unset, omit `model`. Never hardcode provider model ids.
+
+| File | `name` | `model` |
+|------|--------|---------|
+| `agents/starter.md` | `starter` | `@fast` |
+| `agents/spec-implementer.md` | `spec-implementer` | omit |
+| `agents/architecture-reviewer.md` | `architecture-reviewer` | `@review` |
+| `agents/deliverer.md` | `deliverer` | omit |
+
+`execute` does not use the OMP `task` tool for pipeline steps. Herdr sessions are the isolation boundary.
 
 ### Plugin Manifest
 
 | Aspect | Standard |
 |--------|----------|
-| Location | `.codex-plugin/plugin.json` |
-| Component paths | Relative paths beginning with `./`; no traversal |
-| Repository | `https://github.com/Nunley-Media-Group/nmg-sdlc` |
+| Location | root `package.json` |
+| Extensions | `omp.extensions` is exactly `["./src/extension.ts"]` |
+| Workflows | package-root `skills/` is bundled workflow files the extension reads; do not declare `omp.skills` |
+| Agents | package-root `agents/*.md` via OMP `listOmpExtensionRoots` |
+| Catalog pointer | `.claude-plugin/plugin.json` → `./skills/` |
 | Version | Semver synchronized with `VERSION` by delivery |
-| Validation | Parse JSON and verify all declared component roots exist |
+| Validation | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
+
+Do not add `omp.agents`. Do not add `.omp-plugin/marketplace.json` in this repository.
 
 ---
 
@@ -142,6 +168,10 @@ Agent files use `name` and `description` frontmatter only, define one bounded ta
 - Do not follow symlinks when enforcing a root or deletion boundary.
 - Avoid synchronous I/O in repeated hot paths; bounded CLI startup inspection may use it when clarity improves.
 
+### TypeScript
+
+- `src/extension.ts` uses a local structural `ExtensionAPI` type. Do not add an `@oh-my-pi` dependency.
+
 ### JSON and YAML
 
 - Use 2-space indentation.
@@ -161,23 +191,15 @@ Public skill behavior consists of:
 - trigger-oriented two-key frontmatter;
 - ordered workflow steps;
 - explicit preconditions and postconditions;
-- interactive decision gates;
+- interactive `/plan` interview or automated handoff;
 - error states naming exact paths or remote objects;
 - an Integration with SDLC Workflow section.
-
-### Epic Specification Authority
-
-- An issue classified as an epic is coordination-only: `start-issue`, `write-spec`, `write-code`, `verify-code`, and `open-pr` must not create an executable lifecycle for it.
-- A child follows the same dependency and deliverable rules as an ordinary issue. Confirmed epic lineage is displayed but removed only from execution in-degree.
-- `specs/epic-*` contains `requirements.md`, `design.md`, and `epic-scope.json` only. It owns cross-child outcomes and topology, never executable tasks or Gherkin.
-- Each child package owns its AC/FR/task/scenario identifiers through `issue-scope.json` and links bidirectionally to the aggregate through `epic-link.json`.
-- Legacy cumulative ownership, closed-state drift, and Project drift are audited read-only and repaired only as an exact, per-epic, explicitly approved, digest-revalidated mutation.
 
 ### GitHub CLI
 
 Use `gh` for scoped issue, project, PR, check, and GraphQL operations. Treat issue titles, bodies, comments, paths, and API values as data. Prefer `--body-file` or safe API arguments for multiline untrusted content.
 
-Read-only evidence gathering does not authorize a write. Issue creation, status changes, comments, PR creation, thread resolution, merge, label mutation, Project reconciliation, and epic close/reopen remain owned by their explicit workflow stages. `$nmg-sdlc:open-pr` owns the configured exact-head merge and post-merge eligible-ancestor closure after its approval gates; `$nmg-sdlc:upgrade-project` owns only separately approved repair groups.
+Read-only evidence gathering does not authorize a write. Issue creation, status changes, comments, PR creation, thread resolution, merge, label mutation, and Project updates remain owned by their explicit workflow stages. `open-pr` owns the configured exact-head merge after a successful worker run; `upgrade-project` owns only separately approved repair groups.
 
 ### Managed Repository Assets
 
@@ -197,24 +219,24 @@ Onboarding owns managed assets for new projects. Upgrade owns reconciliation and
 
 ### Core Principle: Contract and Exercise Verification
 
-Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live Codex exercises where the acceptance criteria require actual tool behavior.
+Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live OMP / Herdr exercises where the acceptance criteria require actual tool behavior.
 
-Every executable child acceptance criterion has a corresponding Gherkin scenario or an explicit documented reason why runtime execution is the evidence source. Epic aggregate outcomes deliberately have no Gherkin scenarios; completion is derived from all direct child closures plus valid aggregate/child authority.
+Every executable issue acceptance criterion has a corresponding Gherkin scenario or an explicit documented reason why runtime execution is the evidence source.
 
 | Layer | Method | Location |
 |-------|--------|----------|
 | BDD design | Gherkin scenarios | `specs/*/feature.gherkin` |
 | Contract tests | Jest ESM | `scripts/__tests__/` |
 | Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
-| Live skill proof | Disposable Codex project/session | Verification evidence |
+| Live skill proof | Disposable project via `omp --print --no-session` | Verification evidence |
 | Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
 
 ### Disposable Exercise Pattern
 
 1. Create a temporary project with only the files required by the skill.
 2. Initialize git and, when necessary, a disposable GitHub repository or dry-run fixture.
-3. Load the changed plugin root.
-4. Invoke the changed skill and answer every gate explicitly.
+3. Load this repository's extension and skills.
+4. Invoke the changed skill with `omp --print --no-session`.
 5. Compare filesystem, command, and rendered-output artifacts with the approved spec.
 6. Remove the temporary project after capturing evidence.
 
@@ -234,18 +256,19 @@ Never infer a stronger layer from a weaker one.
 
 ## Verification Gates
 
-`$nmg-sdlc:verify-code` enforces applicable gates as hard requirements:
+`verify-code` enforces applicable gates as hard requirements:
 
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
-| Codex compatibility | Codex-facing contracts changed | `node scripts/codex-compatibility-check.mjs` | Exit 0 |
-| Active plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
-| Skill creator validation | Skill-bundled files changed | Validate each affected skill through `$skill-creator` tooling | All bundles valid |
+| OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
+| Skill creator validation | Skill-bundled files changed in a worker | Validate each affected skill through the skill-creator file if present on disk, or handoff `skill_creator_missing` | All bundles valid, or handoff `skill_creator_missing` |
 | Skill exercise | Changed skill has a deterministic fixture | `node scripts/skill-exercise-runner.mjs --skill <name>` | Exit 0 and rubric satisfied |
 | Prompt quality | Skill contract changed | Review against Prompt Quality Criteria | Every criterion satisfied |
 | Git hygiene | Any tracked text changed | `git diff --check` | Exit 0 |
+
+Exercise live proof uses `omp --print --no-session` loading this repository's skills, not `codex exec`.
 
 ### Condition Evaluation
 
@@ -266,13 +289,12 @@ Never infer a stronger layer from a weaker one.
 ### Skill-Level Invariants
 
 - Stack-specific details come from project steering.
-- User decisions wait for explicit `request_user_input` responses.
+- Interactive decisions wait inside native `/plan` with `ask`.
+- Automated skills write failed handoffs instead of asking.
 - Skills do not mutate beyond their declared stage.
-- Epics remain coordination-only; children own executable spec and delivery evidence.
-- Pull-request delivery is incomplete until exact-head merge and executable-issue closure are proven.
-- Automatic epic closure requires fully paged child, spec-authority, and readable Project evidence.
+- Pull-request delivery is incomplete until exact-head merge and issue closure are proven.
 - Dirty unrelated work is preserved.
-- Skill-bundled edits route through `$skill-creator`.
+- Skill-bundled worker edits go through the skill-creator file if present on disk, else `skill_creator_missing`.
 - Active spec context is bounded; historical specs are preserved.
 - Remote writes require the owning workflow and exact target.
 
@@ -282,9 +304,9 @@ Never infer a stronger layer from a weaker one.
 |-----------|-------|
 | Unambiguous instructions | Each step has one testable interpretation |
 | Complete paths | Success, empty, failure, and user-decline branches are covered |
-| Correct tool references | Codex-native tools and safe argument handling are used |
+| Correct tool references | OMP-native tools and safe argument handling are used |
 | Logical ordering | Every step depends only on previously available evidence |
-| Gate integrity | Decisions wait for explicit user input |
+| Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` |
 | Output chain | Postconditions satisfy the downstream skill's preconditions |
 | Cross-reference validity | Every referenced file exists in the packaged surface |
 | Historical boundary | Active claims do not rewrite or load historical records as capability |
@@ -308,8 +330,11 @@ Never infer a stronger layer from a weaker one.
 | Variable | Purpose |
 |----------|---------|
 | `GITHUB_TOKEN` | Authenticated GitHub operations and private marketplace access |
+| `HERDR_ENV` | Must be `1` for `/sdlc-execute` |
+| `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
+| `HERDR_PANE_ID` | Calling pane id for execute splits |
 
-No optional environment variable may change interactive gate behavior or broaden mutation scope.
+No optional environment variable may change interactive `/plan` behavior or broaden mutation scope.
 
 ---
 

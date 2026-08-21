@@ -1,0 +1,23 @@
+# Issue: #21
+Feature: Project Upgrade Compatibility
+  Preserve a strict migration alias while upgrades detect and propose current OMP contract repairs.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-migrate-project and /sdlc-upgrade-project exercises this capability
+    Then Given /sdlc-migrate-project, when invoked, then it prints exactly Run /sdlc-upgrade-project and performs no work.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-migrate-project and /sdlc-upgrade-project exercises this capability
+    Then Given /sdlc-upgrade-project, when invoked, then detection is read-only and proposed mutations require approved plan execution.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-migrate-project and /sdlc-upgrade-project exercises this capability
+    Then Given legacy packaging or layouts, when an approved upgrade runs, then deterministic script mutations converge on the current OMP structure.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-migrate-project and /sdlc-upgrade-project exercises this capability
+    Then Given ambiguous ownership, when detected, then the workflow preserves it for explicit user resolution.

@@ -67,11 +67,11 @@ inconclusive, state what is known and what needs further investigation.]
 - [Related improvements not part of this fix]
 ```
 
-## Authoring Guidance
+## Authoring Guidance (v3)
 
-- **Title** (separate from the body): Starts with a verb naming the fix (e.g., "Fix login crash on timeout").
-- **Root Cause Analysis** is the value-add over a raw user report — use the Step 4 investigation's hypothesis so downstream spec writing does not re-derive it. When the user did not confirm the hypothesis, mark `**User Confirmed**: Partially` or `Investigation inconclusive` and say so honestly.
-- **Acceptance Criteria** for bugs are tight: AC1 is the direct regression of the reproduction, AC2 is the "no related regression" guardrail. Additional ACs are acceptable when the bug's domain has clear edge cases worth locking down.
-- **Functional Requirements** typically collapse to a single `FR1: [The fix]` row. Resist adding nice-to-haves — the issue is about the fix, not surrounding cleanup.
-- **Out of Scope** names the adjacent improvements that will NOT be attempted in the fix PR — tempting diffs belong in a separate feature issue.
-- When the iteration has DAG neighbors (batch mode), append placeholder cross-ref lines at the end of the body (`Depends on: <A1>` / `Blocks: <A4>`). Step 10 rewrites `<askId>` tokens to real `#N` once siblings have been created.
+- Title starts with verb for the fix.
+- Root cause from investigation.
+- ACs are the minimal fix + no regression.
+- Out of Scope lists tempting adjacent work for separate issues.
+
+For multi-issue the caller inserts the Depends on: / Blocks: lines using plan topo summaries into the filled body before emitting the plan. The gh create in approved plan execution receives bodies that already contain the relation lines.

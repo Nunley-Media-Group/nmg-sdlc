@@ -1,94 +1,68 @@
-# Exercise Testing for Plugin Changes
+# Exercise Testing for Plugin Changes (v3)
 
-Detailed procedures for Steps 5b–5e of the verification workflow. These steps only apply when plugin changes (SKILL.md or agent files) are detected in the diff.
-
----
+Detailed procedures for exercise verification when plugin changes (SKILL.md or agent files) detected. These steps only apply when such changes are in the diff.
 
 ## 5b: Scaffold Disposable Test Project
 
 Create a minimal test project for exercising the changed skill:
 
-1. **Create temp directory** using `Bash`:
-   ```bash
-   node -e "const p = require('path').join(require('os').tmpdir(), 'nmg-sdlc-test-' + Date.now()); require('fs').mkdirSync(p, {recursive:true}); console.log(p)"
-   ```
-   Record the output path — this is `{test-project-path}`.
+1. Create temp directory:
+   Use node or bash to mkdir in /tmp nmg-sdlc-exercise-...
 
-2. **Write scaffold files** using the Codex editing tool:
+2. Write minimal steering + sample code + package.json etc so the skill under test has context.
 
-   - `{test-project-path}/steering/product.md` — `"Test Project. One persona: Developer."`
-   - `{test-project-path}/steering/tech.md` — `"Stack: Node.js. Test: manual verification."`
-   - `{test-project-path}/steering/structure.md` — `"Flat layout: src/ + tests/"`
-   - `{test-project-path}/src/index.js` — `console.log("hello")`
-   - `{test-project-path}/README.md` — `"Test project for nmg-sdlc exercise verification"`
-   - `{test-project-path}/.gitignore` — `node_modules/`
-   - `{test-project-path}/package.json` — `{ "name": "test-project", "version": "1.0.0" }`
-
-3. **Initialize git** using `Bash`:
-   ```bash
-   git init {test-project-path} && git -C {test-project-path} add -A && git -C {test-project-path} commit -m "initial"
-   ```
+3. git init and initial commit.
 
 ## 5c: Exercise Changed Skill
 
-Determine which skill(s) changed from the diff in 5a. Exercise the **first changed skill** (one skill per exercise run).
+Determine the first changed skill from the diff.
 
-Identify whether the changed skill is **GitHub-integrated** (i.e., it creates GitHub resources — `draft-issue`, `open-pr`, `start-issue`). If so, append the dry-run instructions after the skill invocation in the exercise prompt.
+For GitHub-integrated skills, append the dry-run instructions (unchanged):
+> IMPORTANT: This is a dry-run exercise. Do NOT execute any `gh` commands that create, modify, or delete GitHub resources. Instead, output the exact command and arguments you WOULD run...
 
-**Dry-run instructions** (for GitHub-integrated skills only — append AFTER the skill invocation):
-> IMPORTANT: This is a dry-run exercise. Do NOT execute any `gh` commands that create, modify, or delete GitHub resources. Instead, output the exact command and arguments you WOULD run, along with the content (title, body, labels) you WOULD use. Proceed through the full workflow, generating all artifacts as text output.
+**Step 5c-i: Run via omp harness (replaces codex exec)**
 
-**Step 5c-i: Run `codex exec`**
+Load this repository as an extension (`--extension src/extension.ts --plugin-dir <repo> --add-dir <repo>`). Do not pass `--load` — that flag does not exist.
 
-Check if the `codex` CLI is available using `Bash`:
+`omp --print /sdlc-NAME` works for **automated** commands (`/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, `/sdlc-open-pr`) because those are file commands under `commands/*.md`. Print expands them as the initial prompt. Requires `--plugin-dir <nmg-sdlc-root>` (or an installed plugin). Do not `registerCommand` those names — an extension handler wins and print drops `sendUserMessage`.
+
+Interactive `/sdlc-*` are TUI-only. Print/RPC `registerCommand` fails closed.
+
+From the disposable project directory:
+
 ```bash
-which codex
+# Automated (print expands commands/*.md)
+omp --print --no-session --no-extensions --no-skills \
+  --plugin-dir /path/to/this/nmg-sdlc \
+  --add-dir /path/to/this/nmg-sdlc \
+  --auto-approve --max-time 300 \
+  "/sdlc-CHANGED_SKILL_NAME [args]"
+
+# Or the RPC harness (also expands file commands when --plugin-dir is set)
+node /path/to/this/nmg-sdlc/scripts/exercise-omp.mjs \
+  --cwd . \
+  --timeout-ms 300000 \
+  -- /sdlc-CHANGED_SKILL_NAME [args]
 ```
 
-If unavailable, skip exercise testing and record `codex CLI not found`.
+For dry-run GitHub skills: put the skill invocation first after `--`, then the dry-run instructions as additional prompt text only if the command is not a registered slash command. Prefer appending dry-run constraints in a follow-up RPC prompt, or include them after `$ARGUMENTS` in the workflow. Capture stdout+stderr to exercise-output.txt.
 
-The `{exercise-prompt}` is:
-- **Non-GitHub-integrated skills**: `"/{skill-name} [appropriate args based on the skill's documented argument shape]"`
-- **GitHub-integrated skills (dry-run)**: `"/{skill-name} [args]\n\nIMPORTANT: {dry-run-instructions}"` — skill invocation first, dry-run instructions appended after
-The `{output-file}` is `{test-project-path}/exercise-output.txt`.
+Interactive `/sdlc-*` commands enter native `/plan` only in the TUI (input rewrite). Print/RPC `registerCommand` for those names fails closed (`Run /sdlc-<command> in the TUI.`). Record that limitation when exercising draft-issue / write-spec / onboard / upgrade / run-retro.
 
-Run with a shell command and a 5-minute timeout:
-```bash
-codex exec \
-  --cd {test-project-path} \
-  --full-auto \
-  "{exercise-prompt}" > {output-file} 2>&1
-```
+If the omp harness is unavailable, record "omp harness not available for exercise" and degrade gracefully (still evaluate any local artifacts produced).
 
-This exercises the non-interactive path. Record this limitation for the report when the changed skill normally asks for user input.
-
-**Timeout**: Use a 5-minute command timeout. If a timeout occurs, capture whatever output was produced before the timeout and report it as a graceful degradation in the Exercise Test Results section.
-
-**Exercise errors**: If the exercise subprocess exits with a non-zero status, capture the error output. Report it as a finding and continue with evaluation of whatever output was captured.
+**Timeout and error rules preserved**: 5 min bound. On timeout capture partial output. Non-zero capture error output for later evaluation as finding.
 
 ## 5d: Evaluate Exercise Output
 
-Read the captured output file (`{output-file}`) and the test project filesystem:
+Same as before: load ACs from requirements, search output + test fs for evidence of each AC, assign Pass/Fail/Partial, record supporting lines/paths.
 
-1. **Load acceptance criteria** from `requirements.md`
-2. **For each AC**, search the captured output and test project filesystem for evidence:
-   - **File-creating skills**: Check if expected files were created in the test project (use file discovery)
-   - **GitHub-integrated skills** (dry-run): Check if the generated `gh` commands and content match what the AC expects
-   - **General**: Look for output messages that indicate the AC's expected behavior occurred
-3. **Assign verdict** for each AC:
-   - **Pass** — clear evidence the criterion was satisfied
-   - **Fail** — contradictory evidence or expected output missing
-   - **Partial** — some evidence but incomplete
-4. **Record evidence** — the specific output line, file path, or observation supporting the verdict
-
-Exercise findings (any Fail or Partial verdicts) are treated as findings for Step 6 (Fix Findings), just like any other verification finding.
+Exercise findings feed into report and fix loop.
 
 ## 5e: Cleanup
 
-Delete the test project directory using `Bash`, regardless of whether the exercise succeeded or failed:
+Always rm -rf the temp project dir.
 
-```bash
-rm -rf {test-project-path}
-```
+## Notes for OMP/Herdr
 
-This must run even if earlier sub-steps encountered errors. After cleanup, proceed to Step 6.
+The exercise exercises the published /sdlc- surface with the exact same skill text that Herdr workers will receive. Keep dry-run and timeout contract identical to prior.

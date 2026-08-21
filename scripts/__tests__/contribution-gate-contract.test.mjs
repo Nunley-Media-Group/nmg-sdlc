@@ -15,45 +15,46 @@ function workflowTemplate() {
   return match[1];
 }
 
-describe('contribution gate contract (issues #125, #143, and #177)', () => {
-  test('shared reference defines managed version 3, lifecycle status, and collision rules', () => {
+describe('contribution gate contract (issues #125, #143, and current repository rewrite)', () => {
+  test('shared reference defines managed version 5, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 
     expect(contract).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
     expect(contract).toContain('# nmg-sdlc-managed: contribution-gate');
-    expect(contract).toContain('# nmg-sdlc-managed-version: 3');
-    expect(contract).toContain('| Current numeric version | `3` |');
+    expect(contract).toContain('# nmg-sdlc-managed-version: 5');
+    expect(contract).toContain('| Current numeric version | `5` |');
     expect(contract).toContain('Workflow: created | updated | already present | skipped');
     expect(contract).toContain('skipped (unmanaged file at path)');
     expect(contract).toContain('skipped (newer managed version)');
     expect(contract).toContain('Preserve every unrelated workflow under `.github/workflows/` byte-for-byte');
   });
 
-  test('version-3 template separates executable child and coordination aggregate evidence', () => {
+  test('version-4 template accepts specs/{N}-{slug} and rejects epic aggregates', () => {
     const template = workflowTemplate();
+    const live = read('.github/workflows/nmg-sdlc-contribution-gate.yml');
 
     expect(template).toContain('const MAX_SPEC_DIRECTORIES = 5');
     expect(template).toContain('const MAX_DIAGNOSTIC_PATHS = 20');
     expect(template).toContain('const SPEC_ARTIFACTS =');
-    expect(template).toContain('const AGGREGATE_ARTIFACTS =');
-    expect(template).toContain("['requirements.md', 'design.md', 'epic-scope.json']");
-    expect(template).toContain('new Set()');
+    expect(template).toContain("['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']");
     expect(template).toContain('resolveSpecDirectories');
-    expect(template).toContain('(?:feature\\.gherkin|issue-scope\\.json|epic-link\\.json)');
-    expect(template).toContain('resolveAggregateDirectories');
-    expect(template).toContain("(?:requirements\\.md|design\\.md|epic-scope\\.json)");
-    expect(template).not.toContain('epic-requirements\\.md|epic-design\\.md');
-    expect(template).toContain('mismatchedSpecs');
-    expect(template).toContain('invalidAggregatePaths');
-    expect(template).toContain('Epic aggregate evidence is coordination-only');
-    expect(template).toContain('Aggregates may contain only requirements.md, design.md, and epic-scope.json');
+    expect(template).toContain('specs/{N}-{slug}');
+    expect(template).toContain('/sdlc-onboard-project');
     expect(template).toContain('classifyChangedPath');
     expect(template).toContain('Unmatched changed paths');
     expect(template).toContain('hasSpecificVerification');
     expect(template).toContain('Missing specific verification');
     expect(template).toContain('SDLC-Exception');
-    expect(template).toContain('listLabelsOnIssue');
-    expect(template).toContain("label).toLowerCase() === 'spike'");
+    expect(template).toContain('SDLC-Exception: repository-rewrite');
+    expect(template).not.toContain("label).toLowerCase() === 'spike'");
+    expect(template).not.toContain('listLabelsOnIssue');
+    expect(template).not.toContain('const AGGREGATE_ARTIFACTS');
+    expect(template).not.toContain('resolveAggregateDirectories');
+    expect(template).not.toContain('invalidAggregatePaths');
+    expect(template).not.toContain('OPTIONAL_AUTHORITY_ARTIFACTS');
+    expect(template).not.toMatch(/\$nmg-sdlc/);
+    expect(live).not.toMatch(/specs\/(?:feature|bug|epic)-/);
+    expect(live).not.toMatch(/\$nmg-sdlc/);
   });
 
   test('workflow keeps external text inert and retains minimal permissions', () => {
@@ -80,30 +81,20 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
   test('onboarding and upgrade distribute the versioned shared contract', () => {
     const onboarding = read('skills/onboard-project/SKILL.md');
     const upgradeProject = read('skills/upgrade-project/SKILL.md');
-    const upgradeProcedures = read('skills/upgrade-project/references/upgrade-procedures.md');
 
-    expect(onboarding).toContain('Read `../../references/contribution-gate.md` and `../../references/issue-form.md` after steering verification succeeds');
-    expect(onboarding).toContain('**Contribution Gate**');
-    expect(upgradeProject).toContain('`../../references/contribution-gate.md`');
-    expect(upgradeProject).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
-    expect(upgradeProject).toContain('### Step 5: Analyze Managed Repository Assets');
-    expect(upgradeProcedures).toContain('Follow `../../references/contribution-gate.md`');
-    expect(upgradeProcedures).toContain('unmarked path collision');
+    expect(onboarding).toContain('/sdlc-onboard-project');
+    expect(upgradeProject).toContain('/sdlc-upgrade-project');
+    expect(upgradeProject).toContain('scripts/sdlc-upgrade.mjs');
   });
 
   test('public guidance describes correlation, path evidence, verification, and reduced modes', () => {
-    const readme = read('README.md');
     const guide = read('references/contribution-guide.md');
     const changelog = read('CHANGELOG.md');
 
-    expect(readme).toContain('checks issue/spec identity');
-    expect(readme).toContain('documented exception predicates');
-    expect(readme).toContain('does not replace project CI or human review');
-    expect(guide).toContain('Issue/spec identity');
-    expect(guide).toContain('Directory-prefix evidence');
-    expect(guide).toContain('Command and outcome');
+    expect(guide).toContain('specs/{N}-{slug}');
     expect(guide).toContain('SDLC-Exception: docs-only');
-    expect(guide).toContain('Spike/ADR');
+    expect(guide).toContain('SDLC-Exception: repository-rewrite');
+    expect(guide).not.toContain('Spike/ADR');
     expect(changelog).toContain('issue #143');
   });
 });

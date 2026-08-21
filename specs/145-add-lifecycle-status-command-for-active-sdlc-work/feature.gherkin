@@ -1,0 +1,23 @@
+# Issue: #145
+Feature: Lifecycle Status
+  Report current SDLC lifecycle evidence and the exact next action without mutation.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given empty arguments or --json, when status runs, then it reports bounded local and GitHub lifecycle evidence in human or stable machine-readable form.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given any other argument, when invoked, then usage is printed and the command exits non-zero.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given unavailable evidence, when status infers state, then unknowns and gaps are explicit and progress is not overstated.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given any repository state, when status runs, then files, refs, issues, pull requests, and processes remain unchanged.

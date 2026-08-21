@@ -2,37 +2,39 @@
 
 ## Project Overview
 
-The `nmg-sdlc` Codex plugin is a stack-agnostic BDD spec-driven development toolkit. It is packaged with a Codex manifest at `.codex-plugin/plugin.json`.
+`nmg-sdlc` is an Oh My Pi extension that provides spec-driven delivery for Oh My Pi and Herdr. It is packaged with an OMP manifest in `package.json` (`omp.extensions`) and the extension factory at `src/extension.ts`.
 
 ## Repository Structure
 
 ```
-.codex-plugin/plugin.json        — Codex plugin manifest
-skills/                          — Skill definitions (one directory per skill)
-agents/                          — Subagent definitions (architecture-reviewer, spec-implementer)
-references/                      — Shared reference files used across skills
-scripts/                         — SDLC runner, skill-inventory audit, exercise runners, tests
-specs/                           — BDD specs for the plugin's own development cycle
-steering/                        — Product/tech/structure steering docs for this plugin
-docs/decisions/                  — ADR directory (created on first spike; gap-analysis ADRs committed here by /write-spec Phase 0)
-VERSION                          — Plugin version (kept in sync with the Codex manifest)
-CHANGELOG.md                     — Keep an [Unreleased] section for pending changes
-README.md                        — Public docs: workflow, installation, skills reference
-.github/workflows/               — CI: skill-inventory-audit
+package.json                  # OMP plugin manifest (version + omp.extensions + skills dir)
+src/extension.ts              # Extension factory (registers /sdlc-* commands)
+.claude-plugin/plugin.json    # Minimal catalog manifest pointing at ./skills/
+skills/                       # Skill definitions (one directory per skill, SKILL.md entrypoints)
+agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)
+references/                   # Shared reference contracts loaded on demand by skills
+scripts/                      # Deterministic validators, status CLI, exercise runners, and tests
+specs/                        # BDD specs for the plugin's own development cycle (specs/{N}-{slug}/)
+steering/                     # Product, tech, and structure steering documents
+docs/decisions/               # ADR directory (populated by write-spec for spikes)
+VERSION                       # Version source (kept in sync with package.json)
+CHANGELOG.md                  # Keep an [Unreleased] section for pending changes
+README.md                     # Public docs: workflow, installation, skills reference
+.github/workflows/            # CI including contribution gate
 ```
 
 ## Version Bumping
 
-When bumping the plugin version, update `.codex-plugin/plugin.json` -> `"version"` (the `/open-pr` skill also keeps `VERSION` and `CHANGELOG.md` in sync).
+When bumping the version, update `package.json` `"version"`, the root `VERSION` file, and ensure `src/extension.ts` remains consistent. The delivery flow (via execute) keeps `VERSION`, `package.json`, and `CHANGELOG.md` in sync.
 
 ## README Updates
 
-When making changes that affect how users interact with the plugin (new skills, changed workflows, new steering documents, etc.), update `README.md` accordingly. The README is the primary public documentation and must stay in sync with actual capabilities.
+When making changes that affect how users interact with the extension (new skills, changed workflows, new steering documents, etc.), update `README.md` accordingly. The README is the primary public documentation and must stay in sync with actual capabilities.
 
 ## Commit & CHANGELOG Conventions
 
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`
-- `CHANGELOG.md` uses `[Unreleased]` for pending changes; `/open-pr` rolls it to a versioned heading at release
+- `CHANGELOG.md` uses `[Unreleased]` for pending changes; delivery rolls it to a versioned heading at release
 - Skills live in `skills/{skill-name}/SKILL.md`
 - All skills include an "Integration with SDLC Workflow" section
 - `specs/` files must be committed with their feature branches, not left as untracked local files
@@ -40,5 +42,5 @@ When making changes that affect how users interact with the plugin (new skills, 
 <!-- nmg-sdlc-managed: spec-context -->
 ## nmg-sdlc Spec Context
 
-For SDLC work, project-root `specs/` is the canonical BDD archive. Always identify the active spec first, then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default, and do not use legacy `.codex/specs/` as context.
+For SDLC work, project-root `specs/` is the canonical working-tree BDD archive and contains only current contracts with genuine GitHub issue owners. Specs use directories of the form `specs/{N}-{slug}/` where `N` is the GitHub issue number. Always identify the active spec first (leading directory number must match the issue and every file must declare singular `**Issue**: #N`), then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default. Superseded specs remain in Git history. A breaking repository rewrite may document unowned rewrite-only behavior in `references/rewrite-contract.{json,md}` but must not assign it a synthetic issue number or treat it as an executable issue spec. Legacy `.codex/specs/` directories are inputs to `/sdlc-upgrade-project` only.
 <!-- /nmg-sdlc-managed -->

@@ -145,8 +145,8 @@ Use this template to generate the final verification report.
 |-------|-------|
 | **Skill Exercised** | [skill name] |
 | **Test Project** | [temp dir path] |
-| **Exercise Method** | `codex exec` |
-| **`request_user_input` gate Handling** | Programmatic first-option / Denied / N/A |
+| **Exercise Method** | `node scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME` |
+| **Interactive gate handling** | N/A (automated worker) |
 | **Duration** | [seconds] |
 
 ### Captured Output Summary

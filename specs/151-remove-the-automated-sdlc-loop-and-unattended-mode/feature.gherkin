@@ -1,0 +1,53 @@
+# Issue: #151
+Feature: Remove the automated SDLC loop and unattended mode
+  The 3.0 plugin uses explicit OMP and Herdr workflows without the retired runner.
+
+  Scenario: Fresh install has no automated loop surface
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When fresh install has no automated loop surface is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Skills use interactive contracts only
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When skills use interactive contracts only is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Automation eligibility is absent from issue workflows
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When automation eligibility is absent from issue workflows is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Active product surfaces describe only the manual pipeline
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When active product surfaces describe only the manual pipeline is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Managed repository assets remain available
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When managed repository assets remain available is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Upgrade removes only known obsolete runner artifacts
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When upgrade removes only known obsolete runner artifacts is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Existing GitHub labels and issue history are not mutated
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When existing github labels and issue history are not mutated is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Historical records remain truthful and intact
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When historical records remain truthful and intact is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Conflicting backlog is reconciled
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When conflicting backlog is reconciled is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable
+
+  Scenario: Manual pipeline and migration are verified
+    Given nmg-sdlc 3.0 is installed as an OMP extension
+    When manual pipeline and migration are verified is inspected
+    Then only the explicit native-plan and Herdr OMP workflow remains observable

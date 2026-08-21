@@ -1,0 +1,23 @@
+# Issue: #7
+Feature: Verify Code
+  Verify the current implementation against its approved spec and emit durable delivery evidence.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-verify-code #N exercises this capability
+    Then Given an approved spec, when verification runs, then architecture, acceptance behavior, tests, and changed-surface evidence are reviewed inline.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-verify-code #N exercises this capability
+    Then Given verification completes, when evidence is durable, then verification-report.md and the issue handoff record the exact head and outcomes.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-verify-code #N exercises this capability
+    Then Given only PR-dependent evidence remains, when local evidence passes, then PR Evidence Pending may advance to delivery.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-verify-code #N exercises this capability
+    Then Given a substantive failure, when verification ends, then delivery is blocked with intervention details.
