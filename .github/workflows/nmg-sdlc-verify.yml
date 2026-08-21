@@ -40,3 +40,5 @@ jobs:
 
       - name: Verify OMP plugin surface
         run: node scripts/verify-plugin-surface.mjs --root . --label repository
+      - name: Verify current spec archive and rewrite contract
+        run: node scripts/verify-current-specs.mjs

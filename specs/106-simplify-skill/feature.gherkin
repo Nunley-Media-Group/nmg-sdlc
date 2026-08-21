@@ -1,0 +1,23 @@
+# Issue: #106
+Feature: Simplify Changed Code
+  Apply worthwhile behavior-preserving cleanup to the changed implementation surface.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated simplify stage exercises this capability
+    Then Given changed files, when simplify runs, then it reviews only the bounded diff and directly related context.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated simplify stage exercises this capability
+    Then Given duplicated, indirect, or inefficient code, when cleanup is safe, then it is simplified without altering specified behavior.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated simplify stage exercises this capability
+    Then Given a proposed change alters architecture, security, or acceptance behavior, when considered, then it is left to the owning implementation or verification stage.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When automated simplify stage exercises this capability
+    Then Given no worthwhile cleanup exists, when review completes, then no weightless refactor is introduced.

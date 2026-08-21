@@ -10,7 +10,7 @@ Before drafting issues, writing specs, or changing implementation files, review:
 - `steering/tech.md` for OMP extension architecture, versioning, compatibility, security, verification, and resource-authoring rules.
 - `steering/structure.md` for repository layout, naming conventions, layer responsibilities, and anti-patterns.
 
-Existing source files, closed issue specs, and retrospective learnings are project context. Preserve that history when enhancing existing behavior.
+Git history is the archive for superseded behavior. The working-tree `specs/` directory contains only current capability contracts and active issue specs; remove obsolete packages during an approved breaking repository rewrite.
 
 ## Issue and Spec Workflow
 
@@ -46,7 +46,7 @@ Verification should cover the behavior promised by the spec:
 - Verify generated or managed artifacts such as `README.md`, `CONTRIBUTING.md`, steering templates, issue forms, contribution workflows, `CHANGELOG.md`, `VERSION`, `package.json`, and extension metadata stay in sync.
 - Use verification evidence before delivery.
 
-Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. Delivery continues through exact-head merge and issue closure. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
+Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. The only issue-less implementation path is the validated repository-rewrite exception below. Delivery continues through exact-head merge and issue closure when an executable issue exists. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
 
 Legacy backlog correction and layout modernization belong to `/sdlc-upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
 
@@ -75,8 +75,11 @@ The contribution gate evaluates a connected evidence graph rather than accepting
 
 Reduced-evidence modes are validated contracts, not bypasses:
 
-| Mode | Declaration and validation | Reduced checks | Still required | Invalidating paths |
-|------|----------------------------|----------------|----------------|--------------------|
+| Mode | Declaration and validation | Reduced checks | Still required | Invalidating conditions |
+|------|----------------------------|----------------|----------------|-------------------------|
 | Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, and all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
+| Repository rewrite | `SDLC-Exception: repository-rewrite — <non-empty reason>`; PR title starts `feat!:`; `package.json`, `VERSION`, `README.md`, `CONTRIBUTING.md`, all steering files, the managed contribution gate, `references/rewrite-contract.{json,md}`, and `references/rewrite-verification.md` change | Current PR issue/spec identity only | Genuinely owned current spec archive, explicit rewrite contract, durable verification, steering alignment, exact changed-path mapping, specific verification, and guide discoverability | Missing contract path, non-breaking title, unmatched relevant path, missing steering, or missing verification |
+
+The repository-rewrite exception exists for an owner-approved clean cutover where pre-cutover work predates the current singular issue/spec workflow. It must not be used for ordinary feature or bug delivery.
 
 Remove an invalid exception or split invalidating implementation changes into a normally evidenced pull request. A marker, label, or rationale never overrides incompatible changed paths.

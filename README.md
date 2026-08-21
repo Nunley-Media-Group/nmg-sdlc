@@ -55,14 +55,14 @@ Onboarding and upgrade manage these repository artifacts:
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
 - `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
 
-The contribution gate validates issue/spec identity (using singular `**Issue**: #N`), task or verification evidence for changed paths, steering context, and documented exception predicates. It uses read-only GitHub token permissions and does not replace project CI or human review.
+The contribution gate validates issue/spec identity (using singular `**Issue**: #N`), task or verification evidence for changed paths, steering context, and documented exception predicates. Documentation-only changes have a path-validated reduced mode. An owner-approved breaking repository rewrite may waive only current PR issue/spec identity when the `feat!:` title, required repository contract paths, explicit rewrite contract and durable verification, genuinely owned current specs, steering, exact path mapping, and specific verification all pass. The gate uses read-only GitHub token permissions and does not replace project CI or human review.
 
-This repository's own CI (`.github/workflows/nmg-sdlc-verify.yml`) runs `cd scripts && npm test` and `node scripts/verify-plugin-surface.mjs --root . --label repository` on every pull request. Skill-text drift is still gated by `.github/workflows/skill-inventory-audit.yml`.
+This repository's own CI (`.github/workflows/nmg-sdlc-verify.yml`) runs `cd scripts && npm test`, `node scripts/verify-plugin-surface.mjs --root . --label repository`, and `node scripts/verify-current-specs.mjs` on every pull request. Skill-text drift is still gated by `.github/workflows/skill-inventory-audit.yml`.
 
 
 ## Spec Context
 
-Project-root `specs/` is the canonical BDD archive. Skills resolve the active spec first, then load only a bounded, relevant set of neighbors.
+Project-root `specs/` contains the canonical current BDD contracts and active issue specs with genuine GitHub issue owners. Superseded or mismatched packages remain available in Git history instead of staying normative in the working tree. Rewrite-only behavior without an issue owner is documented in `references/rewrite-contract.{json,md}` with evidence in `references/rewrite-verification.md`, never assigned a synthetic `#N`. Skills resolve the active issue spec first, then load only a bounded, relevant set of neighbors.
 
 Specs use directories of the form `specs/{N}-{slug}/` where `N` is the GitHub issue number:
 
@@ -89,6 +89,7 @@ Every spec file begins with singular frontmatter:
 - No `issue-scope.json`, no cumulative multi-issue manifests, no epic type.
 - Sequencing uses `Depends on:` and `Blocks:` lines in issue bodies.
 - Legacy `feature-*`, `bug-*`, `epic-*`, and `.codex/specs/` layouts are upgrade inputs only.
+- Breaking repository rewrites remove obsolete spec packages and must pass `node scripts/verify-current-specs.mjs`.
 
 ## Workflow
 

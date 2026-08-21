@@ -10,8 +10,8 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 4` |
-| Current numeric version | `4` |
+| Managed version | `# nmg-sdlc-managed-version: 5` |
+| Current numeric version | `5` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
 | Maximum paths per diagnostic | `20` |
@@ -38,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 4
+# nmg-sdlc-managed-version: 5
 name: nmg-sdlc contribution gate
 
 on:
@@ -211,6 +211,11 @@ jobs:
               return match ? match[1].trim() : null;
             }
 
+            function repositoryRewriteDeclaration(value) {
+              const match = stripQuotedHistory(value).match(/\bSDLC-Exception\s*:\s*repository-rewrite\s*(?:—|--?\s*|:)\s*(\S[^\n]*)/i);
+              return match ? match[1].trim() : null;
+            }
+
             async function pathExists(path) {
               try {
                 await github.rest.repos.getContent({ owner, repo, path, ref });
@@ -262,25 +267,51 @@ jobs:
             const mappingEvidence = normalizePath(`${taskEvidence}\n${verificationEvidence}`);
             const unmatchedPaths = relevantPaths.filter((path) => !pathMentioned(path, mappingEvidence));
 
-            const docsMarkerPresent = /\bSDLC-Exception\s*:\s*docs-only\b/i.test(stripQuotedHistory(prText));
+            const prTextWithoutHistory = stripQuotedHistory(prText);
+            const docsMarkerPresent = /\bSDLC-Exception\s*:\s*docs-only\b/i.test(prTextWithoutHistory);
+            const rewriteMarkerPresent = /\bSDLC-Exception\s*:\s*repository-rewrite\b/i.test(prTextWithoutHistory);
             const docsReason = docsOnlyDeclaration(prText);
+            const rewriteReason = repositoryRewriteDeclaration(prText);
             const docsOnlyEligible = Boolean(docsReason)
               && changedPaths.length > 0
               && changedPaths.every((path) => pathClasses.get(path) === 'documentation');
-            if (docsMarkerPresent && !docsReason) {
+            const rewriteRequiredPaths = [
+              'package.json',
+              'VERSION',
+              'README.md',
+              'CONTRIBUTING.md',
+              'steering/product.md',
+              'steering/tech.md',
+              'steering/structure.md',
+              '.github/workflows/nmg-sdlc-contribution-gate.yml',
+              'references/rewrite-contract.json',
+              'references/rewrite-contract.md',
+              'references/rewrite-verification.md',
+            ];
+            const rewriteEligible = Boolean(rewriteReason)
+              && /^feat!:/i.test(String(pr.title || '').trim())
+              && rewriteRequiredPaths.every((path) => changedPaths.includes(path));
+            if (docsMarkerPresent && rewriteMarkerPresent) {
+              failures.push('Invalid SDLC exception: declare exactly one reduced-evidence mode.');
+            } else if (docsMarkerPresent && !docsReason) {
               failures.push('Invalid docs-only exception: provide a non-empty rationale after `SDLC-Exception: docs-only —`.');
             } else if (docsReason && !docsOnlyEligible) {
               const invalidating = changedPaths.filter((path) => pathClasses.get(path) !== 'documentation');
               failures.push(`Invalid docs-only exception: only documentation paths are allowed; invalidating paths: ${summarizePaths(invalidating) || 'none'}.`);
+            } else if (rewriteMarkerPresent && !rewriteReason) {
+              failures.push('Invalid repository-rewrite exception: provide a non-empty rationale after `SDLC-Exception: repository-rewrite —`.');
+            } else if (rewriteReason && !rewriteEligible) {
+              const missing = rewriteRequiredPaths.filter((path) => !changedPaths.includes(path));
+              failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
-            const reducedMode = docsOnlyEligible ? 'docs-only' : null;
+            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : null;
 
-            if (prIssueNumbers.size === 0) {
+            if (prIssueNumbers.size === 0 && !rewriteEligible) {
               failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
             }
 
-            if (!docsOnlyEligible) {
+            if (!docsOnlyEligible && !rewriteEligible) {
               if (specDirectories.length === 0) {
                 failures.push('Missing spec evidence: name or change the relevant `specs/{N}-{slug}` directory.');
               } else if (mismatchedSpecs.length > 0) {
@@ -300,11 +331,11 @@ jobs:
               failures.push('Missing steering evidence: explain alignment with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
             }
 
-            if (!reducedMode && unmatchedPaths.length > 0) {
+            if (reducedMode !== 'docs-only' && unmatchedPaths.length > 0) {
               failures.push(`Unmatched changed paths: ${summarizePaths(unmatchedPaths)}. Name each path, an explicit containing directory, or a path-specific behavior in tasks or verification evidence.`);
             }
 
-            if (!reducedMode && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
+            if (reducedMode !== 'docs-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
               failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
             }
 
@@ -330,7 +361,7 @@ Evaluate evidence in this order:
 4. Classify each changed path. `specs/{N}-{slug}/` is spec evidence. Legacy `feature-*` / `bug-*` / `epic-*` paths are relevant only, so a leftover rename PR must name them in tasks.
 5. Require every relevant path to appear as an exact normalized path, an explicit containing-directory prefix ending in `/`, or a structured `Behavior for <path>: <description>` entry in selected task or verification evidence. Basename-only and similarly named paths do not match.
 6. Accept verification only from the current Verification, Test Plan, or Validation section plus at most ten committed verification artifacts. A command paired with an outcome, a non-empty report, an `ACN: passed|failed` result, or a changed-path-specific result is concrete; generic keywords are not.
-7. Validate reduced-evidence paths before applying them. The reduced contract never waives current issue linkage, required steering files/evidence, guide discoverability, or any non-exempt check.
+7. Validate reduced-evidence predicates before applying them. Documentation-only work retains current issue linkage. A repository rewrite may waive only current issue/spec identity when a `feat!:` PR changes every required repository contract path, including the explicit rewrite contract; steering, relevant-path mapping, specific verification, and guide discoverability remain mandatory.
 
 Path diagnostics show at most 20 paths and append the remaining count so large pull requests stay actionable without producing unbounded annotations.
 
@@ -339,6 +370,7 @@ Path diagnostics show at most 20 paths and append the remaining count so large p
 | Mode | Predicate | Reduced checks | Invalidating paths |
 |------|-----------|----------------|--------------------|
 | Documentation-only | Current PR text contains `SDLC-Exception: docs-only — <non-empty reason>` and every changed path is project documentation | Spec correlation, relevant-path mapping, and specific verification are not required | Any source, workflow, script, skill, template, shared reference, spec, ADR, or other non-documentation path |
+| Repository rewrite | Current PR text contains `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; `package.json`, `VERSION`, public guides, all steering files, the managed gate, and `references/rewrite-contract.{json,md}` and `references/rewrite-verification.md` change | Current issue/spec identity only | Missing rewrite contract path, non-breaking title, unmatched relevant path, missing steering, or missing specific verification |
 
 There is no spike/ADR reduced-evidence mode. Leftover `spike` labels do not waive verification.
 

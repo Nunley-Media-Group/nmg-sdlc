@@ -91,7 +91,7 @@ The default guide must include concrete sections or bullets for:
 
 Generated or extended guidance must explain the evidence graph with concrete, stack-agnostic examples:
 
-- **Issue/spec identity**: the current PR should use an explicit reference such as `Closes #143`, and every selected spec directory must reference the same issue in singular `**Issue**: #143` or its current body. Issue numbers found only in quoted examples, hidden HTML comments, historical sections, or an unrelated spec do not correlate.
+- **Issue/spec identity**: ordinary feature and bug PRs use an explicit reference such as `Closes #143`, and every selected spec directory references the same issue in singular `**Issue**: #143` or its current body. Issue numbers found only in quoted examples, hidden HTML comments, historical sections, or an unrelated spec do not correlate. Only the validated repository-rewrite mode may waive current issue/spec identity.
 - **Exact path evidence**: a task or verification entry may name `scripts/check-gate.mjs` exactly.
 - **Directory-prefix evidence**: a task may explicitly scope work to `scripts/__tests__/`; a basename such as `check-gate.mjs` is not sufficient because another directory can contain a similarly named file.
 - **Path-specific behavior evidence**: use a structured entry such as `Behavior for scripts/check-gate.mjs: rejects mismatched issue/spec sets` when behavior, rather than a file operation, is the useful trace.
@@ -100,11 +100,12 @@ Generated or extended guidance must explain the evidence graph with concrete, st
 
 Document the reduced-evidence contracts without presenting them as bypasses:
 
-| Mode | Declaration and validation | Reduced checks | Still required | Invalidating paths |
-|------|----------------------------|----------------|----------------|--------------------|
+| Mode | Declaration and validation | Reduced checks | Still required | Invalidating conditions |
+|------|----------------------------|----------------|----------------|-------------------------|
 | Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
+| Repository rewrite | `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; package/version, public guides, all steering, managed gate, `references/rewrite-contract.{json,md}`, and `references/rewrite-verification.md` change | Current PR issue/spec identity only | Genuinely owned current specs, explicit rewrite contract, durable verification, steering alignment, exact changed-path mapping, specific verification, and guide discoverability | Missing contract path, non-breaking title, unmatched relevant path, missing steering, or missing verification |
 
-Tell contributors to remove an invalid exception or split invalidating implementation changes into a normally evidenced PR. A marker, label, or rationale never overrides incompatible changed paths.
+The rewrite mode is only for an owner-approved clean cutover whose implementation predates the current singular issue/spec workflow. Tell contributors to remove an invalid exception or split invalidating implementation changes into a normally evidenced PR. A marker, label, or rationale never overrides incompatible changed paths.
 
 ## Existing Guide Update
 

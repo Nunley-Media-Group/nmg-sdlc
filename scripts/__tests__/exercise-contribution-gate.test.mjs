@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 4;
+const CURRENT_VERSION = 5;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -182,11 +182,11 @@ function normalScenario({
 }
 
 describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', () => {
-  test('onboarding-style setup creates version 3 and rerun is idempotent', () => {
+  test('onboarding-style setup creates version 5 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 4');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 5');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -199,7 +199,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 4');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 5');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 
@@ -449,6 +449,60 @@ describe('exact embedded contribution evaluator (issues #143 and #177)', () => {
       changedPaths: ['README.md', 'scripts/check-gate.mjs'],
     });
     expect(sourceChange.errors.join('\n')).toContain('invalidating paths: scripts/check-gate.mjs');
+  });
+
+  test('accepts only a fully evidenced breaking repository rewrite', async () => {
+    const changedPaths = [
+      'package.json',
+      'VERSION',
+      'README.md',
+      'CONTRIBUTING.md',
+      'steering/product.md',
+      'steering/tech.md',
+      'steering/structure.md',
+      '.github/workflows/nmg-sdlc-contribution-gate.yml',
+      'references/rewrite-contract.json',
+      'references/rewrite-contract.md',
+      'references/rewrite-verification.md',
+      'scripts/rewrite.mjs',
+    ];
+    const files = baseRepositoryFiles({
+      'references/rewrite-contract.json': '{"release":"3.0.0"}',
+      'references/rewrite-contract.md': '# Rewrite contract',
+      'references/rewrite-verification.md': '# Rewrite verification',
+    });
+    const result = await runEvaluator({
+      title: 'feat!: rewrite the repository runtime',
+      body: [
+        'SDLC-Exception: repository-rewrite — owner-approved clean cutover predating the current issue workflow',
+        'Steering: aligns with steering/product.md, steering/tech.md, and steering/structure.md.',
+        '## Verification',
+        '`node scripts/rewrite.mjs` — passed',
+        'Verified paths: `package.json`, `VERSION`, `.github/workflows/`, `references/`, and `scripts/`.',
+      ].join('\n\n'),
+      changedPaths,
+      repositoryFiles: files,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.infos.join('\n')).toContain('validated repository-rewrite reduced-evidence contract');
+  });
+
+  test('rejects incomplete or weak repository rewrite declarations', async () => {
+    const empty = await runEvaluator({
+      title: 'feat!: rewrite',
+      body: 'SDLC-Exception: repository-rewrite —',
+      changedPaths: ['README.md'],
+    });
+    expect(empty.errors.join('\n')).toContain('provide a non-empty rationale');
+
+    const incomplete = await runEvaluator({
+      title: 'feat: rewrite',
+      body: 'SDLC-Exception: repository-rewrite — migrate the runtime',
+      changedPaths: ['README.md'],
+    });
+    expect(incomplete.errors.join('\n')).toContain('require a feat!: PR');
+    expect(incomplete.errors.join('\n')).toContain('package.json');
   });
 
   test('does not apply a spike/ADR reduced-evidence contract', async () => {

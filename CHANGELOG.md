@@ -20,6 +20,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - `/sdlc-write-spec #N` now publishes an Approved `specs/{N}-{slug}/` package on a git branch cut from the repository default (not `gh issue develop`), commits `docs: approve spec for #N`, pushes, squash-merges a docs-only spec PR (no `Closes #N`, issue stays open), then asks Continue/Finished. `/sdlc-execute` start-issue cuts implementation from that same default with `gh issue develop --base`. Public commands inline bundled workflow files from `skills/` instead of emitting `/skill:`.
 - This repository's CI now runs Jest contract tests and OMP plugin-surface verification on every pull request. Skill-inventory audit no longer requires an `### Inventory Removals` heading in the PR body.
 - Interactive `/sdlc-*` commands enter native `/plan` from the TUI `input` event (rewrite to builtin `/plan` + workflow; already-in-plan sessions skip the prefix). Headless print/RPC invocations fail closed (`Run /sdlc-<command> in the TUI.`). Automated `/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` are file commands in `commands/*.md` so `omp --print` expands them as the initial prompt. Interactive write-spec is not a file command.
+- The managed contribution gate is version 5 and supports a strict `repository-rewrite` exception for owner-approved `feat!:` clean cutovers. It waives only current PR issue/spec identity and still requires the explicit rewrite contract, durable rewrite verification, repository contract paths, steering, exact path mapping, and specific verification.
+- The working-tree BDD archive now retains only genuinely owned current issue specs. Superseded or mismatched packages remain in Git history; rewrite-only capabilities are recorded without synthetic issue numbers in `references/rewrite-contract.{json,md}`, evidenced in `references/rewrite-verification.md`, and checked by `scripts/verify-current-specs.mjs`.
 
 ### Fixed
 
@@ -33,6 +35,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Run `/sdlc-upgrade-project` on existing projects to modernize legacy spec layouts (`feature-*` / `bug-*` / `.codex/specs/`), split cumulative specs, flatten coordination artifacts, and reconcile frontmatter. All repairs require explicit approval.
 - `package.json` + `src/extension.ts` now declare the OMP extension (in addition to `VERSION`).
 - See updated `README.md`, `AGENTS.md`, and `CONTRIBUTING.md` for the v3 journey and invocation list.
+- Repository maintainers performing an owner-approved breaking clean cutover must declare `SDLC-Exception: repository-rewrite — <reason>` and keep `references/rewrite-contract.{json,md}` plus `references/rewrite-verification.md` synchronized.
 
 ## [2.1.0] - 2026-08-16
 - Fixed issue #175 by backfilling bare `$nmg-sdlc:start-issue` discovery after readiness filtering, excluding confirmed all-`Done` Project items from automatic shortlists, and preserving explicit issue-number recovery with a reopen warning.

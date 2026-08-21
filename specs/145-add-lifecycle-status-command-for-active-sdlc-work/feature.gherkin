@@ -1,51 +1,23 @@
-@lifecycle-status @read-only @manual-workflow
-Feature: Lifecycle status for active SDLC work
-  As a developer using the manual nmg-sdlc workflow
-  I want a concise lifecycle-status command that infers the active context and next action
-  So that I can recover work without manually inspecting scattered artifacts
+# Issue: #145
+Feature: Lifecycle Status
+  Report current SDLC lifecycle evidence and the exact next action without mutation.
 
-  Scenario: Infer the current manual SDLC stage from consistent evidence
-    Given a repository is on an issue branch with a complete matching spec package
-    And no implementation, verification, or pull request evidence exists
-    When the developer runs the lifecycle-status command
-    Then the status reports the issue, branch, and "specified" lifecycle stage
-    And the completed artifacts include the issue branch and spec package
-    And the missing artifacts include implementation, verification, and pull request
-    And the next action is "$nmg-sdlc:write-code" for the inferred issue
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given empty arguments or --json, when status runs, then it reports bounded local and GitHub lifecycle evidence in human or stable machine-readable form.
 
-  Scenario: Preserve dirty work and local artifacts
-    Given the repository contains dirty user changes
-    When the developer runs the lifecycle-status command in text and JSON modes
-    Then both outputs report the dirty condition
-    And no file, git ref, branch, issue, pull request, project status, or process is changed
-    And a repeated invocation over unchanged evidence produces the same lifecycle conclusion
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given any other argument, when invoked, then usage is printed and the command exits non-zero.
 
-  Scenario: Degrade safely when optional evidence is unavailable
-    Given the repository has enough local evidence to identify an issue branch
-    And optional spec, verification, pull request, CI, or GitHub evidence is absent, stale, or unavailable
-    When the developer runs the lifecycle-status command
-    Then available evidence still appears in the result
-    And unavailable facts are labelled unknown and material gaps are listed
-    And the reported stage does not advance beyond the strongest consistent evidence
-    And a stale passing report remains not current while its report commit stays visible as provenance
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given unavailable evidence, when status infers state, then unknowns and gaps are explicit and progress is not overstated.
 
-  Scenario: Produce status without prompting or acting
-    Given a repository has any supported manual lifecycle state
-    When the lifecycle-status command evaluates its evidence
-    Then it produces a lifecycle stage and evidence-based next action without prompting
-    And it does not execute the recommended action
-
-  Scenario: Emit stable machine-readable status
-    Given a caller requests machine-readable lifecycle status
-    When the lifecycle-status command completes with successful and recoverably failed probes
-    Then stdout contains valid JSON with schemaVersion 1
-    And the JSON contains project, issue, spec, verification, pullRequest, stage, completedArtifacts, missingArtifacts, gaps, and nextAction fields
-    And diagnostic prose does not corrupt the JSON stream
-
-  @out-of-scope
-  Scenario: Exclude automated-runner integration ahead of milestone-2 removal
-    Given the automated SDLC runner is scheduled for removal in milestone 2
-    When lifecycle status is implemented for issue 145
-    Then it does not read runner state, sentinels, logs, configuration, or PIDs
-    And it does not modify runner source or tests
-    And it does not recommend runner resume, cleanup, or end-loop actions
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-status [--json] exercises this capability
+    Then Given any repository state, when status runs, then files, refs, issues, pull requests, and processes remain unchanged.

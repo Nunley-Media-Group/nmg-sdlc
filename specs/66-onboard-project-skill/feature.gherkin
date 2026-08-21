@@ -1,0 +1,23 @@
+# Issue: #66
+Feature: Onboard Project
+  Initialize greenfield or reconcile brownfield projects with current steering, spec, contribution, and OMP contracts.
+
+  Scenario: AC1 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-onboard-project exercises this capability
+    Then Given project contents, when onboarding starts, then it distinguishes initialized, greenfield, greenfield-enhancement, and brownfield modes.
+
+  Scenario: AC2 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-onboard-project exercises this capability
+    Then Given a greenfield project, when approved, then steering, specs, contribution guidance, and managed workflows are created from current templates.
+
+  Scenario: AC3 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-onboard-project exercises this capability
+    Then Given a brownfield project, when approved, then history informs reconciliation without inventing ambiguous ownership.
+
+  Scenario: AC4 current contract
+    Given the nmg-sdlc 3.0.0 plugin is installed
+    When /sdlc-onboard-project exercises this capability
+    Then Given an already initialized project, when detected, then /sdlc-upgrade-project is recommended instead of duplicating setup.

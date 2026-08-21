@@ -15,14 +15,14 @@ function workflowTemplate() {
   return match[1];
 }
 
-describe('contribution gate contract (issues #125, #143, and #177)', () => {
-  test('shared reference defines managed version 4, lifecycle status, and collision rules', () => {
+describe('contribution gate contract (issues #125, #143, and current repository rewrite)', () => {
+  test('shared reference defines managed version 5, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 
     expect(contract).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
     expect(contract).toContain('# nmg-sdlc-managed: contribution-gate');
-    expect(contract).toContain('# nmg-sdlc-managed-version: 4');
-    expect(contract).toContain('| Current numeric version | `4` |');
+    expect(contract).toContain('# nmg-sdlc-managed-version: 5');
+    expect(contract).toContain('| Current numeric version | `5` |');
     expect(contract).toContain('Workflow: created | updated | already present | skipped');
     expect(contract).toContain('skipped (unmanaged file at path)');
     expect(contract).toContain('skipped (newer managed version)');
@@ -45,6 +45,7 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
     expect(template).toContain('hasSpecificVerification');
     expect(template).toContain('Missing specific verification');
     expect(template).toContain('SDLC-Exception');
+    expect(template).toContain('SDLC-Exception: repository-rewrite');
     expect(template).not.toContain("label).toLowerCase() === 'spike'");
     expect(template).not.toContain('listLabelsOnIssue');
     expect(template).not.toContain('const AGGREGATE_ARTIFACTS');
@@ -92,6 +93,7 @@ describe('contribution gate contract (issues #125, #143, and #177)', () => {
 
     expect(guide).toContain('specs/{N}-{slug}');
     expect(guide).toContain('SDLC-Exception: docs-only');
+    expect(guide).toContain('SDLC-Exception: repository-rewrite');
     expect(guide).not.toContain('Spike/ADR');
     expect(changelog).toContain('issue #143');
   });
