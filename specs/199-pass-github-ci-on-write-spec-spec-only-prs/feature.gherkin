@@ -1,0 +1,42 @@
+**Issue**: #199
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/125-add-github-actions-contribution-gates-to-project-setup/
+
+# File: specs/199-pass-github-ci-on-write-spec-spec-only-prs/feature.gherkin
+#
+# Generated from: specs/199-pass-github-ci-on-write-spec-spec-only-prs/requirements.md
+Feature: Write-spec spec-only PRs fail GitHub CI
+  Spec-only write-spec pull requests previously failed the contribution gate
+  and current-spec contract verification, which blocked squash-merge.
+  This was fixed by a spec-only reduced-evidence mode and by accepting extra
+  approved spec packages in the archive verifier.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Contribution gate and contract verification succeed on spec-only write-spec PRs
+    Given /sdlc-write-spec #N opened a spec-only PR titled docs: approve spec for #N whose changed paths are only under specs/{N}-{slug}/, including a package directory that was not previously on the default branch
+    When nmg-sdlc contribution gate and nmg-sdlc contract verification complete on that pull request
+    Then both jobs succeed, including the contract-verification step that runs verify-current-specs.mjs
+
+  @SCN002 @regression
+  Scenario: Spec-only squash-merge succeeds and leaves the issue open
+    Given that spec-only PR with both of those jobs successful
+    When write-spec squash-merges it into the repository default branch
+    Then the merge succeeds, the approved spec package is on the default branch, and issue #N remains open because the PR body does not use Closes, Fixes, or Resolves
+
+  @SCN003 @regression
+  Scenario: Consumer contribution gate succeeds for the same spec-only PR shape
+    Given a consumer repository that uses the managed nmg-sdlc contribution gate
+    When an equivalent spec-only write-spec PR is opened
+    Then that contribution-gate check succeeds
+
+  # --- Related Behavior Still Works ---
+
+  @SCN004 @regression
+  Scenario: Implementation PRs still require full evidence
+    Given a pull request that changes non-spec product paths and does not provide verification evidence
+    When the contribution gate runs
+    Then the gate still fails missing-evidence rules, and a docs-only exception still cannot cover spec or source paths
