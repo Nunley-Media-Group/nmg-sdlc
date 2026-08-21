@@ -75,3 +75,19 @@ Feature: Reduce injected SDLC workflow tokens while keeping file-command surface
     When the worker loads the authoring procedure
     Then it resolves and reads skill://skill-creator
     And it does not fail with skill_creator_missing solely because the repository-local path is absent
+
+  @SCN008
+  Scenario: Draft shared-reference pointers satisfy deterministic grammar
+    Given draft-issue has existing pointers to codex-tooling.md and interactive-gates.md
+    When the pointers are normalized for deterministic validation
+    Then each instruction uses the "Read `path` when ..." grammar
+    And both referenced paths and existing behaviors are preserved
+    And the draft-issue skill exercise passes
+
+  @SCN009
+  Scenario: Pointer and inventory validation describe current contracts
+    Given status is a compact workflow with no reference pointers
+    When deterministic pointer checks run for status and draft-issue
+    Then status passes without a reference pointer
+    And draft-issue still requires at least one conforming reference pointer
+    And inventory metadata failures do not claim removed structure validation ran

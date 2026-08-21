@@ -11,6 +11,7 @@ import {
   evaluateVerifyCodeArtifact,
   extractArtifactFromOutput,
   rubricChecks,
+  referencePointerCheck,
 } from '../skill-exercise-runner.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -139,6 +140,31 @@ Done.`);
       reason: 'unsupported interactive gate',
     });
   });
+
+  test('compact workflows pass deterministic checks without reference pointers', () => {
+    const proc = spawnSync(process.execPath, [runner, '--skill', 'status', '--base', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    expect(proc.status).toBe(0);
+    expect(proc.stdout).toContain('no reference pointers (none required)');
+  });
+  test('draft-issue requires and accepts conforming reference pointers', () => {
+    expect(referencePointerCheck('draft-issue', '# Draft Issue')).toMatchObject({
+      status: 'fail',
+      detail: 'no reference pointers found',
+    });
+
+    const proc = spawnSync(process.execPath, [runner, '--skill', 'draft-issue', '--base', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    expect(proc.status).toBe(0);
+    expect(proc.stdout).toMatch(/D3\s+every reference pointer matches the AC7 grammar\s+\[pass]/);
+  });
+
 
   test('a failed evaluated rubric criterion makes the runner exit non-zero', () => {
     const proc = spawnSync(process.execPath, [runner, '--skill', 'draft-issue', '--artifact', failArtifact, '--base', 'HEAD'], {

@@ -81,13 +81,29 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 **Then** the worker resolves and reads `skill://skill-creator`
 **And** absence of the repository-local directory does not produce `skill_creator_missing`
 
+### AC8: Draft reference pointers satisfy exercise grammar
+
+**Given** the two existing shared-reference pointers at the start of `workflows/draft-issue/WORKFLOW.md`
+**When** the workflow is validated by the deterministic skill exercise
+**Then** each pointer uses the required `Read \`path\` when ...` grammar
+**And** both referenced paths and their existing behavioral meaning remain unchanged
+**And** `node scripts/skill-exercise-runner.mjs --skill draft-issue` exits 0
+
+### AC9: Exercise and inventory verification remain accurate
+
+**Given** a compact workflow intentionally has no reference pointers
+**When** deterministic checks run
+**Then** zero pointers pass for that compact workflow
+**And** `draft-issue` still requires at least one conforming pointer
+**And** skill-inventory metadata failures no longer claim that removed structure validation ran
+
 ---
 
 ## Functional Requirements
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | Delete `## Integration with SDLC Workflow` sections from all `workflows/*/WORKFLOW.md` files, including `migrate-project`. | Must | Heading plus body through next same-or-higher heading or EOF. Do not rewrite remaining workflow steps. |
+| FR1 | Delete `## Integration with SDLC Workflow` sections from all `workflows/*/WORKFLOW.md` files, including `migrate-project`. | Must | Heading plus body through next same-or-higher heading or EOF. Do not rewrite remaining workflow steps except the exact T009 pointer normalization authorized by AC8. |
 | FR2 | Update `AGENTS.md`, `steering/tech.md`, `steering/structure.md`, `scripts/skill-inventory-audit.mjs`, and `scripts/__tests__/skill-inventory-audit.test.mjs` so the section is not required. | Must | Remove the Integration check from `validateSkillStructure`. If that leaves the function as `return []` only, delete the function and its `runCheck` `structureErrors` path. |
 | FR3 | Compact `workflows/status/WORKFLOW.md` to argument validation + script invocation + pass-through. Do not change `scripts/sdlc-status.mjs` recommendation or JSON behavior. | Must | Keep Usage line, non-zero reject of other args, `git rev-parse --show-toplevel`, and pass-through. |
 | FR4 | Add exported `renderedPromptBytes` next to `workflowBody` (no equivalent exists) and tests with per-surface ceilings. | Must | UTF-8 `Buffer.byteLength`. Ceilings = measured post-change size + 256. |
@@ -95,6 +111,8 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 | FR6 | No reduction of function: every current public command, handoff reasonCode, and script CLI still exists and still accepts the same inputs. | Must | README primary journey remains. |
 | FR7 | Recover a visibly pasted `agent_prompt_stalled` prompt with one logical Enter, then wait for `working` and settlement before applying handoff rules. | Must | Never resend the prompt; failed recovery keeps the pane open. |
 | FR8 | Resolve and read `skill://skill-creator` for skill-bundled edits instead of probing a repository-local path. | Must | Absence of repository-local `skills/` is not a failure. |
+| FR9 | Normalize the two existing `draft-issue` shared-reference pointers to `Read \`path\` when ...` without changing either target or instruction meaning. | Must | This is the only authorized pre-Integration prose change in `draft-issue`. |
+| FR10 | Make deterministic pointer checks accept zero pointers for compact workflows while keeping the stricter `draft-issue` requirement, and correct the stale inventory diagnostic. | Must | Focused tests must prove both branches. |
 
 ---
 

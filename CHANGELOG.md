@@ -18,6 +18,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - `/sdlc-execute` now recovers a visibly pasted `agent_prompt_stalled` worker prompt by submitting Enter once and waiting for the worker to start and settle before applying handoff rules.
+- Skill exercises now allow compact workflows without reference pointers while still enforcing `Read \`path\` when ...` grammar for `draft-issue`, and skill-inventory failures accurately describe metadata-only validation.
 
 ## [3.1.0] - 2026-08-21
 

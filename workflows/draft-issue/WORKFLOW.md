@@ -5,9 +5,9 @@ description: "Interview user about a feature need, create groomed GitHub issue w
 
 # Draft Issue
 
-Read `../../references/codex-tooling.md` (maps to current OMP tools: read/grep/glob/ask/write to local:// and xd://propose).
+Read `../../references/codex-tooling.md` when mapping the workflow's read, grep, glob, ask, local-file, and proposal operations to current OMP tools.
 
-Read `../../references/interactive-gates.md` (replaced by native /plan + ask + xd://propose contract).
+Read `../../references/interactive-gates.md` when applying the native `/plan`, `ask`, and `xd://propose` contract.
 
 ## Core Flow
 

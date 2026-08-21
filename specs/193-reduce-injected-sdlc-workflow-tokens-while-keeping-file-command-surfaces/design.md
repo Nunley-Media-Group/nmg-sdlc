@@ -18,3 +18,7 @@ Prompt submission remains workflow-owned. A stalled atomic prompt is recoverable
 
 Skill-bundled authoring resolves the installed `skill://skill-creator` URI through OMP. Repository-local `skills/skill-creator/SKILL.md` discovery is not part of the contract.
 
+The deterministic exercise pointer grammar is `Read \`path\` when ...`. Normalize only the two existing shared-reference instructions at the start of `draft-issue`; preserve `../../references/codex-tooling.md`, `../../references/interactive-gates.md`, and each instruction's behavior. This exact repair is the sole exception to T001's pre-Integration prose-preservation rule.
+
+Pointer validation is conditional by workflow shape: `draft-issue` continues to require one or more conforming pointers, while a compact workflow such as `status` may validly contain none. The inventory validator reports only the metadata validation it still executes after structure validation is removed.
+

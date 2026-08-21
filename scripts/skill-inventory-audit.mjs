@@ -368,7 +368,7 @@ export function runBaseline(repoRoot, outPath) {
 export function runCheck(repoRoot, baselinePath) {
   const validationErrors = validateSkillMetadata(repoRoot);
   if (validationErrors.length > 0) {
-    console.error(`Skill metadata audit: ${validationErrors.length} loader-facing metadata/structure error(s).`);
+    console.error(`Skill metadata audit: ${validationErrors.length} loader-facing metadata error(s).`);
     for (const error of validationErrors) {
       console.error(`  - ${error.file}: invalid ${error.field}: ${error.message}`);
     }

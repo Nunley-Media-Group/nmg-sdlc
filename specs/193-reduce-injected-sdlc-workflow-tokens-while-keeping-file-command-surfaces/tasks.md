@@ -14,7 +14,8 @@
 | Audit / steering | 2 | [ ] |
 | Ceilings / surface | 2 | [ ] |
 | Worker reliability | 2 | [ ] |
-| **Total** | 8 | |
+| Verification repairs | 2 | [ ] |
+| **Total** | 10 | |
 
 ---
 
@@ -25,7 +26,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] Each file no longer contains `## Integration with SDLC Workflow`
-- [ ] No other heading or step in these files is rewritten
+- [ ] No other heading or step in these files is rewritten except the exact T009 pointer normalization
 - [ ] `workflows/start-issue/WORKFLOW.md` still contains `# Start Issue` and the listed reasonCodes
 - [ ] `workflows/write-code/WORKFLOW.md` still contains its pre-Integration behavioral steps
 - [ ] `workflows/verify-code/WORKFLOW.md` still contains its pre-Integration behavioral steps
@@ -117,6 +118,29 @@
 - [ ] Contracts no longer probe `skills/skill-creator/SKILL.md`
 - [ ] A missing repository-local `skills/` directory does not produce `skill_creator_missing`
 - [ ] Focused tests cover installed-skill resolution
+
+### T009: Normalize draft reference pointer grammar
+
+**File(s)**: `workflows/draft-issue/WORKFLOW.md`
+**Type**: Modify
+**Depends**: T001
+**Acceptance**:
+- [ ] The `../../references/codex-tooling.md` pointer uses `Read \`path\` when ...`
+- [ ] The `../../references/interactive-gates.md` pointer uses `Read \`path\` when ...`
+- [ ] Both target paths and instruction meanings are preserved
+- [ ] No other pre-Integration `draft-issue` prose changes
+- [ ] `node scripts/skill-exercise-runner.mjs --skill draft-issue` exits 0
+
+### T010: Repair verification gate accuracy
+
+**File(s)**: `scripts/skill-exercise-runner.mjs`, `scripts/__tests__/skill-exercise-runner.test.mjs`, `scripts/skill-inventory-audit.mjs`
+**Type**: Modify
+**Depends**: T002, T003, T009
+**Acceptance**:
+- [ ] Compact workflows with zero reference pointers pass D3
+- [ ] `draft-issue` still requires at least one conforming pointer
+- [ ] Focused tests prove both pointer-validation branches
+- [ ] Inventory metadata errors no longer mention removed structure validation
 
 ---
 
