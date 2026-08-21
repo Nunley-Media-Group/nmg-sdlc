@@ -10,7 +10,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve as pathResolve } from 'node:path';
+import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -376,7 +376,7 @@ export function workerPrompt({ step, issue, skill } = {}) {
   const skillName = skill || STEP_SKILL[step];
   if (!skillName) throw new Error('no skill for step');
   const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [workflowBody(skillName), ...extras.map(workflowBody)];
+  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))];
   return [
     `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
     `Execute the following inlined workflow for #${issue} with no user questions.`,

@@ -169,6 +169,22 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(cli.stdout).not.toMatch(/\/skill:/);
   });
 
+  it('workerPrompt inlines extra workflows for implement and deliver', () => {
+    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+  });
+
+  it('write-run CLI persists run state', () => {
+    const root = makeSpecDir();
+    const run = { schemaVersion: 1 };
+    const cli = spawnSync(process.execPath, [SCRIPT, 'write-run', JSON.stringify(run)], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    expect(cli.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/run.json'), 'utf8'))).toEqual(run);
+  });
+
   it('specStatus keeps a worktree Draft unapproved when origin is Approved', () => {
     const { root } = makeGitRepo();
     const specDir = path.join(root, 'specs', '42-add-x');
