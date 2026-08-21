@@ -1,0 +1,88 @@
+# Requirements: Reduce injected SDLC workflow tokens while keeping file-command surfaces
+
+**Issue**: #193
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+
+---
+
+## User Story
+
+**As a** nmg-sdlc plugin author
+**I want** injected `/sdlc-*` workflow text to stop carrying documentation and duplicated policy that code already owns
+**So that** every automated and interactive command spends fewer tokens before any real work starts
+
+---
+
+## Background
+
+`workflowBody()` in `src/sdlc-workflows.mjs` only strips YAML frontmatter, so every `## Integration with SDLC Workflow` section is copied into `commands/*.md` via `renderAutomatedCommandMarkdown` and into Herdr worker prompts via `workerPrompt`. `scripts/skill-inventory-audit.mjs` `validateSkillStructure` and `AGENTS.md` currently require that heading. `/sdlc-status` already delegates to `scripts/sdlc-status.mjs`, but `workflows/status/WORKFLOW.md` restates JSON, recommendation, and read-only policy the script implements.
+
+Public command behavior is unchanged. Prompts and workflow prose may shrink only when the same observable outcomes remain in code, README, or scripts. If a controller cannot yet reproduce a current branch, keep that branch in the compact workflow instead of dropping it.
+
+---
+
+## Acceptance Criteria
+
+### AC1: Integration sections leave workflow files and injected prompts
+
+**Given** `workflows/*/WORKFLOW.md` after this change
+**When** `workflowBody()` or `renderAutomatedCommandMarkdown()` produces injected text
+**Then** neither the workflow files nor the injected text contain `## Integration with SDLC Workflow`
+**And** `commands/sdlc-*.md` stay byte-identical to `renderAutomatedCommandMarkdown` for `AUTOMATED_COMMANDS`
+**And** `README.md` still contains the primary user journey diagram
+
+### AC2: Audit no longer requires Integration sections
+
+**Given** `validateSkillStructure` / skill-inventory audit
+**When** it runs on the repo
+**Then** missing Integration sections are not errors
+**And** `AGENTS.md` no longer requires the section
+**And** tests no longer fail a workflow solely for omitting that heading
+
+### AC3: Status command output is unchanged
+
+**Given** `/sdlc-status` or `/sdlc-status --json` against the same project
+**When** the file command expands and the model runs the documented script
+**Then** `node scripts/sdlc-status.mjs --project <root> [--json]` is still the only status implementation
+**And** stdout, exit codes, `--json` shape, Depends-on ready/blocked reporting, and recommended next commands are produced by that script, not dropped from the product
+**And** the compact workflow still documents `Usage: /sdlc-status [--json]`, still rejects any other argument with that usage line, still resolves `git rev-parse --show-toplevel`, and still says pass script stdout through unchanged
+
+### AC4: Rendered-byte ceilings exist without shrinking workers
+
+**Given** the post-change `workflowBody` and `workerPrompt` byte lengths
+**When** contract tests run
+**Then** each automated command body and each `workerPrompt` step (`start`, `implement`, `verify`, `deliver`) has a `toBeLessThanOrEqual` ceiling equal to the measured post-change size plus 256 bytes
+**And** `workerPrompt({ step: 'deliver', issue: 42 })` still contains `# Address PR Comments`
+**And** `workerPrompt({ step: 'implement', issue: 42 })` still contains `# Simplify`
+**And** start/write-code/verify-code/open-pr behavioral steps other than the deleted Integration section remain in those workflows
+
+### AC5: File-command surface and interactive surface unchanged
+
+**Given** print or RPC execution of an automated `/sdlc-*`
+**When** this issue lands
+**Then** `src/extension.ts` still does not `registerCommand` for `AUTOMATED_COMMANDS`
+**And** there is still no `commands/sdlc-write-spec.md`
+**And** interactive commands still rewrite to native `/plan` in the TUI and still fail closed without UI
+
+---
+
+## Functional Requirements
+
+| ID | Requirement | Priority | Notes |
+|----|-------------|----------|-------|
+| FR1 | Delete `## Integration with SDLC Workflow` sections from all `workflows/*/WORKFLOW.md` files, including `migrate-project`. | Must | Heading plus body through next same-or-higher heading or EOF. Do not rewrite remaining workflow steps. |
+| FR2 | Update `AGENTS.md`, `steering/tech.md`, `steering/structure.md`, `scripts/skill-inventory-audit.mjs`, and `scripts/__tests__/skill-inventory-audit.test.mjs` so the section is not required. | Must | Remove the Integration check from `validateSkillStructure`. If that leaves the function as `return []` only, delete the function and its `runCheck` `structureErrors` path. |
+| FR3 | Compact `workflows/status/WORKFLOW.md` to argument validation + script invocation + pass-through. Do not change `scripts/sdlc-status.mjs` recommendation or JSON behavior. | Must | Keep Usage line, non-zero reject of other args, `git rev-parse --show-toplevel`, and pass-through. |
+| FR4 | Add exported `renderedPromptBytes` next to `workflowBody` (no equivalent exists) and tests with per-surface ceilings. | Must | UTF-8 `Buffer.byteLength`. Ceilings = measured post-change size + 256. |
+| FR5 | Do not add `run` to `sdlc-execute.mjs`. Do not extract `startIssue()`. Do not change `STEP_EXTRA_WORKFLOWS`. | Must | `implement: ['simplify']`, `deliver: ['address-pr-comments']` stay. |
+| FR6 | No reduction of function: every current public command, handoff reasonCode, and script CLI still exists and still accepts the same inputs. | Must | README primary journey remains. |
+
+---
+
+## Change History
+
+| Issue | Date | Summary |
+|-------|------|---------|
+| #193 | 2026-08-21 | Initial feature spec |

@@ -1,0 +1,59 @@
+**Issue**: #193
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+
+# File: specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces/feature.gherkin
+#
+# Generated from: specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces/requirements.md
+Feature: Reduce injected SDLC workflow tokens while keeping file-command surfaces
+  As a nmg-sdlc plugin author
+  I want injected /sdlc-* workflow text to stop carrying documentation and duplicated policy that code already owns
+  So that every automated and interactive command spends fewer tokens before any real work starts
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: Integration sections leave workflow files and injected prompts
+    Given workflows/*/WORKFLOW.md after this change
+    When workflowBody() or renderAutomatedCommandMarkdown() produces injected text
+    Then neither the workflow files nor the injected text contain "## Integration with SDLC Workflow"
+    And commands/sdlc-*.md stay byte-identical to renderAutomatedCommandMarkdown for AUTOMATED_COMMANDS
+    And README.md still contains the primary user journey diagram
+
+  @SCN002
+  Scenario: Audit no longer requires Integration sections
+    Given validateSkillStructure / skill-inventory audit
+    When it runs on the repo
+    Then missing Integration sections are not errors
+    And AGENTS.md no longer requires the section
+    And tests no longer fail a workflow solely for omitting that heading
+
+  # --- Alternative Paths ---
+
+  @SCN003
+  Scenario: Status command output is unchanged
+    Given /sdlc-status or /sdlc-status --json against the same project
+    When the file command expands and the model runs the documented script
+    Then node scripts/sdlc-status.mjs --project <root> [--json] is still the only status implementation
+    And stdout, exit codes, --json shape, Depends-on ready/blocked reporting, and recommended next commands are produced by that script
+    And the compact workflow still documents "Usage: /sdlc-status [--json]", rejects any other argument with that usage line, resolves git rev-parse --show-toplevel, and says pass script stdout through unchanged
+
+  @SCN004
+  Scenario: Rendered-byte ceilings exist without shrinking workers
+    Given the post-change workflowBody and workerPrompt byte lengths
+    When contract tests run
+    Then each automated command body and each workerPrompt step start, implement, verify, deliver has a toBeLessThanOrEqual ceiling equal to the measured post-change size plus 256 bytes
+    And workerPrompt({ step: 'deliver', issue: 42 }) still contains "# Address PR Comments"
+    And workerPrompt({ step: 'implement', issue: 42 }) still contains "# Simplify"
+    And start/write-code/verify-code/open-pr behavioral steps other than the deleted Integration section remain
+
+  # --- Edge Cases ---
+
+  @SCN005
+  Scenario: File-command surface and interactive surface unchanged
+    Given print or RPC execution of an automated /sdlc-*
+    When this issue lands
+    Then src/extension.ts still does not registerCommand for AUTOMATED_COMMANDS
+    And there is still no commands/sdlc-write-spec.md
+    And interactive commands still rewrite to native /plan in the TUI and still fail closed without UI
