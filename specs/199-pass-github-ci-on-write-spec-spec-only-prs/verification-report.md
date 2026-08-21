@@ -19,11 +19,11 @@
 | Error Handling | 5 |
 | **Overall** | **5.0** |
 
-### Implementation Status: PR Evidence Pending
+### Implementation Status: Pass
 
 **Total Issues**: 0
 
-The implementation completes all local obligations for AC1-AC4. The managed gate has a narrowly bounded `spec-only` reduced-evidence mode, the archive verifier accepts additional valid approved packages while retaining the required 16-directory archive, and regression coverage preserves full evidence requirements for implementation PRs. The exact pull-request-only contribution-gate and contract-verification results remain pending because no pull request exists for the current branch.
+The implementation satisfies all local and declared pull-request evidence obligations for AC1-AC4. The managed gate has a narrowly bounded `spec-only` reduced-evidence mode, the archive verifier accepts additional valid approved packages while retaining the required 16-directory archive, and regression coverage preserves full evidence requirements for implementation PRs. The exact draft head passed both declared pull-request checks.
 
 ---
 
@@ -37,13 +37,13 @@ The implementation completes all local obligations for AC1-AC4. The managed gate
 - Regression: AC [AC4]; FR [FR5]; scenarios [SCN004]
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":199,"specPath":"specs/199-pass-github-ci-on-write-spec-spec-only-prs","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3"],"functionalRequirements":["FR1","FR2","FR3","FR4"],"tasks":["T001","T002","T003"],"scenarios":["SCN001","SCN002","SCN003"]},"regression":{"acceptanceCriteria":["AC4"],"functionalRequirements":["FR5"],"scenarios":["SCN004"]}} -->
-<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":199,"specPath":"specs/199-pass-github-ci-on-write-spec-spec-only-prs","local":{"acceptanceCriteria":["AC1","AC2","AC3"],"functionalRequirements":["FR1","FR2","FR3","FR4"],"tasks":["T001","T002","T003"],"scenarios":["SCN001","SCN002","SCN003"],"regression":{"acceptanceCriteria":["AC4"],"functionalRequirements":["FR5"],"scenarios":["SCN004"]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"nmg-sdlc contribution gate","event":"pull_request","acceptanceCriteria":["AC1","AC2"]},{"kind":"required_check","name":"nmg-sdlc contract verification","event":"pull_request","acceptanceCriteria":["AC1","AC2"]}]} -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_satisfied","issueNumber":199,"specPath":"specs/199-pass-github-ci-on-write-spec-spec-only-prs","local":{"acceptanceCriteria":["AC1","AC2","AC3"],"functionalRequirements":["FR1","FR2","FR3","FR4"],"tasks":["T001","T002","T003"],"scenarios":["SCN001","SCN002","SCN003"],"regression":{"acceptanceCriteria":["AC4"],"functionalRequirements":["FR5"],"scenarios":["SCN004"]},"tests":"pass","steeringGates":"pass"},"evidence":[{"kind":"required_check","name":"nmg-sdlc contribution gate","event":"pull_request","acceptanceCriteria":["AC1","AC2"],"headSha":"4ce29cb9bbe754eb6f3bddd0308469c65a34727c","conclusion":"SUCCESS","url":"https://github.com/Nunley-Media-Group/nmg-sdlc/actions/runs/32495954113"},{"kind":"required_check","name":"nmg-sdlc contract verification","event":"pull_request","acceptanceCriteria":["AC1","AC2"],"headSha":"4ce29cb9bbe754eb6f3bddd0308469c65a34727c","conclusion":"SUCCESS","url":"https://github.com/Nunley-Media-Group/nmg-sdlc/actions/runs/32495947776"}]} -->
 
 ## Delivery Validation
 
 - Local verification: Pass
-- PR evidence: Pending — required pull-request checks `nmg-sdlc contribution gate` and `nmg-sdlc contract verification`
-- Existing pull request: None found for branch `199-pass-github-ci-on-write-spec-spec-only-prs`
+- PR evidence: Satisfied for draft head `4ce29cb9bbe754eb6f3bddd0308469c65a34727c`
+- Existing pull request: [#202](https://github.com/Nunley-Media-Group/nmg-sdlc/pull/202)
 
 ---
 
@@ -51,8 +51,8 @@ The implementation completes all local obligations for AC1-AC4. The managed gate
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Contribution gate and contract verification succeed on spec-only write-spec PRs | PR Evidence Pending | Local evaluator passes the exact title/body/four-file shape in `scripts/__tests__/exercise-contribution-gate.test.mjs:430-446`; `verifySpecArchive` accepts an additional approved package in `scripts/__tests__/current-specs.test.mjs:34-44`; `node scripts/verify-current-specs.mjs` passed with 17 genuine specs and 16 required archive entries. Hosted PR check conclusions remain pending. |
-| AC2 | Spec-only squash-merge succeeds and leaves the issue open | PR Evidence Pending | Existing publication contract uses the exact non-closing body and `gh pr merge --squash --delete-branch` in `scripts/publish-approved-spec.mjs:219-242`; the regression test at `scripts/__tests__/publish-approved-spec.test.mjs:205-224` passed in the full suite. Actual hosted merge remains downstream of the two pending required checks. |
+| AC1 | Contribution gate and contract verification succeed on spec-only write-spec PRs | Pass | Local evaluator passes the exact title/body/four-file shape in `scripts/__tests__/exercise-contribution-gate.test.mjs:430-446`; `verifySpecArchive` accepts an additional approved package in `scripts/__tests__/current-specs.test.mjs:34-44`; draft head `4ce29cb9bbe754eb6f3bddd0308469c65a34727c` passed both declared GitHub checks. |
+| AC2 | Spec-only squash-merge succeeds and leaves the issue open | Pass | Existing publication contract uses the exact non-closing body and `gh pr merge --squash --delete-branch` in `scripts/publish-approved-spec.mjs:219-242`; the regression test at `scripts/__tests__/publish-approved-spec.test.mjs:205-224` passed in the full suite; the declared merge-blocking checks passed on the exact draft head. |
 | AC3 | Consumer contribution gate succeeds for the same spec-only PR shape | Pass | Managed version 6 template contains the exact predicate in `references/contribution-gate.md:278-294`; live workflow mirrors it at `.github/workflows/nmg-sdlc-contribution-gate.yml:239-255`; full contract suite proves template/live byte identity and exact evaluator success. |
 | AC4 | Implementation PRs still require full evidence | Pass | `scripts/__tests__/exercise-contribution-gate.test.mjs:449-471` proves docs-only remains invalid for spec paths and an ordinary implementation scenario without verification still emits `Missing specific verification`. |
 
@@ -126,8 +126,8 @@ The managed gate remains canonical in `references/contribution-gate.md` and is c
 
 | Acceptance Criterion | Has Scenario | Executable Jest Equivalent | Local Result |
 |---------------------|-------------|----------------------------|--------------|
-| AC1 | Yes, SCN001 | Yes | Pass; hosted checks pending |
-| AC2 | Yes, SCN002 | Yes | Pass; hosted merge pending |
+| AC1 | Yes, SCN001 | Yes | Pass |
+| AC2 | Yes, SCN002 | Yes | Pass |
 | AC3 | Yes, SCN003 | Yes | Pass |
 | AC4 | Yes, SCN004 | Yes | Pass |
 
@@ -153,9 +153,9 @@ Exercise testing was not applicable. The diff contains no changes under `workflo
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check` — clean, 127 items mapped. |
 | Current spec archive | Pass | `node scripts/verify-current-specs.mjs` — 17 genuine issue specs, 16 required archive entries, no errors. |
 | Git hygiene | Pass | `git diff --check` — no output. |
-| PR-only required checks | Pending | No current-branch PR exists; exact pull-request-event results are declared in the readiness marker. |
+| PR-only required checks | Pass | Draft head `4ce29cb9bbe754eb6f3bddd0308469c65a34727c` passed `nmg-sdlc contribution gate` and `nmg-sdlc contract verification`. |
 
-**Gate Summary**: 4/4 local gates passed; 0 failed; 2 declared PR-only check results pending.
+**Gate Summary**: 6/6 local and declared PR-only gates passed; 0 failed.
 
 ---
 
@@ -165,7 +165,7 @@ No verification-time fixes were required.
 
 ## Remaining Issues
 
-No local implementation, architecture, security, performance, testing, or error-handling defects remain. The only incomplete evidence is the allowlisted pull-request-only execution of the two required GitHub checks.
+No implementation, architecture, security, performance, testing, error-handling, or declared PR-evidence defects remain.
 
 ---
 
@@ -178,14 +178,10 @@ No local implementation, architecture, security, performance, testing, or error-
 
 ## Recommendations Summary
 
-### Before PR (Must)
+### Before final delivery
 
-- None; local verification is complete.
-
-### During controlled PR delivery
-
-- Run the exact `pull_request` event checks named `nmg-sdlc contribution gate` and `nmg-sdlc contract verification`.
-- Re-run verification for the exact draft head and require both declared checks to succeed before squash-merge.
+- Commit and push this satisfied verification report.
+- Re-run both declared checks on the resulting final head before exact-head merge.
 
 ---
 
@@ -204,6 +200,6 @@ No local implementation, architecture, security, performance, testing, or error-
 
 ## Overall Status
 
-**PR Evidence Pending**
+**Pass**
 
-All local acceptance, regression, architecture, and steering-gate obligations pass. Proceed with `/sdlc-open-pr #199` so the two declared pull-request-only checks can run and the exact-head squash-merge can be proven.
+All local acceptance, regression, architecture, and steering-gate obligations pass. Both declared pull-request-only checks passed on draft head `4ce29cb9bbe754eb6f3bddd0308469c65a34727c`; proceed through the controlled final-head validation and exact-head merge.
