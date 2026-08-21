@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T02:40:19.169Z",
+  "generated_at": "2026-08-21T03:26:08.060Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -175,69 +175,69 @@
     },
     {
       "id": "cbc05ff950ed",
-      "source_before": "references/contribution-gate.md:347",
+      "source_before": "references/contribution-gate.md:379",
       "normalized": "classify the approved workflow path before writing:",
-      "destination": "references/contribution-gate.md:347"
+      "destination": "references/contribution-gate.md:379"
     },
     {
       "id": "5170ccb2e3ab",
-      "source_before": "references/contribution-gate.md:349",
+      "source_before": "references/contribution-gate.md:381",
       "normalized": "| state | detection | action | status |",
-      "destination": "references/contribution-gate.md:349",
+      "destination": "references/contribution-gate.md:381",
       "additional_destinations": [
         "references/issue-form.md:21"
       ]
     },
     {
       "id": "77e0eb1f3c00",
-      "source_before": "references/contribution-gate.md:351",
+      "source_before": "references/contribution-gate.md:383",
       "normalized": "| missing workflow | approved path absent | create .github/workflows/ and write ",
-      "destination": "references/contribution-gate.md:351"
+      "destination": "references/contribution-gate.md:383"
     },
     {
       "id": "315a64db3b91",
-      "source_before": "references/contribution-gate.md:352",
+      "source_before": "references/contribution-gate.md:384",
       "normalized": "| current managed workflow | marker present and version equals current | leave u",
-      "destination": "references/contribution-gate.md:352"
+      "destination": "references/contribution-gate.md:384"
     },
     {
       "id": "2192e94d4b53",
-      "source_before": "references/contribution-gate.md:353",
+      "source_before": "references/contribution-gate.md:385",
       "normalized": "| outdated managed workflow | marker present and numeric version lower than curr",
-      "destination": "references/contribution-gate.md:353"
+      "destination": "references/contribution-gate.md:385"
     },
     {
       "id": "995606a2fd61",
-      "source_before": "references/contribution-gate.md:354",
+      "source_before": "references/contribution-gate.md:386",
       "normalized": "| future managed workflow | marker present and numeric version higher than curre",
-      "destination": "references/contribution-gate.md:354"
+      "destination": "references/contribution-gate.md:386"
     },
     {
       "id": "f54c5e1e9959",
-      "source_before": "references/contribution-gate.md:355",
+      "source_before": "references/contribution-gate.md:387",
       "normalized": "| unmanaged path collision | approved path exists without marker | leave unchang",
-      "destination": "references/contribution-gate.md:355"
+      "destination": "references/contribution-gate.md:387"
     },
     {
       "id": "fc2fa1c0b2ca",
-      "source_before": "references/contribution-gate.md:357",
+      "source_before": "references/contribution-gate.md:389",
       "normalized": "preserve every unrelated workflow under .github/workflows/ byte-for-byte. do not",
-      "destination": "references/contribution-gate.md:357"
+      "destination": "references/contribution-gate.md:389"
     },
     {
       "id": "44f16e69f709",
-      "source_before": "references/contribution-gate.md:368",
+      "source_before": "references/contribution-gate.md:400",
       "normalized": "return this stable result shape to the calling skill:",
-      "destination": "references/contribution-gate.md:368",
+      "destination": "references/contribution-gate.md:400",
       "additional_destinations": [
         "references/issue-form.md:73"
       ]
     },
     {
       "id": "40a524f34bf4",
-      "source_before": "references/contribution-gate.md:377",
+      "source_before": "references/contribution-gate.md:409",
       "normalized": "use these exact status words so summaries and tests can compare results consiste",
-      "destination": "references/contribution-gate.md:377",
+      "destination": "references/contribution-gate.md:409",
       "additional_destinations": [
         "references/issue-form.md:82"
       ]
