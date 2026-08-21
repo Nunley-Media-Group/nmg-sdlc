@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-20T03:10:06.589Z",
+  "generated_at": "2026-08-21T02:40:19.169Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -705,76 +705,100 @@
       "destination": "skills/start-issue/SKILL.md:89"
     },
     {
-      "id": "8dc414a245b0",
+      "id": "d6ff913ed2b5",
       "source_before": "skills/start-issue/SKILL.md:90",
-      "normalized": "```bash",
+      "normalized": "resolve the repository default branch:",
       "destination": "skills/start-issue/SKILL.md:90"
     },
     {
-      "id": "482f645d60b8",
+      "id": "8dc414a245b0",
       "source_before": "skills/start-issue/SKILL.md:91",
-      "normalized": "gh issue develop n --checkout --name ${expectedbranch}",
-      "destination": "skills/start-issue/SKILL.md:91"
+      "normalized": "```bash",
+      "destination": "skills/start-issue/SKILL.md:91",
+      "additional_destinations": [
+        "skills/start-issue/SKILL.md:95"
+      ]
     },
     {
-      "id": "bbc0aff80688",
+      "id": "5806082da195",
       "source_before": "skills/start-issue/SKILL.md:92",
-      "normalized": "```",
+      "normalized": "defaultbranch=$(gh repo view --json defaultbranchref --jq .defaultbranchref.name",
       "destination": "skills/start-issue/SKILL.md:92"
     },
     {
-      "id": "597d8f9345a0",
+      "id": "bbc0aff80688",
       "source_before": "skills/start-issue/SKILL.md:93",
+      "normalized": "```",
+      "destination": "skills/start-issue/SKILL.md:93",
+      "additional_destinations": [
+        "skills/start-issue/SKILL.md:97"
+      ]
+    },
+    {
+      "id": "afc9d2eb6974",
+      "source_before": "skills/start-issue/SKILL.md:94",
+      "normalized": "if empty or the command fails: reasoncode defaultbranchunreadable, failed, inter",
+      "destination": "skills/start-issue/SKILL.md:94"
+    },
+    {
+      "id": "2404397ea153",
+      "source_before": "skills/start-issue/SKILL.md:96",
+      "normalized": "gh issue develop n --checkout --name ${expectedbranch} --base ${defaultbranch}",
+      "destination": "skills/start-issue/SKILL.md:96"
+    },
+    {
+      "id": "597d8f9345a0",
+      "source_before": "skills/start-issue/SKILL.md:98",
       "normalized": "verify afterwards that git branch --show-current === expectedbranch. if not, fai",
-      "destination": "skills/start-issue/SKILL.md:93"
+      "destination": "skills/start-issue/SKILL.md:98"
     },
     {
       "id": "af7c92dca5e1",
-      "source_before": "skills/start-issue/SKILL.md:97",
+      "source_before": "skills/start-issue/SKILL.md:102",
       "normalized": "do not fail the handoff on errors here.",
-      "destination": "skills/start-issue/SKILL.md:97"
+      "destination": "skills/start-issue/SKILL.md:102"
     },
     {
       "id": "a8ee7e7c0552",
-      "source_before": "skills/start-issue/SKILL.md:99",
+      "source_before": "skills/start-issue/SKILL.md:104",
       "normalized": "use node to attempt discovery + mutation (condensed from project rules, wrapped)",
-      "destination": "skills/start-issue/SKILL.md:99"
+      "destination": "skills/start-issue/SKILL.md:104"
     },
     {
       "id": "890e39194d73",
-      "source_before": "skills/start-issue/SKILL.md:124",
+      "source_before": "skills/start-issue/SKILL.md:129",
       "normalized": "failure here is ignored.",
-      "destination": "skills/start-issue/SKILL.md:124"
+      "destination": "skills/start-issue/SKILL.md:129"
     },
     {
       "id": "d5d588b9c65f",
-      "source_before": "skills/start-issue/SKILL.md:128",
+      "source_before": "skills/start-issue/SKILL.md:133",
       "normalized": "next = \"implement\"",
-      "destination": "skills/start-issue/SKILL.md:128"
+      "destination": "skills/start-issue/SKILL.md:133"
     },
     {
       "id": "79b3d12fa1b6",
-      "source_before": "skills/start-issue/SKILL.md:130",
+      "source_before": "skills/start-issue/SKILL.md:135",
       "normalized": "a leftover spike label does not skip implement/verify.",
-      "destination": "skills/start-issue/SKILL.md:130"
+      "destination": "skills/start-issue/SKILL.md:135"
     },
     {
       "id": "88468ec7d793",
-      "source_before": "skills/start-issue/SKILL.md:134",
+      "source_before": "skills/start-issue/SKILL.md:139",
       "normalized": "always write .omp/sdlc/handoffs/${n}-start.json",
-      "destination": "skills/start-issue/SKILL.md:134"
+      "destination": "skills/start-issue/SKILL.md:139"
     },
     {
       "id": "fd132b347f21",
-      "source_before": "skills/start-issue/SKILL.md:158",
+      "source_before": "skills/start-issue/SKILL.md:163",
       "normalized": "output summary:",
-      "destination": "skills/start-issue/SKILL.md:158"
+      "destination": "skills/start-issue/SKILL.md:163"
     },
     {
       "id": "a6327a6f6d37",
-      "source_before": "skills/start-issue/SKILL.md:170",
+      "source_before": "skills/start-issue/SKILL.md:175",
       "normalized": "handoff is the contract. print the nmg line exactly.",
-      "destination": "skills/start-issue/SKILL.md:170"
+      "destination": "skills/start-issue/SKILL.md:175"
     }
   ]
 }
