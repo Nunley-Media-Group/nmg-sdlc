@@ -12,7 +12,6 @@ import {
   scan,
   findTrackedFiles,
   validateSkillMetadata,
-  validateSkillStructure,
 } from '../skill-inventory-audit.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -323,40 +322,6 @@ describe('validateSkillMetadata', () => {
   });
 });
 
-describe('validateSkillStructure', () => {
-  test('current workflows include Integration with SDLC Workflow sections', () => {
-    expect(validateSkillStructure(REPO_ROOT)).toEqual([]);
-  });
-
-  test('flags WORKFLOW.md files missing Integration with SDLC Workflow', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'structure-'));
-    const skillDir = path.join(tmpDir, 'workflows', 'missing-section');
-    try {
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'WORKFLOW.md'), [
-        '---',
-        'name: missing-section',
-        'description: "Missing the required workflow integration section."',
-        '---',
-        '',
-        '# Missing Section',
-        '',
-        '## Workflow',
-        'Do work.',
-      ].join('\n'));
-
-      expect(validateSkillStructure(tmpDir)).toEqual([
-        {
-          file: 'workflows/missing-section/WORKFLOW.md',
-          section: 'Integration with SDLC Workflow',
-          message: 'missing required Integration with SDLC Workflow section',
-        },
-      ]);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Canary fixture viacodex exec (exit codes)

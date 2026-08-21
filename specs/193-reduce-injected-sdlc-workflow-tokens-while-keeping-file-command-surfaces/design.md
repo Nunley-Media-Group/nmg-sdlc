@@ -14,3 +14,7 @@ This issue deletes the Integration heading from every workflow file so it leaves
 
 ## Architecture
 
+Prompt submission remains workflow-owned. A stalled atomic prompt is recoverable only when Herdr's detection view shows the exact prompt pasted but not submitted: send one logical `enter`, observe `working`, then wait for a settled state. The existing handoff remains the source of truth; failed recovery keeps the pane open.
+
+Skill-bundled authoring resolves the installed `skill://skill-creator` URI through OMP. Repository-local `skills/skill-creator/SKILL.md` discovery is not part of the contract.
+

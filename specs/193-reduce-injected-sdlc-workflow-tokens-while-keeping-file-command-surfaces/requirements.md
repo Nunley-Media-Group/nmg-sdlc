@@ -66,6 +66,21 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 **And** there is still no `commands/sdlc-write-spec.md`
 **And** interactive commands still rewrite to native `/plan` in the TUI and still fail closed without UI
 
+### AC6: Stalled pasted prompts recover without duplicate submission
+
+**Given** `herdr agent prompt s<N>-<step> <exact prompt> --wait` returns `agent_prompt_stalled`
+**When** the exact prompt is visibly pasted but Enter was not submitted
+**Then** execute sends one logical `enter`, proves the worker reaches `working`, and waits for a settled state
+**And** execute applies the ordinary handoff close-or-keep rules after settlement
+**And** execute keeps the pane and fails only when recovery cannot start or settle correctly
+
+### AC7: Installed skill creator resolves without a repository-local copy
+
+**Given** implementation or verification must edit a skill-bundled path
+**When** the repository has no `skills/skill-creator/SKILL.md`
+**Then** the worker resolves and reads `skill://skill-creator`
+**And** absence of the repository-local directory does not produce `skill_creator_missing`
+
 ---
 
 ## Functional Requirements
@@ -78,6 +93,8 @@ Public command behavior is unchanged. Prompts and workflow prose may shrink only
 | FR4 | Add exported `renderedPromptBytes` next to `workflowBody` (no equivalent exists) and tests with per-surface ceilings. | Must | UTF-8 `Buffer.byteLength`. Ceilings = measured post-change size + 256. |
 | FR5 | Do not add `run` to `sdlc-execute.mjs`. Do not extract `startIssue()`. Do not change `STEP_EXTRA_WORKFLOWS`. | Must | `implement: ['simplify']`, `deliver: ['address-pr-comments']` stay. |
 | FR6 | No reduction of function: every current public command, handoff reasonCode, and script CLI still exists and still accepts the same inputs. | Must | README primary journey remains. |
+| FR7 | Recover a visibly pasted `agent_prompt_stalled` prompt with one logical Enter, then wait for `working` and settlement before applying handoff rules. | Must | Never resend the prompt; failed recovery keeps the pane open. |
+| FR8 | Resolve and read `skill://skill-creator` for skill-bundled edits instead of probing a repository-local path. | Must | Absence of repository-local `skills/` is not a failure. |
 
 ---
 

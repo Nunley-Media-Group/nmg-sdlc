@@ -13,7 +13,8 @@
 | Workflows | 2 | [ ] |
 | Audit / steering | 2 | [ ] |
 | Ceilings / surface | 2 | [ ] |
-| **Total** | 6 | |
+| Worker reliability | 2 | [ ] |
+| **Total** | 8 | |
 
 ---
 
@@ -94,7 +95,31 @@
 - [ ] `README.md` still contains the `/sdlc-draft-issue [need]` → `/sdlc-write-spec #N` → `/sdlc-execute [#N …]` diagram
 - [ ] Interactive rewrite still uses `/plan` and still fails closed without UI
 
+### T007: Recover stalled execute prompt submission
+
+**File(s)**: `workflows/execute/WORKFLOW.md`, `scripts/__tests__/sdlc-execute.test.mjs`, `commands/sdlc-execute.md`
+**Type**: Modify
+**Depends**: T005
+**Acceptance**:
+- [ ] A visibly pasted `agent_prompt_stalled` prompt is submitted with `herdr agent send-keys s<N>-<step> enter`
+- [ ] Execute proves the worker reaches `working`, waits for settlement, and then applies ordinary handoff rules
+- [ ] Failed recovery keeps the worker pane open and fails the step
+- [ ] The prompt is never resent
+- [ ] The generated execute file command matches its workflow source
+
+### T008: Resolve installed skill creator
+
+**File(s)**: `workflows/write-code/WORKFLOW.md`, `workflows/write-code/references/plan-mode.md`, `workflows/verify-code/WORKFLOW.md`, `workflows/verify-code/references/autofix-loop.md`, `agents/spec-implementer.md`, `steering/product.md`, `steering/tech.md`, `steering/structure.md`, `scripts/__tests__/skill-creator-resolution.test.mjs`
+**Type**: Create | Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] Skill-bundled edits resolve and read `skill://skill-creator`
+- [ ] Contracts no longer probe `skills/skill-creator/SKILL.md`
+- [ ] A missing repository-local `skills/` directory does not produce `skill_creator_missing`
+- [ ] Focused tests cover installed-skill resolution
+
 ---
+
 
 ## Dependency Graph
 

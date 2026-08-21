@@ -44,7 +44,7 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
-  Fix findings where safe and local: apply smallest fixes (route skill-bundled via the skill-creator file on disk if present at skills/skill-creator/SKILL.md, else note). Re-run affected verification after fixes. Unfixable remain in report.
+  Fix findings where safe and local: apply the smallest fix, resolving and reading `skill://skill-creator` before any skill-bundled edit. Re-run affected verification after fixes. Unfixable findings remain in the report.
 
 ## Generate and Persist Report
 
@@ -72,10 +72,3 @@ Write handoff .omp/sdlc/handoffs/N-verify.json with the decided values, summary 
 Print NMG_SDLC_HANDOFF: ...
 
 Report to stdout the status and next step using /sdlc-open-pr #N on success path.
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-                                                              ▲ You are here (verify by architecture-reviewer)
-```

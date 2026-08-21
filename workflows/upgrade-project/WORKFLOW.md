@@ -62,12 +62,3 @@ Approved plan execution runs the helper script with the chosen scope (the skill 
 ## Generated
 
 Assets use exact v3 invocations list.
-
-## Integration with SDLC Workflow
-
-Utility, run after plugin updates or from onboard.
-
-```
-/sdlc-upgrade-project  →  (plan + approved helper)  →  /sdlc-draft-issue
-     ▲ You are here
-```

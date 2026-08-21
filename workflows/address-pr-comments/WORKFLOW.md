@@ -57,10 +57,3 @@ If this skill is top-level and finishes clean, handoff passed step deliver? But 
 For direct: produce appropriate handoff.
 
 Always end by writing handoff when it owns the step.
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-                                                                                       ▲ address bots inline inside deliver
-```

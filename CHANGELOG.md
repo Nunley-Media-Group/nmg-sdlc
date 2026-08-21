@@ -10,6 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Changed
+
+- Reduced injected SDLC prompt size by removing workflow Integration sections, compacting the status workflow, and enforcing post-render UTF-8 byte ceilings.
+- Skill-bundled worker edits now resolve the installed `skill://skill-creator` contract instead of requiring a repository-local skill copy.
+
+### Fixed
+
+- `/sdlc-execute` now recovers a visibly pasted `agent_prompt_stalled` worker prompt by submitting Enter once and waiting for the worker to start and settle before applying handoff rules.
+
 ## [3.1.0] - 2026-08-21
 
 ### Changed (BREAKING)

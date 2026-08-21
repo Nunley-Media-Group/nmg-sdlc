@@ -14,7 +14,3 @@ Print exactly:
 Run /sdlc-upgrade-project
 
 Stop. Do not perform any work.
-
-## Integration with SDLC Workflow
-
-Deprecated stub outside the pipeline. Use /sdlc-upgrade-project for upgrades.

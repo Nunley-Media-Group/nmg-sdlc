@@ -22,6 +22,7 @@ export const CURRENT_SPEC_DIRECTORIES = [
   '125-add-github-actions-contribution-gates-to-project-setup',
   '145-add-lifecycle-status-command-for-active-sdlc-work',
   '151-remove-the-automated-sdlc-loop-and-unattended-mode',
+  '193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces',
 ].sort();
 
 const WORKFLOW_CAPABILITY = new Map([

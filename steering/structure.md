@@ -120,9 +120,6 @@ Read `references/detail.md` when the detailed branch is reached.
 3. Apply the approved scope.
 4. Verify postconditions.
 
-## Integration with SDLC Workflow
-
-Describe upstream and downstream contracts.
 ```
 
 Skill frontmatter contains only `name` and `description`. Detailed content belongs in on-demand references so entrypoints remain under 500 lines and context-efficient.
@@ -151,7 +148,7 @@ The example version is illustrative. `VERSION` and the live `package.json` versi
 
 ### Workflow-Authoring Boundary
 
-Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must go through the skill-creator file if present on disk, else fail with `skill_creator_missing`. The v3 landing of this repository edits files directly.
+Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must first resolve and read `skill://skill-creator`, then follow its editing procedure. A repository-local `skills/` directory is not required. The v3 landing of this repository edits files directly.
 
 ### Interactive-Gate Boundary
 
@@ -190,7 +187,7 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 
 | Extension | Location | Contract |
 |-----------|----------|----------|
-| New public workflow | `workflows/{name}/WORKFLOW.md` | Add inventory/docs/tests and Integration section |
+| New public workflow | `workflows/{name}/WORKFLOW.md` | Add inventory, documentation, and tests |
 | Shared rule | `references/{name}.md` | Must have at least two consumers |
 | One-workflow detail | `workflows/{name}/references/` | Load only at the triggering branch |
 | Generated structure | `workflows/{name}/templates/` | Keep placeholders explicit and stack-agnostic |

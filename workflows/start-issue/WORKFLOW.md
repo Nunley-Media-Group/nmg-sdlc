@@ -173,10 +173,3 @@ Next step: Run /sdlc-execute or continue with /sdlc-write-spec #N if spec missin
 ```
 
 Handoff is the contract. Print the NMG line exactly.
-
-## Integration with SDLC Workflow
-
-```
-/sdlc-draft-issue [need] → /sdlc-write-spec #N → /sdlc-execute [#N …] → /sdlc-status
-                          ▲ You are here (automated)
-```

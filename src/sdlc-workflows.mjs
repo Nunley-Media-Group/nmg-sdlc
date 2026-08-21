@@ -19,3 +19,7 @@ export function workflowBody(name, root = packageRoot) {
   if (!existsSync(file)) throw new Error(`missing workflow: ${name}`);
   return stripWorkflowFrontmatter(readFileSync(file, "utf8"));
 }
+
+export function renderedPromptBytes(text) {
+  return Buffer.byteLength(String(text), "utf8");
+}

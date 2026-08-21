@@ -126,11 +126,3 @@ Read `../../references/interactive-gates.md` (replaced by native /plan + ask + x
 - No implementation details in bodies.
 
 - Scope explicit.
-
-## Integration with SDLC Workflow
-```
-/sdlc-draft-issue [need]  →  (approved plan executes gh creates)  →  /sdlc-write-spec #N
-     ▲ You are here
-```
-
-Next-step text after plan approval/execution: /sdlc-write-spec #N

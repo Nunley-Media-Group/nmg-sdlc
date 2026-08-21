@@ -100,7 +100,7 @@ Before introducing a new OMP-facing feature or changing model/tool behavior, ver
 
 ### Workflow Bundles
 
-**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by going through the skill-creator file at `skills/skill-creator/SKILL.md` if present on disk; if it is missing, fail the handoff with `reasonCode: skill_creator_missing`. There is no hand-edit fallback in workers. The v3 landing of this repository is exempt and edits files directly.
+**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by first resolving and reading `skill://skill-creator`, then following that skill's editing procedure. There is no repository-local skill-creator prerequisite and no hand-edit fallback. The v3 landing of this repository is exempt and edits files directly.
 
 WORKFLOW.md frontmatter declares only `name` and `description`.
 
@@ -108,7 +108,6 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 |--------|----------|
 | Trigger description | State what the workflow does, when to use it, and important exclusions |
 | Entry size | Keep under 500 lines; move details to on-demand references |
-| Integration | Every workflow includes `Integration with SDLC Workflow` |
 | Arguments | Treat `$ARGUMENTS` as untrusted data and validate accepted shapes |
 | Interactive decisions | Built-in `ask` inside native `/plan` only |
 | Worker decisions | Failed handoff; never `ask` |
@@ -191,7 +190,6 @@ Public skill behavior consists of:
 - explicit preconditions and postconditions;
 - interactive `/plan` interview or automated handoff;
 - error states naming exact paths or remote objects;
-- an Integration with SDLC Workflow section.
 
 ### GitHub CLI
 
@@ -261,7 +259,7 @@ Never infer a stronger layer from a weaker one.
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
-| Skill creator validation | Skill-bundled files changed in a worker | Validate each affected skill through the skill-creator file if present on disk, or handoff `skill_creator_missing` | All bundles valid, or handoff `skill_creator_missing` |
+| Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
 | Skill exercise | Changed skill has a deterministic fixture | `node scripts/skill-exercise-runner.mjs --skill <name>` | Exit 0 and rubric satisfied |
 | Prompt quality | Skill contract changed | Review against Prompt Quality Criteria | Every criterion satisfied |
 | Git hygiene | Any tracked text changed | `git diff --check` | Exit 0 |
@@ -292,7 +290,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 - Skills do not mutate beyond their declared stage.
 - Pull-request delivery is incomplete until exact-head merge and issue closure are proven.
 - Dirty unrelated work is preserved.
-- Skill-bundled worker edits go through the skill-creator file if present on disk, else `skill_creator_missing`.
+- Skill-bundled worker edits resolve and read `skill://skill-creator`; repository-local skill directories are not required.
 - Active spec context is bounded; historical specs are preserved.
 - Remote writes require the owning workflow and exact target.
 

@@ -285,25 +285,6 @@ export function validateSkillMetadata(repoRoot) {
   return errors;
 }
 
-/** Validate required WORKFLOW.md structure sections. */
-export function validateSkillStructure(repoRoot) {
-  const errors = [];
-  const skillFiles = findTrackedFiles(repoRoot).filter((rel) => /(^|\/)workflows\/[^/]+\/WORKFLOW\.md$/.test(rel));
-
-  for (const rel of skillFiles) {
-    const abs = path.join(repoRoot, rel);
-    const source = fs.readFileSync(abs, 'utf8');
-    if (!/^## Integration with SDLC Workflow\s*$/m.test(source)) {
-      errors.push({
-        file: rel,
-        section: 'Integration with SDLC Workflow',
-        message: 'missing required Integration with SDLC Workflow section',
-      });
-    }
-  }
-
-  return errors;
-}
 
 /** Scan the repo and produce the inventory object. */
 export function scan(repoRoot) {
@@ -385,16 +366,11 @@ export function runBaseline(repoRoot, outPath) {
 
 /** --check: compare current scan to committed baseline. */
 export function runCheck(repoRoot, baselinePath) {
-  const metadataErrors = validateSkillMetadata(repoRoot);
-  const structureErrors = validateSkillStructure(repoRoot);
-  const validationErrors = [...metadataErrors, ...structureErrors];
+  const validationErrors = validateSkillMetadata(repoRoot);
   if (validationErrors.length > 0) {
     console.error(`Skill metadata audit: ${validationErrors.length} loader-facing metadata/structure error(s).`);
-    for (const error of metadataErrors) {
+    for (const error of validationErrors) {
       console.error(`  - ${error.file}: invalid ${error.field}: ${error.message}`);
-    }
-    for (const error of structureErrors) {
-      console.error(`  - ${error.file}: missing ${error.section}: ${error.message}`);
     }
     return 1;
   }

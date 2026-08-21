@@ -16,6 +16,8 @@ import {
 } from '../sdlc-execute.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const EXECUTE_WORKFLOW = fs.readFileSync(path.join(REPO_ROOT, 'workflows', 'execute', 'WORKFLOW.md'), 'utf8');
 
 const temporaryRoots = [];
 
@@ -180,6 +182,18 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   it('workerPrompt inlines extra workflows for implement and deliver', () => {
     expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+  });
+
+  it('recovers a visibly pasted stalled prompt by submitting Enter once', () => {
+    expect(EXECUTE_WORKFLOW).toContain('herdr agent prompt s<N>-<step> "<exact prompt>" --wait');
+    expect(EXECUTE_WORKFLOW).toContain('herdr agent read s<N>-<step> --source detection');
+    expect(EXECUTE_WORKFLOW).toContain('herdr agent send-keys s<N>-<step> enter');
+    expect(EXECUTE_WORKFLOW).toContain('herdr agent wait s<N>-<step> --until working');
+    expect(EXECUTE_WORKFLOW).toContain('herdr agent wait s<N>-<step>');
+    expect(EXECUTE_WORKFLOW).toContain('Do not resend the prompt.');
+    expect(EXECUTE_WORKFLOW).toContain('apply this table to the resulting agent state and handoff');
+    expect(EXECUTE_WORKFLOW).toContain('Prompt recovery cannot start or settle correctly');
+    expect(EXECUTE_WORKFLOW).not.toContain('Agent state `unknown` or prompt result indicates `agent_prompt_stalled`');
   });
 
   it('write-run CLI persists run state', () => {

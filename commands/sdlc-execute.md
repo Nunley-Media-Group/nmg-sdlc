@@ -155,8 +155,15 @@ For current issue:
    ```
    herdr agent prompt s<N>-<step> "<exact prompt>" --wait
    ```
+   If this returns `agent_prompt_stalled`, inspect `herdr agent read s<N>-<step> --source detection` before failing. Only when the exact prompt is visibly pasted but not submitted, recover once:
+   ```
+   herdr agent send-keys s<N>-<step> enter
+   herdr agent wait s<N>-<step> --until working
+   herdr agent wait s<N>-<step>
+   ```
+   The first wait proves Enter started the worker; the second waits for `idle`, `done`, or `blocked`. Do not resend the prompt. If the prompt is not visibly pasted, `send-keys` fails, the worker does not reach `working`, or the worker does not settle, keep the pane and fail the step.
 
-5. After prompt settles, inspect with `herdr agent get s<N>-<step>` and read the handoff file.
+5. After the original prompt or one successful recovery settles, inspect with `herdr agent get s<N>-<step>` and read the handoff file.
 
 The worker prompt is obtained only via:
 
@@ -174,7 +181,9 @@ Step mapping: `start` → `start-issue`, `implement` → `write-code` + `simplif
 |-----------|--------|
 | Agent state `idle` or `done` AND handoff `status=passed` AND `intervention=false` | Read summary into orchestrator context; `herdr pane close <pane_id>` (only panes created by this execute run); advance to next step or issue. |
 | Agent state `blocked` | Keep pane; send notification; set `run.failed`; stop the queue. |
-| Agent state `unknown` or prompt result indicates `agent_prompt_stalled` | Keep pane; treat as failed. |
+| Prompt returns `agent_prompt_stalled` and the exact prompt is visibly pasted but not submitted | Send `enter` once, prove the agent reaches `working`, then wait for it to settle and apply this table to the resulting agent state and handoff. |
+| Prompt recovery cannot start or settle correctly | Keep pane; treat as failed. |
+| Agent state `unknown` after the original prompt or recovery settles | Keep pane; treat as failed. |
 | Handoff file missing after `idle`/`done` | Keep pane; reasonCode `missing_handoff`. |
 | Handoff `status=failed` or `blocked` or `intervention=true` | Keep pane; stop queue. |
 | Process error inside worker (gh/git/test failure) | Worker itself writes a failed handoff; keep the pane. |
@@ -210,19 +219,3 @@ Re-invoking `/sdlc-execute` (no args or same issue list):
 - `resolveSpecDir(root, issueN)`, `nextStep(completedArray)`, `workerPrompt({step, issue, skill})`.
 
 All gh and filesystem operations inside the helper are read-only except the explicit `write-run` path.
-
-## Integration with SDLC Workflow
-
-Execute is the automated orchestrator; it lives only in the main Herdr pane.
-
-```
-/sdlc-execute [#N ...]
-        │
-        ├── preflight (Herdr env + integration + gh + clean tree)
-        ├── resolve list (backlog or explicit)
-        ├── per-issue: start? → implement? → verify? → deliver
-        │     (one worker pane at a time, sibling to main)
-        └── on final deliver success for an issue: branch delete after MERGED+CLOSED, advance
-```
-
-It never performs the work of `start-issue`, `write-code`, `verify-code`, or `open-pr` itself. Those run exclusively inside the spawned `--kind omp` workers from inlined workflow text. Interactive steps (`draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`) are invoked only via `/sdlc-*` commands that enter native `/plan` in the extension.
