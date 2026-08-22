@@ -32,7 +32,7 @@ The write-code workflow normally loads from specs/.../tasks.md. For a review thr
 **Commit message**: use exactly `fix: address review finding on {path}:{line}`. Omit the `:{line}` segment when `line` is null.
 ```
 
-Follow the full write-code steps (steering load, spec context if present for the branch, apply change to satisfy the acceptance for this synthetic task, self-verify, bundle simplify). The synthetic task is treated as the task of record for this pass.
+Follow the full write-code steps (steering load, spec context if present for the branch, apply change to satisfy the acceptance for this synthetic task, and self-verify). The synthetic task is treated as the task of record for this pass.
 
 ### 2. Follow verify-code
 
