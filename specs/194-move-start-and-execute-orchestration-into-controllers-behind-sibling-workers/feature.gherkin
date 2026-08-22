@@ -1,0 +1,73 @@
+**Issue**: #194
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces/
+
+# File: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/feature.gherkin
+#
+# Generated from: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/requirements.md
+Feature: Move start and execute orchestration into controllers behind sibling workers
+  As a Herdr OMP execute operator
+  I want start-issue and execute orchestration to run as deterministic Node controllers invoked by compact prompts
+  So that the model is not parsing Herdr JSON, fenced shell, and handoff schemas on every issue
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: start controller preserves every current start outcome
+    Given a sibling start worker with "$ARGUMENTS: #N"
+    When it runs the compact start workflow
+    Then it invokes node scripts/start-issue.mjs --issue N
+    And that controller performs parse, gh issue view, slug, parseBodyRelationships dependency re-proof, dirty-tree, default-branch resolution, gh issue develop, and best-effort Project In Progress
+    And it writes .omp/sdlc/handoffs/N-start.json
+    And it prints "NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/N-start.json"
+    And execute does not call startIssue() itself
+    And failed handoffs use reasonCode values no_issue_number, issue_unreadable, dependency_unreadable, dependency_blocked, dirty_tree, default_branch_unreadable, branch_checkout_failed with intervention true and step start
+    And leftover spike labels do not skip implement/verify
+    And Project status mutation failure does not fail the handoff
+
+  @SCN002
+  Scenario: execute controller preserves the current queue
+    Given /sdlc-execute [#N ...] in a Herdr OMP session
+    When the file command expands
+    Then the compact execute workflow requires HERDR_ENV=1 plus HERDR_SOCKET_PATH and HERDR_PANE_ID
+    And it runs node scripts/sdlc-execute.mjs run with the trimmed arguments and passes output through
+    And run owns preflight, backlog/args, unapproved-spec stop, run.json, pane split, worker launch, stall recovery, handoff validate, close-vs-keep, resume, notification, default-branch sync, and post-MERGED+CLOSED local branch delete
+    And existing helper CLIs still work
+    And src/extension.ts still does not register /sdlc-execute
+    And invalid args print "Usage: /sdlc-execute [#N ...]" and stop non-zero
+    And missing omp integration prints exactly "Run: herdr integration install omp" and stops with no mutations
+
+  # --- Alternative Paths ---
+
+  @SCN003
+  Scenario: four sibling workers remain
+    Given issue N with an approved spec
+    When run executes the pipeline
+    Then it still launches s<N>-start, s<N>-implement, s<N>-verify, and s<N>-deliver as --kind omp workers
+    And workerPrompt still inlines the compact start workflow rather than executing start in-process
+    And implement still inlines write-code + simplify
+    And deliver still inlines open-pr + address-pr-comments
+    And a failed or intervention true handoff keeps that pane and stops the queue
+    And the execute pane never edits product code, never implements tasks, and never opens PRs
+
+  @SCN004
+  Scenario: compact prompts do not drop documented Herdr behavior
+    Given the execute controller
+    When it splits and launches
+    Then it still uses herdr pane layout, herdr pane split --current --direction <right|down> --cwd "$PWD" --no-focus, herdr agent start s<N>-<step> --kind omp --pane <id>, and herdr agent prompt --wait
+    And it closes only panes this run created
+    And it notifies with herdr notification show "nmg-sdlc stopped" --body "Stopped on #<N> <step>. Worker pane <pane_id> agent s<N>-<step> left open." --sound request
+    And split direction is right when width >= height else down, missing dimension down
+    And agent names match ^[a-z][a-z0-9_-]{0,31}$, never sdlc- prefix, never --kind pi, never herdr server stop
+
+  # --- Error Handling ---
+
+  @SCN005
+  Scenario: start and execute fail closed on missing preconditions
+    Given start CLI has no valid --issue
+    When node scripts/start-issue.mjs runs
+    Then it exits 2, prints "Usage: node scripts/start-issue.mjs --issue N", and writes no handoff
+    And runExecute with HERDR_ENV unset prints that execute requires a Herdr OMP session and starts no workers
+    And a blocked Depends-on parent writes reasonCode dependency_blocked before gh issue develop
