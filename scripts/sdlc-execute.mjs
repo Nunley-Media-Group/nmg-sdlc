@@ -787,12 +787,6 @@ export function runExecute({
         }
         prompted = herdrApi.agentWait({ name: agentName });
       }
-      if (!commandSucceeded(prompted)) {
-        return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'worker_failed',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
 
       const state = agentState(herdrApi.agentGet(agentName));
       let handoff;
