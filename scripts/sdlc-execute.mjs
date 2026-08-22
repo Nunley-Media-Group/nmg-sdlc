@@ -55,7 +55,8 @@ export function parseArgs(input = '') {
     if (!m) {
       throw new Error(usageError());
     }
-    const num = parseInt(m[1], 10);
+    const num = Number(m[1]);
+    if (!Number.isSafeInteger(num) || num <= 0) throw new Error(usageError());
     if (!seen.has(num)) {
       seen.add(num);
       issues.push(num);
@@ -391,11 +392,393 @@ export function workerPrompt({ step, issue, skill } = {}) {
   ].join('\n');
 }
 
+
+function defaultRun(command, args, options = {}) {
+  return spawnSync(command, args, { encoding: 'utf8', ...options });
+}
+
+function parseCommandOutput(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  if (typeof value.stdout === 'string') {
+    try {
+      return JSON.parse(value.stdout);
+    } catch {
+      return value.stdout;
+    }
+  }
+  return value;
+}
+
+function commandSucceeded(value) {
+  return value?.status === undefined || value.status === 0;
+}
+
+function defaultHerdr(run, cwd) {
+  const invoke = (args) => run('herdr', args, { cwd });
+  return {
+    integrationStatus: () => invoke(['integration', 'status']),
+    paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
+    paneSplit: ({ direction, cwd: splitCwd }) => invoke([
+      'pane', 'split', '--current', '--direction', direction, '--cwd', splitCwd, '--no-focus',
+    ]),
+    paneClose: (paneId) => invoke(['pane', 'close', paneId]),
+    agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId]),
+    agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt, '--wait']),
+    agentRead: ({ name, source }) => invoke(['agent', 'read', name, '--source', source]),
+    agentSendKeys: ({ name, keys }) => invoke(['agent', 'send-keys', name, ...keys]),
+    agentWait: ({ name, until }) => invoke([
+      'agent', 'wait', name, ...(until ? ['--until', until] : []),
+    ]),
+    agentGet: (name) => invoke(['agent', 'get', name]),
+    listAgents: () => invoke(['agent', 'list']),
+    notificationShow: ({ title, body, sound }) => invoke([
+      'notification', 'show', title, '--body', body, '--sound', sound,
+    ]),
+  };
+}
+
+function firstAgentList(value) {
+  const parsed = parseCommandOutput(value);
+  if (Array.isArray(parsed)) return parsed;
+  return parsed?.result?.agents || parsed?.agents || [];
+}
+
+function agentState(value) {
+  const parsed = parseCommandOutput(value);
+  return String(parsed?.result?.agent?.state ?? parsed?.result?.state ?? parsed?.agent?.state ?? parsed?.state ?? '').toLowerCase();
+}
+
+function firstNumericProperty(value, key) {
+  if (!value || typeof value !== 'object') return null;
+  if (Number.isFinite(Number(value[key]))) return Number(value[key]);
+  for (const child of Object.values(value)) {
+    const found = firstNumericProperty(child, key);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function paneDimensions(value) {
+  const parsed = parseCommandOutput(value);
+  return {
+    width: firstNumericProperty(parsed?.result, 'width') ?? firstNumericProperty(parsed, 'width'),
+    height: firstNumericProperty(parsed?.result, 'height') ?? firstNumericProperty(parsed, 'height'),
+  };
+}
+
+function splitPaneId(value) {
+  const parsed = parseCommandOutput(value);
+  return parsed?.result?.pane?.pane_id ?? parsed?.result?.pane_id ?? parsed?.pane?.pane_id ?? parsed?.pane_id ?? null;
+}
+
+function isPromptStalled(value) {
+  const parsed = parseCommandOutput(value);
+  return [
+    parsed?.reasonCode,
+    parsed?.code,
+    parsed?.error,
+    parsed?.result?.reasonCode,
+    parsed?.result?.code,
+    parsed,
+  ].some((candidate) => String(candidate || '').includes('agent_prompt_stalled'));
+}
+
+function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd, herdr, output }) {
+  const sentence = `Stopped on #${issue} ${step}. Worker pane ${paneId} agent ${agentName} left open.`;
+  try {
+    herdr.notificationShow({ title: 'nmg-sdlc stopped', body: sentence, sound: 'request' });
+  } catch {
+    // The orchestrator sentence remains authoritative when notifications are unavailable.
+  }
+  runState.failed = { issue, step, reasonCode };
+  writeRun(runState, cwd);
+  output.push(sentence);
+  return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
+}
+
+function closePane(herdr, paneId) {
+  try {
+    return commandSucceeded(herdr.paneClose(paneId));
+  } catch {
+    return false;
+  }
+}
+
+function issueBranchName(issue, cwd, run) {
+  const issueResult = run('gh', ['issue', 'view', String(issue), '--json', 'title'], { cwd });
+  if (!commandSucceeded(issueResult)) return null;
+  const issueData = parseCommandOutput(issueResult);
+  return issueData?.title ? `${issue}-${String(issueData.title).toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'issue'}` : null;
+}
+
+function dirtyTreeBlocks(issue, cwd, run) {
+  const dirtyResult = run('git', ['status', '--porcelain'], { cwd });
+  const branchResult = run('git', ['branch', '--show-current'], { cwd });
+  if (!commandSucceeded(dirtyResult) || !commandSucceeded(branchResult)) return true;
+  if (!String(dirtyResult.stdout || '').trim()) return false;
+  return String(branchResult.stdout || '').trim() !== issueBranchName(issue, cwd, run);
+}
+
+function syncAndDeleteIssueBranch(issue, cwd, run) {
+  const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
+  const currentBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
+  const issueBranch = currentBranch.startsWith(`${issue}-`) ? currentBranch : issueBranchName(issue, cwd, run);
+  if (!issueBranch) return false;
+  const pullRequest = parseCommandOutput(run('gh', [
+    'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
+  ], { cwd }));
+  const merged = Array.isArray(pullRequest) && String(pullRequest[0]?.state).toUpperCase() === 'MERGED';
+  const closed = String(issueState?.state).toUpperCase() === 'CLOSED';
+  if (!merged || !closed) return false;
+
+  const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+  const defaultBranch = commandSucceeded(defaultResult) ? String(defaultResult.stdout || '').trim() : '';
+  if (!defaultBranch) return false;
+  if (currentBranch !== defaultBranch && !commandSucceeded(run('git', ['checkout', defaultBranch], { cwd }))) {
+    return false;
+  }
+  if (!commandSucceeded(run('git', ['pull', '--ff-only'], { cwd }))) return false;
+  run('git', ['branch', '-d', issueBranch], { cwd });
+  return true;
+}
+
+export function runExecute({
+  args = '',
+  cwd = process.cwd(),
+  env = process.env,
+  run = defaultRun,
+  fs = { existsSync, readFileSync },
+  herdr,
+} = {}) {
+  const output = [];
+  if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
+    return { status: 2, stdout: 'execute requires a Herdr OMP session\n', stderr: '' };
+  }
+
+  let parsedArgs;
+  try {
+    parsedArgs = parseArgs(args);
+  } catch {
+    return { status: 2, stdout: '', stderr: `${usageError()}\n` };
+  }
+
+  const herdrApi = herdr || defaultHerdr(run, cwd);
+  let integration;
+  try {
+    integration = herdrApi.integrationStatus();
+  } catch {
+    integration = null;
+  }
+  const integrationText = typeof integration === 'string'
+    ? integration
+    : String(integration?.stdout || '');
+  if (!commandSucceeded(integration) || !/^omp:\s+(?!not installed)/m.test(integrationText)) {
+    return { status: 2, stdout: 'Run: herdr integration install omp\n', stderr: '' };
+  }
+  if (!commandSucceeded(run('gh', ['auth', 'status'], { cwd }))) {
+    return { status: 1, stdout: '', stderr: 'gh auth status failed\n' };
+  }
+
+  let issues = parsedArgs.issues;
+  if (parsedArgs.defaultBacklog) {
+    try {
+      const selected = selectBacklog();
+      issues = selected == null ? [] : [selected];
+    } catch (error) {
+      return { status: 1, stdout: '', stderr: `${error instanceof Error ? error.message : String(error)}\n` };
+    }
+  }
+  if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
+  if (dirtyTreeBlocks(issues[0], cwd, run)) {
+    return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
+  }
+
+  let runState = readRun(cwd);
+  if (!runState || JSON.stringify(runState.issues) !== JSON.stringify(issues)) {
+    runState = {
+      schemaVersion: 1,
+      issues,
+      currentIssue: issues[0],
+      currentStep: 'start',
+      completed: {},
+      failed: null,
+      startedAt: new Date().toISOString(),
+    };
+  }
+
+  const existingAgents = firstAgentList(herdrApi.listAgents());
+  const createdPanes = new Set();
+  for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
+    const issue = issues[issueIndex];
+    const spec = specStatus(issue, cwd);
+    if (!spec.approved) {
+      output.push(`Run /sdlc-write-spec #${issue}`);
+      return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+    }
+
+    runState.currentIssue = issue;
+    runState.completed[String(issue)] ||= [];
+    let step = nextStep(runState.completed[String(issue)]);
+    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
+    if (live) {
+      const agentName = String(live.name);
+      const paneId = live.pane_id ?? live.paneId ?? 'unknown';
+      const state = agentState(herdrApi.agentGet(agentName));
+      if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
+        const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+        let handoff;
+        try {
+          if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
+          handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
+          if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
+        } catch {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        if (handoff.status !== 'passed' || handoff.intervention) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status,
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        runState.completed[String(issue)].push(step);
+        step = nextStep(runState.completed[String(issue)]);
+        runState.currentStep = step;
+        runState.failed = null;
+        writeRun(runState, cwd);
+      } else {
+        output.push(`Existing worker ${agentName} in pane ${paneId}; no second worker started.`);
+        return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+      }
+    }
+    while (step) {
+      runState.currentStep = step;
+      runState.failed = null;
+      writeRun(runState, cwd);
+
+      const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
+      const { width, height } = paneDimensions(layout);
+      const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+      const split = herdrApi.paneSplit({ direction, cwd });
+      const paneId = splitPaneId(split);
+      const agentName = `s${issue}-${step}`;
+      if (!paneId || !commandSucceeded(split)) {
+        return stopResult({
+          issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      createdPanes.add(paneId);
+
+      const started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+      if (!commandSucceeded(started)) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+
+      const prompt = workerPrompt({ step, issue });
+      let prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+      if (isPromptStalled(prompted)) {
+        const detection = parseCommandOutput(herdrApi.agentRead({ name: agentName, source: 'detection' }));
+        const detectionText = typeof detection === 'string' ? detection : JSON.stringify(detection);
+        if (!detectionText.includes(prompt)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        const sent = herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] });
+        const working = herdrApi.agentWait({ name: agentName, until: 'working' });
+        if (!commandSucceeded(sent) || !commandSucceeded(working)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        prompted = herdrApi.agentWait({ name: agentName });
+      }
+      if (!commandSucceeded(prompted)) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'worker_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+
+      const state = agentState(herdrApi.agentGet(agentName));
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+      let handoff;
+      try {
+        if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
+        handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
+      } catch {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      if (handoff.issue !== issue || handoff.step !== step) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'invalid_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status || state || 'worker_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+
+      if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      runState.completed[String(issue)].push(step);
+      step = nextStep(runState.completed[String(issue)]);
+      runState.currentStep = step;
+      writeRun(runState, cwd);
+    }
+
+    if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
+      runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
+      writeRun(runState, cwd);
+      return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };
+    }
+  }
+
+  runState.currentIssue = null;
+  runState.currentStep = null;
+  runState.failed = null;
+  writeRun(runState, cwd);
+  return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
+}
+
 function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
   if (!sub) {
     console.error('sdlc-execute: missing subcommand');
     process.exit(2);
+  }
+  if (sub === 'run') {
+    const result = runExecute({ args: rest.join(' ') });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exit(result.status);
   }
   if (sub === 'parse-args') {
     try {

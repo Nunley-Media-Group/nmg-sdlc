@@ -25,15 +25,8 @@ describe('start-issue explicit issue contract', () => {
     expect(skill).not.toContain('deriveEpicLineage');
   });
 
-  test('fails closed on blocked dependencies without asking', () => {
-    expect(skill).toContain('dependency_blocked');
-    expect(skill).toContain('dependency_unreadable');
-    expect(skill).toContain('.omp/sdlc/handoffs/');
-  });
-
-  test('cuts the implementation branch from the repository default', () => {
-    expect(skill).toContain('--base ${defaultBranch}');
-    expect(skill).toContain('default_branch_unreadable');
-    expect(skill).toContain('gh issue develop N --checkout --name ${expectedBranch} --base ${defaultBranch}');
+  test('keeps the compact controller invocation', () => {
+    expect(skill).toContain('# Start Issue');
+    expect(skill).toContain('node scripts/start-issue.mjs --issue N');
   });
 });

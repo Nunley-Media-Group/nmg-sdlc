@@ -13,11 +13,10 @@ import {
   specStatus,
   workerPrompt,
   writeRun,
+  runExecute,
 } from '../sdlc-execute.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const EXECUTE_WORKFLOW = fs.readFileSync(path.join(REPO_ROOT, 'workflows', 'execute', 'WORKFLOW.md'), 'utf8');
 
 const temporaryRoots = [];
 
@@ -184,17 +183,6 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
   });
 
-  it('recovers a visibly pasted stalled prompt by submitting Enter once', () => {
-    expect(EXECUTE_WORKFLOW).toContain('herdr agent prompt s<N>-<step> "<exact prompt>" --wait');
-    expect(EXECUTE_WORKFLOW).toContain('herdr agent read s<N>-<step> --source detection');
-    expect(EXECUTE_WORKFLOW).toContain('herdr agent send-keys s<N>-<step> enter');
-    expect(EXECUTE_WORKFLOW).toContain('herdr agent wait s<N>-<step> --until working');
-    expect(EXECUTE_WORKFLOW).toContain('herdr agent wait s<N>-<step>');
-    expect(EXECUTE_WORKFLOW).toContain('Do not resend the prompt.');
-    expect(EXECUTE_WORKFLOW).toContain('apply this table to the resulting agent state and handoff');
-    expect(EXECUTE_WORKFLOW).toContain('Prompt recovery cannot start or settle correctly');
-    expect(EXECUTE_WORKFLOW).not.toContain('Agent state `unknown` or prompt result indicates `agent_prompt_stalled`');
-  });
 
   it('write-run CLI persists run state', () => {
     const root = makeSpecDir();
@@ -281,3 +269,275 @@ function makeGitRepo() {
   git(root, ['push', '-u', 'origin', 'HEAD']);
   return { root, remote };
 }
+
+describe('runExecute controller', () => {
+  const roots = [];
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function makeControllerFixture({
+    stalled = false,
+    failedStep = null,
+    handoffIssue = 42,
+    handoffStep = null,
+    paneCloseStatus = 0,
+  } = {}) {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
+    roots.push(cwd);
+    const specDir = path.join(cwd, 'specs', '42-ship-it');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42);
+    const calls = [];
+    const starts = [];
+    const closed = [];
+    const notifications = [];
+    const sentKeys = [];
+    const waits = [];
+    let paneSequence = 0;
+    let activePrompt = '';
+    let didStall = false;
+
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+      if (command === 'git' && args[0] === 'status') return { status: 0, stdout: '', stderr: '' };
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        return { status: 0, stdout: '42-ship-it\n', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
+        return { status: 0, stdout: JSON.stringify({ title: 'Ship It' }), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
+        return { status: 0, stdout: JSON.stringify({ state: 'CLOSED' }), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'pr') {
+        return { status: 0, stdout: JSON.stringify([{ state: 'MERGED' }]), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo') return { status: 0, stdout: 'main\n', stderr: '' };
+      if (command === 'git' && ['checkout', 'pull'].includes(args[0])) return { status: 0, stdout: '', stderr: '' };
+      if (command === 'git' && args[0] === 'branch' && args[1] === '-d') return { status: 0, stdout: '', stderr: '' };
+      throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const herdr = {
+      integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
+      paneLayout: () => ({ result: { width: 120, height: 40 } }),
+      paneSplit: ({ direction }) => {
+        expect(direction).toBe('right');
+        paneSequence += 1;
+        return { result: { pane: { pane_id: `pane-${paneSequence}` } } };
+      },
+      paneClose: (paneId) => {
+        closed.push(paneId);
+        return { status: paneCloseStatus };
+      },
+      agentStart: (input) => {
+        starts.push(input);
+        return { status: 0 };
+      },
+      agentPrompt: ({ name, prompt }) => {
+        activePrompt = prompt;
+        const step = name.slice(name.lastIndexOf('-') + 1);
+        if (stalled && !didStall) {
+          didStall = true;
+          return { status: 1, reasonCode: 'agent_prompt_stalled' };
+        }
+        const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
+        fs.mkdirSync(handoffDir, { recursive: true });
+        fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+          schemaVersion: 1,
+          issue: handoffIssue,
+          step: handoffStep ?? step,
+          status: step === failedStep ? 'failed' : 'passed',
+          intervention: step === failedStep,
+          summary: `${step} complete`,
+          artifacts: [],
+          next: step === 'deliver' ? null : 'next',
+          reasonCode: step === failedStep ? 'implementation_failed' : null,
+        })}\n`);
+        return { status: 0 };
+      },
+      agentRead: () => activePrompt,
+      agentSendKeys: ({ keys }) => {
+        sentKeys.push(keys);
+        return { status: 0 };
+      },
+      agentWait: (input) => {
+        waits.push(input);
+        if (!input.until) {
+          const name = input.name;
+          const step = name.slice(name.lastIndexOf('-') + 1);
+          const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
+          fs.mkdirSync(handoffDir, { recursive: true });
+          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+            schemaVersion: 1,
+            issue: 42,
+            step,
+            status: 'passed',
+            intervention: false,
+            summary: `${step} complete after a 3600-second active worker`,
+            artifacts: [],
+            next: 'implement',
+            reasonCode: null,
+          })}\n`);
+        }
+        return { status: 0 };
+      },
+      agentGet: () => ({ result: { state: 'done' } }),
+      listAgents: () => [],
+      notificationShow: (notice) => notifications.push(notice),
+    };
+    return { cwd, calls, starts, closed, notifications, sentKeys, waits, run, herdr };
+  }
+
+  const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock', HERDR_PANE_ID: 'main-pane' };
+
+  function configureRepairedImplementWorker(fixture) {
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
+      startedAt: '2026-08-21T00:00:00.000Z',
+    }, fixture.cwd);
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'implement',
+      status: 'passed',
+      intervention: false,
+      summary: 'Implementation repaired',
+      artifacts: [],
+      next: 'verify',
+      reasonCode: null,
+    })}\n`);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-pane',
+      state: 'idle',
+    }];
+  }
+
+  it('fails before Herdr mutation when the session environment is missing', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env: {}, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toMatchObject({ status: 2, stdout: 'execute requires a Herdr OMP session\n' });
+    expect(fixture.starts).toHaveLength(0);
+  });
+
+  it('prints the exact install instruction and performs no mutation without omp integration', () => {
+    const fixture = makeControllerFixture();
+    fixture.herdr.integrationStatus = () => ({ status: 0, stdout: 'omp: not installed\n' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: 'Run: herdr integration install omp\n', stderr: '' });
+    expect(fixture.calls).toHaveLength(0);
+    expect(fixture.starts).toHaveLength(0);
+  });
+
+  it('rejects invalid arguments with the stable usage line', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(fixture.calls).toHaveLength(0);
+  });
+
+  it('runs four omp sibling workers and preserves helper prompt composition', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.starts).toEqual([
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-implement', paneId: 'pane-2', kind: 'omp' },
+      { name: 's42-verify', paneId: 'pane-3', kind: 'omp' },
+      { name: 's42-deliver', paneId: 'pane-4', kind: 'omp' },
+    ]);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2', 'pane-3', 'pane-4']);
+    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+  });
+
+  it('recovers one pasted stalled prompt without a timeout', () => {
+    const fixture = makeControllerFixture({ stalled: true });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys).toEqual([['enter']]);
+    expect(fixture.waits[0]).toEqual({ name: 's42-start', until: 'working' });
+    expect(fixture.waits[1]).toEqual({ name: 's42-start' });
+    expect(fixture.waits.every((waitCall) => !Object.hasOwn(waitCall, 'timeout'))).toBe(true);
+  });
+
+  it('keeps a failed worker pane and sends the exact notification', () => {
+    const fixture = makeControllerFixture({ failedStep: 'implement' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(fixture.notifications).toEqual([{
+      title: 'nmg-sdlc stopped',
+      body: 'Stopped on #42 implement. Worker pane pane-2 agent s42-implement left open.',
+      sound: 'request',
+    }]);
+  });
+
+  it.each([
+    ['issue', { handoffIssue: 43 }],
+    ['step', { handoffStep: 'verify' }],
+  ])('keeps the worker pane when handoff %s does not match', (_field, options) => {
+    const fixture = makeControllerFixture(options);
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toHaveLength(0);
+    expect(persisted.completed['42']).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+  });
+
+  it('stops without completing the step when a new worker pane cannot close', () => {
+    const fixture = makeControllerFixture({ paneCloseStatus: 1 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.completed['42']).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'pane_close_failed' });
+  });
+
+  it('does not start a second worker when an issue worker is live', () => {
+    const fixture = makeControllerFixture();
+    fixture.herdr.listAgents = () => [{ name: 's42-verify', pane_id: 'kept-pane', state: 'working' }];
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.starts).toHaveLength(0);
+    expect(result.stdout).toContain('no second worker started');
+  });
+
+  it('resumes after a retained worker repairs its handoff without closing its pane', () => {
+    const fixture = makeControllerFixture();
+    configureRepairedImplementWorker(fixture);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts).toEqual([
+      { name: 's42-verify', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-deliver', paneId: 'pane-2', kind: 'omp' },
+    ]);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+  });
+
+
+  it('stops on an unapproved spec with the write-spec instruction', () => {
+    const fixture = makeControllerFixture();
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/design.md'), '**Issue**: #42\n**Status**: Draft\n');
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 0, stdout: 'Run /sdlc-write-spec #42\n', stderr: '' });
+    expect(fixture.starts).toHaveLength(0);
+  });
+});
