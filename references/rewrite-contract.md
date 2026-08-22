@@ -148,7 +148,7 @@ Acceptance:
 Apply worthwhile behavior-preserving cleanup to the changed implementation surface.
 
 - Surface: `automated simplify stage`
-- Sources: `workflows/simplify/`
+- Sources: `specs/106-simplify-skill/`
 - Verification: `scripts/__tests__/simplify-contract.test.mjs`
 
 Acceptance:
@@ -205,7 +205,7 @@ Acceptance:
 
 ## Write Code (`write-code`)
 
-Implement an approved issue spec in task order and perform in-process behavior-preserving simplification.
+Implement an approved issue spec in task order, then conventionally commit and push before review.
 
 - Surface: `automated implementation stage`
 - Sources: `workflows/write-code/`, `agents/spec-implementer.md`
@@ -216,7 +216,7 @@ Acceptance:
 - Given an explicit issue or issue branch, when implementation begins, then only the matching approved spec package is authoritative.
 - Given ordered tasks, when work proceeds, then tasks are completed in declared order with observable verification.
 - Given a skill-bundled edit, when skill-creator is installed, then its on-disk authoring contract is followed; absence fails closed.
-- Given implementation completes, when cleanup runs, then simplify preserves the specified behavior.
+- Given implementation completes, when the passed handoff is written, then every non-runtime change is committed and published for review1.
 
 ## Write Specification (`write-spec`)
 

@@ -17,8 +17,13 @@ Feature: Replace execute simplify with two branch-to-main review and fix panes
   @SCN001
   Scenario: two review and fix pane pairs run after implement and before verify
     Given issue N has an approved spec and the implement worker has a passed, non-intervention handoff
+    And the implement worker conventionally commits and pushes every implementation change before review1 starts
     When /sdlc-execute continues that issue
     Then it opens sibling Herdr --kind omp pane s<N>-review1 that runs host /review of the current issue branch against main
+    And the controller submits /review directly to that host worker and sends Enter alone for PR-style mode
+    And it observes the Select base branch to compare against menu before separately sending Down keys and Enter for literal main
+    And it never bursts both asynchronous menu answers or starts nested OMP
+    And after the review settles the same worker receives the persistence workflow for its immediately preceding response
     And sdlc-review-main.mjs writes the review1 handoff even when findings exist
     And after that review worker settles passed with intervention false it opens s<N>-fix1
     And sdlc-apply-review.mjs owns commit and push for those findings
@@ -27,6 +32,9 @@ Feature: Replace execute simplify with two branch-to-main review and fix panes
     And verify starts only after s<N>-fix2 has a passed, non-intervention handoff
     And each of those four panes uses the same split, agent-name, prompt-wait, handoff, resume, and close-vs-keep rules as the existing execute steps
     And the implement worker no longer inlines or runs simplify
+    And resume recognizes idle or done from result.agent.agent_status and result.agent.agentStatus
+    And every review1, fix1, review2, and fix2 handoff contains the complete schema and passes validateHandoff
+    And a matching retained worker with a passed non-intervention handoff is closed, completed, and advances to the next step
 
 
   # --- Alternative Paths ---

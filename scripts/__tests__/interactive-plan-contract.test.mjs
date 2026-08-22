@@ -12,7 +12,8 @@ function read(relativePath) {
 const AUTOMATED = [
   'start-issue',
   'write-code',
-  'simplify',
+  'review-main',
+  'apply-review',
   'verify-code',
   'open-pr',
   'address-pr-comments',
@@ -45,10 +46,11 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).not.toContain('/skill:');
   });
 
-  it('automated skills do not call ask', () => {
+  it('automated skills do not invoke user-input tools', () => {
     for (const name of AUTOMATED) {
       const source = read(`workflows/${name}/WORKFLOW.md`);
-      expect(`${name}\n${source}`).not.toMatch(/\bask\b/);
+      const executableInstructions = source.replaceAll('Never call `ask`.', '');
+      expect(`${name}\n${executableInstructions}`).not.toMatch(/\bask\b/);
       expect(source).not.toContain('request_user_input');
     }
   });

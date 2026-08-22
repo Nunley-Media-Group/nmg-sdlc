@@ -1,6 +1,6 @@
 ---
 name: write-code
-description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Bundle simplify in-process at end. Resolve and read skill://skill-creator before skill-bundled edits. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Resolve and read skill://skill-creator before skill-bundled edits. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
 ---
 
 # Write Code
@@ -55,17 +55,16 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 
 If a task file list references a path outside the approved delivery scope or spec, note but continue only on mapped tasks.
 
-## Bundle Simplify In-Process
 
-After last task completes successfully:
+## Commit and Push Implementation
 
-Run simplify logic directly in this session over the files changed on the branch:
+Complete this boundary before writing a passed handoff:
 
-- `git diff --name-only main...HEAD` (or HEAD if no main) or current dirty + committed on branch.
-- Apply the reuse/quality/efficiency review and behavior-preserving fixes exactly as described by simplify (no separate pane or invoke that creates new).
-- Re-verify after any simplify edits.
-
-Only after simplify reports clean or applied, proceed.
+1. Run `git status --porcelain` and collect every changed path except `.omp/` runtime state.
+2. When non-runtime changes exist, stage those exact paths with `git add -- <paths>`, verify the staged diff is non-empty, and commit once with a conventional subject (`feat:`, `fix:`, `docs:`, or `chore:`) that describes issue #N.
+3. Read the current branch and its upstream. The branch must start with `N-`. If no upstream exists, run `git push -u origin HEAD`; otherwise run `git push`.
+4. Require the non-runtime worktree to be clean and require `git rev-parse HEAD` to equal `git rev-parse @{upstream}`. A pre-existing clean implementation is acceptable only when this publication proof passes.
+5. Any staging, commit, branch, upstream, push, or publication-proof failure writes the implement handoff with `status:"failed"`, `intervention:true`, `reasonCode:"implementation_failed"`, `next:null`, then stops. Never start review1 from unpublished or uncommitted implementation.
 
 ## Write Handoff
 
@@ -77,9 +76,9 @@ Write `.omp/sdlc/handoffs/N-implement.json` :
   "step": "implement",
   "status": "passed",
   "intervention": false,
-  "summary": "All tasks from tasks.md executed and simplified for #N",
+  "summary": "All tasks from tasks.md executed for #N",
   "artifacts": [ list of created/modified paths ],
-  "next": "verify",
+  "next": "review1",
   "reasonCode": null
 }
 
@@ -90,7 +89,7 @@ Summary output:
 Implementation complete for issue #N.
 Tasks completed.
 Files: ...
-Next: /sdlc-verify-code #N
+Next: execute review1
 
 ## Failure Modes (always produce handoff before stop)
 

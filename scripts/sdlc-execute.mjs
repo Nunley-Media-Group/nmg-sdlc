@@ -9,7 +9,7 @@
  * Exports support direct import by tests and the skill.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -23,17 +23,20 @@ const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
 const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 
-const VALID_STEPS = ['start', 'implement', 'verify', 'deliver'];
+const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
+  review1: 'review-main',
+  fix1: 'apply-review',
+  review2: 'review-main',
+  fix2: 'apply-review',
   verify: 'verify-code',
   deliver: 'open-pr',
 };
 const STEP_EXTRA_WORKFLOWS = {
-  implement: ['simplify'],
   deliver: ['address-pr-comments'],
 };
 
@@ -365,7 +368,7 @@ export function resolveSpecDirForIssue(root, issueN) {
 }
 
 export function nextStep(completedForIssue = []) {
-  const order = ['start', 'implement', 'verify', 'deliver'];
+  const order = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
   for (const step of order) {
     if (!completedForIssue.includes(step)) return step;
   }
@@ -452,7 +455,21 @@ function firstAgentList(value) {
 
 function agentState(value) {
   const parsed = parseCommandOutput(value);
-  return String(parsed?.result?.agent?.state ?? parsed?.result?.state ?? parsed?.agent?.state ?? parsed?.state ?? '').toLowerCase();
+  return String(
+    parsed?.result?.agent?.agent_status
+      ?? parsed?.result?.agent?.agentStatus
+      ?? parsed?.result?.agent?.state
+      ?? parsed?.result?.agent_status
+      ?? parsed?.result?.agentStatus
+      ?? parsed?.result?.state
+      ?? parsed?.agent?.agent_status
+      ?? parsed?.agent?.agentStatus
+      ?? parsed?.agent?.state
+      ?? parsed?.agent_status
+      ?? parsed?.agentStatus
+      ?? parsed?.state
+      ?? '',
+  ).toLowerCase();
 }
 
 function firstNumericProperty(value, key) {
@@ -488,6 +505,27 @@ function isPromptStalled(value) {
     parsed?.result?.code,
     parsed,
   ].some((candidate) => String(candidate || '').includes('agent_prompt_stalled'));
+}
+
+function reviewBranchSelectionKeys(cwd, run) {
+  const branches = run('git', ['branch', '-a', '--format=%(refname:short)'], { cwd });
+  if (!commandSucceeded(branches)) return null;
+  const names = String(branches.stdout || '').split('\n').filter(Boolean);
+  const mainIndex = names.indexOf('main');
+  if (mainIndex < 0) return null;
+  return [...Array.from({ length: mainIndex }, () => 'down'), 'enter'];
+}
+
+function agentDetectionText(herdr, name) {
+  const detection = parseCommandOutput(herdr.agentRead({ name, source: 'detection' }));
+  return typeof detection === 'string' ? detection : JSON.stringify(detection);
+}
+
+function observeAgentText(herdr, name, expected, attempts = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (agentDetectionText(herdr, name).includes(expected)) return true;
+  }
+  return false;
 }
 
 function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd, herdr, output }) {
@@ -652,6 +690,12 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
+        if (!closePane(herdrApi, paneId)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
         runState.completed[String(issue)].push(step);
         step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;
@@ -673,6 +717,7 @@ export function runExecute({
       const split = herdrApi.paneSplit({ direction, cwd });
       const paneId = splitPaneId(split);
       const agentName = `s${issue}-${step}`;
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       if (!paneId || !commandSucceeded(split)) {
         return stopResult({
           issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
@@ -680,6 +725,7 @@ export function runExecute({
         });
       }
       createdPanes.add(paneId);
+      rmSync(handoffPath, { force: true });
 
       const started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       if (!commandSucceeded(started)) {
@@ -687,6 +733,37 @@ export function runExecute({
           issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
           runState, cwd, herdr: herdrApi, output,
         });
+      }
+
+      if (step === 'review1' || step === 'review2') {
+        const branchSelectionKeys = reviewBranchSelectionKeys(cwd, run);
+        if (!branchSelectionKeys) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'review_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        const reviewPrompted = herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
+        const reviewModeVisible = agentDetectionText(herdrApi, agentName);
+        const modeSelected = isPromptStalled(reviewPrompted)
+          && (reviewModeVisible.includes('/review') || reviewModeVisible.includes('Review Mode'))
+          && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }));
+        const branchMenuVisible = modeSelected && observeAgentText(
+          herdrApi,
+          agentName,
+          'Select base branch to compare against',
+        );
+        if (
+          !branchMenuVisible
+          || !commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
+          || !commandSucceeded(herdrApi.agentWait({ name: agentName, until: 'working' }))
+          || !commandSucceeded(herdrApi.agentWait({ name: agentName }))
+        ) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'review_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
       }
 
       const prompt = workerPrompt({ step, issue });
@@ -718,7 +795,6 @@ export function runExecute({
       }
 
       const state = agentState(herdrApi.agentGet(agentName));
-      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       let handoff;
       try {
         if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
@@ -855,7 +931,7 @@ function runCli(argv = process.argv.slice(2)) {
     const issueRaw = issueIndex >= 0 ? rest[issueIndex + 1] : '';
     const issue = Number.parseInt(issueRaw, 10);
     if (!VALID_STEPS.includes(step) || !Number.isInteger(issue) || issue <= 0) {
-      console.error('Usage: node sdlc-execute.mjs worker-prompt --step <start|implement|verify|deliver> --issue N');
+      console.error('Usage: node sdlc-execute.mjs worker-prompt --step <start|implement|review1|fix1|review2|fix2|verify|deliver> --issue N');
       process.exit(2);
     }
     try {

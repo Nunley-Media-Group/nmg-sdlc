@@ -3,79 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+import { workerPrompt } from '../sdlc-execute.mjs';
 
-function read(relPath) {
-  return fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8');
-}
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-function walk(dir, predicate, acc = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const abs = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walk(abs, predicate, acc);
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    const rel = path.relative(REPO_ROOT, abs).split(path.sep).join('/');
-    if (predicate(rel)) acc.push(rel);
-  }
-  return acc;
-}
-
-function amendmentSlice(relPath, marker) {
-  const source = read(relPath);
-  const index = source.indexOf(marker);
-  if (index === -1) {
-    throw new Error(`${relPath} is missing marker: ${marker}`);
-  }
-  return source.slice(index);
-}
-
-describe('bundled simplify contract', () => {
-  test('live surfaces use bundled /skill:simplify wording', () => {
-    const skillFiles = walk(path.join(REPO_ROOT, 'workflows'), (rel) => (
-      /^workflows\/[^/]+\/WORKFLOW\.md$/.test(rel)
-      || /^workflows\/[^/]+\/references\/.+\.md$/.test(rel)
-    ));
-
-    const surfaces = new Map([
-      ['README.md', read('README.md')],
-    ]);
-
-    for (const rel of skillFiles) {
-      surfaces.set(rel, read(rel));
-    }
-
-    const banned = [
-      /\$simplify\b/,
-      /optional external/i,
-      /simplify skill not available/i,
-      /Probe for the simplify skill/i,
-      /marketplace skill/i,
-      /legacy runtime simplify/i,
-      /(^|[^a-z0-9])\$?-sdlc:simplify/i,
-    ];
-
-    const violations = [];
-    for (const [rel, source] of surfaces) {
-      for (const pattern of banned) {
-        if (pattern.test(source)) {
-          violations.push(`${rel}: ${pattern}`);
-        }
-      }
-    }
-
-    expect(violations).toEqual([]);
-
-    const requiredMentions = [
-      'workflows/simplify/WORKFLOW.md',
-      'workflows/write-code/WORKFLOW.md',
-    ];
-
-    for (const rel of requiredMentions) {
-      expect(surfaces.get(rel)).toMatch(/\/skill:simplify|simplify/);
-    }
+describe('removed simplify workflow contract', () => {
+  test('the live workflow is absent and implement does not inline it', () => {
+    expect(fs.existsSync(path.join(REPO_ROOT, 'workflows/simplify'))).toBe(false);
+    expect(workerPrompt({ step: 'implement', issue: 42 })).not.toContain('# Simplify');
   });
 });

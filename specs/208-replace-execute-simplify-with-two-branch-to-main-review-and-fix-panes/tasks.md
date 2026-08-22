@@ -66,10 +66,11 @@
 **Type**: Create
 **Depends**: T002, T003
 **Acceptance**:
-- [ ] Bodies match the compact texts in design.md
+- [ ] Review body states host `/review` already ran, persists the immediately preceding response, and forbids `/review`, `omp`, or a nested agent
 - [ ] Workflows never tell the model to write handoff JSON, `git commit`, or `git push`
 - [ ] Frontmatter names are `review-main` and `apply-review`; not registered as public `/sdlc-*` commands
-- [ ] `workerPrompt({ step: 'review1', issue: 42 })` contains `# Review Main` and `sdlc-review-main.mjs`
+- [ ] `runExecute` submits exact `/review`, sends PR-style Enter alone, observes the branch-menu title, then separately selects literal `main`, waits for the result, and prompts the same worker with `workerPrompt`
+- [ ] `workerPrompt({ step: 'review1', issue: 42 })` contains `# Review Main` and `sdlc-review-main.mjs`, but does not instruct another `/review`
 - [ ] `workerPrompt({ step: 'fix1', issue: 42 })` contains `# Apply Review` and `sdlc-apply-review.mjs`
 - [ ] `skill://skill-creator` is resolved and followed before these bundled creates
 
@@ -80,6 +81,8 @@
 **Depends**: T001
 **Acceptance**:
 - [ ] Write-code no longer has `## Bundle Simplify In-Process` and no longer mentions bundling simplify
+- [ ] Write-code stages non-`.omp/` implementation changes, creates a conventional commit, and pushes before its passed handoff
+- [ ] Commit, upstream, or push failure writes a failed intervention handoff and prevents review1
 - [ ] Implement success handoff `next` is `review1`
 - [ ] Spec-implementer description is `Implement approved spec tasks.` and has no inlined simplify step
 - [ ] `workerPrompt({ step: 'implement', issue: 42 })` does not contain `# Simplify`
@@ -116,9 +119,14 @@
 **Acceptance**:
 - [ ] `nextStep(['start', 'implement'])` is `review1`; after both fix steps the next step is `verify`
 - [ ] Failed or intervention `review1` does not launch `fix1`, `review2`, `fix2`, `verify`, or `deliver`
+- [ ] Realistic `herdr agent get` payloads at `result.agent.agent_status` and `result.agent.agentStatus` recognize idle/done retained workers; passed non-intervention handoffs close, complete, and continue to the next step
+- [ ] Review workers prompt exact `/review`, submit the two asynchronous menu answers in separate key calls with an observed branch-menu transition between them, wait for working and settled states, then send the persistence workflow
+- [ ] Tests model the mode-to-branch menu transition and fail if both menu answers are burst together
+- [ ] Review-mode or branch-menu transition failure stops the queue without a passed handoff
+- [ ] Every review/fix handoff includes the full schema and is exercised through `validateHandoff`
 - [ ] No-findings apply-review path asserts zero `git commit` and zero `git push` with a passed handoff
 - [ ] Findings without `--applied` exit 3 and write no handoff
-- [ ] Implement prompt excludes `# Simplify`; review prompts contain `# Review Main`; fix prompts contain `# Apply Review`
+- [ ] Implement prompt excludes `# Simplify` and requires commit/push; review prompts contain `# Review Main`; fix prompts contain `# Apply Review`
 - [ ] New/changed worker prompt ceilings are measured UTF-8 size + 256; unrelated automated-body ceilings are unchanged
 - [ ] Former simplify-contract file asserts `workflows/simplify/` is gone
 - [ ] Focused execute, review-main, apply-review, prompt-byte, interactive-plan, contribution-guide, current-specs, and plugin-surface tests exit 0

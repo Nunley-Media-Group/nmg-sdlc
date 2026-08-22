@@ -118,8 +118,25 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     })).toThrow();
   });
 
-  it('nextStep skips completed prefix steps', () => {
-    expect(nextStep(['start', 'implement'])).toBe('verify');
+  it('nextStep follows both review and fix pairs before verification', () => {
+    expect(nextStep(['start', 'implement'])).toBe('review1');
+    expect(nextStep(['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'])).toBe('verify');
+  });
+
+  it('validateHandoff accepts review and fix steps and rejects unknown steps', () => {
+    const base = {
+      schemaVersion: 1,
+      issue: 42,
+      status: 'passed',
+      intervention: false,
+      summary: 'ok',
+      artifacts: [],
+      next: null,
+      reasonCode: null,
+    };
+    expect(validateHandoff({ ...base, step: 'review1' }).step).toBe('review1');
+    expect(validateHandoff({ ...base, step: 'fix2' }).step).toBe('fix2');
+    expect(() => validateHandoff({ ...base, step: 'simplify' })).toThrow('handoff step');
   });
 
   afterEach(() => {
@@ -178,8 +195,18 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(cli.stdout).not.toMatch(/\/skill:/);
   });
 
-  it('workerPrompt inlines extra workflows for implement and deliver', () => {
-    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
+  it('workerPrompt maps implementation, review, fix, and delivery workflows', () => {
+    const implement = workerPrompt({ step: 'implement', issue: 42 });
+    const review = workerPrompt({ step: 'review1', issue: 42 });
+    expect(implement).not.toContain('# Simplify');
+    expect(implement).toContain('## Commit and Push Implementation');
+    expect(implement).toContain('git push');
+    expect(review).toContain('# Review Main');
+    expect(review).toContain('sdlc-review-main.mjs');
+    expect(review).toContain('already run interactively');
+    expect(review).toContain('Do not invoke `/review`, `omp`, or a nested agent.');
+    expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
+    expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('sdlc-apply-review.mjs');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
   });
 
@@ -283,6 +310,9 @@ describe('runExecute controller', () => {
     handoffIssue = 42,
     handoffStep = null,
     paneCloseStatus = 0,
+    reviewPromptStatus = 'stalled',
+    branchMenuTransition = true,
+    writeHandoffs = true,
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -294,10 +324,13 @@ describe('runExecute controller', () => {
     const closed = [];
     const notifications = [];
     const sentKeys = [];
+    const prompts = [];
     const waits = [];
     let paneSequence = 0;
     let activePrompt = '';
     let didStall = false;
+    let reviewMenu = null;
+    const reviewMenuEvents = [];
 
     const run = (command, args) => {
       calls.push([command, ...args]);
@@ -305,6 +338,9 @@ describe('runExecute controller', () => {
       if (command === 'git' && args[0] === 'status') return { status: 0, stdout: '', stderr: '' };
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
         return { status: 0, stdout: '42-ship-it\n', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'branch' && args[1] === '-a') {
+        return { status: 0, stdout: '42-ship-it\nmain\norigin/42-ship-it\norigin/main\n', stderr: '' };
       }
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
         return { status: 0, stdout: JSON.stringify({ title: 'Ship It' }), stderr: '' };
@@ -339,29 +375,55 @@ describe('runExecute controller', () => {
       },
       agentPrompt: ({ name, prompt }) => {
         activePrompt = prompt;
+        prompts.push({ name, prompt });
+        if (prompt === '/review') {
+          reviewMenu = 'mode';
+          reviewMenuEvents.push('mode-visible');
+          return reviewPromptStatus === 'stalled'
+            ? { status: 1, reasonCode: 'agent_prompt_stalled' }
+            : { status: 1, reasonCode: reviewPromptStatus };
+        }
+        reviewMenu = null;
         const step = name.slice(name.lastIndexOf('-') + 1);
         if (stalled && !didStall) {
           didStall = true;
           return { status: 1, reasonCode: 'agent_prompt_stalled' };
         }
-        const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
-        fs.mkdirSync(handoffDir, { recursive: true });
-        fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
-          schemaVersion: 1,
-          issue: handoffIssue,
-          step: handoffStep ?? step,
-          status: step === failedStep ? 'failed' : 'passed',
-          intervention: step === failedStep,
-          summary: `${step} complete`,
-          artifacts: [],
-          next: step === 'deliver' ? null : 'next',
-          reasonCode: step === failedStep ? 'implementation_failed' : null,
-        })}\n`);
+        if (writeHandoffs) {
+          const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
+          fs.mkdirSync(handoffDir, { recursive: true });
+          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+            schemaVersion: 1,
+            issue: handoffIssue,
+            step: handoffStep ?? step,
+            status: step === failedStep ? 'failed' : 'passed',
+            intervention: step === failedStep,
+            summary: `${step} complete`,
+            artifacts: [],
+            next: step === 'deliver' ? null : 'next',
+            reasonCode: step === failedStep ? 'implementation_failed' : null,
+          })}\n`);
+        }
         return { status: 0 };
       },
-      agentRead: () => activePrompt,
+      agentRead: () => {
+        if (reviewMenu === 'mode') return 'Review Mode\n/review';
+        if (reviewMenu === 'branch') {
+          reviewMenuEvents.push('branch-visible');
+          return 'Select base branch to compare against';
+        }
+        return activePrompt;
+      },
       agentSendKeys: ({ keys }) => {
         sentKeys.push(keys);
+        if (reviewMenu === 'mode') {
+          reviewMenuEvents.push(`mode-keys:${keys.join(',')}`);
+          if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
+          if (branchMenuTransition) reviewMenu = 'branch';
+        } else if (reviewMenu === 'branch') {
+          reviewMenuEvents.push(`branch-keys:${keys.join(',')}`);
+          reviewMenu = 'reviewing';
+        }
         return { status: 0 };
       },
       agentWait: (input) => {
@@ -389,37 +451,40 @@ describe('runExecute controller', () => {
       listAgents: () => [],
       notificationShow: (notice) => notifications.push(notice),
     };
-    return { cwd, calls, starts, closed, notifications, sentKeys, waits, run, herdr };
+    return {
+      cwd, calls, starts, closed, notifications, sentKeys, waits, prompts, reviewMenuEvents, run, herdr,
+    };
   }
 
   const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock', HERDR_PANE_ID: 'main-pane' };
 
-  function configureRepairedImplementWorker(fixture) {
+  function configurePassedRetainedStartWorker(fixture, agentPayload) {
     writeRun({
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
-      currentStep: 'implement',
-      completed: { 42: ['start'] },
-      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
+      currentStep: 'start',
+      completed: { 42: [] },
+      failed: { issue: 42, step: 'start', reasonCode: 'missing_handoff' },
       startedAt: '2026-08-21T00:00:00.000Z',
     }, fixture.cwd);
-    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), `${JSON.stringify({
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'), `${JSON.stringify({
       schemaVersion: 1,
       issue: 42,
-      step: 'implement',
+      step: 'start',
       status: 'passed',
       intervention: false,
-      summary: 'Implementation repaired',
+      summary: 'Start repaired',
       artifacts: [],
-      next: 'verify',
+      next: 'implement',
       reasonCode: null,
     })}\n`);
     fixture.herdr.listAgents = () => [{
-      name: 's42-implement',
+      name: 's42-start',
       pane_id: 'kept-pane',
       state: 'idle',
     }];
+    fixture.herdr.agentGet = () => ({ status: 0, stdout: JSON.stringify(agentPayload) });
   }
 
   it('fails before Herdr mutation when the session environment is missing', () => {
@@ -445,26 +510,91 @@ describe('runExecute controller', () => {
     expect(fixture.calls).toHaveLength(0);
   });
 
-  it('runs four omp sibling workers and preserves helper prompt composition', () => {
+  it('runs eight omp sibling workers in queue order', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(0);
     expect(fixture.starts).toEqual([
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-implement', paneId: 'pane-2', kind: 'omp' },
-      { name: 's42-verify', paneId: 'pane-3', kind: 'omp' },
-      { name: 's42-deliver', paneId: 'pane-4', kind: 'omp' },
+      { name: 's42-review1', paneId: 'pane-3', kind: 'omp' },
+      { name: 's42-fix1', paneId: 'pane-4', kind: 'omp' },
+      { name: 's42-review2', paneId: 'pane-5', kind: 'omp' },
+      { name: 's42-fix2', paneId: 'pane-6', kind: 'omp' },
+      { name: 's42-verify', paneId: 'pane-7', kind: 'omp' },
+      { name: 's42-deliver', paneId: 'pane-8', kind: 'omp' },
     ]);
-    expect(fixture.closed).toEqual(['pane-1', 'pane-2', 'pane-3', 'pane-4']);
-    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
-    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+    expect(fixture.closed).toEqual([
+      'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7', 'pane-8',
+    ]);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review').map(({ name }) => name)).toEqual([
+      's42-review1',
+      's42-review2',
+    ]);
+    expect(fixture.sentKeys).toEqual([
+      ['enter'],
+      ['down', 'enter'],
+      ['enter'],
+      ['down', 'enter'],
+    ]);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible',
+      'mode-keys:enter',
+      'branch-visible',
+      'branch-keys:down,enter',
+      'mode-visible',
+      'mode-keys:enter',
+      'branch-visible',
+      'branch-keys:down,enter',
+    ]);
+    expect(fixture.prompts.some(({ prompt }) => /\bomp\s+\/review\b/.test(prompt))).toBe(false);
+  });
+
+  it('rejects a passed handoff left by an earlier worker attempt', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-start.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'start',
+      status: 'passed',
+      intervention: false,
+      summary: 'Stale start result',
+      artifacts: [],
+      next: 'implement',
+      reasonCode: null,
+    })}\n`);
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
+    });
   });
 
   it('recovers one pasted stalled prompt without a timeout', () => {
     const fixture = makeControllerFixture({ stalled: true });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(0);
-    expect(fixture.sentKeys).toEqual([['enter']]);
+    expect(fixture.sentKeys).toEqual([
+      ['enter'],
+      ['enter'],
+      ['down', 'enter'],
+      ['enter'],
+      ['down', 'enter'],
+    ]);
     expect(fixture.waits[0]).toEqual({ name: 's42-start', until: 'working' });
     expect(fixture.waits[1]).toEqual({ name: 's42-start' });
     expect(fixture.waits.every((waitCall) => !Object.hasOwn(waitCall, 'timeout'))).toBe(true);
@@ -480,6 +610,40 @@ describe('runExecute controller', () => {
       body: 'Stopped on #42 implement. Worker pane pane-2 agent s42-implement left open.',
       sound: 'request',
     }]);
+  });
+
+  it('stops after failed review1 without launching later queue steps', () => {
+    const fixture = makeControllerFixture({ failedStep: 'review1' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
+    expect(fixture.starts.some(({ name }) => /s42-(fix1|review2|fix2|verify|deliver)/.test(name))).toBe(false);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+  });
+
+  it('stops when interactive review mode cannot be selected', () => {
+    const fixture = makeControllerFixture({ reviewPromptStatus: 'worker_failed' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const reviewHandoff = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json');
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+    expect(fs.existsSync(reviewHandoff)).toBe(false);
+    expect(fixture.notifications.at(-1)?.body).toContain('s42-review1 left open');
+  });
+
+  it('stops when the branch menu transition is not observed', () => {
+    const fixture = makeControllerFixture({ branchMenuTransition: false });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const reviewHandoff = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json');
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([['enter']]);
+    expect(fixture.reviewMenuEvents).toEqual(['mode-visible', 'mode-keys:enter']);
+    expect(fs.existsSync(reviewHandoff)).toBe(false);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
   });
 
   it.each([
@@ -518,18 +682,33 @@ describe('runExecute controller', () => {
     expect(result.stdout).toContain('no second worker started');
   });
 
-  it('resumes after a retained worker repairs its handoff without closing its pane', () => {
+  it.each([
+    ['snake-case idle', { result: { agent: { agent_status: 'idle' } } }],
+    ['camel-case done', { result: { agent: { agentStatus: 'done' } } }],
+  ])('resumes a retained worker from realistic %s Herdr JSON', (_label, agentPayload) => {
     const fixture = makeControllerFixture();
-    configureRepairedImplementWorker(fixture);
+    configurePassedRetainedStartWorker(fixture, agentPayload);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('no second worker started');
     expect(fixture.starts).toEqual([
-      { name: 's42-verify', paneId: 'pane-1', kind: 'omp' },
-      { name: 's42-deliver', paneId: 'pane-2', kind: 'omp' },
+      { name: 's42-implement', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-review1', paneId: 'pane-2', kind: 'omp' },
+      { name: 's42-fix1', paneId: 'pane-3', kind: 'omp' },
+      { name: 's42-review2', paneId: 'pane-4', kind: 'omp' },
+      { name: 's42-fix2', paneId: 'pane-5', kind: 'omp' },
+      { name: 's42-verify', paneId: 'pane-6', kind: 'omp' },
+      { name: 's42-deliver', paneId: 'pane-7', kind: 'omp' },
     ]);
-    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+    expect(fixture.closed).toEqual([
+      'kept-pane', 'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7',
+    ]);
+    expect(persisted.completed['42']).toEqual([
+      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
+    ]);
   });
 
 
