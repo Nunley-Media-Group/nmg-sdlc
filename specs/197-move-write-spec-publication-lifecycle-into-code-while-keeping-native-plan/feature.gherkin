@@ -1,0 +1,91 @@
+**Issue**: #197
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/5-write-spec-skill/
+
+# File: specs/197-move-write-spec-publication-lifecycle-into-code-while-keeping-native-plan/feature.gherkin
+#
+# Generated from: specs/197-move-write-spec-publication-lifecycle-into-code-while-keeping-native-plan/requirements.md
+Feature: Move write-spec publication lifecycle into code while keeping native plan
+  As a write-spec operator in the TUI
+  I want issue discovery, approval publication, and continue-loop candidate filtering to run in existing publish helpers
+  So that the model spends tokens on requirements and design, not git/gh lifecycle prose
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: discovery returns complete deterministic input
+    Given open issue N has no existing spec package
+    When write-spec runs publish-approved-spec discover --issue N
+    Then JSON contains issue metadata, feature-or-bug classification, derived slug, target directory, resolved spec status, and approval source
+    And bug label selects bug while spike does not create a separate path
+    And discovery reuses shared specStatus and resolveSpecDir rules
+    And discovery performs no repository mutation
+
+  @SCN002
+  Scenario: approved native plan publishes through existing helpers
+    Given the first issue plan contains full requirements, design, tasks, and Gherkin bodies
+    When the operator approves the native plan
+    Then execution runs prepare, writes four Approved files, runs commit-push, and runs merge in order
+    And commit and PR title are docs: approve spec for #N
+    And the PR body mentions #N without a closing keyword
+    And successful merge leaves the issue open and the working tree on the default branch
+
+  @SCN003
+  Scenario: continue helper returns every eligible candidate
+    Given the session has published issue numbers
+    When write-spec runs candidates with repeated --published arguments
+    Then the helper lists up to 100 open issues
+    And it drops published numbers and shared-status Approved worktree, local-branch, and remote-branch packages
+    And it returns every remaining number/title row sorted numerically
+    And the workflow presents at most the first three rows plus Finished in a native ask
+
+  # --- Alternative Paths ---
+
+  @SCN004
+  Scenario: existing unique spec directory wins over current title slug
+    Given issue N has one unapproved specs/N-existing-slug directory
+    When discover runs after the issue title changed
+    Then targetDir is the existing directory
+    And the package is revised in place after approval
+    And no second leading-N directory is created
+
+  @SCN005
+  Scenario: continuation preserves plan and interview budgets
+    Given one spec was already proposed and published in the session
+    When the operator selects another candidate
+    Then that issue receives a fresh maximum-three-ask interview budget
+    And its local plan still contains all four full file bodies
+    And no second xd propose is invoked
+
+  # --- Error Handling ---
+
+  @SCN006
+  Scenario: discovery fails closed on unreadable input
+    Given issue N is unreadable, malformed, number-mismatched, or missing state
+    When discover runs
+    Then it exits non-zero with reasonCode issue_unreadable
+    And it does not create a branch or spec directory
+
+  @SCN007
+  Scenario: ambiguous approval status is never offered
+    Given an issue has ambiguous leading-number directories or branch packages
+    When discover or candidates evaluates that issue
+    Then the shared resolver failure is returned
+    And candidates does not include the issue as unapproved
+
+  @SCN008
+  Scenario: non-TUI write-spec remains unavailable
+    Given print or RPC invokes sdlc-write-spec
+    When the extension routes the command
+    Then it prints Run /sdlc-write-spec in the TUI.
+    And no commands/sdlc-write-spec.md surface exists
+
+  @SCN009
+  Scenario: Finished output remains exact
+    Given at least one spec was published in the session
+    When the operator selects Finished
+    Then output lists Published specs with issue and branch names
+    And the next line is Next step: /sdlc-execute #<first-published>
+    And the working tree remains on the repository default branch
