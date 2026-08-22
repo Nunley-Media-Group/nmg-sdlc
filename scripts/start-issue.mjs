@@ -105,7 +105,7 @@ export function startIssue({
   const dirtyResult = run('git', ['status', '--porcelain'], { cwd });
   const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
   const dirty = String(dirtyResult?.stdout || '').trim();
-  if (dirtyResult?.status !== 0 || !currentBranch || (dirty && currentBranch !== expectedBranch)) {
+  if (dirtyResult?.status !== 0 || (dirty && currentBranch !== expectedBranch)) {
     return fail(`Working tree is dirty and current branch is not ${expectedBranch}`, 'dirty_tree');
   }
 

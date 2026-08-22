@@ -94,6 +94,15 @@ describe('startIssue controller', () => {
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
   });
 
+  it('develops the issue branch from a clean detached HEAD', () => {
+    const f = fixture({ branch: '', dirty: '' });
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls).toContainEqual([
+      'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
+    ]);
+  });
+
   it('writes default_branch_unreadable', () => {
     const f = fixture({ defaultStatus: 1 });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });

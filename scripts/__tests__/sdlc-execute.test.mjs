@@ -454,6 +454,44 @@ describe('runExecute controller', () => {
     expect(result.stdout).toContain('no second worker started');
   });
 
+  it('resumes after a retained worker repairs its handoff', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
+      startedAt: '2026-08-21T00:00:00.000Z',
+    }, fixture.cwd);
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'implement',
+      status: 'passed',
+      intervention: false,
+      summary: 'Implementation repaired',
+      artifacts: [],
+      next: 'verify',
+      reasonCode: null,
+    })}\n`);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-pane',
+      state: 'idle',
+    }];
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts).toEqual([
+      { name: 's42-verify', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-deliver', paneId: 'pane-2', kind: 'omp' },
+    ]);
+    expect(fixture.closed).toEqual(['kept-pane', 'pane-1', 'pane-2']);
+  });
+
   it('stops on an unapproved spec with the write-spec instruction', () => {
     const fixture = makeControllerFixture();
     fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/design.md'), '**Issue**: #42\n**Status**: Draft\n');

@@ -608,14 +608,6 @@ export function runExecute({
   }
 
   const existingAgents = firstAgentList(herdrApi.listAgents());
-  for (const issue of issues) {
-    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
-    if (live) {
-      output.push(`Existing worker ${live.name} in pane ${live.pane_id ?? live.paneId ?? 'unknown'}; no second worker started.`);
-      return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
-    }
-  }
-
   const createdPanes = new Set();
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
@@ -628,6 +620,41 @@ export function runExecute({
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
+    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
+    if (live) {
+      const agentName = String(live.name);
+      const paneId = live.pane_id ?? live.paneId ?? 'unknown';
+      const state = agentState(herdrApi.agentGet(agentName));
+      if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
+        const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+        let handoff;
+        try {
+          if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
+          handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
+          if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
+        } catch {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        if (handoff.status !== 'passed' || handoff.intervention) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status,
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        herdrApi.paneClose(paneId);
+        runState.completed[String(issue)].push(step);
+        step = nextStep(runState.completed[String(issue)]);
+        runState.currentStep = step;
+        runState.failed = null;
+        writeRun(runState, cwd);
+      } else {
+        output.push(`Existing worker ${agentName} in pane ${paneId}; no second worker started.`);
+        return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+      }
+    }
     while (step) {
       runState.currentStep = step;
       runState.failed = null;
