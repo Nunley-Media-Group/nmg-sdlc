@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-08-22
+
 ### Changed
 
 - `/sdlc-execute` replaces the simplify stage with two host OMP `/review` and fix-worker pairs against literal `main`; implementation is committed and pushed before review, and every review/fix handoff is controller-validated.
