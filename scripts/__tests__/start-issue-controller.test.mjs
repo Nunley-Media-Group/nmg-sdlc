@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { slugFromTitle, startIssue } from '../start-issue.mjs';
 
 const roots = [];
+const SCRIPT = fileURLToPath(new URL('../start-issue.mjs', import.meta.url));
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -66,6 +69,22 @@ describe('startIssue controller', () => {
   it('normalizes titles and falls back for an empty slug', () => {
     expect(slugFromTitle(' Ship It! ')).toBe('ship-it');
     expect(slugFromTitle('---')).toBe('issue');
+  });
+
+  it('rejects a missing CLI issue without writing a handoff', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-controller-cli-'));
+    roots.push(cwd);
+
+    const result = spawnSync(process.execPath, [SCRIPT], { cwd, encoding: 'utf8' });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr.trim()).toBe('Usage: node scripts/start-issue.mjs --issue N');
+    expect(JSON.parse(result.stdout)).toEqual({
+      reasonCode: 'no_issue_number',
+      intervention: true,
+      step: 'start',
+    });
+    expect(fs.existsSync(path.join(cwd, '.omp'))).toBe(false);
   });
 
   it('writes issue_unreadable', () => {

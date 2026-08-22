@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-08-21
+
+### Changed
+
+- Moved start-issue and execute orchestration into deterministic Node controllers while preserving sibling OMP workers, resumable handoffs, and compact workflow prompts.
+
+### Fixed
+
+- Repaired execute resume behavior so retained worker panes remain open while successfully repaired handoffs continue the queue.
+
 ## [3.2.1] - 2026-08-21
 
 ### Fixed

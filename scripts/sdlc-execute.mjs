@@ -652,12 +652,6 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        if (!closePane(herdrApi, paneId)) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
         runState.completed[String(issue)].push(step);
         step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;

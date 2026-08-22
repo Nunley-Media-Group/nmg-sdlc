@@ -518,7 +518,7 @@ describe('runExecute controller', () => {
     expect(result.stdout).toContain('no second worker started');
   });
 
-  it('resumes after a retained worker repairs its handoff', () => {
+  it('resumes after a retained worker repairs its handoff without closing its pane', () => {
     const fixture = makeControllerFixture();
     configureRepairedImplementWorker(fixture);
 
@@ -529,22 +529,9 @@ describe('runExecute controller', () => {
       { name: 's42-verify', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-deliver', paneId: 'pane-2', kind: 'omp' },
     ]);
-    expect(fixture.closed).toEqual(['kept-pane', 'pane-1', 'pane-2']);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
   });
 
-  it('stops without completing a repaired step when its retained pane cannot close', () => {
-    const fixture = makeControllerFixture({ paneCloseStatus: 1 });
-    configureRepairedImplementWorker(fixture);
-
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-
-    expect(result.status).toBe(1);
-    expect(fixture.starts).toHaveLength(0);
-    expect(fixture.closed).toEqual(['kept-pane']);
-    expect(persisted.completed['42']).toEqual(['start']);
-    expect(persisted.failed).toEqual({ issue: 42, step: 'implement', reasonCode: 'pane_close_failed' });
-  });
 
   it('stops on an unapproved spec with the write-spec instruction', () => {
     const fixture = makeControllerFixture();
