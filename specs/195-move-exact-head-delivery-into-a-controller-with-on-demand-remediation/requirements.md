@@ -58,7 +58,7 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 ### AC4: pending delivery is bounded
 
 **Given** required checks or automated review are still pending without an actionable failure
-**When** ten minutes have elapsed since the initial observation
+**When** one hour has elapsed since the initial observation
 **Then** the controller writes a failed deliver handoff with `reasonCode: delivery_pending` and `intervention: true`
 **And** observations are at least 30 seconds apart
 **And** the controller does not merge while readiness remains pending
@@ -82,7 +82,7 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 | FR2 | Emit deterministic remediation JSON on stdout with exit 3; rerun the same controller after the same worker edits and pushes. | Must | No nested OMP invocation. |
 | FR3 | Support `--remediation-result human_review` so ambiguous packets become controller-written intervention handoffs. | Must | Human review never auto-merges. |
 | FR4 | Reuse `classifyPrDeliveryState` and verification-readiness contracts. | Must | Do not fork delivery or handoff schemas. |
-| FR5 | Poll pending checks/review every 30 seconds for at most 10 minutes, then fail `delivery_pending`. | Must | Inject sleep/time for deterministic tests. |
+| FR5 | Poll pending checks/review every 30 seconds for at most 60 minutes, then fail `delivery_pending`. | Must | Inject sleep/time for deterministic tests. |
 | FR6 | Remove unconditional deliver `address-pr-comments` from `STEP_EXTRA_WORKFLOWS`; keep implement `simplify`. | Must | On-demand remediation packet replaces unconditional prompt weight. |
 | FR7 | Compact `workflows/open-pr/WORKFLOW.md`; retain `workflows/address-pr-comments/WORKFLOW.md` only as on-demand remediation guidance. | Must | Keep frontmatter stable where applicable. |
 | FR8 | Preserve current versioning, PR, bot identity, exact-head merge, merge proof, and handoff behavior. | Must | No function reduction. |

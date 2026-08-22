@@ -77,7 +77,7 @@
 **Depends**: T003
 **Acceptance**:
 - [ ] Pending-only state observes at 30-second intervals
-- [ ] Ten-minute ceiling writes failed `delivery_pending` intervention handoff
+- [ ] One-hour ceiling writes failed `delivery_pending` intervention handoff
 - [ ] Human threads and CHANGES_REQUESTED write `human_review`
 - [ ] `--remediation-result human_review` writes the same controller-owned handoff
 - [ ] No intervention path merges or resolves review threads

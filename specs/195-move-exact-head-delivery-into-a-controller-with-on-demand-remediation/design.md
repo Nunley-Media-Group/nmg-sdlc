@@ -56,7 +56,7 @@ Normal terminal exit codes are 0 for a passed handoff, 1 for a failed/interventi
 6. Commit any delivery/version changes, perform the current clean-scope and merge-base preflight, push without force, then create or resume the PR for the exact branch. Preserve draft handling for valid `pr_evidence_pending` verification.
 7. Fetch PR/check/review/thread state and pass the normalized snapshot through `classifyPrDeliveryState`. Automated reviewer identity is `__typename === "Bot"`, login `coderabbitai`, or a login declared in `steering/tech.md`.
 8. Human threads, CHANGES_REQUESTED, or explicit `--remediation-result human_review` write the failed intervention handoff and stop without merge.
-9. Actionable failing checks or unresolved bot threads emit the remediation packet and exit 3. Pending-only state polls every 30 seconds for at most ten minutes from the initial observation, then writes `delivery_pending`.
+9. Actionable failing checks or unresolved bot threads emit the remediation packet and exit 3. Pending-only state polls every 30 seconds for at most one hour from the initial observation, then writes `delivery_pending`.
 10. Ready state captures head H immediately before merge and invokes repository-policy squash merge with `--match-head-commit H` and branch deletion unless steering policy overrides that mode.
 11. Re-fetch PR and issue. Only PR `MERGED` at H plus issue `CLOSED` produces a passed handoff. Delete the local issue branch only after this proof.
 
