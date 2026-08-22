@@ -46,7 +46,7 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
   @SCN004
   Scenario: pending checks stop after a bounded wait
     Given required checks or automated review remain pending without an actionable failure
-    When ten minutes elapse from the initial observation
+    When one hour elapses from the initial observation
     Then observations have been at least 30 seconds apart
     And the controller writes a failed delivery_pending intervention handoff
     And it does not merge
