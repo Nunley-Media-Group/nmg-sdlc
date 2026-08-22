@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-22T04:11:46.203Z",
+  "generated_at": "2026-08-22T05:37:43.437Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -33,7 +33,7 @@
       "destination": "agents/architecture-reviewer.md:14",
       "additional_destinations": [
         "agents/deliverer.md:13",
-        "agents/spec-implementer.md:13",
+        "agents/spec-implementer.md:12",
         "agents/starter.md:12"
       ]
     },
@@ -56,7 +56,7 @@
       "destination": "agents/architecture-reviewer.md:17",
       "additional_destinations": [
         "agents/deliverer.md:17",
-        "agents/spec-implementer.md:16",
+        "agents/spec-implementer.md:15",
         "agents/starter.md:15"
       ]
     },
@@ -67,7 +67,7 @@
       "destination": "agents/architecture-reviewer.md:19",
       "additional_destinations": [
         "agents/deliverer.md:19",
-        "agents/spec-implementer.md:18",
+        "agents/spec-implementer.md:17",
         "agents/starter.md:17"
       ]
     },
@@ -126,28 +126,22 @@
       "destination": "agents/spec-implementer.md:10"
     },
     {
-      "id": "89fdc0ac3ee4",
+      "id": "c5c105bfe5bf",
       "source_before": "agents/spec-implementer.md:11",
-      "normalized": "then follow the inlined simplify workflow in this same session.",
+      "normalized": "resolve and read skill://skill-creator before editing any skill-bundled path, th",
       "destination": "agents/spec-implementer.md:11"
     },
     {
-      "id": "c5c105bfe5bf",
-      "source_before": "agents/spec-implementer.md:12",
-      "normalized": "resolve and read skill://skill-creator before editing any skill-bundled path, th",
-      "destination": "agents/spec-implementer.md:12"
-    },
-    {
       "id": "f6dbf1ac049c",
-      "source_before": "agents/spec-implementer.md:14",
+      "source_before": "agents/spec-implementer.md:13",
       "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
-      "destination": "agents/spec-implementer.md:14"
+      "destination": "agents/spec-implementer.md:13"
     },
     {
       "id": "25b7f14bd381",
-      "source_before": "agents/spec-implementer.md:15",
+      "source_before": "agents/spec-implementer.md:14",
       "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
-      "destination": "agents/spec-implementer.md:15"
+      "destination": "agents/spec-implementer.md:14"
     },
     {
       "id": "04683d5d6833",
@@ -283,288 +277,6 @@
       "source_before": "references/issue-form.md:29",
       "normalized": "preserve every unrelated file under .github/issue_template/ byte-for-byte. do no",
       "destination": "references/issue-form.md:29"
-    },
-    {
-      "id": "483c7103c42d",
-      "source_before": "workflows/simplify/WORKFLOW.md:14",
-      "normalized": "discover files to review in this order:",
-      "destination": "workflows/simplify/WORKFLOW.md:14"
-    },
-    {
-      "id": "2a8a74c8a448",
-      "source_before": "workflows/simplify/WORKFLOW.md:16",
-      "normalized": "run git diff --name-only to list unstaged changed files.",
-      "destination": "workflows/simplify/WORKFLOW.md:16"
-    },
-    {
-      "id": "4afd4a6d19bc",
-      "source_before": "workflows/simplify/WORKFLOW.md:17",
-      "normalized": "if staged changes exist, run git diff head --name-only so staged and unstaged fi",
-      "destination": "workflows/simplify/WORKFLOW.md:17"
-    },
-    {
-      "id": "f3ad9840d554",
-      "source_before": "workflows/simplify/WORKFLOW.md:18",
-      "normalized": "if the git diff is empty, review files the user explicitly mentioned or files ed",
-      "destination": "workflows/simplify/WORKFLOW.md:18"
-    },
-    {
-      "id": "4d22fd81ab95",
-      "source_before": "workflows/simplify/WORKFLOW.md:19",
-      "normalized": "exclude generated artifacts, dependency directories, lockfile-only changes, and ",
-      "destination": "workflows/simplify/WORKFLOW.md:19"
-    },
-    {
-      "id": "fa5bbf968a92",
-      "source_before": "workflows/simplify/WORKFLOW.md:21",
-      "normalized": "if no reviewable files can be identified, report that no changed or referenced f",
-      "destination": "workflows/simplify/WORKFLOW.md:21"
-    },
-    {
-      "id": "ef954748ee19",
-      "source_before": "workflows/simplify/WORKFLOW.md:25",
-      "normalized": "for each scoped file:",
-      "destination": "workflows/simplify/WORKFLOW.md:25"
-    },
-    {
-      "id": "c98d38ae442c",
-      "source_before": "workflows/simplify/WORKFLOW.md:27",
-      "normalized": "search adjacent modules and shared utilities for existing helpers, patterns, con",
-      "destination": "workflows/simplify/WORKFLOW.md:27"
-    },
-    {
-      "id": "d5568ed563a2",
-      "source_before": "workflows/simplify/WORKFLOW.md:28",
-      "normalized": "flag duplicated functions, hand-rolled parsing, repeated conditionals, or inline",
-      "destination": "workflows/simplify/WORKFLOW.md:28"
-    },
-    {
-      "id": "5ce65349d055",
-      "source_before": "workflows/simplify/WORKFLOW.md:29",
-      "normalized": "skip replacement suggestions that would broaden dependencies, obscure intent, or",
-      "destination": "workflows/simplify/WORKFLOW.md:29"
-    },
-    {
-      "id": "222c70d337ed",
-      "source_before": "workflows/simplify/WORKFLOW.md:33",
-      "normalized": "check the scoped diff for:",
-      "destination": "workflows/simplify/WORKFLOW.md:33"
-    },
-    {
-      "id": "09dd5d160246",
-      "source_before": "workflows/simplify/WORKFLOW.md:35",
-      "normalized": "redundant state or derived values stored unnecessarily",
-      "destination": "workflows/simplify/WORKFLOW.md:35"
-    },
-    {
-      "id": "f7fb47ea9a3c",
-      "source_before": "workflows/simplify/WORKFLOW.md:36",
-      "normalized": "parameter sprawl and avoidable argument threading",
-      "destination": "workflows/simplify/WORKFLOW.md:36"
-    },
-    {
-      "id": "39649e191b5e",
-      "source_before": "workflows/simplify/WORKFLOW.md:37",
-      "normalized": "copy-paste variation between similar branches",
-      "destination": "workflows/simplify/WORKFLOW.md:37"
-    },
-    {
-      "id": "60d882e56c4c",
-      "source_before": "workflows/simplify/WORKFLOW.md:38",
-      "normalized": "leaky abstractions or helpers with unclear ownership",
-      "destination": "workflows/simplify/WORKFLOW.md:38"
-    },
-    {
-      "id": "735bf0d77725",
-      "source_before": "workflows/simplify/WORKFLOW.md:39",
-      "normalized": "stringly typed code where a local constant, enum-like map, or structured value a",
-      "destination": "workflows/simplify/WORKFLOW.md:39"
-    },
-    {
-      "id": "c6343fddc5b5",
-      "source_before": "workflows/simplify/WORKFLOW.md:40",
-      "normalized": "unnecessary jsx, markup, or conditional nesting",
-      "destination": "workflows/simplify/WORKFLOW.md:40"
-    },
-    {
-      "id": "ec370f7d54ca",
-      "source_before": "workflows/simplify/WORKFLOW.md:41",
-      "normalized": "nested conditionals that can be flattened without losing clarity",
-      "destination": "workflows/simplify/WORKFLOW.md:41"
-    },
-    {
-      "id": "b0c78a6e92af",
-      "source_before": "workflows/simplify/WORKFLOW.md:42",
-      "normalized": "comments that restate obvious code instead of explaining intent",
-      "destination": "workflows/simplify/WORKFLOW.md:42"
-    },
-    {
-      "id": "1951fc8ff38b",
-      "source_before": "workflows/simplify/WORKFLOW.md:46",
-      "normalized": "check for behavior-preserving efficiency improvements:",
-      "destination": "workflows/simplify/WORKFLOW.md:46"
-    },
-    {
-      "id": "ff15446a9c4e",
-      "source_before": "workflows/simplify/WORKFLOW.md:48",
-      "normalized": "unnecessary repeated work inside loops or hot paths",
-      "destination": "workflows/simplify/WORKFLOW.md:48"
-    },
-    {
-      "id": "3128614c226c",
-      "source_before": "workflows/simplify/WORKFLOW.md:49",
-      "normalized": "missed concurrency for independent operations",
-      "destination": "workflows/simplify/WORKFLOW.md:49"
-    },
-    {
-      "id": "21ede2dc3e8e",
-      "source_before": "workflows/simplify/WORKFLOW.md:50",
-      "normalized": "recurring no-op updates",
-      "destination": "workflows/simplify/WORKFLOW.md:50"
-    },
-    {
-      "id": "624aa8dc945c",
-      "source_before": "workflows/simplify/WORKFLOW.md:51",
-      "normalized": "existence pre-checks that duplicate later work",
-      "destination": "workflows/simplify/WORKFLOW.md:51"
-    },
-    {
-      "id": "6de260db6635",
-      "source_before": "workflows/simplify/WORKFLOW.md:52",
-      "normalized": "broad scans or file operations where a narrower scope is available",
-      "destination": "workflows/simplify/WORKFLOW.md:52"
-    },
-    {
-      "id": "e0990490e833",
-      "source_before": "workflows/simplify/WORKFLOW.md:53",
-      "normalized": "retained references, listeners, or timers that can leak memory",
-      "destination": "workflows/simplify/WORKFLOW.md:53"
-    },
-    {
-      "id": "fcea88c5619d",
-      "source_before": "workflows/simplify/WORKFLOW.md:55",
-      "normalized": "skip any efficiency change that would require new dependencies, alter ordering g",
-      "destination": "workflows/simplify/WORKFLOW.md:55"
-    },
-    {
-      "id": "9d6e10390480",
-      "source_before": "workflows/simplify/WORKFLOW.md:59",
-      "normalized": "run the review inline by default.",
-      "destination": "workflows/simplify/WORKFLOW.md:59"
-    },
-    {
-      "id": "8c840a21faff",
-      "source_before": "workflows/simplify/WORKFLOW.md:61",
-      "normalized": "use explorer subagents only when the user explicitly authorizes delegation. when",
-      "destination": "workflows/simplify/WORKFLOW.md:61"
-    },
-    {
-      "id": "e631dd853c0b",
-      "source_before": "workflows/simplify/WORKFLOW.md:63",
-      "normalized": "| explorer | scope | output |",
-      "destination": "workflows/simplify/WORKFLOW.md:63"
-    },
-    {
-      "id": "b6d3cefdcba1",
-      "source_before": "workflows/simplify/WORKFLOW.md:65",
-      "normalized": "| reuse | existing helpers, adjacent patterns, duplicated functions, and shared ",
-      "destination": "workflows/simplify/WORKFLOW.md:65"
-    },
-    {
-      "id": "06bf25459af1",
-      "source_before": "workflows/simplify/WORKFLOW.md:66",
-      "normalized": "| quality | state shape, abstraction boundaries, conditionals, comments, and dup",
-      "destination": "workflows/simplify/WORKFLOW.md:66"
-    },
-    {
-      "id": "7bca825221ec",
-      "source_before": "workflows/simplify/WORKFLOW.md:67",
-      "normalized": "| efficiency | avoidable work, repeated no-ops, hot paths, concurrency, and broa",
-      "destination": "workflows/simplify/WORKFLOW.md:67"
-    },
-    {
-      "id": "9bdcbaa5719e",
-      "source_before": "workflows/simplify/WORKFLOW.md:69",
-      "normalized": "explorer output is advisory. the parent skill decides what to change and applies",
-      "destination": "workflows/simplify/WORKFLOW.md:69"
-    },
-    {
-      "id": "218e17eaddb1",
-      "source_before": "workflows/simplify/WORKFLOW.md:73",
-      "normalized": "aggregate findings from reuse, quality, and efficiency review.",
-      "destination": "workflows/simplify/WORKFLOW.md:73"
-    },
-    {
-      "id": "7860556062b3",
-      "source_before": "workflows/simplify/WORKFLOW.md:75",
-      "normalized": "for each finding:",
-      "destination": "workflows/simplify/WORKFLOW.md:75"
-    },
-    {
-      "id": "5fa07cd44f60",
-      "source_before": "workflows/simplify/WORKFLOW.md:77",
-      "normalized": "apply the smallest behavior-preserving cleanup that clearly improves the code.",
-      "destination": "workflows/simplify/WORKFLOW.md:77"
-    },
-    {
-      "id": "507db543b3fd",
-      "source_before": "workflows/simplify/WORKFLOW.md:78",
-      "normalized": "do not change feature behavior, public contracts, user-visible copy, persistence",
-      "destination": "workflows/simplify/WORKFLOW.md:78"
-    },
-    {
-      "id": "19a888d3a890",
-      "source_before": "workflows/simplify/WORKFLOW.md:79",
-      "normalized": "skip false positives, risky refactors, and changes whose value is not clear.",
-      "destination": "workflows/simplify/WORKFLOW.md:79"
-    },
-    {
-      "id": "273634129067",
-      "source_before": "workflows/simplify/WORKFLOW.md:80",
-      "normalized": "use edit or write tools for changes and follow the repository's existing style.",
-      "destination": "workflows/simplify/WORKFLOW.md:80"
-    },
-    {
-      "id": "4ac070b5e410",
-      "source_before": "workflows/simplify/WORKFLOW.md:82",
-      "normalized": "after edits, run the narrowest relevant validation command when one is obvious f",
-      "destination": "workflows/simplify/WORKFLOW.md:82"
-    },
-    {
-      "id": "4954726def12",
-      "source_before": "workflows/simplify/WORKFLOW.md:86",
-      "normalized": "report:",
-      "destination": "workflows/simplify/WORKFLOW.md:86"
-    },
-    {
-      "id": "89286022aa4c",
-      "source_before": "workflows/simplify/WORKFLOW.md:88",
-      "normalized": "files reviewed",
-      "destination": "workflows/simplify/WORKFLOW.md:88"
-    },
-    {
-      "id": "0b44e573cc62",
-      "source_before": "workflows/simplify/WORKFLOW.md:89",
-      "normalized": "fixes applied",
-      "destination": "workflows/simplify/WORKFLOW.md:89"
-    },
-    {
-      "id": "429a67fd8256",
-      "source_before": "workflows/simplify/WORKFLOW.md:90",
-      "normalized": "findings skipped and why",
-      "destination": "workflows/simplify/WORKFLOW.md:90"
-    },
-    {
-      "id": "4c2799940452",
-      "source_before": "workflows/simplify/WORKFLOW.md:91",
-      "normalized": "validation run",
-      "destination": "workflows/simplify/WORKFLOW.md:91"
-    },
-    {
-      "id": "7413e91e390b",
-      "source_before": "workflows/simplify/WORKFLOW.md:93",
-      "normalized": "if no worthwhile cleanup is found, say the scoped files were already clean.",
-      "destination": "workflows/simplify/WORKFLOW.md:93"
     }
   ]
 }

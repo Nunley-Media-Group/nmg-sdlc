@@ -12,7 +12,11 @@ const AUTOMATED_BODY_CEILINGS = {
 
 const WORKER_PROMPT_CEILINGS = {
   start: 1445,
-  implement: 8748,
+  implement: 5257,
+  review1: 1388,
+  fix1: 958,
+  review2: 1388,
+  fix2: 958,
   verify: 3734,
   deliver: 5848,
 };
@@ -30,8 +34,12 @@ describe('rendered prompt byte ceilings', () => {
     expect(prompt).not.toContain('## Integration with SDLC Workflow');
   });
 
-  test('worker extras remain inlined', () => {
-    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
+  test('worker prompts inline only their owned workflows', () => {
+    expect(workerPrompt({ step: 'implement', issue: 42 })).not.toContain('# Simplify');
+    expect(workerPrompt({ step: 'review1', issue: 42 })).toContain('# Review Main');
+    expect(workerPrompt({ step: 'review2', issue: 42 })).toContain('# Review Main');
+    expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
+    expect(workerPrompt({ step: 'fix2', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
   });
 });

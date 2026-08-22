@@ -84,7 +84,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 - Approved specs for one issue (`/sdlc-write-spec #N`)
 - Automated delivery through Herdr (`/sdlc-execute [#N …]`)
 - Linked branch and status management (`start-issue` worker)
-- Spec-driven implementation (`write-code` + bundled `simplify`)
+- Spec-driven implementation followed by two host reviews against `main` with dedicated fix panes (`write-code`, `review-main`, `apply-review`)
 - Verification and architecture review (`verify-code`)
 - Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
 - Review-thread cleanup (`address-pr-comments`)
@@ -162,7 +162,9 @@ draft-issue        → ordinary feature or bug issues
 write-spec         → approved specs/{N}-{slug}/
 execute            → Herdr worker pipeline to exact-head merge
 start-issue        → linked branch and In Progress status
-write-code         → implementation covering approved tasks + bundled simplify
+write-code         → implementation covering approved tasks
+review-main        → host /review of the current issue branch against main
+apply-review       → apply one review artifact, committing and pushing only when changed
 verify-code        → acceptance/evidence report
 open-pr            → exact-head PR delivery, merge, and issue closure
 address-pr-comments→ focused review-loop utility or failed intervention handoff

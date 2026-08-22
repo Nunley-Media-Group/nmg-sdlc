@@ -10,6 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Changed
+
+- `/sdlc-execute` replaces the simplify stage with two host OMP `/review` and fix-worker pairs against literal `main`; implementation is committed and pushed before review, and every review/fix handoff is controller-validated.
+
+### Fixed
+
+- Execute now submits `/review` to the existing interactive OMP worker and drives its PR-style and base-branch prompts instead of launching a nested OMP process that can hang.
+- Retained Herdr workers now recognize `result.agent.agent_status` and `agentStatus`; idle/done workers with passed non-intervention handoffs close, complete, and resume the queue.
+
 ## [3.3.0] - 2026-08-21
 
 ### Changed

@@ -187,7 +187,7 @@
       "surface": "automated simplify stage",
       "purpose": "Apply worthwhile behavior-preserving cleanup to the changed implementation surface.",
       "sources": [
-        "workflows/simplify/"
+        "specs/106-simplify-skill/"
       ],
       "verification": [
         "scripts/__tests__/simplify-contract.test.mjs"

@@ -27,12 +27,13 @@ export const CURRENT_SPEC_DIRECTORIES = [
 
 const WORKFLOW_CAPABILITY = new Map([
   ['address-pr-comments', 'address-pr-comments'],
+  ['apply-review', 'execute'],
   ['draft-issue', 'draft-issue'],
   ['execute', 'execute'],
   ['onboard-project', 'onboard-project'],
   ['open-pr', 'open-pr'],
+  ['review-main', 'execute'],
   ['run-retro', 'run-retro'],
-  ['simplify', 'simplify'],
   ['start-issue', 'start-issue'],
   ['status', 'status'],
   ['upgrade-project', 'project-upgrade'],

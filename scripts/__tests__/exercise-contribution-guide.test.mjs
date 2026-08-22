@@ -54,7 +54,7 @@ function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
     '- Epics are coordination-only and cannot be started; children use normal dependency rules and show epic membership as informational lineage.',
     '- Keep the three-file epic aggregate separate from each executable child package.',
     '- Consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before implementation.',
-    '- Follow the issue -> spec -> code -> simplify -> verify -> exact-head merge -> issue closure workflow.',
+    '- Follow the issue -> spec -> code -> review -> fix -> review -> fix -> verify -> exact-head merge -> issue closure workflow.',
     '- Close only fully eligible epic ancestors after child closure; backlog repair requires per-epic exact approval and fresh drift proof.',
     brownfield ? '- Treat existing code and reconciled specs as contribution context.' : '- Keep new work aligned with project steering.',
     '',
@@ -80,7 +80,7 @@ function ensureContributionGuide(projectDir, { brownfield = false } = {}) {
       '',
       '## Implementation and Verification',
       '',
-      'Implement through code, simplify, verification, exact-head merge, and issue closure.',
+      'Implement through code, two review and fix passes, verification, exact-head merge, and issue closure.',
       'Close only fully eligible epic ancestors after child closure. Backlog repair requires per-epic exact approval and fresh drift proof.',
       '',
     ].join('\n'));

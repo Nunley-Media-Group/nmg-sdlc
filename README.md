@@ -116,7 +116,7 @@ Creates or updates the executable spec package under `specs/{N}-{slug}/`. The sp
 /sdlc-execute          # selects from ready backlog when no argument
 ```
 
-After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for the remaining stages: implementation (write-code + simplify), verification, and delivery (open-pr). It creates sibling panes, writes handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
+After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively, then persists the review result; it never starts nested OMP. It creates sibling panes, writes validated handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
 
 `open-pr` (via execute) handles staging approved paths, version bump (per steering/tech.md rules), commit, push, PR creation or resume, remediation of actionable findings, exact-head merge, and issue closure. Success requires the PR to be `MERGED` and the issue `CLOSED`.
 
@@ -171,10 +171,9 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 | sdlc-open-pr                 | /sdlc-open-pr #N                    | Deliver a verified branch through exact-head merge |
 | sdlc-upgrade-project         | /sdlc-upgrade-project               | Reconcile contracts and propose legacy repairs |
 | sdlc-run-retro               | /sdlc-run-retro                     | Derive steering learnings from defect specs |
-| simplify                     | (internal to write-code)            | Behavior-preserving cleanup on changed files |
 | address-pr-comments          | (internal to open-pr)               | Close automated-reviewer feedback loops |
 
-`/sdlc-execute` still owns the full start → implement → verify → deliver queue. `/sdlc-verify-code` and `/sdlc-open-pr` are the phase commands for trees that already have implementation or verification evidence.
+`/sdlc-execute` owns the full start → implement → review1 → fix1 → review2 → fix2 → verify → deliver queue. `/sdlc-verify-code` and `/sdlc-open-pr` are the phase commands for trees that already have implementation or verification evidence.
 
 ## License
 
