@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-22T05:37:43.437Z",
+  "generated_at": "2026-08-22T06:29:44.537Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -56,7 +56,7 @@
       "destination": "agents/architecture-reviewer.md:17",
       "additional_destinations": [
         "agents/deliverer.md:17",
-        "agents/spec-implementer.md:15",
+        "agents/spec-implementer.md:16",
         "agents/starter.md:15"
       ]
     },
@@ -67,7 +67,7 @@
       "destination": "agents/architecture-reviewer.md:19",
       "additional_destinations": [
         "agents/deliverer.md:19",
-        "agents/spec-implementer.md:17",
+        "agents/spec-implementer.md:18",
         "agents/starter.md:17"
       ]
     },
@@ -132,16 +132,22 @@
       "destination": "agents/spec-implementer.md:11"
     },
     {
-      "id": "f6dbf1ac049c",
+      "id": "b97c0a0e9aff",
       "source_before": "agents/spec-implementer.md:13",
-      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
+      "normalized": "commit all non-runtime implementation changes with a conventional subject and pu",
       "destination": "agents/spec-implementer.md:13"
     },
     {
-      "id": "25b7f14bd381",
+      "id": "f6dbf1ac049c",
       "source_before": "agents/spec-implementer.md:14",
-      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
+      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
       "destination": "agents/spec-implementer.md:14"
+    },
+    {
+      "id": "25b7f14bd381",
+      "source_before": "agents/spec-implementer.md:15",
+      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
+      "destination": "agents/spec-implementer.md:15"
     },
     {
       "id": "04683d5d6833",

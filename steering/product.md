@@ -163,7 +163,7 @@ write-spec         → approved specs/{N}-{slug}/
 execute            → Herdr worker pipeline to exact-head merge
 start-issue        → linked branch and In Progress status
 write-code         → implementation covering approved tasks
-review-main        → host /review of the current issue branch against main
+review-main        → persist the execute-driven host /review result against main
 apply-review       → apply one review artifact, committing and pushing only when changed
 verify-code        → acceptance/evidence report
 open-pr            → exact-head PR delivery, merge, and issue closure
