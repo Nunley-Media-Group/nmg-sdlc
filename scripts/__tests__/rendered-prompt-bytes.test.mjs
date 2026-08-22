@@ -4,14 +4,14 @@ import { renderedPromptBytes, workflowBody } from '../../src/sdlc-workflows.mjs'
 import { workerPrompt } from '../sdlc-execute.mjs';
 
 const AUTOMATED_BODY_CEILINGS = {
-  'sdlc-execute': 11260,
+  'sdlc-execute': 1040,
   'sdlc-status': 814,
   'sdlc-verify-code': 3435,
   'sdlc-open-pr': 3644,
 };
 
 const WORKER_PROMPT_CEILINGS = {
-  start: 6024,
+  start: 1445,
   implement: 8748,
   verify: 3734,
   deliver: 5848,
