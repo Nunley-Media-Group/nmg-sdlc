@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-08-22
+
+### Fixed
+
+- `/sdlc-execute` now honors a valid passed worker handoff from an idle or done worker even when the Herdr prompt-wait command reports failure.
+
 ## [3.4.0] - 2026-08-22
 
 ### Changed
