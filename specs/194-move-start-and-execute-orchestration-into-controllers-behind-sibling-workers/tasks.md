@@ -67,6 +67,7 @@
 - [ ] `runExecute` with unset `HERDR_ENV` prints `execute requires a Herdr OMP session` and does not split or start agents
 - [ ] Fake pipeline starts `s42-start`, `s42-implement`, `s42-verify`, `s42-deliver` as `--kind omp`
 - [ ] Stalled-prompt test drives the fake adapter (one `enter`, wait `working`) instead of grepping `workflows/execute/WORKFLOW.md`
+- [ ] A fake worker that remains active for 3,600 seconds is not failed by a controller-side timeout, and no unsupported `agent wait --timeout` argument is emitted
 - [ ] Failed/`intervention: true` handoff keeps the pane and stops the queue
 
 ### T005: Compact start and execute workflows
