@@ -27,15 +27,17 @@ function handoffFor(issue, step, status, summary, artifactPath, reasonCode = nul
 }
 
 function porcelainPaths(stdout) {
-  return String(stdout || '')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const path = line.slice(3).trim();
-      const renameSeparator = path.lastIndexOf(' -> ');
-      return renameSeparator >= 0 ? path.slice(renameSeparator + 4) : path;
-    })
-    .filter((path) => path !== '.omp' && !path.startsWith('.omp/'));
+  const records = String(stdout || '').split('\0');
+  const paths = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+    const status = record.slice(0, 2);
+    const path = record.slice(3);
+    if (path !== '.omp' && !path.startsWith('.omp/')) paths.push(path);
+    if (status.includes('R') || status.includes('C')) index += 1;
+  }
+  return paths;
 }
 
 export function runApplyReview({
@@ -105,7 +107,7 @@ export function runApplyReview({
     };
   }
 
-  const status = run('git', ['status', '--porcelain'], { cwd });
+  const status = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
   if (status?.status !== 0) return fail(`Failed to inspect review fixes for #${issueNumber}`, 'apply_review_failed');
   const paths = porcelainPaths(status.stdout);
   if (paths.length === 0) return pass(`No ${reviewStep} changes to commit for #${issueNumber}`);

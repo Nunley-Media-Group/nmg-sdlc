@@ -62,7 +62,7 @@ describe('runApplyReview', () => {
     const outcome = runApplyReview({ issue: 42, step: 'fix1', cwd: root, run, fs, applied: true });
 
     expect(outcome.status).toBe(0);
-    expect(calls).toEqual([['git', ['status', '--porcelain']]]);
+    expect(calls).toEqual([['git', ['status', '--porcelain=v1', '-z']]]);
     expect(validateHandoff(outcome.handoff)).toEqual(outcome.handoff);
   });
 
@@ -71,7 +71,7 @@ describe('runApplyReview', () => {
     const calls = [];
     const run = (command, args) => {
       calls.push([command, args]);
-      if (args[0] === 'status') return { status: 0, stdout: ' M src/code.mjs\n?? .omp/sdlc/handoffs/42-fix2.json\n' };
+      if (args[0] === 'status') return { status: 0, stdout: ' M src/code.mjs\0?? .omp/sdlc/handoffs/42-fix2.json\0' };
       return { status: 0, stdout: '' };
     };
     const outcome = runApplyReview({ issue: 42, step: 'fix2', cwd: root, run, fs, applied: true });
@@ -80,10 +80,33 @@ describe('runApplyReview', () => {
     expect(outcome.handoff.next).toBe('verify');
     expect(validateHandoff(outcome.handoff)).toEqual(outcome.handoff);
     expect(calls).toEqual([
-      ['git', ['status', '--porcelain']],
+      ['git', ['status', '--porcelain=v1', '-z']],
       ['git', ['add', '--', 'src/code.mjs']],
       ['git', ['commit', '-m', 'fix: apply review2 findings for #42']],
       ['git', ['push']],
+    ]);
+  });
+
+  test('stages literal porcelain paths and rename destinations', () => {
+    const root = makeRoot();
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === 'status') {
+        return {
+          status: 0,
+          stdout: ' M src/with spaces.mjs\0?? src/line\nbreak.mjs\0R  src/new name.mjs\0src/old name.mjs\0',
+        };
+      }
+      return { status: 0, stdout: '' };
+    };
+
+    const outcome = runApplyReview({ issue: 42, step: 'fix1', cwd: root, run, fs, applied: true });
+
+    expect(outcome.status).toBe(0);
+    expect(calls[1]).toEqual([
+      'git',
+      ['add', '--', 'src/with spaces.mjs', 'src/line\nbreak.mjs', 'src/new name.mjs'],
     ]);
   });
 

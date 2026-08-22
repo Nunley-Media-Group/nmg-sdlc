@@ -312,6 +312,7 @@ describe('runExecute controller', () => {
     paneCloseStatus = 0,
     reviewPromptStatus = 'stalled',
     branchMenuTransition = true,
+    writeHandoffs = true,
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -388,19 +389,21 @@ describe('runExecute controller', () => {
           didStall = true;
           return { status: 1, reasonCode: 'agent_prompt_stalled' };
         }
-        const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
-        fs.mkdirSync(handoffDir, { recursive: true });
-        fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
-          schemaVersion: 1,
-          issue: handoffIssue,
-          step: handoffStep ?? step,
-          status: step === failedStep ? 'failed' : 'passed',
-          intervention: step === failedStep,
-          summary: `${step} complete`,
-          artifacts: [],
-          next: step === 'deliver' ? null : 'next',
-          reasonCode: step === failedStep ? 'implementation_failed' : null,
-        })}\n`);
+        if (writeHandoffs) {
+          const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
+          fs.mkdirSync(handoffDir, { recursive: true });
+          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+            schemaVersion: 1,
+            issue: handoffIssue,
+            step: handoffStep ?? step,
+            status: step === failedStep ? 'failed' : 'passed',
+            intervention: step === failedStep,
+            summary: `${step} complete`,
+            artifacts: [],
+            next: step === 'deliver' ? null : 'next',
+            reasonCode: step === failedStep ? 'implementation_failed' : null,
+          })}\n`);
+        }
         return { status: 0 };
       },
       agentRead: () => {
@@ -545,6 +548,40 @@ describe('runExecute controller', () => {
       'branch-keys:down,enter',
     ]);
     expect(fixture.prompts.some(({ prompt }) => /\bomp\s+\/review\b/.test(prompt))).toBe(false);
+  });
+
+  it('rejects a passed handoff left by an earlier worker attempt', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-start.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'start',
+      status: 'passed',
+      intervention: false,
+      summary: 'Stale start result',
+      artifacts: [],
+      next: 'implement',
+      reasonCode: null,
+    })}\n`);
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
+    });
   });
 
   it('recovers one pasted stalled prompt without a timeout', () => {

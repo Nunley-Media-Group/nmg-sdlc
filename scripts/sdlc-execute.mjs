@@ -9,7 +9,7 @@
  * Exports support direct import by tests and the skill.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -717,6 +717,7 @@ export function runExecute({
       const split = herdrApi.paneSplit({ direction, cwd });
       const paneId = splitPaneId(split);
       const agentName = `s${issue}-${step}`;
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       if (!paneId || !commandSucceeded(split)) {
         return stopResult({
           issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
@@ -724,6 +725,7 @@ export function runExecute({
         });
       }
       createdPanes.add(paneId);
+      rmSync(handoffPath, { force: true });
 
       const started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       if (!commandSucceeded(started)) {
@@ -793,7 +795,6 @@ export function runExecute({
       }
 
       const state = agentState(herdrApi.agentGet(agentName));
-      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       let handoff;
       try {
         if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
