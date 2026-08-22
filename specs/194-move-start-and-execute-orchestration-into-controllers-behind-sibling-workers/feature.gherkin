@@ -34,6 +34,7 @@ Feature: Move start and execute orchestration into controllers behind sibling wo
     Then the compact execute workflow requires HERDR_ENV=1 plus HERDR_SOCKET_PATH and HERDR_PANE_ID
     And it runs node scripts/sdlc-execute.mjs run with the trimmed arguments and passes output through
     And run owns preflight, backlog/args, unapproved-spec stop, run.json, pane split, worker launch, stall recovery, handoff validate, close-vs-keep, resume, notification, default-branch sync, and post-MERGED+CLOSED local branch delete
+    And the default blocking worker wait is not overridden by a shorter timeout and tolerates at least one hour of active issue execution
     And existing helper CLIs still work
     And src/extension.ts still does not register /sdlc-execute
     And invalid args print "Usage: /sdlc-execute [#N ...]" and stop non-zero

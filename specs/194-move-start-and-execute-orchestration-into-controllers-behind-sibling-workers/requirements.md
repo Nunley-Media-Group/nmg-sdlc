@@ -48,6 +48,7 @@ Issue #193 compacted injected Integration prose and froze prompt-byte ceilings. 
 **When** the file command expands
 **Then** the compact execute workflow requires `HERDR_ENV=1` plus `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`, then runs `node scripts/sdlc-execute.mjs run` with the trimmed arguments and passes output through
 **And** `run` owns preflight (`herdr integration status` omp line, `gh auth status`, dirty-tree fail-closed for a new issue), backlog/args (same `parseArgs` / `selectBacklog` rules, max 20 issues), `Run /sdlc-write-spec #N` stop when unapproved, `run.json`, pane split, `herdr agent start/prompt --wait`, stalled-prompt Enter recovery, handoff validate, close-vs-keep table, resume (no second worker if `s<N>-*` live), notification, default-branch sync before the next issue, and local branch delete only after MERGED+CLOSED
+**And** the default blocking Herdr worker wait is never overridden with a shorter timeout and must tolerate at least one hour of continuous issue execution while a worker remains active
 **And** existing helper CLIs still work
 **And** `src/extension.ts` still does not register `/sdlc-execute`
 **And** invalid args still print `Usage: /sdlc-execute [#N ...]` and stop non-zero
