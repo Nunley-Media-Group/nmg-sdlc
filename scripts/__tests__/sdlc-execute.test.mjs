@@ -277,7 +277,13 @@ describe('runExecute controller', () => {
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  function makeControllerFixture({ stalled = false, failedStep = null } = {}) {
+  function makeControllerFixture({
+    stalled = false,
+    failedStep = null,
+    handoffIssue = 42,
+    handoffStep = null,
+    paneCloseStatus = 0,
+  } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
     const specDir = path.join(cwd, 'specs', '42-ship-it');
@@ -323,7 +329,10 @@ describe('runExecute controller', () => {
         paneSequence += 1;
         return { result: { pane: { pane_id: `pane-${paneSequence}` } } };
       },
-      paneClose: (paneId) => closed.push(paneId),
+      paneClose: (paneId) => {
+        closed.push(paneId);
+        return { status: paneCloseStatus };
+      },
       agentStart: (input) => {
         starts.push(input);
         return { status: 0 };
@@ -339,8 +348,8 @@ describe('runExecute controller', () => {
         fs.mkdirSync(handoffDir, { recursive: true });
         fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
           schemaVersion: 1,
-          issue: 42,
-          step,
+          issue: handoffIssue,
+          step: handoffStep ?? step,
           status: step === failedStep ? 'failed' : 'passed',
           intervention: step === failedStep,
           summary: `${step} complete`,
@@ -384,6 +393,34 @@ describe('runExecute controller', () => {
   }
 
   const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock', HERDR_PANE_ID: 'main-pane' };
+
+  function configureRepairedImplementWorker(fixture) {
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
+      startedAt: '2026-08-21T00:00:00.000Z',
+    }, fixture.cwd);
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'implement',
+      status: 'passed',
+      intervention: false,
+      summary: 'Implementation repaired',
+      artifacts: [],
+      next: 'verify',
+      reasonCode: null,
+    })}\n`);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-pane',
+      state: 'idle',
+    }];
+  }
 
   it('fails before Herdr mutation when the session environment is missing', () => {
     const fixture = makeControllerFixture();
@@ -445,6 +482,33 @@ describe('runExecute controller', () => {
     }]);
   });
 
+  it.each([
+    ['issue', { handoffIssue: 43 }],
+    ['step', { handoffStep: 'verify' }],
+  ])('keeps the worker pane when handoff %s does not match', (_field, options) => {
+    const fixture = makeControllerFixture(options);
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toHaveLength(0);
+    expect(persisted.completed['42']).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+  });
+
+  it('stops without completing the step when a new worker pane cannot close', () => {
+    const fixture = makeControllerFixture({ paneCloseStatus: 1 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.completed['42']).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'pane_close_failed' });
+  });
+
   it('does not start a second worker when an issue worker is live', () => {
     const fixture = makeControllerFixture();
     fixture.herdr.listAgents = () => [{ name: 's42-verify', pane_id: 'kept-pane', state: 'working' }];
@@ -456,31 +520,7 @@ describe('runExecute controller', () => {
 
   it('resumes after a retained worker repairs its handoff', () => {
     const fixture = makeControllerFixture();
-    writeRun({
-      schemaVersion: 1,
-      issues: [42],
-      currentIssue: 42,
-      currentStep: 'implement',
-      completed: { 42: ['start'] },
-      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
-      startedAt: '2026-08-21T00:00:00.000Z',
-    }, fixture.cwd);
-    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), `${JSON.stringify({
-      schemaVersion: 1,
-      issue: 42,
-      step: 'implement',
-      status: 'passed',
-      intervention: false,
-      summary: 'Implementation repaired',
-      artifacts: [],
-      next: 'verify',
-      reasonCode: null,
-    })}\n`);
-    fixture.herdr.listAgents = () => [{
-      name: 's42-implement',
-      pane_id: 'kept-pane',
-      state: 'idle',
-    }];
+    configureRepairedImplementWorker(fixture);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -490,6 +530,20 @@ describe('runExecute controller', () => {
       { name: 's42-deliver', paneId: 'pane-2', kind: 'omp' },
     ]);
     expect(fixture.closed).toEqual(['kept-pane', 'pane-1', 'pane-2']);
+  });
+
+  it('stops without completing a repaired step when its retained pane cannot close', () => {
+    const fixture = makeControllerFixture({ paneCloseStatus: 1 });
+    configureRepairedImplementWorker(fixture);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.closed).toEqual(['kept-pane']);
+    expect(persisted.completed['42']).toEqual(['start']);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'implement', reasonCode: 'pane_close_failed' });
   });
 
   it('stops on an unapproved spec with the write-spec instruction', () => {

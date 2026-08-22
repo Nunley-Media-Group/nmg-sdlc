@@ -503,6 +503,14 @@ function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd,
   return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
 }
 
+function closePane(herdr, paneId) {
+  try {
+    return commandSucceeded(herdr.paneClose(paneId));
+  } catch {
+    return false;
+  }
+}
+
 function issueBranchName(issue, cwd, run) {
   const issueResult = run('gh', ['issue', 'view', String(issue), '--json', 'title'], { cwd });
   if (!commandSucceeded(issueResult)) return null;
@@ -644,7 +652,12 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        herdrApi.paneClose(paneId);
+        if (!closePane(herdrApi, paneId)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
         runState.completed[String(issue)].push(step);
         step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;
@@ -722,6 +735,12 @@ export function runExecute({
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      if (handoff.issue !== issue || handoff.step !== step) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'invalid_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status || state || 'worker_failed',
@@ -729,7 +748,12 @@ export function runExecute({
         });
       }
 
-      if (createdPanes.has(paneId)) herdrApi.paneClose(paneId);
+      if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       runState.completed[String(issue)].push(step);
       step = nextStep(runState.completed[String(issue)]);
       runState.currentStep = step;
