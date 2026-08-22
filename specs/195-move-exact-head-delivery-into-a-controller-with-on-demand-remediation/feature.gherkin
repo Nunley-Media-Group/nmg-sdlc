@@ -1,0 +1,84 @@
+**Issue**: #195
+**Date**: 2026-08-21
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/
+
+# File: specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation/feature.gherkin
+#
+# Generated from: specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation/requirements.md
+Feature: Move exact-head delivery into a controller with on-demand remediation
+  As a deliver worker
+  I want version bump, PR create/resume, CI/thread classification, exact-head merge, and merge+close proof to run in code
+  So that a model is prompted only when a bot thread or CI failure needs a code change
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: green delivery completes without remediation prompt weight
+    Given issue N has an approved spec, current verification, and a green exact-branch PR
+    When the sibling deliver worker runs node scripts/sdlc-deliver.mjs --issue N
+    Then the controller preserves version synchronization, push, PR create or resume, and readiness classification
+    And it merges with --match-head-commit for the observed head
+    And it writes a passed deliver handoff only after PR MERGED at that head and issue CLOSED
+    And it deletes the local issue branch only after that proof
+    And no Address PR Comments workflow is inlined
+
+  @SCN002
+  Scenario: clear automated finding requests same-worker remediation
+    Given the PR has an unresolved automated-review thread or failing in-scope check requiring an edit
+    When the controller classifies delivery state
+    Then it prints one NMG_SDLC_REMEDIATION JSON packet and exits 3
+    And the packet identifies the issue, PR, head SHA, checks, thread context, and handoff path
+    And the same deliver worker applies a clear local safe fix, verifies, pushes without force, and reruns the controller
+    And no nested OMP worker is started and no prompt is resent
+
+  # --- Alternative Paths ---
+
+  @SCN003
+  Scenario: existing delivery PR resumes idempotently
+    Given the exact branch already has an open delivery PR with synchronized version artifacts
+    When the controller runs again
+    Then it does not increment the version a second time
+    And it re-fetches the current head, checks, reviews, and threads
+    And it continues from current classified state
+
+  @SCN004
+  Scenario: pending checks stop after a bounded wait
+    Given required checks or automated review remain pending without an actionable failure
+    When ten minutes elapse from the initial observation
+    Then observations have been at least 30 seconds apart
+    And the controller writes a failed delivery_pending intervention handoff
+    And it does not merge
+
+  # --- Error Handling ---
+
+  @SCN005
+  Scenario: human or ambiguous review prevents merge
+    Given an unresolved human thread, CHANGES_REQUESTED review, or ambiguous bot request
+    When delivery classifies the review
+    Then the controller writes a failed human_review intervention handoff
+    And an ambiguous remediation is reported through --remediation-result human_review
+    And the thread is not resolved and the PR is not merged
+
+  @SCN006
+  Scenario: breaking work requires approved major bump
+    Given issue title or body contains BREAKING
+    And approved requirements and design omit Version bump major
+    When the controller evaluates versioning
+    Then it writes a failed major_bump_required intervention handoff
+    And it does not change version files or create a PR
+
+  @SCN007
+  Scenario: merge proof failure cannot report success
+    Given the controller attempted exact-head merge at head H
+    When the refreshed PR is not MERGED at H or the issue is not CLOSED
+    Then it writes a failed merge_failed intervention handoff
+    And it does not delete the local issue branch
+
+  @SCN008
+  Scenario: invalid delivery CLI has no side effects
+    Given the CLI lacks a valid --issue N or contains unknown arguments
+    When scripts/sdlc-deliver.mjs runs
+    Then it prints the usage contract and exits 2
+    And it writes no handoff and invokes neither gh nor git
