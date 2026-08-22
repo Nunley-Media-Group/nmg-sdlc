@@ -1,0 +1,41 @@
+**Issue**: #216
+**Date**: 2026-08-22
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/216-honor-passed-worker-handoff-after-prompt-wait-failure/requirements.md
+Feature: Honor passed worker handoff after prompt wait failure
+  The execute controller previously treated a non-success
+  herdr agent prompt --wait as worker_failed before reading
+  a matching passed idle/done handoff. This was fixed by
+  making the on-disk handoff plus idle/done state authoritative.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Prompt wait failure does not override a passed idle start handoff
+    Given a sibling start worker has written .omp/sdlc/handoffs/42-start.json as a valid passed non-intervention handoff
+    And that worker is idle or done
+    When herdr agent prompt s42-start ... --wait returns a non-success status
+    Then execute does not persist failed.reasonCode worker_failed for start
+    And it records start complete, closes the pane created for start, and continues to implement
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Missing invalid failed or busy start workers still fail closed
+    Given a start worker whose handoff is missing, mismatched, invalid, failed, blocked, or intervention true, or whose agent state is not idle or done after the wait
+    When execute evaluates that worker
+    Then it stops non-zero, keeps that worker pane open, writes a failed run record
+    And it notifies with Stopped on #42 start. Worker pane pane-1 agent s42-start left open.
+
+  # --- Edge Case ---
+
+  @SCN003 @regression
+  Scenario: Re-running execute reuses the live passed start worker
+    Given the same idle or done s42-start worker remains live with that passed non-intervention handoff
+    When execute is invoked again for #42
+    Then it advances past start and does not start a second start worker
