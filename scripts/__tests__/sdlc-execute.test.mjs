@@ -313,6 +313,8 @@ describe('runExecute controller', () => {
     reviewPromptStatus = 'stalled',
     branchMenuTransition = true,
     writeHandoffs = true,
+    promptStatus = 0,
+    agentState = 'done',
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -404,7 +406,7 @@ describe('runExecute controller', () => {
             reasonCode: step === failedStep ? 'implementation_failed' : null,
           })}\n`);
         }
-        return { status: 0 };
+        return { status: promptStatus };
       },
       agentRead: () => {
         if (reviewMenu === 'mode') return 'Review Mode\n/review';
@@ -447,7 +449,7 @@ describe('runExecute controller', () => {
         }
         return { status: 0 };
       },
-      agentGet: () => ({ result: { state: 'done' } }),
+      agentGet: () => ({ result: { state: agentState } }),
       listAgents: () => [],
       notificationShow: (notice) => notifications.push(notice),
     };
@@ -582,6 +584,50 @@ describe('runExecute controller', () => {
       step: 'start',
       reasonCode: 'missing_handoff',
     });
+  });
+
+  it('honors a passed idle handoff when the prompt wait reports failure', () => {
+    const fixture = makeControllerFixture({ promptStatus: 1 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(persisted.failed).toBeNull();
+    expect(persisted.completed['42']).toContain('start');
+    expect(fixture.closed).toContain('pane-1');
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-implement');
+  });
+
+  it('fails closed when prompt wait fails without a matching handoff', () => {
+    const fixture = makeControllerFixture({ promptStatus: 1, writeHandoffs: false });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'missing_handoff' });
+    expect(fixture.notifications).toEqual([{
+      title: 'nmg-sdlc stopped',
+      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.',
+      sound: 'request',
+    }]);
+  });
+
+  it('fails closed when prompt wait fails with a passed but busy worker', () => {
+    const fixture = makeControllerFixture({ promptStatus: 1, agentState: 'working' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'passed' });
+    expect(fixture.notifications).toEqual([{
+      title: 'nmg-sdlc stopped',
+      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.',
+      sound: 'request',
+    }]);
   });
 
   it('recovers one pasted stalled prompt without a timeout', () => {
