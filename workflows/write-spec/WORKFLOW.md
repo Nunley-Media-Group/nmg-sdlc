@@ -33,11 +33,16 @@ node scripts/publish-approved-spec.mjs discover --issue N
 
 Require exit 0 and parse the complete JSON object. Use `issue.number`, `title`, `body`, `labels`, and `state`; `classification`; `slug`; `targetDir`; and `spec.dir`, `approved`, and `source` directly. On non-zero or malformed output, print its `reasonCode` and stop. Do not reproduce slug, directory, branch, or approval resolution.
 
-If `spec.approved` and `issue.state` is closed: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
-
-If open or undelivered: revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
+Discovery only returns this result. It never stops or chooses whether to revise based on approval or issue state; its caller owns that control flow.
 
 `classification` is `bug` or `feature`. A leftover `spike` label is neutral; never create a third path.
+
+### Initial discovery result
+
+For the initial `$ARGUMENTS` issue only:
+
+- If `spec.approved` and `issue.state` is closed: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
+- Otherwise continue to Interview. When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
 
 ## Interview (max 3 asks per issue)
 
@@ -150,7 +155,12 @@ Continue / candidate / Other `#M`:
 
 - Parse `^#?([1-9]\d*)$`. Invalid → re-ask continue.
 - Already in `published[]` → print `Spec already approved for #M.` and re-ask.
-- Otherwise run `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery. If discovery reports an approved package, print the applicable already-approved message and re-ask. Otherwise run Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
+- Otherwise run `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery.
+- If Discovery returns `spec.approved`:
+  - Closed issue → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
+  - Any other issue state → print `Spec already approved for #M.` and re-ask.
+  - Discovery must not stop the session or send an approved package to Interview.
+- Only when Discovery returns an unapproved package, run Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
 
 ## Finish (first spec only)
 
