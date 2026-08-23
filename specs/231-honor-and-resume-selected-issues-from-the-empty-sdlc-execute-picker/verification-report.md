@@ -60,6 +60,13 @@ The full repository suite passes 403 tests with one intentional environment-gate
 - A two-issue regression proves #43 does not start while #42 is failed or rerunning; it starts only after remediated #42 completes deliver, and durable state then advances to #43 with an empty completion list.
 - Passed retained handoffs, explicit eligibility gates, approved-spec checks, label rechecks, queue order, review/fix pairs, and exact delivery gate remain covered by the existing suite.
 
+## Steering and Release Alignment
+
+- `steering/product.md`: the change preserves nmg-sdlc's spec-driven, fail-closed delivery model; a selected queue cannot claim delivery or advance a later issue while the current verification gate is failed.
+- `steering/tech.md`: issue #231 has the `bug` label, so the required patch release is 3.8.1. `VERSION` and `package.json` are synchronized to `3.8.1`, and `CHANGELOG.md` moves the completed fixes from `[Unreleased]` to `[3.8.1] - 2026-08-23`.
+- `steering/structure.md`: orchestration remains workflow → deterministic controller → Herdr workers. Picker instructions remain in `workflows/execute/`, packaged rendering remains in `src/sdlc-commands.mjs`, and lifecycle state remains in `scripts/sdlc-execute.mjs`.
+- `scripts/__tests__/exercise-manual-pipeline.test.mjs`: maps the changed picker workflow surface to an executable contract that requires multi-select, no recommendation, no Cancel chip, empty re-ask, and resolved `#N` argv.
+
 ## Live Herdr OMP Smoke
 
 | Field | Value |
