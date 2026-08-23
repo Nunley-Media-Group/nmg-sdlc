@@ -34,9 +34,9 @@ All five acceptance criteria pass. The controller regression suites pass 63/63 t
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
 - Delivery: AC [AC1, AC2, AC3, AC4, AC5]; FR []; tasks [T001, T002, T003, T004, T005]; scenarios [SCN007]
-- Regression: AC []; FR []; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN008]
+- Regression: AC []; FR []; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN008, SCN009]
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":219,"specPath":"specs/219-harden-execute-against-transient-herdr-lifecycle-races","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":[],"tasks":["T001","T002","T003","T004","T005"],"scenarios":["SCN007"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN008"]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":219,"specPath":"specs/219-harden-execute-against-transient-herdr-lifecycle-races","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":[],"tasks":["T001","T002","T003","T004","T005"],"scenarios":["SCN007"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN008","SCN009"]}} -->
 
 ## Delivery Validation
 
@@ -68,6 +68,7 @@ All five acceptance criteria pass. The controller regression suites pass 63/63 t
 | SCN005 | Pass | Fixture proves one failed start followed by one successful identical retry; disposable exercise confirms the complete queue |
 | SCN006 | Pass | Fixture proves two failures stop with `agent_start_failed` and retain the pane |
 | SCN008 | Pass | Three-preview conjunction test authorizes recovery only with every required preview |
+| SCN009 | Pass | `waits when detection shows working before the agent state updates` proves delayed lifecycle state does not resubmit an active prompt |
 
 Regression evidence is listed separately and does not substitute for AC5's successful delivery exercise.
 
@@ -142,15 +143,15 @@ Layer separation matches `steering/structure.md`: deterministic lifecycle orches
 | Acceptance Criterion | Has Scenario | Has Executable Coverage | Passes |
 |---------------------|-------------|-------------------------|--------|
 | AC1 | Yes: SCN001, SCN002, SCN008 | Jest controller tests | Yes |
-| AC2 | Yes: SCN003 | Jest controller tests | Yes |
+| AC2 | Yes: SCN003, SCN009 | Jest controller tests | Yes |
 | AC3 | Yes: SCN004 | Jest controller tests | Yes |
 | AC4 | Yes: SCN005, SCN006 | Jest controller tests plus live fault injection | Yes |
 | AC5 | Yes: SCN007 | Disposable Herdr/GitHub exercise | Yes |
 
 ### Coverage Summary
 
-- Feature scenarios: 8
-- Behavioral scenario outcomes: 8 passed
+- Feature scenarios: 9
+- Behavioral scenario outcomes: 9 passed
 - Focused execution: 2 suites passed; 63 tests passed; 0 failed
 - Full execution: 37 suites passed; 365 tests passed; 0 failed; 1 declared opt-in exercise suite skipped
 - The skipped suite is guarded by `RUN_EXERCISE_TESTS !== 1`; it is not an unexpected skip.
@@ -241,7 +242,7 @@ None.
 | `specs/219-harden-execute-against-transient-herdr-lifecycle-races/requirements.md` | 0 | Approved and fully traced |
 | `specs/219-harden-execute-against-transient-herdr-lifecycle-races/design.md` | 0 | Implementation preserves bounded synchronous recovery |
 | `specs/219-harden-execute-against-transient-herdr-lifecycle-races/tasks.md` | 0 | T001-T005 complete |
-| `specs/219-harden-execute-against-transient-herdr-lifecycle-races/feature.gherkin` | 0 | SCN001-SCN008 have passing evidence |
+| `specs/219-harden-execute-against-transient-herdr-lifecycle-races/feature.gherkin` | 0 | All nine scenarios, including SCN009, have passing evidence |
 
 ---
 

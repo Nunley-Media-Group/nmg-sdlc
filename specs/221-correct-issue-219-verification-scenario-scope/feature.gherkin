@@ -1,0 +1,27 @@
+**Issue**: #221
+**Date**: 2026-08-22
+**Status**: Approved
+**Author**: NMG
+
+Feature: Correct issue 219 verification scenario scope
+
+  @SCN001 @regression
+  Scenario: Verification report traces every approved scenario
+    Given issue #219 has nine approved feature scenarios including SCN009
+    When its verification report is inspected
+    Then the scope manifest includes SCN009
+    And the regression and BDD evidence include SCN009
+    And the report records nine feature scenarios and nine passing outcomes
+
+  @SCN002 @regression
+  Scenario: Existing verification evidence remains unchanged
+    Given issue #219 passed focused, full-suite, plugin-surface, hygiene, and live delivery checks
+    When scenario tracing is corrected
+    Then those verified outcomes remain present and unchanged
+
+  @SCN003 @regression
+  Scenario: Correction passes repository contribution checks
+    Given the issue #221 correction is complete
+    When the relevant spec, evidence, and repository contribution checks run
+    Then every required check passes
+    And runtime, workflow, package, version, and changelog files remain unchanged
