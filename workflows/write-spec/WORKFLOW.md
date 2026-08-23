@@ -51,6 +51,8 @@ Never treat a leftover `spike` label as a separate path. `upgrade-project` conve
 
 Use ask (rec first) only for prefs if any (e.g. confirm slug on conflict, or scope notes). Typically 0 asks for simple #N; at most 3.
 
+Each interview or preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options. The continue/finish ask stays canned and is not required to add a situation paragraph.
+
 The continue-loop ask does not consume this budget. Each later issue gets a fresh 3-ask interview budget.
 
 No review gates (deleted 3 gates, epic role, umbrella).

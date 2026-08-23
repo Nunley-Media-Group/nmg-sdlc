@@ -59,6 +59,8 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
    Use focused asks only for preferences and tradeoffs. Each call has 2–4 options, recommended first, and at most three questions.
 
+   Each interview or preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options. Do not paste the full need statement.
+
    Core probes: persona/outcome, key ACs, scope in/out, for bug: repro/expected.
 
    Continue with additional focused probes whenever a material decision remains unresolved after investigation. Do not ask for facts that glob, grep, or read can discover.

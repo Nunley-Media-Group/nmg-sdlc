@@ -25,6 +25,8 @@ Use git ls-files + gh issue list (closed, limit) + glob specs/*-*/requirements.m
 
 Use ask (rec first, max 3 total qs) for vision/personas/success, tech stack, deployment if needed.
 
+Each interview or preference question, including the already-initialized delegate-or-exit ask, includes a short paragraph stating the situation and the facts needed to choose among the shown options. Do not paste a full product vision or repository dump into `question`.
+
 Bootstrap or enhance steering/product tech structure from templates/ (read runtime).
 
 Init VERSION (0.1.0 or from manifest), create specs/ empty.

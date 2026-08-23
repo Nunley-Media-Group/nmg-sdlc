@@ -21,9 +21,11 @@ ADR aging scan if docs/decisions/ .
 
 ## Ask
 
-At most 3: e.g. "Include only defects after YYYY?" or "Force full reanalysis?"
+At most 3: e.g. "Defect specs can be filtered by date or re-read in full. Include only defects after YYYY?" or "Cached retrospective hashes already exist. Force full reanalysis?"
 
 Use ask rec first.
+
+Each preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options.
 
 ## Plan + Propose
 
