@@ -306,11 +306,15 @@ describe('runExecute controller', () => {
 
   function makeControllerFixture({
     stalled = false,
+    stalledInStderr = false,
+    settledBeforeSubmit = false,
+    agentStartStatuses = [],
     failedStep = null,
     handoffIssue = 42,
     handoffStep = null,
     paneCloseStatus = 0,
     reviewPromptStatus = 'stalled',
+    reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
     writeHandoffs = true,
     promptStatus = 0,
@@ -333,6 +337,7 @@ describe('runExecute controller', () => {
     let didStall = false;
     let reviewMenu = null;
     const reviewMenuEvents = [];
+    const pendingAgentStartStatuses = [...agentStartStatuses];
 
     const run = (command, args) => {
       calls.push([command, ...args]);
@@ -373,23 +378,40 @@ describe('runExecute controller', () => {
       },
       agentStart: (input) => {
         starts.push(input);
-        return { status: 0 };
+        if (reviewModeInitiallyVisible && /^s42-review[12]$/.test(input.name)) {
+          reviewMenu = 'mode';
+          reviewMenuEvents.push('mode-visible');
+        }
+        return { status: pendingAgentStartStatuses.shift() ?? 0 };
       },
       agentPrompt: ({ name, prompt }) => {
         activePrompt = prompt;
         prompts.push({ name, prompt });
         if (prompt === '/review') {
+          if (reviewPromptStatus === 'worker_failed') {
+            reviewMenu = null;
+            return { status: 1, reasonCode: reviewPromptStatus };
+          }
+          if (reviewPromptStatus === 'settled') {
+            reviewMenu = 'composer';
+            reviewMenuEvents.push('composer-visible');
+            return { status: 0, stdout: '{"state":"idle"}\n', stderr: '' };
+          }
           reviewMenu = 'mode';
           reviewMenuEvents.push('mode-visible');
-          return reviewPromptStatus === 'stalled'
-            ? { status: 1, reasonCode: 'agent_prompt_stalled' }
-            : { status: 1, reasonCode: reviewPromptStatus };
+          return { status: 1, reasonCode: 'agent_prompt_stalled' };
         }
         reviewMenu = null;
         const step = name.slice(name.lastIndexOf('-') + 1);
-        if (stalled && !didStall) {
+        if ((stalled || stalledInStderr) && !didStall) {
           didStall = true;
-          return { status: 1, reasonCode: 'agent_prompt_stalled' };
+          return stalledInStderr
+            ? { status: 1, stdout: '', stderr: '{"code":"agent_prompt_stalled"}\n' }
+            : { status: 1, reasonCode: 'agent_prompt_stalled' };
+        }
+        if (settledBeforeSubmit && !didStall) {
+          didStall = true;
+          return { status: 0, stdout: '{"state":"idle"}\n', stderr: '' };
         }
         if (writeHandoffs) {
           const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
@@ -409,15 +431,23 @@ describe('runExecute controller', () => {
         return { status: promptStatus };
       },
       agentRead: () => {
+        if (reviewMenu === 'composer') return '/review';
         if (reviewMenu === 'mode') return 'Review Mode\n/review';
         if (reviewMenu === 'branch') {
           reviewMenuEvents.push('branch-visible');
-          return 'Select base branch to compare against';
+          return 'Select base branch…';
         }
         return activePrompt;
       },
       agentSendKeys: ({ keys }) => {
         sentKeys.push(keys);
+        if (reviewMenu === 'composer') {
+          reviewMenuEvents.push(`composer-keys:${keys.join(',')}`);
+          if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
+          reviewMenu = 'mode';
+          reviewMenuEvents.push('mode-visible');
+          return { status: 0 };
+        }
         if (reviewMenu === 'mode') {
           reviewMenuEvents.push(`mode-keys:${keys.join(',')}`);
           if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
@@ -430,7 +460,7 @@ describe('runExecute controller', () => {
       },
       agentWait: (input) => {
         waits.push(input);
-        if (!input.until) {
+        if (!input.until && writeHandoffs) {
           const name = input.name;
           const step = name.slice(name.lastIndexOf('-') + 1);
           const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
@@ -646,6 +676,80 @@ describe('runExecute controller', () => {
     expect(fixture.waits.every((waitCall) => !Object.hasOwn(waitCall, 'timeout'))).toBe(true);
   });
 
+  it('recovers a stalled prompt reported as JSON on stderr', () => {
+    const fixture = makeControllerFixture({ stalledInStderr: true });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.waits.slice(0, 2)).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
+  it('fails closed when a stalled prompt is not visibly pasted', () => {
+    const fixture = makeControllerFixture({ stalled: true });
+    fixture.herdr.agentRead = () => 'You are the reviewer for unrelated work';
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_prompt_stalled' });
+  });
+
+  it('submits a pasted prompt when prompt wait settles idle too early', () => {
+    const fixture = makeControllerFixture({ settledBeforeSubmit: true });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.waits.slice(0, 2)).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
+  it('waits when detection shows working before the agent state updates', () => {
+    const fixture = makeControllerFixture({ settledBeforeSubmit: true, agentState: 'idle' });
+    const readAgent = fixture.herdr.agentRead;
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentRead = (input) => input.name === 's42-start' ? 'Working…' : readAgent(input);
+    fixture.herdr.agentSendKeys = (input) => {
+      if (input.name === 's42-start') throw new Error('must not resubmit an active worker prompt');
+      return sendKeys(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits.slice(0, 2)).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
+  it('recovers a worker prompt from all three leading previews', () => {
+    const fixture = makeControllerFixture({ stalled: true });
+    const readAgent = fixture.herdr.agentRead;
+    const previews = workerPrompt({ step: 'start', issue: 42 })
+      .split('\n', 3)
+      .map((line) => line.slice(0, 11))
+      .join('\n');
+    fixture.herdr.agentRead = (input) => input.name === 's42-start' ? previews : readAgent(input);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
   it('keeps a failed worker pane and sends the exact notification', () => {
     const fixture = makeControllerFixture({ failedStep: 'implement' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -664,8 +768,34 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
+
     expect(fixture.starts.some(({ name }) => /s42-(fix1|review2|fix2|verify|deliver)/.test(name))).toBe(false);
     expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+  });
+
+  it('selects visible review mode when prompt wait settles idle', () => {
+    const fixture = makeControllerFixture({ reviewPromptStatus: 'settled' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'composer-visible', 'composer-keys:enter', 'mode-visible', 'mode-keys:enter',
+      'branch-visible', 'branch-keys:down,enter',
+      'composer-visible', 'composer-keys:enter', 'mode-visible', 'mode-keys:enter',
+      'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
+  it('does not resubmit review when Review Mode is already visible', () => {
+    const fixture = makeControllerFixture({ reviewModeInitiallyVisible: true });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toEqual([]);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
   });
 
   it('stops when interactive review mode cannot be selected', () => {
@@ -705,6 +835,33 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toHaveLength(0);
     expect(persisted.completed['42']).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+  });
+
+  it('retries one transient agent startup failure in the same pane', () => {
+    const fixture = makeControllerFixture({ agentStartStatuses: [1, 0] });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.slice(0, 2)).toEqual([
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+    ]);
+    expect(persisted.failed).toBeNull();
+  });
+
+  it('fails closed after two agent startup failures', () => {
+    const fixture = makeControllerFixture({ agentStartStatuses: [1, 1] });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+    ]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_start_failed' });
   });
 
   it('stops without completing the step when a new worker pane cannot close', () => {
@@ -755,6 +912,58 @@ describe('runExecute controller', () => {
     expect(persisted.completed['42']).toEqual([
       'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
     ]);
+  });
+
+  it('submits a pasted prompt retained from an earlier run', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-start'
+      ? workerPrompt({ step: 'start', issue: 42 })
+      : readAgent(input);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
+    expect(fixture.closed).toContain('kept-pane');
+  });
+
+  it('keeps a retained pane open when recovered prompt settlement fails', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-start'
+      ? workerPrompt({ step: 'start', issue: 42 })
+      : readAgent(input);
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      const result = waitAgent(input);
+      return input.until ? result : { status: 1 };
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'worker_failed' });
+  });
+
+  it('does not press enter on a retained worker without a pasted prompt', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    fixture.herdr.agentRead = () => 'You are the reviewer for unrelated work';
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.closed).toEqual([]);
   });
 
 
