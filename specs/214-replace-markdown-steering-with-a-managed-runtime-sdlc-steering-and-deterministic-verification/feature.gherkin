@@ -1,0 +1,91 @@
+**Issue**: #214
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/213-add-a-prompt-snippet-registry-for-command-and-worker-composition/
+
+# File: scripts/__tests__/sdlc-steering-runtime.test.mjs
+#
+# Generated from: specs/214-replace-markdown-steering-with-a-managed-runtime-sdlc-steering-and-deterministic-verification/requirements.md
+Feature: Managed steering runtime and deterministic verification
+  As a developer on a managed nmg-sdlc project
+  I want a versioned steering runtime, project snippets, and deterministic validations
+  So that required checks are enforced by core code and guidance reaches prompts through one registry path
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: steering command plans and applies a valid runtime
+    Given a managed repository and a natural-language steering prompt
+    When /sdlc-steering runs in native plan mode and its exact plan is approved
+    Then the shared writer creates or updates the manifest, fixed modules, and declared project files
+    And it validates the complete staged runtime before replacing live files
+    And headless invocation fails closed with the TUI-only message
+
+  @SCN002
+  Scenario: approved upgrade removes legacy dual authority safely
+    Given legacy product, tech, and structure steering documents
+    When the steering-runtime upgrade category is approved
+    Then the writer migrates their project content into registered snippets
+    And it removes the legacy documents only after staged validation succeeds
+    And unknown files, snippets, extensions, and retrospective are preserved
+
+  @SCN003
+  Scenario: onboard delegates to the shared writer
+    Given greenfield or enhancement onboarding needs steering
+    When the approved onboard plan applies
+    Then onboard initializes the same manifest and managed modules
+    And it does not create legacy steering documents as live authorities
+
+  @SCN004
+  Scenario: every applicable required validation fails closed
+    Given schema-valid validations with closed when conditions
+    When verify-code verifies the issue
+    Then core evaluates each condition before provider launch
+    And every applicable required validation runs with identity-bound evidence
+    And any required non-pass forbids Pass and PR Evidence Pending
+
+  # --- Alternative Paths ---
+
+  @SCN005
+  Scenario Outline: core owns applicability
+    Given a required validation whose core-evaluated condition is <condition>
+    When the provider phase is reached
+    Then the provider is <launch>
+    And the effective result is <result>
+
+    Examples:
+      | condition | launch | result |
+      | false | not launched | skipped by core |
+      | true and provider returns passed evidence | launched | passed |
+      | true and provider returns skipped | launched | incomplete |
+      | true and provider returns not_applicable | launched | incomplete |
+
+  # --- Error Handling ---
+
+  @SCN006
+  Scenario Outline: invalid registration fails closed
+    Given a steering runtime with <fault>
+    When steering validation or verify discovery runs
+    Then it fails with <reasonCode>
+    And no partial runtime or validation set is accepted
+
+    Examples:
+      | fault | reasonCode |
+      | an unknown manifest key | steering_manifest_unknown_key |
+      | a duplicate registration id | steering_duplicate_id |
+      | a path escaping steering | steering_path_outside_root |
+      | an invalid fixed module set | steering_module_invalid |
+      | an unresolved provider | steering_provider_unresolved |
+      | an invalid when condition | steering_condition_invalid |
+      | stale provider evidence | steering_evidence_stale |
+
+  # --- Edge Cases ---
+
+  @SCN007
+  Scenario: project snippets use the registry without result authority
+    Given registered project snippets with allowed consumers and slots
+    When a matching command or worker prompt renders
+    Then the prompt registry inserts them in declared order with provenance
+    And undeclared project files are not scanned
+    And snippet prose cannot mutate or raise a core validation result
