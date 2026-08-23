@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-08-22
+
 ### Fixed
 
 - `/sdlc-execute` now recovers when Herdr reports an idle worker before submitting its pasted prompt, waits for already-working workers to settle, and drives `/review` submission and menu selection as separate UI transitions.
