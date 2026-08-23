@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
 const temporaryRoots = [];
+const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
 
 function makeRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-upgrade-'));
@@ -53,7 +54,7 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
 
 
     const ids = detectUpgrade(root).items.filter((item) => item.kind === 'epic-flatten').map((item) => item.id);
-    applyUpgrade(root, ids);
+    applyUpgrade(root, ids, noNetworkRun);
     expect(fs.existsSync(path.join(root, 'specs/11-bar/requirements.md'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'specs/epic-foo'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'specs/feature-bar/epic-link.json'))).toBe(false);
@@ -91,7 +92,7 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     }, null, 2));
 
     const ids = detectUpgrade(root).items.filter((item) => item.kind === 'cumulative-split').map((item) => item.id);
-    applyUpgrade(root, ids);
+    applyUpgrade(root, ids, noNetworkRun);
 
     expect(fs.existsSync(path.join(root, 'specs/2-baz/requirements.md'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'specs/6-baz/requirements.md'))).toBe(true);
@@ -115,7 +116,7 @@ describe('sdlc-upgrade leftover spikes', () => {
 
     const ids = detectUpgrade(root).items.filter((item) => item.kind === 'spike-flatten').map((item) => item.id);
     expect(ids).toEqual(['spike-flatten:docs/decisions/2026-08-01-evaluate-cache.md']);
-    applyUpgrade(root, ids);
+    applyUpgrade(root, ids, noNetworkRun);
 
     expect(fs.existsSync(path.join(root, 'specs/11-evaluate-cache/requirements.md'))).toBe(true);
     expect(fs.readFileSync(path.join(root, 'specs/11-evaluate-cache/requirements.md'), 'utf8')).toContain('**Issue**: #11');
@@ -131,7 +132,7 @@ describe('sdlc-upgrade leftover spikes', () => {
 
     const item = detectUpgrade(root).items.find((entry) => entry.kind === 'spike-flatten');
     expect(item.actionable).toBe(false);
-    const result = applyUpgrade(root, [item.id]);
+    const result = applyUpgrade(root, [item.id], noNetworkRun);
     expect(result.results[0].status).toBe('skipped:collision');
     expect(fs.readFileSync(path.join(root, 'docs/decisions/2026-08-01-evaluate-cache.md'), 'utf8')).not.toContain('**SDLC-Migrated**');
   });
@@ -150,7 +151,7 @@ describe('sdlc-upgrade AGENTS spike language', () => {
     expect(detectUpgrade(root).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'agents-spike-language', actionable: true }),
     ]));
-    const result = applyUpgrade(root, ['agents-spike-language']);
+    const result = applyUpgrade(root, ['agents-spike-language'], noNetworkRun);
     const updated = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 
     expect(result.results[0].status).toBe('applied');
@@ -176,7 +177,7 @@ describe('sdlc-upgrade AGENTS spike language', () => {
     expect(detectUpgrade(root).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'agents-spike-language', actionable: true }),
     ]));
-    const result = applyUpgrade(root, ['agents-spike-language']);
+    const result = applyUpgrade(root, ['agents-spike-language'], noNetworkRun);
 
     expect(result.results[0].status).toBe('skipped:unverifiable');
     expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe(source);

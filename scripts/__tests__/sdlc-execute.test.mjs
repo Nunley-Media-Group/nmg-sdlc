@@ -1015,6 +1015,20 @@ describe('runExecute controller', () => {
     ]);
   });
 
+  it('does not start the next worker after a retained handoff when the label was removed', () => {
+    const fixture = makeControllerFixture({ labelIssues: [] });
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result).toEqual({ status: 2, stdout: '#42 has no spec-created label\n', stderr: '' });
+    expect(fixture.closed).toEqual(['kept-pane']);
+    expect(fixture.starts).toEqual([]);
+    expect(persisted.completed['42']).toEqual(['start']);
+    expect(persisted.currentStep).toBe('implement');
+  });
+
   it('submits a pasted prompt retained from an earlier run', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });

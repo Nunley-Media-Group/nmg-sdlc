@@ -821,6 +821,16 @@ export function runExecute({
         return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
       }
     }
+    if (live && step) {
+      const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
+      if (labeled === null) {
+        return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `Unable to read labels for #${issue}\n` };
+      }
+      if (!labeled) {
+        output.push(`#${issue} has no spec-created label`);
+        return { status: 2, stdout: `${output.join('\n')}\n`, stderr: '' };
+      }
+    }
     while (step) {
       runState.currentStep = step;
       runState.failed = null;
