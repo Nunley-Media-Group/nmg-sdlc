@@ -23,7 +23,7 @@ All technical decisions should align with these guidelines.
 -->
 - Use /sdlc-draft-issue , /sdlc-write-spec #N , /sdlc-execute #N .
 
-No coordination-only epics; all labeled issues are executable with Depends on: .
+All labeled issues are executable ordinary issues. Sequencing uses only GitHub's official blocked-by relation.
 
 ---
 <!-- Pre-fill from package.json, pubspec.yaml, Cargo.toml, go.mod, etc. -->

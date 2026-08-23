@@ -55,9 +55,8 @@ node scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
    - Frontmatter: `**Issue**: #childN` (singular); append `## Historical coordination` quoting the aggregate goal from the epic aggregate's `requirements.md`.
    - No executable tasks, Gherkin, or issue-scope on the (removed) aggregate.
    - After children written: delete `epic-scope.json`, `epic-link.json`, and the entire `specs/epic-*` tree.
-   - GitHub proposals (separate items): remove `epic` / `epic-child-of-N` labels and native sub-issue parent links. These apply ONLY when the approved item id for that github action is included.
-   - Convert remaining real execution edges (non-coordination) into `Depends on:` body lines (reuse `parseBodyRelationships` contract; do not fork the regex).
-
+   - Legacy labels and native sub-issue links remain historical migration evidence only; they do not become runtime dependency types.
+   - Explicit legacy body relations may be proposed only by the issue-dependencies detector as official blocked-by edges.
 6. **Leftover spikes**
    - Signals: unmarked `docs/decisions/*.md` whose first 4k contains `spike`; leftover `agents/spike-researcher.md` / spike templates; issue form `Spike` option.
    - `AGENTS.md` matching `/spike/i` produces item `agents-spike-language`.
@@ -65,17 +64,20 @@ node scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
    - Convert parseable ADRs into Draft `specs/{N}-{slug}/` four-file packages and stamp `**SDLC-Migrated**: specs/{N}-{slug}/` on the ADR. Skip already-stamped ADRs.
    - If the target dir exists: stamp only when all four files have matching `**Issue**: #N`; otherwise `skipped:collision`.
    - Unparseable ADRs are unverifiable.
-7. **Frontmatter normalization**
+7. **Issue dependencies**
+   - List every open and closed repository issue and every official `dependencies/blocked_by` page.
+   - Parse explicit legacy fields and clear sequencing clauses only after removing fenced code, HTML comments, and block quotes.
+   - Ambiguous prose is a finding, not an edge. Preserve all issue body text.
+   - Merge candidates with official edges and reject dangling targets or deterministic open cycles before proposal.
+   - Apply only the approved exact edge set after a live graph-digest check; POST numeric REST database ids.
+8. **Frontmatter normalization**
    - Plural `**Issues**` → singular `**Issue**` (N must match target directory leading number).
    - Status `Amended` / `Planning` / `In Review` → `Approved` if verification-report.md present, else `Draft`.
    - Applied as part of rename/split/flatten, or as standalone fix items for already-N dirs that still carry plural/Amended. Includes `feature.gherkin`.
-8. **Repeat run (already current)**
-   - All specs are `specs/{N}-{slug}/` with matching singular `**Issue**: #N`, no `specs/epic-*`, no leftover unmarked spike ADRs, no `epic-link.json`/`epic-scope.json`/`issue-scope.json` at any specs/ depth.
-9. **v2 runner cleanup (kept)**
-   - Exact paths: `sdlc-config.json`, the legacy v2 runner indicator file, the legacy v2 runner state file.
-   - Managed `.gitignore` blocks under headers `# SDLC runner config`, `# SDLC runner artifacts`.
-   - Delete only exact regular files; never inspect contents or follow symlinks into state.
-   - Edit `.gitignore` to remove only the owned entries inside recognized blocks; preserve project-owned and unknown blocks.
+9. **Repeat run (already current)**
+   - All specs are issue-owned and no approved official dependency additions remain.
+10. **v2 runner cleanup**
+   - Delete only exact regular files and owned entries inside recognized blocks; never follow symlinks or remove unknown content.
 
 ## Apply contract
 
@@ -88,9 +90,9 @@ node scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
 
 ## Reuse
 
-- `parseBodyRelationships` from `scripts/epic-relationships.mjs` (exact regex for Depends on: / Blocks: lines).
-- Minimal local parsers for frontmatter (`**Issues?**`), `issue-scope.json`, `epic-link.json` (schema v1).
-- Never fork regexes or ownership logic.
+- `scripts/issue-dependencies.mjs` is the sole production official blocked-by client, graph validator, and edge writer.
+- `parseLegacyDependencyEvidence` is migration-only and must not feed execute, start, or status.
+- Minimal local parsers remain for legacy frontmatter and ownership artifacts.
 
 ## Fixtures for verification (used by tests)
 

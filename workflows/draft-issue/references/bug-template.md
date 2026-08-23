@@ -74,4 +74,4 @@ inconclusive, state what is known and what needs further investigation.]
 - ACs are the minimal fix + no regression.
 - Out of Scope lists tempting adjacent work for separate issues.
 
-For multi-issue the caller inserts the Depends on: / Blocks: lines using plan topo summaries into the filled body before emitting the plan. The gh create in approved plan execution receives bodies that already contain the relation lines.
+For multi-issue plans, keep the body dependency-free. The caller records exact official blocked-by edges in each plan entry's `blockedBy` array.

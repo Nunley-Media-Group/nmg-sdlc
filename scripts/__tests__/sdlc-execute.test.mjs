@@ -79,18 +79,51 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       cwd: '/repo',
       run: (command, args, options) => {
         calls.push([command, args, options]);
-        return {
-          status: 0,
-          stdout: JSON.stringify([{ number: 12, title: 'Later' }, { number: 8, title: 'First' }]),
-        };
+        if (args[0] === 'issue') {
+          return {
+            status: 0,
+            stdout: JSON.stringify([{ number: 12, title: 'Later' }, { number: 8, title: 'First' }]),
+          };
+        }
+        if (args[0] === 'repo') return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}' };
+        if (args.includes('--paginate')) return { status: 0, stdout: '[[]]' };
+        const number = Number(args[1].split('/').at(-1));
+        return { status: 0, stdout: JSON.stringify({
+          id: number * 100, number, state: 'open', title: number === 8 ? 'First' : 'Later',
+          repository_url: 'https://api.github.com/repos/acme/widgets',
+        }) };
       },
     });
     expect(issues).toEqual([{ number: 8, title: 'First' }, { number: 12, title: 'Later' }]);
-    expect(calls).toEqual([[
+    expect(calls[0]).toEqual([
       'gh',
-      ['issue', 'list', '--state', 'open', '--label', 'spec-created', '--limit', '100', '--json', 'number,title'],
+      ['issue', 'list', '--state', 'open', '--label', 'spec-created', '--limit', '100', '--json', 'number,title,projectItems'],
       { cwd: '/repo' },
-    ]]);
+    ]);
+  });
+
+  it('keeps independent picker work eligible when another reachable graph cycles', () => {
+    const records = new Map([2, 3, 7].map((number) => [number, {
+      id: number * 100,
+      number,
+      state: 'open',
+      title: `Issue ${number}`,
+      repository_url: 'https://api.github.com/repos/acme/widgets',
+    }]));
+    const run = (_command, args) => {
+      if (args[0] === 'issue') return { status: 0, stdout: JSON.stringify([records.get(2), records.get(3)]) };
+      if (args[0] === 'repo') return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}' };
+      if (args.includes('--paginate')) {
+        const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));
+        const number = Number(endpoint.match(/issues\/(\d+)/)[1]);
+        const targets = number === 2 ? [7] : number === 7 ? [2] : [];
+        return { status: 0, stdout: JSON.stringify([targets.map((target) => records.get(target))]) };
+      }
+      const number = Number(args[1].split('/').at(-1));
+      return { status: 0, stdout: JSON.stringify(records.get(number)) };
+    };
+
+    expect(listSpecifiedIssues({ cwd: '/repo', run })).toEqual([{ number: 3, title: 'Issue 3' }]);
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
@@ -106,30 +139,36 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     ];
     expect(selectBacklog({
       issues,
-      parentStates: {},
+      graph: {
+        repository: 'acme/widgets',
+        nodes: issues.map((issue) => ({ id: issue.number * 100, number: issue.number, state: 'OPEN', repository: 'acme/widgets' })),
+        edges: [],
+      },
       projectStatuses: {},
     })).toBe(3);
   });
 
-  it('selectBacklog drops open Depends-on parents and Project Done', () => {
+  it('selectBacklog drops official open blockers and Project Done', () => {
     const issues = [
       { number: 8, title: 'Ready', labels: [], body: '' },
-      { number: 3, title: 'Blocked', labels: [], body: 'Depends on: #1\n' },
+      { number: 3, title: 'Blocked', labels: [], body: 'Depends on: #99 is inert' },
       { number: 4, title: 'Done', labels: [], body: '' },
     ];
     expect(selectBacklog({
       issues,
-      parentStates: { 1: 'OPEN' },
+      graph: {
+        repository: 'acme/widgets',
+        nodes: [...issues, { number: 1 }].map((issue) => ({ id: issue.number * 100, number: issue.number, state: 'OPEN', repository: 'acme/widgets' })),
+        edges: [{ issue: 3, blockedBy: 1 }],
+      },
       projectStatuses: { 4: ['Done'] },
     })).toBe(8);
   });
 
-  it('selectBacklog throws when parent state is unreadable', () => {
+  it('selectBacklog fails closed without official graph evidence', () => {
     expect(() => selectBacklog({
-      issues: [{ number: 3, title: 'Blocked', labels: [], body: 'Depends on: #1\n' }],
-      parentStates: {},
-      parentLookupError: new Error('graphql failed'),
-    })).toThrow();
+      issues: [{ number: 3, title: 'Unknown' }],
+    })).toThrow('dependency_unreadable');
   });
 
   it('validateHandoff accepts a golden passed object', () => {
@@ -429,6 +468,8 @@ describe('runExecute controller', () => {
   function makeControllerFixture({
     stalled = false,
     stalledInStderr = false,
+    blockedIssues = [],
+    dependencyUnreadable = false,
     settledBeforeSubmit = false,
     agentStartStatuses = [],
     failedStep = null,
@@ -466,6 +507,38 @@ describe('runExecute controller', () => {
 
     const run = (command, args) => {
       calls.push([command, ...args]);
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+        return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+        if (dependencyUnreadable) return { status: 1, stdout: '', stderr: 'forbidden' };
+        const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));
+        const issue = Number(endpoint.match(/issues\/(\d+)/)[1]);
+        const blockers = blockedIssues.includes(issue)
+          ? [{
+            id: 700,
+            number: 7,
+            state: 'open',
+            title: 'Prerequisite',
+            repository_url: 'https://api.github.com/repos/acme/widgets',
+          }]
+          : [];
+        return { status: 0, stdout: JSON.stringify([blockers]), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && /^repos\/acme\/widgets\/issues\/\d+$/.test(args[1] || '')) {
+        const issue = Number(args[1].split('/').at(-1));
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            id: issue * 100,
+            number: issue,
+            state: 'open',
+            title: issue === 42 ? 'Ship It' : `Issue ${issue}`,
+            repository_url: 'https://api.github.com/repos/acme/widgets',
+          }),
+          stderr: '',
+        };
+      }
       if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'list' && args.includes('--label')) {
         return { status: 0, stdout: JSON.stringify(specifiedIssues), stderr: '' };
@@ -745,6 +818,17 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('fails dependency reads before showing a no-argument picker', () => {
+    const fixture = makeControllerFixture({
+      specifiedIssues: [{ number: 42, title: 'Ship It' }],
+      dependencyUnreadable: true,
+    });
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'dependency_unreadable\n' });
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('resumes an existing run issue list on empty args', () => {
     const fixture = makeControllerFixture();
     writeRun({
@@ -768,6 +852,16 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#12 #15', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result).toEqual({ status: 2, stdout: '#12 has no spec-created label\n', stderr: '' });
     expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects an explicit officially blocked issue before local mutation', () => {
+    const fixture = makeControllerFixture({ blockedIssues: [42] });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'dependency_blocked for #42\n' });
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some((call) => call[0] === 'git')).toBe(false);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('preserves labeled explicit-list order and first-occurrence dedupe', () => {

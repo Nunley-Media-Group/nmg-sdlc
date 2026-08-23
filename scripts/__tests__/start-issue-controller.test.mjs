@@ -35,6 +35,38 @@ function fixture({
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args[2] === '42' && args.includes('number,title,body,labels,state')) {
       return { status: issueStatus, stdout: issueStatus === 0 ? JSON.stringify(issue) : '', stderr: '' };
     }
+    if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+      return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+    }
+    if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+      if (parentStatus !== 0) return { status: parentStatus, stdout: '', stderr: 'dependency unavailable' };
+      const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));
+      const dependencyIssue = Number(endpoint.match(/issues\/(\d+)/)[1]);
+      const blockers = dependencyIssue === 42
+        ? [{
+          id: 700,
+          number: 7,
+          state: String(parentState).toLowerCase(),
+          title: 'Prerequisite',
+          repository_url: 'https://api.github.com/repos/nmg/repo',
+        }]
+        : [];
+      return { status: 0, stdout: JSON.stringify([blockers]), stderr: '' };
+    }
+    if (command === 'gh' && args[0] === 'api' && /^repos\/nmg\/repo\/issues\/\d+$/.test(args[1] || '')) {
+      const number = Number(args[1].split('/').at(-1));
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          id: number * 100,
+          number,
+          state: number === 42 ? 'open' : String(parentState).toLowerCase(),
+          title: number === 42 ? issue.title : 'Prerequisite',
+          repository_url: 'https://api.github.com/repos/nmg/repo',
+        }),
+        stderr: '',
+      };
+    }
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
       return { status: parentStatus, stdout: parentStatus === 0 ? JSON.stringify({ state: parentState }) : '', stderr: '' };
     }

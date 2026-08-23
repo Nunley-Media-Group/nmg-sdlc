@@ -1,3 +1,3 @@
-# Epic Identity (removed v3)
+# Epic Identity (removed)
 
-See main SKILL epic flatten section. Convert to Depends on: body lines only.
+The main detector flattens legacy epic artifacts. It does not create a current dependency type; only approved official blocked-by edges sequence issues.

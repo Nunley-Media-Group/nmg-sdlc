@@ -55,7 +55,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Native plan for judgment | Interactive skills use built-in `ask` + `xd://propose` inside `/plan` |
 | Workers never ask | Automated skills never call `ask`; missing preconditions write a failed handoff |
 | Spec as source of truth | Implementation and verification trace back to an approved spec directory |
-| Coordination is not a type | Sequencing is `Depends on:` between ordinary issues; there is no epic |
+| Coordination is not a type | Sequencing uses official GitHub blocked-by edges between ordinary issues; there is no epic |
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
 | Dogfooding | Skill changes are verified through contracts and executable exercises |
 
@@ -68,7 +68,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Spec-to-implementation fidelity | Zero unresolved drift on first verify | Validates the spec-driven approach |
 | Pipeline continuity | Draft → spec → execute works end to end | Proves the workflow is practical |
 | Terminal delivery integrity | Success requires exact-head merge and issue closure | Prevents PR creation from being overstated as delivery |
-| Dependency integrity | Blocked `Depends on:` parents keep an issue out of execute | Keeps sequencing honest |
+| Dependency integrity | Open official blockers, unreadable evidence, dangling targets, and open cycles keep an issue out of execute | Keeps sequencing fail-closed and consistent |
 | Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` | Preserves user authority without blocking Herdr |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
@@ -127,7 +127,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 2. Detect greenfield, brownfield, or initialized state
 3. Create or reconcile root steering/spec documents
 4. Install or refresh contribution guidance, AGENTS context, contribution gate, and issue form
-5. Detect and propose packaging, rename, split, and epic-flatten mutations
+5. Detect and propose packaging, rename, split, epic-flatten, and official dependency-graph reconciliation
 6. Apply only after plan approval and report changed, preserved, declined, already-current, and failed outcomes
 ```
 

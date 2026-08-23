@@ -22,7 +22,7 @@ Start work from a clear GitHub issue with acceptance criteria. Feature and bug w
 
 Specs use `specs/{N}-{slug}/` (N = issue number, slug derived from title). Legacy `feature-*` / `bug-*` naming is tolerated only as upgrade input via `/sdlc-upgrade-project`.
 
-There is no epic type. Sequencing and coordination use ordinary `Depends on:` / `Blocks:` lines between issues. One issue owns exactly one spec directory with singular `**Issue**: #N` frontmatter.
+There is no epic type. GitHub's official blocked-by relation is the sole sequencing authority between ordinary issues. One issue owns exactly one spec directory with singular `**Issue**: #N` frontmatter; `Depends on:` and `Blocks:` body text is legacy migration evidence only.
 
 ## Steering Expectations
 

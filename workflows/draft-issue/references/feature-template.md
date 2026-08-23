@@ -81,4 +81,4 @@ Each criterion uses Given/When/Then format. These become Gherkin BDD test scenar
 - Title: concise verb-first.
 - ACs in G/W/T become Gherkin.
 - Scope explicit to prevent creep.
-- For multi the caller has already appended the Depends on:/Blocks: lines (topo summaries) to the body text before plan emission.
+- For multi-issue plans, keep the body dependency-free and record exact official blocked-by edges in the plan entry's `blockedBy` array.

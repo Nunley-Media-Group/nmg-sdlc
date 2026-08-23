@@ -9,13 +9,21 @@
  *
  * Detectors are read-only. apply only mutates for approved ids.
  * Never mutates the caller's specs/ unless the caller passes a temp root.
- * Reuses parseBodyRelationships exactly.
+ * Legacy body relations are migration evidence only.
  */
 
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseBodyRelationships } from './epic-relationships.mjs';
+import {
+  applyBlockedByEdges,
+  createIssueDependencyClient,
+  parseLegacyDependencyEvidence,
+  preflightBlockedByEdges,
+  readDependencyGraph,
+} from './issue-dependencies.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
@@ -529,7 +537,97 @@ function editGitignoreForV2(root) {
   return { changed: after !== before, status };
 }
 
-function detectUpgrade(root) {
+function defaultRun(command, args, options = {}) {
+  return spawnSync(command, args, { encoding: 'utf8', ...options });
+}
+
+function dependencyGraphDigest(graph) {
+  const payload = {
+    repository: graph.repository,
+    nodes: graph.nodes.map(({ id, number, state, repository }) => ({ id, number, state, repository })),
+    edges: graph.edges,
+  };
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function parseRunJson(result, description) {
+  if (!result || result.status !== 0) {
+    const error = new Error(`${description} failed`);
+    error.reasonCode = 'dependency_unreadable';
+    throw error;
+  }
+  try {
+    return JSON.parse(result.stdout || 'null');
+  } catch {
+    const error = new Error(`${description} returned malformed JSON`);
+    error.reasonCode = 'dependency_unreadable';
+    throw error;
+  }
+}
+
+export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaultRun } = {}) {
+  const client = createIssueDependencyClient({ cwd, run });
+  const endpoint = `repos/${client.repository}/issues`;
+  const rawPages = parseRunJson(run('gh', [
+    'api', '--method', 'GET', '--paginate', '--slurp', endpoint, '-f', 'state=all', '-f', 'per_page=100',
+  ], { cwd }), 'Repository issue listing');
+  if (!Array.isArray(rawPages) || !rawPages.every(Array.isArray)) {
+    const error = new Error('Repository issue pagination is malformed');
+    error.reasonCode = 'dependency_unreadable';
+    throw error;
+  }
+  const issues = rawPages.flat()
+    .filter((issue) => !issue.pull_request)
+    .sort((left, right) => left.number - right.number);
+  const graph = readDependencyGraph(client, issues.map((issue) => issue.number), { allIssues: issues });
+  const candidates = [];
+  const findings = [];
+  for (const source of issues) {
+    const evidence = parseLegacyDependencyEvidence(source.body);
+    findings.push(...evidence.findings.map((finding) => ({ issue: source.number, ...finding })));
+    for (const item of evidence.edges) {
+      candidates.push(item.relation === 'blocks'
+        ? { issue: item.issue, blockedBy: source.number, source: item.source }
+        : { issue: source.number, blockedBy: item.issue, source: item.source });
+    }
+  }
+  const evidenceByEdge = new Map();
+  for (const candidate of candidates) {
+    const key = `${candidate.issue}:${candidate.blockedBy}`;
+    if (!evidenceByEdge.has(key)) evidenceByEdge.set(key, candidate.source);
+  }
+  const additions = preflightBlockedByEdges(graph, [...evidenceByEdge].map(([key]) => {
+    const [issue, blockedBy] = key.split(':').map(Number);
+    return { issue, blockedBy };
+  }));
+  const digest = dependencyGraphDigest(graph);
+  return {
+    id: `issue-dependencies:${digest}`,
+    kind: 'issue-dependencies',
+    actionable: additions.length > 0,
+    description: 'Reconcile legacy dependency evidence to official GitHub blocked-by edges.',
+    digest,
+    issueCount: issues.length,
+    additions: additions.map((edge) => ({ ...edge, source: evidenceByEdge.get(`${edge.issue}:${edge.blockedBy}`) })),
+    findings,
+  };
+}
+
+export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = defaultRun } = {}) {
+  const live = detectIssueDependencyUpgrade({ cwd, run });
+  if (live.digest !== item.digest) {
+    const error = new Error('Official dependency graph changed after plan approval');
+    error.reasonCode = 'dependency_plan_stale';
+    throw error;
+  }
+  const client = createIssueDependencyClient({ cwd, run });
+  const graph = readDependencyGraph(client, item.additions.flatMap((edge) => [edge.issue, edge.blockedBy]));
+  const additions = preflightBlockedByEdges(graph, item.additions);
+  const applied = applyBlockedByEdges(client, additions);
+  return { id: item.id, status: 'applied', applied };
+}
+
+function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
 
@@ -801,6 +899,9 @@ function detectUpgrade(root) {
       });
     }
   }
+  if (includeIssueDependencies) {
+    items.push(detectIssueDependencyUpgrade({ cwd: rootAbs, run }));
+  }
 
   // Dedup by id
   const seen = new Set();
@@ -950,28 +1051,6 @@ function applyEpicFlatten(root, item) {
         fs.writeFileSync(fp, txt);
       }
     }
-    // Use the shared parser (do not fork regex) to normalize/emit Depends on: and Blocks: for real execution edges after epic removal.
-    const reqFp = path.join(toFull, 'requirements.md');
-    let reqTxt = safeRead(reqFp);
-    if (reqTxt) {
-      const rels = parseBodyRelationships(reqTxt);
-      let injected = false;
-      if (rels.dependsOn.length > 0) {
-        const line = `Depends on: ${rels.dependsOn.map((n) => `#${n}`).join(', ')}`;
-        if (!/^\s*Depends on:/im.test(reqTxt)) {
-          reqTxt = reqTxt.trimEnd() + '\n\n' + line + '\n';
-          injected = true;
-        }
-      }
-      if (rels.blocks.length > 0) {
-        const line = `Blocks: ${rels.blocks.map((n) => `#${n}`).join(', ')}`;
-        if (!/^\s*Blocks:/im.test(reqTxt)) {
-          reqTxt = reqTxt.trimEnd() + '\n\n' + line + '\n';
-          injected = true;
-        }
-      }
-      if (injected) fs.writeFileSync(reqFp, reqTxt);
-    }
 
 
     // remove the aggregate dir and any leftover epic-*
@@ -1096,15 +1175,24 @@ function applyAgentsSpikeLanguage(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
-function applyUpgrade(root, approvedItemIds = [], run) {
+function applyUpgrade(root, approvedItemIds = [], run, {
+  includeIssueDependencies = run === defaultRun,
+} = {}) {
   const rootAbs = path.resolve(root);
-  const report = detectUpgrade(rootAbs);
+  const report = detectUpgrade(rootAbs, { run, includeIssueDependencies });
   const approvedSet = new Set(approvedItemIds);
   const results = [];
+  const approvedDependencyId = [...approvedSet].find((id) => id.startsWith('issue-dependencies:'));
+  const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
+  if (approvedDependencyId && liveDependencyItem?.id !== approvedDependencyId) {
+    const error = new Error('Official dependency graph changed after plan approval');
+    error.reasonCode = 'dependency_plan_stale';
+    throw error;
+  }
 
   // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'issue-dependencies': 8, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -1129,6 +1217,8 @@ function applyUpgrade(root, approvedItemIds = [], run) {
       res = applyAgentsSpikeLanguage(rootAbs, item);
     } else if (item.kind === 'v2-cleanup') {
       res = applyV2Cleanup(rootAbs, item);
+    } else if (item.kind === 'issue-dependencies') {
+      res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {
       res = { id: item.id, status: 'applied (detector-only; see upgrade skill for legacy layout)' };
     } else {
@@ -1143,8 +1233,7 @@ function applyUpgrade(root, approvedItemIds = [], run) {
     ...backfill,
   });
 
-
-  const remaining = detectUpgrade(rootAbs);
+  const remaining = detectUpgrade(rootAbs, { run, includeIssueDependencies });
   return {
     root: rootAbs,
     applied: results.filter((r) => r.status.startsWith('applied')),
@@ -1179,10 +1268,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
   }
   try {
     if (args.cmd === 'detect') {
-      const out = detectUpgrade(args.root);
+      const out = detectUpgrade(args.root, { run: defaultRun });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'apply') {
-      const out = applyUpgrade(args.root, args.approve);
+      const out = applyUpgrade(args.root, args.approve, defaultRun);
       console.log(JSON.stringify(out, null, 2));
     }
   } catch (err) {

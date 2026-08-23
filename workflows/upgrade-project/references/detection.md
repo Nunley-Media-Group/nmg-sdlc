@@ -8,10 +8,12 @@
 
 4. Split: plural Issues or leftover issue-scope multi → split per N, owned copy + Related pointers.
 
-5. Epic flatten: epic- + link/scope → child {N} packages + historical section, Depends lines.
+5. Epic flatten: epic and link artifacts → ordinary issue-owned packages; legacy relations become migration evidence, not runtime fields.
 
-6. Frontmatter + status map.
+6. Issue dependencies: completely list all open and closed repository issues and each official blocked-by page. Derive candidate edges only from explicit legacy fields or clear sequencing clauses, subtract existing edges, validate the combined graph, and report exact evidence. Unreadable pages, dangling targets, and open cycles fail closed.
 
-7. v2: exact 3 files + gitignore blocks.
+7. Frontmatter and status normalization.
 
-All read-only until plan approve + helper call.
+8. v2 exact-file and managed-block cleanup.
+
+All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.

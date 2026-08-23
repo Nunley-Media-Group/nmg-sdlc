@@ -11,7 +11,11 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-import { parseBodyRelationships } from './epic-relationships.mjs';
+import {
+  createIssueDependencyClient,
+  issueDependencyStatus,
+  readDependencyGraph,
+} from './issue-dependencies.mjs';
 import {
   inspectIssueSpecScope,
   ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
@@ -223,17 +227,24 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
     const issueRes = adapters.run('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,state,body,labels,projectItems'], { cwd: projectRoot, timeout: 20_000 });
     if (issueRes.ok) {
       const raw = JSON.parse(issueRes.stdout);
-      const bodyRels = parseBodyRelationships(raw.body || '');
       result.issue = {
         number: raw.number,
         title: raw.title,
         state: raw.state,
         body: raw.body,
         labels: (raw.labels || []).map((l) => l.name),
-        dependsOn: bodyRels.dependsOn,
+        dependency: { status: 'unknown', reasonCode: 'dependency_unreadable' },
       };
       const items = raw.projectItems?.nodes || [];
       result.projectItems = normalizeProjectItems(items);
+      try {
+        const client = createIssueDependencyClient({ cwd: projectRoot, run: adapters.run });
+        const graph = readDependencyGraph(client, [issueNumber]);
+        result.issue.dependency = issueDependencyStatus(graph, issueNumber);
+      } catch (error) {
+        result.issue.dependency = { status: 'unknown', reasonCode: error?.reasonCode || 'dependency_unreadable' };
+        gaps.push(`official blocked-by evidence: ${result.issue.dependency.reasonCode}`);
+      }
     } else {
       gaps.push(`issue #${issueNumber} fetch failed: ${boundedMessage(commandFailure(issueRes))}`);
     }
@@ -470,8 +481,7 @@ export function inferLifecycle(evidence) {
     && !finalDeliveryValidated;
   const scopeStatus = evidence.spec?.scope?.status ?? null;
   const scopeBlocked = ['repair_required', 'unverifiable'].includes(scopeStatus);
-  const deliverableStatus = evidence.issue?.deliverableDependencies?.status ?? 'none';
-  const deliverableBlocked = ['blocked', 'repair_required', 'unverifiable'].includes(deliverableStatus);
+  const dependency = evidence.issue?.dependency ?? { status: 'unknown', reasonCode: 'dependency_unreadable' };
   const onDefaultBranch = evidence.project.defaultBranch != null
     && evidence.project.branch === evidence.project.defaultBranch;
   let stage;
@@ -479,19 +489,14 @@ export function inferLifecycle(evidence) {
 
   const specApproved = evidence.spec && evidence.spec.complete && !scopeBlocked;
 
-  if (deliverableBlocked) {
-    const deliverableGaps = evidence.issue.deliverableDependencies.gaps?.length
-      ? evidence.issue.deliverableDependencies.gaps.join('; ')
-      : evidence.issue.deliverableDependencies.reasonCode;
-    gaps.push(`deliverable dependencies ${deliverableStatus}: ${deliverableGaps}`);
-    stage = 'blocked';
-    nextAction = deliverableStatus === 'repair_required'
-      ? { command: '/sdlc-upgrade-project', reason: 'deliverable repair', manualRepairRequired: false }
-      : { command: '/sdlc-status', reason: 'depends on closed parents', manualRepairRequired: deliverableStatus === 'unverifiable' };
-  } else if ((evidence.issue?.dependsOn || []).length > 0) {
-    gaps.push("blocked by Depends on: parents not closed");
-    stage = "blocked";
-    nextAction = { command: "/sdlc-status", reason: "depends on closed parents", manualRepairRequired: false };
+  if (dependency.status === 'blocked' || dependency.status === 'unknown') {
+    gaps.push(`official blocked-by dependency: ${dependency.reasonCode}`);
+    stage = dependency.status === 'blocked' ? 'blocked' : 'unknown';
+    nextAction = {
+      command: '/sdlc-status',
+      reason: dependency.reasonCode,
+      manualRepairRequired: dependency.status === 'unknown',
+    };
   } else if (scopeBlocked) {
     const scopeGaps = evidence.spec.scope.gaps?.length ? evidence.spec.scope.gaps.join('; ') : evidence.spec.scope.reasonCode;
     gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
@@ -554,13 +559,13 @@ export function renderText(status) {
   const pullRequest = status.pullRequest
     ? `#${status.pullRequest.number} ${status.pullRequest.state} (${status.pullRequest.isDraft === true ? 'draft' : status.pullRequest.isDraft === false ? 'ready' : 'draft state unknown'}, head: ${status.pullRequest.headRefOid ?? 'unknown'}, merge: ${status.pullRequest.mergeStateStatus ?? 'unknown'})`
     : 'unknown';
-  const deliverables = status.issue?.deliverableDependencies
-    ? `${status.issue.deliverableDependencies.status}`
-    : 'none';
+  const dependencies = status.issue?.dependency
+    ? `${status.issue.dependency.status}${status.issue.dependency.reasonCode ? ` (${status.issue.dependency.reasonCode})` : ''}`
+    : 'unknown';
   const lines = [
     `SDLC status: ${status.stage}`,
     `Issue: ${issue}`,
-    `Deliverables: ${deliverables}`,
+    `Dependencies: ${dependencies}`,
     `Branch: ${status.project.branch} (${status.project.dirty ? 'dirty' : 'clean'})`,
     `Spec: ${spec}`,
     `Verification: ${verification}`,

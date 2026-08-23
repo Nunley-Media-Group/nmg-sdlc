@@ -1,6 +1,6 @@
 ---
 name: upgrade-project
-description: "Upgrade existing project to latest contract: detect/propose packaging, legacy layout, renames, splits, epic flatten, frontmatter, v2 cleanup. Use when `/sdlc-upgrade-project`. Actual changes via helper script after plan approval."
+description: "Upgrade an existing project to the latest contract: detect and propose packaging, layout, specification, official dependency-graph, and cleanup repairs. Use when `/sdlc-upgrade-project`. Actual changes run only after plan approval."
 ---
 
 # Upgrade Project
@@ -18,14 +18,15 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 4. Cumulative split: plural **Issues** or issue-scope.json multi → per-N dirs, copy owned, add Related Spec pointers, remove manifest.
 
-5. Epic flatten: specs/epic-*/ + epic-link → per child {childN}-slug with **Issue** #child , historical note in owner; delete epic dirs/links. Convert edges to Depends on: body lines. Propose label clean only on explicit ask.
+5. Epic flatten: specs/epic-*/ + epic-link → per child `{childN}-slug` with `**Issue**: #childN` and a historical note in the owner; delete epic dirs/links. Treat any legacy relation text only as migration evidence for the issue-dependencies category.
 
 6. Leftover spikes: convert unmarked spike ADRs under docs/decisions/ into Draft specs/{N}-{slug}/ four-file packages and stamp `**SDLC-Migrated**` on the ADR. Delete leftover spike-researcher/template files. Remove Spike from the issue form. Unparseable ADRs stay unverifiable.
 
-7. v2 cleanup: sdlc-config.json , legacy runner indicator file, legacy runner state , managed .gitignore blocks → propose delete.
+7. Issue dependencies: list every open and closed repository issue and every official blocked-by edge with complete pagination. Propose only missing official edges supported by closed legacy fields or clear sequencing clauses. Ambiguous prose is a finding only. Reject dangling targets and open cycles before proposal.
 
-8. This repo specs/ handled same.
-Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form , propose reconcile to current (v3 list).
+8. v2 cleanup: sdlc-config.json, legacy runner indicator/state files, and managed .gitignore blocks → propose exact deletion.
+
+9. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
 
 Read references/detection.md etc for details (update in tree).
 
@@ -42,6 +43,7 @@ For splits/renames: approve group or preserve per item.
 For epic: explicit per group "The detector found an epic group whose child specs can become ordinary issue-owned packages. Flatten this epic group?"
 
 Runner cleanup: approve batch or narrow.
+Official dependency reconciliation is one category-group ask showing the exact proposed edges and evidence. Approval authorizes those writes; do not ask per edge.
 
 No silent apply.
 
@@ -53,7 +55,7 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 - exact actions / file writes / deletes proposed
 
-- argv for helper e.g. ["node", "scripts/sdlc-upgrade.mjs", "--project", ".", "--apply", "--categories", "layout,rename,split,frontmatter,cleanup"]
+- exact helper argv using the detector-returned ids, for example `["node","scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
 
 ## After Propose
 

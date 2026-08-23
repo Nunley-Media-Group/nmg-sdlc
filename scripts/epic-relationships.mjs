@@ -32,25 +32,6 @@ export function epicChildLabelTargets(issue) {
     .filter((number) => number !== null);
 }
 
-export function parseBodyRelationships(body) {
-  const dependsOn = [];
-  const blocks = [];
-  for (const line of String(body ?? '').split(/\r?\n/)) {
-    const dependsMatch = line.match(/^\s*Depends on:\s*(#\d+(?:\s*,\s*#\d+)*)\s*$/i);
-    const blocksMatch = line.match(/^\s*Blocks:\s*(#\d+(?:\s*,\s*#\d+)*)\s*$/i);
-    const target = dependsMatch ? dependsOn : blocksMatch ? blocks : null;
-    const source = dependsMatch?.[1] ?? blocksMatch?.[1];
-    if (!target || !source) continue;
-    for (const match of source.matchAll(/#([1-9]\d*)/g)) {
-      const number = positiveIssueNumber(match[1]);
-      if (number !== null) target.push(number);
-    }
-  }
-  return {
-    dependsOn: [...new Set(dependsOn)],
-    blocks: [...new Set(blocks)],
-  };
-}
 
 export function parseChecklistChildren(body) {
   const children = [];
@@ -131,9 +112,6 @@ export function normalizeEpicRelationships(issues) {
     if (number === null) continue;
     addPair(pairs, number, nativeParent(issue), 'native-parent');
     for (const child of nativeChildren(issue)) addPair(pairs, child, number, 'native-sub-issue');
-    const body = parseBodyRelationships(issue.body);
-    for (const target of body.dependsOn) addPair(pairs, number, target, 'body-depends-on');
-    for (const child of body.blocks) addPair(pairs, child, number, 'body-blocks');
     for (const target of epicChildLabelTargets(issue)) addPair(pairs, number, target, 'child-label');
   }
   return {

@@ -14,7 +14,12 @@ import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-import { parseBodyRelationships } from './epic-relationships.mjs';
+import {
+  createIssueDependencyClient,
+  eligibleIssues,
+  issueDependencyStatus,
+  readDependencyGraph,
+} from './issue-dependencies.mjs';
 import { workflowBody } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 
@@ -73,53 +78,24 @@ export function parseArgs(input = '') {
   return { issues, defaultBacklog: false };
 }
 
-function getRepoContext() {
-  const res = spawnSync('gh', ['repo', 'view', '--json', 'nameWithOwner'], { encoding: 'utf8' });
-  if (res.status !== 0) {
-    throw new Error('gh repo view failed');
-  }
-  const { nameWithOwner } = JSON.parse(res.stdout || '{}');
-  const [owner, name] = String(nameWithOwner || '').split('/');
-  if (!owner || !name) throw new Error('cannot determine repo owner/name');
-  return { owner, name };
+function officialGraphForIssues(issues, { run = defaultRun, cwd = process.cwd() } = {}) {
+  const client = createIssueDependencyClient({ cwd, run });
+  return readDependencyGraph(client, issues.map((issue) => typeof issue === 'number' ? issue : issue.number));
 }
 
-function hydrateParentStates(parentNumbers) {
-  const states = {};
-  if (!parentNumbers || parentNumbers.length === 0) return states;
-  const { owner, name } = getRepoContext();
-  // try one GraphQL batch
-  try {
-    const aliases = parentNumbers.map((p) => `p${p}: issue(number: ${p}) { number state }`).join(' ');
-    const query = `{ repository(owner: "${owner}", name: "${name}") { ${aliases} } }`;
-    const gres = spawnSync('gh', ['api', 'graphql', '-f', `query=${query}`], { encoding: 'utf8' });
-    if (gres.status === 0) {
-      const data = JSON.parse(gres.stdout || '{}').data?.repository || {};
-      for (const p of parentNumbers) {
-        const key = `p${p}`;
-        if (data[key] && data[key].state) {
-          states[p] = data[key].state;
-        }
-      }
-    }
-  } catch {
-    // fall through to per-issue views
-  }
-  // fill missing with gh issue view
-  for (const p of parentNumbers) {
-    if (states[p]) continue;
-    const vres = spawnSync('gh', ['issue', 'view', String(p), '--json', 'state'], { encoding: 'utf8' });
-    if (vres.status !== 0) {
-      throw new Error(`gh issue view failed for parent #${p}`);
-    }
+function filterEligibleIssueEvidence(issues, { run = defaultRun, cwd = process.cwd() } = {}) {
+  const client = createIssueDependencyClient({ cwd, run });
+  const eligible = [];
+  for (const issue of issues) {
     try {
-      const d = JSON.parse(vres.stdout || '{}');
-      if (d.state) states[p] = d.state;
-    } catch {
-      throw new Error(`failed to parse state for #${p}`);
+      const graph = readDependencyGraph(client, [issue.number]);
+      if (issueDependencyStatus(graph, issue.number).status === 'eligible') eligible.push(issue);
+    } catch (error) {
+      if (error?.reasonCode === 'dependency_cycle' || error?.reasonCode === 'dependency_dangling') continue;
+      throw error;
     }
   }
-  return states;
+  return eligible;
 }
 
 function allReadableProjectDone(projectItems) {
@@ -138,65 +114,35 @@ function allReadableProjectDone(projectItems) {
   return readable.every((s) => s === 'done');
 }
 
-export function selectBacklog(options) {
-  if (options?.parentLookupError) {
-    throw options.parentLookupError;
-  }
-
+export function selectBacklog(options = {}) {
   let listed;
-  let parentStates;
-  if (Array.isArray(options?.issues)) {
+  let graph = options.graph;
+  if (Array.isArray(options.issues)) {
     listed = options.issues;
-    parentStates = options.parentStates || {};
-    const needed = new Set();
-    for (const iss of listed) {
-      for (const parent of parseBodyRelationships(iss.body || '').dependsOn || []) needed.add(parent);
-    }
-    for (const parent of needed) {
-      if (!parentStates[parent]) {
-        throw new Error(`unreadable parent state for #${parent}`);
-      }
-    }
   } else {
-    const listRes = spawnSync(
+    const run = options.run ?? defaultRun;
+    const cwd = options.cwd ?? process.cwd();
+    const listRes = run(
       'gh',
-      ['issue', 'list', '--state', 'open', '--limit', '100', '--json', 'number,title,labels,body,projectItems'],
-      { encoding: 'utf8' },
+      ['issue', 'list', '--state', 'open', '--label', SPEC_CREATED_LABEL, '--limit', '100', '--json', 'number,title,projectItems'],
+      { cwd },
     );
-    if (listRes.status !== 0) {
-      throw new Error('gh issue list failed');
-    }
-    try {
-      listed = JSON.parse(listRes.stdout || '[]');
-    } catch {
-      throw new Error('failed to parse gh issue list');
-    }
-    const parentNums = new Set();
-    for (const iss of listed) {
-      for (const parent of parseBodyRelationships(iss.body || '').dependsOn || []) parentNums.add(parent);
-    }
-    parentStates = hydrateParentStates([...parentNums]);
+    if (!commandSucceeded(listRes)) throw new Error('gh issue list failed');
+    listed = parseCommandOutput(listRes);
+    if (!Array.isArray(listed)) throw new Error('failed to parse gh issue list');
+    listed = filterEligibleIssueEvidence(listed, { run, cwd });
   }
+  if (Array.isArray(options.issues) && !graph) throw new Error('dependency_unreadable');
 
-  const candidates = [];
-  for (const iss of listed) {
-    const rel = parseBodyRelationships(iss.body || '');
-    if ((rel.dependsOn || []).some((parent) => String(parentStates[parent] || '').toUpperCase() !== 'CLOSED')) {
-      continue;
+  const candidates = (graph ? eligibleIssues(graph, listed) : listed).filter((issue) => {
+    const statuses = options.projectStatuses?.[issue.number]
+      ?? (issue.projectItems || []).map((item) => item?.statusName || item?.status?.name || '');
+    if (Array.isArray(options.projectStatuses?.[issue.number])) {
+      return !(statuses.length > 0 && statuses.every((status) => String(status).trim().toLowerCase() === 'done'));
     }
-    const statuses = options?.projectStatuses?.[iss.number]
-      ?? (iss.projectItems || []).map((item) => item?.statusName || item?.status?.name || '');
-    if (Array.isArray(options?.projectStatuses?.[iss.number])) {
-      if (statuses.length > 0 && statuses.every((status) => String(status).trim().toLowerCase() === 'done')) {
-        continue;
-      }
-    } else if (allReadableProjectDone(iss.projectItems || [])) {
-      continue;
-    }
-    candidates.push(iss);
-  }
-  candidates.sort((a, b) => a.number - b.number);
-  return candidates.length ? candidates[0].number : null;
+    return !allReadableProjectDone(issue.projectItems || []);
+  });
+  return candidates[0]?.number ?? null;
 }
 
 export function resolveSpecDir(root, issueN, { detailed = false } = {}) {
@@ -470,13 +416,16 @@ function commandSucceeded(value) {
 export function listSpecifiedIssues({ run = defaultRun, cwd = process.cwd() } = {}) {
   const listed = run('gh', [
     'issue', 'list', '--state', 'open', '--label', SPEC_CREATED_LABEL,
-    '--limit', '100', '--json', 'number,title',
+    '--limit', '100', '--json', 'number,title,projectItems',
   ], { cwd });
   if (!commandSucceeded(listed)) throw new Error('gh issue list failed');
   const parsed = parseCommandOutput(listed);
   if (!Array.isArray(parsed)) throw new Error('gh issue list failed');
-  return parsed
+  const candidates = parsed
     .filter((issue) => Number.isSafeInteger(issue?.number) && issue.number > 0)
+    .filter((issue) => !allReadableProjectDone(issue.projectItems || []));
+  if (candidates.length === 0) return [];
+  return filterEligibleIssueEvidence(candidates, { run, cwd })
     .map((issue) => ({ number: issue.number, title: String(issue.title || '') }))
     .sort((left, right) => left.number - right.number);
 }
@@ -735,8 +684,8 @@ export function runExecute({
       let specified;
       try {
         specified = listSpecifiedIssues({ run, cwd });
-      } catch {
-        return { status: 1, stdout: '', stderr: 'gh issue list failed\n' };
+      } catch (error) {
+        return { status: 1, stdout: '', stderr: `${error?.reasonCode || 'dependency_unreadable'}\n` };
       }
       if (specified.length === 0) {
         return { status: 0, stdout: 'No open spec-created issues.\n', stderr: '' };
@@ -758,6 +707,19 @@ export function runExecute({
         stdout: `${missing.map((issue) => `#${issue} has no spec-created label`).join('\n')}\n`,
         stderr: '',
       };
+    }
+  }
+  if (!parsedArgs.defaultBacklog) {
+    try {
+      const graph = officialGraphForIssues(issues, { run, cwd });
+      for (const issue of issues) {
+        const dependency = issueDependencyStatus(graph, issue);
+        if (dependency.status !== 'eligible') {
+          return { status: 2, stdout: '', stderr: `${dependency.reasonCode || 'dependency_unreadable'} for #${issue}\n` };
+        }
+      }
+    } catch (error) {
+      return { status: 2, stdout: '', stderr: `${error?.reasonCode || 'dependency_unreadable'}\n` };
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };

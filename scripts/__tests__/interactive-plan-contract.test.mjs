@@ -32,6 +32,20 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).not.toMatch(/classification[^\n]{0,80}Epic|Epic option|epicRecommended/i);
   });
 
+  it('draft-issue publishes only approved official blocked-by edges', () => {
+    const workflow = read('workflows/draft-issue/WORKFLOW.md');
+    const multiIssue = read('workflows/draft-issue/references/multi-issue.md');
+    const contract = `${workflow}\n${multiIssue}`;
+
+    expect(contract).toContain('planId');
+    expect(contract).toContain('blockedBy');
+    expect(contract).toContain('numeric REST database ids');
+    expect(contract).toContain('preflight');
+    expect(contract).toContain('do not ask again');
+    expect(contract).not.toContain('Bodies contain the Depends on: / Blocks: lines');
+    expect(multiIssue).toContain('Do not infer edges from thematic similarity');
+  });
+
   it('draft-issue interviews to completion without a whole-run ask quota', () => {
     const workflow = read('workflows/draft-issue/WORKFLOW.md');
     const interviewDepth = read('workflows/draft-issue/references/interview-depth.md');
