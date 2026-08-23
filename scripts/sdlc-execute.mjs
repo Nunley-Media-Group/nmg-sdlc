@@ -199,10 +199,11 @@ export function selectBacklog(options) {
   return candidates.length ? candidates[0].number : null;
 }
 
-export function resolveSpecDir(root, issueN) {
-  if (!Number.isInteger(issueN) || issueN <= 0) return null;
+export function resolveSpecDir(root, issueN, { detailed = false } = {}) {
+  const result = { dir: null, reasonCode: null };
+  if (!Number.isInteger(issueN) || issueN <= 0) return detailed ? result : null;
   const specsDir = join(root || process.cwd(), 'specs');
-  if (!existsSync(specsDir)) return null;
+  if (!existsSync(specsDir)) return detailed ? result : null;
   let entries;
   try {
     entries = readdirSync(specsDir).filter((e) => {
@@ -214,12 +215,16 @@ export function resolveSpecDir(root, issueN) {
       }
     });
   } catch {
-    return null;
+    return detailed ? result : null;
   }
   const prefixRe = new RegExp(`^${issueN}-`);
   const matches = entries.filter((e) => prefixRe.test(e)).sort();
-  if (matches.length !== 1) return null;
-  return join(specsDir, matches[0]);
+  if (matches.length > 1) {
+    result.reasonCode = 'spec_status_ambiguous';
+  } else if (matches.length === 1) {
+    result.dir = join(specsDir, matches[0]);
+  }
+  return detailed ? result : result.dir;
 }
 
 function parseFrontmatterStatusAndIssue(source, expectedIssue) {
@@ -290,17 +295,25 @@ function specApprovedOnRef(root, ref, specRel, issueN) {
 }
 
 export function specStatus(issueN, root = process.cwd()) {
-  const dir = resolveSpecDir(root, issueN);
-  if (dir) {
-    return { dir, approved: isSpecApproved(dir, issueN) };
+  const resolved = resolveSpecDir(root, issueN, { detailed: true });
+  if (resolved.reasonCode) {
+    return { dir: null, approved: false, reasonCode: resolved.reasonCode };
+  }
+  if (resolved.dir) {
+    return { dir: resolved.dir, approved: isSpecApproved(resolved.dir, issueN) };
   }
 
   const local = matchingIssueBranches(gitForEachRef(root, 'refs/heads'), issueN);
-  if (local.length > 1) return { dir: null, approved: false };
+  if (local.length > 1) {
+    return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
+  }
 
   const candidates = local.length === 1
     ? local
     : matchingIssueBranches(gitForEachRef(root, 'refs/remotes/origin'), issueN, 'origin');
+  if (candidates.length > 1) {
+    return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
+  }
   if (candidates.length !== 1) return { dir: null, approved: false };
 
   const { name, ref } = candidates[0];

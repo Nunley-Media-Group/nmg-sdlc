@@ -1,64 +1,100 @@
 # Publish Approved Spec
 
-**Read when executing Approval Behavior or the continue loop.**
+**Read when executing Discovery, Approval Behavior, or the continue loop.**
 
-## Helper argv
+## Helper contract
 
-```
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. Do not infer success from repository state after a failed command.
+
+```text
+node scripts/publish-approved-spec.mjs discover --issue N
+node scripts/publish-approved-spec.mjs candidates [--published N ...]
 node scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}
 node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}
 node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}
 node scripts/publish-approved-spec.mjs default-branch
 ```
 
-`{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (posix, no `..`).
+`{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (POSIX, no `..`). Issue arguments are positive integers. Invalid or unknown arguments fail `invalid_arguments`.
 
-JSON stdout. Non-zero plus `reasonCode` on failure. Never force-push. Never `git add -A`.
+## Read-only discovery
 
-## Dirty tree
+`discover --issue N` calls `gh issue view N --json number,title,body,labels,state` and returns:
+
+```json
+{
+  "ok": true,
+  "issue": {
+    "number": 197,
+    "title": "Move lifecycle rules into code",
+    "body": "...",
+    "labels": ["enhancement"],
+    "state": "OPEN"
+  },
+  "classification": "feature",
+  "slug": "move-lifecycle-rules-into-code",
+  "targetDir": "specs/197-move-lifecycle-rules-into-code",
+  "spec": {
+    "dir": null,
+    "approved": false,
+    "source": null
+  }
+}
+```
+
+`classification` is `bug` only when a label name case-insensitively equals `bug`; otherwise it is `feature`. `spike` is neutral. Slugs lowercase the title, replace non-alphanumeric runs with `-`, trim separators, and fall back to `issue`.
+
+The shared execute `resolveSpecDir` and `specStatus` contracts populate `targetDir` and `spec`. `source` is `worktree`, `local`, `remote`, or null. A unique existing worktree directory wins over the title-derived target. Invalid GitHub output fails `issue_unreadable`; ambiguous directories or refs fail `spec_status_ambiguous`. Discovery never mutates git or GitHub state.
+
+`candidates` accepts repeated `--published N`, deduplicates those numbers, and calls exactly:
+
+```text
+gh issue list --state open --limit 100 --json number,title
+```
+
+It drops published numbers and packages approved by shared `specStatus`, then returns every remaining unique row sorted numerically:
+
+```json
+{
+  "ok": true,
+  "candidates": [
+    { "number": 197, "title": "Move lifecycle rules into code" }
+  ]
+}
+```
+
+Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`. The helper does not truncate rows or author ask labels.
+
+## Prepare
 
 `prepare` and `commit-push` abort with `dirty_tree` when `git status --porcelain` is non-empty and the current branch is not already `{N}-{slug}`. They print the porcelain. Do not stash, discard, or guess another branch.
 
-If current ≠ `{N}-{slug}` they fetch the default branch and run `git checkout -B {N}-{slug} origin/<defaultBranch>`. Do not call `gh issue develop` here — that development-links the branch and a later spec merge would auto-close #N. `<defaultBranch>` comes from `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`. Empty → `default_branch_unreadable`. Current still wrong → `branch_checkout_failed`. Stop; do not write files on prepare failure. start-issue still uses `gh issue develop … --base <defaultBranch>` for implementation.
+If current differs from `{N}-{slug}`, `prepare` reads the default branch through `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`, fetches it, and runs `git checkout -B {N}-{slug} origin/<defaultBranch>`. Empty default branch fails `default_branch_unreadable`; checkout failure returns `branch_checkout_failed`. Never call `gh issue develop`.
 
-## Commit subject and push
+## Commit and push
 
-`commit-push` stages only `specs/{N}-{slug}`. Commit subject is exactly `docs: approve spec for #N`. Then `git push -u origin HEAD`. Non-fast-forward → `push_rejected`. Identical tree → `skippedCommit: true` and still pushes.
+`commit-push` requires the approved four-file package and stages only `specs/{N}-{slug}`. The commit subject is exactly `docs: approve spec for #N`. It runs `git push -u origin HEAD` without force. Non-fast-forward fails `push_rejected`. An identical tree returns `skippedCommit: true` and still pushes.
 
-## Merge spec into the default branch
+## Merge
 
-`merge` requires the approved four-file package. It opens a docs-only PR (`docs: approve spec for #N`) into the repository default branch when none exists, then `gh pr merge --squash --delete-branch`. The PR body must mention `#N` without `Closes`, `Fixes`, `Resolves`, or any other GitHub closing keyword. The issue stays open for `/sdlc-execute`. After a successful squash-merge the helper checks out the default branch and fast-forwards it. Failure → `pr_create_failed` or `pr_merge_failed`; leave the spec branch.
-Successful `merge` applies `spec-created` to `#N`, creating the repository label when needed. A post-merge apply failure returns `spec_created_label_failed`; it does not undo the squash-merge.
+`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. It squash-merges, checks out the repository default branch, fast-forwards it, and applies `spec-created` while leaving issue N open.
 
+Failures include `spec_not_approved`, `pr_create_failed`, `pr_merge_failed`, `default_checkout_failed`, and `spec_created_label_failed`. A post-merge label failure does not undo the merge. Never force-push or stage with `git add -A`.
 
-Unapproved four-file package → `spec_not_approved`. Do not invent a second brancher.
+`default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
 
-## Candidate filter
+## Continue ask
 
-Continue-loop candidates come from `gh issue list --state open --limit 100 --json number,title`.
+Pass every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
 
-Drop:
-
-- every number already in this session's `published[]`
-- any `M` whose unique worktree `specs/{M}-*/` is Approved
-- any `M` whose unique `refs/heads/{M}-*` or, if none, unique `refs/remotes/origin/{M}-*` has an approved four-file package (same Issue/Status rules as execute `specStatus`)
-
-Sort remaining by number ascending.
-
-## Ask shapes
-
-One `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
-
-- ≥1 candidate: up to three labels `#M — {title}` (recommended index 0), last option `Finished — stop writing specs`. Extra numbers use automatic Other.
-- 0 candidates: `Continue — enter another issue number` (recommended) and `Finished — stop writing specs`. Other supplies `#M` / `M`.
+- Rows returned: show at most the first three labels `#M — {title}`, then `Finished — stop writing specs`.
+- No rows: `Continue — enter another issue number`, then `Finished — stop writing specs`.
 
 Finished prints:
 
-```
+```text
 Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-Stay on the last spec branch.
-
-`default-branch` reads the GitHub default via `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`. Empty or fail → stop and keep the last spec branch. Do not guess `main`.
+The successful publication session remains on the repository default branch.

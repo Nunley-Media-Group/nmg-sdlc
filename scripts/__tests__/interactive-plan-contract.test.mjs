@@ -113,17 +113,28 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     );
   });
 
-  it('write-spec finishes at xd://propose then publishes', () => {
+  it('write-spec preserves full native planning and delegates lifecycle reads', () => {
     const source = read('workflows/write-spec/WORKFLOW.md');
 
     expect(source).toContain('/sdlc-write-spec');
-    expect(source).toContain('xd://propose');
+    expect(source).toContain('Only the first spec in a session uses `xd://propose`');
     expect(source).toContain('Usage: /sdlc-write-spec #N');
-    expect(source).toContain('publish-approved-spec.mjs');
+    expect(source).toContain('the full file contents to write on approval');
+    expect(source).toContain('requirements.md');
+    expect(source).toContain('design.md');
+    expect(source).toContain('tasks.md');
+    expect(source).toContain('feature.gherkin');
+    expect(source).toContain('publish-approved-spec.mjs discover --issue N');
+    expect(source).toContain('publish-approved-spec.mjs candidates [--published N ...]');
+    expect(source).toContain('at most the first three');
     expect(source).toContain('Finished — stop writing specs');
     expect(source).toContain('docs: approve spec for #N');
     expect(source).toContain('publish-approved-spec.mjs merge');
     expect(source).toContain('Closes #N');
+    expect(source).toContain('Published specs: #<n> on <n>-<slug>[, ...]');
+    expect(source).toContain('Next step: /sdlc-execute #<first-published>');
+    expect(source).not.toContain('gh issue list --state open');
+    expect(source).not.toContain('refs/remotes/origin');
     expect(source).not.toContain('/skill:');
   });
 

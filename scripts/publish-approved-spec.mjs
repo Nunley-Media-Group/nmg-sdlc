@@ -7,10 +7,10 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { join, resolve as pathResolve } from 'node:path';
+import { join, relative, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { isSpecApproved } from './sdlc-execute.mjs';
+import { isSpecApproved, resolveSpecDir, specStatus } from './sdlc-execute.mjs';
 import { applySpecCreatedLabel } from './spec-created-label.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -34,7 +34,11 @@ function parseIssue(raw) {
   if (raw == null || !/^[1-9]\d*$/.test(String(raw))) {
     fail('invalid_arguments', { detail: 'issue must be a positive integer' });
   }
-  return Number.parseInt(raw, 10);
+  const issueN = Number(raw);
+  if (!Number.isSafeInteger(issueN)) {
+    fail('invalid_arguments', { detail: 'issue must be a positive integer' });
+  }
+  return issueN;
 }
 
 function parseName(issueN, raw) {
@@ -64,6 +68,116 @@ function run(command, args, options = {}) {
     ...options,
   });
 }
+function readJson(result, reasonCode) {
+  if (result.status !== 0) {
+    fail(reasonCode, { stderr: result.stderr || '' });
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    fail(reasonCode, { detail: 'malformed JSON' });
+  }
+}
+
+function relativeSpecDir(dir) {
+  if (!dir) return null;
+  return dir.startsWith('specs/') ? dir : relative(process.cwd(), dir).split('\\').join('/');
+}
+
+function statusSource(status) {
+  if (!status.dir) return null;
+  if (!status.ref) return 'worktree';
+  return status.ref.startsWith('origin/') ? 'remote' : 'local';
+}
+
+function discover(argv) {
+  if (argv.length !== 2 || argv[0] !== '--issue') {
+    fail('invalid_arguments', { detail: 'Usage: discover --issue N' });
+  }
+  const issueN = parseIssue(argv[1]);
+  const issue = readJson(
+    run('gh', ['issue', 'view', String(issueN), '--json', 'number,title,body,labels,state']),
+    'issue_unreadable',
+  );
+  const validIssue = Number.isSafeInteger(issue?.number)
+    && issue.number === issueN
+    && typeof issue.title === 'string'
+    && typeof issue.body === 'string'
+    && typeof issue.state === 'string'
+    && issue.state.length > 0
+    && Array.isArray(issue.labels)
+    && issue.labels.every((label) => typeof label?.name === 'string');
+  if (!validIssue) {
+    fail('issue_unreadable', { detail: 'issue output does not match the requested issue' });
+  }
+
+  const slug = issue.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'issue';
+  const resolved = resolveSpecDir(process.cwd(), issueN, { detailed: true });
+  if (resolved.reasonCode) fail(resolved.reasonCode);
+  const status = specStatus(issueN, process.cwd());
+  if (status.reasonCode) fail(status.reasonCode);
+  const dir = relativeSpecDir(status.dir);
+  const labels = issue.labels.map(({ name }) => name);
+  ok({
+    issue: {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      labels,
+      state: issue.state,
+    },
+    classification: labels.some((name) => name.toLowerCase() === 'bug') ? 'bug' : 'feature',
+    slug,
+    targetDir: dir || (resolved.dir ? relativeSpecDir(resolved.dir) : `specs/${issueN}-${slug}`),
+    spec: {
+      dir,
+      approved: status.approved,
+      source: statusSource(status),
+    },
+  });
+}
+
+function parsePublished(argv) {
+  const published = new Set();
+  for (let index = 0; index < argv.length; index += 2) {
+    if (argv[index] !== '--published' || argv[index + 1] == null) {
+      fail('invalid_arguments', { detail: 'Usage: candidates [--published N ...]' });
+    }
+    published.add(parseIssue(argv[index + 1]));
+  }
+  return published;
+}
+
+function candidates(argv) {
+  const published = parsePublished(argv);
+  const issues = readJson(
+    run('gh', ['issue', 'list', '--state', 'open', '--limit', '100', '--json', 'number,title']),
+    'issues_unreadable',
+  );
+  if (!Array.isArray(issues)
+    || issues.some((issue) => !Number.isSafeInteger(issue?.number)
+      || issue.number <= 0
+      || typeof issue.title !== 'string')) {
+    fail('issues_unreadable', { detail: 'issue list output is malformed' });
+  }
+
+  const unique = new Map();
+  for (const issue of issues) {
+    if (!unique.has(issue.number)) unique.set(issue.number, issue.title);
+  }
+  const rows = [];
+  for (const [number, title] of [...unique].sort(([left], [right]) => left - right)) {
+    if (published.has(number)) continue;
+    const status = specStatus(number, process.cwd());
+    if (status.reasonCode) fail(status.reasonCode, { issue: number });
+    if (!status.approved) rows.push({ number, title });
+  }
+  ok({ candidates: rows });
+}
+
 
 function git(args) {
   return run('git', args);
@@ -273,6 +387,14 @@ function mergeSpec(argv) {
 
 function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
+  if (command === 'discover') {
+    discover(rest);
+    return;
+  }
+  if (command === 'candidates') {
+    candidates(rest);
+    return;
+  }
   if (command === 'prepare') {
     prepare(rest);
     return;
@@ -290,7 +412,7 @@ function main(argv = process.argv.slice(2)) {
     return;
   }
   fail('invalid_arguments', {
-    detail: 'Usage: node scripts/publish-approved-spec.mjs <prepare|commit-push|merge|default-branch> ...',
+    detail: 'Usage: node scripts/publish-approved-spec.mjs <discover|candidates|prepare|commit-push|merge|default-branch> ...',
   });
 }
 

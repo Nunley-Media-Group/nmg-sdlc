@@ -353,13 +353,17 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     });
   });
 
-  it('specStatus treats two local issue branches as unapproved', () => {
+  it('specStatus fails closed for two local issue branches', () => {
     const { root } = makeGitRepo();
     git(root, ['checkout', '-b', '42-add-x']);
     git(root, ['checkout', 'main']);
     git(root, ['checkout', '-b', '42-other']);
     git(root, ['checkout', 'main']);
-    expect(specStatus(42, root)).toEqual({ dir: null, approved: false });
+    expect(specStatus(42, root)).toEqual({
+      dir: null,
+      approved: false,
+      reasonCode: 'spec_status_ambiguous',
+    });
   });
 
 });

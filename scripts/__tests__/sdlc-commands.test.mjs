@@ -66,7 +66,7 @@ describe('interactive input rewrite', () => {
     expect(isInteractiveHeadless({ hasUI: false })).toBe(true);
     expect(isInteractiveHeadless({ hasUI: true })).toBe(false);
     expect(interactiveHeadlessMessage('sdlc-write-spec')).toBe(
-      'Run /sdlc-write-spec in the TUI. Interactive commands enter native /plan there.\n',
+      'Run /sdlc-write-spec in the TUI.\n',
     );
   });
 });
