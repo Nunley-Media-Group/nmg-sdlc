@@ -14,6 +14,12 @@ Fix three boundaries without moving orchestration back into the main agent. Firs
 
 Read and follow `skill://skill-creator` before changing the workflow bundle. Keep `workflows/execute/WORKFLOW.md` compact. `renderAutomatedCommandMarkdown` owns synchronization of the entrypoint and picker reference into `commands/sdlc-execute.md`.
 
+## Steering alignment
+
+- `steering/product.md`: preserve intentional spec-created selection and fail-closed delivery; never claim delivery or advance a later issue while the current issue has a failed gate.
+- `steering/tech.md`: retain explicit program/argv execution, validated handoffs, Herdr preflight, and the bug-label patch-version rule.
+- `steering/structure.md`: keep command packaging in `src/` + `commands/`, workflow behavior in `workflows/execute/`, deterministic lifecycle logic in `scripts/`, and issue-owned evidence in `specs/231-*`.
+
 ## Picker interaction contract
 
 `selection.md` remains the only empty-argument picker:
