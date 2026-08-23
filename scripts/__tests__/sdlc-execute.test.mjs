@@ -709,6 +709,22 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
+  it('recovers a worker prompt from all three leading previews', () => {
+    const fixture = makeControllerFixture({ stalled: true });
+    const readAgent = fixture.herdr.agentRead;
+    const previews = workerPrompt({ step: 'start', issue: 42 })
+      .split('\n', 3)
+      .map((line) => line.slice(0, 11))
+      .join('\n');
+    fixture.herdr.agentRead = (input) => input.name === 's42-start' ? previews : readAgent(input);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
   it('keeps a failed worker pane and sends the exact notification', () => {
     const fixture = makeControllerFixture({ failedStep: 'implement' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -876,6 +892,32 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys[0]).toEqual(['enter']);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
     expect(fixture.closed).toContain('kept-pane');
+  });
+
+  it('keeps a retained pane open when recovered prompt settlement leaves it working', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-start'
+      ? workerPrompt({ step: 'start', issue: 42 })
+      : readAgent(input);
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      const result = waitAgent(input);
+      return input.until ? result : { status: 1 };
+    };
+    let agentGetCalls = 0;
+    fixture.herdr.agentGet = () => ({
+      result: { agent: { agent_status: agentGetCalls++ === 0 ? 'idle' : 'working' } },
+    });
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'working' });
   });
 
   it('does not press enter on a retained worker without a pasted prompt', () => {

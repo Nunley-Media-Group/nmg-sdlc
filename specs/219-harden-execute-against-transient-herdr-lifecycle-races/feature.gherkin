@@ -9,8 +9,15 @@ Feature: Harden execute against transient Herdr lifecycle races
   Scenario: Expected pasted worker prompt is recovered
     Given an idle worker has no handoff and the expected deterministic worker prompt is visibly pasted
     When Herdr prompt wait settles before submission
-    Then execute submits Enter and waits for the worker to settle
-    And it evaluates the resulting handoff
+    Then execute submits Enter and waits for the worker to enter working
+    And it waits for the worker to settle idle or done before evaluating the resulting handoff
+
+  @SCN008 @regression
+  Scenario: All three leading prompt previews authorize recovery
+    Given an idle worker has no handoff and detection shows "You are the", "Execute the", and "Write the h"
+    When Herdr prompt wait settles before submission
+    Then execute submits Enter and waits for the worker to enter working
+    And it waits for the worker to settle idle or done before evaluating the resulting handoff
 
   @SCN002 @regression
   Scenario: Unrelated visible prompt fails closed

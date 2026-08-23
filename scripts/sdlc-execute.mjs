@@ -701,9 +701,8 @@ export function runExecute({
           && step !== 'review2'
           && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue }))
         ) {
-          if (retryPromptSubmission(herdrApi, agentName)) {
-            state = agentState(herdrApi.agentGet(agentName));
-          }
+          retryPromptSubmission(herdrApi, agentName);
+          state = agentState(herdrApi.agentGet(agentName));
         }
         let handoff;
         try {
@@ -716,10 +715,19 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        if (handoff.status !== 'passed' || handoff.intervention) {
+        if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
           return stopResult({
-            issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status,
-            runState, cwd, herdr: herdrApi, output,
+            issue,
+            step,
+            paneId,
+            agentName,
+            reasonCode: !['idle', 'done'].includes(state)
+              ? state || 'worker_failed'
+              : handoff.reasonCode || handoff.status,
+            runState,
+            cwd,
+            herdr: herdrApi,
+            output,
           });
         }
         if (!closePane(herdrApi, paneId)) {

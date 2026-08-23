@@ -10,8 +10,9 @@
 ## T001: Recover deterministic worker prompts safely
 
 - Parse stalled prompt diagnostics from stderr as well as stdout.
-- Recover early-idle new and retained worker prompts only when expected prompt identity is visible.
-- Wait already-working workers through settlement.
+- Recover early-idle new and retained worker prompts only when the full expected prompt or all three leading previews are visible.
+- After Enter, require the explicit `working` transition and then an idle/done state before validating the handoff.
+- Wait workers that were already working through settlement.
 - Preserve handoff and fail-closed behavior.
 
 ## T002: Separate interactive review transitions
@@ -28,7 +29,7 @@
 
 ## T004: Add behavioral regression coverage
 
-- Cover stderr errors, early idle, active workers, unrelated detection text, retained prompts, staged review menus, one-start recovery, and two-start failure.
+- Cover stderr errors, early idle, active workers, unrelated detection text, all-three-preview recovery, retained prompts including unsettled recovery, staged review menus, one-start recovery, and two-start failure.
 - Run focused controller suites.
 
 ## T005: Prove end-to-end delivery

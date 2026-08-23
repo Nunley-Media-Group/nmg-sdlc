@@ -16,10 +16,10 @@
 
 ### AC1: Recover an expected pasted worker prompt
 
-Given a new or retained idle/done worker with no handoff and the expected deterministic worker prompt visibly pasted
+Given a new or retained idle/done worker with no handoff and either the expected deterministic worker prompt or all three leading previews (`You are the`, `Execute the`, and `Write the h`) visibly pasted
 When Herdr settles before submitting it
-Then execute submits Enter once, waits for working and settled states, and evaluates the resulting handoff
-And unrelated visible text does not trigger Enter.
+Then execute submits Enter once, waits for the explicit `working` transition and then an idle/done state, and evaluates the resulting handoff
+And unrelated visible text or fewer than all three leading previews does not trigger Enter.
 
 ### AC2: Preserve authoritative handoffs and active workers
 
@@ -31,8 +31,8 @@ And missing, invalid, failed, blocked, intervention, or non-settled outcomes sti
 ### AC3: Drive interactive review transitions
 
 Given a review worker
-When `/review` is pasted or Review Mode is already visible
-Then execute separately submits `/review`, selects PR-style review, observes the base-branch menu, selects literal `main`, and waits for completion.
+When Review Mode is already visible, or `/review` is visibly pasted while Review Mode is absent
+Then execute selects PR-style review without resubmitting `/review` when Review Mode is visible, otherwise submits the pasted `/review` before selecting PR-style review, observes the base-branch menu, selects literal `main`, and waits for completion.
 
 ### AC4: Retry one transient worker startup failure
 

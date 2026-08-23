@@ -21,7 +21,7 @@ After submission, wait for `working` and then a settled state. If the worker is 
 
 Treat the UI as three transitions:
 
-1. Submit `/review`; if it remains pasted, press Enter.
+1. Observe for Review Mode. Only when it is absent and `/review` remains visibly pasted, press Enter.
 2. Observe Review Mode and select PR-style review.
 3. Observe the base-branch menu and select literal `main`.
 
