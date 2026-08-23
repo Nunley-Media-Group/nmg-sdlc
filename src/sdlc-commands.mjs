@@ -55,8 +55,13 @@ export function parseInteractiveSlash(text) {
  * When the session is already in plan mode, emit only the workflow so `/plan`
  * does not toggle off.
  */
-export function rewriteInteractiveInput(text, { source, sessionMode, root } = {}) {
-  if (source !== "interactive") return undefined;
+export function rewriteInteractiveInput(text, {
+  source,
+  sessionMode,
+  headless,
+  root,
+} = {}) {
+  if (source !== "interactive" || headless === true) return undefined;
   const parsed = parseInteractiveSlash(text);
   if (!parsed) return undefined;
   const body = withArguments(workflowBody(parsed.skill, root), parsed.args);
@@ -64,8 +69,11 @@ export function rewriteInteractiveInput(text, { source, sessionMode, root } = {}
   return { text: `/plan\n\n${body}` };
 }
 
-export function isInteractiveHeadless(ctx) {
-  return ctx?.hasUI !== true;
+export function isInteractiveHeadless(ctx, argv = process.argv) {
+  const modeIndex = argv.indexOf("--mode");
+  return ctx?.hasUI !== true
+    || argv.includes("--print")
+    || (modeIndex >= 0 && argv[modeIndex + 1] === "rpc");
 }
 
 export function interactiveHeadlessMessage(commandName) {

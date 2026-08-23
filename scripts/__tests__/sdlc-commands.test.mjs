@@ -21,6 +21,7 @@ describe('interactive input rewrite', () => {
   it('rewrites TUI /sdlc-write-spec to builtin /plan plus workflow', () => {
     const result = rewriteInteractiveInput('/sdlc-write-spec #42', {
       source: 'interactive',
+      headless: false,
       sessionMode: 'none',
       root: repoRoot,
     });
@@ -33,6 +34,7 @@ describe('interactive input rewrite', () => {
   it('does not prefix /plan when the session is already in plan mode', () => {
     const result = rewriteInteractiveInput('/sdlc-draft-issue auth', {
       source: 'interactive',
+      headless: false,
       sessionMode: 'plan',
       root: repoRoot,
     });
@@ -40,9 +42,16 @@ describe('interactive input rewrite', () => {
     expect(result.text).toContain('$ARGUMENTS: auth');
   });
 
-  it('ignores print/RPC input and automated commands', () => {
+  it('ignores headless, print/RPC, and automated input', () => {
+    expect(rewriteInteractiveInput('/sdlc-write-spec #1', {
+      source: 'interactive',
+      headless: true,
+    })).toBeUndefined();
     expect(rewriteInteractiveInput('/sdlc-write-spec #1', { source: 'rpc' })).toBeUndefined();
-    expect(rewriteInteractiveInput('/sdlc-status --json', { source: 'interactive' })).toBeUndefined();
+    expect(rewriteInteractiveInput('/sdlc-status --json', {
+      source: 'interactive',
+      headless: false,
+    })).toBeUndefined();
     expect(parseInteractiveSlash('/sdlc-execute #9')).toBeNull();
   });
 
@@ -60,11 +69,13 @@ describe('interactive input rewrite', () => {
     expect(withArguments('BODY', '   ')).toBe('BODY');
   });
 
-  it('treats missing UI as headless and names the TUI command', () => {
-    expect(isInteractiveHeadless(undefined)).toBe(true);
-    expect(isInteractiveHeadless({})).toBe(true);
-    expect(isInteractiveHeadless({ hasUI: false })).toBe(true);
-    expect(isInteractiveHeadless({ hasUI: true })).toBe(false);
+  it('treats missing UI and print/RPC modes as headless', () => {
+    expect(isInteractiveHeadless(undefined, ['omp'])).toBe(true);
+    expect(isInteractiveHeadless({}, ['omp'])).toBe(true);
+    expect(isInteractiveHeadless({ hasUI: false }, ['omp'])).toBe(true);
+    expect(isInteractiveHeadless({ hasUI: true }, ['omp'])).toBe(false);
+    expect(isInteractiveHeadless({ hasUI: true }, ['omp', '--print'])).toBe(true);
+    expect(isInteractiveHeadless({ hasUI: true }, ['omp', '--mode', 'rpc'])).toBe(true);
     expect(interactiveHeadlessMessage('sdlc-write-spec')).toBe(
       'Run /sdlc-write-spec in the TUI.\n',
     );

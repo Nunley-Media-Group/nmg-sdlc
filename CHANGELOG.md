@@ -10,6 +10,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-08-23
 ### Changed
 
 - `/sdlc-write-spec` now delegates deterministic issue discovery and continue-candidate filtering to the publication helper while preserving full native plans and the existing approval publication sequence.
