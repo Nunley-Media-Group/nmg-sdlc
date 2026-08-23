@@ -44,7 +44,7 @@
 - [ ] Draft-issue step 6, write-spec Interview, onboard interview/delegate asks, upgrade category/collision asks, and run-retro preference asks each contain `short paragraph stating the situation`
 - [ ] Draft-issue steps 1–4 canned strings remain byte-identical, including `question: "What type of issue is this?"`
 - [ ] Write-spec continue/finish labels remain byte-identical, including `Finished — stop writing specs` and `Continue — enter another issue number`
-- [ ] Upgrade layout example is the detector-found `.codex/` paragraph, not the old bare `Relocate legacy .codex/* ?` label alone
+- [ ] Upgrade layout example is the detector-found legacy-v2-layout paragraph, not the old bare relocation label alone
 - [ ] Run-retro examples are the filtered-date and cached-hash paragraphs, not the old bare labels alone
 - [ ] No interview budget text is added, removed, or broadened
 

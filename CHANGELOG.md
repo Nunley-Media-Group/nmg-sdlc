@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-08-23
+
 ### Changed
 
 - Published spec packages now apply the `spec-created` issue label; onboarding and upgrades backfill it for unique complete packages.
