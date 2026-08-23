@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-08-22
+
+### Fixed
+
+- Corrected issue #219's verification report to trace all nine approved scenarios, including SCN009, while preserving its recorded test and delivery evidence.
+
 ## [3.5.0] - 2026-08-22
 
 ### Fixed
