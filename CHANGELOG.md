@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-08-23
+
+### Changed
+
+- Interactive interview and preference prompts now include a short situation paragraph with the facts needed to choose among the displayed options.
+
 ## [3.7.0] - 2026-08-23
 
 ### Changed
