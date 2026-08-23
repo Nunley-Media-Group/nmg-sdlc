@@ -113,10 +113,12 @@ Creates or updates the executable spec package under `specs/{N}-{slug}/`. The sp
 
 ```text
 /sdlc-execute #42
-/sdlc-execute          # selects from ready backlog when no argument
+/sdlc-execute          # choose from open spec-created issues
 ```
 
 After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively, then persists the review result; it never starts nested OMP. It creates sibling panes, writes validated handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
+
+Publishing an approved spec applies the `spec-created` label. Execute accepts comma- or whitespace-separated lists, preserves listed order after deduplication, and starts only labeled issues; empty invocation presents the open labeled issues for selection.
 
 `open-pr` (via execute) handles staging approved paths, version bump (per steering/tech.md rules), commit, push, PR creation or resume, remediation of actionable findings, exact-head merge, and issue closure. Success requires the PR to be `MERGED` and the issue `CLOSED`.
 

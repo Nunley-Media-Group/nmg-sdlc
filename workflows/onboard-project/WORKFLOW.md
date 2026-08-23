@@ -45,6 +45,8 @@ Source backfill if no closed.
 
 Write specs/{N}-{slug}/ + 4 files with singular **Issue** #N , initial history.
 
+Approved greenfield, brownfield, and source-backfill plan execution runs `node scripts/spec-created-label.mjs backfill` after writing spec packages or the empty greenfield `specs/` tree. It uses no per-issue confirmation. Already-initialized onboarding that does not mutate specs skips backfill.
+
 ## Already
 
 List existing, ask once: delegate to upgrade or exit. On delegate, the plan will note "Run /sdlc-upgrade-project"

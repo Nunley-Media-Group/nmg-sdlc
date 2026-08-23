@@ -14,6 +14,7 @@ import {
   workerPrompt,
   writeRun,
   runExecute,
+  listSpecifiedIssues,
 } from '../sdlc-execute.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
@@ -49,6 +50,28 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   it('parseArgs collects unique numbers in given order', () => {
     expect(parseArgs('#12 #10')).toEqual({ issues: [12, 10], defaultBacklog: false });
     expect(parseArgs('#12 #12')).toEqual({ issues: [12], defaultBacklog: false });
+    expect(parseArgs('#12,#10')).toEqual({ issues: [12, 10], defaultBacklog: false });
+    expect(parseArgs('#12, #10')).toEqual({ issues: [12, 10], defaultBacklog: false });
+  });
+
+  it('lists open spec-created issues sorted by number', () => {
+    const calls = [];
+    const issues = listSpecifiedIssues({
+      cwd: '/repo',
+      run: (command, args, options) => {
+        calls.push([command, args, options]);
+        return {
+          status: 0,
+          stdout: JSON.stringify([{ number: 12, title: 'Later' }, { number: 8, title: 'First' }]),
+        };
+      },
+    });
+    expect(issues).toEqual([{ number: 8, title: 'First' }, { number: 12, title: 'Later' }]);
+    expect(calls).toEqual([[
+      'gh',
+      ['issue', 'list', '--state', 'open', '--label', 'spec-created', '--limit', '100', '--json', 'number,title'],
+      { cwd: '/repo' },
+    ]]);
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
@@ -319,6 +342,8 @@ describe('runExecute controller', () => {
     writeHandoffs = true,
     promptStatus = 0,
     agentState = 'done',
+    labelIssues = [42],
+    specifiedIssues = [],
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -342,6 +367,20 @@ describe('runExecute controller', () => {
     const run = (command, args) => {
       calls.push([command, ...args]);
       if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'list' && args.includes('--label')) {
+        return { status: 0, stdout: JSON.stringify(specifiedIssues), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.some((arg) => arg.includes('labels'))) {
+        const issue = Number(args[2]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: issue,
+            labels: labelIssues.includes(issue) ? [{ name: 'spec-created' }] : [],
+          }),
+          stderr: '',
+        };
+      }
       if (command === 'git' && args[0] === 'status') return { status: 0, stdout: '', stderr: '' };
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
         return { status: 0, stdout: '42-ship-it\n', stderr: '' };
@@ -540,6 +579,68 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it('starts nothing when empty args find no open specified issues', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 0, stdout: 'No open spec-created issues.\n', stderr: '' });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('requires an explicit selection when empty args find specified issues', () => {
+    const fixture = makeControllerFixture({ specifiedIssues: [{ number: 42, title: 'Ship It' }] });
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('resumes an existing run issue list on empty args', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'start',
+      completed: { 42: [] },
+      failed: null,
+      startedAt: '2026-08-23T00:00:00.000Z',
+    }, fixture.cwd);
+
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts[0].name).toBe('s42-start');
+  });
+
+  it('names every unlabeled explicit issue and starts no workers', () => {
+    const fixture = makeControllerFixture({ labelIssues: [15] });
+    const result = runExecute({ args: '#12 #15', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: '#12 has no spec-created label\n', stderr: '' });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('preserves labeled explicit-list order and first-occurrence dedupe', () => {
+    const fixture = makeControllerFixture({ labelIssues: [12, 15], writeHandoffs: false });
+    for (const issue of [12, 15]) {
+      const dir = path.join(fixture.cwd, 'specs', `${issue}-queued`);
+      fs.mkdirSync(dir, { recursive: true });
+      writeApproved(dir, issue);
+    }
+
+    runExecute({ args: '#15,#12 #15', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.issues).toEqual([15, 12]);
+    expect(fixture.starts[0].name).toBe('s15-start');
+  });
+
+  it('checks the label before approved-spec status', () => {
+    const fixture = makeControllerFixture({ labelIssues: [] });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/design.md'), '**Issue**: #42\n**Status**: Draft\n');
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: '#42 has no spec-created label\n', stderr: '' });
+    expect(fixture.starts).toEqual([]);
   });
 
   it('runs eight omp sibling workers in queue order', () => {

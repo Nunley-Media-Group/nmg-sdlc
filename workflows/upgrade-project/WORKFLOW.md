@@ -58,6 +58,7 @@ Write local://upgrade-{slug or date}-plan.md with:
 xd://propose the slug + "Upgrade plan for current layout/packaging"
 
 Approved plan execution runs the helper script with the chosen scope (the skill does not call it directly; the plan does).
+Approved apply always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt.
 
 ## Generated
 

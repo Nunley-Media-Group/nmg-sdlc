@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Changed
+
+- Published spec packages now apply the `spec-created` issue label; onboarding and upgrades backfill it for unique complete packages.
+- `/sdlc-execute` now accepts comma- or whitespace-separated issue lists, refuses unlabeled issues, and presents open `spec-created` issues for selection when invoked without numbers.
+
 ## [3.6.0] - 2026-08-22
 
 ### Changed

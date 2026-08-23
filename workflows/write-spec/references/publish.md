@@ -28,6 +28,8 @@ If current ≠ `{N}-{slug}` they fetch the default branch and run `git checkout 
 ## Merge spec into the default branch
 
 `merge` requires the approved four-file package. It opens a docs-only PR (`docs: approve spec for #N`) into the repository default branch when none exists, then `gh pr merge --squash --delete-branch`. The PR body must mention `#N` without `Closes`, `Fixes`, `Resolves`, or any other GitHub closing keyword. The issue stays open for `/sdlc-execute`. After a successful squash-merge the helper checks out the default branch and fast-forwards it. Failure → `pr_create_failed` or `pr_merge_failed`; leave the spec branch.
+Successful `merge` applies `spec-created` to `#N`, creating the repository label when needed. A post-merge apply failure returns `spec_created_label_failed`; it does not undo the squash-merge.
+
 
 Unapproved four-file package → `spec_not_approved`. Do not invent a second brancher.
 

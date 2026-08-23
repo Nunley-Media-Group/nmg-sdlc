@@ -9,6 +9,8 @@ Singular **Issue**: #N , initial Change History.
 Source backfill if no closed.
 
 Verify 4 files.
+After writing unique packages, approved execution runs `node scripts/spec-created-label.mjs backfill` once with no per-issue confirmation.
+
 
 Gaps recorded.
 

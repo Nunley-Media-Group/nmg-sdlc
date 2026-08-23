@@ -182,3 +182,34 @@ describe('sdlc-upgrade AGENTS spike language', () => {
     expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe(source);
   });
 });
+
+describe('sdlc-upgrade spec-created backfill', () => {
+  it('backfills unique complete packages even when no upgrade items are approved', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
+      write(root, `specs/42-complete/${name}`, '**Issue**: #42\n**Status**: Draft\n');
+    }
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":42,"labels":[]}', stderr: '' };
+      }
+      if (args[0] === 'label' && args[1] === 'list') {
+        return { status: 0, stdout: '[{"name":"spec-created"}]', stderr: '' };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [], run);
+
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      status: 'applied',
+      ok: true,
+      labeled: [42],
+    }));
+    expect(calls).toContainEqual(['gh', 'issue', 'edit', '42', '--add-label', 'spec-created']);
+    expect(calls.some((call) => call.includes('99'))).toBe(false);
+  });
+});
