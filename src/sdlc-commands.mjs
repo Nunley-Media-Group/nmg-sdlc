@@ -69,7 +69,7 @@ export function isInteractiveHeadless(ctx) {
 }
 
 export function interactiveHeadlessMessage(commandName) {
-  return `Run /${commandName} in the TUI. Interactive commands enter native /plan there.\n`;
+  return `Run /${commandName} in the TUI.\n`;
 }
 
 export function renderAutomatedCommandMarkdown(name, skill, description, root = packageRoot) {

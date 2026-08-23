@@ -28,9 +28,9 @@ function git(cwd, args, env = process.env) {
   });
 }
 
-function writeApproved(dir, issueN) {
+function writeApproved(dir, issueN, status = 'Approved') {
   fs.mkdirSync(dir, { recursive: true });
-  const body = `**Issue**: #${issueN}\n**Status**: Approved\n\ncontent\n`;
+  const body = `**Issue**: #${issueN}\n**Status**: ${status}\n\ncontent\n`;
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
     fs.writeFileSync(path.join(dir, name), body);
   }
@@ -76,7 +76,24 @@ fi
 if [ "$1" = "label" ] && [ "$2" = "create" ]; then
   exit 0
 fi
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then
+  if [ "$GH_FAIL_ISSUE_LIST" = "1" ]; then
+    exit 1
+  fi
+  if [ -n "$GH_ISSUE_LIST" ]; then
+    printf '%s\n' "$GH_ISSUE_LIST"
+    exit 0
+  fi
+  exit 1
+fi
 if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  if [ "$GH_FAIL_ISSUE_VIEW" = "1" ]; then
+    exit 1
+  fi
+  if [ -n "$GH_ISSUE_VIEW" ]; then
+    printf '%s\n' "$GH_ISSUE_VIEW"
+    exit 0
+  fi
   printf '%s\n' '{"number":42,"labels":[]}'
   exit 0
 fi
@@ -103,6 +120,9 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   git commit -m "docs: approve spec squash"
   git push origin main
   git checkout "$branch"
+  if [ "$FAIL_DEFAULT_CHECKOUT" = "1" ]; then
+    touch .git/index.lock
+  fi
   exit 0
 fi
 exit 1
@@ -134,6 +154,29 @@ function run(cwd, args, env) {
     env,
   });
 }
+function issueJson(overrides = {}) {
+  return JSON.stringify({
+    number: 42,
+    title: 'Add X',
+    body: 'Ship it',
+    labels: [],
+    state: 'OPEN',
+    ...overrides,
+  });
+}
+
+function commitApprovedBranch(root, issueN, slug, { push = false } = {}) {
+  const branch = `${issueN}-${slug}`;
+  git(root, ['checkout', '-b', branch]);
+  writeApproved(path.join(root, 'specs', branch), issueN);
+  git(root, ['add', `specs/${branch}`]);
+  git(root, ['commit', '-m', `docs: approve ${branch}`]);
+  if (push) git(root, ['push', '-u', 'origin', branch]);
+  git(root, ['checkout', 'main']);
+  if (push) git(root, ['branch', '-D', branch]);
+  return branch;
+}
+
 
 function parse(result) {
   return JSON.parse(result.stdout.trim().split('\n').at(-1));
@@ -145,6 +188,187 @@ describe('publish-approved-spec', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+  it('discover validates issue input and fails unreadable issue output without mutation', () => {
+    const { root, env } = makeRepo();
+    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    for (const [args, extraEnv, reasonCode] of [
+      [['discover', '--issue', '0'], {}, 'invalid_arguments'],
+      [['discover', '--issue', '42'], { GH_FAIL_ISSUE_VIEW: '1' }, 'issue_unreadable'],
+      [['discover', '--issue', '42'], { GH_ISSUE_VIEW: '{' }, 'issue_unreadable'],
+      [['discover', '--issue', '42'], { GH_ISSUE_VIEW: issueJson({ number: 41 }) }, 'issue_unreadable'],
+    ]) {
+      const result = run(root, args, { ...env, ...extraEnv });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode });
+    }
+    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(head);
+    expect(git(root, ['status', '--porcelain'])).toBe('?? .gh-log\n');
+  });
+
+  it('discover returns complete feature metadata with issue slug fallback and spike neutrality', () => {
+    const { root, env } = makeRepo();
+    const result = run(root, ['discover', '--issue', '42'], {
+      ...env,
+      GH_ISSUE_VIEW: issueJson({
+        title: '---',
+        labels: [{ name: 'spike' }],
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(parse(result)).toEqual({
+      ok: true,
+      issue: {
+        number: 42,
+        title: '---',
+        body: 'Ship it',
+        labels: ['spike'],
+        state: 'OPEN',
+      },
+      classification: 'feature',
+      slug: 'issue',
+      targetDir: 'specs/42-issue',
+      spec: { dir: null, approved: false, source: null },
+    });
+  });
+
+  it('discover classifies bug labels case-insensitively and reuses an existing directory', () => {
+    const { root, env } = makeRepo();
+    writeApproved(path.join(root, 'specs', '42-historical-name'), 42, 'Draft');
+    const result = run(root, ['discover', '--issue', '42'], {
+      ...env,
+      GH_ISSUE_VIEW: issueJson({
+        title: 'Renamed Issue',
+        labels: [{ name: 'BUG' }, { name: 'spike' }],
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(parse(result)).toMatchObject({
+      classification: 'bug',
+      slug: 'renamed-issue',
+      targetDir: 'specs/42-historical-name',
+      spec: {
+        dir: 'specs/42-historical-name',
+        approved: false,
+        source: 'worktree',
+      },
+    });
+  });
+
+  it.each([
+    ['local', false],
+    ['remote', true],
+  ])('discover reports an approved %s branch package', (_source, push) => {
+    const { root, env } = makeRepo();
+    commitApprovedBranch(root, 42, 'historical-name', { push });
+    const result = run(root, ['discover', '--issue', '42'], {
+      ...env,
+      GH_ISSUE_VIEW: issueJson({ title: 'Renamed Issue' }),
+    });
+    expect(result.status).toBe(0);
+    expect(parse(result)).toMatchObject({
+      targetDir: 'specs/42-historical-name',
+      spec: {
+        dir: 'specs/42-historical-name',
+        approved: true,
+        source: _source,
+      },
+    });
+  });
+
+  it('discover fails closed for ambiguous worktree directories and branches', () => {
+    const first = makeRepo();
+    fs.mkdirSync(path.join(first.root, 'specs', '42-one'), { recursive: true });
+    fs.mkdirSync(path.join(first.root, 'specs', '42-two'), { recursive: true });
+    const directoryResult = run(first.root, ['discover', '--issue', '42'], {
+      ...first.env,
+      GH_ISSUE_VIEW: issueJson(),
+    });
+    expect(parse(directoryResult)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_status_ambiguous',
+    });
+
+    const second = makeRepo();
+    git(second.root, ['branch', '42-one']);
+    git(second.root, ['branch', '42-two']);
+    const branchResult = run(second.root, ['discover', '--issue', '42'], {
+      ...second.env,
+      GH_ISSUE_VIEW: issueJson(),
+    });
+    expect(parse(branchResult)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_status_ambiguous',
+    });
+  });
+
+  it('candidates deduplicates published numbers, sorts, and excludes every approved source', () => {
+    const { root, env } = makeRepo();
+    writeApproved(path.join(root, 'specs', '3-worktree'), 3);
+    commitApprovedBranch(root, 4, 'local');
+    commitApprovedBranch(root, 5, 'remote', { push: true });
+    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const result = run(
+      root,
+      ['candidates', '--published', '7', '--published', '7'],
+      {
+        ...env,
+        GH_ISSUE_LIST: JSON.stringify([
+          { number: 9, title: 'Nine' },
+          { number: 2, title: 'Two' },
+          { number: 7, title: 'Published' },
+          { number: 3, title: 'Worktree' },
+          { number: 4, title: 'Local' },
+          { number: 5, title: 'Remote' },
+          { number: 2, title: 'Duplicate' },
+        ]),
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(parse(result)).toEqual({
+      ok: true,
+      candidates: [
+        { number: 2, title: 'Two' },
+        { number: 9, title: 'Nine' },
+      ],
+    });
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8').trim()).toBe(
+      'issue list --state open --limit 100 --json number,title',
+    );
+    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(head);
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['status', '--porcelain'])).toBe('?? .gh-log\n?? specs/\n');
+  });
+
+  it('candidates rejects malformed GitHub output, invalid arguments, and ambiguous status', () => {
+    const malformed = makeRepo();
+    for (const [args, list, reasonCode] of [
+      [['candidates', '--published', 'no'], '[]', 'invalid_arguments'],
+      [['candidates'], '{}', 'issues_unreadable'],
+      [['candidates'], '[{"number":1}]', 'issues_unreadable'],
+    ]) {
+      const result = run(malformed.root, args, {
+        ...malformed.env,
+        GH_ISSUE_LIST: list,
+      });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode });
+    }
+
+    const ambiguous = makeRepo();
+    fs.mkdirSync(path.join(ambiguous.root, 'specs', '8-one'), { recursive: true });
+    fs.mkdirSync(path.join(ambiguous.root, 'specs', '8-two'), { recursive: true });
+    const result = run(ambiguous.root, ['candidates'], {
+      ...ambiguous.env,
+      GH_ISSUE_LIST: '[{"number":8,"title":"Eight"}]',
+    });
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_status_ambiguous',
+      issue: 8,
+    });
+  });
+
 
   it('prepare fails dirty_tree on a dirty other branch', () => {
     const { root, env } = makeRepo();
@@ -257,8 +481,35 @@ describe('publish-approved-spec', () => {
     );
 
     expect(result.status).not.toBe(0);
-    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_created_label_failed' });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_created_label_failed',
+      merged: true,
+      pr: 99,
+    });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+  });
+
+  it('reports successful merge state when default checkout fails', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+
+    const result = run(
+      root,
+      ['merge', '--issue', '42', '--dir', 'specs/42-add-x'],
+      { ...env, FAIL_DEFAULT_CHECKOUT: '1' },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'default_checkout_failed',
+      merged: true,
+      pr: 99,
+    });
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
   });
 

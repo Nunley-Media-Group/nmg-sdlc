@@ -25,27 +25,24 @@ Keep an in-memory `published[]` list of issue numbers published in this session.
 
 ## Discovery
 
-Use glob `specs/${N}-*/` (or read gh issue for title if needed to derive slug).
+Run:
 
-- If exactly one specs/{N}-* dir exists: update in place (must have **Issue**: #N in files).
+```text
+node scripts/publish-approved-spec.mjs discover --issue N
+```
 
-- Else: derive slug from gh issue title (or provided), create specs/{N}-{slug}/
+Require exit 0 and parse the complete JSON object. Use `issue.number`, `title`, `body`, `labels`, and `state`; `classification`; `slug`; `targetDir`; and `spec.dir`, `approved`, and `source` directly. On non-zero or malformed output, print its `reasonCode` and stop. Do not reproduce slug, directory, branch, or approval resolution.
 
-Never write into a directory whose leading number != N.
+Discovery only returns this result. It never stops or chooses whether to revise based on approval or issue state; its caller owns that control flow.
 
-Read gh issue #N --json title,body,labels,state to get title, check labels for bug, check state.
+`classification` is `bug` or `feature`. A leftover `spike` label is neutral; never create a third path.
 
-If the dir exists and has **Status**: Approved and the issue is closed/merged: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
+### Initial discovery result
 
-If open or undelivered: rewrite in place and (later) append revision to Change History.
+For the initial `$ARGUMENTS` issue only:
 
-## Classification from labels / body
-
-- bug label → bug path (defect templates)
-
-- else feature
-
-Never treat a leftover `spike` label as a separate path. `upgrade-project` converts leftover spike artifacts. This skill always writes an ordinary `specs/{N}-{slug}/` package.
+- If `spec.approved` and `issue.state` is closed: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
+- Otherwise continue to Interview. When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
 
 ## Interview (max 3 asks per issue)
 
@@ -120,9 +117,9 @@ Exact order after first propose approval:
 
 3. `node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
 
-4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Opens a docs-only PR into the repository default branch and squash-merges it. PR title is `docs: approve spec for #N`. PR body must not use `Closes #N` or any other closing keyword. Failure → stop; leave the spec branch and files. After success the helper is on the default branch with the merged spec.
+4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, report any remediation failure, and continue without rewriting the package. A successful response leaves the helper on the default branch.
 
-5. Append `N` to in-memory `published[]`.
+5. If `N` was not already recorded from a post-merge failure, append it to in-memory `published[]`.
 
 6. Continue loop. Do not print execute yet.
 
@@ -132,13 +129,18 @@ Initial write uses "Initial feature spec" or "Initial defect report"
 
 ## Continue loop
 
-Does not consume interview budget. One `ask`, 2–4 options, recommended first.
+Does not consume interview budget. Invoke:
 
-Candidates: `gh issue list --state open --limit 100 --json number,title`. Drop `published[]`. Drop any `M` whose unique worktree `specs/{M}-*/` is Approved, or whose unique `refs/heads/{M}-*` / `refs/remotes/origin/{M}-*` has an approved four-file package (same rules as execute `specStatus`). Sort by number ascending.
+```text
+node scripts/publish-approved-spec.mjs candidates [--published N ...]
+```
 
-- ≥1 candidate: up to three labels `#M — {title}` (recommended index 0), last option `Finished — stop writing specs`. Extra numbers use automatic Other.
+Include one `--published N` pair for every number in the in-memory `published[]` list. Require exit 0 and consume the complete `candidates` array. The helper owns GitHub listing, deduplication, numeric sorting, and shared approval filtering; do not repeat those rules.
 
-- 0 candidates: `Continue — enter another issue number` (recommended) and `Finished — stop writing specs`. Other supplies `#M` / `M`.
+Use one `ask`, 2–4 options, recommended first:
+
+- One or more rows: show at most the first three as `#M — {title}` (recommended index 0), followed by `Finished — stop writing specs`. Extra number entry remains available through automatic Other.
+- No rows: `Continue — enter another issue number` (recommended) and `Finished — stop writing specs`. Other supplies `#M` / `M`.
 
 Finished — print exactly:
 
@@ -152,12 +154,13 @@ Stay on the repository default branch (the spec is already merged). Stop.
 Continue / candidate / Other `#M`:
 
 - Parse `^#?([1-9]\d*)$`. Invalid → re-ask continue.
-
-- Already in `published[]` or already approved → print `Spec already approved for #M.` and re-ask.
-
-- Closed/merged and approved → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
-
-- Else: `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`). Then Discovery → Classification → Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
+- Already in `published[]` → print `Spec already approved for #M.` and re-ask.
+- Otherwise run `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery.
+- If Discovery returns `spec.approved`:
+  - Closed issue → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
+  - Any other issue state → print `Spec already approved for #M.` and re-ask.
+  - Discovery must not stop the session or send an approved package to Interview.
+- Only when Discovery returns an unapproved package, run Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
 
 ## Finish (first spec only)
 

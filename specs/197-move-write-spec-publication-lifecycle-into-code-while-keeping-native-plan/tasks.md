@@ -1,7 +1,7 @@
 # Tasks: Move write-spec publication lifecycle into code while keeping native plan
 
 **Issue**: #197
-**Date**: 2026-08-21
+**Date**: 2026-08-23
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/5-write-spec-skill/
@@ -121,3 +121,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #197 | 2026-08-21 | Initial feature spec |
+| #197 | 2026-08-23 | Spec revised before delivery |
