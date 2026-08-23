@@ -353,6 +353,30 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     });
   });
 
+  it('specStatus fails closed when the worktree specs directory is unreadable', () => {
+    const { root } = makeGitRepo();
+    const specDir = path.join(root, 'specs', '42-add-x');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42);
+    git(root, ['checkout', '-b', '42-add-x']);
+    git(root, ['add', 'specs/42-add-x']);
+    git(root, ['commit', '-m', 'docs: approve spec for #42']);
+    git(root, ['push', '-u', 'origin', 'HEAD']);
+    git(root, ['checkout', 'main']);
+    git(root, ['branch', '-D', '42-add-x']);
+    fs.rmSync(path.join(root, 'specs'), { recursive: true, force: true });
+    fs.mkdirSync(path.join(root, 'specs'), { mode: 0o000 });
+    try {
+      expect(specStatus(42, root)).toEqual({
+        dir: null,
+        approved: false,
+        reasonCode: 'spec_status_unreadable',
+      });
+    } finally {
+      fs.chmodSync(path.join(root, 'specs'), 0o700);
+    }
+  });
+
   it('specStatus fails closed for two local issue branches', () => {
     const { root } = makeGitRepo();
     git(root, ['checkout', '-b', '42-add-x']);

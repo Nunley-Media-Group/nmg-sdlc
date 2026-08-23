@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. Do not infer success from repository state after a failed command.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it.
 
 ```text
 node scripts/publish-approved-spec.mjs discover --issue N
@@ -44,7 +44,7 @@ node scripts/publish-approved-spec.mjs default-branch
 
 `classification` is `bug` only when a label name case-insensitively equals `bug`; otherwise it is `feature`. `spike` is neutral. Slugs lowercase the title, replace non-alphanumeric runs with `-`, trim separators, and fall back to `issue`.
 
-The shared execute `resolveSpecDir` and `specStatus` contracts populate `targetDir` and `spec`. `source` is `worktree`, `local`, `remote`, or null. A unique existing worktree directory wins over the title-derived target. Invalid GitHub output fails `issue_unreadable`; ambiguous directories or refs fail `spec_status_ambiguous`. Discovery never mutates git or GitHub state.
+The shared execute `resolveSpecDir` and `specStatus` contracts populate `targetDir` and `spec`. `source` is `worktree`, `local`, `remote`, or null. A unique existing worktree directory wins over the title-derived target. Invalid GitHub output fails `issue_unreadable`; ambiguous directories or refs fail `spec_status_ambiguous`; an uninspectable worktree `specs/` path fails `spec_status_unreadable`. Discovery never mutates git or GitHub state.
 
 `candidates` accepts repeated `--published N`, deduplicates those numbers, and calls exactly:
 
@@ -63,7 +63,7 @@ It drops published numbers and packages approved by shared `specStatus`, then re
 }
 ```
 
-Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`. The helper does not truncate rows or author ask labels.
+Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`; an uninspectable worktree `specs/` path fails `spec_status_unreadable`. The helper does not truncate rows or author ask labels.
 
 ## Prepare
 
@@ -79,7 +79,7 @@ If current differs from `{N}-{slug}`, `prepare` reads the default branch through
 
 `merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. It squash-merges, checks out the repository default branch, fast-forwards it, and applies `spec-created` while leaving issue N open.
 
-Failures include `spec_not_approved`, `pr_create_failed`, `pr_merge_failed`, `default_checkout_failed`, and `spec_created_label_failed`. A post-merge label failure does not undo the merge. Never force-push or stage with `git add -A`.
+Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node scripts/publish-approved-spec.mjs default-branch`; for `spec_created_label_failed`, run `node scripts/spec-created-label.mjs apply --issue N`. Report remediation failure separately and continue the publication loop with N excluded through `--published N`. Never force-push or stage with `git add -A`.
 
 `default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
 

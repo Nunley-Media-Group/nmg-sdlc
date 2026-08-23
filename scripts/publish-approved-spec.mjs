@@ -361,11 +361,20 @@ function mergeSpec(argv) {
 
   const checkedOut = git(['checkout', base]);
   if (checkedOut.status !== 0 || currentBranch() !== base) {
-    fail('default_checkout_failed', { stderr: checkedOut.stderr || '' });
+    fail('default_checkout_failed', {
+      stderr: checkedOut.stderr || '',
+      merged: true,
+      pr,
+    });
   }
   const pulled = git(['pull', '--ff-only', 'origin', base]);
   if (pulled.status !== 0) {
-    fail('default_checkout_failed', { stderr: pulled.stderr || '', stdout: pulled.stdout || '' });
+    fail('default_checkout_failed', {
+      stderr: pulled.stderr || '',
+      stdout: pulled.stdout || '',
+      merged: true,
+      pr,
+    });
   }
   try {
     applySpecCreatedLabel(issueN);
@@ -373,6 +382,8 @@ function mergeSpec(argv) {
     fail('spec_created_label_failed', {
       stderr: error?.stderr || error?.message || '',
       stdout: error?.stdout || '',
+      merged: true,
+      pr,
     });
   }
 

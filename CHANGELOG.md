@@ -13,6 +13,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Changed
 
 - `/sdlc-write-spec` now delegates deterministic issue discovery and continue-candidate filtering to the publication helper while preserving full native plans and the existing approval publication sequence.
+- Post-merge spec publication failures now preserve the merged PR state and remediate checkout or labeling without rewriting an already-published spec.
+- Spec discovery now fails closed when the worktree `specs/` path cannot be inspected instead of trusting a branch package.
 
 ## [3.8.1] - 2026-08-23
 

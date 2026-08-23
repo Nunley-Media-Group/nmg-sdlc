@@ -117,9 +117,9 @@ Exact order after first propose approval:
 
 3. `node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
 
-4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Opens a docs-only PR into the repository default branch and squash-merges it. PR title is `docs: approve spec for #N`. PR body must not use `Closes #N` or any other closing keyword. Failure → stop; leave the spec branch and files. After success the helper is on the default branch with the merged spec.
+4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, report any remediation failure, and continue without rewriting the package. A successful response leaves the helper on the default branch.
 
-5. Append `N` to in-memory `published[]`.
+5. If `N` was not already recorded from a post-merge failure, append it to in-memory `published[]`.
 
 6. Continue loop. Do not print execute yet.
 

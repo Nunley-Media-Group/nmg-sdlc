@@ -215,6 +215,7 @@ export function resolveSpecDir(root, issueN, { detailed = false } = {}) {
       }
     });
   } catch {
+    result.reasonCode = 'spec_status_unreadable';
     return detailed ? result : null;
   }
   const prefixRe = new RegExp(`^${issueN}-`);

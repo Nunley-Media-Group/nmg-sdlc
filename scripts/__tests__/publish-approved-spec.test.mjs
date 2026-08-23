@@ -120,6 +120,9 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   git commit -m "docs: approve spec squash"
   git push origin main
   git checkout "$branch"
+  if [ "$FAIL_DEFAULT_CHECKOUT" = "1" ]; then
+    touch .git/index.lock
+  fi
   exit 0
 fi
 exit 1
@@ -478,8 +481,35 @@ describe('publish-approved-spec', () => {
     );
 
     expect(result.status).not.toBe(0);
-    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_created_label_failed' });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_created_label_failed',
+      merged: true,
+      pr: 99,
+    });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+  });
+
+  it('reports successful merge state when default checkout fails', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+
+    const result = run(
+      root,
+      ['merge', '--issue', '42', '--dir', 'specs/42-add-x'],
+      { ...env, FAIL_DEFAULT_CHECKOUT: '1' },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'default_checkout_failed',
+      merged: true,
+      pr: 99,
+    });
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
   });
 
