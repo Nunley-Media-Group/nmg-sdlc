@@ -130,7 +130,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).toContain('Finished — stop writing specs');
     expect(source).toContain('docs: approve spec for #N');
     expect(source).toContain('publish-approved-spec.mjs merge');
-    expect(source).toContain('Closes #N');
+    expect(source).not.toContain('Closes #N');
     expect(source).toContain('Published specs: #<n> on <n>-<slug>[, ...]');
     expect(source).toContain('Next step: /sdlc-execute #<first-published>');
     expect(source).not.toContain('gh issue list --state open');

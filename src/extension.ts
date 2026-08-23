@@ -45,6 +45,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     return rewriteInteractiveInput(input.text ?? "", {
       source: input.source,
       sessionMode: sessionModeFromEntries(session.sessionManager?.getEntries?.()),
+      headless: isInteractiveHeadless(session),
     });
   });
 
