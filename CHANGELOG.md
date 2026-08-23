@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-08-22
+
+### Changed
+
+- `/sdlc-draft-issue` now continues focused interview asks until all material undiscoverable preferences, acceptance criteria, and scope boundaries are gathered instead of sharing a three-ask whole-run quota.
+
 ## [3.5.1] - 2026-08-22
 
 ### Fixed

@@ -13,7 +13,7 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
 1. Gather need: if $ARGUMENTS present use as initialDescription. Else use one ask for the need (free-form via Other if needed, but prefer short).
 
-2. If multi-issue signals (see references/multi-issue.md), run detection, then ONE ask to confirm split (options: approve split / adjust / single). Max questions budget: 3 total across whole run.
+2. If multi-issue signals (see references/multi-issue.md), run detection, then ONE ask to confirm split (options: approve split / adjust / single).
 
 3. Classification ask (exactly these 2 options, recommended first based on text):
 
@@ -55,15 +55,15 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
    Record signals for depth.
 
-6. Interview (adaptive, but total asks <=3 across all, including above):
+6. Interview until every material undiscoverable preference, acceptance criterion, and scope boundary is gathered:
 
-   Use at most the remaining ask slots (2-4 options preferred, rec first).
+   Use focused asks only for preferences and tradeoffs. Each call has 2–4 options, recommended first, and at most three questions.
 
    Core probes: persona/outcome, key ACs, scope in/out, for bug: repro/expected.
 
-   One "anything missed?" if slots allow.
+   Continue with additional focused probes whenever a material decision remains unresolved after investigation. Do not ask for facts that glob, grep, or read can discover.
 
-   Do NOT use ask for final approval or review of draft. Synthesis happens, then propose.
+   Do NOT use ask for final approval or review of draft. Synthesis happens only after the interview is complete, then propose.
 
 7. Synthesize per classification using the payload templates:
 

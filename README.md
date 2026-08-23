@@ -99,7 +99,7 @@ Every spec file begins with singular frontmatter:
 /sdlc-draft-issue "add user authentication"
 ```
 
-Classifies the request (Bug / Enhancement), investigates relevant code, interviews via native `ask`, drafts BDD acceptance criteria as Given/When/Then plus functional requirements, and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
+Classifies the request (Bug / Enhancement), investigates relevant code, and interviews via native `ask` until every material preference, acceptance criterion, and scope boundary that tools cannot discover is gathered. It then drafts BDD acceptance criteria as Given/When/Then plus functional requirements and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
 
 ### Write Specs
 

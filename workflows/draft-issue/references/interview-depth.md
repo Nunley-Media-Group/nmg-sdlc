@@ -1,21 +1,21 @@
-# Interview Probes (v3 ask contract)
+# Interview Probes
 
-**Budget rule (enforced in caller)**: total ask() invocations in the draft-issue run is at most 3. This budget covers split-confirm (if any), classification ask, milestone ask (if any), and all interview probes. Use ask() only for preferences and tradeoffs. List recommended option first. 2–4 options. Never ask for final draft approval or "does this match" — approval is exclusively by writing to xd://propose.
+Use `ask()` only for preferences and tradeoffs. Discover repository facts with `read`, `grep`, and `glob`.
+
+For every `ask()` call:
+
+- Provide 2–4 options.
+- Put the recommended option first.
+- Include at most three questions.
+
+Never ask for final draft approval or "does this match." Approval is exclusively by writing to `xd://propose`.
 
 ## Depth
 
-Compute from investigation signals for logging only. No separate ask for override (saves budget).
+Use investigation signals to identify missing decisions. Depth may be logged only when logging cannot suppress a required question.
 
-## Probes (use remaining slots; 1 ask preferred)
+## Probes
 
-After prior asks have consumed their slots:
+Continue with focused probes until every material undiscoverable preference, acceptance criterion, and scope boundary is gathered. Cover persona and outcome, key acceptance criteria, scope in and out, and, for bugs, reproduction and expected behavior.
 
-Present one ask:
-
-question: classification === 'bug' ? 'Reproduction and risk?' : 'Persona, outcome, ACs and scope?'
-
-options (rec first):
-
-- "Synthesize directly from the initial description + investigation summary (recommended)"
-- "Focus the next answer on missing acceptance criteria"
-- "Focus the next answer on out-of-scope boundaries"
+Ask whenever a material decision remains missing. Never skip a necessary probe or synthesize a silent default.

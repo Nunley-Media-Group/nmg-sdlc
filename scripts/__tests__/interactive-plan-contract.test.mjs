@@ -32,6 +32,40 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).not.toMatch(/classification[^\n]{0,80}Epic|Epic option|epicRecommended/i);
   });
 
+  it('draft-issue interviews to completion without a whole-run ask quota', () => {
+    const workflow = read('workflows/draft-issue/WORKFLOW.md');
+    const interviewDepth = read('workflows/draft-issue/references/interview-depth.md');
+    const multiIssue = read('workflows/draft-issue/references/multi-issue.md');
+    const draftIssueContract = `${workflow}\n${interviewDepth}\n${multiIssue}`;
+
+    expect(draftIssueContract).not.toMatch(
+      /3 total across whole run|total asks?\s*<=?\s*3|max total questions budget across skill|remaining ask slots?|remaining slots|if slots allow|saves budget|synthesize directly from/i,
+    );
+    expect(interviewDepth).toContain('Never skip a necessary probe');
+    expect(workflow).toContain('ONE ask to confirm split');
+    expect(workflow).toContain('Classification ask (exactly these 2 options');
+    expect(workflow).toContain('Enhancement — New capability or improvement');
+    expect(workflow).toContain('Bug — Something is broken');
+    expect(workflow).toContain('if root VERSION parses as semver X.Y.Z');
+    expect(workflow).toContain('Investigate (use glob/grep/read');
+    expect(workflow).toContain('Do NOT use ask for final approval or review of draft');
+    expect(interviewDepth).toContain('Use `ask()` only for preferences and tradeoffs');
+    expect(interviewDepth).toContain('Provide 2–4 options');
+    expect(interviewDepth).toContain('Put the recommended option first');
+    expect(interviewDepth).toContain('Include at most three questions');
+    expect(interviewDepth).toContain(
+      'Continue with focused probes until every material undiscoverable preference, acceptance criterion, and scope boundary is gathered',
+    );
+    expect(multiIssue).toContain('Only this one ask for the split decision');
+  });
+
+  it('retains per-call and unrelated workflow interview budgets', () => {
+    expect(read('references/interactive-gates.md')).toContain('max 3 questions per call');
+    expect(read('workflows/write-spec/WORKFLOW.md')).toContain('Interview (max 3 asks per issue)');
+    expect(read('workflows/onboard-project/WORKFLOW.md')).toContain('max 3 total qs');
+    expect(read('workflows/upgrade-project/WORKFLOW.md')).toContain('Ask ( <=3 total )');
+  });
+
   it('write-spec finishes at xd://propose then publishes', () => {
     const source = read('workflows/write-spec/WORKFLOW.md');
 

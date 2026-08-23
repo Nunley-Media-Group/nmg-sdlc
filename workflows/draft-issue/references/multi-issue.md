@@ -4,7 +4,7 @@ v3 supports proposing multiple executable issues (feature/bug) from one descript
 
 Relations are expressed only as `Depends on:` and `Blocks:` lines inside the issue bodies (parsed by parseBodyRelationships from scripts/epic-relationships.mjs; do not fork).
 
-Use ask with 2-4 options, recommended first (max total questions budget across skill):
+Use ask with 2-4 options, recommended first:
 
 question: "Create separate issues for this split?"
 
