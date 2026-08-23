@@ -1,0 +1,66 @@
+**Issue**: #213
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/193-reduce-injected-sdlc-workflow-tokens-while-keeping-file-command-surfaces/
+
+# File: scripts/__tests__/sdlc-prompt-snippets.test.mjs
+#
+# Generated from: specs/213-add-a-prompt-snippet-registry-for-command-and-worker-composition/requirements.md
+Feature: Prompt-snippet registry for command and worker composition
+  As a Herdr OMP plugin maintainer
+  I want nmg-sdlc to compose command and worker prompts from named reusable fragments
+  So that shared instructions have one owner and later project steering can contribute context without concatenating whole workflow files
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: existing surfaces render through the registry
+    Given the current plugin workflows and worker step map
+    When an interactive command rewrite, automated command Markdown render, or execute worker-prompt is produced
+    Then the text is composed by the prompt-snippet registry from named fragments
+    And the observable prompt content for those existing consumers matches the current owned workflow text plus the current argument/handoff wrapper behavior
+
+  # --- Alternative Paths ---
+
+  @SCN002
+  Scenario: named fragments compose in declared order
+    Given two or more registered fragments that share an allowed consumer and slot
+    When the registry renders that consumer
+    Then fragments appear in a stable documented order
+    And each rendered prompt has a machine-readable provenance record naming every fragment id, provider, source path, and hash
+
+  # --- Error Handling ---
+
+  @SCN003
+  Scenario Outline: invalid composition fails closed
+    Given a fragment or render input with <fault>
+    When registration or render runs
+    Then the operation fails with named error <reasonCode>
+    And no partial prompt is treated as success
+
+    Examples:
+      | fault | reasonCode |
+      | duplicate fragment id | duplicate_fragment_id |
+      | missing source file | missing_source |
+      | unknown placeholder | unknown_placeholder |
+      | path outside workflows root | path_outside_root |
+      | disallowed consumer | disallowed_consumer |
+      | disallowed slot | disallowed_slot |
+
+  # --- Edge Cases ---
+
+  @SCN004
+  Scenario: project fragments stay inactive until registered later
+    Given only the plugin built-in workflow fragments are registered
+    When current commands and workers render
+    Then no project-directory snippet is inserted
+    And documented prompt byte ceilings still apply to those built-in renders
+
+  @SCN005
+  Scenario: every composer is cut over and existing function still works
+    Given the production command, extension, and execute prompt paths after this change
+    When the full scripts Jest suite and the smoke commands run
+    Then no production file under src/ or scripts/ concatenates workflowBody or reads selection.md outside the registry
+    And every interactive rewrite, automated commands/sdlc-*.md body, and workerPrompt step still matches today’s observable text
+    And /sdlc-status still reports through scripts/sdlc-status.mjs and interactive /sdlc-write-spec still fails closed without a TUI
