@@ -1,0 +1,41 @@
+**Issue**: #225
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/209-remove-draft-issue-run-total-ask-quota/
+
+# File: specs/225-provide-situation-paragraphs-on-interactive-interview-asks/feature.gherkin
+#
+# Generated from: specs/225-provide-situation-paragraphs-on-interactive-interview-asks/requirements.md
+Feature: Provide situation paragraphs on interactive interview asks
+  As a developer running interactive /sdlc-* commands in Oh My Pi
+  I want each interview or preference question to include a short paragraph of situation
+  So that I can choose an option without reconstructing context from the chat transcript
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: Interview asks include a situation paragraph
+    Given an interactive /sdlc-draft-issue, /sdlc-write-spec, /sdlc-onboard-project, /sdlc-upgrade-project, or /sdlc-run-retro session is about to ask an interview or preference question
+    When it calls ask
+    Then the question includes a short paragraph stating the situation and the facts needed to choose among the shown options
+    And the user can select an option from that prompt without relying on earlier chat text
+
+  # --- Preserved Behavior ---
+
+  @SCN002
+  Scenario: Required canned gates stay canned
+    Given draft-issue classification, milestone, or split confirmation, or write-spec continue/finish
+    When that required gate runs
+    Then the existing canned question and option labels remain
+    And those gates are not required to add a situation paragraph
+
+  # --- Shape Boundary ---
+
+  @SCN003
+  Scenario: Paragraph stays short and existing ask shape is preserved
+    Given an interview or preference ask needs context
+    When the workflow composes the question
+    Then it uses a short paragraph, not the full need statement or issue body
+    And the call still has 2 to 4 options, recommended first, and at most three questions
+    And ask is still not used for final draft approval or does-this-match
