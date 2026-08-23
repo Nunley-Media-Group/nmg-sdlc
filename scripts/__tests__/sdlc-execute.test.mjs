@@ -47,6 +47,11 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(parseArgs('   ')).toEqual({ issues: [], defaultBacklog: true });
   });
 
+  it('parseArgs rejects comma-only input', () => {
+    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
+    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
+  });
+
   it('parseArgs collects unique numbers in given order', () => {
     expect(parseArgs('#12 #10')).toEqual({ issues: [12, 10], defaultBacklog: false });
     expect(parseArgs('#12 #12')).toEqual({ issues: [12], defaultBacklog: false });
@@ -579,6 +584,14 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it('rejects comma-only arguments before controller side effects', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({ args: ', ,', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(fixture.calls).toHaveLength(0);
+    expect(fixture.starts).toHaveLength(0);
   });
 
   it('starts nothing when empty args find no open specified issues', () => {

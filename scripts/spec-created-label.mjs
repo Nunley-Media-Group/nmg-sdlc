@@ -102,16 +102,18 @@ export function applySpecCreatedLabel(issueN, run = defaultRun) {
 }
 
 export function backfillSpecCreatedLabels(root, run = defaultRun) {
+  const cwd = path.resolve(root);
+  const runInRoot = (command, args, options = {}) => run(command, args, { ...options, cwd });
   const result = { ok: true, labeled: [], already: [], skipped: [], failed: [] };
-  for (const issue of listIssueOwnedSpecNumbers(root)) {
+  for (const issue of listIssueOwnedSpecNumbers(cwd)) {
     try {
-      const view = run('gh', ['issue', 'view', String(issue), '--json', 'number,labels']);
+      const view = runInRoot('gh', ['issue', 'view', String(issue), '--json', 'number,labels']);
       const issueData = parseJsonResult(view, `Unable to read issue #${issue}`);
       if (issueHasSpecCreatedLabel(issueData)) {
         result.already.push(issue);
         continue;
       }
-      applySpecCreatedLabel(issue, run);
+      applySpecCreatedLabel(issue, runInRoot);
       result.labeled.push(issue);
     } catch (error) {
       result.failed.push({

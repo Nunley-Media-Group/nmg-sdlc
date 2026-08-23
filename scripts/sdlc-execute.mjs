@@ -52,6 +52,7 @@ export function parseArgs(input = '') {
     return { issues: [], defaultBacklog: true };
   }
   const tokens = trimmed.split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) throw new Error(usageError());
   const issues = [];
   const seen = new Set();
   for (const tok of tokens) {

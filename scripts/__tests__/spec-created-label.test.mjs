@@ -127,4 +127,25 @@ describe('backfill', () => {
     expect(result.failed).toEqual([{ issue: 15, message: 'Unable to read issue #15' }]);
     expect(edits).toEqual([12]);
   });
+
+  test('runs every GitHub operation from the requested repository root', () => {
+    const root = makeRoot();
+    writePackage(root, 12, 'new');
+    const calls = [];
+    const run = (command, args, options) => {
+      calls.push([command, args, options]);
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":12,"labels":[]}', stderr: '' };
+      }
+      if (args[0] === 'label' && args[1] === 'list') {
+        return { status: 0, stdout: '[{"name":"spec-created"}]', stderr: '' };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+
+    expect(path.resolve(root)).not.toBe(process.cwd());
+    expect(backfillSpecCreatedLabels(root, run)).toMatchObject({ ok: true, labeled: [12] });
+    expect(calls).toHaveLength(3);
+    expect(calls.every(([, , options]) => options?.cwd === path.resolve(root))).toBe(true);
+  });
 });
