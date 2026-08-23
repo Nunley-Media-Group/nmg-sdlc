@@ -33,11 +33,13 @@ Read references/detection.md etc for details (update in tree).
 
 Use ask for choices on each category group or conflicts (rec first, 2-4 opts):
 
-e.g. for layout: "Relocate legacy .codex/* ? (recommended yes)"
+Each category-group or collision question includes a short paragraph stating the situation and the facts needed to choose among the shown options.
+
+e.g. for layout: "The detector found a legacy .codex/ layout that should move to root steering/ and specs/. Relocate legacy .codex/*?" (recommended yes)
 
 For splits/renames: approve group or preserve per item.
 
-For epic: explicit per group "Flatten this epic group?"
+For epic: explicit per group "The detector found an epic group whose child specs can become ordinary issue-owned packages. Flatten this epic group?"
 
 Runner cleanup: approve batch or narrow.
 

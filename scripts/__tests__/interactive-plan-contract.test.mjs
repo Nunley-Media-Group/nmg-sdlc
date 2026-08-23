@@ -66,6 +66,40 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(read('workflows/upgrade-project/WORKFLOW.md')).toContain('Ask ( <=3 total )');
   });
 
+  it('requires situation paragraphs while preserving canned interview gates', () => {
+    const situationParagraphPaths = [
+      'references/interactive-gates.md',
+      'workflows/draft-issue/WORKFLOW.md',
+      'workflows/draft-issue/references/interview-depth.md',
+      'workflows/write-spec/WORKFLOW.md',
+      'workflows/write-spec/references/interview.md',
+      'workflows/write-spec/references/discovery.md',
+      'workflows/onboard-project/WORKFLOW.md',
+      'workflows/onboard-project/references/interview.md',
+      'workflows/upgrade-project/WORKFLOW.md',
+      'workflows/run-retro/WORKFLOW.md',
+    ];
+
+    for (const relativePath of situationParagraphPaths) {
+      expect(`${relativePath}\n${read(relativePath)}`).toContain(
+        'short paragraph stating the situation',
+      );
+    }
+
+    expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
+      'question: "What type of issue is this?"',
+    );
+    expect(read('workflows/draft-issue/references/multi-issue.md')).toContain(
+      'question: "Create separate issues for this split?"',
+    );
+    expect(read('workflows/write-spec/WORKFLOW.md')).toContain(
+      'Finished — stop writing specs',
+    );
+    expect(read('workflows/write-spec/WORKFLOW.md')).toContain(
+      'Continue — enter another issue number',
+    );
+  });
+
   it('write-spec finishes at xd://propose then publishes', () => {
     const source = read('workflows/write-spec/WORKFLOW.md');
 

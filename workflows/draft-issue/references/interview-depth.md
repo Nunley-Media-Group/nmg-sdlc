@@ -8,6 +8,8 @@ For every `ask()` call:
 - Put the recommended option first.
 - Include at most three questions.
 
+Each interview or preference `question` includes a short paragraph stating the situation and the facts needed to choose among the shown options. The user must be able to select an option from that prompt without relying on earlier chat text.
+
 Never ask for final draft approval or "does this match." Approval is exclusively by writing to `xd://propose`.
 
 ## Depth

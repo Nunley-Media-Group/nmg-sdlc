@@ -23,6 +23,10 @@ Use built-in `ask` only:
 - recommended first
 - max 3 questions per call
 
+Interview and preference `question` text includes a short paragraph stating the situation and the facts needed to choose among the shown options. The user must be able to select an option from that prompt without relying on earlier chat text. Do not paste the full need statement or issue body. Per-option `description` may still be used but is not the required vehicle for the paragraph.
+
+Required canned gates keep their existing question and option labels and are not required to add a situation paragraph: draft-issue classification, draft-issue milestone, draft-issue split confirmation, draft-issue need-gather when `$ARGUMENTS` is absent, and write-spec continue/finish.
+
 Discoverable facts via `read` / `grep` / `glob`. Never request approval in prose or `ask`. Finish by writing `<slug>` plus title as plain text to `xd://propose`. Plan file is `local://<slug>-plan.md`.
 
 Automated workers never call `ask`. Missing preconditions write a failed handoff and stop.
