@@ -314,6 +314,7 @@ describe('runExecute controller', () => {
     handoffStep = null,
     paneCloseStatus = 0,
     reviewPromptStatus = 'stalled',
+    reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
     writeHandoffs = true,
     promptStatus = 0,
@@ -377,6 +378,10 @@ describe('runExecute controller', () => {
       },
       agentStart: (input) => {
         starts.push(input);
+        if (reviewModeInitiallyVisible && /^s42-review[12]$/.test(input.name)) {
+          reviewMenu = 'mode';
+          reviewMenuEvents.push('mode-visible');
+        }
         return { status: pendingAgentStartStatuses.shift() ?? 0 };
       },
       agentPrompt: ({ name, prompt }) => {
@@ -430,7 +435,7 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'mode') return 'Review Mode\n/review';
         if (reviewMenu === 'branch') {
           reviewMenuEvents.push('branch-visible');
-          return 'Select base branch to compare against';
+          return 'Select base branch…';
         }
         return activePrompt;
       },
@@ -761,6 +766,18 @@ describe('runExecute controller', () => {
     ]);
   });
 
+  it('does not resubmit review when Review Mode is already visible', () => {
+    const fixture = makeControllerFixture({ reviewModeInitiallyVisible: true });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toEqual([]);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
   it('stops when interactive review mode cannot be selected', () => {
     const fixture = makeControllerFixture({ reviewPromptStatus: 'worker_failed' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -894,7 +911,7 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('kept-pane');
   });
 
-  it('keeps a retained pane open when recovered prompt settlement leaves it working', () => {
+  it('keeps a retained pane open when recovered prompt settlement fails', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
@@ -907,17 +924,13 @@ describe('runExecute controller', () => {
       const result = waitAgent(input);
       return input.until ? result : { status: 1 };
     };
-    let agentGetCalls = 0;
-    fixture.herdr.agentGet = () => ({
-      result: { agent: { agent_status: agentGetCalls++ === 0 ? 'idle' : 'working' } },
-    });
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
     expect(fixture.closed).toEqual([]);
-    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'working' });
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'worker_failed' });
   });
 
   it('does not press enter on a retained worker without a pasted prompt', () => {

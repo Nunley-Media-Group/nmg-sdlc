@@ -701,7 +701,12 @@ export function runExecute({
           && step !== 'review2'
           && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue }))
         ) {
-          retryPromptSubmission(herdrApi, agentName);
+          if (!retryPromptSubmission(herdrApi, agentName)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
           state = agentState(herdrApi.agentGet(agentName));
         }
         let handoff;
@@ -787,21 +792,24 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
         let reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-        if (
-          !reviewModeVisible
-          && observeAgentText(herdrApi, agentName, '/review')
-          && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }))
-        ) {
+        if (!reviewModeVisible) {
+          herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
           reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
+          if (
+            !reviewModeVisible
+            && observeAgentText(herdrApi, agentName, '/review')
+            && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }))
+          ) {
+            reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
+          }
         }
         const modeSelected = reviewModeVisible
           && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }));
         const branchMenuVisible = modeSelected && observeAgentText(
           herdrApi,
           agentName,
-          'Select base branch to compare against',
+          'Select base branch',
         );
         if (
           !branchMenuVisible
@@ -825,7 +833,12 @@ export function runExecute({
         && (promptStalled || ['idle', 'done'].includes(state))
       ) {
         if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-          retryPromptSubmission(herdrApi, agentName);
+          if (!retryPromptSubmission(herdrApi, agentName)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
           state = agentState(herdrApi.agentGet(agentName));
         } else if (promptStalled) {
           return stopResult({
