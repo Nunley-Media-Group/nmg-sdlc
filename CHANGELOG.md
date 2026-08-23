@@ -10,11 +10,24 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
-## [3.5.0] - 2026-08-22
+## [3.6.0] - 2026-08-22
 
 ### Changed
 
 - `/sdlc-draft-issue` now continues focused interview asks until all material undiscoverable preferences, acceptance criteria, and scope boundaries are gathered instead of sharing a three-ask whole-run quota.
+
+## [3.5.1] - 2026-08-22
+
+### Fixed
+
+- Corrected issue #219's verification report to trace all nine approved scenarios, including SCN009, while preserving its recorded test and delivery evidence.
+
+## [3.5.0] - 2026-08-22
+
+### Fixed
+
+- `/sdlc-execute` now recovers when Herdr reports an idle worker before submitting its pasted prompt, waits for already-working workers to settle, and drives `/review` submission and menu selection as separate UI transitions.
+- `/sdlc-execute` now retries one failed Herdr worker startup after a bounded readiness delay before failing closed with `agent_start_failed`.
 
 ## [3.4.1] - 2026-08-22
 

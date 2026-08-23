@@ -1,12 +1,22 @@
 {
   "name": "nmg-sdlc",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Spec-driven delivery for Oh My Pi and Herdr",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=20" },
-  "omp": {
-    "extensions": ["./src/extension.ts"]
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": ["omp-plugin", "pi-extension", "sdlc", "herdr", "bdd"]
+  "omp": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "keywords": [
+    "omp-plugin",
+    "pi-extension",
+    "sdlc",
+    "herdr",
+    "bdd"
+  ]
 }
