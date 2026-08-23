@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
@@ -70,6 +73,13 @@ export function interactiveHeadlessMessage(commandName) {
 }
 
 export function renderAutomatedCommandMarkdown(name, skill, description, root = packageRoot) {
-  const body = workflowBody(skill, root).replace(/\s*$/, "\n");
+  let body = workflowBody(skill, root).replace(/\s*$/, "\n");
+  if (skill === "execute") {
+    const selection = readFileSync(
+      join(root, "workflows", "execute", "references", "selection.md"),
+      "utf8",
+    ).replace(/\s*$/, "\n");
+    body = `${body}\n${selection}`;
+  }
   return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}`;
 }

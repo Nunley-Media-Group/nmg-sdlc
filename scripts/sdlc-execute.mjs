@@ -56,7 +56,7 @@ export function parseArgs(input = '') {
   const issues = [];
   const seen = new Set();
   for (const tok of tokens) {
-    const m = tok.match(/^#?(\d+)$/);
+    const m = tok.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
     if (!m) {
       throw new Error(usageError());
     }
@@ -375,6 +375,34 @@ export function nextStep(completedForIssue = []) {
     if (!completedForIssue.includes(step)) return step;
   }
   return null;
+}
+
+export function remediationCompletedSteps({
+  issue,
+  step,
+  completed = [],
+  handoff,
+} = {}) {
+  if (!Number.isSafeInteger(issue) || issue <= 0) return null;
+  const stepIndex = VALID_STEPS.indexOf(step);
+  if (stepIndex < 0 || !Array.isArray(completed)) return null;
+  if (
+    completed.length !== stepIndex
+    || completed.some((completedStep, index) => completedStep !== VALID_STEPS[index])
+  ) {
+    return null;
+  }
+  if (
+    !handoff
+    || handoff.issue !== issue
+    || handoff.step !== step
+    || (handoff.status !== 'failed' && !handoff.intervention)
+  ) {
+    return null;
+  }
+  const targetIndex = VALID_STEPS.indexOf(handoff.next);
+  if (targetIndex < 0 || targetIndex > stepIndex) return null;
+  return VALID_STEPS.slice(0, targetIndex);
 }
 
 export function workerPrompt({ step, issue, skill } = {}) {
@@ -791,32 +819,60 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
-          return stopResult({
+        const remediation = runState.failed?.issue === issue && runState.failed?.step === step
+          ? remediationCompletedSteps({
             issue,
             step,
-            paneId,
-            agentName,
-            reasonCode: !['idle', 'done'].includes(state)
-              ? state || 'worker_failed'
-              : handoff.reasonCode || handoff.status,
-            runState,
-            cwd,
-            herdr: herdrApi,
-            output,
-          });
+            completed: runState.completed[String(issue)],
+            handoff,
+          })
+          : null;
+        if (remediation) {
+          if (!['idle', 'done'].includes(state)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          if (!closePane(herdrApi, paneId)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          runState.completed[String(issue)] = remediation;
+          step = nextStep(remediation);
+          runState.currentStep = step;
+          runState.failed = null;
+          writeRun(runState, cwd);
+        } else {
+          if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
+            return stopResult({
+              issue,
+              step,
+              paneId,
+              agentName,
+              reasonCode: !['idle', 'done'].includes(state)
+                ? state || 'worker_failed'
+                : handoff.reasonCode || handoff.status,
+              runState,
+              cwd,
+              herdr: herdrApi,
+              output,
+            });
+          }
+          if (!closePane(herdrApi, paneId)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          runState.completed[String(issue)].push(step);
+          step = nextStep(runState.completed[String(issue)]);
+          runState.currentStep = step;
+          runState.failed = null;
+          writeRun(runState, cwd);
         }
-        if (!closePane(herdrApi, paneId)) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
-        runState.completed[String(issue)].push(step);
-        step = nextStep(runState.completed[String(issue)]);
-        runState.currentStep = step;
-        runState.failed = null;
-        writeRun(runState, cwd);
       } else {
         output.push(`Existing worker ${agentName} in pane ${paneId}; no second worker started.`);
         return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
