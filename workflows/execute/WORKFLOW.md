@@ -1,6 +1,6 @@
 ---
 name: execute
-description: "Orchestrate automated delivery for approved specs through Herdr OMP worker sessions. Use when the user says execute, run the backlog, ship the next issue, /sdlc-execute, or passes issue numbers to deliver. Defaults to the first ready backlog issue. Accepts a space-separated list of issue numbers. Do NOT use to draft issues or write specs."
+description: "Orchestrate automated delivery for approved, spec-created issues through Herdr OMP worker sessions. Use when the user says execute, ship specified issues, /sdlc-execute, or passes comma- or whitespace-separated issue numbers to deliver. With no numbers, present open spec-created issues for selection. Do NOT use to draft issues or write specs."
 ---
 
 # Execute
@@ -13,11 +13,7 @@ Automated orchestrator. Runs only in the main Herdr pane. Never edits product co
 
 ## Execution
 
-Trim `$ARGUMENTS`. Invoke:
-
-node scripts/sdlc-execute.mjs run <trimmed arguments>
-
-When arguments are empty, invoke `node scripts/sdlc-execute.mjs run` with no extra tokens.
+Trim `$ARGUMENTS`. Non-empty: invoke `node scripts/sdlc-execute.mjs run` with the trimmed tokens. Empty: read `references/selection.md` and follow it, then invoke `run` only with the selected tokens.
 
 Pass stdout and stderr through unchanged. Exit with the controller exit code.
 

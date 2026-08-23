@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBodyRelationships } from './epic-relationships.mjs';
+import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -1095,7 +1096,7 @@ function applyAgentsSpikeLanguage(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
-function applyUpgrade(root, approvedItemIds = []) {
+function applyUpgrade(root, approvedItemIds = [], run) {
   const rootAbs = path.resolve(root);
   const report = detectUpgrade(rootAbs);
   const approvedSet = new Set(approvedItemIds);
@@ -1135,6 +1136,13 @@ function applyUpgrade(root, approvedItemIds = []) {
     }
     results.push(res);
   }
+  const backfill = backfillSpecCreatedLabels(rootAbs, run);
+  results.push({
+    id: 'spec-created-backfill',
+    status: backfill.ok ? 'applied' : 'failed',
+    ...backfill,
+  });
+
 
   const remaining = detectUpgrade(rootAbs);
   return {

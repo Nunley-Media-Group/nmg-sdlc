@@ -69,6 +69,24 @@ if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
   printf '%s\\n' main
   exit 0
 fi
+if [ "$1" = "label" ] && [ "$2" = "list" ]; then
+  printf '%s\n' '[]'
+  exit 0
+fi
+if [ "$1" = "label" ] && [ "$2" = "create" ]; then
+  exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  printf '%s\n' '{"number":42,"labels":[]}'
+  exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$4" = "--add-label" ] && [ "$5" = "spec-created" ]; then
+  if [ "$FAIL_SPEC_LABEL" = "1" ]; then
+    printf '%s\n' 'label failed' >&2
+    exit 1
+  fi
+  exit 0
+fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
   printf '%s\\n' '[]'
   exit 0
@@ -215,6 +233,7 @@ describe('publish-approved-spec', () => {
       pr: 99,
       merged: true,
       squash: true,
+      labeled: true,
     });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
@@ -222,7 +241,27 @@ describe('publish-approved-spec', () => {
     expect(log).toContain('pr create --base main --head 42-add-x --title docs: approve spec for #42');
     expect(log).not.toMatch(/Closes #42|Fixes #42|Resolves #42/i);
     expect(log).toMatch(/pr merge 99 --squash --delete-branch/);
+    expect(log).toContain('issue edit 42 --add-label spec-created');
   });
+
+  it('reports a post-merge label failure without undoing the merge', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+
+    const result = run(
+      root,
+      ['merge', '--issue', '42', '--dir', 'specs/42-add-x'],
+      { ...env, FAIL_SPEC_LABEL: '1' },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_created_label_failed' });
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+  });
+
 
   it('merge rejects an unapproved package', () => {
     const { root, env } = makeRepo();

@@ -91,9 +91,17 @@ Add the same sentence to the vision/personas/success, tech-stack, optional-prior
 
 Keep `Ask ( <=3 total )`. Add the same `short paragraph stating the situation` sentence to the category-group and collision asks. Replace only the bare layout example:
 
-from: `e.g. for layout: "Relocate legacy .codex/* ? (recommended yes)"`
+from:
 
-to: `e.g. for layout: "The detector found a legacy .codex/ layout that should move to root steering/ and specs/. Relocate legacy .codex/*?" (recommended yes)`
+```text
+e.g. for layout: "Relocate legacy .codex/* ? (recommended yes)"
+```
+
+to:
+
+```text
+e.g. for layout: "The detector found a legacy .codex/ layout that should move to root steering/ and specs/. Relocate legacy .codex/*?" (recommended yes)
+```
 
 Keep "Flatten this epic group?" as an example topic; if that example remains a bare label, prefix it with one short situation sentence in the same style. Do not invent new category detectors.
 

@@ -14,11 +14,7 @@ Automated orchestrator. Runs only in the main Herdr pane. Never edits product co
 
 ## Execution
 
-Trim `$ARGUMENTS`. Invoke:
-
-node scripts/sdlc-execute.mjs run <trimmed arguments>
-
-When arguments are empty, invoke `node scripts/sdlc-execute.mjs run` with no extra tokens.
+Trim `$ARGUMENTS`. Non-empty: invoke `node scripts/sdlc-execute.mjs run` with the trimmed tokens. Empty: read `references/selection.md` and follow it, then invoke `run` only with the selected tokens.
 
 Pass stdout and stderr through unchanged. Exit with the controller exit code.
 

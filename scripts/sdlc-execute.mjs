@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 
 import { parseBodyRelationships } from './epic-relationships.mjs';
 import { workflowBody } from '../src/sdlc-workflows.mjs';
+import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -50,7 +51,8 @@ export function parseArgs(input = '') {
   if (!trimmed) {
     return { issues: [], defaultBacklog: true };
   }
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  const tokens = trimmed.split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) throw new Error(usageError());
   const issues = [];
   const seen = new Set();
   for (const tok of tokens) {
@@ -423,6 +425,28 @@ function commandSucceeded(value) {
   return value?.status === undefined || value.status === 0;
 }
 
+export function listSpecifiedIssues({ run = defaultRun, cwd = process.cwd() } = {}) {
+  const listed = run('gh', [
+    'issue', 'list', '--state', 'open', '--label', SPEC_CREATED_LABEL,
+    '--limit', '100', '--json', 'number,title',
+  ], { cwd });
+  if (!commandSucceeded(listed)) throw new Error('gh issue list failed');
+  const parsed = parseCommandOutput(listed);
+  if (!Array.isArray(parsed)) throw new Error('gh issue list failed');
+  return parsed
+    .filter((issue) => Number.isSafeInteger(issue?.number) && issue.number > 0)
+    .map((issue) => ({ number: issue.number, title: String(issue.title || '') }))
+    .sort((left, right) => left.number - right.number);
+}
+
+function readIssueSpecCreatedLabel(issue, cwd, run) {
+  const viewed = run('gh', ['issue', 'view', String(issue), '--json', 'number,labels'], { cwd });
+  if (!commandSucceeded(viewed)) return null;
+  const parsed = parseCommandOutput(viewed);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return issueHasSpecCreatedLabel(parsed);
+}
+
 function waitForAgentStartRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
@@ -657,13 +681,41 @@ export function runExecute({
     return { status: 1, stdout: '', stderr: 'gh auth status failed\n' };
   }
 
+  const existingRun = readRun(cwd);
   let issues = parsedArgs.issues;
   if (parsedArgs.defaultBacklog) {
-    try {
-      const selected = selectBacklog();
-      issues = selected == null ? [] : [selected];
-    } catch (error) {
-      return { status: 1, stdout: '', stderr: `${error instanceof Error ? error.message : String(error)}\n` };
+    const resumable = Array.isArray(existingRun?.issues)
+      && existingRun.issues.length > 0
+      && existingRun.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0);
+    if (resumable) {
+      issues = existingRun.issues;
+    } else {
+      let specified;
+      try {
+        specified = listSpecifiedIssues({ run, cwd });
+      } catch {
+        return { status: 1, stdout: '', stderr: 'gh issue list failed\n' };
+      }
+      if (specified.length === 0) {
+        return { status: 0, stdout: 'No open spec-created issues.\n', stderr: '' };
+      }
+      return { status: 2, stdout: '', stderr: `${usageError()}\n` };
+    }
+  } else {
+    const missing = [];
+    for (const issue of issues) {
+      const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
+      if (labeled === null) {
+        return { status: 1, stdout: '', stderr: `Unable to read labels for #${issue}\n` };
+      }
+      if (!labeled) missing.push(issue);
+    }
+    if (missing.length > 0) {
+      return {
+        status: 2,
+        stdout: `${missing.map((issue) => `#${issue} has no spec-created label`).join('\n')}\n`,
+        stderr: '',
+      };
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
@@ -671,7 +723,7 @@ export function runExecute({
     return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
   }
 
-  let runState = readRun(cwd);
+  let runState = existingRun;
   if (!runState || JSON.stringify(runState.issues) !== JSON.stringify(issues)) {
     runState = {
       schemaVersion: 1,
@@ -688,6 +740,17 @@ export function runExecute({
   const createdPanes = new Set();
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
+    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
+    if (!live) {
+      const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
+      if (labeled === null) {
+        return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `Unable to read labels for #${issue}\n` };
+      }
+      if (!labeled) {
+        output.push(`#${issue} has no spec-created label`);
+        return { status: 2, stdout: `${output.join('\n')}\n`, stderr: '' };
+      }
+    }
     const spec = specStatus(issue, cwd);
     if (!spec.approved) {
       output.push(`Run /sdlc-write-spec #${issue}`);
@@ -697,7 +760,6 @@ export function runExecute({
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
-    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
     if (live) {
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
@@ -758,6 +820,16 @@ export function runExecute({
       } else {
         output.push(`Existing worker ${agentName} in pane ${paneId}; no second worker started.`);
         return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+      }
+    }
+    if (live && step) {
+      const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
+      if (labeled === null) {
+        return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `Unable to read labels for #${issue}\n` };
+      }
+      if (!labeled) {
+        output.push(`#${issue} has no spec-created label`);
+        return { status: 2, stdout: `${output.join('\n')}\n`, stderr: '' };
       }
     }
     while (step) {
@@ -937,6 +1009,15 @@ function runCli(argv = process.argv.slice(2)) {
     } catch (error) {
       console.error(error instanceof Error ? error.message : usageError());
       process.exit(2);
+    }
+  }
+  if (sub === 'list-specified') {
+    try {
+      console.log(JSON.stringify({ ok: true, issues: listSpecifiedIssues() }));
+      process.exit(0);
+    } catch {
+      console.log(JSON.stringify({ ok: false, reasonCode: 'issues_unreadable' }));
+      process.exit(1);
     }
   }
   if (sub === 'backlog') {

@@ -11,6 +11,7 @@ import { join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { isSpecApproved } from './sdlc-execute.mjs';
+import { applySpecCreatedLabel } from './spec-created-label.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -252,12 +253,21 @@ function mergeSpec(argv) {
   if (pulled.status !== 0) {
     fail('default_checkout_failed', { stderr: pulled.stderr || '', stdout: pulled.stdout || '' });
   }
+  try {
+    applySpecCreatedLabel(issueN);
+  } catch (error) {
+    fail('spec_created_label_failed', {
+      stderr: error?.stderr || error?.message || '',
+      stdout: error?.stdout || '',
+    });
+  }
 
   ok({
     branch: base,
     pr,
     merged: true,
     squash: true,
+    labeled: true,
   });
 }
 
