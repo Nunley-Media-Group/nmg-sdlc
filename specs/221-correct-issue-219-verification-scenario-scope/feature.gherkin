@@ -18,3 +18,10 @@ Feature: Correct issue 219 verification scenario scope
     Given issue #219 passed focused, full-suite, plugin-surface, hygiene, and live delivery checks
     When scenario tracing is corrected
     Then those verified outcomes remain present and unchanged
+
+  @SCN003 @regression
+  Scenario: Correction passes repository contribution checks
+    Given the issue #221 correction is complete
+    When the relevant spec, evidence, and repository contribution checks run
+    Then every required check passes
+    And runtime, workflow, package, version, and changelog files remain unchanged

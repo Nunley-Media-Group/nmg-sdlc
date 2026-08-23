@@ -13,6 +13,6 @@ Add SCN009 to the issue #219 verification report's regression scope and machine-
 
 Add SCN009 to regression and BDD evidence and update feature scenario totals from eight to nine.
 
-## T003: Validate and deliver
+## T003: Validate the correction
 
-Run relevant evidence/spec and contribution checks, commit the correction, open a PR closing #221, pass CI, and merge the exact reviewed head.
+Run relevant evidence/spec and repository contribution checks and record the outcomes before delivery.
