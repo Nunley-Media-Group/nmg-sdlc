@@ -1,0 +1,125 @@
+**Issue**: #231
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/223-apply-spec-created-after-specs-exist-and-gate-execute-selection/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/231-honor-and-resume-selected-issues-from-the-empty-sdlc-execute-picker/requirements.md
+Feature: Honor and resume selected issues from the empty /sdlc-execute picker
+  As a developer running nmg-sdlc in Oh My Pi / Herdr
+  I want empty execute selections and failed queues to retain their exact intent
+  So that selected issues run in order and verification rework cannot strand or silently advance the queue
+
+  # --- Picker happy paths ---
+
+  @SCN001
+  Scenario: First selected issue chip reaches the controller
+    Given empty /sdlc-execute lists multiple open spec-created issues
+    When the user selects only the first issue chip and confirms Continue
+    Then the built-in ask returns that issue label
+    And the workflow invokes run with exactly that issue token
+    And execution does not report no selection
+
+  @SCN002
+  Scenario: Another single issue chip reaches the controller
+    Given empty /sdlc-execute lists multiple open spec-created issues
+    When the user selects only a non-first issue chip and confirms Continue
+    Then the workflow invokes run with exactly that issue token
+
+  @SCN003
+  Scenario: Chips and Other preserve deterministic order
+    Given issue chips are displayed in ascending number order
+    When the user selects several chips and enters valid Other issue numbers
+    Then run receives selected chips in displayed order followed by Other tokens in typed order
+    And duplicate numbers are removed first-occurrence-first
+
+  # --- Picker alternatives and edges ---
+
+  @SCN004
+  Scenario: Empty Continue reopens the picker
+    Given the empty execute picker is visible
+    When the user confirms Continue with no selected chip and no valid Other token
+    Then the same picker reopens
+    And no controller or worker starts
+
+  @SCN005
+  Scenario: Invalid Other reopens the picker
+    Given the empty execute picker is visible
+    When the user submits only invalid Other text
+    Then the same picker reopens
+    And no controller or worker starts
+
+  @SCN006
+  Scenario: One eligible issue remains a real interaction
+    Given exactly one open issue has spec-created
+    When empty /sdlc-execute is invoked
+    Then the user must select and confirm that issue
+    And the issue does not silently auto-start
+    And no Cancel chip is required
+
+  @SCN007
+  Scenario: Explicit issue tokens bypass the picker
+    Given /sdlc-execute receives explicit valid issue tokens
+    When the workflow runs
+    Then no ask is shown
+    And the same ordered issue numbers reach the controller after OMP transport normalization
+
+  @SCN008
+  Scenario: Packaged execute carries its picker contract
+    Given nmg-sdlc is loaded in a consumer repository with no local workflow files
+    When /sdlc-execute expands the installed file command
+    Then the prompt contains the installed Select specified issues section
+    And no working-directory or GitHub lookup determines picker behavior
+
+  @SCN009
+  Scenario: OMP-expanded explicit token retains its issue number
+    Given the user enters /sdlc-execute #902
+    And OMP expands the argument to pr://902
+    When the workflow invokes run with pr://902
+    Then the controller selects issue 902 without showing the picker
+    And unrelated URI schemes remain usage errors
+
+  # --- Durable remediation ---
+
+  @SCN010
+  Scenario: Failed verification first stops without claiming delivery
+    Given the selected queue is on issue #N at verify
+    And verify writes a validated failed intervention handoff with next implement
+    When the controller first observes the handoff
+    Then it reports that issue #N was not delivered
+    And preserves the failed pane, current issue, and remaining queue
+    And starts no later issue
+
+  @SCN011
+  Scenario: Resume rewinds implementation and every downstream gate
+    Given issue #N has the retained failed verify handoff with next implement
+    And the retained worker is idle or done
+    When the same durable queue is resumed
+    Then the retained verify pane closes
+    And completed steps for issue #N retain only start
+    And implement, both review-fix pairs, verify, and deliver rerun in order
+    And later queued issues do not start before issue #N is delivered
+
+  @SCN012
+  Scenario: Invalid remediation target fails closed
+    Given a retained failed handoff has a null, unknown, forward, mismatched, or malformed next target
+    When the queue is resumed
+    Then no new worker starts
+    And the failed pane and durable queue remain available for intervention
+
+  @SCN013
+  Scenario: Active failed worker is not consumed
+    Given the retained failed worker is not idle or done
+    When the queue is resumed
+    Then no remediation worker starts
+    And the active pane remains open
+
+  @SCN014
+  Scenario: Pane close failure preserves remediation state
+    Given a valid backward remediation transition
+    And closing the retained pane fails
+    When the queue is resumed
+    Then no replacement worker starts
+    And durable state remains on the failed issue

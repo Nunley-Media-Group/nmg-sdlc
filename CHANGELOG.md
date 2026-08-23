@@ -10,6 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-08-23
+
+### Fixed
+
+- Empty `/sdlc-execute` now embeds its picker contract in the packaged command, passes the selected ordered issue queue without a misleading recommended state or Cancel chip, reopens on empty Continue, and normalizes OMP-expanded `issue://N` / `pr://N` explicit tokens.
+- Failed execute handoffs can resume the same issue at a validated earlier `next` gate, rerunning every downstream lifecycle check before delivery or later queued issues.
+
 ## [3.8.0] - 2026-08-23
 
 ### Changed
