@@ -1,0 +1,80 @@
+**Issue**: #236
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+
+# File: scripts/__tests__/issue-dependencies.test.mjs
+#
+# Generated from: specs/236-adopt-github-blocked-by-as-the-only-issue-dependency-type/requirements.md
+Feature: GitHub blocked-by as the sole issue dependency
+  As a developer running nmg-sdlc in Oh My Pi or Herdr
+  I want issue sequencing to use only GitHub official blocked-by
+  So that every lifecycle surface shares one fail-closed graph
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: official blocked-by is the sole dependency authority
+    Given an nmg-sdlc issue graph
+    When a lifecycle surface reads or writes dependencies
+    Then it uses only GitHub official blocked-by
+    And body relations, spike relations, sub-issues, and labels do not affect eligibility
+
+  @SCN002
+  Scenario: draft applies approved blocked-by edges
+    Given an approved split topology or explicit sequencing against named existing issues
+    When draft-issue creates the issues
+    Then it preflights the combined graph and applies official blocked-by edges
+    And it requires no confirmation beyond split and final plan approval
+    And it does not generate body relation lines
+
+  @SCN003
+  Scenario: upgrade screens and reconciles every issue
+    Given official dependencies, legacy fields, or clear sequencing language
+    When the dependency-graph upgrade category is detected and approved
+    Then every repository issue and official edge is screened
+    And missing official edges with explicit evidence are added
+    And dangling targets and open cycles are refused before writing
+
+  @SCN004
+  Scenario: execute presents only eligible issues
+    Given open spec-created issues with mixed dependency status
+    When /sdlc-execute runs without arguments
+    Then only readable unblocked acyclic issues are presented
+    And zero eligible issues print the existing empty message without a picker
+
+  # --- Alternative Paths ---
+
+  @SCN005
+  Scenario Outline: graph status controls execution
+    Given issue 42 has <graphState>
+    When explicit execute or start validates issue 42
+    Then the result is <result>
+    And mutation is <mutation>
+
+    Examples:
+      | graphState | result | mutation |
+      | no blocked-by edges | eligible | allowed after validation |
+      | only closed blockers | eligible | allowed after validation |
+      | an open blocker | dependency_blocked | forbidden |
+      | a dangling target | dependency_dangling | forbidden |
+      | an open cycle | dependency_cycle | forbidden |
+      | unreadable evidence | dependency_unreadable | forbidden |
+
+  # --- Error Handling ---
+
+  @SCN006
+  Scenario: unreadable dependency evidence fails closed
+    Given a dependency response is incomplete, malformed, or unreadable
+    When any lifecycle surface needs the graph
+    Then it reports dependency_unreadable
+    And it does not infer eligibility from body text or partial pages
+
+  # --- Edge Cases ---
+
+  @SCN007
+  Scenario: cycles are deterministic and closed blockers are satisfied
+    Given a graph containing closed blocker edges and a cycle among open issues
+    When the shared validator runs
+    Then closed blocker edges do not block independent execution
+    And the open cycle is rejected with a canonical cycle path
