@@ -714,6 +714,26 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
+  it('waits when detection shows working before the agent state updates', () => {
+    const fixture = makeControllerFixture({ settledBeforeSubmit: true, agentState: 'idle' });
+    const readAgent = fixture.herdr.agentRead;
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentRead = (input) => input.name === 's42-start' ? 'Working…' : readAgent(input);
+    fixture.herdr.agentSendKeys = (input) => {
+      if (input.name === 's42-start') throw new Error('must not resubmit an active worker prompt');
+      return sendKeys(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits.slice(0, 2)).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    expect(fixture.closed).toContain('pane-1');
+  });
+
   it('recovers a worker prompt from all three leading previews', () => {
     const fixture = makeControllerFixture({ stalled: true });
     const readAgent = fixture.herdr.agentRead;

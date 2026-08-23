@@ -529,6 +529,15 @@ function hasPastedWorkerPrompt(herdr, agentName, prompt) {
     .every((line) => detection.includes(line.slice(0, 11)));
 }
 
+function appearsWorking(herdr, agentName) {
+  return agentDetectionText(herdr, agentName).includes('Working');
+}
+
+function waitForWorkerSettlement(herdr, agentName) {
+  return commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
+    && commandSucceeded(herdr.agentWait({ name: agentName }));
+}
+
 function reviewBranchSelectionKeys(cwd, run) {
   const branches = run('git', ['branch', '-a', '--format=%(refname:short)'], { cwd });
   if (!commandSucceeded(branches)) return null;
@@ -834,6 +843,14 @@ export function runExecute({
       ) {
         if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
           if (!retryPromptSubmission(herdrApi, agentName)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        } else if (appearsWorking(herdrApi, agentName)) {
+          if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,

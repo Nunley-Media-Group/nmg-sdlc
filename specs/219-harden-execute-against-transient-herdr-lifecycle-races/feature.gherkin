@@ -32,6 +32,13 @@ Feature: Harden execute against transient Herdr lifecycle races
     When prompt wait returns
     Then execute waits for settlement before validating the handoff
 
+  @SCN009 @regression
+  Scenario: Visible working indicator outruns agent state
+    Given detection shows the worker is working while the agent state still reports idle
+    When the handoff is not yet present
+    Then execute waits for working and settled states without resubmitting the prompt
+    And it validates the resulting handoff
+
   @SCN004 @regression
   Scenario: Review menus are driven as distinct transitions
     Given a review worker has `/review` pasted or Review Mode visible
