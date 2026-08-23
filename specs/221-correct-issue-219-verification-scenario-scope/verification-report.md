@@ -5,6 +5,21 @@
 **Status**: Pass
 **Reviewer**: Codex
 
+### Implementation Status: Pass
+
+**Total Issues**: 0
+
+## Issue Scope
+
+- Active issue: #221
+- Spec: `specs/221-correct-issue-219-verification-scenario-scope`
+- Manifest: `implicit single issue`
+- Resolver status: `implicit_single_issue`
+- Delivery: AC [AC1, AC2, AC3]; FR []; tasks [T001, T002, T003]; scenarios [SCN001, SCN002, SCN003]
+- Regression: AC []; FR []; scenarios []
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":221,"specPath":"specs/221-correct-issue-219-verification-scenario-scope","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3"],"functionalRequirements":[],"tasks":["T001","T002","T003"],"scenarios":["SCN001","SCN002","SCN003"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+
 ## Acceptance Criteria
 
 - AC1: Pass — `specs/219-harden-execute-against-transient-herdr-lifecycle-races/verification-report.md` now lists SCN009 in the regression scope, machine-readable scope manifest, regression table, and AC2 BDD mapping; totals are nine scenarios and nine passing outcomes.

@@ -1,9 +1,10 @@
-# Requirements: Correct issue 219 verification scenario scope
+# Defect Report: Correct issue 219 verification scenario scope
 
 **Issue**: #221
 **Date**: 2026-08-22
 **Status**: Approved
 **Author**: NMG
+**Related Spec**: specs/219-harden-execute-against-transient-herdr-lifecycle-races/
 
 ## Problem
 
