@@ -98,6 +98,19 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(read('workflows/write-spec/WORKFLOW.md')).toContain(
       'Continue — enter another issue number',
     );
+
+    expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
+      'Else use one ask for the need (free-form via Other if needed, but prefer short).',
+    );
+    expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
+      '- `v${major} (current)`',
+    );
+    expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
+      '- `v${major+1} (next)`',
+    );
+    expect(read('references/interactive-gates.md')).toContain(
+      'Required canned gates keep their existing question and option labels and are not required to add a situation paragraph: draft-issue classification, draft-issue milestone, draft-issue split confirmation, draft-issue need-gather when `$ARGUMENTS` is absent, and write-spec continue/finish.',
+    );
   });
 
   it('write-spec finishes at xd://propose then publishes', () => {
