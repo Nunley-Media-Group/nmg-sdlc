@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-execute` now recovers when Herdr reports an idle worker before submitting its pasted prompt, waits for already-working workers to settle, and drives `/review` submission and menu selection as separate UI transitions.
+- `/sdlc-execute` now retries one failed Herdr worker startup after a bounded readiness delay before failing closed with `agent_start_failed`.
+
 ## [3.4.1] - 2026-08-22
 
 ### Fixed

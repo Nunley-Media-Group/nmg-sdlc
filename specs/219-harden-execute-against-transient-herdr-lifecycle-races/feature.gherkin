@@ -1,0 +1,56 @@
+**Issue**: #219
+**Date**: 2026-08-22
+**Status**: Approved
+**Author**: NMG
+
+Feature: Harden execute against transient Herdr lifecycle races
+
+  @SCN001 @regression
+  Scenario: Expected pasted worker prompt is recovered
+    Given an idle worker has no handoff and the expected deterministic worker prompt is visibly pasted
+    When Herdr prompt wait settles before submission
+    Then execute submits Enter and waits for the worker to settle
+    And it evaluates the resulting handoff
+
+  @SCN002 @regression
+  Scenario: Unrelated visible prompt fails closed
+    Given an idle worker has no handoff and detection contains unrelated text beginning with "You are the"
+    When execute evaluates prompt recovery
+    Then it does not submit Enter
+    And it stops with the applicable fail-closed reason
+
+  @SCN003 @regression
+  Scenario: Working worker settles before handoff validation
+    Given a worker is working and has not written its handoff
+    When prompt wait returns
+    Then execute waits for settlement before validating the handoff
+
+  @SCN004 @regression
+  Scenario: Review menus are driven as distinct transitions
+    Given a review worker has `/review` pasted or Review Mode visible
+    When execute starts review orchestration
+    Then it submits `/review` when necessary
+    And it selects PR-style review
+    And it selects literal `main` from the observed base-branch menu
+
+  @SCN005 @regression
+  Scenario: One transient worker startup failure is recovered
+    Given the first agent start call fails in a controller-created pane
+    When one second passes
+    Then execute retries the same agent and pane once
+    And continues when that retry succeeds
+
+  @SCN006 @regression
+  Scenario: Two worker startup failures stop safely
+    Given both permitted agent start calls fail
+    When execute evaluates startup
+    Then it stops with agent_start_failed
+    And leaves the worker pane open
+
+  @SCN007 @exercise
+  Scenario: Injected startup failure completes full delivery
+    Given a disposable approved issue and a wrapper that fails exactly the first Herdr agent start
+    When execute runs end to end
+    Then all queue steps complete
+    And the pull request merges and issue closes
+    And no worker pane remains
