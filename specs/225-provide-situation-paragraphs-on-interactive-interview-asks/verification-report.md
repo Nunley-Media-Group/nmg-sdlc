@@ -175,6 +175,14 @@ The harness emitted exactly the expected canned need-gather prompt: `What issue 
 
 **Gate Summary**: 7/7 gates passed, 0 failed, 0 incomplete.
 
+## Delivery Metadata Verification
+
+| Path | Status | Evidence |
+|------|--------|----------|
+| `VERSION` | Verified | Release source advanced from 3.7.0 to 3.8.0 for the issue's `enhancement` label. |
+| `package.json` | Verified | OMP manifest version is synchronized at 3.8.0. |
+| `CHANGELOG.md` | Verified | The 3.8.0 release entry records the interactive situation-paragraph capability and leaves `[Unreleased]` empty. |
+
 ---
 
 ## Fixes Applied
