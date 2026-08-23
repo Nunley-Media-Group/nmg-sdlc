@@ -1,0 +1,78 @@
+**Issue**: #238
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: NMG
+
+# File: scripts/__tests__/publish-approved-spec.test.mjs
+#
+# Generated from: specs/238-present-issues-missing-spec-created-on-bare-write-spec/requirements.md
+Feature: Bare write-spec missing-spec picker
+  As an nmg-sdlc user
+  I want bare write-spec to present open issues missing spec-created immediately
+  So that I can choose the next specification without typing or reinvoking an issue number
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: bare invocation immediately presents missing-spec issues
+    Given a TUI invocation with empty arguments
+    And open issues 9, 2, 7, and 4 lack exact label spec-created
+    When write-spec starts
+    Then the first interaction is one ask with issues 2, 4, and 7 in order
+    And issue 2 is recommended
+    And the last authored option is Finished — stop without writing a spec
+    And no usage or enter-number gate precedes the ask
+
+  @SCN002
+  Scenario: a picker selection enters the existing first-spec path
+    Given the bare picker is visible
+    When the user selects a listed issue or enters a valid issue number through Other
+    Then write-spec runs existing initial Discovery and Interview for that number
+    And the first specification still finishes at xd://propose
+
+  # --- Alternative Paths ---
+
+  @SCN003
+  Scenario Outline: non-empty arguments keep existing behavior
+    Given write-spec starts with <arguments>
+    When initial argument routing runs
+    Then the bare picker is <picker>
+    And the outcome is <outcome>
+
+    Examples:
+      | arguments | picker | outcome |
+      | #42 | skipped | initial Discovery for 42 |
+      | 42 | skipped | initial Discovery for 42 |
+      | issue-42 | skipped | exact usage output |
+
+  @SCN004
+  Scenario: Finished stops silently
+    Given the bare picker is visible
+    When the user selects Finished — stop without writing a spec
+    Then write-spec stops without Discovery
+    And it prints no Published specs or Next step line
+
+  # --- Error Handling ---
+
+  @SCN005
+  Scenario: listing failure fails closed
+    Given the missing-spec-created helper cannot read valid issue and label evidence
+    When bare write-spec starts
+    Then it prints the helper failure reason
+    And it does not ask or invent an issue list
+
+  # --- Edge Cases ---
+
+  @SCN006
+  Scenario: no open issue is missing spec-created
+    Given every open issue has exact label spec-created or there are no open issues
+    When bare write-spec starts
+    Then it prints exactly No open issues missing spec-created.
+    And it stops without ask or usage
+
+  @SCN007
+  Scenario: post-publication continuation remains distinct
+    Given a specification has been published
+    When the continue loop runs
+    Then it still uses approved-package candidates
+    And its authored stop option remains Finished — stop writing specs
