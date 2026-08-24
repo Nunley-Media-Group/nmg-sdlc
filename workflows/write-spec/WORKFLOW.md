@@ -26,7 +26,7 @@ If the trimmed value is empty:
 1. Before any usage gate or `ask`, run:
 
    ```text
-   node scripts/publish-approved-spec.mjs missing-spec-created
+   node <plugin-root>/scripts/publish-approved-spec.mjs missing-spec-created
    ```
 
 2. Require exit 0 and parse the complete JSON object. On non-zero or malformed output, print its `reasonCode` or helper failure output and stop without asking or inventing choices.
@@ -45,7 +45,7 @@ Keep an in-memory `published[]` list of issue numbers published in this session.
 Run:
 
 ```text
-node scripts/publish-approved-spec.mjs discover --issue N
+node <plugin-root>/scripts/publish-approved-spec.mjs discover --issue N
 ```
 
 Require exit 0 and parse the complete JSON object. Use `issue.number`, `title`, `body`, `labels`, and `state`; `classification`; `slug`; `targetDir`; and `spec.dir`, `approved`, and `source` directly. On non-zero or malformed output, print its `reasonCode` and stop. Do not reproduce slug, directory, branch, or approval resolution.
@@ -128,13 +128,13 @@ Only the first spec in a session uses `xd://propose`. Continuation never calls `
 
 Exact order after first propose approval:
 
-1. `node scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). Failure → stop, do not write files.
+1. `node <plugin-root>/scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). Failure → stop, do not write files.
 
 2. Write/overwrite the four spec files with `**Status**: Approved` (existing frontmatter and Change History rules). Fail closed if any written `**Issue**` ≠ `#N`. Never write into a directory whose leading number ≠ `N`.
 
-3. `node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
+3. `node <plugin-root>/scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
 
-4. `node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, report any remediation failure, and continue without rewriting the package. A successful response leaves the helper on the default branch.
+4. `node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, report any remediation failure, and continue without rewriting the package. A successful response leaves the helper on the default branch.
 
 5. If `N` was not already recorded from a post-merge failure, append it to in-memory `published[]`.
 
@@ -149,7 +149,7 @@ Initial write uses "Initial feature spec" or "Initial defect report"
 Does not consume interview budget. Invoke:
 
 ```text
-node scripts/publish-approved-spec.mjs candidates [--published N ...]
+node <plugin-root>/scripts/publish-approved-spec.mjs candidates [--published N ...]
 ```
 
 Include one `--published N` pair for every number in the in-memory `published[]` list. Require exit 0 and consume the complete `candidates` array. The helper owns GitHub listing, deduplication, numeric sorting, and shared approval filtering; do not repeat those rules.
@@ -172,7 +172,7 @@ Continue / candidate / Other `#M`:
 
 - Parse `^#?([1-9]\d*)$`. Invalid → re-ask continue.
 - Already in `published[]` → print `Spec already approved for #M.` and re-ask.
-- Otherwise run `node scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery.
+- Otherwise run `node <plugin-root>/scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery.
 - If Discovery returns `spec.approved`:
   - Closed issue → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
   - Any other issue state → print `Spec already approved for #M.` and re-ask.

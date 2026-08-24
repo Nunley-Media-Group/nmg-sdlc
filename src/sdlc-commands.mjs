@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
+import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 
@@ -64,7 +65,10 @@ export function rewriteInteractiveInput(text, {
   if (source !== "interactive" || headless === true) return undefined;
   const parsed = parseInteractiveSlash(text);
   if (!parsed) return undefined;
-  const body = withArguments(workflowBody(parsed.skill, root), parsed.args);
+  const body = withArguments(
+    materializeControllerPaths(workflowBody(parsed.skill, root), root ?? packageRoot),
+    parsed.args,
+  );
   if (sessionMode === "plan") return { text: body };
   return { text: `/plan\n\n${body}` };
 }

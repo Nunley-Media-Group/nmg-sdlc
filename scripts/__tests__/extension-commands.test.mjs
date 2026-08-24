@@ -24,6 +24,7 @@ describe('extension sdlc- commands', () => {
     expect(helpers).toContain('["sdlc-verify-code", "verify-code"');
     expect(helpers).toContain('["sdlc-open-pr", "open-pr"');
     expect(source).toContain('pi.registerCommand(name');
+    expect(source).toContain('process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot');
     expect(source).not.toMatch(/registerCommand\("(execute|draft-issue|write-spec)"/);
   });
 
@@ -51,6 +52,23 @@ describe('extension sdlc- commands', () => {
     expect(fs.existsSync(path.join(repoRoot, 'commands', 'sdlc-write-spec.md'))).toBe(false);
     for (const [name, skill, description] of AUTOMATED_COMMANDS) {
       expect(read(`commands/${name}.md`)).toBe(renderAutomatedCommandMarkdown(name, skill, description, repoRoot));
+    }
+  });
+
+  it('ships no cwd-relative controller dispatch in public prompt surfaces', () => {
+    const roots = ['commands', 'workflows'];
+    const markdown = [];
+    while (roots.length > 0) {
+      const relative = roots.pop();
+      const absolute = path.join(repoRoot, relative);
+      for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+        const child = path.join(relative, entry.name);
+        if (entry.isDirectory()) roots.push(child);
+        else if (entry.isFile() && entry.name.endsWith('.md')) markdown.push(child);
+      }
+    }
+    for (const file of markdown) {
+      expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
     }
   });
 

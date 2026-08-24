@@ -8,7 +8,7 @@ import {
   rewriteInteractiveInput,
   sessionModeFromEntries,
   withArguments,
-  workflowBody,
+  packageRoot,
 } from "./sdlc-commands.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
@@ -37,6 +37,7 @@ function readRunState(): unknown | null {
 }
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
+  process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   pi.setLabel("NMG SDLC");
 
   pi.on("input", (event, ctx) => {

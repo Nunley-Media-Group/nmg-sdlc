@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 export const SPEC_CREATED_LABEL = 'spec-created';
 
@@ -164,6 +164,6 @@ function runCli(argv = process.argv.slice(2)) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isCliEntry(import.meta.url)) {
   process.exitCode = runCli();
 }

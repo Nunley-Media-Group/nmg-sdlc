@@ -27,6 +27,6 @@ describe('start-issue explicit issue contract', () => {
 
   test('keeps the compact controller invocation', () => {
     expect(skill).toContain('# Start Issue');
-    expect(skill).toContain('node scripts/start-issue.mjs --issue N');
+    expect(skill).toContain('node <plugin-root>/scripts/start-issue.mjs --issue N');
   });
 });

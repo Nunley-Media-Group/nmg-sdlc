@@ -17,7 +17,7 @@ If the argument is missing or does not match, write failed handoff at the worker
 
 Invoke from the repository root:
 
-node scripts/start-issue.mjs --issue N
+node <plugin-root>/scripts/start-issue.mjs --issue N
 
 Pass stdout and stderr through unchanged. Exit with the controller exit code.
 

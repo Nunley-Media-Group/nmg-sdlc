@@ -10,8 +10,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, resolve as pathResolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
@@ -20,10 +19,10 @@ import {
   issueDependencyStatus,
   readDependencyGraph,
 } from './issue-dependencies.mjs';
-import { workflowBody } from '../src/sdlc-workflows.mjs';
+import { packageRoot, workflowBody } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
+import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
 
-const __filename = fileURLToPath(import.meta.url);
 
 const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
@@ -373,7 +372,8 @@ export function workerPrompt({ step, issue, skill } = {}) {
   const skillName = skill || STEP_SKILL[step];
   if (!skillName) throw new Error('no skill for step');
   const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))];
+  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))]
+    .map((body) => materializeControllerPaths(body, packageRoot));
   return [
     `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
     `Execute the following inlined workflow for #${issue} with no user questions.`,
@@ -1263,9 +1263,6 @@ function runCli(argv = process.argv.slice(2)) {
   process.exit(2);
 }
 
-const isMainModule =
-  process.argv[1] && pathResolve(process.argv[1]) === pathResolve(__filename);
-
-if (isMainModule) {
+if (isCliEntry(import.meta.url)) {
   runCli(process.argv.slice(2));
 }

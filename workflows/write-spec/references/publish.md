@@ -7,12 +7,12 @@
 All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it.
 
 ```text
-node scripts/publish-approved-spec.mjs discover --issue N
-node scripts/publish-approved-spec.mjs candidates [--published N ...]
-node scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}
-node scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}
-node scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}
-node scripts/publish-approved-spec.mjs default-branch
+node <plugin-root>/scripts/publish-approved-spec.mjs discover --issue N
+node <plugin-root>/scripts/publish-approved-spec.mjs candidates [--published N ...]
+node <plugin-root>/scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}
+node <plugin-root>/scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}
+node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}
+node <plugin-root>/scripts/publish-approved-spec.mjs default-branch
 ```
 
 `{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (POSIX, no `..`). Issue arguments are positive integers. Invalid or unknown arguments fail `invalid_arguments`.
@@ -79,7 +79,7 @@ If current differs from `{N}-{slug}`, `prepare` reads the default branch through
 
 `merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. It squash-merges, checks out the repository default branch, fast-forwards it, and applies `spec-created` while leaving issue N open.
 
-Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node scripts/publish-approved-spec.mjs default-branch`; for `spec_created_label_failed`, run `node scripts/spec-created-label.mjs apply --issue N`. Report remediation failure separately and continue the publication loop with N excluded through `--published N`. Never force-push or stage with `git add -A`.
+Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node <plugin-root>/scripts/publish-approved-spec.mjs default-branch`; for `spec_created_label_failed`, run `node <plugin-root>/scripts/spec-created-label.mjs apply --issue N`. Report remediation failure separately and continue the publication loop with N excluded through `--published N`. Never force-push or stage with `git add -A`.
 
 `default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
 

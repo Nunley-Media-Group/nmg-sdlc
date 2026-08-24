@@ -39,7 +39,7 @@ omp --print --no-session --no-extensions --no-skills \
   "/sdlc-CHANGED_SKILL_NAME [args]"
 
 # Or the RPC harness (also expands file commands when --plugin-dir is set)
-node /path/to/this/nmg-sdlc/scripts/exercise-omp.mjs \
+node <plugin-root>/scripts/exercise-omp.mjs \
   --cwd . \
   --timeout-ms 300000 \
   -- /sdlc-CHANGED_SKILL_NAME [args]
