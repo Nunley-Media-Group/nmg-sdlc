@@ -23,7 +23,10 @@ function fixture({ issues, blockers = {}, fail = () => false } = {}) {
     state: issue.state ?? 'open',
     title: issue.title ?? `Issue ${issue.number}`,
     body: issue.body ?? '',
-    repository_url: 'https://api.github.com/repos/acme/widgets',
+    repository_url: Object.hasOwn(issue, 'repository_url')
+      ? issue.repository_url
+      : 'https://api.github.com/repos/acme/widgets',
+    ...(Object.hasOwn(issue, 'repository') ? { repository: issue.repository } : {}),
   }]));
   const run = (command, args) => {
     calls.push([command, args]);
@@ -60,6 +63,40 @@ describe('official blocked-by adapter', () => {
       { id: 701, number: 7, state: 'CLOSED', repository: 'acme/widgets', title: 'Issue 7' },
     ]);
     expect(f.calls.some(([, args]) => args.includes('--paginate') && args.includes('--slurp') && args.includes('per_page=100') && args.includes('GET'))).toBe(true);
+  });
+
+  it.each([
+    ['open REST full_name', 'open', { repository: { full_name: 'acme/widgets' } }],
+    ['closed REST full_name', 'closed', { repository: { full_name: 'acme/widgets' } }],
+    ['GraphQL nameWithOwner', 'open', { repository: { nameWithOwner: 'acme/widgets' } }],
+    ['string repository', 'open', { repository: 'acme/widgets' }],
+    ['repository URL', 'open', {}],
+    ['unrecognized repository object with URL fallback', 'open', { repository: {} }],
+  ])('accepts %s blocker repository metadata', (_label, state, metadata) => {
+    const f = fixture({
+      issues: [{ number: 2 }, { number: 7, state, ...metadata }],
+      blockers: { 2: [7] },
+    });
+    const blockers = readBlockedBy(createIssueDependencyClient({ cwd: '/repo', run: f.run }), 2);
+
+    expect(blockers).toEqual([
+      expect.objectContaining({ number: 7, state: state.toUpperCase(), repository: 'acme/widgets' }),
+    ]);
+  });
+
+  it.each([
+    ['REST full_name', { repository: { full_name: 'other/widgets' } }],
+    ['GraphQL nameWithOwner', { repository: { nameWithOwner: 'other/widgets' } }],
+    ['string repository', { repository: 'other/widgets' }],
+    ['repository URL', { repository_url: 'https://api.github.com/repos/other/widgets' }],
+  ])('rejects cross-repository %s blocker metadata as dangling', (_label, metadata) => {
+    const f = fixture({
+      issues: [{ number: 2 }, { number: 7, ...metadata }],
+      blockers: { 2: [7] },
+    });
+
+    expect(() => readBlockedBy(createIssueDependencyClient({ cwd: '/repo', run: f.run }), 2))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_dangling', edgeTarget: 7 }));
   });
 
   it('recursively loads open blockers and leaves independent or closed-blocked issues eligible', () => {

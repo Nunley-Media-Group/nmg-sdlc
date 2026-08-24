@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.10.2] - 2026-08-23
+
+### Fixed
+
+- Dependency normalization now accepts REST `repository.full_name` objects while preserving GraphQL, string, URL, and strict cross-repository behavior.
+
 ## [3.10.1] - 2026-08-23
 
 ### Fixed
