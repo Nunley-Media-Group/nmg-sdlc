@@ -118,7 +118,7 @@ None.
 
 ## Files Reviewed
 
-All 37 issue-branch files were reviewed, with detailed focus on `scripts/plugin-controller-path.mjs`, the ten executable controllers, `src/extension.ts`, `src/sdlc-commands.mjs`, command/workflow surfaces, prompt ceilings, and controller-path tests.
+All 40 issue-branch files were reviewed, with detailed focus on `scripts/plugin-controller-path.mjs`, the ten executable controllers, `src/extension.ts`, `src/sdlc-commands.mjs`, command/workflow surfaces, prompt ceilings, controller-path tests, and the synchronized `VERSION`, `package.json`, and `CHANGELOG.md` release artifacts.
 
 ## Recommendation
 
