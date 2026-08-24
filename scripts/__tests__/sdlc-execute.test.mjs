@@ -1308,6 +1308,79 @@ describe('runExecute controller', () => {
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
     expect(fixture.starts[0].name).toBe('s42-implement');
   });
+  it('waits once for a retained idle implement handoff before continuing', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'missing_handoff' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-implement-pane',
+      state: 'idle',
+    }];
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-implement'
+      ? 'You are implementing approved issue tasks'
+      : readAgent(input);
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const agentWait = fixture.herdr.agentWait;
+    let paneWasOpenDuringWait = false;
+    fixture.herdr.agentWait = (input) => {
+      if (input.name === 's42-implement') paneWasOpenDuringWait = fixture.closed.length === 0;
+      return agentWait(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(paneWasOpenDuringWait).toBe(true);
+    expect(persisted.failed).toBeNull();
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-implement');
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1');
+    expect(fixture.closed[0]).toBe('kept-implement-pane');
+    expect(fixture.waits).toContainEqual({ name: 's42-implement', until: 'working' });
+    expect(fixture.waits.find((wait) => wait.name === 's42-implement' && wait.until === 'working'))
+      .not.toHaveProperty('timeout');
+  });
+
+  it('fails closed when a retained idle implement worker does not resume', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'missing_handoff' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-implement-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    fixture.herdr.agentRead = () => 'You are implementing approved issue tasks';
+    fixture.herdr.agentWait = (input) => {
+      fixture.waits.push(input);
+      return { status: input.until ? 1 : 0 };
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'implement', reasonCode: 'worker_failed' });
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+  });
   it('fails closed when a matching retained blocked worker does not settle', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { state: 'blocked' } });
@@ -1505,6 +1578,106 @@ describe('runExecute controller', () => {
     expect(persisted.currentIssue).toBe(43);
     expect(persisted.completed['43']).toEqual([]);
   });
+  it('restores a later issue branch after finalizing an earlier delivered issue', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43] });
+    const laterSpec = path.join(fixture.cwd, 'specs', '43-later');
+    fs.mkdirSync(laterSpec, { recursive: true });
+    writeApproved(laterSpec, 43);
+    writeRun({
+      schemaVersion: 1,
+      issues: [42, 43],
+      currentIssue: 43,
+      currentStep: 'review1',
+      completed: {
+        42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'],
+        43: ['start', 'implement'],
+      },
+      failed: null,
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    const baseRun = fixture.run;
+    let currentBranch = '42-ship-it';
+    const events = [];
+    const reviewPromptBranches = [];
+    const agentStart = fixture.herdr.agentStart;
+    fixture.herdr.agentStart = (input) => {
+      events.push(`start:${input.name}:${currentBranch}`);
+      return agentStart(input);
+    };
+    const agentPrompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.prompt === '/review') reviewPromptBranches.push(currentBranch);
+      return agentPrompt(input);
+    };
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        currentBranch = args[1];
+        events.push(`checkout:${args[1]}`);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
+        fixture.calls.push([command, ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ title: Number(args[2]) === 43 ? 'Later' : 'Ship It' }),
+          stderr: '',
+        };
+      }
+      if (command === 'git' && args[0] === 'branch' && args[1] === '-a') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: '43-later\nmain\norigin/43-later\norigin/main\n', stderr: '' };
+      }
+      return baseRun(command, args);
+    };
+
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    const checkoutMain = events.indexOf('checkout:main');
+    const checkoutLater = events.indexOf('checkout:43-later');
+    const reviewStart = events.indexOf('start:s43-review1:43-later');
+    expect(checkoutMain).toBeGreaterThanOrEqual(0);
+    expect(checkoutLater).toBeGreaterThan(checkoutMain);
+    expect(reviewStart).toBeGreaterThan(checkoutLater);
+    expect(reviewPromptBranches).not.toContain('main');
+  });
+
+  it('does not prompt review when issue branch checkout is ineffective', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: null,
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('branch_checkout_failed');
+    expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
+    expect(fixture.starts).toEqual([]);
+  });
 
   it('keeps an active failed verification worker open', () => {
     const fixture = makeControllerFixture();
@@ -1609,12 +1782,21 @@ describe('runExecute controller', () => {
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
     fixture.herdr.agentRead = () => 'You are the reviewer for unrelated work';
-
+    fixture.herdr.agentWait = (input) => {
+      fixture.waits.push(input);
+      return { status: 0 };
+    };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result.status).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual([]);
+    expect(fixture.waits).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.failed.reasonCode).toBe('missing_handoff');
   });
 
 
