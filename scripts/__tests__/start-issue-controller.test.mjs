@@ -190,13 +190,25 @@ describe('startIssue controller', () => {
 
     expect(result.handoff.status).toBe('passed');
     expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
-    expect(f.calls).toContainEqual([
-      'git', 'status', '--porcelain', '--', '.', ':(exclude).omp/sdlc',
-    ]);
+    expect(f.calls).toContainEqual(['git', 'status', '--porcelain', '-z']);
     expect(fs.existsSync(runtimePath)).toBe(true);
     expect(f.calls).toContainEqual([
       'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
     ]);
+  });
+
+  it('rejects other dirt alongside the exact runtime staged transition', () => {
+    const f = fixture({
+      gitignore: '.omp/sdlc/\n',
+      integratedRuntimeMigration: true,
+    });
+    fs.writeFileSync(path.join(f.cwd, 'local.txt'), 'dirty\n');
+
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
+    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
   it('does not untrack unignored runtime and still fails dirty_tree', () => {

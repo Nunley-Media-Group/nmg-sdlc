@@ -61,6 +61,26 @@ export function ensureOmpSdlcIgnore(root, options = {}) {
   return writeOmpSdlcIgnore(root, options);
 }
 
+export function isAuthorizedOmpSdlcUntrackTransition(status, untrack) {
+  const paths = untrack?.untrackedPaths;
+  if (!untrack?.changed || !Array.isArray(paths) || paths.length === 0) return false;
+
+  const expected = new Set(paths);
+  if (expected.size !== paths.length || paths.some((path) => !path.startsWith(OMP_SDLC_IGNORE_LINE))) {
+    return false;
+  }
+
+  const porcelain = String(status ?? '');
+  if (!porcelain.endsWith('\0')) return false;
+  const records = porcelain.slice(0, -1).split('\0');
+  if (records.length !== expected.size) return false;
+
+  for (const record of records) {
+    if (!record.startsWith('D  ') || !expected.delete(record.slice(3))) return false;
+  }
+  return expected.size === 0;
+}
+
 export function untrackOmpSdlcRuntime({
   cwd = process.cwd(),
   run = defaultRun,
@@ -80,15 +100,36 @@ export function untrackOmpSdlcRuntime({
   if (listed?.status !== 0) {
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
-  if (!String(listed.stdout || '')) {
-    return { ok: true, changed: false, status: 'already untracked', reasonCode: null };
+  const listedOutput = String(listed.stdout || '');
+  if (!listedOutput) {
+    return {
+      ok: true,
+      changed: false,
+      status: 'already untracked',
+      reasonCode: null,
+      untrackedPaths: [],
+    };
+  }
+  if (!listedOutput.endsWith('\0')) {
+    return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
+  }
+  const untrackedPaths = listedOutput.slice(0, -1).split('\0');
+  if (new Set(untrackedPaths).size !== untrackedPaths.length
+    || untrackedPaths.some((path) => !path.startsWith(OMP_SDLC_IGNORE_LINE))) {
+    return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
 
   const removed = run('git', ['rm', '--cached', '-r', '--', '.omp/sdlc'], { cwd });
   if (removed?.status !== 0) {
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
-  return { ok: true, changed: true, status: 'untracked', reasonCode: null };
+  return {
+    ok: true,
+    changed: true,
+    status: 'untracked',
+    reasonCode: null,
+    untrackedPaths,
+  };
 }
 
 function runCli(argv = process.argv.slice(2)) {

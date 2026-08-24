@@ -986,10 +986,22 @@ describe('runExecute controller', () => {
 
     expect(result.stderr).not.toBe('Working tree is dirty for a new issue\n');
     expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
-    expect(fixture.calls).toContainEqual([
-      'git', 'status', '--porcelain', '--', '.', ':(exclude).omp/sdlc',
-    ]);
+    expect(fixture.calls).toContainEqual(['git', 'status', '--porcelain', '-z']);
     expect(fixture.starts).not.toHaveLength(0);
+  });
+
+  it('rejects other dirt alongside the exact runtime staged transition', () => {
+    const fixture = makeControllerFixture({
+      gitignore: '.omp/sdlc/\n',
+      integratedRuntimeMigration: true,
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'local.txt'), 'dirty\n');
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' });
+    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fixture.starts).toEqual([]);
   });
 
   it('keeps unignored runtime dirt blocking without git untrack calls', () => {

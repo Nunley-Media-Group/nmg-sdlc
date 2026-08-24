@@ -45,36 +45,36 @@ These were not caught because this repository already ignores `.omp/sdlc/`, so d
 
 ### Approach
 
-Add one new module `scripts/omp-sdlc-ignore.mjs` (no equivalent exists) that owns the ignore predicate, file write, and `git rm --cached` untrack. Onboard and upgrade call the write path. Start and execute call untrack only after the ignore rule exists, then keep today’s unfiltered dirty-tree checks.
+Add one new module `scripts/omp-sdlc-ignore.mjs` (no equivalent exists) that owns the ignore predicate, file write, `git rm --cached` untrack, and exact staged-transition predicate. Onboard and upgrade call the write path. Start and execute call untrack only after the ignore rule exists, then keep unfiltered dirty-tree inspection while authorizing only the exact staged deletions produced by that successful untrack call.
 
 Presence: a non-comment line whose trimmed text is `.omp/sdlc/` or `.omp/sdlc`. Written line is always `.omp/sdlc/`. Negated `!` lines do not count. Broader patterns do not count; append `.omp/sdlc/` anyway.
 
-Untrack command is exactly `git rm --cached -r -- .omp/sdlc` after a non-empty `git ls-files -z -- .omp/sdlc`. Never delete working-tree files. Untrack failure is `runtime_untrack_failed` and must not create or switch branches.
+Untrack command is exactly `git rm --cached -r -- .omp/sdlc` after a non-empty `git ls-files -z -- .omp/sdlc`. The helper retains the exact NUL-delimited paths listed before removal. The subsequent unfiltered porcelain check may proceed only when every dirty record is an index-only deletion for one of those exact paths and every listed path has exactly one such record. Any additional, missing, unstaged, renamed, untracked, or differently staged record remains `dirty_tree`. Never delete working-tree files. Untrack failure is `runtime_untrack_failed` and must not create or switch branches.
 
-Do not change `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `porcelainPaths` in apply-review.
+Do not change `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `porcelainPaths` in apply-review. Do not add a pathspec exclusion to `git status`; the authorization is bound to the successful controlled operation and its exact path set.
 
 ### Changes
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `scripts/omp-sdlc-ignore.mjs` | New helper + `ensure` CLI | Single ignore/untrack implementation (none exists) |
+| `scripts/omp-sdlc-ignore.mjs` | New helper + `ensure` CLI + exact staged-transition predicate | Single ignore/untrack implementation and narrow authorization |
 | `workflows/onboard-project/WORKFLOW.md` | Greenfield/brownfield plan execution runs `ensure --root` | FR1 |
 | `scripts/sdlc-upgrade.mjs` | Detect/apply `omp-sdlc-ignore` after v2 cleanup | FR2 |
 | `workflows/upgrade-project/WORKFLOW.md` | Detector step 10 | FR2 surface |
 | `workflows/upgrade-project/references/detection.md` | Detector 9: missing `.omp/sdlc/` ignore | Keep detector list complete |
 | `workflows/upgrade-project/references/upgrade-procedures.md` | Category row `omp-sdlc-ignore` | Apply table |
-| `scripts/start-issue.mjs` | `readFileSync` on `fs`; untrack before dirty check | FR3 |
-| `scripts/sdlc-execute.mjs` | Untrack once before `dirtyTreeBlocks` | FR3 |
-| `scripts/__tests__/omp-sdlc-ignore.test.mjs` | Predicate, write, untrack, CLI | AC1/AC2 unit |
+| `scripts/start-issue.mjs` | `readFileSync` on `fs`; untrack before dirty check; pass exact authorization into the gate | FR3 |
+| `scripts/sdlc-execute.mjs` | Untrack once before `dirtyTreeBlocks`; pass exact authorization into the gate | FR3 |
+| `scripts/__tests__/omp-sdlc-ignore.test.mjs` | Predicate, write, untrack, CLI, exact staged-transition authorization | AC1/AC2 unit |
 | `scripts/__tests__/sdlc-upgrade.test.mjs` | Detect/apply/idempotent ignore item | FR2 |
-| `scripts/__tests__/start-issue-controller.test.mjs` | Runtime untrack vs remaining `dirty_tree` | AC2/AC3 |
-| `scripts/__tests__/sdlc-execute.test.mjs` | Entry untrack vs remaining dirty preflight | AC1/AC3 |
+| `scripts/__tests__/start-issue-controller.test.mjs` | Exact runtime transition vs remaining `dirty_tree` | AC2/AC3 |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Exact runtime transition vs remaining dirty preflight | AC1/AC3 |
 
 ### Blast Radius
 
-- **Direct impact**: host `.gitignore` on onboard/upgrade apply; start/execute git index for `.omp/sdlc` only when the ignore rule exists.
-- **Indirect impact**: spec 249 `dirtyTreeBlocks` / `restoreActiveIssueBranch` stay unfiltered after untrack; spec 66 onboard managed-asset list; spec 21 / 151 v2 gitignore removal still only deletes recognized v2 blocks and must not strip `.omp/sdlc/`.
-- **Risk level**: Low. Untrack is `--cached` only and gated on the ignore rule. Other dirty paths still fail `dirty_tree`.
+- **Direct impact**: host `.gitignore` on onboard/upgrade apply; start/execute git index for `.omp/sdlc` only when the ignore rule exists; one exact post-untrack staged-deletion authorization.
+- **Indirect impact**: spec 249 `dirtyTreeBlocks` / `restoreActiveIssueBranch` stay unfiltered; only the initial gate receiving a successful untrack result can authorize its exact deletion set. Spec 66 onboard managed-asset list and spec 21 / 151 v2 gitignore removal remain unchanged.
+- **Risk level**: Low. Untrack is `--cached` only and gated on the ignore rule. Authorization is operation-bound and exact-set; other dirty paths still fail `dirty_tree`.
 
 ---
 
@@ -82,8 +82,9 @@ Do not change `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `porce
 
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
-| Unignored runtime treated as clean | Low | Untrack and ignore-write only; porcelain stays unfiltered |
+| Unignored runtime treated as clean | Low | Untrack and authorization require the exact host ignore rule; porcelain stays unfiltered |
 | `git rm` deletes working-tree runtime | Low | Require `--cached`; tests assert no unlink of working-tree files |
+| Pre-existing or unrelated dirt is hidden | Low | Require an exact set match between pre-untrack `ls-files` paths and index-only deletion porcelain records; reject every other record |
 | v2 cleanup removes the new ignore line | Low | Apply `omp-sdlc-ignore` after `v2-cleanup`; v2 editor only touches recognized v2 headers/entries |
 | Entire `.omp/` ignored | Low | Written line is `.omp/sdlc/` only |
 | Existing dirty_tree tests break on new `git ls-files` | Low | Untrack skipped when ignore absent; current fixtures have no `.gitignore` |
@@ -94,7 +95,7 @@ Do not change `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `porce
 
 | Option | Description | Why Not Selected |
 |--------|-------------|------------------|
-| Filter `.omp/sdlc` out of porcelain | Soft-clean without host ignore | Issue out of scope: treating unignored runtime as clean |
+| Broadly filter `.omp/sdlc` out of porcelain | Soft-clean without operation binding | Rejected: would hide unauthorized runtime dirt; the selected exact-set predicate authorizes only deletions produced by the successful controlled untrack |
 | Ignore all of `.omp/` | Broader exclude | Issue out of scope; apply-review already special-cases `.omp/` for staging only |
 | Edit one consumer host `.gitignore` as the fix | One-off | Issue out of scope; product must onboard/upgrade every host |
 

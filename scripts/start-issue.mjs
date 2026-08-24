@@ -10,7 +10,10 @@ import {
   readDependencyGraph,
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
-import { untrackOmpSdlcRuntime } from './omp-sdlc-ignore.mjs';
+import {
+  isAuthorizedOmpSdlcUntrackTransition,
+  untrackOmpSdlcRuntime,
+} from './omp-sdlc-ignore.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -120,10 +123,11 @@ export function startIssue({
   const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
 
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
-  const dirtyResult = run('git', ['status', '--porcelain', '--', '.', ':(exclude).omp/sdlc'], { cwd });
+  const dirtyResult = run('git', ['status', '--porcelain', '-z'], { cwd });
   const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
-  const dirty = String(dirtyResult?.stdout || '').trim();
-  if (dirtyResult?.status !== 0 || (dirty && currentBranch !== expectedBranch)) {
+  const dirty = String(dirtyResult?.stdout || '');
+  const authorizedUntrack = isAuthorizedOmpSdlcUntrackTransition(dirty, untrack);
+  if (dirtyResult?.status !== 0 || (dirty && !authorizedUntrack && currentBranch !== expectedBranch)) {
     return fail(`Working tree is dirty and current branch is not ${expectedBranch}`, 'dirty_tree');
   }
 

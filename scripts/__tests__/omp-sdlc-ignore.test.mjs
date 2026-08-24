@@ -9,6 +9,7 @@ import {
   OMP_SDLC_IGNORE_LINE,
   ensureOmpSdlcIgnore,
   hasOmpSdlcIgnore,
+  isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
   writeOmpSdlcIgnore,
 } from '../omp-sdlc-ignore.mjs';
@@ -108,11 +109,40 @@ describe('omp-sdlc ignore management (SCN001–SCN003)', () => {
         ? { status: 0, stdout: '.omp/sdlc/run.json\0' }
         : { status: 0, stdout: '' };
     };
-    expect(untrackOmpSdlcRuntime({ cwd: root, run })).toMatchObject({ ok: true, changed: true });
+    expect(untrackOmpSdlcRuntime({ cwd: root, run })).toMatchObject({
+      ok: true,
+      changed: true,
+      untrackedPaths: ['.omp/sdlc/run.json'],
+    });
     expect(calls).toEqual([
       ['git', 'ls-files', '-z', '--', '.omp/sdlc'],
       ['git', 'rm', '--cached', '-r', '--', '.omp/sdlc'],
     ]);
+  });
+
+  it('authorizes only the complete exact set of index-only runtime deletions', () => {
+    const untrack = {
+      changed: true,
+      untrackedPaths: ['.omp/sdlc/run.json', '.omp/sdlc/handoffs/42-start.json'],
+    };
+    expect(isAuthorizedOmpSdlcUntrackTransition(
+      'D  .omp/sdlc/run.json\0D  .omp/sdlc/handoffs/42-start.json\0',
+      untrack,
+    )).toBe(true);
+  });
+
+  it.each([
+    ['missing deletion', 'D  .omp/sdlc/run.json\0'],
+    ['extra path', 'D  .omp/sdlc/run.json\0D  .omp/sdlc/handoffs/42-start.json\0 M local.txt\0'],
+    ['worktree deletion', ' D .omp/sdlc/run.json\0D  .omp/sdlc/handoffs/42-start.json\0'],
+    ['staged modification', 'M  .omp/sdlc/run.json\0D  .omp/sdlc/handoffs/42-start.json\0'],
+    ['untracked path', '?? .omp/sdlc/run.json\0D  .omp/sdlc/handoffs/42-start.json\0'],
+    ['renamed path', 'R  .omp/sdlc/run.json\0.omp/sdlc/old.json\0'],
+  ])('rejects %s in the staged transition', (_name, porcelain) => {
+    expect(isAuthorizedOmpSdlcUntrackTransition(porcelain, {
+      changed: true,
+      untrackedPaths: ['.omp/sdlc/run.json', '.omp/sdlc/handoffs/42-start.json'],
+    })).toBe(false);
   });
 
   it.each(['ls-files', 'rm'])('fails closed when git %s fails', (failedCommand) => {
