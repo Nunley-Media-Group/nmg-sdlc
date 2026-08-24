@@ -566,13 +566,25 @@ function waitForWorkerSettlement(herdr, agentName) {
     && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
 
+function repositoryDefaultBranch(cwd, run) {
+  const result = run('gh', [
+    'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
+  ], { cwd });
+  return commandSucceeded(result) ? String(result.stdout || '').trim() : '';
+}
+
 function reviewBranchSelectionKeys(cwd, run) {
+  const defaultBranch = repositoryDefaultBranch(cwd, run);
+  if (!defaultBranch) return null;
   const branches = run('git', ['branch', '-a', '--format=%(refname:short)'], { cwd });
   if (!commandSucceeded(branches)) return null;
   const names = String(branches.stdout || '').split('\n').filter(Boolean);
-  const mainIndex = names.indexOf('main');
-  if (mainIndex < 0) return null;
-  return [...Array.from({ length: mainIndex }, () => 'down'), 'enter'];
+  const defaultIndex = names.indexOf(defaultBranch);
+  if (defaultIndex < 0) return null;
+  return {
+    defaultBranch,
+    keys: [...Array.from({ length: defaultIndex }, () => 'down'), 'enter'],
+  };
 }
 
 function agentDetectionText(herdr, name) {
@@ -625,6 +637,26 @@ function dirtyTreeBlocks(issue, cwd, run) {
   return String(branchResult.stdout || '').trim() !== issueBranchName(issue, cwd, run);
 }
 
+function restoreActiveIssueBranch(issue, cwd, run) {
+  const expected = issueBranchName(issue, cwd, run);
+  if (!expected) return 'issue_branch_unreadable';
+  const dirtyResult = run('git', ['status', '--porcelain'], { cwd });
+  const branchResult = run('git', ['branch', '--show-current'], { cwd });
+  if (!commandSucceeded(dirtyResult) || !commandSucceeded(branchResult)) {
+    return 'issue_branch_unreadable';
+  }
+  const current = String(branchResult.stdout || '').trim();
+  if (String(dirtyResult.stdout || '').trim() && current !== expected) return 'dirty_tree';
+  if (current === expected) return null;
+  if (!commandSucceeded(run('git', ['checkout', expected], { cwd }))) {
+    return 'branch_checkout_failed';
+  }
+  const restored = run('git', ['branch', '--show-current'], { cwd });
+  return commandSucceeded(restored) && String(restored.stdout || '').trim() === expected
+    ? null
+    : 'branch_checkout_failed';
+}
+
 function syncAndDeleteIssueBranch(issue, cwd, run) {
   const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
   const currentBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
@@ -637,8 +669,7 @@ function syncAndDeleteIssueBranch(issue, cwd, run) {
   const closed = String(issueState?.state).toUpperCase() === 'CLOSED';
   if (!merged || !closed) return false;
 
-  const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
-  const defaultBranch = commandSucceeded(defaultResult) ? String(defaultResult.stdout || '').trim() : '';
+  const defaultBranch = repositoryDefaultBranch(cwd, run);
   if (!defaultBranch) return false;
   if (currentBranch !== defaultBranch && !commandSucceeded(run('git', ['checkout', defaultBranch], { cwd }))) {
     return false;
@@ -777,6 +808,22 @@ export function runExecute({
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
+    if (step && step !== 'start') {
+      const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
+      if (reasonCode) {
+        return stopResult({
+          issue,
+          step,
+          paneId: 'none',
+          agentName: `s${issue}-${step}`,
+          reasonCode,
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+    }
     if (live) {
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
@@ -821,6 +868,15 @@ export function runExecute({
           && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue }))
         ) {
           if (!retryPromptSubmission(herdrApi, agentName)) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        }
+        if (!fs.existsSync(handoffPath)) {
+          if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
@@ -915,6 +971,32 @@ export function runExecute({
       runState.failed = null;
       writeRun(runState, cwd);
 
+      let reviewSelection = null;
+      if (step === 'review1' || step === 'review2') {
+        reviewSelection = reviewBranchSelectionKeys(cwd, run);
+        if (!reviewSelection) {
+          return stopResult({
+            issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        const currentResult = run('git', ['branch', '--show-current'], { cwd });
+        const expectedBranch = issueBranchName(issue, cwd, run);
+        const currentBranch = commandSucceeded(currentResult)
+          ? String(currentResult.stdout || '').trim()
+          : '';
+        if (
+          !expectedBranch
+          || currentBranch !== expectedBranch
+          || currentBranch === reviewSelection.defaultBranch
+        ) {
+          return stopResult({
+            issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_branch_mismatch',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+      }
+
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);
       const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
@@ -944,13 +1026,7 @@ export function runExecute({
       }
 
       if (step === 'review1' || step === 'review2') {
-        const branchSelectionKeys = reviewBranchSelectionKeys(cwd, run);
-        if (!branchSelectionKeys) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'review_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
+        const branchSelectionKeys = reviewSelection.keys;
         let reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
         if (!reviewModeVisible) {
           herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
@@ -1013,6 +1089,15 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
+      }
+      if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
+        if (!waitForWorkerSettlement(herdrApi, agentName)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'worker_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        state = agentState(herdrApi.agentGet(agentName));
       }
       if (!fs.existsSync(handoffPath) && state === 'working') {
         herdrApi.agentWait({ name: agentName });
