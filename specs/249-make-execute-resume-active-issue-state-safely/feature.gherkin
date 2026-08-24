@@ -1,0 +1,59 @@
+**Issue**: #249
+**Date**: 2026-08-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/241-wait-for-retained-active-workers-instead-of-exiting-execute/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/249-make-execute-resume-active-issue-state-safely/requirements.md
+Feature: Make execute resume active issue state safely
+  The execute controller previously treated a transient idle worker without a
+  handoff as missing_handoff, then resumed a later issue's review from main.
+  This was fixed by waiting once for settlement and restoring the active issue
+  branch before incomplete post-start steps.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Transient idle does not end a worker step
+    Given a retained matching worker is idle without a handoff and later writes a valid passed handoff
+    When the controller observes that worker
+    Then it does not record missing_handoff, start a duplicate, or close the pane during the wait
+    And it accepts the validated handoff and continues the queue
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Explicit unsafe outcomes still fail closed
+    Given a worker is failed, blocked, intervention-required, malformed, mismatched, or genuinely stalled
+    When the controller evaluates the worker and its handoff
+    Then it stops the queue, keeps the relevant pane open, and records the specific reasonCode
+
+  @SCN003 @regression
+  Scenario: Resume restores the active issue branch
+    Given an earlier queue issue is fully delivered and a later issue has completed start and implement
+    When /sdlc-execute resumes the persisted queue
+    Then it checks out and validates the later issue branch before launching the next incomplete worker
+
+  @SCN004 @regression
+  Scenario: Review cannot compare main against main
+    Given the next incomplete step is review1 or review2 and the worktree is still on the default branch
+    When the controller prepares the review
+    Then it stops with review_branch_mismatch or branch_checkout_failed before sending /review
+
+  @SCN005 @regression
+  Scenario: Serial resume remains non-destructive
+    Given a clean resumable queue or a dirty tree that the existing issues[0] safety contract already governs
+    When branch recovery and worker settlement run
+    Then the controller does not stash, reset, or discard user work and does not reorder the persisted queue
+
+  # --- Combined Regression ---
+
+  @SCN006 @regression
+  Scenario: Combined transient-idle then delivered-prefix resume reaches review from the issue branch
+    Given fixtures model a transient idle implement worker that later writes a passed handoff
+    And an earlier delivered issue plus a later issue completed through implement
+    When the focused controller tests run
+    Then the later issue's review starts only after its issue branch is current
+    And existing failed, blocked, intervention, and dirty-worktree tests still pass
