@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 export const MAX_VERIFICATION_REPORT_BYTES = 256 * 1024;
 
@@ -501,6 +501,4 @@ export function runCli(argv, streams = {}) {
   }
 }
 
-const isCli = process.argv[1]
-  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isCli) process.exitCode = runCli(process.argv.slice(2));
+if (isCliEntry(import.meta.url)) process.exitCode = runCli(process.argv.slice(2));

@@ -7,11 +7,11 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { join, relative, resolve as pathResolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 
 import { isSpecApproved, resolveSpecDir, specStatus } from './sdlc-execute.mjs';
 import { applySpecCreatedLabel, issueHasSpecCreatedLabel } from './spec-created-label.mjs';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -465,10 +465,6 @@ function main(argv = process.argv.slice(2)) {
   });
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const isMainModule =
-  process.argv[1] && pathResolve(process.argv[1]) === pathResolve(__filename);
-
-if (isMainModule) {
+if (isCliEntry(import.meta.url)) {
   main();
 }

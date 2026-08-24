@@ -16,7 +16,6 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   applyBlockedByEdges,
   createIssueDependencyClient,
@@ -24,6 +23,7 @@ import {
   preflightBlockedByEdges,
   readDependencyGraph,
 } from './issue-dependencies.mjs';
+import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
@@ -1328,7 +1328,7 @@ function parseArgv(argv) {
   return args;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+if (isCliEntry(import.meta.url)) {
   const args = parseArgv(process.argv);
   if (!args.cmd) {
     console.error('Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]');

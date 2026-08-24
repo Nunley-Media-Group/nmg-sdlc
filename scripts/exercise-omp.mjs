@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCliEntry } from "./plugin-controller-path.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -153,8 +154,7 @@ async function main(argv) {
   }
 }
 
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
-if (isMainModule) {
+if (isCliEntry(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });

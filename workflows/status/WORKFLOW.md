@@ -19,10 +19,9 @@ and exit non-zero.
 
 Resolve project root via git rev-parse --show-toplevel .
 
-Locate this workflow's plugin root (two dirs above workflows/status/WORKFLOW.md) to find scripts/sdlc-status.mjs .
 
 Invoke:
-node scripts/sdlc-status.mjs --project <root> [--json]
+node <plugin-root>/scripts/sdlc-status.mjs --project <root> [--json]
 
 Pass output through unchanged.
 

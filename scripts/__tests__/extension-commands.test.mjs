@@ -24,24 +24,37 @@ describe('extension sdlc- commands', () => {
     expect(helpers).toContain('["sdlc-verify-code", "verify-code"');
     expect(helpers).toContain('["sdlc-open-pr", "open-pr"');
     expect(source).toContain('pi.registerCommand(name');
+    expect(source).toContain('process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot');
     expect(source).not.toMatch(/registerCommand\("(execute|draft-issue|write-spec)"/);
   });
 
-  it('interactive commands enter /plan via TUI input rewrite and fail closed without UI', () => {
+  it('materializes controller paths used by registered handlers and automated runtime prompts', async () => {
     const source = read('src/extension.ts');
-    const helpers = read('src/sdlc-commands.mjs');
+    const {
+      materializeControllerPaths,
+      materializeRuntimeMessages,
+      packageRoot,
+      withArguments,
+      workflowBody,
+    } = await import('../../src/sdlc-commands.mjs');
+    expect(source).toContain('materializeControllerPaths(workflowBody(skill), packageRoot)');
+    expect(source).toContain('materializeRuntimeMessages(context.messages, packageRoot)');
 
-    expect(source).toContain('pi.on("input"');
-    expect(source).toContain('rewriteInteractiveInput');
-    expect(source).toContain('isInteractiveHeadless(ctx)');
-    expect(source).toContain('interactiveHeadlessMessage(name)');
-    expect(source).toContain('sendUserMessage(`/plan\\n\\n${withArguments(workflowBody(skill), args)}`)');
-    expect(source).not.toContain('sendUserMessage(withArguments(workflowBody(skill), args))');
-    expect(source).not.toContain('/skill:');
-    expect(helpers).toContain('source !== "interactive"');
-    expect(helpers).toContain('sessionMode === "plan"');
-    expect(helpers).toContain('ctx?.hasUI !== true');
-    expect(helpers).toContain('Run /${commandName} in the TUI.');
+    const interactive = `/plan\n\n${withArguments(
+      materializeControllerPaths(workflowBody('upgrade-project'), packageRoot),
+      '#252',
+    )}`;
+    const runtime = materializeRuntimeMessages([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'node <plugin-root>/scripts/sdlc-status.mjs --project .' }],
+      },
+    ], packageRoot);
+    const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
+    const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
+    expect(interactive).toContain(`["node",${upgradeController},"apply"`);
+    expect(interactive).not.toContain('<plugin-root>');
+    expect(runtime[0].content[0].text).toBe(`node ${statusController} --project .`);
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
@@ -51,6 +64,23 @@ describe('extension sdlc- commands', () => {
     expect(fs.existsSync(path.join(repoRoot, 'commands', 'sdlc-write-spec.md'))).toBe(false);
     for (const [name, skill, description] of AUTOMATED_COMMANDS) {
       expect(read(`commands/${name}.md`)).toBe(renderAutomatedCommandMarkdown(name, skill, description, repoRoot));
+    }
+  });
+
+  it('ships no cwd-relative controller dispatch in public prompt surfaces', () => {
+    const roots = ['commands', 'workflows'];
+    const markdown = [];
+    while (roots.length > 0) {
+      const relative = roots.pop();
+      const absolute = path.join(repoRoot, relative);
+      for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+        const child = path.join(relative, entry.name);
+        if (entry.isDirectory()) roots.push(child);
+        else if (entry.isFile() && entry.name.endsWith('.md')) markdown.push(child);
+      }
+    }
+    for (const file of markdown) {
+      expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
     }
   });
 

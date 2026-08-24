@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 import {
   createIssueDependencyClient,
@@ -631,6 +631,4 @@ export function runCli(argv, options = {}) {
   }
 }
 
-const isMainModule = process.argv[1]
-  && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isMainModule) process.exitCode = runCli(process.argv.slice(2));
+if (isCliEntry(import.meta.url)) process.exitCode = runCli(process.argv.slice(2));

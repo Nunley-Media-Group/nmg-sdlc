@@ -39,7 +39,7 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
   Score 1-5, note findings. Average reported.
 
 - Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from disposable project run `node scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve dry-run/timeout from the prior contract. Record output vs ACs.
+  Use updated exercise instructions (see exercise-testing.md): from disposable project run `node <plugin-root>/scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve dry-run/timeout from the prior contract. Record output vs ACs.
 
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 

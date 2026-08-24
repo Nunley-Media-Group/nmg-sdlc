@@ -13,7 +13,7 @@ Automated orchestrator. Runs only in the main Herdr pane. Never edits product co
 
 ## Execution
 
-Trim `$ARGUMENTS`. Non-empty: invoke `node scripts/sdlc-execute.mjs run` with the trimmed tokens. Empty: follow the packaged `# Select specified issues` section, then invoke `run` only with the selected tokens.
+Trim `$ARGUMENTS`. Non-empty: invoke `node <plugin-root>/scripts/sdlc-execute.mjs run` with the trimmed tokens. Empty: follow the packaged `# Select specified issues` section, then invoke `run` only with the selected tokens.
 
 Pass stdout and stderr through unchanged. Exit with the controller exit code.
 

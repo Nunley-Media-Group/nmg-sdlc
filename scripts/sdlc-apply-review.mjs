@@ -2,8 +2,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve as pathResolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-apply-review.mjs --issue N --step fix1|fix2 [--applied]';
 const FIX_STEPS = new Set(['fix1', 'fix2']);
@@ -156,6 +156,4 @@ function runCli(argv = process.argv.slice(2)) {
   return outcome.status;
 }
 
-const isMainModule = process.argv[1]
-  && pathResolve(process.argv[1]) === pathResolve(fileURLToPath(import.meta.url));
-if (isMainModule) process.exitCode = runCli();
+if (isCliEntry(import.meta.url)) process.exitCode = runCli();

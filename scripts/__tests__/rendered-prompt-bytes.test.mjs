@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
+import path from 'node:path';
 import { AUTOMATED_COMMANDS } from '../../src/sdlc-commands.mjs';
-import { renderedPromptBytes, workflowBody } from '../../src/sdlc-workflows.mjs';
+import { packageRoot, renderedPromptBytes, workflowBody } from '../../src/sdlc-workflows.mjs';
 import { workerPrompt } from '../sdlc-execute.mjs';
 
 const AUTOMATED_BODY_CEILINGS = {
@@ -41,5 +42,8 @@ describe('rendered prompt byte ceilings', () => {
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'fix2', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+    expect(workerPrompt({ step: 'start', issue: 42 }))
+      .toContain(`node ${JSON.stringify(path.join(packageRoot, 'scripts', 'start-issue.mjs'))}`);
+    expect(workerPrompt({ step: 'start', issue: 42 })).not.toContain('<plugin-root>');
   });
 });

@@ -5,6 +5,9 @@ import {
   INTERACTIVE_COMMANDS,
   interactiveHeadlessMessage,
   isInteractiveHeadless,
+  materializeControllerPaths,
+  materializeRuntimeMessages,
+  packageRoot,
   rewriteInteractiveInput,
   sessionModeFromEntries,
   withArguments,
@@ -37,6 +40,7 @@ function readRunState(): unknown | null {
 }
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
+  process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   pi.setLabel("NMG SDLC");
 
   pi.on("input", (event, ctx) => {
@@ -49,6 +53,12 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     });
   });
 
+  pi.on("context", (event) => {
+    const context = (event ?? {}) as { messages?: unknown[] };
+    const messages = materializeRuntimeMessages(context.messages, packageRoot);
+    return messages === context.messages ? undefined : { messages };
+  });
+
   for (const [name, skill, description] of INTERACTIVE_COMMANDS) {
     pi.registerCommand(name, {
       description,
@@ -57,7 +67,8 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
           process.stderr.write(interactiveHeadlessMessage(name));
           return;
         }
-        pi.sendUserMessage(`/plan\n\n${withArguments(workflowBody(skill), args)}`);
+        const body = materializeControllerPaths(workflowBody(skill), packageRoot);
+        pi.sendUserMessage(`/plan\n\n${withArguments(body, args)}`);
       },
     });
   }

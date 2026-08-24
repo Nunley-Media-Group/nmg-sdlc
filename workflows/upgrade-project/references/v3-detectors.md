@@ -18,8 +18,8 @@ const outcome = applyUpgrade(projectRoot, approvedItemIds); // ids subset of rep
 CLI:
 
 ```
-node scripts/sdlc-upgrade.mjs detect [--root <dir>]
-node scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
+node <plugin-root>/scripts/sdlc-upgrade.mjs detect [--root <dir>]
+node <plugin-root>/scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
 ```
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).

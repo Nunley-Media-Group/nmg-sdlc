@@ -29,6 +29,9 @@ describe('interactive input rewrite', () => {
     expect(result.text).toContain('# Write Spec');
     expect(result.text).toContain('$ARGUMENTS: #42');
     expect(result.text).not.toContain('/skill:');
+    expect(result.text).toContain(`node ${JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'))}`);
+    expect(result.text).not.toContain('node <plugin-root>/scripts/');
+    expect(result.text).not.toContain('node scripts/');
   });
 
   it('does not prefix /plan when the session is already in plan mode', () => {

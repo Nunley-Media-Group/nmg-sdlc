@@ -2,14 +2,14 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve as pathResolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   createIssueDependencyClient,
   issueDependencyStatus,
   readDependencyGraph,
 } from './issue-dependencies.mjs';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -158,6 +158,4 @@ function runCli(argv = process.argv.slice(2)) {
   return result.handoff.status === 'passed' ? 0 : 1;
 }
 
-const isMainModule = process.argv[1]
-  && pathResolve(process.argv[1]) === pathResolve(fileURLToPath(import.meta.url));
-if (isMainModule) process.exitCode = runCli();
+if (isCliEntry(import.meta.url)) process.exitCode = runCli();
