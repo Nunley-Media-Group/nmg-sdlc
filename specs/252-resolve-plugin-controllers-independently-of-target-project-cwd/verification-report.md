@@ -30,7 +30,7 @@ The same preload environment was used for empty `/sdlc-execute` and explicit `/s
 |---|---|
 | `/sdlc-status --json` | Reached the installed `sdlc-status.mjs` controller without `MODULE_NOT_FOUND`; JSON reported `project.root` as the disposable consumer real path. |
 | `/sdlc-execute` | Reached the installed execute controller and returned its structured `{"ok":false,"reasonCode":"issues_unreadable"}` result because the disposable repository has no GitHub remote. |
-| `/sdlc-execute #1` | Reached the same installed execute controller and returned the same non-mutating `issues_unreadable` boundary in the remote-free fixture. |
+| `/sdlc-execute #1` | Reached the same installed execute controller and exited 1 with `Unable to read labels for #1` because the remote-free fixture could not satisfy the explicit issue-label lookup. |
 
 The status preload captured `argv1` as `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-status.mjs` and `cwd` as the disposable consumer real path. The two execute invocations each captured the identical installed argv1, `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs`, and the same consumer cwd. The copied-install and Unix-symlink topology probes also appended one consumer-cwd line each, proving one CLI execution for those topologies. Neither execute invocation reached worker startup, so main-pane mutation and sibling-worker ownership remained unchanged.
 
