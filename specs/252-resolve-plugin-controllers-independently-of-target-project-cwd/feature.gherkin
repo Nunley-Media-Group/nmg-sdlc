@@ -1,0 +1,76 @@
+**Issue**: #252
+**Date**: 2026-08-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/
+
+# File: specs/252-resolve-plugin-controllers-independently-of-target-project-cwd/feature.gherkin
+#
+# Generated from: specs/252-resolve-plugin-controllers-independently-of-target-project-cwd/requirements.md
+Feature: Resolve plugin controllers independently of target project cwd
+  As a developer running nmg-sdlc from an unrelated Oh My Pi / Herdr project
+  I want every public command and worker workflow to reach the installed plugin controller
+  So that start, execute, status, review, publication, and upgrade work without a project-local scripts/ directory
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: Explicit execute reaches the installed controller
+    Given nmg-sdlc is installed through OMP and Herdr starts OMP from an unrelated project without scripts/sdlc-execute.mjs
+    When the operator runs /sdlc-execute #N
+    Then the installed plugin controller starts without MODULE_NOT_FOUND
+    And the target project remains process.cwd() for approved-spec and product-state reads
+
+  # --- Alternative Paths ---
+
+  @SCN002
+  Scenario: Execute selection paths share one authoritative controller
+    Given an installed plugin is invoked from an unrelated target project
+    When the operator uses either empty /sdlc-execute selection or explicit /sdlc-execute #N
+    Then both paths resolve and invoke the same authoritative installed execute controller
+    And neither path consults a project-local scripts/ file
+
+  @SCN003
+  Scenario: Every applicable public controller call is package-root safe
+    Given start, status, review, apply-review, write-spec publication, upgrade, and other installed command or worker workflows invoke plugin-owned controllers
+    When those stages run with the target project as cwd
+    Then every applicable controller resolves through the same package-root-safe contract
+    And auditing every public command and worker workflow containing node scripts/*.mjs finds no remaining cwd-relative plugin entrypoint
+
+  # --- Error Handling ---
+
+  @SCN005
+  Scenario: Controller-resolution failure is explicit and non-mutating
+    Given the installed plugin controller cannot be resolved or executed
+    When a public command or worker reaches that boundary
+    Then it emits an explicit non-zero failure naming the controller-resolution problem
+    And it does not silently exit, fall back to a project-local file, start a worker, or mutate product state
+
+  # --- Edge Cases ---
+
+  @SCN004
+  Scenario: Linked CLIs run exactly once and imports remain inert
+    Given an installed package copy, Windows junction, or Unix symlink points to an nmg-sdlc executable controller
+    When Node invokes that linked controller as the entry module
+    Then its CLI runs exactly once
+    And importing the controller as a module does not run its CLI
+
+  @SCN006
+  Scenario: Installation topology regressions are covered
+    Given separate disposable target projects
+    When regression tests invoke public controller entrypoints through both a copied/package installation and a linked local-repository installation
+    Then both installations preserve the target cwd and execute the intended CLI exactly once
+    And the tests cover Windows junction semantics and Unix symlink semantics on their applicable platforms
+
+  @SCN007
+  Scenario: Live OMP proof uses the installed plugin topology
+    Given the packaged candidate is installed through OMP's supported plugin mechanism
+    When a disposable-project live OMP exercise invokes the changed public command
+    Then the installed command reaches the plugin controller from the unrelated target project
+    And the proof does not rely only on --plugin-dir plus --add-dir source-tree visibility
+
+  @SCN008
+  Scenario: Herdr isolation remains unchanged
+    Given controller resolution succeeds
+    When execute runs through the Herdr main pane and sibling workers
+    Then existing main-pane non-mutation, sibling-worker ownership, cwd, handoff, pane-retention, and exact-head delivery contracts remain unchanged
