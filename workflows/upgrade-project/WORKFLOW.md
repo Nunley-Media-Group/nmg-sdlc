@@ -55,7 +55,7 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 - exact actions / file writes / deletes proposed
 
-- exact helper argv using the detector-returned ids, for example `["node","scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- exact helper argv using the detector-returned ids, for example `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
 
 ## After Propose
 

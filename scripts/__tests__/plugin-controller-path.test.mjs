@@ -87,11 +87,17 @@ describe("plugin controller path resolution", () => {
   test("materializes portable and legacy dispatch with JSON-quoted absolute paths", () => {
     const root = path.join(path.sep, "tmp", "plugin root");
     const output = materializeControllerPaths(
-      "node <plugin-root>/scripts/a.mjs one\nnode scripts/b.mjs two",
+      [
+        "node <plugin-root>/scripts/a.mjs one",
+        "node scripts/b.mjs two",
+        '["node","<plugin-root>/scripts/c.mjs","apply"]',
+      ].join("\n"),
       root,
     );
     expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
     expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "b.mjs"))} two`);
+    expect(output).toContain(`["node",${JSON.stringify(path.join(root, "scripts", "c.mjs"))},"apply"]`);
+    expect(output).not.toContain("<plugin-root>");
     expect(output).not.toContain("node scripts/");
   });
 

@@ -5,10 +5,13 @@ import {
   INTERACTIVE_COMMANDS,
   interactiveHeadlessMessage,
   isInteractiveHeadless,
+  materializeControllerPaths,
+  materializeRuntimeMessages,
+  packageRoot,
   rewriteInteractiveInput,
   sessionModeFromEntries,
   withArguments,
-  packageRoot,
+  workflowBody,
 } from "./sdlc-commands.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
@@ -50,6 +53,12 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     });
   });
 
+  pi.on("context", (event) => {
+    const context = (event ?? {}) as { messages?: unknown[] };
+    const messages = materializeRuntimeMessages(context.messages, packageRoot);
+    return messages === context.messages ? undefined : { messages };
+  });
+
   for (const [name, skill, description] of INTERACTIVE_COMMANDS) {
     pi.registerCommand(name, {
       description,
@@ -58,7 +67,8 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
           process.stderr.write(interactiveHeadlessMessage(name));
           return;
         }
-        pi.sendUserMessage(`/plan\n\n${withArguments(workflowBody(skill), args)}`);
+        const body = materializeControllerPaths(workflowBody(skill), packageRoot);
+        pi.sendUserMessage(`/plan\n\n${withArguments(body, args)}`);
       },
     });
   }

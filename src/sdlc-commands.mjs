@@ -5,6 +5,7 @@ import { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
+export { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
 
 export const INTERACTIVE_COMMANDS = [
   ["sdlc-draft-issue", "draft-issue", "Draft a groomed GitHub issue"],
@@ -71,6 +72,35 @@ export function rewriteInteractiveInput(text, {
   );
   if (sessionMode === "plan") return { text: body };
   return { text: `/plan\n\n${body}` };
+}
+
+export function materializeRuntimeMessages(messages, root = packageRoot) {
+  if (!Array.isArray(messages)) return messages;
+  let changed = false;
+  const materialized = messages.map((message) => {
+    if (!message || typeof message !== "object") return message;
+    if (typeof message.content === "string") {
+      const content = materializeControllerPaths(message.content, root);
+      if (content === message.content) return message;
+      changed = true;
+      return { ...message, content };
+    }
+    if (!Array.isArray(message.content)) return message;
+    let contentChanged = false;
+    const content = message.content.map((part) => {
+      if (!part || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") {
+        return part;
+      }
+      const text = materializeControllerPaths(part.text, root);
+      if (text === part.text) return part;
+      contentChanged = true;
+      return { ...part, text };
+    });
+    if (!contentChanged) return message;
+    changed = true;
+    return { ...message, content };
+  });
+  return changed ? materialized : messages;
 }
 
 export function isInteractiveHeadless(ctx, argv = process.argv) {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -28,21 +30,43 @@ describe('extension sdlc- commands', () => {
     expect(source).not.toMatch(/registerCommand\("(execute|draft-issue|write-spec)"/);
   });
 
-  it('interactive commands enter /plan via TUI input rewrite and fail closed without UI', () => {
-    const source = read('src/extension.ts');
-    const helpers = read('src/sdlc-commands.mjs');
-
-    expect(source).toContain('pi.on("input"');
-    expect(source).toContain('rewriteInteractiveInput');
-    expect(source).toContain('isInteractiveHeadless(ctx)');
-    expect(source).toContain('interactiveHeadlessMessage(name)');
-    expect(source).toContain('sendUserMessage(`/plan\\n\\n${withArguments(workflowBody(skill), args)}`)');
-    expect(source).not.toContain('sendUserMessage(withArguments(workflowBody(skill), args))');
-    expect(source).not.toContain('/skill:');
-    expect(helpers).toContain('source !== "interactive"');
-    expect(helpers).toContain('sessionMode === "plan"');
-    expect(helpers).toContain('ctx?.hasUI !== true');
-    expect(helpers).toContain('Run /${commandName} in the TUI.');
+  it('materializes controller paths in registered handlers and automated runtime prompts', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-extension-'));
+    const target = path.join(fixture, 'target project');
+    fs.mkdirSync(target);
+    const extensionUrl = `${pathToFileURL(path.join(repoRoot, 'src', 'extension.ts')).href}?test=${Date.now()}`;
+    const probe = [
+      `const { default: extension } = await import(${JSON.stringify(extensionUrl)});`,
+      'const commands = new Map();',
+      'const events = new Map();',
+      'const sent = [];',
+      'extension({',
+      '  setLabel() {},',
+      '  registerCommand(name, options) { commands.set(name, options.handler); },',
+      '  sendUserMessage(content) { sent.push(content); },',
+      '  appendEntry() {},',
+      '  on(name, handler) { events.set(name, handler); },',
+      '});',
+      'await commands.get("sdlc-upgrade-project")("#252", { hasUI: true });',
+      'const runtime = events.get("context")({ messages: [{ role: "user", content: [{ type: "text", text: "node <plugin-root>/scripts/sdlc-status.mjs --project ." }] }] });',
+      'console.log(JSON.stringify({ interactive: sent[0], automated: runtime.messages[0].content[0].text }));',
+    ].join('\n');
+    try {
+      const result = spawnSync('bun', ['--eval', probe], {
+        cwd: target,
+        encoding: 'utf8',
+        env: { ...process.env },
+      });
+      expect(result.status).toBe(0);
+      const prompts = JSON.parse(result.stdout.trim());
+      const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
+      const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
+      expect(prompts.interactive).toContain(`["node",${upgradeController},"apply"`);
+      expect(prompts.interactive).not.toContain('<plugin-root>');
+      expect(prompts.automated).toBe(`node ${statusController} --project .`);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {

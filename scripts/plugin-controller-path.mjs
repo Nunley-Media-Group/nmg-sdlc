@@ -75,7 +75,10 @@ export function resolvePluginController(scriptName, options = {}) {
 }
 
 export function materializeControllerPaths(text, pluginRoot) {
-  const source = String(text);
+  const source = String(text).replace(
+    /(["'])<plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)\1/g,
+    (_, _quote, scriptName) => JSON.stringify(join(pluginRoot, "scripts", scriptName)),
+  );
   return source.replace(
     /node (?:<plugin-root>\/)?scripts\/([A-Za-z0-9._-]+\.mjs)/g,
     (_, scriptName) => `node ${JSON.stringify(join(pluginRoot, "scripts", scriptName))}`,
