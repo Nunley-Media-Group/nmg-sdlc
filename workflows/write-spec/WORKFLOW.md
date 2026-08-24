@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: "Create BDD specifications for an executable GitHub issue. Use when /sdlc-write-spec #N. After approval, publishes specs/{N}-{slug}/ from the default branch, commits, pushes, squash-merges a docs-only spec PR, then asks to continue or finish."
+description: "Create BDD specifications for open GitHub issues. Use when /sdlc-write-spec [#N]: bare invocation presents issues missing spec-created, while an explicit number selects one directly. After approval, publishes specs/{N}-{slug}/ from the default branch, commits, pushes, squash-merges a docs-only spec PR, then asks to continue or finish."
 ---
 
 # Write Spec
@@ -11,15 +11,32 @@ Read `references/publish.md` when executing Approval Behavior or the continue lo
 
 In the TUI, `/sdlc-write-spec` is rewritten to native `/plan` before this workflow runs. If write/edit tools are present, that is post-approval execution — continue; do not bounce. Do not run this workflow headless (print/RPC); those surfaces fail closed.
 
-## Requirements on $ARGUMENTS
+## Initial issue selection
 
-Trim $ARGUMENTS. Must match ^#?\d+$. Else print:
+Trim `$ARGUMENTS`.
 
-Usage: /sdlc-write-spec #N
+If the trimmed value is non-empty:
 
-and stop.
+1. Require it to match `^#?\d+$`. Otherwise print exactly `Usage: /sdlc-write-spec #N` and stop.
+2. Let N be the numeric issue id after stripping a leading `#`.
+3. Skip the bare picker and continue directly to Discovery.
 
-Let N = the numeric issue id (strip leading #).
+If the trimmed value is empty:
+
+1. Before any usage gate or `ask`, run:
+
+   ```text
+   node scripts/publish-approved-spec.mjs missing-spec-created
+   ```
+
+2. Require exit 0 and parse the complete JSON object. On non-zero or malformed output, print its `reasonCode` or helper failure output and stop without asking or inventing choices.
+3. Require `issues` to be a complete array of positive safe-integer `number` and non-empty string `title` rows. Invalid rows are `issues_unreadable`; print that reason and stop.
+4. If `issues` is empty, print exactly `No open issues missing spec-created.` and stop without `ask` or usage output.
+5. Cache the complete `issues` array for this initial picker. Ask once with at most its first three rows as `#M — {title}`, recommended index 0, followed by exactly `Finished — stop without writing a spec`. Automatic Other remains available.
+6. A listed choice sets N. Parse automatic Other with `^#?([1-9]\d*)$`; a valid number sets N, while invalid input re-asks the same picker from the cached rows without rerunning the helper.
+7. Finished stops immediately without Discovery and without printing `Published specs:` or `Next step:`.
+
+After the initial selection, continue to Discovery with N.
 
 Keep an in-memory `published[]` list of issue numbers published in this session. Start empty.
 

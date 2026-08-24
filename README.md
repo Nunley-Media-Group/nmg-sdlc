@@ -104,10 +104,10 @@ Classifies the request (Bug / Enhancement), investigates relevant code, and inte
 ### Write Specs
 
 ```text
-/sdlc-write-spec #42
+/sdlc-write-spec [#42]
 ```
 
-Creates or updates the executable spec package under `specs/{N}-{slug}/`. The spec frontmatter is set to `**Status**: Approved`.
+With an issue number, creates or updates its executable spec package under `specs/{N}-{slug}/`. With no argument, presents up to three open issues missing the exact `spec-created` label. Published spec frontmatter is set to `**Status**: Approved`.
 
 ### Automated Delivery
 
@@ -166,7 +166,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 |------------------------------|-------------------------------------|---------|
 | sdlc-onboard-project         | /sdlc-onboard-project               | Initialize or reconcile a project with steering and managed assets |
 | sdlc-draft-issue             | /sdlc-draft-issue [need]            | Create a groomed GitHub issue with BDD acceptance criteria |
-| sdlc-write-spec              | /sdlc-write-spec #N                 | Publish `specs/{N}-{slug}/` and mark Approved |
+| sdlc-write-spec              | /sdlc-write-spec [#N]               | Choose an issue missing `spec-created`, or publish the specified `specs/{N}-{slug}/` package |
 | sdlc-execute                 | /sdlc-execute [#N …]                | Drive automated delivery through Herdr omp workers to merge + close |
 | sdlc-status                  | /sdlc-status [--json]               | Report current manual lifecycle state |
 | sdlc-verify-code             | /sdlc-verify-code #N                | Verify an already-implemented branch against the approved spec |
