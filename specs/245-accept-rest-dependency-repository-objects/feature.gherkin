@@ -1,0 +1,67 @@
+**Issue**: #245
+**Date**: 2026-08-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/236-adopt-github-blocked-by-as-the-only-issue-dependency-type/
+
+# File: scripts/__tests__/issue-dependencies.test.mjs
+# Also: scripts/__tests__/sdlc-upgrade.test.mjs
+#
+# Generated from: specs/245-accept-rest-dependency-repository-objects/requirements.md
+Feature: Accept REST dependency repository objects
+  Official blocked-by records previously failed closed as
+  dependency_dangling when GitHub REST returned repository as
+  an object with full_name and no nameWithOwner. This was fixed
+  by normalizing repository identity to a string before comparison.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: REST full_name repository objects are accepted
+    Given a blocked-by record with a positive id and number
+    And a valid open or closed state
+    And repository.full_name matching the selected repository
+    And a matching repository_url
+    When readBlockedBy normalizes the record
+    Then it returns the dependency
+    And it does not raise dependency_dangling
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: GraphQL nameWithOwner remains accepted
+    Given a dependency record whose repository identity is repository.nameWithOwner
+    When the record is normalized
+    Then the matching selected repository is accepted
+
+  @SCN003 @regression
+  Scenario: String repository and repository_url remain accepted
+    Given a record with string repository equal to the selected repository
+    And a separate record that has only a matching repository_url
+    When each record is normalized
+    Then the matching repository is accepted
+
+  # --- Error Handling ---
+
+  @SCN004 @regression
+  Scenario: Cross-repository identities still fail closed
+    Given a supported metadata shape that resolves to a repository other than the selected repository
+    When the record is normalized as a dependency
+    Then normalization fails with dependency_dangling
+    And genuine missing targets still fail as dependency_dangling
+
+  # --- Edge Cases ---
+
+  @SCN005 @regression
+  Scenario: Upgrade detection completes for REST expanded blockers
+    Given valid official blocked-by edges whose REST payloads include repository.full_name
+    When detectIssueDependencyUpgrade runs
+    Then discovery completes
+    And those targets are not reported as dangling
+
+  @SCN006 @regression
+  Scenario: Post-apply detection does not mark valid REST blockers dangling
+    Given the upgrade helper has successfully added issue dependency edges
+    And later blocked-by reads return REST repository objects for those edges
+    When post-apply detection runs
+    Then postDetectError.reasonCode is not dependency_dangling
