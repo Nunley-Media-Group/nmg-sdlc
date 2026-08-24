@@ -210,6 +210,9 @@ None.
 | `scripts/__tests__/publish-approved-spec.test.mjs` | 0 | Helper behavior and failures covered. |
 | `scripts/__tests__/interactive-plan-contract.test.mjs` | 0 | Workflow and regression contracts covered. |
 | `README.md` | 0 | Public invocation and behavior updated. |
+| `VERSION` | 0 | Release source of truth verified at patch version 3.10.3. |
+| `package.json` | 0 | OMP plugin manifest version verified in sync at 3.10.3. |
+| `CHANGELOG.md` | 0 | Issue #238 fix recorded under the 3.10.3 release heading. |
 
 ---
 
