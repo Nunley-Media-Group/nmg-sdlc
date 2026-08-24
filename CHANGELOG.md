@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.10.1] - 2026-08-23
+
+### Fixed
+
+- `/sdlc-execute` now waits for matching retained active workers, validates their handoffs after settlement, and continues the selected queue while mismatched or unsafe retained-worker states fail closed.
+
 ## [3.10.0] - 2026-08-23
 
 ### Changed (BREAKING)

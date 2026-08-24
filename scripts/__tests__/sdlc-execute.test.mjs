@@ -1280,9 +1280,63 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture();
     fixture.herdr.listAgents = () => [{ name: 's42-verify', pane_id: 'kept-pane', state: 'working' }];
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result.status).toBe(0);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(result.status).toBe(1);
     expect(fixture.starts).toHaveLength(0);
-    expect(result.stdout).toContain('no second worker started');
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
+    expect(result.stdout).toContain(
+      'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
+    );
+  });
+  it('waits for a matching retained working worker and continues the queue', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'working' } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const agentWait = fixture.herdr.agentWait;
+    let state = 'working';
+    fixture.herdr.agentGet = () => ({ result: { state } });
+    fixture.herdr.agentWait = (input) => {
+      const result = agentWait(input);
+      if (!input.until) state = 'idle';
+      return result;
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.waits).toContainEqual({ name: 's42-start' });
+    expect(fixture.waits.find((wait) => wait.name === 's42-start' && !wait.until)).not.toHaveProperty('timeout');
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
+    expect(fixture.starts[0].name).toBe('s42-implement');
+  });
+  it('fails closed when a matching retained blocked worker does not settle', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'blocked' } });
+    fixture.herdr.agentGet = () => ({ result: { state: 'blocked' } });
+    fixture.herdr.agentWait = (input) => {
+      fixture.waits.push(input);
+      return { status: input.until ? 0 : 1 };
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('worker_failed');
+    expect(fixture.waits).toEqual([
+      { name: 's42-start', until: 'working' },
+      { name: 's42-start' },
+    ]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+  });
+  it('fails closed without waiting when a matching retained worker has no pane id', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'idle' } });
+    fixture.herdr.listAgents = () => [{ name: 's42-start', state: 'idle' }];
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('unknown_pane');
+    expect(fixture.waits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
   });
 
   it.each([
@@ -1455,11 +1509,28 @@ describe('runExecute controller', () => {
   it('keeps an active failed verification worker open', () => {
     const fixture = makeControllerFixture();
     configureFailedRetainedVerifyWorker(fixture, { state: 'working' });
-
+    const runState = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    runState.failed = null;
+    writeRun(runState, fixture.cwd);
+    let state = 'working';
+    fixture.herdr.agentGet = () => ({ result: { state } });
+    fixture.herdr.agentWait = (input) => {
+      fixture.waits.push(input);
+      if (input.name === 's42-verify' && !input.until) {
+        state = 'idle';
+        return { status: 0 };
+      }
+      return { status: 1 };
+    };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('no second worker started');
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain('no second worker started');
+    expect(result.stdout).toContain(
+      'Stopped on #42 verify. Worker pane kept-verify-pane agent s42-verify left open.',
+    );
+    expect(persisted.failed.reasonCode).toBe('verification_failed');
+    expect(fixture.waits).toContainEqual({ name: 's42-verify' });
     expect(fixture.closed).toEqual([]);
     expect(fixture.starts).toEqual([]);
   });
