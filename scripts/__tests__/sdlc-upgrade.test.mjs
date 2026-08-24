@@ -48,7 +48,14 @@ function dependencyRun(issues, blockers = {}) {
     if (args.includes('--paginate')) {
       const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));
       const number = Number(endpoint.match(/issues\/(\d+)/)[1]);
-      return { status: 0, stdout: JSON.stringify([(blockers[number] ?? []).map((target) => records.get(target))]) };
+      const blockedBy = (blockers[number] ?? []).map((target) => {
+        const targetNumber = typeof target === 'number' ? target : target.number;
+        const record = records.get(targetNumber);
+        return target && typeof target === 'object' && Object.hasOwn(target, 'repository')
+          ? { ...record, repository: target.repository }
+          : record;
+      });
+      return { status: 0, stdout: JSON.stringify([blockedBy]) };
     }
     if (args[0] === 'api' && args.length === 2) {
       const number = Number(args[1].split('/').at(-1));
@@ -270,6 +277,23 @@ describe('official dependency upgrade reconciliation', () => {
     expect(fixture.calls.some((args) => args.includes('POST'))).toBe(false);
   });
 
+  it('detects existing official edges with REST repository objects', () => {
+    const fixture = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], {
+      2: [{ number: 1, repository: { full_name: 'acme/widgets' } }],
+    });
+
+    const item = detectIssueDependencyUpgrade({ cwd: '/repo', run: fixture.run });
+
+    expect(item).toEqual(expect.objectContaining({
+      actionable: false,
+      issueCount: 2,
+      additions: [],
+    }));
+  });
+
   it('rejects graph drift before applying an approved edge', () => {
     const initial = dependencyRun([
       { number: 2, body: 'Depends on: #1' },
@@ -338,6 +362,7 @@ describe('official dependency upgrade reconciliation', () => {
       { number: 2, body: 'Depends on: #1' },
       { number: 3, state: 'closed' },
     ]);
+
     const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
     const changed = dependencyRun([
       { number: 1, state: 'closed' },
@@ -348,6 +373,33 @@ describe('official dependency upgrade reconciliation', () => {
     expect(() => applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: changed.run }))
       .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
     expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('keeps post-apply detection usable with REST repository objects', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const applied = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], {
+      2: [{ number: 1, repository: { full_name: 'acme/widgets' } }],
+    });
+
+    const result = applyUpgrade(root, [approved.id], applied.run, { includeIssueDependencies: true });
+
+    expect(result.applied).toContainEqual(expect.objectContaining({
+      id: approved.id,
+      status: 'applied',
+    }));
+    expect(result.postDetectError).toBeUndefined();
+    expect(result.postDetectItemCount).not.toBeNull();
   });
 
   it('binds approved helper item ids to the detected graph digest', () => {

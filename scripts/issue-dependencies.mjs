@@ -36,6 +36,16 @@ function repositoryFromUrl(value) {
   return match?.[1] ?? null;
 }
 
+function repositoryIdentity(raw) {
+  const repo = raw?.repository;
+  if (typeof repo === 'string') return repo;
+  if (repo && typeof repo === 'object') {
+    if (typeof repo.nameWithOwner === 'string') return repo.nameWithOwner;
+    if (typeof repo.full_name === 'string') return repo.full_name;
+  }
+  return repositoryFromUrl(raw?.repository_url);
+}
+
 function normalizeState(value) {
   const state = String(value ?? '').toUpperCase();
   return state === 'OPEN' || state === 'CLOSED' ? state : null;
@@ -45,10 +55,7 @@ function normalizeIssue(raw, repository, { dependency = false } = {}) {
   const id = positiveInteger(raw?.id);
   const number = positiveInteger(raw?.number);
   const state = normalizeState(raw?.state);
-  const recordRepository = raw?.repository?.nameWithOwner
-    ?? raw?.repository
-    ?? repositoryFromUrl(raw?.repository_url)
-    ?? repository;
+  const recordRepository = repositoryIdentity(raw) ?? repository;
   if (!id || !number || !state || recordRepository !== repository) {
     const reasonCode = dependency && number ? 'dependency_dangling' : 'dependency_unreadable';
     throw new IssueDependencyError(reasonCode, `Invalid dependency metadata for issue #${number ?? '?'}`, {
