@@ -42,6 +42,7 @@ The implementation removes the retained-worker success exit, reuses Herdr's bloc
 
 - Local verification: Pass
 - PR evidence: Not required
+- Release synchronization: Pass — `VERSION` and `package.json` both declare `3.10.1`.
 
 ---
 
