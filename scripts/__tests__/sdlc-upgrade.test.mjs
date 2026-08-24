@@ -286,6 +286,26 @@ describe('official dependency upgrade reconciliation', () => {
     expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
   });
 
+  it('treats an approved edge that is already present as applied on retry', () => {
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
+    const retried = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], { 2: [1] });
+
+    expect(applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: retried.run })).toEqual({
+      id: approved.id,
+      status: 'applied',
+      applied: [],
+      alreadyPresent: approved.additions,
+    });
+    expect(retried.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
   it('rejects proposed edge drift even when the official graph is unchanged', () => {
     const initial = dependencyRun([
       { number: 1, state: 'closed' },
@@ -322,6 +342,41 @@ describe('official dependency upgrade reconciliation', () => {
     expect(() => applyUpgrade(root, [approved.id], changed.run, { includeIssueDependencies: true }))
       .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
     expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('preserves successful dependency results when post-apply detection fails', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const applying = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    let issueListReads = 0;
+    const run = (command, args) => {
+      if (args.includes('--paginate') && args.includes('repos/acme/widgets/issues')) {
+        issueListReads += 1;
+        if (issueListReads === 3) return { status: 1, stdout: '', stderr: 'temporary API failure' };
+      }
+      return applying.run(command, args);
+    };
+
+    const result = applyUpgrade(root, [approved.id], run, { includeIssueDependencies: true });
+
+    expect(result.applied).toContainEqual(expect.objectContaining({
+      id: approved.id,
+      status: 'applied',
+    }));
+    expect(result.postDetectItemCount).toBeNull();
+    expect(result.postDetectError).toEqual(expect.objectContaining({
+      reasonCode: 'dependency_unreadable',
+    }));
   });
 
   it('does not report already current while dependency additions remain', () => {

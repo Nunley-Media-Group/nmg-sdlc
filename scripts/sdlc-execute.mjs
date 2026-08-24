@@ -415,17 +415,28 @@ function commandSucceeded(value) {
   return value?.status === undefined || value.status === 0;
 }
 
+function readProjectItems(issueNumber, { run, cwd }) {
+  try {
+    const viewed = run('gh', ['issue', 'view', String(issueNumber), '--json', 'projectItems'], { cwd });
+    if (!commandSucceeded(viewed)) return [];
+    const parsed = parseCommandOutput(viewed);
+    return Array.isArray(parsed?.projectItems) ? parsed.projectItems : [];
+  } catch {
+    return [];
+  }
+}
+
 export function listSpecifiedIssues({ run = defaultRun, cwd = process.cwd() } = {}) {
   const listed = run('gh', [
     'issue', 'list', '--state', 'open', '--label', SPEC_CREATED_LABEL,
-    '--limit', '100', '--json', 'number,title,projectItems',
+    '--limit', '100', '--json', 'number,title',
   ], { cwd });
   if (!commandSucceeded(listed)) throw new Error('gh issue list failed');
   const parsed = parseCommandOutput(listed);
   if (!Array.isArray(parsed)) throw new Error('gh issue list failed');
   const candidates = parsed
     .filter((issue) => Number.isSafeInteger(issue?.number) && issue.number > 0)
-    .filter((issue) => !allReadableProjectDone(issue.projectItems || []));
+    .filter((issue) => !allReadableProjectDone(readProjectItems(issue.number, { run, cwd })));
   if (candidates.length === 0) return [];
   return filterEligibleIssueEvidence(candidates, { run, cwd })
     .map((issue) => ({ number: issue.number, title: String(issue.title || '') }))

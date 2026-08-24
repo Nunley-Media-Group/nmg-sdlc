@@ -79,11 +79,14 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       cwd: '/repo',
       run: (command, args, options) => {
         calls.push([command, args, options]);
-        if (args[0] === 'issue') {
+        if (args[0] === 'issue' && args[1] === 'list') {
           return {
             status: 0,
             stdout: JSON.stringify([{ number: 12, title: 'Later' }, { number: 8, title: 'First' }]),
           };
+        }
+        if (args[0] === 'issue' && args[1] === 'view') {
+          return { status: 0, stdout: '{"projectItems":[]}' };
         }
         if (args[0] === 'repo') return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}' };
         if (args.includes('--paginate')) return { status: 0, stdout: '[[]]' };
@@ -97,9 +100,32 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(issues).toEqual([{ number: 8, title: 'First' }, { number: 12, title: 'Later' }]);
     expect(calls[0]).toEqual([
       'gh',
-      ['issue', 'list', '--state', 'open', '--label', 'spec-created', '--limit', '100', '--json', 'number,title,projectItems'],
+      ['issue', 'list', '--state', 'open', '--label', 'spec-created', '--limit', '100', '--json', 'number,title'],
       { cwd: '/repo' },
     ]);
+  });
+
+  it('does not require project scope to list executable issues', () => {
+    const run = (_command, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return { status: 0, stdout: '[{"number":3,"title":"Ready"}]' };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 1, stdout: '', stderr: 'missing required scopes [read:project]' };
+      }
+      if (args[0] === 'repo') return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}' };
+      if (args.includes('--paginate')) return { status: 0, stdout: '[[]]' };
+      const number = Number(args[1].split('/').at(-1));
+      return { status: 0, stdout: JSON.stringify({
+        id: number * 100,
+        number,
+        state: 'open',
+        title: 'Ready',
+        repository_url: 'https://api.github.com/repos/acme/widgets',
+      }) };
+    };
+
+    expect(listSpecifiedIssues({ cwd: '/repo', run })).toEqual([{ number: 3, title: 'Ready' }]);
   });
 
   it('keeps independent picker work eligible when another reachable graph cycles', () => {
@@ -111,7 +137,10 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       repository_url: 'https://api.github.com/repos/acme/widgets',
     }]));
     const run = (_command, args) => {
-      if (args[0] === 'issue') return { status: 0, stdout: JSON.stringify([records.get(2), records.get(3)]) };
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return { status: 0, stdout: JSON.stringify([records.get(2), records.get(3)]) };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') return { status: 1, stdout: '' };
       if (args[0] === 'repo') return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}' };
       if (args.includes('--paginate')) {
         const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));

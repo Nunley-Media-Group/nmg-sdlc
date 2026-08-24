@@ -257,7 +257,9 @@ function apiWrite(client, method, edge) {
       ? ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', `${collectionEndpoint}/${blocker.id}`]
       : ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', collectionEndpoint, '-F', `issue_id=${blocker.id}`];
     const result = client.run('gh', args, { cwd: client.cwd });
-    return result?.status === 0;
+    if (result?.status !== 0) return false;
+    client.blockedByCache.delete(edge.issue);
+    return true;
   } catch {
     return false;
   }

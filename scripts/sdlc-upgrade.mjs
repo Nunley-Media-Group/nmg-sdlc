@@ -625,6 +625,12 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
 export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = defaultRun } = {}) {
   const live = detectIssueDependencyUpgrade({ cwd, run });
   if (live.digest !== item.digest || live.additionsDigest !== item.additionsDigest) {
+    const client = createIssueDependencyClient({ cwd, run });
+    const graph = readDependencyGraph(client, item.additions.flatMap((edge) => [edge.issue, edge.blockedBy]));
+    const remaining = preflightBlockedByEdges(graph, item.additions);
+    if (remaining.length === 0) {
+      return { id: item.id, status: 'applied', applied: [], alreadyPresent: item.additions };
+    }
     const error = new Error('Official dependency graph changed after plan approval');
     error.reasonCode = 'dependency_plan_stale';
     throw error;
@@ -1246,12 +1252,22 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     ...backfill,
   });
 
-  const remaining = detectUpgrade(rootAbs, { run, includeIssueDependencies });
+  let postDetectItemCount = null;
+  let postDetectError = null;
+  try {
+    postDetectItemCount = detectUpgrade(rootAbs, { run, includeIssueDependencies }).itemCount;
+  } catch (error) {
+    postDetectError = {
+      reasonCode: error?.reasonCode || 'upgrade_detection_failed',
+      message: String(error?.message || error),
+    };
+  }
   return {
     root: rootAbs,
     applied: results.filter((r) => r.status.startsWith('applied')),
     results,
-    postDetectItemCount: remaining.itemCount,
+    postDetectItemCount,
+    ...(postDetectError ? { postDetectError } : {}),
   };
 }
 

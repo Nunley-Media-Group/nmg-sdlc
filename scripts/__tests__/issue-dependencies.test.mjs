@@ -8,6 +8,7 @@ import {
   parseLegacyDependencyEvidence,
   preflightBlockedByEdges,
   readDependencyGraph,
+  readBlockedBy,
 } from '../issue-dependencies.mjs';
 
 function result(value, status = 0) {
@@ -115,6 +116,19 @@ describe('official blocked-by adapter', () => {
       'X-GitHub-Api-Version: 2022-11-28',
       'repos/acme/widgets/issues/2/dependencies/blocked_by/333',
     ]);
+  });
+
+  it('invalidates cached blocked-by reads after a successful write', () => {
+    const f = fixture({
+      issues: [{ number: 2, id: 222 }, { number: 3, id: 333 }],
+      blockers: { 2: [] },
+    });
+    const client = createIssueDependencyClient({ cwd: '/repo', run: f.run });
+    readBlockedBy(client, 2);
+    applyBlockedByEdges(client, [{ issue: 2, blockedBy: 3 }]);
+    readBlockedBy(client, 2);
+
+    expect(f.calls.filter(([, args]) => args.includes('--paginate'))).toHaveLength(2);
   });
 
   it('classifies thrown POST and rollback transport failures with exact partial evidence', () => {
