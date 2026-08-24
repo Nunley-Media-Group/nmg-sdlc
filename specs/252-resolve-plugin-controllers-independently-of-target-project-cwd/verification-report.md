@@ -105,6 +105,7 @@ BDD coverage: **8/8 scenarios** have direct contract, topology, audit, or live-e
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |---|---|---|---|---|---|
 | High | Error handling | `scripts/plugin-controller-path.mjs` | Runtime materialization joined controller paths without verifying the controller existed, so a corrupt installation could defer to Node's generic `MODULE_NOT_FOUND` instead of the specified resolver failure. | Resolve every matched basename through `resolvePluginController`; added a missing-controller regression test. | direct |
+| High | CI portability | `scripts/__tests__/extension-commands.test.mjs` | The extension materialization test spawned Bun even though the repository and CI contract require only Node.js 20, causing the GitHub contract job to terminate the probe without a status. | Exercise the exported prompt materializers directly under Jest and retain static assertions that `src/extension.ts` wires both helpers; the focused suite passes under Node.js. | delivery |
 
 ## Remaining Issues
 

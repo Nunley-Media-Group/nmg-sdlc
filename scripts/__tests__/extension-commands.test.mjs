@@ -1,9 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -30,43 +28,33 @@ describe('extension sdlc- commands', () => {
     expect(source).not.toMatch(/registerCommand\("(execute|draft-issue|write-spec)"/);
   });
 
-  it('materializes controller paths in registered handlers and automated runtime prompts', () => {
-    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-extension-'));
-    const target = path.join(fixture, 'target project');
-    fs.mkdirSync(target);
-    const extensionUrl = `${pathToFileURL(path.join(repoRoot, 'src', 'extension.ts')).href}?test=${Date.now()}`;
-    const probe = [
-      `const { default: extension } = await import(${JSON.stringify(extensionUrl)});`,
-      'const commands = new Map();',
-      'const events = new Map();',
-      'const sent = [];',
-      'extension({',
-      '  setLabel() {},',
-      '  registerCommand(name, options) { commands.set(name, options.handler); },',
-      '  sendUserMessage(content) { sent.push(content); },',
-      '  appendEntry() {},',
-      '  on(name, handler) { events.set(name, handler); },',
-      '});',
-      'await commands.get("sdlc-upgrade-project")("#252", { hasUI: true });',
-      'const runtime = events.get("context")({ messages: [{ role: "user", content: [{ type: "text", text: "node <plugin-root>/scripts/sdlc-status.mjs --project ." }] }] });',
-      'console.log(JSON.stringify({ interactive: sent[0], automated: runtime.messages[0].content[0].text }));',
-    ].join('\n');
-    try {
-      const result = spawnSync('bun', ['--eval', probe], {
-        cwd: target,
-        encoding: 'utf8',
-        env: { ...process.env },
-      });
-      expect(result.status).toBe(0);
-      const prompts = JSON.parse(result.stdout.trim());
-      const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
-      const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
-      expect(prompts.interactive).toContain(`["node",${upgradeController},"apply"`);
-      expect(prompts.interactive).not.toContain('<plugin-root>');
-      expect(prompts.automated).toBe(`node ${statusController} --project .`);
-    } finally {
-      fs.rmSync(fixture, { recursive: true, force: true });
-    }
+  it('materializes controller paths used by registered handlers and automated runtime prompts', async () => {
+    const source = read('src/extension.ts');
+    const {
+      materializeControllerPaths,
+      materializeRuntimeMessages,
+      packageRoot,
+      withArguments,
+      workflowBody,
+    } = await import('../../src/sdlc-commands.mjs');
+    expect(source).toContain('materializeControllerPaths(workflowBody(skill), packageRoot)');
+    expect(source).toContain('materializeRuntimeMessages(context.messages, packageRoot)');
+
+    const interactive = `/plan\n\n${withArguments(
+      materializeControllerPaths(workflowBody('upgrade-project'), packageRoot),
+      '#252',
+    )}`;
+    const runtime = materializeRuntimeMessages([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'node <plugin-root>/scripts/sdlc-status.mjs --project .' }],
+      },
+    ], packageRoot);
+    const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
+    const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
+    expect(interactive).toContain(`["node",${upgradeController},"apply"`);
+    expect(interactive).not.toContain('<plugin-root>');
+    expect(runtime[0].content[0].text).toBe(`node ${statusController} --project .`);
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
