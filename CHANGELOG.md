@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.10.3] - 2026-08-23
+
+### Fixed
+
+- Bare `/sdlc-write-spec` now immediately offers the lowest-numbered open issues missing `spec-created`, while preserving explicit invocation and the post-publication continuation flow.
+
 ## [3.10.2] - 2026-08-23
 
 ### Fixed
