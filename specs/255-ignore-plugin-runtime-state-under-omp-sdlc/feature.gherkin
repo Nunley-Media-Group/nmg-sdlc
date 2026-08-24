@@ -1,0 +1,43 @@
+**Issue**: #255
+**Date**: 2026-08-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/249-make-execute-resume-active-issue-state-safely/
+
+# File: scripts/__tests__/omp-sdlc-ignore.test.mjs
+#
+# Generated from: specs/255-ignore-plugin-runtime-state-under-omp-sdlc/requirements.md
+Feature: Ignore plugin runtime state under .omp/sdlc
+  Host start-issue previously treated plugin runtime under .omp/sdlc/ as
+  dirty_tree because onboard and upgrade never ignored that path.
+  This was fixed by adding .omp/sdlc/ to the host gitignore and untracking
+  already-indexed runtime with git rm --cached.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Bug is fixed
+    Given a host whose only porcelain would be untracked .omp/sdlc/ runtime
+    When onboard or upgrade applies the managed ignore rule and /sdlc-execute starts an issue from the default branch
+    Then .omp/sdlc/ is listed in the host .gitignore
+    And that runtime does not fail dirty_tree
+    And start can create or check out the issue branch
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Tracked runtime is untracked
+    Given a host that already committed files under .omp/sdlc/
+    When start or execute runs after the ignore rule exists
+    Then those paths are removed from the index with git rm --cached
+    And the working-tree files remain
+    And they no longer count as dirt
+
+  # --- Edge Case ---
+
+  @SCN003 @regression
+  Scenario: No regression
+    Given a host with dirty files outside .omp/sdlc/
+    When start or execute evaluates the working tree off the issue branch
+    Then the run still fails dirty_tree
+    And it does not create or switch branches
