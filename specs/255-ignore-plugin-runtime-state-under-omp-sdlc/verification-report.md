@@ -160,6 +160,7 @@ None.
 | `workflows/onboard-project/`, `workflows/upgrade-project/` | 0 | Approval and mutation boundaries preserved. |
 | Four issue-focused Jest suites | 1 fixed | Coverage now matches approved execute behavior. |
 | `README.md`, `CHANGELOG.md`, issue spec package | 0 | Public and traceability artifacts align with behavior. |
+| `VERSION`, `package.json` | 0 | Delivery synchronized the approved patch bump from 3.11.0 to 3.11.1. |
 
 ## Recommendation
 
