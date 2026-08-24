@@ -1,0 +1,94 @@
+**Issue**: #241
+**Date**: 2026-08-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/219-harden-execute-against-transient-herdr-lifecycle-races/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/241-wait-for-retained-active-workers-instead-of-exiting-execute/requirements.md
+Feature: Wait for retained active workers instead of exiting execute
+  The execute controller previously returned status 0 when it
+  found a live s<N>-* worker that was not idle/done on the
+  current step. This was fixed by waiting with the existing
+  Herdr agentWait path, then validating the handoff, and by
+  failing closed on a step-name mismatch.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: A live issue worker is reused
+    Given /sdlc-execute is running for explicit issue 42 or a resumed selected queue
+    And a live agent matching s42-* already exists for that issue
+    When the controller observes that worker
+    Then it does not create a second worker for the same issue and step
+
+  @SCN002 @regression
+  Scenario: An active retained worker does not end the command
+    Given a retained worker such as s42-verify is working
+    When the controller would previously print Existing worker …; no second worker started and return success
+    Then /sdlc-execute does not return merely because the worker is active
+    And it remains responsible for the selected issues
+
+  @SCN003 @regression
+  Scenario: Settlement wait does not busy-spin or shorten Herdr wait
+    Given a retained matching worker is still running
+    When the controller stays attached
+    Then it waits with herdr agent wait and no timeout argument
+    And it does not use a tight CPU-consuming poll loop
+    And it detects idle or done after that wait
+
+  @SCN004 @regression
+  Scenario: A passed non-intervention handoff advances automatically
+    Given the retained matching worker settles
+    And .omp/sdlc/handoffs/42-start.json validates as status passed and intervention false
+    When the controller consumes the handoff
+    Then it marks start complete and starts the next workflow step without a manual /sdlc-execute reinvoke
+
+  # --- Related Behavior Still Works ---
+
+  @SCN005 @regression
+  Scenario: The queue continues through merge and close
+    Given selected issues are still open
+    When each step's passed non-intervention handoff is consumed
+    Then the queue continues through delivery until each selected pull request is merged and each selected GitHub issue is closed
+
+  @SCN006 @regression
+  Scenario: Later selected issues stay serial
+    Given issues 42 and 43 are selected
+    When issue 42 is still not both merged and closed
+    Then s43-start is not started
+    And issue 43 starts only after issue 42 is merged and closed
+
+  @SCN007 @regression
+  Scenario: Failed blocked missing invalid stalled and intervention outcomes stay fail-closed
+    Given a retained or new worker settles into a failed, blocked, missing, invalid, stalled, or intervention-required handoff, or wait itself fails
+    When the controller evaluates that outcome
+    Then it does not return success
+    And the relevant worker pane stays open
+    And run.json records issue, step, and reasonCode
+    And stdout names the issue, step, worker, pane, and reason
+
+  @SCN008 @regression
+  Scenario: Interrupted execute remains resumable
+    Given the controller is interrupted after run state has been persisted
+    When /sdlc-execute is invoked again with the same explicit issues or as a resume of that run
+    Then it resumes from persisted run state
+    And it does not recreate completed work or duplicate live workers
+
+  @SCN009 @regression
+  Scenario: Safety gates remain intact
+    Given existing Herdr, git, and GitHub preflight rules
+    When execute runs after this fix
+    Then HERDR_ENV, socket, pane, OMP integration, gh auth, dirty-tree, spec-created, approval, and dependency gates still fail closed
+    And the orchestrator pane still does not edit product code, implement tasks, open pull requests, stop Herdr, use --kind pi, or stash reset or discard user work
+
+  # --- Edge Case ---
+
+  @SCN010 @regression
+  Scenario: Focused tests prove reuse wait continue and fail-closed
+    Given the focused execute controller tests
+    When they run
+    Then they fail on the pre-fix status-0 live-worker return
+    And they prove a live retained worker is reused, waited for, and continued after a valid passed non-intervention handoff
+    And they keep fail-closed coverage for failed, blocked, missing, invalid, stalled, and intervention-required outcomes
