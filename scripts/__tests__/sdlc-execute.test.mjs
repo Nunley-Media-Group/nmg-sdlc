@@ -977,50 +977,28 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('leaves runtime untracking to the real start controller', () => {
+  it('untracks tracked runtime before the execute dirty gate and preserves the working-tree file', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       integratedRuntimeMigration: true,
     });
-    const executeResult = runExecute({
+    const runtimePath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+
+    const result = runExecute({
       args: '#42',
       cwd: fixture.cwd,
       env,
       run: fixture.run,
       herdr: fixture.herdr,
     });
-    expect(executeResult.stderr).not.toBe('Working tree is dirty for a new issue\n');
-    expect(fixture.calls).not.toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+
+    expect(result.stderr).not.toBe('Working tree is dirty for a new issue\n');
+    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
     expect(fixture.starts).not.toHaveLength(0);
-    const startCalls = [];
-    const startRun = (command, args) => {
-      startCalls.push([command, ...args]);
-      if (command === 'git') return runGitResult(fixture.cwd, args);
-      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.some((arg) => arg.includes('state'))) {
-        return {
-          status: 0,
-          stdout: JSON.stringify({
-            number: 42,
-            title: 'Ship It',
-            body: '',
-            labels: [{ name: 'spec-created' }],
-            state: 'OPEN',
-          }),
-          stderr: '',
-        };
-      }
-      if (command === 'gh' && args[0] === 'issue' && args[1] === 'develop') {
-        return runGitResult(fixture.cwd, ['checkout', '-b', '42-ship-it']);
-      }
-      return fixture.run(command, args);
-    };
-    const startResult = startIssue({ issue: 42, cwd: fixture.cwd, run: startRun });
-    expect(startResult.handoff.status).toBe('passed');
-    expect(startCalls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
-    expect(runGitResult(fixture.cwd, ['branch', '--show-current']).stdout.trim()).toBe('42-ship-it');
+    expect(fs.existsSync(runtimePath)).toBe(true);
   });
 
-  it('rejects other dirt before the start worker', () => {
+  it('rejects other dirt after untracking runtime before the start worker', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       integratedRuntimeMigration: true,
@@ -1030,7 +1008,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result).toEqual({ status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' });
-    expect(fixture.calls).not.toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
     expect(fixture.starts).toEqual([]);
   });
 
@@ -1057,16 +1035,21 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('does not attempt runtime untracking before the start worker', () => {
+  it('fails closed when execute cannot untrack tracked runtime', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       trackedRuntime: '.omp/sdlc/run.json\0',
       rmStatus: 1,
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result.status).toBe(0);
-    expect(fixture.calls.some((call) => call[0] === 'git' && ['ls-files', 'rm'].includes(call[1]))).toBe(false);
-    expect(fixture.starts).not.toHaveLength(0);
+    expect(result).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n',
+    });
+    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fixture.starts).toEqual([]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('runs eight omp sibling workers in queue order', () => {

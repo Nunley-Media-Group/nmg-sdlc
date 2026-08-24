@@ -10,10 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.11.1] - 2026-08-24
+
 ### Fixed
 
 - Issue #255 makes onboarding and upgrade add `.omp/sdlc/` to host `.gitignore` files and safely untracks already-committed plugin runtime before start/execute dirty-tree checks.
-
 
 ## [3.11.0] - 2026-08-24
 
