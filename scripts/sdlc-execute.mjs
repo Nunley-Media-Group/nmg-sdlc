@@ -22,6 +22,7 @@ import {
 import { packageRoot, workflowBody } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
+import { untrackOmpSdlcRuntime } from './omp-sdlc-ignore.mjs';
 
 
 const RUN_DIR = '.omp/sdlc';
@@ -767,6 +768,10 @@ export function runExecute({
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
+  const untrack = untrackOmpSdlcRuntime({ cwd, run, fs });
+  if (!untrack.ok) {
+    return { status: 2, stdout: '', stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n' };
+  }
   if (dirtyTreeBlocks(issues[0], cwd, run)) {
     return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
   }

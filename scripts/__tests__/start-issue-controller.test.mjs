@@ -20,6 +20,10 @@ function fixture({
   parentState = 'CLOSED',
   branch = 'main',
   dirty = '',
+  gitignore = null,
+  trackedRuntime = '',
+  lsFilesStatus = 0,
+  rmStatus = 0,
   defaultStatus = 0,
   defaultBranch = 'main',
   developStatus = 0,
@@ -28,6 +32,7 @@ function fixture({
 } = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-controller-'));
   roots.push(cwd);
+  if (gitignore !== null) fs.writeFileSync(path.join(cwd, '.gitignore'), gitignore);
   const calls = [];
   let branchReads = 0;
   const run = (command, args) => {
@@ -69,6 +74,12 @@ function fixture({
     }
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
       return { status: parentStatus, stdout: parentStatus === 0 ? JSON.stringify({ state: parentState }) : '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'ls-files') {
+      return { status: lsFilesStatus, stdout: trackedRuntime, stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'rm') {
+      return { status: rmStatus, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'branch') {
       branchReads += 1;
@@ -144,6 +155,55 @@ describe('startIssue controller', () => {
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
   });
+  it('untracks ignored runtime before developing the issue branch', () => {
+    const f = fixture({
+      gitignore: '.omp/sdlc/\n',
+      trackedRuntime: '.omp/sdlc/run.json\0',
+    });
+    const runtimePath = path.join(f.cwd, '.omp/sdlc/run.json');
+    fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
+    fs.writeFileSync(runtimePath, '{}\n');
+
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fs.existsSync(runtimePath)).toBe(true);
+    expect(f.calls).toContainEqual([
+      'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
+    ]);
+  });
+
+  it('does not untrack unignored runtime and still fails dirty_tree', () => {
+    const f = fixture({ dirty: '?? .omp/sdlc/run.json\n' });
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
+    expect(f.calls.some((call) => call[0] === 'git' && ['ls-files', 'rm'].includes(call[1]))).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('keeps non-runtime dirt blocking after ignored runtime is untracked', () => {
+    const f = fixture({ gitignore: '.omp/sdlc/\n', dirty: ' M local.txt\n' });
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('writes runtime_untrack_failed before developing the issue branch', () => {
+    const f = fixture({
+      gitignore: '.omp/sdlc/\n',
+      trackedRuntime: '.omp/sdlc/run.json\0',
+      rmStatus: 1,
+    });
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(handoff(f.cwd)).toMatchObject({
+      status: 'failed',
+      intervention: true,
+      reasonCode: 'runtime_untrack_failed',
+    });
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
 
   it('develops the issue branch from a clean detached HEAD', () => {
     const f = fixture({ branch: '', dirty: '' });

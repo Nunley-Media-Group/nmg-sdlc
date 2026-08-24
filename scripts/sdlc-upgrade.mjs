@@ -25,6 +25,7 @@ import {
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
+import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -941,6 +942,16 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       });
     }
   }
+  const gitignoreText = isFile(gi) ? safeRead(gi) || '' : '';
+  if (!hasOmpSdlcIgnore(gitignoreText)) {
+    items.push({
+      id: 'omp-sdlc-ignore',
+      kind: 'omp-sdlc-ignore',
+      description: 'Add .omp/sdlc/ to .gitignore so plugin runtime state is not committed.',
+      actionable: true,
+    });
+  }
+
   if (dependencyItem) {
     items.push(dependencyItem);
   }
@@ -1250,7 +1261,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'issue-dependencies': 8, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'omp-sdlc-ignore': 8, 'issue-dependencies': 9, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -1275,6 +1286,9 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyAgentsSpikeLanguage(rootAbs, item);
     } else if (item.kind === 'v2-cleanup') {
       res = applyV2Cleanup(rootAbs, item);
+    } else if (item.kind === 'omp-sdlc-ignore') {
+      const ignored = writeOmpSdlcIgnore(rootAbs);
+      res = { id: item.id, status: ignored.ok ? 'applied' : ignored.status };
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

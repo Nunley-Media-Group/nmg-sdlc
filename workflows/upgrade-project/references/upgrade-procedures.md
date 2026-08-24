@@ -19,6 +19,7 @@ All mutations go through `scripts/sdlc-upgrade.mjs` (`detectUpgrade` / `applyUpg
 | frontmatter-fix | Singular `**Issue**`; Status Draft or Approved only, including `feature.gherkin` |
 | issue-dependencies | Re-read approved graph digest, preflight combined graph, then add only approved official blocked-by edges |
 | v2-cleanup | Exact runner files and managed `.gitignore` entries |
+| omp-sdlc-ignore | Append `.omp/sdlc/` after v2 cleanup; preserve every unrelated ignore rule |
 
 On spike-flatten collision: stamp the ADR only when the existing directory already has all four artifacts with matching `**Issue**: #N`. Otherwise `skipped:collision`.
 For issue-dependencies, a changed digest returns `dependency_plan_stale`. Apply is idempotent; on failure it rolls back only edges added by that invocation and reports exact partial state if rollback cannot restore the graph. Never rewrite legacy body prose.

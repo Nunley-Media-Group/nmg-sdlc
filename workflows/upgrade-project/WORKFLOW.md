@@ -26,7 +26,9 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 8. v2 cleanup: sdlc-config.json, legacy runner indicator/state files, and managed .gitignore blocks → propose exact deletion.
 
-9. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
+9. Plugin runtime ignore: if `.gitignore` lacks an exact `.omp/sdlc/` or `.omp/sdlc` rule, propose adding `.omp/sdlc/` after v2 cleanup.
+
+10. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
 
 Read references/detection.md etc for details (update in tree).
 

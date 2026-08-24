@@ -230,6 +230,31 @@ describe('sdlc-upgrade AGENTS spike language', () => {
   });
 });
 
+describe('sdlc-upgrade plugin runtime ignore', () => {
+  it('detects, applies, preserves, and becomes non-actionable', () => {
+    const root = makeRoot();
+    write(root, '.gitignore', 'dist/\n');
+
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items).toContainEqual(
+      expect.objectContaining({ id: 'omp-sdlc-ignore', kind: 'omp-sdlc-ignore', actionable: true }),
+    );
+
+    const result = applyUpgrade(root, ['omp-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(result.results).toContainEqual({ id: 'omp-sdlc-ignore', status: 'applied' });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('dist/\n.omp/sdlc/\n');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ id: 'omp-sdlc-ignore' }));
+  });
+
+  it.each(['.omp/sdlc/\n', '.omp/sdlc\n'])('does not detect an existing rule: %s', (source) => {
+    const root = makeRoot();
+    write(root, '.gitignore', source);
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ id: 'omp-sdlc-ignore' }));
+  });
+});
+
 describe('sdlc-upgrade spec-created backfill', () => {
   it('backfills unique complete packages even when no upgrade items are approved', () => {
     const root = makeRoot();

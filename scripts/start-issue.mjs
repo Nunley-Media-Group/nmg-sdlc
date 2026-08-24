@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import {
@@ -10,6 +10,7 @@ import {
   readDependencyGraph,
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { untrackOmpSdlcRuntime } from './omp-sdlc-ignore.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -75,7 +76,7 @@ export function startIssue({
   issue,
   cwd = process.cwd(),
   run = defaultRun,
-  fs = { mkdirSync, writeFileSync, existsSync },
+  fs = { mkdirSync, writeFileSync, existsSync, readFileSync },
 } = {}) {
   const issueNumber = Number(issue);
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -110,6 +111,11 @@ export function startIssue({
       dependency.reasonCode || 'dependency_unreadable',
     );
   }
+  const untrack = untrackOmpSdlcRuntime({ cwd, run, fs });
+  if (!untrack.ok) {
+    return fail('Failed to untrack plugin runtime under .omp/sdlc', 'runtime_untrack_failed');
+  }
+
 
   const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
 
