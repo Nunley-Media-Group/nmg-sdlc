@@ -5,7 +5,11 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseBodyRelationships } from './epic-relationships.mjs';
+import {
+  createIssueDependencyClient,
+  issueDependencyStatus,
+  readDependencyGraph,
+} from './issue-dependencies.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -92,14 +96,22 @@ export function startIssue({
     return fail(`GitHub issue #${issueNumber} is unreadable`, 'issue_unreadable');
   }
 
-  const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
-  for (const parent of parseBodyRelationships(issueData.body || '').dependsOn || []) {
-    const parentData = parseJson(run('gh', ['issue', 'view', String(parent), '--json', 'state'], { cwd }));
-    if (!parentData?.state) return fail('Depends-on parent is unreadable', 'dependency_unreadable');
-    if (String(parentData.state).toUpperCase() !== 'CLOSED') {
-      return fail('Depends-on parent is not CLOSED', 'dependency_blocked');
-    }
+  let dependency;
+  try {
+    const dependencyClient = createIssueDependencyClient({ cwd, run });
+    const graph = readDependencyGraph(dependencyClient, [issueNumber]);
+    dependency = issueDependencyStatus(graph, issueNumber);
+  } catch (error) {
+    return fail(error?.message || 'Official blocked-by evidence is unreadable', error?.reasonCode || 'dependency_unreadable');
   }
+  if (dependency.status !== 'eligible') {
+    return fail(
+      `Issue #${issueNumber} cannot start: ${dependency.reasonCode}`,
+      dependency.reasonCode || 'dependency_unreadable',
+    );
+  }
+
+  const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
 
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
   const dirtyResult = run('git', ['status', '--porcelain'], { cwd });

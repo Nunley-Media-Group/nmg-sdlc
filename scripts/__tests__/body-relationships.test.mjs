@@ -1,22 +1,25 @@
 import { describe, expect, it } from '@jest/globals';
-import { parseBodyRelationships } from '../epic-relationships.mjs';
+import { parseLegacyDependencyEvidence } from '../issue-dependencies.mjs';
 
-describe('parseBodyRelationships', () => {
-  it('parses unique Depends on and Blocks issue numbers', () => {
-    expect(parseBodyRelationships([
+describe('legacy dependency migration evidence', () => {
+  it('parses closed legacy fields only for upgrade reconciliation', () => {
+    expect(parseLegacyDependencyEvidence([
       'Depends on: #12, #8',
       'Blocks: #20',
-      'Depends on: #12',
     ].join('\n'))).toEqual({
-      dependsOn: [12, 8],
-      blocks: [20],
+      edges: [
+        { relation: 'blockedBy', issue: 12, source: 'Depends on: #12, #8' },
+        { relation: 'blockedBy', issue: 8, source: 'Depends on: #12, #8' },
+        { relation: 'blocks', issue: 20, source: 'Blocks: #20' },
+      ],
+      findings: [],
     });
   });
 
-  it('ignores prose that is not a field line', () => {
-    expect(parseBodyRelationships('This depends on: #9 in narrative')).toEqual({
-      dependsOn: [],
-      blocks: [],
+  it('keeps unrelated prose inert', () => {
+    expect(parseLegacyDependencyEvidence('This is related to #9.')).toEqual({
+      edges: [],
+      findings: [],
     });
   });
 });

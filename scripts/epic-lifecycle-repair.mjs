@@ -208,7 +208,6 @@ export function buildEpicLifecycleRepairPlan(input) {
     if (finding.status === 'legacy') {
       if (finding.addLabel) actions.push({ kind: 'add_child_label', childIssue, label: `epic-child-of-${epicNumber}` });
       if (finding.addNativeParent) actions.push({ kind: 'add_native_parent', childIssue, epicIssue: epicNumber });
-      if (finding.addBodyMembership) actions.push({ kind: 'add_body_membership', childIssue, line: `Depends on: #${epicNumber}` });
     } else if (finding.status !== 'durable') {
       findings.push({ kind: 'identity_preserved', childIssue, status: finding.status });
     }

@@ -57,7 +57,7 @@ All feature development should align with these guidelines.
 | [principle] | [What this means for product decisions] |
 
 <!-- TODO: Principles guide decision-making when requirements conflict -->
-- Epics removed in v3. All work uses normal dependency graph with Depends on: / Blocks: body lines. Children are ordinary executable issues.
+- Epics are removed. Ordinary executable issues use GitHub's official blocked-by relation as the sole sequencing authority.
 
 Use /sdlc-draft-issue for new, /sdlc-write-spec #N , /sdlc-execute .
 

@@ -1,3 +1,3 @@
 # Epic Lifecycle (removed)
 
-Epic flatten handled in main detector. No per-epic recovery in upgrade v3 (flattens to normal specs + Depends lines).
+Epic flatten creates ordinary issue-owned specs. Any explicit historical sequencing is considered only by the approved official blocked-by reconciliation; no epic relation controls runtime eligibility.

@@ -31,7 +31,7 @@ Contract scripts
         └── deterministic exercise fixtures
 ```
 
-Interactive skills interview with built-in `ask` and finish at `xd://propose`. Scripts may inspect, classify, or validate contracts, but do not select product scope. Automated workers never call `ask`. Sequencing is `Depends on:` between ordinary issues.
+Interactive skills interview with built-in `ask` and finish at `xd://propose`. Scripts may inspect, classify, or validate contracts, but do not select product scope. Automated workers never call `ask`. Sequencing uses only GitHub's official blocked-by relation between ordinary issues.
 
 ---
 
@@ -61,6 +61,10 @@ automated fix loop.
 | `logins` | `["coderabbitai"]` | Explicit automated-reviewer logins are eligible in addition to the Bot predicate. |
 
 Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a development dependency isolated to `scripts/`.
+
+### Issue Dependencies
+
+`scripts/issue-dependencies.mjs` is the sole production adapter and validator. Read `dependencies/blocked_by` with complete pagination through explicit `gh api` argument arrays; write numeric REST database ids only after combined-graph preflight. Transport, parsing, pagination, repository mismatch, dangling targets, and open cycles fail closed. Body relations are migration evidence only inside upgrade detection.
 
 ---
 

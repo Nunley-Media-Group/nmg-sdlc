@@ -87,7 +87,7 @@ Every spec file begins with singular frontmatter:
 - `**Status**` is `Draft` or `Approved` only.
 - One issue owns exactly one `specs/{N}-{slug}/` directory.
 - No `issue-scope.json`, no cumulative multi-issue manifests, no epic type.
-- Sequencing uses `Depends on:` and `Blocks:` lines in issue bodies.
+- Sequencing uses only GitHub's official blocked-by relation; body fields, labels, epics, spikes, and sub-issues are not dependency authority.
 - Legacy `feature-*`, `bug-*`, `epic-*`, and `.codex/specs/` layouts are upgrade inputs only.
 - Breaking repository rewrites remove obsolete spec packages and must pass `node scripts/verify-current-specs.mjs`.
 
@@ -99,7 +99,7 @@ Every spec file begins with singular frontmatter:
 /sdlc-draft-issue "add user authentication"
 ```
 
-Classifies the request (Bug / Enhancement), investigates relevant code, and interviews via native `ask` until every material preference, acceptance criterion, and scope boundary that tools cannot discover is gathered. It then drafts BDD acceptance criteria as Given/When/Then plus functional requirements and creates the GitHub issue after approval. Multi-part requests may be split into dependency-aware ordinary issues.
+Classifies the request (Bug / Enhancement), investigates relevant code, and interviews via native `ask` until every material preference, acceptance criterion, and scope boundary that tools cannot discover is gathered. It then drafts BDD acceptance criteria as Given/When/Then plus functional requirements and creates the GitHub issue after approval. Multi-part requests may be split into ordinary issues connected by preflighted official blocked-by edges.
 
 ### Write Specs
 
@@ -141,7 +141,7 @@ Status reports read-only git state, active spec, verification evidence, issue/PR
 /sdlc-upgrade-project
 ```
 
-Reconciles steering/spec trees, templates, and managed assets. Detects and proposes (never silently applies) layout modernizations such as legacy spec directory renames, cumulative splits, leftover spike conversion, and removal of obsolete v2 runner files. All changes require explicit per-group approval. Legacy directories remain readable until upgraded.
+Reconciles steering/spec trees, templates, managed assets, and the complete repository dependency graph. It detects and proposes—never silently applies—layout modernizations, cumulative splits, leftover spike conversion, official blocked-by edges supported by explicit legacy evidence, and obsolete v2 runner cleanup. Every mutation group requires approval; legacy body text is preserved but is not runtime dependency authority.
 
 ## Versioning
 

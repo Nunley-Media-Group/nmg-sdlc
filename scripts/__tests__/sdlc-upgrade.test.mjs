@@ -2,7 +2,12 @@ import { describe, expect, it, afterEach } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
+import {
+  applyIssueDependencyUpgrade,
+  applyUpgrade,
+  detectIssueDependencyUpgrade,
+  detectUpgrade,
+} from '../sdlc-upgrade.mjs';
 const temporaryRoots = [];
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
 
@@ -23,6 +28,40 @@ afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+function dependencyRun(issues, blockers = {}) {
+  const calls = [];
+  const records = new Map(issues.map((issue) => [issue.number, {
+    id: issue.id ?? issue.number * 100,
+    number: issue.number,
+    state: issue.state ?? 'open',
+    title: issue.title ?? `Issue ${issue.number}`,
+    body: issue.body ?? '',
+    repository_url: 'https://api.github.com/repos/acme/widgets',
+  }]));
+  const run = (_command, args) => {
+    calls.push(args);
+    if (args[0] === 'repo') return { status: 0, stdout: JSON.stringify({ nameWithOwner: 'acme/widgets' }) };
+    if (args.includes('--paginate') && args.includes('repos/acme/widgets/issues')) {
+      return { status: 0, stdout: JSON.stringify([[...records.values()]]) };
+    }
+    if (args.includes('--paginate')) {
+      const endpoint = args.find((arg) => /dependencies\/blocked_by$/.test(arg));
+      const number = Number(endpoint.match(/issues\/(\d+)/)[1]);
+      return { status: 0, stdout: JSON.stringify([(blockers[number] ?? []).map((target) => records.get(target))]) };
+    }
+    if (args[0] === 'api' && args.length === 2) {
+      const number = Number(args[1].split('/').at(-1));
+      const record = records.get(number);
+      return record
+        ? { status: 0, stdout: JSON.stringify(record) }
+        : { status: 1, stdout: '', stderr: 'missing' };
+    }
+    if (args.includes('--method')) return { status: 0, stdout: '{}' };
+    return { status: 1, stdout: '', stderr: 'unexpected call' };
+  };
+  return { run, calls };
+}
 
 describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
   it('flattens an epic package into the child directory', () => {
@@ -212,5 +251,176 @@ describe('sdlc-upgrade spec-created backfill', () => {
     }));
     expect(calls).toContainEqual(['gh', 'issue', 'edit', '42', '--add-label', 'spec-created']);
     expect(calls.some((call) => call.includes('99'))).toBe(false);
+  });
+});
+
+describe('official dependency upgrade reconciliation', () => {
+  it('screens every issue and proposes only missing explicit official edges', () => {
+    const fixture = dependencyRun([
+      { number: 2, body: 'Depends on: #1\nPreserve this body.' },
+      { number: 1, state: 'closed' },
+      { number: 3, body: 'This may be related to #1.' },
+    ]);
+
+    const item = detectIssueDependencyUpgrade({ cwd: '/repo', run: fixture.run });
+
+    expect(item.issueCount).toBe(3);
+    expect(item.additions).toEqual([{ issue: 2, blockedBy: 1, source: 'Depends on: #1' }]);
+    expect(fixture.calls.filter((args) => args.includes('--paginate') && args.some((arg) => /dependencies\/blocked_by$/.test(arg)))).toHaveLength(3);
+    expect(fixture.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('rejects graph drift before applying an approved edge', () => {
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
+    const changed = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'open' },
+    ]);
+
+    expect(() => applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: changed.run }))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
+    expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('treats an approved edge that is already present as applied on retry', () => {
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
+    const retried = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], { 2: [1] });
+
+    expect(applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: retried.run })).toEqual({
+      id: approved.id,
+      status: 'applied',
+      applied: [],
+      alreadyPresent: approved.additions,
+    });
+    expect(retried.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('accepts an applyUpgrade retry only when every encoded approved edge is present', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const retried = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], { 2: [1] });
+
+    const result = applyUpgrade(root, [approved.id], retried.run, { includeIssueDependencies: true });
+
+    expect(result.applied).toContainEqual({
+      id: approved.id,
+      status: 'applied',
+      applied: [],
+      alreadyPresent: [{ issue: 2, blockedBy: 1 }],
+    });
+    expect(retried.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('rejects proposed edge drift even when the official graph is unchanged', () => {
+    const initial = dependencyRun([
+      { number: 1, state: 'closed' },
+      { number: 2, body: 'Depends on: #1' },
+      { number: 3, state: 'closed' },
+    ]);
+    const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
+    const changed = dependencyRun([
+      { number: 1, state: 'closed' },
+      { number: 2, body: 'Depends on: #3' },
+      { number: 3, state: 'closed' },
+    ]);
+
+    expect(() => applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: changed.run }))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
+    expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('binds approved helper item ids to the detected graph digest', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const changed = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'open' },
+    ]);
+
+    expect(() => applyUpgrade(root, [approved.id], changed.run, { includeIssueDependencies: true }))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
+    expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('preserves successful dependency results when post-apply detection fails', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const applying = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    let issueListReads = 0;
+    const run = (command, args) => {
+      if (args.includes('--paginate') && args.includes('repos/acme/widgets/issues')) {
+        issueListReads += 1;
+        if (issueListReads === 3) return { status: 1, stdout: '', stderr: 'temporary API failure' };
+      }
+      return applying.run(command, args);
+    };
+
+    const result = applyUpgrade(root, [approved.id], run, { includeIssueDependencies: true });
+
+    expect(result.applied).toContainEqual(expect.objectContaining({
+      id: approved.id,
+      status: 'applied',
+    }));
+    expect(result.postDetectItemCount).toBeNull();
+    expect(result.postDetectError).toEqual(expect.objectContaining({
+      reasonCode: 'dependency_unreadable',
+    }));
+  });
+
+  it('does not report already current while dependency additions remain', () => {
+    const root = makeRoot();
+    const fixture = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+
+    const report = detectUpgrade(root, {
+      run: fixture.run,
+      includeIssueDependencies: true,
+    });
+
+    expect(report.items).toContainEqual(expect.objectContaining({
+      kind: 'issue-dependencies',
+      actionable: true,
+    }));
+    expect(report.items.some((item) => item.kind === 'already-current')).toBe(false);
   });
 });

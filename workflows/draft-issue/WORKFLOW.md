@@ -73,11 +73,13 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
    Fill from understanding + investigation.
 
-   For multi (from references/multi-issue.md): insert at end of each body the topo Depends on: / Blocks: lines using summaries (human readable). No placeholders for later rewrite.
+   For multi (from references/multi-issue.md): assign stable plan-local ids and derive explicit `blockedBy` references. Do not generate dependency lines in issue bodies.
 
-8. Build per-issue plan entries in topo order (single = 1).
+8. Build per-issue plan entries in topological order (single = 1).
 
    Each:
+
+   - planId: stable kebab-case identifier unique within the plan
 
    - classification: feature|bug
 
@@ -87,9 +89,13 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
    - labels: ["enhancement"] | ["bug"]
 
-   - body: full markdown (from template fill + dep lines)
+   - body: full markdown from the selected template, without generated dependency fields
 
-   - ghCreateArgs: exact argv array e.g. ["gh","issue","create","--title", t, "--body", b, "--label", l, (milestone? ["--milestone", m] : []) ]
+   - blockedBy: array of `{ "planId": "..." }` or `{ "issue": 123 }`; existing issues are allowed only when the need explicitly names or clearly sequences them
+
+   - ghCreateArgs: exact argv array e.g. ["gh","issue","create","--title", t,"--body",b,"--label",l,(milestone?["--milestone",m]:[])]
+
+   Approved execution creates all issues, captures each returned issue number, resolves every plan-local reference, reads numeric REST database ids, preflights the complete official graph through `scripts/issue-dependencies.mjs`, and only then applies official blocked-by edges. The existing split and final plan approval authorize those exact writes; do not ask again.
 
 9. Write the plan file:
 
@@ -106,14 +112,14 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
     draft-<slug>
     <chosen primary title>
     ```
-    (The /plan system will present for approval; execution of approved plan runs the ghCreateArgs in order and emits "/sdlc-write-spec #N" for the created issues.)
+    (The /plan system will present for approval; execution of the approved plan runs the `ghCreateArgs` in topological order, captures created issue numbers, resolves all `planId` references, reads numeric REST database IDs, preflights the combined official graph, publishes every approved blocked-by edge, and only then emits `/sdlc-write-spec #N` for each created issue.)
 ## Multi-Issue Notes
 
 - One ask only for split confirm (see references/multi-issue.md for updated rules).
 
 - One plan file covers all; lists in topo order.
 
-- Bodies contain the Depends on: / Blocks: lines (parseable later).
+- Bodies contain no generated dependency fields; the plan carries official blocked-by edges.
 
 - No epic coordination, no fan-out, no child creation inside this skill.
 

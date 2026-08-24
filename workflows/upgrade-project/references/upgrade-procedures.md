@@ -17,9 +17,11 @@ All mutations go through `scripts/sdlc-upgrade.mjs` (`detectUpgrade` / `applyUpg
 | spike-issue-form | Remove the Spike option from the managed issue form |
 | agents-spike-language | Helper strips leftover spike wording from AGENTS.md structure comments |
 | frontmatter-fix | Singular `**Issue**`; Status Draft or Approved only, including `feature.gherkin` |
+| issue-dependencies | Re-read approved graph digest, preflight combined graph, then add only approved official blocked-by edges |
 | v2-cleanup | Exact runner files and managed `.gitignore` entries |
 
 On spike-flatten collision: stamp the ADR only when the existing directory already has all four artifacts with matching `**Issue**: #N`. Otherwise `skipped:collision`.
+For issue-dependencies, a changed digest returns `dependency_plan_stale`. Apply is idempotent; on failure it rolls back only edges added by that invocation and reports exact partial state if rollback cannot restore the graph. Never rewrite legacy body prose.
 
 ## After apply
 

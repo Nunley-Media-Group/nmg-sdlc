@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-08-23
+
+### Changed (BREAKING)
+
+- Issue #236 replaces body-derived, epic, spike, label, and sub-issue sequencing with one fail-closed GitHub official blocked-by graph shared by draft, upgrade, execute, start, and status. Upgrade may migrate explicit legacy body evidence without rewriting issue prose.
+
 ## [3.9.0] - 2026-08-23
 ### Changed
 

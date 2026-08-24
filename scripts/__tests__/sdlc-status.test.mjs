@@ -26,8 +26,7 @@ function baseEvidence(overrides = {}) {
       number: 42,
       title: 'Example',
       state: 'OPEN',
-      dependsOn: [],
-      deliverableDependencies: { status: 'none' },
+      dependency: { status: 'eligible', reasonCode: null, openBlockers: [] },
       ...(overrides.issue ?? {}),
     },
     spec: overrides.spec === undefined
@@ -44,6 +43,30 @@ describe('sdlc-status v3 recommendations', () => {
     const status = inferLifecycle(baseEvidence({ spec: null }));
     expect(status.stage).toBe('ready');
     expect(status.nextAction.command).toBe('/sdlc-write-spec #42');
+  });
+
+  it('recommends draft-issue on the default branch with no active issue', () => {
+    const evidence = baseEvidence({
+      project: {
+        branch: 'main',
+        defaultBranch: 'main',
+        dirty: false,
+        implementationPaths: [],
+        baseRelativeCommits: [],
+      },
+      spec: null,
+    });
+    evidence.issue = null;
+
+    const status = inferLifecycle(evidence);
+
+    expect(status.stage).toBe('unknown');
+    expect(status.nextAction).toEqual({
+      command: '/sdlc-draft-issue',
+      reason: 'no active issue',
+      manualRepairRequired: false,
+    });
+    expect(status.gaps).not.toContain('official blocked-by dependency: dependency_unreadable');
   });
 
   it('recommends execute when an approved spec exists and the issue is unblocked', () => {
@@ -115,18 +138,38 @@ describe('sdlc-status v3 recommendations', () => {
     }
   });
 
-  it('keeps Depends on parents blocked', () => {
+  it('keeps official open blockers blocked', () => {
     const status = inferLifecycle(baseEvidence({
       issue: {
         number: 42,
         title: 'Example',
         state: 'OPEN',
-        dependsOn: [1],
-        deliverableDependencies: { status: 'none' },
+        body: 'Depends on: #99',
+        dependency: { status: 'blocked', reasonCode: 'dependency_blocked', openBlockers: [1] },
       },
     }));
     expect(status.stage).toBe('blocked');
     expect(status.nextAction.command).toBe('/sdlc-status');
+    expect(status.gaps).toContain('official blocked-by dependency: dependency_blocked');
+  });
+
+  it.each(['dependency_cycle', 'dependency_dangling'])('keeps %s graph failures blocked', (reasonCode) => {
+    const status = inferLifecycle(baseEvidence({
+      issue: { dependency: { status: 'blocked', reasonCode } },
+    }));
+    expect(status.stage).toBe('blocked');
+    expect(status.nextAction).toEqual({
+      command: '/sdlc-status',
+      reason: reasonCode,
+      manualRepairRequired: false,
+    });
+  });
+
+  it('ignores legacy body relationship text when official evidence is eligible', () => {
+    const status = inferLifecycle(baseEvidence({
+      issue: { body: 'Depends on: #1\\nBlocks: #2' },
+    }));
+    expect(status.stage).toBe('specified');
   });
 
   it('does not emit epicAuthority or coordination in JSON', () => {
