@@ -17,6 +17,7 @@ import {
   runExecute,
   listSpecifiedIssues,
 } from '../sdlc-execute.mjs';
+import { startIssue } from '../start-issue.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
 
@@ -976,21 +977,50 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('proceeds from main when untracking runtime stages its deletion', () => {
+  it('leaves runtime untracking to the real start controller', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       integratedRuntimeMigration: true,
     });
-
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-
-    expect(result.stderr).not.toBe('Working tree is dirty for a new issue\n');
-    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
-    expect(fixture.calls).toContainEqual(['git', 'status', '--porcelain', '-z']);
+    const executeResult = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    expect(executeResult.stderr).not.toBe('Working tree is dirty for a new issue\n');
+    expect(fixture.calls).not.toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
     expect(fixture.starts).not.toHaveLength(0);
+    const startCalls = [];
+    const startRun = (command, args) => {
+      startCalls.push([command, ...args]);
+      if (command === 'git') return runGitResult(fixture.cwd, args);
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.some((arg) => arg.includes('state'))) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: 42,
+            title: 'Ship It',
+            body: '',
+            labels: [{ name: 'spec-created' }],
+            state: 'OPEN',
+          }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'develop') {
+        return runGitResult(fixture.cwd, ['checkout', '-b', '42-ship-it']);
+      }
+      return fixture.run(command, args);
+    };
+    const startResult = startIssue({ issue: 42, cwd: fixture.cwd, run: startRun });
+    expect(startResult.handoff.status).toBe('passed');
+    expect(startCalls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(runGitResult(fixture.cwd, ['branch', '--show-current']).stdout.trim()).toBe('42-ship-it');
   });
 
-  it('rejects other dirt alongside the exact runtime staged transition', () => {
+  it('rejects other dirt before the start worker', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       integratedRuntimeMigration: true,
@@ -1000,7 +1030,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result).toEqual({ status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' });
-    expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fixture.calls).not.toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
     expect(fixture.starts).toEqual([]);
   });
 
@@ -1014,7 +1044,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('keeps other dirty files blocking after the ignored runtime preflight', () => {
+  it('keeps other dirty files blocking before worker startup', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       dirty: ' M local.txt\n',
@@ -1027,22 +1057,16 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('fails before run state or workers when runtime untrack fails', () => {
+  it('does not attempt runtime untracking before the start worker', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
       trackedRuntime: '.omp/sdlc/run.json\0',
       rmStatus: 1,
     });
-
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-
-    expect(result).toEqual({
-      status: 2,
-      stdout: '',
-      stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n',
-    });
-    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
-    expect(fixture.starts).toEqual([]);
+    expect(result.status).toBe(0);
+    expect(fixture.calls.some((call) => call[0] === 'git' && ['ls-files', 'rm'].includes(call[1]))).toBe(false);
+    expect(fixture.starts).not.toHaveLength(0);
   });
 
   it('runs eight omp sibling workers in queue order', () => {

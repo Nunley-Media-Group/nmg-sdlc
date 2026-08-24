@@ -22,10 +22,7 @@ import {
 import { packageRoot, workflowBody } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
-import {
-  isAuthorizedOmpSdlcUntrackTransition,
-  untrackOmpSdlcRuntime,
-} from './omp-sdlc-ignore.mjs';
+
 
 
 const RUN_DIR = '.omp/sdlc';
@@ -633,12 +630,11 @@ function issueBranchName(issue, cwd, run) {
     .replace(/^-+|-+$/g, '') || 'issue'}` : null;
 }
 
-function dirtyTreeBlocks(issue, cwd, run, untrack = null) {
+function dirtyTreeBlocks(issue, cwd, run) {
   const dirtyResult = run('git', ['status', '--porcelain', '-z'], { cwd });
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
   if (!commandSucceeded(dirtyResult) || !commandSucceeded(branchResult)) return true;
-  const dirty = String(dirtyResult.stdout || '');
-  if (!dirty || isAuthorizedOmpSdlcUntrackTransition(dirty, untrack)) return false;
+  if (!String(dirtyResult.stdout || '')) return false;
   return String(branchResult.stdout || '').trim() !== issueBranchName(issue, cwd, run);
 }
 
@@ -772,11 +768,7 @@ export function runExecute({
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
-  const untrack = untrackOmpSdlcRuntime({ cwd, run, fs });
-  if (!untrack.ok) {
-    return { status: 2, stdout: '', stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n' };
-  }
-  if (dirtyTreeBlocks(issues[0], cwd, run, untrack)) {
+  if (dirtyTreeBlocks(issues[0], cwd, run)) {
     return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
   }
 
