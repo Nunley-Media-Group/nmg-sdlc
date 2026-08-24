@@ -15,5 +15,7 @@
 7. Frontmatter and status normalization.
 
 8. v2 exact-file and managed-block cleanup.
+9. Plugin runtime ignore: when `.gitignore` lacks a non-comment exact `.omp/sdlc/` or `.omp/sdlc` rule, emit actionable `id: omp-sdlc-ignore`, `kind: omp-sdlc-ignore`. Apply appends `.omp/sdlc/` after v2 cleanup.
+
 
 All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.

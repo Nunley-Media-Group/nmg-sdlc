@@ -26,12 +26,13 @@ Feature: Ignore plugin runtime state under .omp/sdlc
   # --- Related Behavior Still Works ---
 
   @SCN002 @regression
-  Scenario: Tracked runtime is untracked
+  Scenario: Tracked runtime is untracked through an exact authorized transition
     Given a host that already committed files under .omp/sdlc/
     When start or execute runs after the ignore rule exists
-    Then those paths are removed from the index with git rm --cached
+    Then those exact paths are removed from the index with git rm --cached
     And the working-tree files remain
-    And they no longer count as dirt
+    And only their index-only deletion records are authorized by the following dirty gate
+    And any additional or different dirty record still fails dirty_tree
 
   # --- Edge Case ---
 

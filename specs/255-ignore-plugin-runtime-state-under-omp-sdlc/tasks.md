@@ -25,7 +25,7 @@
 **Type**: Create / Modify
 **Depends**: None
 **Acceptance**:
-- [ ] `scripts/omp-sdlc-ignore.mjs` exports `OMP_SDLC_IGNORE_LINE` (`'.omp/sdlc/'`), `hasOmpSdlcIgnore`, `ensureOmpSdlcIgnore`, `writeOmpSdlcIgnore`, and `untrackOmpSdlcRuntime` with the exact contracts in this spec’s design
+- [ ] `scripts/omp-sdlc-ignore.mjs` exports `OMP_SDLC_IGNORE_LINE` (`'.omp/sdlc/'`), `hasOmpSdlcIgnore`, `ensureOmpSdlcIgnore`, `writeOmpSdlcIgnore`, `untrackOmpSdlcRuntime`, and the exact staged-transition predicate with the contracts in this spec’s design
 - [ ] CLI `node scripts/omp-sdlc-ignore.mjs ensure --root <dir>` writes or skips as specified and prints one JSON object
 - [ ] Greenfield/brownfield onboard plan execution is required to run that CLI; already-initialized onboard still only recommends `/sdlc-upgrade-project`
 - [ ] `detectUpgrade` emits actionable `id: 'omp-sdlc-ignore'` / `kind: 'omp-sdlc-ignore'` iff the host lacks the rule
@@ -45,7 +45,8 @@
 - [ ] After dependency eligibility and before porcelain, `startIssue` calls `untrackOmpSdlcRuntime`; `!ok` writes `reasonCode: 'runtime_untrack_failed'`, `intervention: true`, and does not call `gh issue develop`
 - [ ] `runExecute` calls `untrackOmpSdlcRuntime` once immediately before `dirtyTreeBlocks(issues[0])`; `!ok` returns status 2 and stderr `Failed to untrack plugin runtime under .omp/sdlc\n` with no run write and no workers
 - [ ] When the ignore rule is absent, neither controller runs `git ls-files` or `git rm`
-- [ ] `dirtyTreeBlocks`, `restoreActiveIssueBranch`, and the start-issue dirty predicate remain unfiltered `git status --porcelain`
+- [ ] `dirtyTreeBlocks`, `restoreActiveIssueBranch`, and the start-issue dirty predicate inspect unfiltered porcelain; only the initial gate receiving a successful changed untrack result may authorize an exact set of index-only `.omp/sdlc/**` deletions matching the pre-removal `ls-files -z` result
+- [ ] Any additional, missing, unstaged, renamed, untracked, or differently staged record fails `dirty_tree`
 - [ ] `git rm` is only `['rm', '--cached', '-r', '--', '.omp/sdlc']`
 
 **Notes**: Import the helper; do not duplicate the predicate.
@@ -57,13 +58,14 @@
 **Depends**: T001, T002
 **Acceptance**:
 - [ ] Helper tests: missing text → `ensure` appends `.omp/sdlc/\n`; existing `.omp/sdlc/` or `.omp/sdlc` → unchanged; `# .omp/sdlc/` and `!.omp/sdlc/` → append; unwritable directory named `.gitignore` → `preserved (unmanaged)` / CLI `gitignore_unwritable`
-- [ ] Untrack tests: no ignore → no git calls; ignore + empty `ls-files` → no `rm`; ignore + listed path → `git rm --cached -r -- .omp/sdlc` and `ok`; `ls-files` or `rm` non-zero → `runtime_untrack_failed`
+- [ ] Untrack tests: no ignore → no git calls; ignore + empty `ls-files` → no `rm`; ignore + listed path → `git rm --cached -r -- .omp/sdlc`, exact path authorization, and `ok`; `ls-files` or `rm` non-zero → `runtime_untrack_failed`
+- [ ] Exact-transition tests: matching index-only deletions for the complete untrack path set are authorized; missing records, extra paths, worktree deletions, modifications, renames, and untracked paths are rejected
 - [ ] Upgrade: host without the rule detects `omp-sdlc-ignore`; apply appends the line and preserves unrelated rules; second detect has no item; host that already has the line is not actionable
-- [ ] Start: write `.gitignore` with `.omp/sdlc/`, stub `ls-files` to `.omp/sdlc/run.json\0`, then empty porcelain → passed and `gh issue develop` runs; `git rm --cached` was called; no working-tree unlink
+- [ ] Start: write `.gitignore` with `.omp/sdlc/`, stub `ls-files` to `.omp/sdlc/run.json\0`, then exact staged deletion porcelain → passed and `gh issue develop` runs; `git rm --cached` was called; no working-tree unlink
 - [ ] Start: no `.gitignore`, porcelain `?? .omp/sdlc/run.json\n` → `dirty_tree`, no `git rm`, no develop
-- [ ] Start: ignore present, porcelain ` M local.txt\n` after untrack → `dirty_tree`, no develop
+- [ ] Start: ignore present, exact runtime deletion plus ` M local.txt` after untrack → `dirty_tree`, no develop
 - [ ] Start: ignore present, `git rm` status 1 → `runtime_untrack_failed`, no develop
-- [ ] Execute: same four shapes against `runExecute` entry — ignored-only runtime does not print `Working tree is dirty for a new issue`; other dirty files still status 2 with that stderr; untrack failure uses the untrack stderr; existing `dirtyTreeBlocks` preflight for non-runtime dirt remains
+- [ ] Execute: same four shapes against `runExecute` entry — the exact authorized transition does not print `Working tree is dirty for a new issue`; other dirty or staged records still return status 2 with that stderr; untrack failure uses the untrack stderr; existing `dirtyTreeBlocks` preflight for non-runtime dirt remains
 - [ ] Gherkin tags `@SCN001`–`@SCN003` with `@regression` map to AC1–AC3
 
 **Notes**: Extend the existing start `fixture()` `run` mock to handle `git ls-files` and `git rm` only in the new cases. Reuse `makeControllerFixture` for execute.

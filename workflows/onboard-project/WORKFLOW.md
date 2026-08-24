@@ -47,7 +47,7 @@ Source backfill if no closed.
 
 Write specs/{N}-{slug}/ + 4 files with singular **Issue** #N , initial history.
 
-Approved greenfield, brownfield, and source-backfill plan execution runs `node <plugin-root>/scripts/spec-created-label.mjs backfill` after writing spec packages or the empty greenfield `specs/` tree. It uses no per-issue confirmation. Already-initialized onboarding that does not mutate specs skips backfill.
+Approved greenfield, brownfield, and source-backfill plan execution runs `node <plugin-root>/scripts/omp-sdlc-ignore.mjs ensure --root .` after writing the empty greenfield `specs/` tree or issue-owned spec packages, then runs `node <plugin-root>/scripts/spec-created-label.mjs backfill`. Both commands use no per-issue confirmation. Already-initialized onboarding that does not mutate specs skips both commands and still only recommends `/sdlc-upgrade-project`.
 
 ## Already
 

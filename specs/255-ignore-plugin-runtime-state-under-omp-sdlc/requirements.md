@@ -33,7 +33,8 @@
 
 **Given** a host that already committed files under `.omp/sdlc/`
 **When** start or execute runs after the ignore rule exists
-**Then** those paths are removed from the index with `git rm --cached`, the working-tree files remain, and they no longer count as dirt
+**Then** those paths are removed from the index with `git rm --cached`, the working-tree files remain, and the dirty gate permits only the exact staged `.omp/sdlc/**` deletions authorized by that successful controlled operation
+**And** any other dirty or staged path still fails `dirty_tree`
 
 ### AC3: No Regression
 
@@ -47,15 +48,15 @@
 |----|-------------|----------|
 | FR1 | Onboard adds `.omp/sdlc/` to the host `.gitignore` when that rule is missing | Must |
 | FR2 | Upgrade proposes and, on approved apply, adds the same `.omp/sdlc/` ignore on already-initialized hosts | Must |
-| FR3 | Start and execute untrack already-indexed `.omp/sdlc/` paths with `git rm --cached` and do not delete the files | Must |
-| FR4 | Dirty-tree failures remain for any porcelain outside `.omp/sdlc/` | Must |
+| FR3 | Start and execute untrack already-indexed `.omp/sdlc/` paths with `git rm --cached`; the following dirty gate may authorize only staged deletions for the exact paths returned by the successful controlled untrack operation | Must |
+| FR4 | Dirty-tree failures remain for any porcelain outside that exact authorized staged-transition set, including other `.omp/sdlc/` states | Must |
 
 ## Out of Scope
 
 - Treating unignored `.omp/sdlc/` as clean without a host gitignore rule
 - Ignoring the entire `.omp/` directory
 - Changing a specific host `.gitignore` in a non-nmg-sdlc repository as the fix
-- Filtering `git status --porcelain` in `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `dirtyTreeBlocks` / start-issue dirty evaluation
+- Broadly filtering `.omp/sdlc` from `git status --porcelain` in `references/dirty-tree.md`, `publish-approved-spec.mjs`, or `dirtyTreeBlocks` / start-issue dirty evaluation; only the exact staged deletions produced by the controlled untrack operation may be authorized
 - Changing apply-review staging filters in `scripts/sdlc-apply-review.mjs`
 
 ## Change History
