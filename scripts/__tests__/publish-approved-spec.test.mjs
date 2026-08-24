@@ -301,6 +301,63 @@ describe('publish-approved-spec', () => {
     });
   });
 
+  it('missing-spec-created filters exact labels, sorts, and deduplicates complete rows', () => {
+    const { root, env } = makeRepo();
+    const result = run(root, ['missing-spec-created'], {
+      ...env,
+      GH_ISSUE_LIST: JSON.stringify([
+        { number: 9, title: 'Nine', labels: [] },
+        { number: 2, title: 'Two', labels: ['Spec-Created'] },
+        { number: 7, title: 'Excluded object', labels: [{ name: 'spec-created' }] },
+        { number: 4, title: 'Four', labels: [{ name: 'bug' }] },
+        { number: 2, title: 'Duplicate', labels: [] },
+        { number: 3, title: 'Excluded string', labels: ['spec-created'] },
+      ]),
+    });
+
+    expect(result.status).toBe(0);
+    expect(parse(result)).toEqual({
+      ok: true,
+      issues: [
+        { number: 2, title: 'Two' },
+        { number: 4, title: 'Four' },
+        { number: 9, title: 'Nine' },
+      ],
+    });
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8').trim()).toBe(
+      'issue list --state open --limit 100 --json number,title,labels',
+    );
+  });
+
+  it('missing-spec-created returns empty results and fails closed on unreadable evidence', () => {
+    const empty = makeRepo();
+    const emptyResult = run(empty.root, ['missing-spec-created'], {
+      ...empty.env,
+      GH_ISSUE_LIST: '[]',
+    });
+    expect(emptyResult.status).toBe(0);
+    expect(parse(emptyResult)).toEqual({ ok: true, issues: [] });
+
+    for (const [args, list, extraEnv, reasonCode] of [
+      [['missing-spec-created', 'extra'], '[]', {}, 'invalid_arguments'],
+      [['missing-spec-created'], '{}', {}, 'issues_unreadable'],
+      [['missing-spec-created'], '{', {}, 'issues_unreadable'],
+      [['missing-spec-created'], '[{"number":0,"title":"Zero","labels":[]}]', {}, 'issues_unreadable'],
+      [['missing-spec-created'], '[{"number":1,"title":"","labels":[]}]', {}, 'issues_unreadable'],
+      [['missing-spec-created'], '[{"number":1,"title":"One","labels":[{}]}]', {}, 'issues_unreadable'],
+      [['missing-spec-created'], '[]', { GH_FAIL_ISSUE_LIST: '1' }, 'issues_unreadable'],
+    ]) {
+      const fixture = makeRepo();
+      const result = run(fixture.root, args, {
+        ...fixture.env,
+        GH_ISSUE_LIST: list,
+        ...extraEnv,
+      });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode });
+    }
+  });
+
   it('candidates deduplicates published numbers, sorts, and excludes every approved source', () => {
     const { root, env } = makeRepo();
     writeApproved(path.join(root, 'specs', '3-worktree'), 3);

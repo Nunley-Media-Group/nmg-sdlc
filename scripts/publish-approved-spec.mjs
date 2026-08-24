@@ -11,7 +11,7 @@ import { join, relative, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { isSpecApproved, resolveSpecDir, specStatus } from './sdlc-execute.mjs';
-import { applySpecCreatedLabel } from './spec-created-label.mjs';
+import { applySpecCreatedLabel, issueHasSpecCreatedLabel } from './spec-created-label.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -176,6 +176,40 @@ function candidates(argv) {
     if (!status.approved) rows.push({ number, title });
   }
   ok({ candidates: rows });
+}
+
+function missingSpecCreated(argv) {
+  if (argv.length !== 0) {
+    fail('invalid_arguments', { detail: 'Usage: missing-spec-created' });
+  }
+  const issues = readJson(
+    run('gh', ['issue', 'list', '--state', 'open', '--limit', '100', '--json', 'number,title,labels']),
+    'issues_unreadable',
+  );
+  const validIssues = Array.isArray(issues)
+    && issues.every((issue) => Number.isSafeInteger(issue?.number)
+      && issue.number > 0
+      && typeof issue.title === 'string'
+      && issue.title.length > 0
+      && Array.isArray(issue.labels)
+      && issue.labels.every((label) => typeof label === 'string'
+        || (label !== null
+          && typeof label === 'object'
+          && typeof label.name === 'string')));
+  if (!validIssues) {
+    fail('issues_unreadable', { detail: 'issue list output is malformed' });
+  }
+
+  const unique = new Map();
+  for (const issue of issues) {
+    if (!issueHasSpecCreatedLabel(issue) && !unique.has(issue.number)) {
+      unique.set(issue.number, issue.title);
+    }
+  }
+  const rows = [...unique]
+    .sort(([left], [right]) => left - right)
+    .map(([number, title]) => ({ number, title }));
+  ok({ issues: rows });
 }
 
 
@@ -406,6 +440,10 @@ function main(argv = process.argv.slice(2)) {
     candidates(rest);
     return;
   }
+  if (command === 'missing-spec-created') {
+    missingSpecCreated(rest);
+    return;
+  }
   if (command === 'prepare') {
     prepare(rest);
     return;
@@ -423,7 +461,7 @@ function main(argv = process.argv.slice(2)) {
     return;
   }
   fail('invalid_arguments', {
-    detail: 'Usage: node scripts/publish-approved-spec.mjs <discover|candidates|prepare|commit-push|merge|default-branch> ...',
+    detail: 'Usage: node scripts/publish-approved-spec.mjs <discover|candidates|missing-spec-created|prepare|commit-push|merge|default-branch> ...',
   });
 }
 
