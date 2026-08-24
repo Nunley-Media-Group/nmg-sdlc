@@ -781,6 +781,37 @@ export function runExecute({
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
       let state = agentState(herdrApi.agentGet(agentName));
+      if (!step || agentName !== `s${issue}-${step}`) {
+        return stopResult({
+          issue,
+          step: step || runState.currentStep || 'start',
+          paneId,
+          agentName,
+          reasonCode: 'retained_worker_mismatch',
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+      if (paneId === 'unknown') {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'unknown_pane',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      if (!['idle', 'done'].includes(state)) {
+        const settled = state === 'working'
+          ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
+          : waitForWorkerSettlement(herdrApi, agentName);
+        if (!settled) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'worker_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        state = agentState(herdrApi.agentGet(agentName));
+      }
       if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
         const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
         if (
@@ -863,8 +894,10 @@ export function runExecute({
           writeRun(runState, cwd);
         }
       } else {
-        output.push(`Existing worker ${agentName} in pane ${paneId}; no second worker started.`);
-        return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
       }
     }
     if (live && step) {
