@@ -107,7 +107,14 @@ describe('official blocked-by adapter', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'dependency_apply_failed' }));
     const writes = f.calls.filter(([, args]) => args.includes('--method'));
     expect(writes[0][1]).toContain('issue_id=333');
-    expect(writes.at(-1)[1]).toContain('DELETE');
+    expect(writes.at(-1)[1]).toEqual([
+      'api',
+      '--method',
+      'DELETE',
+      '-H',
+      'X-GitHub-Api-Version: 2022-11-28',
+      'repos/acme/widgets/issues/2/dependencies/blocked_by/333',
+    ]);
   });
 
   it('classifies thrown POST and rollback transport failures with exact partial evidence', () => {

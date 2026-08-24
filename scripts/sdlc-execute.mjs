@@ -134,14 +134,16 @@ export function selectBacklog(options = {}) {
   }
   if (Array.isArray(options.issues) && !graph) throw new Error('dependency_unreadable');
 
-  const candidates = (graph ? eligibleIssues(graph, listed) : listed).filter((issue) => {
-    const statuses = options.projectStatuses?.[issue.number]
-      ?? (issue.projectItems || []).map((item) => item?.statusName || item?.status?.name || '');
-    if (Array.isArray(options.projectStatuses?.[issue.number])) {
-      return !(statuses.length > 0 && statuses.every((status) => String(status).trim().toLowerCase() === 'done'));
-    }
-    return !allReadableProjectDone(issue.projectItems || []);
-  });
+  const candidates = (graph ? eligibleIssues(graph, listed) : listed)
+    .filter((issue) => {
+      const statuses = options.projectStatuses?.[issue.number]
+        ?? (issue.projectItems || []).map((item) => item?.statusName || item?.status?.name || '');
+      if (Array.isArray(options.projectStatuses?.[issue.number])) {
+        return !(statuses.length > 0 && statuses.every((status) => String(status).trim().toLowerCase() === 'done'));
+      }
+      return !allReadableProjectDone(issue.projectItems || []);
+    })
+    .sort((left, right) => left.number - right.number);
   return candidates[0]?.number ?? null;
 }
 

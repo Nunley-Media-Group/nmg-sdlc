@@ -286,6 +286,24 @@ describe('official dependency upgrade reconciliation', () => {
     expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
   });
 
+  it('rejects proposed edge drift even when the official graph is unchanged', () => {
+    const initial = dependencyRun([
+      { number: 1, state: 'closed' },
+      { number: 2, body: 'Depends on: #1' },
+      { number: 3, state: 'closed' },
+    ]);
+    const approved = detectIssueDependencyUpgrade({ cwd: '/repo', run: initial.run });
+    const changed = dependencyRun([
+      { number: 1, state: 'closed' },
+      { number: 2, body: 'Depends on: #3' },
+      { number: 3, state: 'closed' },
+    ]);
+
+    expect(() => applyIssueDependencyUpgrade(approved, { cwd: '/repo', run: changed.run }))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
+    expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
   it('binds approved helper item ids to the detected graph digest', () => {
     const root = makeRoot();
     const initial = dependencyRun([
@@ -304,5 +322,24 @@ describe('official dependency upgrade reconciliation', () => {
     expect(() => applyUpgrade(root, [approved.id], changed.run, { includeIssueDependencies: true }))
       .toThrow(expect.objectContaining({ reasonCode: 'dependency_plan_stale' }));
     expect(changed.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('does not report already current while dependency additions remain', () => {
+    const root = makeRoot();
+    const fixture = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+
+    const report = detectUpgrade(root, {
+      run: fixture.run,
+      includeIssueDependencies: true,
+    });
+
+    expect(report.items).toContainEqual(expect.objectContaining({
+      kind: 'issue-dependencies',
+      actionable: true,
+    }));
+    expect(report.items.some((item) => item.kind === 'already-current')).toBe(false);
   });
 });

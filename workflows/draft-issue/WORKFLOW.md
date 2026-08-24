@@ -112,7 +112,7 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
     draft-<slug>
     <chosen primary title>
     ```
-    (The /plan system will present for approval; execution of approved plan runs the ghCreateArgs in order and emits "/sdlc-write-spec #N" for the created issues.)
+    (The /plan system will present for approval; execution of the approved plan runs the `ghCreateArgs` in topological order, captures created issue numbers, resolves all `planId` references, reads numeric REST database IDs, preflights the combined official graph, publishes every approved blocked-by edge, and only then emits `/sdlc-write-spec #N` for each created issue.)
 ## Multi-Issue Notes
 
 - One ask only for split confirm (see references/multi-issue.md for updated rules).

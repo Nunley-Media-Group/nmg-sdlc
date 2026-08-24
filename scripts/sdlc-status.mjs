@@ -489,7 +489,7 @@ export function inferLifecycle(evidence) {
 
   const specApproved = evidence.spec && evidence.spec.complete && !scopeBlocked;
 
-  if (dependency.status === 'blocked' || dependency.status === 'unknown') {
+  if (evidence.issue && (dependency.status === 'blocked' || dependency.status === 'unknown')) {
     gaps.push(`official blocked-by dependency: ${dependency.reasonCode}`);
     stage = dependency.status === 'blocked' ? 'blocked' : 'unknown';
     nextAction = {

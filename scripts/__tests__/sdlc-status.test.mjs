@@ -45,6 +45,30 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.nextAction.command).toBe('/sdlc-write-spec #42');
   });
 
+  it('recommends draft-issue on the default branch with no active issue', () => {
+    const evidence = baseEvidence({
+      project: {
+        branch: 'main',
+        defaultBranch: 'main',
+        dirty: false,
+        implementationPaths: [],
+        baseRelativeCommits: [],
+      },
+      spec: null,
+    });
+    evidence.issue = null;
+
+    const status = inferLifecycle(evidence);
+
+    expect(status.stage).toBe('unknown');
+    expect(status.nextAction).toEqual({
+      command: '/sdlc-draft-issue',
+      reason: 'no active issue',
+      manualRepairRequired: false,
+    });
+    expect(status.gaps).not.toContain('official blocked-by dependency: dependency_unreadable');
+  });
+
   it('recommends execute when an approved spec exists and the issue is unblocked', () => {
     const status = inferLifecycle(baseEvidence());
     expect(status.stage).toBe('specified');

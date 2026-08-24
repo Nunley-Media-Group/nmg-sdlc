@@ -251,9 +251,11 @@ export function preflightBlockedByEdges(graph, proposedEdges) {
 
 function apiWrite(client, method, edge) {
   try {
-    const endpoint = `repos/${client.repository}/issues/${edge.issue}/dependencies/blocked_by`;
     const blocker = readIssue(client, edge.blockedBy);
-    const args = ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint, '-F', `issue_id=${blocker.id}`];
+    const collectionEndpoint = `repos/${client.repository}/issues/${edge.issue}/dependencies/blocked_by`;
+    const args = method === 'DELETE'
+      ? ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', `${collectionEndpoint}/${blocker.id}`]
+      : ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', collectionEndpoint, '-F', `issue_id=${blocker.id}`];
     const result = client.run('gh', args, { cwd: client.cwd });
     return result?.status === 0;
   } catch {

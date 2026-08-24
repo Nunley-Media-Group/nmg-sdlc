@@ -265,7 +265,6 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
     const pair = coordination.find((candidate) => candidate.target === parentNumber);
     const parent = normalized.issues.get(parentNumber);
     const nativeSignals = pair.signals.filter((signal) => signal.startsWith('native-'));
-    const bodySignals = pair.signals.filter((signal) => signal.startsWith('body-'));
     const matchingLabels = childLabelTargets.filter((target) => target === parentNumber);
     const otherLabels = childLabelTargets.filter((target) => target !== parentNumber);
     if (!nativeAvailable) {
@@ -285,10 +284,8 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
       appendSiblingDiagnostics(result, parentNumber);
       return result;
     }
-    const labeledIdentityIncomplete = matchingLabels.length === 1
-      && (nativeSignals.length === 0 || bodySignals.length === 0);
-    const legacyIdentityIncomplete = matchingLabels.length === 0
-      && (nativeSignals.length === 0 || bodySignals.length === 0);
+    const labeledIdentityIncomplete = matchingLabels.length === 1 && nativeSignals.length === 0;
+    const legacyIdentityIncomplete = matchingLabels.length === 0 && nativeSignals.length === 0;
     if (childLabelTargets.length > 1 || otherLabels.length > 0 || labeledIdentityIncomplete) {
       result.role = 'inconsistent';
       result.identity = result.role;
@@ -299,7 +296,6 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
       if (nativeSignals.length === 0) {
         result.gaps.push(`issue #${active} has no native relationship to labeled epic #${parentNumber}`);
       }
-      if (bodySignals.length === 0) result.gaps.push(`issue #${active} has no supported body relationship to labeled epic #${parentNumber}`);
       return result;
     }
     if (legacyIdentityIncomplete) {
@@ -310,9 +306,6 @@ export function classifyEpicRelationships({ issues, activeIssueNumber, nativeAva
       result.degraded = true;
       if (nativeSignals.length === 0) {
         result.gaps.push(`issue #${active} cannot be treated as a legacy child of epic #${parentNumber} without an agreeing native relationship`);
-      }
-      if (bodySignals.length === 0) {
-        result.gaps.push(`issue #${active} cannot be treated as a legacy child of epic #${parentNumber} without an agreeing body relationship`);
       }
       return result;
     }

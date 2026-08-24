@@ -148,6 +148,32 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     })).toBe(3);
   });
 
+  it('selectBacklog sorts eligible issues returned out of order by the live CLI', () => {
+    const records = new Map([8, 3].map((number) => [number, {
+      id: number * 100,
+      number,
+      state: 'open',
+      title: `Issue ${number}`,
+      repository_url: 'https://api.github.com/repos/acme/widgets',
+      projectItems: [],
+    }]));
+    const run = (_command, args) => {
+      if (args[0] === 'issue') {
+        return { status: 0, stdout: JSON.stringify([records.get(8), records.get(3)]) };
+      }
+      if (args[0] === 'repo') {
+        return { status: 0, stdout: JSON.stringify({ nameWithOwner: 'acme/widgets' }) };
+      }
+      if (args.includes('--paginate')) {
+        return { status: 0, stdout: JSON.stringify([[]]) };
+      }
+      const number = Number(args[1].split('/').at(-1));
+      return { status: 0, stdout: JSON.stringify(records.get(number)) };
+    };
+
+    expect(selectBacklog({ cwd: '/repo', run })).toBe(3);
+  });
+
   it('selectBacklog drops official open blockers and Project Done', () => {
     const issues = [
       { number: 8, title: 'Ready', labels: [], body: '' },

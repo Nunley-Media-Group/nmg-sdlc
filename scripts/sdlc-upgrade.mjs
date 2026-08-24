@@ -550,6 +550,13 @@ function dependencyGraphDigest(graph) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
+function dependencyAdditionsDigest(additions) {
+  const canonical = additions
+    .map(({ issue, blockedBy }) => ({ issue, blockedBy }))
+    .sort((left, right) => left.issue - right.issue || left.blockedBy - right.blockedBy);
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
 function parseRunJson(result, description) {
   if (!result || result.status !== 0) {
     const error = new Error(`${description} failed`);
@@ -601,12 +608,14 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
     return { issue, blockedBy };
   }));
   const digest = dependencyGraphDigest(graph);
+  const additionsDigest = dependencyAdditionsDigest(additions);
   return {
-    id: `issue-dependencies:${digest}`,
+    id: `issue-dependencies:${digest}:${additionsDigest}`,
     kind: 'issue-dependencies',
     actionable: additions.length > 0,
     description: 'Reconcile legacy dependency evidence to official GitHub blocked-by edges.',
     digest,
+    additionsDigest,
     issueCount: issues.length,
     additions: additions.map((edge) => ({ ...edge, source: evidenceByEdge.get(`${edge.issue}:${edge.blockedBy}`) })),
     findings,
@@ -615,7 +624,7 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
 
 export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = defaultRun } = {}) {
   const live = detectIssueDependencyUpgrade({ cwd, run });
-  if (live.digest !== item.digest) {
+  if (live.digest !== item.digest || live.additionsDigest !== item.additionsDigest) {
     const error = new Error('Official dependency graph changed after plan approval');
     error.reasonCode = 'dependency_plan_stale';
     throw error;
@@ -855,6 +864,10 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
     });
   }
 
+  const dependencyItem = includeIssueDependencies
+    ? detectIssueDependencyUpgrade({ cwd: rootAbs, run })
+    : null;
+
   // 7. Repeat-run already current
   const alreadyLinear = specDirs.every((d) => /^\d+-[a-z0-9-]/.test(d.name));
   const fmOk = specDirs.every((d) => {
@@ -862,7 +875,7 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
     const ns = extractIssueNumbersFromContent(req);
     return ns.length === 1 && d.name.startsWith(`${ns[0]}-`);
   });
-  if (alreadyLinear && fmOk && !hasEpics && !hasScopes && !hasLeftoverSpikeArtifacts(rootAbs) && !/spike/i.test(agentsTxt)) {
+  if (alreadyLinear && fmOk && !hasEpics && !hasScopes && !hasLeftoverSpikeArtifacts(rootAbs) && !/spike/i.test(agentsTxt) && !dependencyItem?.actionable) {
     items.push({
       id: 'repeat-run-already-current',
       kind: 'already-current',
@@ -899,8 +912,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       });
     }
   }
-  if (includeIssueDependencies) {
-    items.push(detectIssueDependencyUpgrade({ cwd: rootAbs, run }));
+  if (dependencyItem) {
+    items.push(dependencyItem);
   }
 
   // Dedup by id
