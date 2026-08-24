@@ -56,7 +56,7 @@ Discovery only returns this result. It never stops or chooses whether to revise 
 
 ### Initial discovery result
 
-For the initial `$ARGUMENTS` issue only:
+For the initially selected issue, regardless of whether N came from `$ARGUMENTS`, a listed picker choice, or automatic Other:
 
 - If `spec.approved` and `issue.state` is closed: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
 - Otherwise continue to Interview. When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.

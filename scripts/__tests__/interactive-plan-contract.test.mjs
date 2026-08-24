@@ -149,6 +149,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).toContain('Finished — stop without writing a spec');
     expect(source).toContain('Automatic Other remains available');
     expect(source).toContain('re-asks the same picker from the cached rows without rerunning the helper');
+    expect(source).toContain('For the initially selected issue, regardless of whether N came from `$ARGUMENTS`, a listed picker choice, or automatic Other');
     expect(source).toContain('No open issues missing spec-created.');
     expect(source).toContain('stop without `ask` or usage output');
     expect(source).toContain('helper failure output and stop without asking');
