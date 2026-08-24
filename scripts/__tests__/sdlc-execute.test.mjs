@@ -500,6 +500,11 @@ function git(cwd, args) {
   });
 }
 
+function runGitResult(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return { status: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
+}
+
 function makeGitRepo() {
   const root = makeSpecDir();
   const remote = makeSpecDir();
@@ -546,6 +551,7 @@ describe('runExecute controller', () => {
     trackedRuntime = '',
     lsFilesStatus = 0,
     rmStatus = 0,
+    integratedRuntimeMigration = false,
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -553,6 +559,16 @@ describe('runExecute controller', () => {
     fs.mkdirSync(specDir, { recursive: true });
     writeApproved(specDir, 42);
     if (gitignore !== null) fs.writeFileSync(path.join(cwd, '.gitignore'), gitignore);
+    if (integratedRuntimeMigration) {
+      const runtimePath = path.join(cwd, '.omp/sdlc/run.json');
+      fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
+      fs.writeFileSync(runtimePath, '{}\n');
+      runGitResult(cwd, ['init', '-b', 'main']);
+      runGitResult(cwd, ['config', 'user.name', 'Test']);
+      runGitResult(cwd, ['config', 'user.email', 'test@example.com']);
+      runGitResult(cwd, ['add', '-f', '.gitignore', 'specs', '.omp/sdlc/run.json']);
+      runGitResult(cwd, ['commit', '-m', 'track runtime']);
+    }
     const calls = [];
     const starts = [];
     const closed = [];
@@ -569,6 +585,11 @@ describe('runExecute controller', () => {
 
     const run = (command, args) => {
       calls.push([command, ...args]);
+      if (integratedRuntimeMigration && command === 'git'
+        && (['ls-files', 'rm', 'status'].includes(args[0])
+          || (args[0] === 'branch' && args[1] === '--show-current'))) {
+        return runGitResult(cwd, args);
+      }
       if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
         return { status: 0, stdout: '{"nameWithOwner":"acme/widgets"}', stderr: '' };
       }
@@ -955,16 +976,19 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('untracks ignored runtime before the dirty preflight and starts workers', () => {
+  it('proceeds from main when untracking runtime stages its deletion', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',
-      trackedRuntime: '.omp/sdlc/run.json\0',
+      integratedRuntimeMigration: true,
     });
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
-    expect(result.status).toBe(0);
+    expect(result.stderr).not.toBe('Working tree is dirty for a new issue\n');
     expect(fixture.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(fixture.calls).toContainEqual([
+      'git', 'status', '--porcelain', '--', '.', ':(exclude).omp/sdlc',
+    ]);
     expect(fixture.starts).not.toHaveLength(0);
   });
 

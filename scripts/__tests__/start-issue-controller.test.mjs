@@ -13,6 +13,11 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+function runGit(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return { status: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
+}
+
 function fixture({
   issueStatus = 0,
   issue = { number: 42, title: 'Ship It!', body: '', labels: [], state: 'OPEN' },
@@ -24,6 +29,7 @@ function fixture({
   trackedRuntime = '',
   lsFilesStatus = 0,
   rmStatus = 0,
+  integratedRuntimeMigration = false,
   defaultStatus = 0,
   defaultBranch = 'main',
   developStatus = 0,
@@ -33,10 +39,25 @@ function fixture({
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-controller-'));
   roots.push(cwd);
   if (gitignore !== null) fs.writeFileSync(path.join(cwd, '.gitignore'), gitignore);
+  if (integratedRuntimeMigration) {
+    const runtimePath = path.join(cwd, '.omp/sdlc/run.json');
+    fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
+    fs.writeFileSync(runtimePath, '{}\n');
+    runGit(cwd, ['init', '-b', 'main']);
+    runGit(cwd, ['config', 'user.name', 'Test']);
+    runGit(cwd, ['config', 'user.email', 'test@example.com']);
+    runGit(cwd, ['add', '-f', '.gitignore', '.omp/sdlc/run.json']);
+    runGit(cwd, ['commit', '-m', 'track runtime']);
+  }
   const calls = [];
   let branchReads = 0;
   const run = (command, args) => {
     calls.push([command, ...args]);
+    if (integratedRuntimeMigration && command === 'git'
+      && (['ls-files', 'rm', 'status'].includes(args[0])
+        || (args[0] === 'branch' && args[1] === '--show-current'))) {
+      return runGit(cwd, args);
+    }
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args[2] === '42' && args.includes('number,title,body,labels,state')) {
       return { status: issueStatus, stdout: issueStatus === 0 ? JSON.stringify(issue) : '', stderr: '' };
     }
@@ -90,6 +111,9 @@ function fixture({
       return { status: defaultStatus, stdout: defaultStatus === 0 ? `${defaultBranch}\n` : '', stderr: '' };
     }
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'develop') {
+      if (integratedRuntimeMigration && developStatus === 0) {
+        runGit(cwd, ['checkout', '-b', checkedOutBranch]);
+      }
       return { status: developStatus, stdout: '', stderr: '' };
     }
     if (projectThrows && command === 'gh' && args[0] === 'repo') throw new Error('project unavailable');
@@ -155,19 +179,20 @@ describe('startIssue controller', () => {
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
   });
-  it('untracks ignored runtime before developing the issue branch', () => {
+  it('proceeds from main when untracking runtime stages its deletion', () => {
     const f = fixture({
       gitignore: '.omp/sdlc/\n',
-      trackedRuntime: '.omp/sdlc/run.json\0',
+      integratedRuntimeMigration: true,
     });
     const runtimePath = path.join(f.cwd, '.omp/sdlc/run.json');
-    fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
-    fs.writeFileSync(runtimePath, '{}\n');
 
     const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
 
     expect(result.handoff.status).toBe('passed');
     expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(f.calls).toContainEqual([
+      'git', 'status', '--porcelain', '--', '.', ':(exclude).omp/sdlc',
+    ]);
     expect(fs.existsSync(runtimePath)).toBe(true);
     expect(f.calls).toContainEqual([
       'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',

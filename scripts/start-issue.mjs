@@ -120,7 +120,7 @@ export function startIssue({
   const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
 
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
-  const dirtyResult = run('git', ['status', '--porcelain'], { cwd });
+  const dirtyResult = run('git', ['status', '--porcelain', '--', '.', ':(exclude).omp/sdlc'], { cwd });
   const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
   const dirty = String(dirtyResult?.stdout || '').trim();
   if (dirtyResult?.status !== 0 || (dirty && currentBranch !== expectedBranch)) {

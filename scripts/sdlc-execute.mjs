@@ -631,7 +631,7 @@ function issueBranchName(issue, cwd, run) {
 }
 
 function dirtyTreeBlocks(issue, cwd, run) {
-  const dirtyResult = run('git', ['status', '--porcelain'], { cwd });
+  const dirtyResult = run('git', ['status', '--porcelain', '--', '.', ':(exclude).omp/sdlc'], { cwd });
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
   if (!commandSucceeded(dirtyResult) || !commandSucceeded(branchResult)) return true;
   if (!String(dirtyResult.stdout || '').trim()) return false;
