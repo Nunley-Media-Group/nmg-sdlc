@@ -10,6 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.10.4] - 2026-08-24
+
+### Fixed
+
+- `/sdlc-execute` now waits through transient idle worker states, restores the active issue branch before resumed work, and refuses reviews that compare the default branch against itself.
+
+
 ## [3.10.3] - 2026-08-23
 
 ### Fixed
