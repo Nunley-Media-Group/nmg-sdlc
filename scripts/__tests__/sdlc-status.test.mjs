@@ -153,6 +153,18 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.gaps).toContain('official blocked-by dependency: dependency_blocked');
   });
 
+  it.each(['dependency_cycle', 'dependency_dangling'])('keeps %s graph failures blocked', (reasonCode) => {
+    const status = inferLifecycle(baseEvidence({
+      issue: { dependency: { status: 'blocked', reasonCode } },
+    }));
+    expect(status.stage).toBe('blocked');
+    expect(status.nextAction).toEqual({
+      command: '/sdlc-status',
+      reason: reasonCode,
+      manualRepairRequired: false,
+    });
+  });
+
   it('ignores legacy body relationship text when official evidence is eligible', () => {
     const status = inferLifecycle(baseEvidence({
       issue: { body: 'Depends on: #1\\nBlocks: #2' },

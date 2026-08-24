@@ -242,8 +242,10 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
         const graph = readDependencyGraph(client, [issueNumber]);
         result.issue.dependency = issueDependencyStatus(graph, issueNumber);
       } catch (error) {
-        result.issue.dependency = { status: 'unknown', reasonCode: error?.reasonCode || 'dependency_unreadable' };
-        gaps.push(`official blocked-by evidence: ${result.issue.dependency.reasonCode}`);
+        const reasonCode = error?.reasonCode || 'dependency_unreadable';
+        const status = ['dependency_cycle', 'dependency_dangling'].includes(reasonCode) ? 'blocked' : 'unknown';
+        result.issue.dependency = { status, reasonCode };
+        gaps.push(`official blocked-by evidence: ${reasonCode}`);
       }
     } else {
       gaps.push(`issue #${issueNumber} fetch failed: ${boundedMessage(commandFailure(issueRes))}`);
