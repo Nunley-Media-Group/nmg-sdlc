@@ -557,6 +557,29 @@ function dependencyAdditionsDigest(additions) {
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
+function encodeDependencyEdges(edges) {
+  const canonical = edges
+    .map(({ issue, blockedBy }) => ({ issue, blockedBy }))
+    .sort((left, right) => left.issue - right.issue || left.blockedBy - right.blockedBy);
+  return Buffer.from(JSON.stringify(canonical)).toString('base64url');
+}
+
+function decodeDependencyEdges(itemId) {
+  const encoded = String(itemId).split(':')[3];
+  if (!encoded) return null;
+  try {
+    const edges = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (!Array.isArray(edges) || edges.length === 0) return null;
+    if (edges.some(({ issue, blockedBy } = {}) => (
+      !Number.isSafeInteger(issue) || issue <= 0
+      || !Number.isSafeInteger(blockedBy) || blockedBy <= 0
+    ))) return null;
+    return edges.map(({ issue, blockedBy }) => ({ issue, blockedBy }));
+  } catch {
+    return null;
+  }
+}
+
 function parseRunJson(result, description) {
   if (!result || result.status !== 0) {
     const error = new Error(`${description} failed`);
@@ -610,7 +633,7 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
   const digest = dependencyGraphDigest(graph);
   const additionsDigest = dependencyAdditionsDigest(additions);
   return {
-    id: `issue-dependencies:${digest}:${additionsDigest}`,
+    id: `issue-dependencies:${digest}:${additionsDigest}:${encodeDependencyEdges(additions)}`,
     kind: 'issue-dependencies',
     actionable: additions.length > 0,
     description: 'Reconcile legacy dependency evidence to official GitHub blocked-by edges.',
@@ -1204,9 +1227,25 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   const approvedDependencyId = [...approvedSet].find((id) => id.startsWith('issue-dependencies:'));
   const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
   if (approvedDependencyId && liveDependencyItem?.id !== approvedDependencyId) {
-    const error = new Error('Official dependency graph changed after plan approval');
-    error.reasonCode = 'dependency_plan_stale';
-    throw error;
+    const approvedEdges = decodeDependencyEdges(approvedDependencyId);
+    if (approvedEdges) {
+      const client = createIssueDependencyClient({ cwd: rootAbs, run });
+      const graph = readDependencyGraph(client, approvedEdges.flatMap((edge) => [edge.issue, edge.blockedBy]));
+      const remaining = preflightBlockedByEdges(graph, approvedEdges);
+      if (remaining.length === 0) {
+        results.push({
+          id: approvedDependencyId,
+          status: 'applied',
+          applied: [],
+          alreadyPresent: approvedEdges,
+        });
+      }
+    }
+    if (!results.some((result) => result.id === approvedDependencyId)) {
+      const error = new Error('Official dependency graph changed after plan approval');
+      error.reasonCode = 'dependency_plan_stale';
+      throw error;
+    }
   }
 
   // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup

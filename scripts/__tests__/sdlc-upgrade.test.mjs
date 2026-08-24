@@ -306,6 +306,32 @@ describe('official dependency upgrade reconciliation', () => {
     expect(retried.calls.some((args) => args.includes('POST'))).toBe(false);
   });
 
+  it('accepts an applyUpgrade retry only when every encoded approved edge is present', () => {
+    const root = makeRoot();
+    const initial = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ]);
+    const approved = detectUpgrade(root, {
+      run: initial.run,
+      includeIssueDependencies: true,
+    }).items.find((item) => item.kind === 'issue-dependencies');
+    const retried = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], { 2: [1] });
+
+    const result = applyUpgrade(root, [approved.id], retried.run, { includeIssueDependencies: true });
+
+    expect(result.applied).toContainEqual({
+      id: approved.id,
+      status: 'applied',
+      applied: [],
+      alreadyPresent: [{ issue: 2, blockedBy: 1 }],
+    });
+    expect(retried.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
   it('rejects proposed edge drift even when the official graph is unchanged', () => {
     const initial = dependencyRun([
       { number: 1, state: 'closed' },
