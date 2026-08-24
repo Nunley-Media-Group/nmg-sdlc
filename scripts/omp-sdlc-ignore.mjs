@@ -89,8 +89,11 @@ export function untrackOmpSdlcRuntime({
   let gitignore;
   try {
     gitignore = fs.readFileSync(join(cwd, '.gitignore'), 'utf8');
-  } catch {
-    return { ok: true, changed: false, status: 'ignore absent', reasonCode: null };
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { ok: true, changed: false, status: 'ignore absent', reasonCode: null };
+    }
+    return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
   if (!hasOmpSdlcIgnore(gitignore)) {
     return { ok: true, changed: false, status: 'ignore absent', reasonCode: null };

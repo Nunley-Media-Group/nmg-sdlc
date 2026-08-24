@@ -79,11 +79,29 @@ describe('omp-sdlc ignore management (SCN001–SCN003)', () => {
     expect(cli.stdout.trim().split('\n')).toHaveLength(1);
   });
 
-  it('does not call git without the managed ignore rule', () => {
+  it('treats only ENOENT as an absent .gitignore', () => {
     const root = makeRoot();
     const calls = [];
     const result = untrackOmpSdlcRuntime({ cwd: root, run: (...args) => calls.push(args) });
-    expect(result).toMatchObject({ ok: true, changed: false });
+    expect(result).toEqual({
+      ok: true,
+      changed: false,
+      status: 'ignore absent',
+      reasonCode: null,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('fails closed when reading .gitignore fails for a reason other than ENOENT', () => {
+    const readError = Object.assign(new Error('I/O failure'), { code: 'EIO' });
+    const fsStub = { readFileSync: () => { throw readError; } };
+    const calls = [];
+    expect(untrackOmpSdlcRuntime({ fs: fsStub, run: (...args) => calls.push(args) })).toEqual({
+      ok: false,
+      changed: false,
+      status: 'failed',
+      reasonCode: 'runtime_untrack_failed',
+    });
     expect(calls).toEqual([]);
   });
 
