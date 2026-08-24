@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-08-24
+
+### Changed
+
+- Public commands and worker workflows now resolve installed plugin controllers independently of the target project's working directory, including copied packages and linked installations.
+
 ## [3.10.4] - 2026-08-24
 
 ### Fixed

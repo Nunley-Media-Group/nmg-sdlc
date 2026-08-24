@@ -84,21 +84,42 @@ describe("plugin controller path resolution", () => {
     }
   });
 
-  test("materializes portable and legacy dispatch with JSON-quoted absolute paths", () => {
-    const root = path.join(path.sep, "tmp", "plugin root");
-    const output = materializeControllerPaths(
-      [
-        "node <plugin-root>/scripts/a.mjs one",
-        "node scripts/b.mjs two",
-        '["node","<plugin-root>/scripts/c.mjs","apply"]',
-      ].join("\n"),
-      root,
-    );
-    expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
-    expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "b.mjs"))} two`);
-    expect(output).toContain(`["node",${JSON.stringify(path.join(root, "scripts", "c.mjs"))},"apply"]`);
-    expect(output).not.toContain("<plugin-root>");
-    expect(output).not.toContain("node scripts/");
+  test("materializes portable and legacy dispatch with validated JSON-quoted paths", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
+    try {
+      const root = disposablePackage(fixture, "plugin root");
+      for (const scriptName of ["a.mjs", "b.mjs", "c.mjs"]) {
+        fs.writeFileSync(path.join(root, "scripts", scriptName), "");
+      }
+      const output = materializeControllerPaths(
+        [
+          "node <plugin-root>/scripts/a.mjs one",
+          "node scripts/b.mjs two",
+          '["node","<plugin-root>/scripts/c.mjs","apply"]',
+        ].join("\n"),
+        root,
+      );
+      expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
+      expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "b.mjs"))} two`);
+      expect(output).toContain(`["node",${JSON.stringify(path.join(root, "scripts", "c.mjs"))},"apply"]`);
+      expect(output).not.toContain("<plugin-root>");
+      expect(output).not.toContain("node scripts/");
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("fails explicitly before materializing a missing controller", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
+    try {
+      const root = disposablePackage(fixture);
+      expect(() => materializeControllerPaths(
+        "node <plugin-root>/scripts/missing.mjs",
+        root,
+      )).toThrow("controller unresolved: missing.mjs");
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   test("isCliEntry compares real paths and keeps imports inert", async () => {
