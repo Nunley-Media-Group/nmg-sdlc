@@ -54,7 +54,7 @@ Onboarding and upgrade manage these repository artifacts:
 - A bounded nmg-sdlc spec-context section in root `AGENTS.md`.
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
 - `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
-- `.gitignore` rule `.omp/sdlc/`, keeping plugin run state and handoffs out of commits; upgrade can untrack previously committed runtime without deleting working-tree files.
+- `.gitignore` rule `.omp/sdlc/`, keeping plugin run state and handoffs out of commits; upgrade adds the ignore rule, and start/execute subsequently untrack previously committed runtime without deleting working-tree files.
 
 The contribution gate validates issue/spec identity (using singular `**Issue**: #N`), task or verification evidence for changed paths, steering context, and documented exception predicates. Documentation-only changes have a path-validated reduced mode. An owner-approved breaking repository rewrite may waive only current PR issue/spec identity when the `feat!:` title, required repository contract paths, explicit rewrite contract and durable verification, genuinely owned current specs, steering, exact path mapping, and specific verification all pass. The gate uses read-only GitHub token permissions and does not replace project CI or human review.
 
