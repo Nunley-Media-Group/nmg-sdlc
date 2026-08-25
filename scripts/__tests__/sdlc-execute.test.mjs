@@ -90,6 +90,22 @@ const CAPTURED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER = [
   '│                                                           │',
   '╰───────────────────────────────────────────────────────────╯',
 ].join('\n');
+const WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER = [
+  ' ⠙ Working… ⟨esc⟩',
+  '',
+  '╭─ Select base branch to compare against ───────╮',
+  '│                                               │',
+  '│                                              │',
+  '│  42-ship-                                     │',
+  '│  it                                           │',
+  '│    main                                       │',
+  '│    origin/42-                                 │',
+  '│  ship-it                                      │',
+  '│    origin/main                                │',
+  '│                                               │',
+  '│ up/down navigate  enter select  esc cancel    │',
+  '╰───────────────────────────────────────────────╯',
+].join('\n');
 
 const UNNUMBERED_BRANCH_PICKER_NEGATIVES = [
   {
@@ -2107,6 +2123,33 @@ describe('runExecute controller', () => {
     expect(fixture.reviewMenuEvents).toContain('branch-keys:down,enter');
   });
 
+  it('accepts a wrapped unnumbered branch picker with a standalone cursor', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: [WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER],
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.reviewMenuEvents).toContain('branch-keys:down,enter');
+  });
+
+  it('rejects wrapped unnumbered rows that do not reconstruct known branches', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: [
+        WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER.replace(
+          '│  it                                           │\n',
+          '',
+        ),
+      ],
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.reviewMenuEvents).not.toContain('branch-keys:down,enter');
+  });
+
   it.each(UNNUMBERED_BRANCH_PICKER_NEGATIVES)(
     'rejects the $label unnumbered branch picker for a fresh review',
     ({ screen }) => {
@@ -2856,6 +2899,50 @@ describe('runExecute controller', () => {
     fixture.herdr.agentSendKeys = (input) => {
       if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
       else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
+      return sendKeys(input);
+    };
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      if (input.name === 's42-review2' && input.until === 'working' && menu !== 'reviewing') {
+        waitedBeforeSelection = true;
+      }
+      return waitAgent(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(waitedBeforeSelection).toBe(false);
+    expect(fixture.sentKeys).toContainEqual(['down', 'enter']);
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+  });
+
+  it('accepts a wrapped retained branch picker before waiting on the worker', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    let menu = 'branch';
+    let waitedBeforeSelection = false;
+    fixture.herdr.agentRead = () => menu === 'branch'
+      ? WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER
+      : 'Review complete';
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
       return sendKeys(input);
     };
     const waitAgent = fixture.herdr.agentWait;

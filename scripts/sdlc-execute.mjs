@@ -687,6 +687,7 @@ function reviewBranchSelectionKeys(cwd, run) {
   if (defaultIndex < 0) return null;
   return {
     defaultBranch,
+    branchNames: names,
     keys: [...Array.from({ length: defaultIndex }, () => 'down'), 'enter'],
   };
 }
@@ -773,6 +774,61 @@ function isCompleteUnnumberedReviewBranchPicker(text, defaultBranch) {
   return options.filter(({ name }) => name === defaultBranch).length === 1;
 }
 
+function isCompleteWrappedReviewBranchPicker(text, defaultBranch, branchNames) {
+  if (!defaultBranch || !Array.isArray(branchNames) || branchNames.length < 2) return false;
+  const lines = String(text).split('\n').map(pickerLineContent);
+  const titleRows = lines
+    .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
+    .filter((index) => index >= 0);
+  if (titleRows.length !== 1) return false;
+  const titleIndex = titleRows[0];
+  const navigationIndex = lines.findIndex(
+    (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
+  );
+  if (navigationIndex < 0) return false;
+
+  const fragments = [];
+  let pendingCursor = false;
+  for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
+    if (!line) continue;
+    if (/^[>›❯]$/.test(line)) {
+      if (pendingCursor) return false;
+      pendingCursor = true;
+      continue;
+    }
+    const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
+    const value = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
+    if (!value) return false;
+    fragments.push({ value, cursor: pendingCursor || Boolean(cursorMatch) });
+    pendingCursor = false;
+  }
+  if (pendingCursor) return false;
+
+  const options = [];
+  let fragmentIndex = 0;
+  for (const name of branchNames) {
+    let value = '';
+    let cursor = false;
+    while (fragmentIndex < fragments.length) {
+      const fragment = fragments[fragmentIndex];
+      const combined = `${value}${fragment.value}`;
+      if (!name.startsWith(combined)) break;
+      if (fragment.cursor) {
+        if (value || cursor) return false;
+        cursor = true;
+      }
+      value = combined;
+      fragmentIndex += 1;
+      if (value === name) break;
+    }
+    if (value !== name) return false;
+    options.push({ name, cursor });
+  }
+  if (fragmentIndex !== fragments.length) return false;
+  if (options.filter(({ cursor }) => cursor).length !== 1) return false;
+  return options.filter(({ name }) => name === defaultBranch).length === 1;
+}
+
 
 function isCompleteReviewBranchPicker(text) {
   const hasPickerContext = text.includes(REVIEW_BRANCH_PICKER_TITLE) || hasPickerSearch(text);
@@ -781,9 +837,10 @@ function isCompleteReviewBranchPicker(text) {
     && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
 }
 
-function isReviewBranchPicker(text, defaultBranch) {
+function isReviewBranchPicker(text, defaultBranch, branchNames = []) {
   if (!defaultBranch) return false;
   if (isCompleteUnnumberedReviewBranchPicker(text, defaultBranch)) return true;
+  if (isCompleteWrappedReviewBranchPicker(text, defaultBranch, branchNames)) return true;
   if (!isCompleteReviewBranchPicker(text)) return false;
   const branchOption = new RegExp(
     `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
@@ -792,8 +849,8 @@ function isReviewBranchPicker(text, defaultBranch) {
   return [...text.matchAll(branchOption)].length === 1;
 }
 
-function interactiveReviewState(text, defaultBranch, allowComposer = false) {
-  if (isReviewBranchPicker(text, defaultBranch)) return 'branch';
+function interactiveReviewState(text, defaultBranch, branchNames = [], allowComposer = false) {
+  if (isReviewBranchPicker(text, defaultBranch, branchNames)) return 'branch';
   if (isReviewModePicker(text)) return 'mode';
   if (allowComposer && text.includes('/review')) return 'composer';
   return null;
@@ -803,6 +860,7 @@ function observeInteractiveReviewState(
   herdr,
   name,
   defaultBranch,
+  branchNames = [],
   allowComposer = false,
   attempts = 50,
 ) {
@@ -810,6 +868,7 @@ function observeInteractiveReviewState(
     const state = interactiveReviewState(
       agentDetectionText(herdr, name),
       defaultBranch,
+      branchNames,
       allowComposer,
     );
     if (state) return state;
@@ -818,28 +877,45 @@ function observeInteractiveReviewState(
   return null;
 }
 
-function isInteractiveReviewPicker(text, defaultBranch) {
-  return interactiveReviewState(text, defaultBranch) !== null
+function isInteractiveReviewPicker(text, defaultBranch, branchNames = []) {
+  return interactiveReviewState(text, defaultBranch, branchNames) !== null
     || (!defaultBranch && isCompleteReviewBranchPicker(text));
 }
 
 function completeInteractiveReview(herdr, agentName, reviewSelection) {
-  const { defaultBranch, keys: branchSelectionKeys } = reviewSelection;
+  const { defaultBranch, branchNames, keys: branchSelectionKeys } = reviewSelection;
   let reviewState = interactiveReviewState(
     agentDetectionText(herdr, agentName),
     defaultBranch,
+    branchNames,
   );
   if (!reviewState) {
-    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
+    reviewState = observeInteractiveReviewState(
+      herdr,
+      agentName,
+      defaultBranch,
+      branchNames,
+    );
   }
   if (!reviewState) {
     herdr.agentPrompt({ name: agentName, prompt: '/review' });
-    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch, true);
+    reviewState = observeInteractiveReviewState(
+      herdr,
+      agentName,
+      defaultBranch,
+      branchNames,
+      true,
+    );
     if (reviewState === 'composer') {
       if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
         return false;
       }
-      reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
+      reviewState = observeInteractiveReviewState(
+        herdr,
+        agentName,
+        defaultBranch,
+        branchNames,
+      );
     }
   }
   if (reviewState === 'mode') {
@@ -849,7 +925,7 @@ function completeInteractiveReview(herdr, agentName, reviewSelection) {
     reviewState = observeAgentScreen(
       herdr,
       agentName,
-      (text) => isReviewBranchPicker(text, defaultBranch),
+      (text) => isReviewBranchPicker(text, defaultBranch, branchNames),
     ) ? 'branch' : null;
   }
   return reviewState === 'branch'
@@ -1472,6 +1548,7 @@ export function runExecute({
         const actionableRetainedReview = isInteractiveReviewPicker(
           retainedReviewText,
           retainedReviewSelection?.defaultBranch,
+          retainedReviewSelection?.branchNames,
         );
         if (actionableRetainedReview) {
           if (
@@ -1510,6 +1587,7 @@ export function runExecute({
           && isInteractiveReviewPicker(
             retainedReviewText,
             retainedReviewSelection?.defaultBranch,
+            retainedReviewSelection?.branchNames,
           )
         ) {
           if (
