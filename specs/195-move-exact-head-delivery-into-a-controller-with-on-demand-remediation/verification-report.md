@@ -24,6 +24,8 @@
 
 All issue-owned acceptance criteria pass. The deterministic controller, compact remediation workflow, packaged-controller resolution, exact-head merge proof, tests, plugin gates, and OMP exercise pass. The mandatory live smoke completed two distinct fresh issues in `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`: issue #23 through PR #29 at exact head `bfbd4faf526ca6f4a5355df4f40e1ccf70b3e754`, and issue #24 through PR #28 at exact head `0837f0cb29c198f4c3b2ffb39526f6178934fcd4`. Both PRs are `MERGED`; both issues are `CLOSED`; both deliver handoffs validate. A live post-merge reconciliation exposed the valid no-required-checks response from `gh`; the controller now handles that exact response as an empty complete required-check set, retains fail-closed behavior for other failures, and passes focused plus full regression tests.
 
+Post-verification remediation was freshly reviewed and verified at exact implementation head `ed078e036ff34d1692889236e77589a66bc545a4`. The scoped parser/test/spec review returned `passed` with zero actionable findings. The full contract suite then passed 44 suites and 595 tests with 2 expected opt-in skips. Regression inputs cover issue #195's self-referential body verbatim plus case-insensitive genuine `BREAKING:` declarations in both title and body positions.
+
 ---
 
 ## Issue Scope
@@ -146,10 +148,10 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 ### Coverage Summary
 
 - Feature files: 1 feature, 10 scenarios
-- Full local execution: 44 suites passed, 593 tests passed
+- Full local execution at remediation head `ed078e036ff34d1692889236e77589a66bc545a4`: 44 suites passed, 595 tests passed
 - Expected skips: 2 tests in one opt-in exercise suite
-- Focused post-fix execution: `sdlc-deliver.test.mjs` + `current-specs.test.mjs`, 26 tests passed
-- Requested current-spec regression: 6/6 tests passed
+- Focused breaking-declaration execution: `sdlc-deliver.test.mjs`, 22 tests passed
+- Current-spec regression: 6/6 tests passed within the fresh full suite
 - Live delivery: 2/2 issues have exact-head MERGED and CLOSED proof
 
 ---
@@ -171,8 +173,8 @@ The dry-run verified exact controller invocation and 0/1/2/3 routing without mut
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | `cd scripts && npm test -- --runInBand`: 44 suites passed, 593 tests passed, 2 expected skips |
-| Current-spec regression | Pass | `current-specs.test.mjs`: 6/6 passed after rewrite mapping fix; included again in focused 26-test run |
+| Contract tests | Pass | At `ed078e036ff34d1692889236e77589a66bc545a4`, `cd scripts && npm test -- --runInBand`: 44 suites passed, 595 tests passed, 2 expected skips |
+| Current-spec regression | Pass | `current-specs.test.mjs`: 6/6 passed within the fresh exact-head full suite |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
 | Skill creator validation | Pass | Verify worker read `skill://skill-creator`; workflow bundle itself was not edited by verification |
@@ -189,6 +191,7 @@ The dry-run verified exact controller invocation and 0/1/2/3 routing without mut
 |----------|----------|----------|----------------|-------------|---------|
 | Medium | Contract | `references/rewrite-contract.json`, `references/rewrite-contract.md`, `scripts/verify-current-specs.mjs` | Active `workflows/simplify/` lacked a workflow-to-capability mapping | Mapped simplify to its existing capability and live workflow source | `skill-creator` for shared reference; direct for validator registry |
 | High | Error Handling | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Live merged-PR reconciliation rejected `gh pr checks --required` exit 1 with the exact valid `no required checks reported ...` response | Treat only that exact response as an empty required-check set; preserve fail-closed handling for every other empty/error response; add regression coverage | `direct` |
+| High | Versioning | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `requirements.md` | Substring matching treated issue #195's prose about the BREAKING gate as a breaking declaration | Require case-insensitive `BREAKING:` at the start of the title or a body line; cover the exact self-referential body and genuine title/body declarations | Fresh delegated scoped review: passed, zero actionable findings |
 
 ## Remaining Issues
 
