@@ -26,6 +26,8 @@ All issue-owned acceptance criteria pass. The deterministic controller, compact 
 
 Post-verification remediation was freshly reviewed and verified at exact merged-base head `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`. The scoped parser/test/spec review returned `passed` after two stale report-count findings were fixed. A second scoped review passed the live `gh pr checks --required` empty-check response fix with no findings. After merging current `origin/main` without rewriting history and resolving its additive changelog conflict, the full contract suite passed 44 suites and 599 tests with 2 expected opt-in skips. Regression inputs cover issue #195's self-referential body verbatim, case-insensitive genuine `BREAKING:` declarations in both title and body positions, and both valid GitHub CLI empty-check stderr forms.
 
+The follow-up queue-ordering correction was freshly reviewed and verified at exact head `f316c2445ecde5cd611ee145f131296c0675ecff`. The scoped review returned `passed` with zero actionable findings. Focused `sdlc-execute` coverage passed 160 tests; the full changed-contract suite passed 44 suites and 601 tests with 2 expected opt-in skips. The regression proves that a deleted delivered branch does not block consumption of validated MERGED+CLOSED proof, while incomplete delivery still restores its issue branch fail-closed before any worker starts.
+
 ---
 
 ## Issue Scope
@@ -34,10 +36,10 @@ Post-verification remediation was freshly reviewed and verified at exact merged-
 - Spec: `specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation`
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009, SCN010, SCN011]
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009, SCN010, SCN011, SCN012]
 - Regression: AC []; FR []; scenarios []
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":195,"specPath":"specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":195,"specPath":"specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011","SCN012"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Delivery Validation
 
@@ -59,7 +61,7 @@ Post-verification remediation was freshly reviewed and verified at exact merged-
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, and packaged resolution | Pass | `scripts/sdlc-deliver.mjs:140-445,486-504,506-847`; `src/extension.ts:41-45`; 599-test suite; validated live deliver handoffs for #23 and #24 |
+| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, packaged resolution, and post-delivery queue reconciliation | Pass | `scripts/sdlc-deliver.mjs`; `scripts/sdlc-execute.mjs`; `src/extension.ts`; 601-test suite; validated live deliver handoffs for #23 and #24 |
 | AC2 | Remediation occurs only on demand in the same worker | Pass | `scripts/sdlc-deliver.mjs:578-600,796-808`; `workflows/open-pr/WORKFLOW.md:54-85`; deliver prompts exclude unconditional Address PR Comments; remediation packet tests pass |
 | AC3 | Human and ambiguous review stop safely | Pass | `scripts/sdlc-deliver.mjs:602-605,620,793-800`; explicit and classified human-review tests pass; no intervention path merges |
 | AC4 | Pending delivery waits at least 30 seconds and stops at one hour | Pass | `scripts/sdlc-deliver.mjs:20-21,754-766,789-815`; injected-time test observes 120 sleeps of 30,000 ms and `delivery_pending` |
@@ -88,8 +90,9 @@ The corrected Herdr session launched `/sdlc-execute #23 #24` with the required `
 | T005 | Bound pending delivery and human intervention | Complete | 30-second/one-hour bounds and controller-owned human review covered |
 | T006 | Compact open-pr workflow around controller loop | Complete | Controller loop, controlled-draft evidence, and on-demand remediation explicit |
 | T007 | Remove unconditional deliver extra workflow | Complete | `STEP_EXTRA_WORKFLOWS` retains only implement simplify; prompt tests pass |
-| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 599 tests passed, 2 expected skips |
+| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 601 tests passed, 2 expected skips |
 | T009 | Verify two real GitHub delivery lifecycles | Complete | Two distinct issue URLs, PR URLs, exact heads, merged states, closed states, and validated deliver handoffs preserved above |
+| T010 | Consume delivered proof before branch restoration | Complete | `scripts/sdlc-execute.mjs` consumes retained passed delivery before restore; focused 160-test regression covers deleted delivered branch and incomplete-step fail-closed restoration |
 
 ---
 
@@ -146,7 +149,7 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | Yes (`SCN001`, `SCN003`, `SCN006`, `SCN008`, `SCN010`, `SCN011`) | Jest plus live controllers | Yes |
+| AC1 | Yes (`SCN001`, `SCN003`, `SCN006`, `SCN008`, `SCN010`, `SCN011`, `SCN012`) | Jest plus live controllers | Yes |
 | AC2 | Yes (`SCN002`) | Jest controller/prompt tests and OMP exercise | Yes |
 | AC3 | Yes (`SCN005`) | Jest controller tests | Yes |
 | AC4 | Yes (`SCN004`) | Injected clock/sleep Jest test | Yes |
@@ -155,10 +158,10 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 
 ### Coverage Summary
 
-- Feature files: 1 feature, 11 scenarios
-- Full local execution at merged-base head `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`: 44 suites passed, 599 tests passed
+- Feature files: 1 feature, 12 scenarios
+- Full local execution at exact correction head `f316c2445ecde5cd611ee145f131296c0675ecff`: 44 suites passed, 601 tests passed
 - Expected skips: 2 tests in one opt-in exercise suite
-- Focused delivery-controller execution: `sdlc-deliver.test.mjs`, 23 tests passed
+- Focused queue-ordering execution: `sdlc-execute.test.mjs`, 160 tests passed
 - Current-spec regression: 6/6 tests passed within the fresh full suite
 - Live delivery: 2/2 issues have exact-head MERGED and CLOSED proof
 
@@ -181,7 +184,7 @@ The dry-run verified exact controller invocation and 0/1/2/3 routing without mut
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | At `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`, `cd scripts && npm test -- --runInBand`: 44 suites passed, 599 tests passed, 2 expected skips |
+| Contract tests | Pass | At `f316c2445ecde5cd611ee145f131296c0675ecff`, `cd scripts && npm test -- --runInBand`: 44 suites passed, 601 tests passed, 2 expected skips |
 | Current-spec regression | Pass | `current-specs.test.mjs`: 6/6 passed within the fresh exact-head full suite |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
@@ -201,6 +204,7 @@ The dry-run verified exact controller invocation and 0/1/2/3 routing without mut
 | High | Error Handling | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Live merged-PR reconciliation rejected `gh pr checks --required` exit 1 with the exact valid `no required checks reported ...` response | Treat only that exact response as an empty required-check set; preserve fail-closed handling for every other empty/error response; add regression coverage | `direct` |
 | High | Versioning | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `requirements.md` | Substring matching treated issue #195's prose about the BREAKING gate as a breaking declaration | Require case-insensitive `BREAKING:` at the start of the title or a body line; cover the exact self-referential body and genuine title/body declarations | Fresh delegated scoped review: passed, zero actionable findings |
 | High | Error Handling | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Live PR #263 returned the valid GitHub CLI response `no checks reported on the '<branch>' branch`, which the earlier exact parser rejected | Accept only the two exact empty-check stderr forms on exit 1 with empty stdout; preserve fail-closed handling otherwise; cover both forms | Fresh delegated scoped review: passed, zero actionable findings |
+| High | Queue state | `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Execute restored the active deliver branch before consuming a retained passed handoff, but successful delivery had correctly deleted that branch | Validate retained passed delivery first, refresh MERGED+CLOSED proof, synchronize default branch, record deliver complete, and advance; preserve restore-first fail-closed behavior for incomplete evidence | Fresh delegated scoped review: passed, zero actionable findings |
 
 ## Remaining Issues
 

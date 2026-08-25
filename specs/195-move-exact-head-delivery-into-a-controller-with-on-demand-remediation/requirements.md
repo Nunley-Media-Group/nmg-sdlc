@@ -39,6 +39,8 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 **And** prose that documents or tests the `BREAKING:` gate without using that declaration syntax does not request a major bump
 **And** success requires the PR to be `MERGED` at the expected head and the issue to be `CLOSED`
 **And** the installed extension resolves `sdlc-deliver.mjs` from its packaged `scripts/` directory through the shared controller resolver rather than the target project
+**And** execute consumes a validated passed deliver handoff and synchronizes the default branch before attempting to restore an issue branch that successful delivery already deleted
+**And** incomplete lifecycle steps still require fail-closed restoration of their issue branch before any worker starts
 
 ### AC2: remediation is requested only on demand
 

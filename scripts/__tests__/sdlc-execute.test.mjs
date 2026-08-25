@@ -3301,6 +3301,66 @@ describe('runExecute controller', () => {
     expect(reviewPromptBranches).not.toContain('main');
   });
 
+  it('consumes a passed retained deliver handoff after the delivered branch was deleted', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'deliver',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
+      failed: { issue: 42, step: 'deliver', reasonCode: 'branch_checkout_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'deliver',
+      status: 'passed',
+      intervention: false,
+      summary: 'PR merged and issue closed',
+      artifacts: ['https://github.test/pull/77'],
+      next: null,
+      reasonCode: null,
+    })}\n`);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(persisted.completed['42']).toEqual([
+      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
+    ]);
+    expect(persisted.currentIssue).toBeNull();
+    expect(persisted.failed).toBeNull();
+    expect(fixture.calls).toContainEqual(['git', 'pull', '--ff-only']);
+    expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
+  });
+
+  it('keeps branch restoration fail-closed when delivery is incomplete', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'deliver',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
+      failed: null,
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.completed['42']).not.toContain('deliver');
+    expect(persisted.failed.reasonCode).toBe('branch_checkout_failed');
+    expect(fixture.calls).toContainEqual(['git', 'checkout', '42-ship-it']);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('does not prompt review when issue branch checkout is ineffective', () => {
     const fixture = makeControllerFixture();
     writeRun({

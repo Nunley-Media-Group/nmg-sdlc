@@ -127,6 +127,16 @@
 - [ ] The verification handoff preserves fresh issue URLs, PR URLs, head SHAs, merged PR states, and closed issue states
 - [ ] Missing GitHub auth, repository access, Herdr execution, merge proof, or closure proof fails verification rather than falling back to fixtures
 
+### T010: Consume delivered proof before branch restoration
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T009
+**Acceptance**:
+- [ ] A retained validated passed deliver handoff with MERGED+CLOSED proof synchronizes the default branch and advances the queue even when delivery deleted the issue branch
+- [ ] Missing or non-passed delivery evidence still restores the issue branch fail-closed before any worker starts
+- [ ] Focused and full changed-contract tests pass
+
 ---
 
 ## Change History
