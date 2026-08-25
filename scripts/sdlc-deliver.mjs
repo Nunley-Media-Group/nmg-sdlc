@@ -186,6 +186,11 @@ function approvedMajor(spec) {
     || /^\*\*Version bump\*\*:\s*major\s*$/im.test(spec.files['design.md']);
 }
 
+function isBreakingDeclaration(issue) {
+  return /^\s*BREAKING\s*:/i.test(String(issue.title ?? ''))
+    || /^\s*BREAKING\s*:/im.test(String(issue.body ?? ''));
+}
+
 function configuredBotLogins(tech) {
   const logins = new Set(['coderabbitai']);
   const row = tech.match(/^\|\s*`logins`\s*\|\s*`(\[[^`]+\])`/m);
@@ -255,7 +260,7 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   const current = fs.readFileSync(versionPath, 'utf8').trim();
   const manifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   if (manifest.version !== current) throw new Error('VERSION and package.json are not synchronized');
-  const breaking = /breaking/i.test(`${issueData.title}\n${issueData.body ?? ''}`);
+  const breaking = isBreakingDeclaration(issueData);
   if (breaking && !approvedMajor(spec)) {
     const error = new Error('major_bump_required');
     error.reasonCode = 'major_bump_required';

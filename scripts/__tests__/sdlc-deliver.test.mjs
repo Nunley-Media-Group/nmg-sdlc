@@ -10,6 +10,76 @@ import { validateHandoff } from '../sdlc-execute.mjs';
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-deliver.mjs');
 const H1 = '1'.repeat(40);
 const H2 = '2'.repeat(40);
+const SELF_REFERENTIAL_BREAKING_BODY = [
+  '## User Story',
+  '',
+  '**As a** deliver worker',
+  '**I want** version bump, PR create/resume, CI/thread classification, exact-head merge, and merge+close proof to run in code',
+  '**So that** a model is prompted only when a bot thread or CI failure needs a code change',
+  '',
+  '## Background',
+  '',
+  'Every deliver worker currently inlines `workflows/open-pr/WORKFLOW.md` plus `workflows/address-pr-comments/WORKFLOW.md`. That cost is paid even when checks are green. Moving delivery into a controller must still apply bot clear-fixes, still stop on human review, and still refuse success until PR `MERGED` and issue `CLOSED`.',
+  '',
+  '## Current State',
+  '',
+  '- `STEP_EXTRA_WORKFLOWS = { implement: [\'simplify\'], deliver: [\'address-pr-comments\'] }`.',
+  '- Test `workerPrompt inlines extra workflows for implement and deliver` expects deliver prompts to contain `# Address PR Comments`.',
+  '- `scripts/pr-delivery-state.mjs` exports `classifyPrDeliveryState`.',
+  '- Open-pr workflow covers spec resolver, BREAKING/major gate, version files, push, PR loop, bot vs human threads, squash merge with `--match-head-commit`.',
+  '',
+  '## Acceptance Criteria',
+  '',
+  '### AC1: delivery controller preserves terminal delivery',
+  '',
+  '**Given** a sibling deliver worker for `#N`',
+  '**When** the compact open-pr workflow runs',
+  '**Then** it invokes new `scripts/sdlc-deliver.mjs` (no equivalent module; wrap `classifyPrDeliveryState` and verification-readiness, do not fork)',
+  '**And** the controller still performs spec/verification gates, version bump of `VERSION` + `package.json` + `CHANGELOG.md` `[Unreleased]` rollover + `steering/tech.md` versioned-files, push, PR create/resume, poll, `gh pr merge --squash --match-head-commit <head> --delete-branch` unless tech.md says otherwise, re-fetch MERGED+CLOSED, local branch delete only after proof, and writes `.omp/sdlc/handoffs/N-deliver.json`',
+  '**And** leftover `spike` labels still do not skip the version bump',
+  '**And** BREAKING without spec `**Version bump**: major` still fails `major_bump_required` with intervention',
+  '**And** execute still launches a sibling deliver worker and still does not open PRs in the main pane',
+  '',
+  '### AC2: bot remediation still happens, just not always inlined',
+  '',
+  '**Given** unresolved bot threads classified as clear-fix, or failing in-scope checks',
+  '**When** the controller cannot finish without an edit',
+  '**Then** it prompts the same deliver worker with a compact packet: PR head SHA, failing check names, unresolved thread file:line + comment text, required handoff path',
+  '**And** after edits it re-validates head, checks, and threads in code',
+  '**And** green PRs with no unresolved bot threads do not inline `address-pr-comments`',
+  '**And** implement still inlines `simplify`',
+  '**And** bot detection remains `__typename === "Bot"` or login `coderabbitai` or logins in `steering/tech.md`',
+  '',
+  '### AC3: human review still stops the queue',
+  '',
+  '**Given** an unresolved human or ambiguous review thread',
+  '**When** the controller classifies it',
+  '**Then** it writes failed handoff `reasonCode: human_review`, `intervention: true`, `step: deliver`',
+  '**And** it does not merge',
+  '',
+  '### AC4: no reduction of merge proof',
+  '',
+  '**Given** merge or issue-close proof is missing',
+  '**When** the controller finishes an attempt',
+  '**Then** it writes a failed handoff (e.g. `merge_failed`) rather than reporting success',
+  '**And** success still requires PR state `MERGED` with matching head and issue state `CLOSED`',
+  '',
+  '## Functional Requirements',
+  '',
+  '| ID | Requirement | Priority |',
+  '|----|-------------|----------|',
+  '| FR1 | Add `scripts/sdlc-deliver.mjs` with CLI `--issue N`. | Must |',
+  '| FR2 | Stop unconditionally inlining `address-pr-comments` in `STEP_EXTRA_WORKFLOWS.deliver`. Update `scripts/__tests__/sdlc-execute.test.mjs`. | Must |',
+  '| FR3 | Compact `workflows/open-pr/WORKFLOW.md`. Keep `workflows/address-pr-comments/WORKFLOW.md` as on-demand remediation text or an equivalent packet template. | Must |',
+  '| FR4 | No reduction of function versus current open-pr + address-pr-comments. Bot clear-fixes, CI safe fixes, exact-head merge, and human-review intervention all remain. | Must |',
+  '',
+  '## Notes',
+  '',
+  'Do not auto-merge over human review. Do not move deliver into the execute orchestrator.',
+  '',
+  'Depends on: Move start and execute orchestration into controllers behind sibling workers',
+  'Blocks: (none)',
+].join('\n');
 
 function verification(issue = 42, specPath = 'specs/42-delivery') {
   const scope = { issueNumber: issue, specPath, status: 'scoped', delivery: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] }, regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
@@ -153,8 +223,17 @@ describe('sdlc delivery controller', () => {
     expect(fs.existsSync(path.join(root, '.omp/sdlc/handoffs'))).toBe(false);
   });
 
-  test('fails BREAKING major gate before mutation', () => {
-    const f = fixture({ title: 'BREAKING API' }); roots.push(f.root);
+  test('does not treat the exact self-referential issue body as a breaking declaration', () => {
+    const f = fixture({ body: SELF_REFERENTIAL_BREAKING_BODY }); roots.push(f.root);
+    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
+  });
+
+  test.each([
+    { title: 'breaking: Remove the legacy API' },
+    { body: 'Compatibility impact follows.\nBrEaKiNg: Remove the legacy API' },
+  ])('fails a genuine BREAKING declaration before mutation: $title$body', (declaration) => {
+    const f = fixture(declaration); roots.push(f.root);
     const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('major_bump_required');
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');

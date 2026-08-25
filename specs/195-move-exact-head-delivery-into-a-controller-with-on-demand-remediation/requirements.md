@@ -35,6 +35,8 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 **And** it reuses `classifyPrDeliveryState` and existing verification-readiness logic rather than creating a second readiness classifier
 **And** a leftover `spike` label does not skip the version bump
 **And** BREAKING work without an approved `**Version bump**: major` spec line fails with `reasonCode: major_bump_required`
+**And** a genuine breaking declaration is the case-insensitive `BREAKING:` prefix at the start of the issue title or at the start of a body line
+**And** prose that documents or tests the `BREAKING:` gate without using that declaration syntax does not request a major bump
 **And** success requires the PR to be `MERGED` at the expected head and the issue to be `CLOSED`
 **And** the installed extension resolves `sdlc-deliver.mjs` from its packaged `scripts/` directory through the shared controller resolver rather than the target project
 
