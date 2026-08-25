@@ -31,6 +31,13 @@ const LIVE_TITLELESS_REVIEW_MODE_PICKER = [
   '2. Review uncommitted changes',
   '3. Review a specific commit',
   '4. Custom review instructions',
+  'up/down navigate  enter select  esc cancel',
+].join('\n');
+const UNICODE_TITLELESS_REVIEW_MODE_PICKER = [
+  '1. Review against a base branch (PR Style)',
+  '2. Review uncommitted changes',
+  '3. Review a specific commit',
+  '4. Custom review instructions',
   '↑↓ Navigate',
 ].join('\n');
 
@@ -633,6 +640,7 @@ describe('runExecute controller', () => {
     branchMenuTransition = true,
     branchMenuDelayReads = 0,
     titlelessReviewPickers = false,
+    titlelessReviewModePicker = LIVE_TITLELESS_REVIEW_MODE_PICKER,
     ambiguousReviewScreen = false,
     writeHandoffs = true,
     promptStatus = 0,
@@ -844,17 +852,17 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'composer') return '/review';
         if (reviewMenu === 'mode') {
           if (ambiguousReviewScreen) {
-            return '2. Review uncommitted changes\n↑↓ Navigate';
+            return '2. Review uncommitted changes\nup/down navigate  enter select  esc cancel';
           }
           return titlelessReviewPickers
-            ? LIVE_TITLELESS_REVIEW_MODE_PICKER
+            ? titlelessReviewModePicker
             : 'Review Mode\n/review';
         }
         if (reviewMenu === 'branch-pending') {
           if (branchMenuReadsRemaining > 0) {
             branchMenuReadsRemaining -= 1;
             return titlelessReviewPickers
-              ? LIVE_TITLELESS_REVIEW_MODE_PICKER
+              ? titlelessReviewModePicker
               : 'Review Mode\n/review';
           }
           reviewMenu = 'branch';
@@ -1741,6 +1749,18 @@ describe('runExecute controller', () => {
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
     ]);
+  });
+
+  it('keeps Unicode titleless review picker coverage', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      titlelessReviewPickers: true,
+      titlelessReviewModePicker: UNICODE_TITLELESS_REVIEW_MODE_PICKER,
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toEqual([]);
   });
 
   it('rejects ambiguous titleless review text without picker structure', () => {

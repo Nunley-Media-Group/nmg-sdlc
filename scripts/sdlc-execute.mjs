@@ -49,6 +49,10 @@ const REVIEW_MODE_OPTIONS = [
   'Review a specific commit',
   'Custom review instructions',
 ];
+const REVIEW_MODE_NAVIGATION_HINTS = [
+  '↑↓ Navigate',
+  'up/down navigate  enter select  esc cancel',
+];
 const PICKER_SEARCH_TEXT = 'Type to search';
 const STEP_SKILL = {
   start: 'start-issue',
@@ -685,7 +689,7 @@ function hasPickerSearch(text) {
 
 function isReviewModePicker(text) {
   if (text.includes('Review Mode')) return true;
-  if (!text.includes('↑↓ Navigate')) return false;
+  if (!REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))) return false;
   return REVIEW_MODE_OPTIONS.every((option, index) => {
     const optionRow = new RegExp(
       `^\\s*(?:[>›❯]\\s*)?${index + 1}\\.\\s+${escapeRegExp(option)}\\s*$`,
