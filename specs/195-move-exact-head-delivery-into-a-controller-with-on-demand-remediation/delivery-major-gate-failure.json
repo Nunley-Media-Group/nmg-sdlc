@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "issue": 195,
+  "step": "deliver",
+  "status": "failed",
+  "intervention": true,
+  "summary": "BREAKING issue #195 lacks an approved major version bump",
+  "artifacts": [],
+  "next": null,
+  "reasonCode": "major_bump_required"
+}

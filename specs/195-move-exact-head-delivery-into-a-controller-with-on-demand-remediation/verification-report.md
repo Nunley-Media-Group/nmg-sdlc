@@ -44,6 +44,14 @@ Post-verification remediation was freshly reviewed and verified at exact merged-
 - Local verification: Pass
 - PR evidence: Satisfied by two live GitHub issue lifecycles
 - Live repository: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
+- Historical gate evidence: `delivery-major-gate-failure.json` preserves and validates the original `major_bump_required` deliver handoff without replacing the canonical latest-outcome handoff.
+
+### Changed-Path Evidence
+
+- `commands/sdlc-open-pr.md` and `scripts/sdlc-deliver.mjs` move terminal delivery into the deterministic controller while retaining on-demand remediation.
+- `src/sdlc-prompt-snippets.mjs`, `scripts/__tests__/rendered-prompt-bytes.test.mjs`, and `scripts/__tests__/sdlc-prompt-snippets.test.mjs` register the compact deliver prompt, remove unconditional deliver remediation text, and retain implement-only simplification with byte and registry coverage.
+- `workflows/write-code/WORKFLOW.md` and `scripts/__tests__/simplify-contract.test.mjs` execute and verify the appended simplify workflow after implementation and before final verification.
+- `specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation/delivery-major-gate-failure.json` preserves the validated historical false-positive failure separately from the canonical deliver handoff.
 
 ---
 
