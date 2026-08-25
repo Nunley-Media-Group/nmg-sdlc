@@ -35,6 +35,7 @@ const WORKFLOW_CAPABILITY = new Map([
   ['review-main', 'execute'],
   ['run-retro', 'run-retro'],
   ['start-issue', 'start-issue'],
+  ['simplify', 'simplify'],
   ['status', 'status'],
   ['upgrade-project', 'project-upgrade'],
   ['verify-code', 'verify-code'],

@@ -25,6 +25,7 @@ describe('extension sdlc- commands', () => {
     expect(helpers).toContain('["sdlc-open-pr", "open-pr"');
     expect(source).toContain('pi.registerCommand(name');
     expect(source).toContain('process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot');
+    expect(source).toContain('resolvePluginController("sdlc-deliver.mjs"');
     expect(source).not.toMatch(/registerCommand\("(execute|draft-issue|write-spec)"/);
   });
 

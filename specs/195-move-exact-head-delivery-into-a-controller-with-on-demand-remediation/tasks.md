@@ -15,14 +15,14 @@
 | Controller | 3 | [ ] |
 | Remediation | 2 | [ ] |
 | Workflows | 2 | [ ] |
-| Verification | 1 | [ ] |
-| **Total** | 8 | |
+| Verification | 2 | [ ] |
+| **Total** | 9 | |
 
 ---
 
 ### T001: Add injectable delivery controller and CLI
 
-**File(s)**: `scripts/sdlc-deliver.mjs`
+**File(s)**: `scripts/sdlc-deliver.mjs`, `src/extension.ts`, `scripts/__tests__/plugin-controller-path.test.mjs`, `scripts/__tests__/extension-commands.test.mjs`
 **Type**: Create
 **Depends**: None
 **Acceptance**:
@@ -31,6 +31,7 @@
 - [ ] Invalid CLI prints exact usage, exits 2, and writes no handoff
 - [ ] All `gh` and `git` operations use injected `run`
 - [ ] Terminal valid-N paths write and print the deliver handoff path
+- [ ] The installed extension resolves packaged `scripts/sdlc-deliver.mjs`; omission fails explicitly as `controller unresolved: sdlc-deliver.mjs`
 
 ### T002: Implement versioning and PR create/resume
 
@@ -53,10 +54,10 @@
 **Acceptance**:
 - [ ] Calls `classifyPrDeliveryState` rather than duplicating its rules
 - [ ] Bot identities come from typename, coderabbitai, and steering configuration
-- [ ] Ready head H is passed to `gh pr merge --match-head-commit H`
+- [ ] Ready head H is passed to `gh pr merge --match-head-commit H` without a branch-deletion option
 - [ ] A changed head is reclassified before merge
 - [ ] Passed handoff requires PR MERGED at H and issue CLOSED
-- [ ] Local branch deletion occurs only after proof
+- [ ] Local and remote branch deletion occurs only after proof and is idempotent
 
 ### T004: Add deterministic remediation packet
 
@@ -115,6 +116,16 @@
 - [ ] Tests cover invalid CLI, major gate, spike bump, resume idempotence, remediation JSON, human review, pending timeout, exact-head merge, head change, merge proof, and branch deletion ordering
 - [ ] Existing `classifyPrDeliveryState` tests remain authoritative
 - [ ] Focused controller, execute, delivery-state, command rendering, prompt-byte, and extension tests exit 0
+
+### T009: Verify two real GitHub delivery lifecycles
+
+**File(s)**: `specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation/verification-report.md`, `.omp/sdlc/handoffs/195-verify.json`
+**Type**: Verify
+**Depends**: T008
+**Acceptance**:
+- [ ] VERIFY runs two distinct issues end to end against the real GitHub repository `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
+- [ ] The verification handoff preserves fresh issue URLs, PR URLs, head SHAs, merged PR states, and closed issue states
+- [ ] Missing GitHub auth, repository access, Herdr execution, merge proof, or closure proof fails verification rather than falling back to fixtures
 
 ---
 

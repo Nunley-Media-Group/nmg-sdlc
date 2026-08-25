@@ -73,7 +73,7 @@ describe('prompt snippet registry', () => {
       'plugin.workflow.write-code',
       'plugin.workflow.review-main',
       'plugin.workflow.apply-review',
-      'plugin.workflow.address-pr-comments',
+      'plugin.workflow.simplify',
       'plugin.execute.selection',
       'plugin.worker.header',
     ]);

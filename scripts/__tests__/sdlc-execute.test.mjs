@@ -578,7 +578,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   it('workerPrompt maps implementation, review, fix, and delivery workflows', () => {
     const implement = workerPrompt({ step: 'implement', issue: 42 });
     const review = workerPrompt({ step: 'review1', issue: 42 });
-    expect(implement).not.toContain('# Simplify');
+    expect(implement).toContain('# Simplify');
     expect(implement).toContain('## Commit and Push Implementation');
     expect(implement).toContain('git push');
     expect(review).toContain('# Review Main');
@@ -587,7 +587,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(review).toContain('Do not invoke `/review`, `omp`, or a nested agent.');
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('sdlc-apply-review.mjs');
-    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).not.toContain('# Address PR Comments');
   });
 
   it('defines remediable steps, names, and failed-handoff predicate exactly', () => {

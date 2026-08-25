@@ -65,8 +65,9 @@ const STEP_SKILL = {
   deliver: 'open-pr',
 };
 const STEP_EXTRA_WORKFLOWS = {
-  deliver: ['address-pr-comments'],
+  implement: ['simplify'],
 };
+
 
 function usageError() {
   return 'Usage: /sdlc-execute [#N ...]';

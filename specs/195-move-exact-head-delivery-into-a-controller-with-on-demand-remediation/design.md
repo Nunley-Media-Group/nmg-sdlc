@@ -46,19 +46,21 @@ N accepts `N` or `#N` matching `^#?([1-9]\d*)$`. Unknown, missing, or conflictin
 
 Normal terminal exit codes are 0 for a passed handoff, 1 for a failed/intervention handoff, 2 for invalid CLI, and 3 for remediation required.
 
+At extension initialization, `src/extension.ts` resolves `sdlc-deliver.mjs` through the shared `resolvePluginController` contract using `import.meta.url` and the installed package root. The target project working directory is never consulted. A package that omits the controller fails explicitly instead of leaving a latent command expansion error.
+
 ## Deterministic delivery sequence
 
 1. Resolve the unique approved `specs/N-*/` package and read issue title, body, labels, state.
 2. Require the current verification report to satisfy the repository's existing local-pass or `pr_evidence_pending` readiness contract.
-3. Detect BREAKING case-insensitively. Require `**Version bump**: major` in approved requirements or design before any major bump.
+3. Detect a breaking declaration only when the case-insensitive `BREAKING:` prefix starts the issue title or a body line. Prose that merely documents or tests this gate is not a declaration. Require `**Version bump**: major` in approved requirements or design before any major bump.
 4. Read `steering/tech.md` versioning tables. Classify the issue by bug/enhancement matrix; `spike` never suppresses the bump.
 5. Update `VERSION`, `package.json`, `CHANGELOG.md` `[Unreleased]`, and every declared versioned file as one logical change. Resume idempotently: if the exact branch already has an open PR whose delivery commit contains the synchronized target version, do not bump again.
 6. Commit any delivery/version changes, perform the current clean-scope and merge-base preflight, push without force, then create or resume the PR for the exact branch. Preserve draft handling for valid `pr_evidence_pending` verification.
-7. Fetch PR/check/review/thread state and pass the normalized snapshot through `classifyPrDeliveryState`. Automated reviewer identity is `__typename === "Bot"`, login `coderabbitai`, or a login declared in `steering/tech.md`.
-8. Human threads, CHANGES_REQUESTED, or explicit `--remediation-result human_review` write the failed intervention handoff and stop without merge.
-9. Actionable failing checks or unresolved bot threads emit the remediation packet and exit 3. Pending-only state polls every 30 seconds for at most one hour from the initial observation, then writes `delivery_pending`.
-10. Ready state captures head H immediately before merge and invokes repository-policy squash merge with `--match-head-commit H` and branch deletion unless steering policy overrides that mode.
-11. Re-fetch PR and issue. Only PR `MERGED` at H plus issue `CLOSED` produces a passed handoff. Delete the local issue branch only after this proof.
+7. Fetch PR metadata with `gh pr view`, unresolved review threads with `gh api graphql`, and required checks with `gh pr checks --required`; pass the normalized snapshot through `classifyPrDeliveryState`. Automated reviewer identity is `__typename === "Bot"`, login `coderabbitai`, or a login declared in `steering/tech.md`.
+8. Human threads, pathless automated threads, CHANGES_REQUESTED, repeated unchanged remediation, no-diff remediation, or explicit `--remediation-result human_review` write the failed intervention handoff and stop without merge.
+9. Actionable failing required checks or unresolved bot threads emit the remediation packet and exit 3. Pending-only state polls every 30 seconds for at most one hour from the initial observation, then writes `delivery_pending`.
+10. Ready state captures head H immediately before merge and invokes the repository-policy squash merge with `--match-head-commit H`, without deleting either branch.
+11. Re-fetch PR and issue. Only PR `MERGED` at H plus issue `CLOSED` produces a passed handoff. Delete the local and remote issue branches only after this proof.
 
 ## Remediation protocol
 
@@ -79,7 +81,7 @@ The controller prints exactly one line with prefix `NMG_SDLC_REMEDIATION: ` foll
 
 Arrays are present even when empty. Only unresolved, non-outdated automated-review threads are included. The packet is a snapshot: before any merge, rerun re-fetches and requires the current head rather than trusting the packet SHA.
 
-The compact workflow reads the packet directly from stdout. It may apply only an obvious, local, safe fix; then it runs the repository's targeted verification, commits if needed, pushes without force, and reruns the controller. It never resends a model prompt or starts another worker. If the request is ambiguous, design-affecting, human-authored, or unsafe, it invokes the remediation-result form so the controller writes `human_review`.
+The compact workflow reads the packet directly from stdout. It may apply only an obvious, local, safe fix; then it runs the repository's targeted verification, commits and pushes a non-empty diff without force, and reruns the controller. It never resends a model prompt or starts another worker. A pathless thread, repeated packet at the same head, empty remediation diff, ambiguous request, design-affecting request, human-authored request, or unsafe request invokes the remediation-result form so the controller writes `human_review`.
 
 ## Handoffs
 
@@ -101,9 +103,10 @@ Failed handoffs use status `failed`, intervention true, step `deliver`, next nul
 |-------|----------|
 | controller unit | invalid CLI, major gate, spike bump, synchronized version writes, resume idempotence, human review, remediation packet, pending timeout, head change, merge proof |
 | classifier integration | snapshots flow through `classifyPrDeliveryState`; no duplicate readiness logic |
-| workflow/prompt | compact open-pr invocation, deliver excludes Address PR Comments, implement still includes Simplify |
-| injected command | exact `gh pr merge --squash --match-head-commit H --delete-branch`; no force push; no local deletion before proof |
-| focused regression | existing execute, delivery-state, prompt-byte, command rendering, and extension-surface tests |
+| workflow/prompt | compact open-pr invocation, repeated/pathless/no-diff termination, deliver excludes Address PR Comments, implement still includes Simplify |
+| injected command | review threads use `gh api graphql`; checks use exact `gh pr checks N --required --json ...`; merge uses exact `gh pr merge --squash --match-head-commit H`; no force push; no branch deletion before proof |
+| focused regression | existing execute, delivery-state, prompt-byte, command rendering, extension-surface, packaged-controller resolution, and package dry-run checks |
+| live two-issue smoke | VERIFY runs two distinct issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`; preserve issue/PR URLs, observed heads, MERGED proof, and CLOSED proof in the verification handoff; fail rather than substitute fixtures when prerequisites are unavailable |
 
 ---
 

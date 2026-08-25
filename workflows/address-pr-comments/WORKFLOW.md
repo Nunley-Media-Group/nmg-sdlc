@@ -1,59 +1,39 @@
 ---
 name: address-pr-comments
-description: "Address bot PR review threads on open PR from automated delivery. Clear bot findings: apply fix via edit + verify inline, reply+resolve. Ambiguous or human threads: failed handoff with intervention. No user questions. Invoked from open-pr terminal loop or /sdlc-execute."
+description: "Provide on-demand guidance for an explicit delivery remediation packet. Do not load for green delivery or run as an unconditional deliver prompt."
 ---
 
 # Address PR Comments
 
-Focused bot-only automated review closer. Called in same session by open-pr.
+Use only after `scripts/sdlc-deliver.mjs` exits 3 and emits an
+`NMG_SDLC_REMEDIATION` packet. The compact open-pr workflow owns the loop.
 
-## Preconditions
+## Boundaries
 
-- Open PR for the branch (from open-pr)
-- Working tree clean
-- N or current branch identifies the issue
+- Act only on packet-listed failing checks and unresolved automated-review threads.
+- Treat `__typename: Bot`, `coderabbitai`, and steering-declared logins as automated.
+- Never edit for human threads, `CHANGES_REQUESTED`, ambiguous requests, or
+  design-affecting requests.
+- Never resolve threads or merge a PR. The controller owns readiness and merge proof.
+- Never launch or prompt another OMP worker.
 
-## Fetch Unresolved Threads
+## Clear Fix
 
-Use gh api graphql for reviewThreads on the PR (first 100, comments).
+Immediately return to open-pr for a `human_review` result when a packet thread
+has no path or the packet repeats the preceding packet's head, failing checks,
+and thread URLs.
 
-Filter to unresolved.
+For an obvious, local, safe request:
 
-Apply automated reviewer identity from steering/tech.md (bots: true, logins: ["coderabbitai"] plus __typename Bot).
+1. Read the packet's file and line context.
+2. Apply the smallest in-scope correction. Resolve and read
+   `skill://skill-creator` first for workflow-bundled targets.
+3. Run targeted verification.
+4. Stage only changed non-runtime paths.
+5. If the staged diff is empty, return to open-pr for a `human_review` result.
+6. Otherwise commit, push without force, and return to open-pr to rerun the
+   controller against fresh required checks and review threads.
 
-If no unresolved bot threads: short-circuit success (no-op for this round).
-
-## Classify (bots only)
-
-For each unresolved bot thread:
-- clear-fix: the comment describes an obvious, local, safe, behavior-preserving change with file:line context.
-- Otherwise (ambiguous instruction, disagreement, needs design, human-like): treat as non-clear.
-
-## Route
-
-- clear-fix: 
-  - read the hunk/file
-  - use edit (or follow the skill-creator file on disk if the path is skill-bundled and the file is present) to apply the minimal fix
-  - run relevant verify (inline) or tests
-  - if now clean, gh api to reply to thread and resolveReviewThread mutation
-  - commit with "fix: address review ... (#N)"
-  - push (no force)
-- any non-clear bot or any human thread present: write failed handoff
-  reasonCode: "human_review" or "ambiguous_thread"
-  intervention: true
-  step: "deliver"
-  Stop. Do not resolve or merge.
-
-Loop bounded rounds (default 10) with push + short poll for re-review between.
-
-## Handoff from this utility (when called standalone)
-
-On clean bots or after fixes: passed, but typically returns control to open-pr which does the merge proof.
-
-When invoked from open-pr for bots, no separate handoff unless top level fail.
-
-If this skill is top-level and finishes clean, handoff passed step deliver? But contract routes through open-pr.
-
-For direct: produce appropriate handoff.
-
-Always end by writing handoff when it owns the step.
+For anything ambiguous, design-affecting, unsafe, outside scope, pathless,
+unchanged, or repeated, return to open-pr and invoke the controller with
+`--remediation-result human_review`.

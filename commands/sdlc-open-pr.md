@@ -6,90 +6,83 @@ description: "Deliver verified work through exact-head PR merge"
 
 # Open PR
 
-Terminal exact-head delivery. No user gates. Automated only.
+Run deterministic delivery for issue N. No user questions and no nested worker.
 
-## Context and Resolver
+## Controller Loop
 
-Resolve N from arg or branch.
+1. Resolve N from `$ARGUMENTS` or the current `N-*` branch.
+2. Keep the immediately preceding remediation packet fingerprint in worker context.
+3. Run `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N`.
+4. Route every invocation, including every post-remediation rerun:
+   - `0`: validate the controller-written deliver handoff, print its marker, and stop.
+   - `1`: preserve the controller-written failed handoff and stop.
+   - `2`: stop on the invalid controller invocation; do not invent a handoff.
+   - `3` with `NMG_SDLC_PR_EVIDENCE`: execute the controlled-draft branch below.
+   - `3` with `NMG_SDLC_REMEDIATION`: execute the remediation branch below.
+   - Any other output: stop without inventing a handoff.
 
-Resolve specs/N-SLUG/ using first leading-N dir + frontmatter **Issue**:#N **Status**:Approved check (same resolver as write/verify). Fail with spec_not_approved if not.
+The controller writes a passed handoff only after the pull request is `MERGED` at
+the exact observed head and issue N is `CLOSED`. Failures such as
+`major_bump_required` remain controller-owned intervention handoffs.
 
-Read issue full (title, body, labels, state).
+## Controlled-Draft PR Evidence
 
-A leftover `spike` label does not skip the version bump. Classify from the bug/enhancement matrix only.
+For one `NMG_SDLC_PR_EVIDENCE` packet:
 
-Check for BREAKING:
-- if title or body contains "BREAKING" (case-insens)
-- AND no line in requirements.md or design.md matching ^\*\*Version bump\*\*:\s*major\s*$ (case-insens)
-  then failed handoff reasonCode:"major_bump_required" intervention:true
+1. Require `kind: pr_evidence_verification_required`, issue N, an exact draft PR,
+   H1 in `headSha`, the active approved spec path, and bounded evidence identities.
+2. Re-fetch that PR and every packet identity from GitHub. Require the PR to
+   remain an open draft at H1. Do not accept evidence for another head or claim
+   evidence that GitHub did not return.
+3. Read the active verification report plus
+   `workflows/verify-code/references/report-format.md` and
+   `references/pr-dependent-verification.md`. Preserve its already-passing local
+   evidence and issue scope. Update only the PR-readiness evidence so every
+   packet identity has a success-equivalent conclusion, URL, and exact H1.
+4. Validate the report with
+   `node <plugin-root>/scripts/verification-readiness.mjs --project <project-root> --spec <spec-path> --issue N --head H1 --json`
+   If the PR changed or the bounded evidence cannot be satisfied, run the
+   controller with `--remediation-result human_review` and stop.
+5. Do not write, preserve, or print an `N-verify.json` handoff. Return directly
+   to the controller loop. The controller alone commits and safely pushes the
+   changed report, captures H2, re-polls every declared identity for H2, writes
+   and re-fetches the final delivery marker, validates it, and marks the draft
+   ready.
 
-Read verification report from spec dir. Require local pass or valid pr_evidence_pending.
+Never mark the draft ready, merge, delete a branch, or synthesize H1/H2 evidence
+inside this workflow.
 
-## Version Bump (automatic, no gate)
+## On-Demand Remediation
 
-Read steering/tech.md for ## Versioning / bump matrix (label → patch|minor ; default minor). There is no spike skip.
+Use only the packet's failing checks and bot-thread context. Apply a fix only when it
+is obvious, local, safe, and inside the approved issue scope. For a workflow-bundled
+target, resolve and read `skill://skill-creator` before editing.
 
-Read current VERSION if present.
+Before editing, compare the packet fingerprint—`headSha`, failing-check names and
+URLs, and thread URLs—with the immediately preceding remediation packet. If it is
+unchanged, or any thread has no `path`, run the controller with
+`--remediation-result human_review` and stop.
 
-Classify bump_type from labels + matrix.
+After a clear fix:
 
-If BREAKING major approved by spec note, allow major.
+1. Run the narrow verification covering the changed behavior.
+2. Stage only the remediation paths, excluding `.omp/`.
+3. If the staged diff is empty, run the controller with
+   `--remediation-result human_review`, preserve its intervention handoff, and stop.
+4. Commit with a conventional `fix:` subject.
+5. Push the current branch without force.
+6. Save this packet's fingerprint as the immediately preceding fingerprint.
+7. Return to the controller loop and route the next result from step 4. A new exit
+   3 is never terminal by itself and never bypasses repeat detection.
 
-Compute new semver.
+Never resolve a review thread, merge the PR, resend a prompt, invoke OMP, or start
+another worker from this loop.
 
-Update (always stage together):
-- VERSION
-- package.json version (if present, use json edit)
-- CHANGELOG.md : move [Unreleased] content under new ## [X.Y.Z] - DATE heading, leave [Unreleased] empty
-- any other files listed in tech.md versioned-files table
+If a request is ambiguous, design-affecting, human-authored, unsafe, outside
+scope, pathless, unchanged after the attempted fix, or repeated unchanged, run:
 
-Use node for safe json updates.
+```bash
+node <plugin-root>/scripts/sdlc-deliver.mjs --issue N --remediation-result human_review
+```
 
-Commit the delivery + version if changes: `feat: ... (#N)` or `fix:...` or `chore: bump version to X.Y.Z`
-
-## Push and Create/Resume PR
-
-Use preflight logic (clean scope, fetch, merge base safely no rewrite, push -u or push).
-
-Create PR if none for exact branch:
-gh pr create --title "..." --body "..."   (use pr-body template without epic lines)
-
-For pr_evidence_pending path: create as --draft if needed, but follow the pending evidence contract for H1/H2 etc.
-
-Add labels from issue.
-
-## Terminal Loop: Monitor, Address Bots, Merge, Proof
-
-While PR open:
-- Fetch full PR state: gh pr view --json , checks, reviews, threads (graphql for threads + comments)
-- Identify review threads that are unresolved.
-- For threads:
-  - Bot: __typename === "Bot" or comment author login "coderabbitai" (or per steering/tech.md automated review logins)
-    → in same session run the address logic from address-pr-comments (or inline equivalent: classify, for clear-fix apply via edit + verify, resolve thread)
-  - Human or ambiguous: write failed handoff reasonCode:"human_review" intervention:true ; keep pane open; stop. Do not merge.
-- Fix actionable CI (safe in-scope only, re-verify, push)
-- Re-observe head after changes.
-- Ready when: success checks, no CHANGES_REQUESTED, no unresolved non-outdated bot threads, mergeStateStatus CLEAN, not draft, verification current for head.
-
-Then:
-gh pr merge <num> --squash --match-head-commit <head> --delete-branch   (or per tech policy)
-
-## Success Proof and Handoff (only here)
-
-Re-fetch:
-- PR state === "MERGED" and head matches
-- issue state === "CLOSED"
-
-Only then:
-- delete local branch if safe (git checkout main; git branch -D the-feature)
-- write handoff:
-  status:"passed"
-  intervention:false
-  step:"deliver"
-  next: null
-  artifacts: [pr url]
-  summary: "PR #P merged, issue #N closed, branch cleaned"
-
-Print NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/N-deliver.json
-
-If any proof missing, failed handoff with appropriate reason (e.g. merge_failed).
+Preserve that controller-owned intervention handoff and stop.
