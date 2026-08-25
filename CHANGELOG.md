@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.14.0] - 2026-08-25
+
 ### Changed
 
 - Issue #195 moves versioning, PR create/resume, required-check and GraphQL review-thread polling, controlled-draft H1/H2 evidence validation, exact-head merge, refreshed closure proof, and idempotent post-proof branch cleanup into `scripts/sdlc-deliver.mjs`; it preserves accumulated Unreleased notes, recognizes merged retries, resolves the packaged controller at extension startup, and terminates repeated, pathless, or no-diff remediation as `human_review`.
@@ -18,6 +20,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - Issue #195 delivery now fails closed when required-check collection fails, resumes only verified version commits, preserves originating inline-review locations, uses the repository default base, and requires controlled-draft report publication to advance H1 before merge.
+
+### Changed
+
+- Move exact-head delivery into a controller with on-demand remediation (#195)
 
 ## [3.13.0] - 2026-08-25
 
