@@ -138,6 +138,6 @@ An authenticated repository-scoped pull-request search for both delivery branch 
 
 ## Cleanup state
 
-The corrected TUI is idle and its controller process has exited. The earlier completed `s11-start` and `s11-implement` panes were closed by the controller. `s11-review1` remains open in pane `w6:p5Y`, as required after the failed review handoff boundary. No `s12-*` worker was created. No unrelated Herdr pane or process was stopped.
+The corrected TUI and its controller process are exited. The earlier completed `s11-start` and `s11-implement` panes were closed by the controller. `s11-review1` remains open in pane `w6:p5Y`, as required after the failed review handoff boundary. No `s12-*` worker was created. No unrelated Herdr pane or process was stopped.
 
 The disposable clone remains at `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo` on the clean, pushed issue #11 branch. Its `.omp/sdlc/run.json`, passed start/implement handoffs, failed review state, and open review worker are preserved for the next fresh verification-fix worker. Issues #11/#12 and merged specification PRs #13/#14 were not recreated or modified.

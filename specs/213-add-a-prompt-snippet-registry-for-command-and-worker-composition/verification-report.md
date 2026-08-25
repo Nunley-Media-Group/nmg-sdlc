@@ -141,7 +141,7 @@ No nmg-sdlc source fix was applied for this terminal boundary. The corrected cal
 
 ## Cleanup
 
-The corrected TUI is idle and its controller process exited. Completed start/implement workers were closed. `s11-review1` remains open in pane `w6:p5Y`; no issue #12 worker was created. No unrelated process or pane was stopped. The disposable clone remains clean on the pushed issue #11 branch with runtime state and handoffs preserved.
+The corrected TUI and its controller process exited. Completed start/implement workers were closed. `s11-review1` remains open in pane `w6:p5Y`; no issue #12 worker was created. No unrelated process or pane was stopped. The disposable clone remains clean on the pushed issue #11 branch with runtime state and handoffs preserved.
 
 ## Recommendation
 
