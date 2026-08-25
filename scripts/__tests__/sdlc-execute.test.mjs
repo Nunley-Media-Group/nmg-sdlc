@@ -120,6 +120,36 @@ const UNNUMBERED_BRANCH_PICKER_NEGATIVES = [
     ].join('\n'),
   },
   {
+    label: 'zero-cursor',
+    screen: [
+      'Select base branch to compare against',
+      '42-ship-it',
+      'main',
+      'origin/main',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'multiple-cursor',
+    screen: [
+      'Select base branch to compare against',
+      '> 42-ship-it',
+      ' main',
+      'origin/main',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'missing-default',
+    screen: [
+      'Select base branch to compare against',
+      '> 42-ship-it',
+      'origin/42-ship-it',
+      'origin/main',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
     label: 'duplicate-default',
     screen: [
       'Select base branch to compare against',

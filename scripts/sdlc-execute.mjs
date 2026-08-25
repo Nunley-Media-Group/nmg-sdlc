@@ -739,12 +739,12 @@ function isCompleteUnnumberedReviewBranchPicker(text, defaultBranch) {
   const options = [];
   for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
     if (!line) continue;
-    const selectedMatch = line.match(/^[>›❯]\s+(\S+)$/);
-    const name = selectedMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
+    const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
+    const name = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
     if (!name || !isPlausibleBranchName(name)) return false;
-    options.push({ name, selected: Boolean(selectedMatch) });
+    options.push({ name, cursor: Boolean(cursorMatch) });
   }
-  if (options.length < 2 || options.filter(({ selected }) => selected).length !== 1) return false;
+  if (options.length < 2 || options.filter(({ cursor }) => cursor).length !== 1) return false;
   return options.filter(({ name }) => name === defaultBranch).length === 1;
 }
 

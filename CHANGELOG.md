@@ -12,7 +12,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
-- Issue #259 waits for complete `/review` mode and base-branch picker structures with exact default-branch rows and supported navigation hints. Counter-present numbered/titleless paths remain supported; the captured footerless unnumbered layout is accepted only with its exact title, navigation hint, at least two plausible branch rows, one selection marker, and exactly one default branch, while title-only, no-navigation, empty, single-row, duplicate-default, prose, ambiguous, and incomplete staged screens fail closed.
+- Issue #259 waits for complete `/review` mode and base-branch picker structures with exact default-branch rows and supported navigation hints. Counter-present numbered/titleless paths remain supported; the captured footerless unnumbered layout is accepted only with its exact title, navigation hint, at least two plausible branch rows, exactly one cursor marker anywhere, and exactly one independently matched default branch, while title-only, no-navigation, empty, single-row, zero/multiple-cursor, zero/duplicate-default, prose, ambiguous, and incomplete staged screens fail closed.
 - Issue #259 re-samples retained review state and complete interactive pickers before blocking settlement waits, preventing stale-status deadlocks without shortening genuine worker waits or starting duplicate workers.
 
 ## [3.12.0] - 2026-08-24
