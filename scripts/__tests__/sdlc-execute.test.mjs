@@ -1366,6 +1366,45 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('live-rem');
   });
 
+  it('submits a pasted prompt when resuming an idle remediation worker', () => {
+    const fixture = makeControllerFixture({ stalled: true });
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verification_failed' },
+      remediation: {
+        issue: 42,
+        step: 'verify',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'verification_failed',
+        summary: 'verify failed',
+        artifacts: ['artifacts/verify.txt'],
+        closedWorker: { name: 's42-verify', paneId: 'closed-verify' },
+        remWorker: { name: 'r42-verify', paneId: 'live-rem' },
+        history: [],
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{ name: 'r42-verify', pane_id: 'live-rem', state: 'idle' }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys[0]).toEqual(['enter']);
+    expect(fixture.waits.slice(0, 2)).toEqual([
+      { name: 'r42-verify', until: 'working' },
+      { name: 'r42-verify' },
+    ]);
+    expect(fixture.starts.some(({ name }) => name === 's42-verify' || name === 'r42-verify')).toBe(false);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-deliver']);
+    expect(fixture.closed).toContain('live-rem');
+  });
+
   it('does not rem a failed start or intervention handoff', () => {
     for (const failedStep of ['start', 'implement']) {
       const fixture = makeControllerFixture({ failedStep });

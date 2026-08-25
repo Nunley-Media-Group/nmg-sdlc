@@ -1066,7 +1066,33 @@ export function runExecute({
               });
             }
           }
-          herdrApi.agentPrompt({ name: agentName, prompt });
+          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+          state = agentState(herdrApi.agentGet(agentName));
+          const promptStalled = isPromptStalled(prompted);
+          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+              if (!retryPromptSubmission(herdrApi, agentName)) {
+                return stopResult({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (appearsWorking(herdrApi, agentName)) {
+              if (!waitForWorkerSettlement(herdrApi, agentName)) {
+                return stopResult({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (promptStalled) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+          }
         }
         if (!existsSync(handoffPath) && !waitForWorkerSettlement(herdrApi, agentName)) {
           return stopResult({
