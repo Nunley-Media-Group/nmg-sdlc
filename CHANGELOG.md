@@ -12,7 +12,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
-- Issue #259 recognizes both Unicode and ASCII navigation hints for complete titleless `/review` mode pickers while rejecting partial screens.
+- Issue #259 recognizes both Unicode and ASCII navigation hints for complete `/review` mode pickers while rejecting partial titled and titleless screens.
 
 ## [3.12.0] - 2026-08-24
 

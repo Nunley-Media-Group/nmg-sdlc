@@ -40,6 +40,7 @@ const UNICODE_TITLELESS_REVIEW_MODE_PICKER = [
   '4. Custom review instructions',
   '↑↓ Navigate',
 ].join('\n');
+const TITLED_REVIEW_MODE_PICKER = `Review Mode\n${UNICODE_TITLELESS_REVIEW_MODE_PICKER}`;
 
 const temporaryRoots = [];
 
@@ -640,6 +641,7 @@ describe('runExecute controller', () => {
     branchMenuTransition = true,
     branchMenuDelayReads = 0,
     titlelessReviewPickers = false,
+    titledReviewModePicker = TITLED_REVIEW_MODE_PICKER,
     titlelessReviewModePicker = LIVE_TITLELESS_REVIEW_MODE_PICKER,
     ambiguousReviewScreen = false,
     writeHandoffs = true,
@@ -856,14 +858,14 @@ describe('runExecute controller', () => {
           }
           return titlelessReviewPickers
             ? titlelessReviewModePicker
-            : 'Review Mode\n/review';
+            : titledReviewModePicker;
         }
         if (reviewMenu === 'branch-pending') {
           if (branchMenuReadsRemaining > 0) {
             branchMenuReadsRemaining -= 1;
             return titlelessReviewPickers
               ? titlelessReviewModePicker
-              : 'Review Mode\n/review';
+              : titledReviewModePicker;
           }
           reviewMenu = 'branch';
         }
@@ -1710,7 +1712,7 @@ describe('runExecute controller', () => {
     ]);
   });
 
-  it('does not resubmit review when Review Mode is already visible', () => {
+  it('does not resubmit review when the complete titled picker is visible', () => {
     const fixture = makeControllerFixture({ reviewModeInitiallyVisible: true });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -1719,6 +1721,20 @@ describe('runExecute controller', () => {
     expect(fixture.reviewMenuEvents).toEqual([
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
+  it('rejects a titled review screen without the complete picker structure', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      titledReviewModePicker: 'Review Mode',
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1',
     ]);
   });
 
@@ -1995,7 +2011,7 @@ describe('runExecute controller', () => {
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
     let menu = 'mode';
     fixture.herdr.agentRead = () => menu === 'mode'
-      ? 'Review Mode'
+      ? TITLED_REVIEW_MODE_PICKER
       : menu === 'branch'
         ? 'Select base b…'
         : 'Review complete';

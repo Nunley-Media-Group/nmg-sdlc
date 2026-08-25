@@ -688,7 +688,6 @@ function hasPickerSearch(text) {
 }
 
 function isReviewModePicker(text) {
-  if (text.includes('Review Mode')) return true;
   if (!REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))) return false;
   return REVIEW_MODE_OPTIONS.every((option, index) => {
     const optionRow = new RegExp(
