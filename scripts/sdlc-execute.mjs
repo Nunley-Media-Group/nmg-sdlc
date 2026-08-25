@@ -393,6 +393,13 @@ export function workerPrompt({ step, issue, skill, cwd } = {}) {
   return materializeControllerPaths(text, packageRoot);
 }
 
+function workerPromptFailureReason(error) {
+  return error instanceof Error && error.message === 'provenance_write_failed'
+    ? error.message
+    : 'worker_prompt_failed';
+}
+
+
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -880,15 +887,25 @@ export function runExecute({
           !fs.existsSync(handoffPath)
           && step !== 'review1'
           && step !== 'review2'
-          && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue, cwd }))
         ) {
-          if (!retryPromptSubmission(herdrApi, agentName)) {
+          let prompt;
+          try {
+            prompt = workerPrompt({ step, issue, cwd });
+          } catch (error) {
             return stopResult({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
               runState, cwd, herdr: herdrApi, output,
             });
           }
-          state = agentState(herdrApi.agentGet(agentName));
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          }
         }
         if (!fs.existsSync(handoffPath)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
@@ -1074,7 +1091,15 @@ export function runExecute({
         }
       }
 
-      const prompt = workerPrompt({ step, issue, cwd });
+      let prompt;
+      try {
+        prompt = workerPrompt({ step, issue, cwd });
+      } catch (error) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
       let state = agentState(herdrApi.agentGet(agentName));
       const promptStalled = isPromptStalled(prompted);

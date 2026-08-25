@@ -1376,6 +1376,22 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_start_failed' });
   });
 
+  it('keeps a new worker pane open when prompt provenance cannot be written', () => {
+    const fixture = makeControllerFixture();
+    const provenancePath = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
+    fs.mkdirSync(path.dirname(provenancePath), { recursive: true });
+    fs.writeFileSync(provenancePath, 'not a directory');
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.prompts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
+  });
+
   it('stops without completing the step when a new worker pane cannot close', () => {
     const fixture = makeControllerFixture({ paneCloseStatus: 1 });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -1865,6 +1881,22 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys[0]).toEqual(['enter']);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
     expect(fixture.closed).toContain('kept-pane');
+  });
+
+  it('keeps a retained worker pane open when prompt provenance cannot be written', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const provenancePath = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
+    fs.writeFileSync(provenancePath, 'not a directory');
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
   });
 
   it('keeps a retained pane open when recovered prompt settlement fails', () => {
