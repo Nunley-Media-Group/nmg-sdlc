@@ -84,6 +84,26 @@ describe("plugin controller path resolution", () => {
     }
   });
 
+  test("resolves the delivery controller from an installed extension layout and rejects omission", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
+    try {
+      const root = disposablePackage(fixture);
+      const sourceDir = path.join(root, "src");
+      const extension = path.join(sourceDir, "extension.ts");
+      fs.mkdirSync(sourceDir, { recursive: true });
+      fs.writeFileSync(extension, "export default function extension() {}\n");
+      const options = { env: {}, importMetaUrl: pathToFileURL(extension).href };
+      expect(() => resolvePluginController("sdlc-deliver.mjs", options))
+        .toThrow("controller unresolved: sdlc-deliver.mjs");
+
+      const controller = path.join(root, "scripts", "sdlc-deliver.mjs");
+      fs.copyFileSync(path.join(repoRoot, "scripts", "sdlc-deliver.mjs"), controller);
+      expect(resolvePluginController("sdlc-deliver.mjs", options)).toBe(controller);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   test("materializes portable and legacy dispatch with validated JSON-quoted paths", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
     try {

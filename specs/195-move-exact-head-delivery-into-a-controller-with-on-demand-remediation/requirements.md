@@ -31,11 +31,12 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 **Given** a sibling deliver worker for issue N
 **When** the compact open-pr workflow runs
 **Then** it invokes `node scripts/sdlc-deliver.mjs --issue N`
-**And** the controller performs approved-spec and verification gates, automatic version bump, synchronized version-file and changelog updates, delivery commit, push, exact-branch PR create or resume, polling, exact-head squash merge, merge-and-close proof, safe local branch deletion, and deliver handoff writing
+**And** the controller performs approved-spec and verification gates, automatic version bump, synchronized version-file and changelog updates, delivery commit, push, exact-branch PR create or resume, polling, exact-head squash merge, merge-and-close proof, safe post-proof local and remote branch deletion, and deliver handoff writing
 **And** it reuses `classifyPrDeliveryState` and existing verification-readiness logic rather than creating a second readiness classifier
 **And** a leftover `spike` label does not skip the version bump
 **And** BREAKING work without an approved `**Version bump**: major` spec line fails with `reasonCode: major_bump_required`
 **And** success requires the PR to be `MERGED` at the expected head and the issue to be `CLOSED`
+**And** the installed extension resolves `sdlc-deliver.mjs` from its packaged `scripts/` directory through the shared controller resolver rather than the target project
 
 ### AC2: remediation is requested only on demand
 

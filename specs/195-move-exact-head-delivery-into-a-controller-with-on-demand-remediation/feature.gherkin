@@ -91,3 +91,10 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
     And the verification handoff preserves fresh issue URLs, pull request URLs, head SHAs, merged states, and closed states
     And unit tests or fixture exercises cannot substitute for this evidence
     And unavailable GitHub, repository, Herdr, merge, or closure prerequisites fail verification
+
+  @SCN010
+  Scenario: installed extension resolves the packaged delivery controller
+    Given the extension runs from an installed nmg-sdlc package outside the target project
+    When it initializes the delivery controller path
+    Then it resolves scripts/sdlc-deliver.mjs from that package through the shared controller resolver
+    And a package missing that controller fails explicitly with controller unresolved

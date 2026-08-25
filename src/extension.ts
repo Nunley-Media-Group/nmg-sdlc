@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolvePluginController } from "../scripts/plugin-controller-path.mjs";
 
 import {
   INTERACTIVE_COMMANDS,
   interactiveHeadlessMessage,
   isInteractiveHeadless,
-  materializeControllerPaths,
   materializeRuntimeMessages,
   packageRoot,
   rewriteInteractiveInput,
@@ -39,6 +39,10 @@ function readRunState(): unknown | null {
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
   process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot;
+  resolvePluginController("sdlc-deliver.mjs", {
+    env: process.env,
+    importMetaUrl: import.meta.url,
+  });
   pi.setLabel("NMG SDLC");
 
   pi.on("input", (event, ctx) => {

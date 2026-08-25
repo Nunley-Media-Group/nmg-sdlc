@@ -22,7 +22,7 @@
 
 ### T001: Add injectable delivery controller and CLI
 
-**File(s)**: `scripts/sdlc-deliver.mjs`
+**File(s)**: `scripts/sdlc-deliver.mjs`, `src/extension.ts`, `scripts/__tests__/plugin-controller-path.test.mjs`, `scripts/__tests__/extension-commands.test.mjs`
 **Type**: Create
 **Depends**: None
 **Acceptance**:
@@ -31,6 +31,7 @@
 - [ ] Invalid CLI prints exact usage, exits 2, and writes no handoff
 - [ ] All `gh` and `git` operations use injected `run`
 - [ ] Terminal valid-N paths write and print the deliver handoff path
+- [ ] The installed extension resolves packaged `scripts/sdlc-deliver.mjs`; omission fails explicitly as `controller unresolved: sdlc-deliver.mjs`
 
 ### T002: Implement versioning and PR create/resume
 

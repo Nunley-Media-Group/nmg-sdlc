@@ -12,7 +12,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Changed
 
-- Issue #195 moves versioning, PR create/resume, required-check and GraphQL review-thread polling, exact-head merge, refreshed closure proof, post-proof branch deletion, and deliver handoff ownership into `scripts/sdlc-deliver.mjs`; the deliver worker receives remediation prompt weight only for actionable bot threads or failing required checks and terminates unactionable remediation as `human_review`.
+- Issue #195 moves versioning, PR create/resume, required-check and GraphQL review-thread polling, exact-head merge, refreshed closure proof, post-proof branch deletion, and deliver handoff ownership into `scripts/sdlc-deliver.mjs`; the extension resolves that controller from the installed package root, and the deliver worker receives remediation prompt weight only for actionable bot threads or failing required checks while terminating unactionable remediation as `human_review`.
 - Issue #195 restores the implement-only `simplify` prompt fragment and requires verification to preserve fresh two-issue end-to-end GitHub evidence from `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`.
 
 ## [3.13.0] - 2026-08-25

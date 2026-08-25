@@ -46,6 +46,8 @@ N accepts `N` or `#N` matching `^#?([1-9]\d*)$`. Unknown, missing, or conflictin
 
 Normal terminal exit codes are 0 for a passed handoff, 1 for a failed/intervention handoff, 2 for invalid CLI, and 3 for remediation required.
 
+At extension initialization, `src/extension.ts` resolves `sdlc-deliver.mjs` through the shared `resolvePluginController` contract using `import.meta.url` and the installed package root. The target project working directory is never consulted. A package that omits the controller fails explicitly instead of leaving a latent command expansion error.
+
 ## Deterministic delivery sequence
 
 1. Resolve the unique approved `specs/N-*/` package and read issue title, body, labels, state.
@@ -103,7 +105,7 @@ Failed handoffs use status `failed`, intervention true, step `deliver`, next nul
 | classifier integration | snapshots flow through `classifyPrDeliveryState`; no duplicate readiness logic |
 | workflow/prompt | compact open-pr invocation, repeated/pathless/no-diff termination, deliver excludes Address PR Comments, implement still includes Simplify |
 | injected command | review threads use `gh api graphql`; checks use exact `gh pr checks N --required --json ...`; merge uses exact `gh pr merge --squash --match-head-commit H`; no force push; no branch deletion before proof |
-| focused regression | existing execute, delivery-state, prompt-byte, command rendering, and extension-surface tests |
+| focused regression | existing execute, delivery-state, prompt-byte, command rendering, extension-surface, packaged-controller resolution, and package dry-run checks |
 | live two-issue smoke | VERIFY runs two distinct issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`; preserve issue/PR URLs, observed heads, MERGED proof, and CLOSED proof in the verification handoff; fail rather than substitute fixtures when prerequisites are unavailable |
 
 ---
