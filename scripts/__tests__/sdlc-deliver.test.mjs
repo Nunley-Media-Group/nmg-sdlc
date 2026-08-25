@@ -57,7 +57,12 @@ function fixture(options = {}) {
     if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: JSON.stringify(options.existingPr ? [openPr()] : []), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
     if (args[0] === 'pr' && args[1] === 'view') { lastView = views.length ? views.shift() : lastView; return { status: 0, stdout: JSON.stringify(lastView), stderr: '' }; }
-    if (args[0] === 'api' && args[1] === 'graphql') return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: lastView.reviewThreads } } } } }), stderr: '' };
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      const value = options.graphqlErrors
+        ? { errors: options.graphqlErrors }
+        : { data: { repository: { pullRequest: { reviewThreads: { nodes: lastView.reviewThreads } } } } };
+      return { status: 0, stdout: JSON.stringify(value), stderr: '' };
+    }
     if (args[0] === 'pr' && args[1] === 'checks') return { status: options.checksStatus ?? 0, stdout: JSON.stringify(options.checks ?? []), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'merge') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
@@ -100,7 +105,7 @@ describe('sdlc delivery controller', () => {
   });
 
   test('emits complete remediation JSON for failing checks and bot threads', () => {
-    const thread = { id: 'T1', isResolved: false, isOutdated: false, path: 'src/a.mjs', line: 9, comments: [{ body: 'Fix this', url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
+    const thread = { id: 'T1', isResolved: false, isOutdated: false, comments: [{ body: 'Fix this', path: 'src/a.mjs', line: 9, url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
     const f = fixture({ checksStatus: 1, checks: [{ name: 'test', state: 'FAILURE', link: 'https://github.test/check/1', event: 'pull_request' }], views: [openPr({ threads: [thread] })] }); roots.push(f.root);
     const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(3);
@@ -117,9 +122,18 @@ describe('sdlc delivery controller', () => {
     const graphql = f.calls.find((call) => call[0] === 'gh' && call[1] === 'api');
     expect(graphql.slice(0, 10)).toEqual(['gh', 'api', 'graphql', '-F', 'owner=owner', '-F', 'name=repo', '-F', 'number=77', '-f']);
     expect(graphql[10]).toContain('reviewThreads(first: 100)');
+    expect(graphql[10]).not.toMatch(/isOutdated\s+path/);
     expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toEqual([
       'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
     ]);
+  });
+
+  test('fails closed when GraphQL returns response errors', () => {
+    const f = fixture({ graphqlErrors: [{ message: 'Review thread query rejected' }], views: [openPr()] }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.handoff.reasonCode).toBe('delivery_failed');
+    expect(result.handoff.summary).toContain('GraphQL review thread query failed: Review thread query rejected');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toBe(false);
   });
 
   test('routes pathless automated review threads to human_review', () => {

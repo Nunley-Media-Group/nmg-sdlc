@@ -15,8 +15,8 @@
 | Controller | 3 | [ ] |
 | Remediation | 2 | [ ] |
 | Workflows | 2 | [ ] |
-| Verification | 1 | [ ] |
-| **Total** | 8 | |
+| Verification | 2 | [ ] |
+| **Total** | 9 | |
 
 ---
 

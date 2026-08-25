@@ -23,8 +23,6 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: In
           id
           isResolved
           isOutdated
-          path
-          line
           comments(first: 50) {
             nodes {
               body
@@ -344,6 +342,13 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     '-F', `number=${prNumber}`,
     '-f', `query=${REVIEW_THREADS_QUERY}`,
   ]);
+  if (Array.isArray(threadData?.errors) && threadData.errors.length > 0) {
+    const details = threadData.errors.map((error) => error?.message).filter(Boolean).join('; ');
+    throw new Error(`GraphQL review thread query failed${details ? `: ${details}` : ''}`);
+  }
+  if (!threadData?.data?.repository?.pullRequest?.reviewThreads) {
+    throw new Error('GraphQL review thread query returned no pull request');
+  }
   const checksResult = command(run, cwd, 'gh', [
     'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event',
   ], { allowFailure: true });
