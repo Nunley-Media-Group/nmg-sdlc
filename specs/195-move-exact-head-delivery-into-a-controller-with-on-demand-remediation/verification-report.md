@@ -24,7 +24,7 @@
 
 All issue-owned acceptance criteria pass. The deterministic controller, compact remediation workflow, packaged-controller resolution, exact-head merge proof, tests, plugin gates, and OMP exercise pass. The mandatory live smoke completed two distinct fresh issues in `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`: issue #23 through PR #29 at exact head `bfbd4faf526ca6f4a5355df4f40e1ccf70b3e754`, and issue #24 through PR #28 at exact head `0837f0cb29c198f4c3b2ffb39526f6178934fcd4`. Both PRs are `MERGED`; both issues are `CLOSED`; both deliver handoffs validate. A live post-merge reconciliation exposed the valid no-required-checks response from `gh`; the controller now handles that exact response as an empty complete required-check set, retains fail-closed behavior for other failures, and passes focused plus full regression tests.
 
-Post-verification remediation was freshly reviewed and verified at exact implementation head `d380063216e31c44faa5a1eafbfb702362e2d915`. The scoped parser/test/spec review returned `passed` after two stale report-count findings were fixed. A second scoped review passed the live `gh pr checks --required` empty-check response fix with no findings. The full contract suite then passed 44 suites and 596 tests with 2 expected opt-in skips. Regression inputs cover issue #195's self-referential body verbatim, case-insensitive genuine `BREAKING:` declarations in both title and body positions, and both valid GitHub CLI empty-check stderr forms.
+Post-verification remediation was freshly reviewed and verified at exact merged-base head `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`. The scoped parser/test/spec review returned `passed` after two stale report-count findings were fixed. A second scoped review passed the live `gh pr checks --required` empty-check response fix with no findings. After merging current `origin/main` without rewriting history and resolving its additive changelog conflict, the full contract suite passed 44 suites and 599 tests with 2 expected opt-in skips. Regression inputs cover issue #195's self-referential body verbatim, case-insensitive genuine `BREAKING:` declarations in both title and body positions, and both valid GitHub CLI empty-check stderr forms.
 
 ---
 
@@ -51,7 +51,7 @@ Post-verification remediation was freshly reviewed and verified at exact impleme
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, and packaged resolution | Pass | `scripts/sdlc-deliver.mjs:140-445,486-504,506-847`; `src/extension.ts:41-45`; 596-test suite; validated live deliver handoffs for #23 and #24 |
+| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, and packaged resolution | Pass | `scripts/sdlc-deliver.mjs:140-445,486-504,506-847`; `src/extension.ts:41-45`; 599-test suite; validated live deliver handoffs for #23 and #24 |
 | AC2 | Remediation occurs only on demand in the same worker | Pass | `scripts/sdlc-deliver.mjs:578-600,796-808`; `workflows/open-pr/WORKFLOW.md:54-85`; deliver prompts exclude unconditional Address PR Comments; remediation packet tests pass |
 | AC3 | Human and ambiguous review stop safely | Pass | `scripts/sdlc-deliver.mjs:602-605,620,793-800`; explicit and classified human-review tests pass; no intervention path merges |
 | AC4 | Pending delivery waits at least 30 seconds and stops at one hour | Pass | `scripts/sdlc-deliver.mjs:20-21,754-766,789-815`; injected-time test observes 120 sleeps of 30,000 ms and `delivery_pending` |
@@ -80,7 +80,7 @@ The corrected Herdr session launched `/sdlc-execute #23 #24` with the required `
 | T005 | Bound pending delivery and human intervention | Complete | 30-second/one-hour bounds and controller-owned human review covered |
 | T006 | Compact open-pr workflow around controller loop | Complete | Controller loop, controlled-draft evidence, and on-demand remediation explicit |
 | T007 | Remove unconditional deliver extra workflow | Complete | `STEP_EXTRA_WORKFLOWS` retains only implement simplify; prompt tests pass |
-| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 596 tests passed, 2 expected skips |
+| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 599 tests passed, 2 expected skips |
 | T009 | Verify two real GitHub delivery lifecycles | Complete | Two distinct issue URLs, PR URLs, exact heads, merged states, closed states, and validated deliver handoffs preserved above |
 
 ---
@@ -148,7 +148,7 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 ### Coverage Summary
 
 - Feature files: 1 feature, 11 scenarios
-- Full local execution at remediation head `d380063216e31c44faa5a1eafbfb702362e2d915`: 44 suites passed, 596 tests passed
+- Full local execution at merged-base head `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`: 44 suites passed, 599 tests passed
 - Expected skips: 2 tests in one opt-in exercise suite
 - Focused delivery-controller execution: `sdlc-deliver.test.mjs`, 23 tests passed
 - Current-spec regression: 6/6 tests passed within the fresh full suite
@@ -173,7 +173,7 @@ The dry-run verified exact controller invocation and 0/1/2/3 routing without mut
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests | Pass | At `d380063216e31c44faa5a1eafbfb702362e2d915`, `cd scripts && npm test -- --runInBand`: 44 suites passed, 596 tests passed, 2 expected skips |
+| Contract tests | Pass | At `3fac2afd3e9fe49afa95585b02d9bf3c250f7eca`, `cd scripts && npm test -- --runInBand`: 44 suites passed, 599 tests passed, 2 expected skips |
 | Current-spec regression | Pass | `current-specs.test.mjs`: 6/6 passed within the fresh exact-head full suite |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
