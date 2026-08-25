@@ -4,98 +4,112 @@
 **Repository**: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
 **Repository URL**: https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416
 **Visibility / access**: private; authenticated viewer had `ADMIN`
-**Disposable clone**: `/tmp/nmg-sdlc-smoke-213.aIcW5B/repo`
-**Intended extension under test**: `/Volumes/Fast Brick/source/repos/nmg-sdlc`; the failed manual TUI commands loaded the plugin resources with `--plugin-dir`/`--add-dir` but omitted the required explicit `--extension .../src/extension.ts` while also passing `--no-extensions`
+**Disposable clone**: `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo`
+**Extension under test**: `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts`
 
 ## Required lifecycle gate
 
-Required: two distinct live issues, each covering `/sdlc-draft-issue` → `/sdlc-write-spec`, followed by one `/sdlc-execute` invocation that processes both issues through merged PRs and closed issues.
+Required: two distinct live issues, each covering actual `/sdlc-draft-issue` and actual `/sdlc-write-spec`, followed by one actual `/sdlc-execute` invocation processing both issues serially through merged delivery pull requests and closed issues.
 
-Result: **Fail — no lifecycle completed.** The first `/sdlc-draft-issue` could not reach the native plan approval boundary. Because draft created no issue, there were no valid issue numbers for `/sdlc-write-spec` or the required two-issue `/sdlc-execute` run. Verification stopped the mutation chain rather than fabricating downstream evidence.
+Result: **Fail — lifecycle stopped at issue #11 start.** Both issues and both approved specification packages now exist, but the single execute run failed before the first implementation worker started. No delivery pull request was created; issues #11 and #12 remain open.
 
-## Attempt 1: initial TUI input without the extension factory
+## Extension and harness prerequisite
 
-Process: `smoke-draft-a`
+Commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd` fixed `scripts/exercise-omp.mjs` so the harness explicitly loads `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts` even with `--no-extensions`. Focused coverage passed 14/14 and the full Jest suite passed 513 tests with 2 expected skips before this live attempt. The live OMP processes used both `--no-extensions` and the explicit `--extension` path.
 
-Invocation:
+## Draft outcomes
+
+The resumed run reused the existing resources rather than creating duplicate issues:
+
+| Workflow | Issue | Result |
+|---|---:|---|
+| actual `/sdlc-draft-issue` | #11 `Add LIVE_SMOKE_A lifecycle verification marker` | Created; remains open; labels `enhancement`, `spec-created` |
+| actual `/sdlc-draft-issue` | #12 `Add second serial lifecycle smoke marker` | Created; remains open; labels `enhancement`, `spec-created` |
+
+Issue URLs:
+
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/11
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/12
+
+## Specification outcomes
+
+| Workflow | Issue | Specification PR | Result |
+|---|---:|---:|---|
+| actual `/sdlc-write-spec #11` | #11 | #13 `docs: approve spec for #11` | Merged 2026-08-25T02:57:25Z; four-file Approved package on `main`; `spec-created` present |
+| actual `/sdlc-write-spec #12` | #12 | #14 `docs: approve spec for #12` | Resumed from the surviving `live-spec-12` plan review; merged 2026-08-25T03:08:45Z; four-file Approved package on `main`; `spec-created` present |
+
+Specification PR URLs:
+
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/13
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/14
+
+The clone was clean on `main...origin/main` at `de3475f437b27c245bd86cb9e74056283483257b` (`docs: approve spec for #12 (#14)`) before execute.
+
+## Execute outcome
+
+Managed process: `live-execute-11-12`.
+
+The real OMP TUI loaded the branch extension and reported `NMG SDLC ready in Herdr`. One command was entered exactly once:
 
 ```text
-omp --no-extensions --no-skills \
-  --plugin-dir /Volumes/Fast Brick/source/repos/nmg-sdlc \
-  --add-dir /Volumes/Fast Brick/source/repos/nmg-sdlc \
-  --auto-approve --max-time 1800 \
-  "/sdlc-draft-issue Add a repository smoke marker file SMOKE_LIFECYCLE_A.md ..."
+/sdlc-execute #11 #12
 ```
 
-Observed:
+The workflow verified inherited Herdr variables and invoked the controller exactly as:
 
-- The command used `--no-extensions` and did not add `--extension /Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts`; therefore the branch extension factory and its `input` rewrite were not loaded.
-- The raw `/sdlc-draft-issue ...` text was persisted as the first user message with no preceding `mode_change` entry. The model then located workflow resources through `--plugin-dir`/`--add-dir`, which made the run look superficially like an extension exercise.
-- The workflow completed classification and milestone asks and produced a validated local issue-plan payload, but `xd://propose` correctly rejected it because native plan mode had never been entered.
-- The workflow explicitly reported that no GitHub issue was created, and the TUI process was stopped after the fail-closed result.
+```text
+node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run '#11' '#12'
+```
 
-## Attempt 2: slash command typed into a TUI without the extension factory
+Observed controller result:
 
-Process: `smoke-draft-a2`
+```text
+Stopped on #11 start. Worker pane unknown agent s11-start left open.
+Exit: 1
+```
 
-Observed:
+Persisted `.omp/sdlc/run.json` state:
 
-- A blank live OMP TUI was launched with plugin resources but without the branch extension factory.
-- `/sdlc-draft-issue ...` was typed through PTY input. The saved session proves it remained the literal first user message and contains no `mode_change` entry.
-- Built-in `ask` completed the enhancement, `v3`, and exact `lifecycle-a-213\n` decisions only because the model manually followed the discoverable workflow resources.
-- The generated local plan failed at `xd://propose` because native plan mode was not active. No GitHub issue was created.
+```json
+{
+  "schemaVersion": 1,
+  "issues": [11, 12],
+  "currentIssue": 11,
+  "currentStep": "start",
+  "completed": {"11": []},
+  "failed": {
+    "issue": 11,
+    "step": "start",
+    "reasonCode": "pane_split_failed"
+  },
+  "startedAt": "2026-08-25T03:10:37.864Z"
+}
+```
 
-## Attempt 3: explicit native `/plan` with plugin resources but no extension factory
+Immediately after failure, live Herdr inspection found no `s11-start` or `s12-*` agent and no surviving worker pane; workspace `w6` contained only its pre-existing panes. The execute process inherited caller identifier `w6:p5R`, while the current verification agent occupied `w6:p5T`. This evidence records the mismatch without inferring a source defect.
 
-Process: `smoke-draft-a3`
+Because the controller failed at the first `start` step:
 
-Observed:
+- issue #11 implementation did not start;
+- issue #12 was not started;
+- no review, verification, or delivery step ran;
+- delivery PR identifiers: **none**;
+- issue #11 terminal state: **OPEN**;
+- issue #12 terminal state: **OPEN**.
 
-- A fresh TUI entered native plan mode with `/plan`.
-- `/sdlc-draft-issue ...` was then typed without the extension factory that rewrites the command to its registry-rendered workflow body.
-- The raw slash text did not exercise `rewriteInteractiveInput`; the stalled model turn is not evidence of a product native-plan defect.
-- The process was stopped; no GitHub mutation had occurred.
+## GitHub terminal state
 
-## Root-cause diagnosis and corrected reproduction
+| Resource | State |
+|---|---|
+| Issue #11 | OPEN; `enhancement`, `spec-created` |
+| Issue #12 | OPEN; `enhancement`, `spec-created` |
+| Spec PR #13 | MERGED |
+| Spec PR #14 | MERGED |
+| Delivery PR for #11 | Not created |
+| Delivery PR for #12 | Not created |
 
-The failed verification was a harness false negative, not a defect in the #213 registry or native-plan integration:
-
-1. Every failed manual TUI command combined `--no-extensions` with `--plugin-dir` and omitted the explicit `--extension <repo>/src/extension.ts` required by `workflows/verify-code/references/exercise-testing.md`.
-2. The attempt-2 session transcript begins with the literal `/sdlc-draft-issue ...` user message and has no `mode_change`, proving `src/extension.ts` did not run.
-3. A corrected ordered diagnostic loaded `src/extension.ts` explicitly. A pre-transform input trace saw `/sdlc-draft-issue ...`; a post-transform trace saw `/plan\n\n# Draft Issue...`; the persisted session then recorded `{\"type\":\"mode_change\",\"mode\":\"plan\"}` followed by the `plan-mode-context` message.
-4. The repository harness already uses the correct flags. `scripts/exercise-omp.mjs` passes both `--no-extensions` and explicit `--extension <repo>/src/extension.ts`. The remediation centralizes that argv construction in an exported function and adds a regression assertion so future verification code cannot silently test plugin resources without the extension factory.
-
-The required two-issue live lifecycle remains incomplete, so the failed verify handoff remains failed. The corrected reproduction only establishes that the recorded native-plan diagnosis was wrong; it does not substitute for the authoritative convergence gate.
-
-## Supplemental command exercises
-
-These diagnostics do not satisfy the required lifecycle gate:
-
-- Full repository Jest suite after remediation: exit 0; 43 suites passed, 1 skipped; 513 tests passed, 2 skipped.
-- Plugin-surface validator: exit 0; `Plugin surface validation passed: repository`.
-- `git diff --check main...HEAD`: exit 0 with no output.
-- `exercise-omp ... -- /sdlc-status`: exit 0 with no captured output.
-- `exercise-omp ... -- /sdlc-write-spec`: exit 1 after the 300-second bound with `timeout waiting for agent_end` and `Run /sdlc-write-spec in the TUI.`; diagnostic only, not live mutation evidence.
-
-## GitHub identifiers and state
-
-No smoke resources were created by this verification run.
-
-Pre-existing issue identifiers observed before and after the attempt: `#1`, `#3`, `#9` (all closed).
-
-Pre-existing pull-request identifiers observed before and after the attempt: `#2`, `#4`, `#5`, `#6`, `#7`, `#8`, `#10` (all merged).
-
-New issue identifiers: **none**.
-
-New pull-request identifiers: **none**.
-
-Required two issue identifiers: **not produced**.
-
-Required two delivery PR identifiers: **not produced**.
+The authoritative completion gate is unmet. Unit tests, fixtures, the corrected extension diagnostic, and merged specification PRs do not substitute for two merged delivery PRs and two closed issues.
 
 ## Cleanup state
 
-- Remote cleanup: no resources required deletion or closure because no issue, branch, or PR was created.
-- Local Git state before cleanup: `main...origin/main` with no tracked or untracked changes.
-- TUI processes `smoke-draft-a`, `smoke-draft-a2`, and `smoke-draft-a3` were stopped.
-- Disposable clone `/tmp/nmg-sdlc-smoke-213.aIcW5B` was removed after all harness processes exited; a path check returned `Path not found`.
+Only smoke processes from this run were stopped. `live-draft-a`, `live-draft-b`, `live-spec-11`, `live-spec-12`, and `live-execute-11-12` are exited. No unrelated Herdr pane or process was stopped. The failed controller left no observable `s11-start` worker agent or worker pane. The disposable clone remains at `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo` so a fresh verification-fix worker can resume issues #11 and #12 and the persisted run state without duplicating resources.
