@@ -339,6 +339,16 @@ function readExpectedHandoff(handoffPath, issue, step) {
   }
 }
 
+function observeExpectedHandoff(herdr, handoffPath, issue, step, attempts = 50) {
+  let result;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    result = readExpectedHandoff(handoffPath, issue, step);
+    if (result.handoff) return result;
+    if (attempt + 1 < attempts) herdr.observationPause?.();
+  }
+  return result;
+}
+
 export function readRun(root = process.cwd()) {
   const p = join(root, RUN_FILE);
   if (!existsSync(p)) return null;
@@ -1236,7 +1246,7 @@ export function runExecute({
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
       if (!handoffResult.handoff) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -1543,7 +1553,7 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
         if (!handoffResult.handoff) {
           return stopResult({
             issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -1750,7 +1760,7 @@ export function runExecute({
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
-      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
       if (!handoffResult.handoff) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,

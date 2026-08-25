@@ -543,6 +543,11 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(prompt).toContain('# Start Issue');
     expect(prompt).toContain('$ARGUMENTS: #42');
     expect(prompt).not.toMatch(/\/skill:/);
+    const validation = prompt.indexOf('validate-handoff --file .omp/sdlc/handoffs/42-start.json');
+    const marker = prompt.indexOf('NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/42-start.json');
+    expect(validation).toBeGreaterThanOrEqual(0);
+    expect(validation).toBeLessThan(marker);
+    expect(prompt).not.toContain('<plugin-root>');
 
     const cliRoot = makeSpecDir();
     const cli = spawnSync(process.execPath, [SCRIPT, 'worker-prompt', '--step', 'start', '--issue', '42'], {
@@ -1608,6 +1613,9 @@ describe('runExecute controller', () => {
 
   it('does not rem blocked unknown missing stalled or invalid outcomes', () => {
     const blocked = makeControllerFixture({ blockedStep: 'implement' });
+    blocked.herdr.observationPause = () => {
+      throw new Error('valid blocked handoff must not be re-observed');
+    };
     const blockedResult = runExecute({ args: '#42', cwd: blocked.cwd, env, run: blocked.run, herdr: blocked.herdr });
     expect(blockedResult.status).toBe(1);
     expect(blocked.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
@@ -1645,11 +1653,20 @@ describe('runExecute controller', () => {
         return JSON.stringify(invalid);
       },
     });
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
+      if (
+        fs.existsSync(handoffPath)
+        && !fs.readFileSync(handoffPath, 'utf8').includes('"schemaVersion"')
+      ) observations += 1;
+    };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
+    expect(observations).toBe(49);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     expect(fixture.closed).not.toContain('pane-8');
     expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'invalid_handoff' });
@@ -1660,6 +1677,47 @@ describe('runExecute controller', () => {
       reasonCode: 'verify_failed',
     });
     expect(persisted.remediation.history).toHaveLength(1);
+  });
+
+  it('re-reads an incomplete remediation handoff without starting another attempt', () => {
+    const fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      handoffContent: (handoff, { isRem }) => isRem
+        ? '{"schemaVersion":1'
+        : JSON.stringify(handoff),
+    });
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
+      if (
+        !fs.existsSync(handoffPath)
+        || fs.readFileSync(handoffPath, 'utf8') !== '{"schemaVersion":1\n'
+      ) return;
+      observations += 1;
+      fs.writeFileSync(
+        handoffPath,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          issue: 42,
+          step: 'verify',
+          status: 'passed',
+          intervention: false,
+          summary: 'Remediation corrected and validated',
+          artifacts: [],
+          next: 'deliver',
+          reasonCode: null,
+        })}\n`,
+      );
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(observations).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    expect(persisted.remediation).toBeNull();
+    expect(persisted.completed['42']).toEqual(VALID_STEPS);
   });
 
   it('persists remediation evidence before a failed pane close and starts no rem', () => {
@@ -2112,6 +2170,10 @@ describe('runExecute controller', () => {
     ['missing schemaVersion', ({ schemaVersion: _schemaVersion, ...handoff }) => JSON.stringify(handoff)],
   ])('classifies a fresh %s handoff as invalid without remediation', (_label, handoffContent) => {
     const fixture = makeControllerFixture({ handoffContent });
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+    };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
@@ -2120,11 +2182,81 @@ describe('runExecute controller', () => {
       stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.\n',
       stderr: '',
     });
+    expect(observations).toBe(49);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
     expect(persisted.remediation).toBeUndefined();
+  });
+
+  it('re-reads an incomplete fresh delivery handoff until the same worker turn validates it', () => {
+    const fixture = makeControllerFixture({
+      handoffContent: (handoff, { step }) => step === 'deliver'
+        ? '{"schemaVersion":1'
+        : JSON.stringify(handoff),
+    });
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-deliver.json');
+      if (
+        !fs.existsSync(handoffPath)
+        || fs.readFileSync(handoffPath, 'utf8') !== '{"schemaVersion":1\n'
+      ) return;
+      observations += 1;
+      fs.writeFileSync(handoffPath, `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 42,
+        step: 'deliver',
+        status: 'passed',
+        intervention: false,
+        summary: 'Delivery corrected and validated',
+        artifacts: [],
+        next: null,
+        reasonCode: null,
+      })}\n`);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(observations).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 's42-deliver')).toHaveLength(1);
+    expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+    expect(persisted.failed).toBeNull();
+    expect(persisted.completed['42']).toEqual(VALID_STEPS);
+  });
+
+  it('re-reads an incomplete retained handoff without duplicating or remediating the worker', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'idle' } });
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json');
+    fs.writeFileSync(handoffPath, '{"schemaVersion":1\n');
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      if (fs.readFileSync(handoffPath, 'utf8') !== '{"schemaVersion":1\n') return;
+      observations += 1;
+      fs.writeFileSync(handoffPath, `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 42,
+        step: 'start',
+        status: 'passed',
+        intervention: false,
+        summary: 'Retained start corrected and validated',
+        artifacts: [],
+        next: 'implement',
+        reasonCode: null,
+      })}\n`);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(observations).toBe(1);
+    expect(fixture.starts.some(({ name }) => name === 's42-start')).toBe(false);
+    expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+    expect(fixture.closed).toContain('kept-pane');
   });
 
   it.each([
@@ -2152,6 +2284,10 @@ describe('runExecute controller', () => {
     })],
   ])('classifies a retained %s handoff as invalid without another worker', (_label, content) => {
     const fixture = makeControllerFixture();
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+    };
     configurePassedRetainedStartWorker(fixture, { result: { state: 'idle' } });
     fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'), `${content}\n`);
 
@@ -2159,6 +2295,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
+    expect(observations).toBe(49);
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
@@ -3152,9 +3289,14 @@ describe('runExecute controller', () => {
       fixture.waits.push(input);
       return { status: 0 };
     };
+    let observations = 0;
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+    };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result.status).toBe(1);
+    expect(observations).toBe(49);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual([]);
     expect(fixture.waits).toEqual([
