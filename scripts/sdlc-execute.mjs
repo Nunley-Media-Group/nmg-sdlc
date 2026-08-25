@@ -324,6 +324,21 @@ export function validateHandoff(input) {
   return data;
 }
 
+function readExpectedHandoff(handoffPath, issue, step) {
+  if (!existsSync(handoffPath)) {
+    return { handoff: null, reasonCode: 'missing_handoff' };
+  }
+  try {
+    const handoff = validateHandoff(handoffPath);
+    if (handoff.issue !== issue || handoff.step !== step) {
+      return { handoff: null, reasonCode: 'invalid_handoff' };
+    }
+    return { handoff, reasonCode: null };
+  } catch {
+    return { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+}
+
 export function readRun(root = process.cwd()) {
   const p = join(root, RUN_FILE);
   if (!existsSync(p)) return null;
@@ -1221,22 +1236,14 @@ export function runExecute({
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      let handoff;
-      try {
-        if (!existsSync(handoffPath)) throw new Error('handoff missing');
-        handoff = validateHandoff(JSON.parse(readFileSync(handoffPath, 'utf8')));
-      } catch {
+      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      if (!handoffResult.handoff) {
         return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+          issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      if (handoff.issue !== issue || handoff.step !== step) {
-        return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'invalid_handoff',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
+      const { handoff } = handoffResult;
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
         if (!closePane(herdrApi, paneId)) {
@@ -1351,17 +1358,15 @@ export function runExecute({
       && runState.remediation.step === step;
     if (step && stoppedRemediation && !liveRem) {
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-      let handoff;
-      try {
-        if (!existsSync(handoffPath)) throw new Error('handoff missing');
-        handoff = validateHandoff(JSON.parse(readFileSync(handoffPath, 'utf8')));
-        if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
-      } catch {
+      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      if (!handoffResult.handoff) {
         return stopResult({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'missing_handoff',
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+          reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      const { handoff } = handoffResult;
       const rewindHandoff = handoff.status === 'blocked' && !handoff.intervention
         ? { ...handoff, status: 'failed' }
         : handoff;
@@ -1538,17 +1543,14 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        let handoff;
-        try {
-          if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
-          handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
-          if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
-        } catch {
+        const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+        if (!handoffResult.handoff) {
           return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+            issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
             runState, cwd, herdr: herdrApi, output,
           });
         }
+        const { handoff } = handoffResult;
         if (isRemediableFailedHandoff({ step, state, handoff })) {
           const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
           if (remResult.result) return remResult.result;
@@ -1748,22 +1750,14 @@ export function runExecute({
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
-      let handoff;
-      try {
-        if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
-        handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
-      } catch {
+      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      if (!handoffResult.handoff) {
         return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+          issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      if (handoff.issue !== issue || handoff.step !== step) {
-        return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'invalid_handoff',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
+      const { handoff } = handoffResult;
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
         if (remResult.result) return remResult.result;

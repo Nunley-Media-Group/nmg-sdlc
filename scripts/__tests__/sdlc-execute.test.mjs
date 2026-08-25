@@ -793,6 +793,7 @@ describe('runExecute controller', () => {
     branchPickerScreens = null,
     ambiguousReviewScreen = false,
     writeHandoffs = true,
+    handoffContent = null,
     promptStatus = 0,
     agentState = 'done',
     labelIssues = [42],
@@ -985,7 +986,7 @@ describe('runExecute controller', () => {
               : step === failedStep || step === remediableFailedStep ? 'failed' : 'passed';
           const intervention = !isRem && step === failedStep;
           const failed = status !== 'passed';
-          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+          const handoff = {
             schemaVersion: 1,
             issue: handoffIssue,
             step: handoffStep ?? step,
@@ -995,7 +996,11 @@ describe('runExecute controller', () => {
             artifacts: failed && !intervention ? [`artifacts/${step}.txt`] : [],
             next: failed ? failedNext : step === 'deliver' ? null : 'next',
             reasonCode: intervention ? 'implementation_failed' : failed ? `${step}_failed` : null,
-          })}\n`);
+          };
+          const content = handoffContent
+            ? handoffContent(handoff, { isRem, step })
+            : JSON.stringify(handoff);
+          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${content}\n`);
         }
         return { status: promptStatus };
       },
@@ -1631,6 +1636,32 @@ describe('runExecute controller', () => {
     expect(unknown.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
   });
 
+  it('stops an invalid remediation handoff without starting another attempt', () => {
+    const fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      handoffContent: (handoff, { isRem }) => {
+        if (!isRem) return JSON.stringify(handoff);
+        const { schemaVersion: _schemaVersion, ...invalid } = handoff;
+        return JSON.stringify(invalid);
+      },
+    });
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    expect(fixture.closed).not.toContain('pane-8');
+    expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'invalid_handoff' });
+    expect(persisted.remediation).toMatchObject({
+      issue: 42,
+      step: 'verify',
+      attempt: 1,
+      reasonCode: 'verify_failed',
+    });
+    expect(persisted.remediation.history).toHaveLength(1);
+  });
+
   it('persists remediation evidence before a failed pane close and starts no rem', () => {
     const fixture = makeControllerFixture({
       remediableFailedStep: 'verify',
@@ -2077,6 +2108,64 @@ describe('runExecute controller', () => {
   });
 
   it.each([
+    ['malformed JSON', () => '{"schemaVersion":'],
+    ['missing schemaVersion', ({ schemaVersion: _schemaVersion, ...handoff }) => JSON.stringify(handoff)],
+  ])('classifies a fresh %s handoff as invalid without remediation', (_label, handoffContent) => {
+    const fixture = makeControllerFixture({ handoffContent });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.\n',
+      stderr: '',
+    });
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+    expect(persisted.remediation).toBeUndefined();
+  });
+
+  it.each([
+    ['malformed JSON', '{"schemaVersion":'],
+    ['missing schemaVersion', JSON.stringify({
+      issue: 42,
+      step: 'start',
+      status: 'passed',
+      intervention: false,
+      summary: 'Start repaired',
+      artifacts: [],
+      next: 'implement',
+      reasonCode: null,
+    })],
+    ['wrong identity', JSON.stringify({
+      schemaVersion: 1,
+      issue: 43,
+      step: 'start',
+      status: 'passed',
+      intervention: false,
+      summary: 'Start repaired',
+      artifacts: [],
+      next: 'implement',
+      reasonCode: null,
+    })],
+  ])('classifies a retained %s handoff as invalid without another worker', (_label, content) => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'idle' } });
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'), `${content}\n`);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+    expect(persisted.remediation).toBeUndefined();
+  });
+
+  it.each([
     ['issue', { handoffIssue: 43 }],
     ['step', { handoffStep: 'verify' }],
   ])('keeps the worker pane when handoff %s does not match', (_field, options) => {
@@ -2089,6 +2178,8 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toHaveLength(0);
     expect(persisted.completed['42']).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
+    expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+    expect(persisted.remediation).toBeUndefined();
   });
 
   it('retries one transient agent startup failure in the same pane', () => {
