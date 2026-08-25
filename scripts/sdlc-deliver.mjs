@@ -494,7 +494,7 @@ function parseChecksResult(result, description) {
   }
   const output = String(result.stdout || '').trim();
   if (!output && result.status === 1
-    && /^no required checks reported on the .+ branch$/i.test(String(result.stderr || '').trim())) {
+    && /^no (?:required )?checks reported on the .+ branch$/i.test(String(result.stderr || '').trim())) {
     return [];
   }
   if (!output) throw new Error(`${description} returned no JSON`);
