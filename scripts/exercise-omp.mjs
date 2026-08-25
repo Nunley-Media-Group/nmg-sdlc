@@ -49,11 +49,8 @@ export function usage() {
   return "Usage: node scripts/exercise-omp.mjs --cwd <project> -- /sdlc-<command> [args]\n";
 }
 
-export async function runExercise(options) {
-  const cwd = resolve(options.cwd);
-  const message = options.message;
-  const timeoutMs = options.timeoutMs ?? 180_000;
-  const child = spawn("omp", [
+export function exerciseOmpArgs({ cwd, timeoutMs }) {
+  return [
     "--mode", "rpc",
     "--no-session",
     "--no-extensions",
@@ -61,10 +58,22 @@ export async function runExercise(options) {
     "--extension", resolve(REPO_ROOT, "src/extension.ts"),
     "--plugin-dir", REPO_ROOT,
     "--add-dir", REPO_ROOT,
-    "--cwd", cwd,
+    "--cwd", resolve(cwd),
     "--auto-approve",
     "--max-time", String(Math.ceil(timeoutMs / 1000)),
-  ], { stdio: ["pipe", "pipe", "pipe"] });
+  ];
+}
+
+
+export async function runExercise(options) {
+  const cwd = resolve(options.cwd);
+  const message = options.message;
+  const timeoutMs = options.timeoutMs ?? 180_000;
+  const child = spawn(
+    "omp",
+    exerciseOmpArgs({ cwd, timeoutMs }),
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
 
   let stderr = "";
   child.stderr.on("data", (chunk) => {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  exerciseOmpArgs,
   parseExerciseArgs,
   usage as exerciseUsage,
 } from '../exercise-omp.mjs';
@@ -100,6 +101,23 @@ describe('exercise-omp args', () => {
       timeoutMs: 180_000,
       message: '/sdlc-status --json',
     });
+  });
+
+  it('loads the source extension explicitly when extension discovery is disabled', () => {
+    const args = exerciseOmpArgs({ cwd: '/tmp/proj', timeoutMs: 300_000 });
+    expect(args).toEqual(expect.arrayContaining([
+      '--no-extensions',
+      '--extension',
+      path.join(repoRoot, 'src/extension.ts'),
+      '--plugin-dir',
+      repoRoot,
+      '--add-dir',
+      repoRoot,
+    ]));
+    expect(args.slice(args.indexOf('--extension'), args.indexOf('--plugin-dir'))).toEqual([
+      '--extension',
+      path.join(repoRoot, 'src/extension.ts'),
+    ]);
   });
 
   it('prints usage', () => {
