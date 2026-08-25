@@ -101,6 +101,7 @@ The live review defect was controller timing and terminal rendering, not registr
 | Review base selection | Pass — reviews completed against literal `main` |
 | Delivery PRs | Pass — #15/#16 merged |
 | Issues | Pass — #11/#12 closed |
+| Delivery version artifacts | Pass — `VERSION` and `package.json` are synchronized at `3.12.0`. |
 
 ## Live Exercise Evidence
 
