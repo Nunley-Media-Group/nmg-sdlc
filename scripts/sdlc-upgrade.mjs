@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   applyBlockedByEdges,
   createIssueDependencyClient,
@@ -26,6 +27,7 @@ import {
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
+import { createInitializePlan } from './sdlc-steering.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -666,6 +668,61 @@ export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = d
   return { id: item.id, status: 'applied', applied };
 }
 
+function detectSteeringRuntime(root) {
+  const legacy = ['product', 'tech', 'structure']
+    .map((role) => ({ role, path: path.join(root, 'steering', `${role}.md`) }))
+    .filter(({ path: target }) => isFile(target));
+  const manifest = path.join(root, 'steering', 'manifest.json');
+  if (legacy.length === 0 && isFile(manifest)) return null;
+  if (legacy.length === 0) return null;
+  const consumersByRole = {
+    product: ['sdlc-draft-issue', 'sdlc-write-spec'],
+    tech: ['sdlc-write-spec', 'worker:implement', 'worker:verify', 'worker:deliver'],
+    structure: ['sdlc-write-spec', 'worker:implement', 'worker:verify'],
+  };
+  const snippets = legacy.map(({ role, path: source }) => ({
+    id: `project.${role}`,
+    path: `steering/snippets/project-${role}.md`,
+    consumers: consumersByRole[role],
+    slot: 'body',
+    order: 500,
+    byteBound: Math.max(8192, Buffer.byteLength(safeRead(source) || '', 'utf8')),
+    content: safeRead(source) || '',
+  }));
+  const plan = createInitializePlan(root, { snippets });
+  plan.mode = 'migrate';
+  plan.actions.push(...legacy.map(({ role }) => ({ op: 'delete', path: `steering/${role}.md` })));
+  return {
+    id: `steering-runtime:${plan.sourceDigest}`,
+    kind: 'steering-runtime',
+    description: 'Migrate legacy steering Markdown into the managed runtime and registered project snippets.',
+    actionable: true,
+    plan,
+  };
+}
+
+function applySteeringRuntime(root, item) {
+  const temporary = path.join(root, '.omp', 'sdlc', `steering-plan-${process.pid}.json`);
+  ensureDir(path.dirname(temporary));
+  fs.writeFileSync(temporary, `${JSON.stringify(item.plan, null, 2)}\n`);
+  try {
+    const result = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'sdlc-steering.mjs'), 'apply', '--project', root, '--plan', temporary], {
+      cwd: root,
+      encoding: 'utf8',
+      shell: false,
+      timeout: 120000,
+    });
+    if (result.error || result.status !== 0) {
+      const error = new Error(result.error?.message || result.stdout || result.stderr || 'steering apply failed');
+      error.reasonCode = 'steering_apply_failed';
+      throw error;
+    }
+    return { id: item.id, status: 'applied', result: JSON.parse(result.stdout) };
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -689,6 +746,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       actionable: true,
     });
   }
+  const steeringRuntime = detectSteeringRuntime(rootAbs);
+  if (steeringRuntime) items.push(steeringRuntime);
 
   // Collect current spec state
   const specDirs = listSpecDirs(rootAbs);
@@ -1261,13 +1320,16 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'omp-sdlc-ignore': 8, 'issue-dependencies': 9, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'directory-rename': 3, 'cumulative-split': 4, 'epic-flatten': 5, 'spike-flatten': 6, 'spike-remove': 6, 'spike-issue-form': 6, 'agents-spike-language': 6, 'frontmatter-fix': 7, 'v2-cleanup': 8, 'omp-sdlc-ignore': 9, 'issue-dependencies': 10, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
 
   for (const item of toApply) {
     let res;
+    if (item.kind === 'steering-runtime') {
+      res = applySteeringRuntime(rootAbs, item);
+    } else
     if (item.kind === 'directory-rename') {
       res = applyDirectoryRename(rootAbs, item);
     } else if (item.kind === 'frontmatter-fix') {

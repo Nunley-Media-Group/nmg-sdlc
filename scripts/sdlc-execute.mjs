@@ -420,7 +420,7 @@ export function workerPrompt({ step, issue, skill, cwd } = {}) {
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
   if (!skillName || skillName !== STEP_SKILL[step]) throw new Error('no skill for step');
-  const { text, provenance } = renderPrompt(defaultPromptRegistry(), {
+  const { text, provenance } = renderPrompt(defaultPromptRegistry(packageRoot, { projectRoot: cwd }), {
     consumer: `worker:${step}`,
     vars: {
       issue: String(issue),

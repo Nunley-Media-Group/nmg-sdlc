@@ -14,6 +14,7 @@ export const INTERACTIVE_COMMANDS = [
   ["sdlc-write-spec", "write-spec", "Write an approved spec for an issue"],
   ["sdlc-onboard-project", "onboard-project", "Initialize or reconcile a project"],
   ["sdlc-upgrade-project", "upgrade-project", "Propose contract and layout upgrades"],
+  ["sdlc-steering", "steering", "Manage steering runtime and deterministic validations"],
   ["sdlc-run-retro", "run-retro", "Update steering retrospective from defect specs"],
 ];
 
@@ -69,8 +70,9 @@ export function rewriteInteractiveInput(text, {
   if (source !== "interactive" || headless === true) return undefined;
   const parsed = parseInteractiveSlash(text);
   if (!parsed) return undefined;
+  const projectRoot = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
   const { text: prompt, provenance } = renderPrompt(
-    defaultPromptRegistry(root ?? packageRoot),
+    defaultPromptRegistry(root ?? packageRoot, { projectRoot }),
     { consumer: parsed.command, vars: {} },
   );
   const body = withArguments(

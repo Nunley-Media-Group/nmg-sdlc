@@ -16,9 +16,9 @@ Primary user journey:
 
 `/sdlc-status` is the read-only diagnostic available at any point.
 
-Public commands are registered by `src/extension.ts` with an `sdlc-` prefix. Interactive commands (`sdlc-draft-issue`, `sdlc-write-spec`, `sdlc-onboard-project`, `sdlc-upgrade-project`) enter native `/plan` using built-in `ask` + `xd://propose`. Automated stages after spec approval are driven by `/sdlc-execute`, which orchestrates Herdr `omp` worker panes.
+Public commands are registered by `src/extension.ts` with an `sdlc-` prefix. Interactive commands (`sdlc-draft-issue`, `sdlc-write-spec`, `sdlc-onboard-project`, `sdlc-upgrade-project`, `sdlc-steering`) enter native `/plan` using built-in `ask` + `xd://propose`. Automated stages after spec approval are driven by `/sdlc-execute`, which orchestrates Herdr `omp` worker panes.
 
-Project `steering/` documents encode product and engineering conventions for the stack. `run-retro` derives reusable learnings from past defect specs into `steering/retrospective.md`.
+Project context is registered by `steering/manifest.json`: four plugin-managed runtime modules, project-owned Markdown snippets, optional trusted extensions, and deterministic validations. `/sdlc-steering` plans exact initialize/update/migrate actions and applies them through a staged, approval-gated writer. `run-retro` independently maintains `steering/retrospective.md`.
 
 ## Installation
 
@@ -44,7 +44,7 @@ Interactive flows use native OMP `/plan`. Run onboarding from the project root:
 /sdlc-onboard-project
 ```
 
-- Greenfield projects receive a product/technology interview, root steering documents, `VERSION` + manifest initialization, a `v1` milestone seed, and starter issues.
+- Greenfield projects receive a product/technology interview, a managed steering runtime with registered project snippets and validations, `VERSION` + manifest initialization, a `v1` milestone seed, and starter issues.
 - Brownfield projects reconcile specs from closed issues, merged PR evidence, and the current source tree.
 - Already-initialized projects delegate contract reconciliation to `/sdlc-upgrade-project`.
 
@@ -142,11 +142,11 @@ Status reports read-only git state, active spec, verification evidence, issue/PR
 /sdlc-upgrade-project
 ```
 
-Reconciles steering/spec trees, templates, managed assets, and the complete repository dependency graph. It detects and proposes—never silently applies—layout modernizations, cumulative splits, leftover spike conversion, official blocked-by edges supported by explicit legacy evidence, obsolete v2 runner cleanup, and the `.omp/sdlc/` runtime ignore rule. Every mutation group requires approval; legacy body text is preserved but is not runtime dependency authority.
+Reconciles steering/spec trees, templates, managed assets, and the complete repository dependency graph. It detects and proposes—never silently applies—managed steering-runtime migration, layout modernizations, cumulative splits, leftover spike conversion, official blocked-by edges supported by explicit legacy evidence, obsolete v2 runner cleanup, and the `.omp/sdlc/` runtime ignore rule. Steering migration preserves legacy prose as registered snippets and removes legacy authority only after staged validation. Every mutation group requires approval.
 
 ## Versioning
 
-`VERSION` is the source of truth and must stay synchronized with `package.json` `"version"`. `/sdlc-execute` (via open-pr) consults `steering/tech.md` for label-to-bump rules:
+`VERSION` is the source of truth and must stay synchronized with `package.json` `"version"`. `/sdlc-execute` (via open-pr) consults the registered product and technical steering snippets for label-to-bump rules:
 
 | Issue label   | Default bump |
 |---------------|--------------|
@@ -159,7 +159,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 
 ## Verification Gates
 
-`steering/tech.md` may declare project-specific gates. Applicable gates become mandatory evidence for `verify-code`.
+Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation, records identity-bound results in `.omp/sdlc/verification/<issue>.json`, and forbids successful status when a required gate fails or is incomplete.
 
 ## Commands
 
@@ -168,6 +168,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 | sdlc-onboard-project         | /sdlc-onboard-project               | Initialize or reconcile a project with steering and managed assets |
 | sdlc-draft-issue             | /sdlc-draft-issue [need]            | Create a groomed GitHub issue with BDD acceptance criteria |
 | sdlc-write-spec              | /sdlc-write-spec [#N]               | Choose an issue missing `spec-created`, or publish the specified `specs/{N}-{slug}/` package |
+| sdlc-steering                | /sdlc-steering [prompt]              | Plan and apply managed steering, snippets, extensions, and validations |
 | sdlc-execute                 | /sdlc-execute [#N …]                | Drive automated delivery through Herdr omp workers to merge + close |
 | sdlc-status                  | /sdlc-status [--json]               | Report current manual lifecycle state |
 | sdlc-verify-code             | /sdlc-verify-code #N                | Verify an already-implemented branch against the approved spec |

@@ -86,9 +86,11 @@ function ensureContributionGate(projectDir) {
 function baseRepositoryFiles(overrides = {}) {
   return new Map(Object.entries({
     'CONTRIBUTING.md': '# Contributing\n',
-    'steering/product.md': '# Product\n',
-    'steering/tech.md': '# Tech\n',
-    'steering/structure.md': '# Structure\n',
+    'steering/manifest.json': '{}\n',
+    'steering/modules/product.mjs': '# Product\n',
+    'steering/modules/tech.mjs': '# Tech\n',
+    'steering/modules/structure.mjs': '# Structure\n',
+    'steering/modules/verification.mjs': '# Verification\n',
     ...overrides,
   }));
 }
@@ -273,9 +275,9 @@ describe('exact embedded contribution evaluator (issues #143, #177, and #199)', 
       issue: 143,
       tasks: '**File(s)**: `scripts/check-gate.mjs`',
     });
-    missingSteeringFiles.delete('steering/tech.md');
+    missingSteeringFiles.delete('steering/manifest.json');
     const missingSteering = await runEvaluator(normalScenario({ repositoryFiles: missingSteeringFiles }));
-    expect(missingSteering.errors.join('\n')).toContain('Missing steering artifacts: expected steering/tech.md');
+    expect(missingSteering.errors.join('\n')).toContain('Missing steering artifacts: expected steering/manifest.json');
 
     const missingGuideFiles = addSpec(baseRepositoryFiles(), 'specs/143-gate', {
       issue: 143,
@@ -502,9 +504,11 @@ describe('exact embedded contribution evaluator (issues #143, #177, and #199)', 
       'VERSION',
       'README.md',
       'CONTRIBUTING.md',
-      'steering/product.md',
-      'steering/tech.md',
-      'steering/structure.md',
+      'steering/manifest.json',
+      'steering/modules/product.mjs',
+      'steering/modules/tech.mjs',
+      'steering/modules/structure.mjs',
+      'steering/modules/verification.mjs',
       '.github/workflows/nmg-sdlc-contribution-gate.yml',
       'references/rewrite-contract.json',
       'references/rewrite-contract.md',
@@ -520,10 +524,10 @@ describe('exact embedded contribution evaluator (issues #143, #177, and #199)', 
       title: 'feat!: rewrite the repository runtime',
       body: [
         'SDLC-Exception: repository-rewrite — owner-approved clean cutover predating the current issue workflow',
-        'Steering: aligns with steering/product.md, steering/tech.md, and steering/structure.md.',
+        'Steering: aligns with the managed steering runtime.',
         '## Verification',
         '`node scripts/rewrite.mjs` — passed',
-        'Verified paths: `package.json`, `VERSION`, `.github/workflows/`, `references/`, and `scripts/`.',
+        'Verified paths: `package.json`, `VERSION`, `.github/workflows/`, `references/`, `steering/`, and `scripts/`.',
       ].join('\n\n'),
       changedPaths,
       repositoryFiles: files,

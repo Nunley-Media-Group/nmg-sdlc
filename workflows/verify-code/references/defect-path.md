@@ -44,7 +44,7 @@ Review `git diff main...HEAD` for modifications outside the fix scope. Unrelated
 
 ### Tests must run
 
-Run the project's test suite per `steering/tech.md`. A fix that passes manually but leaves the suite red is not Done.
+Run the project's test suite through the manifest-declared deterministic validations. A fix that passes manually but leaves a required validation red is not Done.
 
 ## Reporting differences
 

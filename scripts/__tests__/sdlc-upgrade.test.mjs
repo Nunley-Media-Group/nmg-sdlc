@@ -501,3 +501,28 @@ describe('official dependency upgrade reconciliation', () => {
     expect(report.items.some((item) => item.kind === 'already-current')).toBe(false);
   });
 });
+
+describe('managed steering migration', () => {
+  it('uses the shared writer and removes legacy authority only after validation', () => {
+    const root = makeRoot();
+    write(root, 'steering/product.md', '# Product\n');
+    write(root, 'steering/tech.md', '# Tech\n');
+    write(root, 'steering/structure.md', '# Structure\n');
+    write(root, 'steering/retrospective.md', '# Keep\n');
+    write(root, 'steering/unknown.txt', 'keep\n');
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+    expect(item).toEqual(expect.objectContaining({ actionable: true, plan: expect.objectContaining({ mode: 'migrate' }) }));
+
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+    expect(fs.existsSync(path.join(root, 'steering', 'manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'steering', 'tech.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'steering', 'structure.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe('# Tech\n');
+    expect(fs.readFileSync(path.join(root, 'steering', 'retrospective.md'), 'utf8')).toBe('# Keep\n');
+    expect(fs.readFileSync(path.join(root, 'steering', 'unknown.txt'), 'utf8')).toBe('keep\n');
+  });
+});

@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contractPaths = [
   'agents/spec-implementer.md',
-  'steering/product.md',
-  'steering/structure.md',
-  'steering/tech.md',
+  'steering/snippets/project-product.md',
+  'steering/snippets/project-structure.md',
+  'steering/snippets/project-tech.md',
   'workflows/write-code/WORKFLOW.md',
   'workflows/write-code/references/plan-mode.md',
   'workflows/verify-code/WORKFLOW.md',

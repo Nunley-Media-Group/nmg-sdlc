@@ -6,13 +6,15 @@ Use this reference to ensure a project-root `CONTRIBUTING.md` for nmg-sdlc-manag
 
 ## Preconditions
 
-Run this contract only after all three steering docs exist:
+Run this contract only after the managed steering runtime validates:
 
-- `steering/product.md`
-- `steering/tech.md`
-- `steering/structure.md`
+- `steering/manifest.json`
+- `steering/modules/product.mjs`
+- `steering/modules/tech.mjs`
+- `steering/modules/structure.mjs`
+- `steering/modules/verification.mjs`
 
-If any steering doc is missing, do not create or update `CONTRIBUTING.md`. Record a gap and let the calling skill finish or abort according to its existing steering-bootstrap rules.
+If the runtime is missing or invalid, do not create or update `CONTRIBUTING.md`. Record the stable steering reason code and let the calling workflow finish or abort according to its bootstrap rules.
 
 ## Inputs
 
@@ -20,9 +22,8 @@ Read these files when present:
 
 | File | Required | Purpose |
 |------|----------|---------|
-| `steering/product.md` | Yes | Product goals, users, priorities, and success expectations |
-| `steering/tech.md` | Yes | Technical conventions, testing standards, verification gates, and versioning rules |
-| `steering/structure.md` | Yes | Repository layout, naming, layer boundaries, and ownership conventions |
+| `steering/manifest.json` | Yes | Registration authority for managed modules, project snippets, extensions, and validations |
+| Registered product/tech/structure snippets | As declared | Project goals, technical conventions, and repository boundaries |
 | `CONTRIBUTING.md` | No | Existing contributor policy to preserve |
 | `README.md` | No | Existing public entry point that should link to the guide |
 
@@ -67,7 +68,7 @@ Generated content must cover:
 
 - Contributors should start work from a clear GitHub issue with acceptance criteria.
 - Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
-- Contributors should consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before drafting issues, writing specs, or implementing code.
+- Contributors should consult the manifest-registered product, technical, and structure snippets before drafting issues, writing specs, or implementing code.
 - Interactive work uses `/sdlc-draft-issue [need]` and `/sdlc-write-spec #N`.
 - Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which drives Herdr omp worker panes through implementation, verification, and delivery.
 - `/sdlc-execute` continues through exact-head merge and issue closure.
@@ -80,8 +81,7 @@ Generated content must cover:
 The default guide must include concrete sections or bullets for:
 
 - Issue quality: a linked GitHub issue with a user story or bug context, BDD acceptance criteria (Given/When/Then), scope, and out-of-scope notes.
-- Spec location and frontmatter: executable work uses `specs/{N}-{slug}/` with `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` and singular `**Issue**: #N`. Legacy `feature-*` / `bug-*` are upgrade inputs only.
-- Steering alignment: how the change respects `product.md`, `tech.md`, and `structure.md`.
+- Steering alignment: how the change respects the registered product, technical, and structure guidance.
 - Implementation scope: stay within the approved spec, avoid unrelated refactors, and preserve existing project-owned files.
 - Verification evidence: summarize tests, verification results, steering verification gates, or `verification-report.md`.
 - PR readiness: include executable issue + child-spec links, verification summary, known gaps, and reviewer context. PR creation is intermediate; success requires exact-head merge and issue closure.

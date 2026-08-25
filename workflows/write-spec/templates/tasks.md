@@ -2,7 +2,7 @@
 
 Use this template for executable feature or bug specs. Never create epic tasks.
 
-Reference `steering/structure.md` to map task file paths to the project's actual directory layout.
+Reference the manifest-registered structure steering snippet to map task file paths to the project's actual directory layout.
 
 ---
 

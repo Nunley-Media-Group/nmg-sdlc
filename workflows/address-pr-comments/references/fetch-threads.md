@@ -4,7 +4,7 @@
 
 ## GraphQL Query
 
-Use `gh api graphql` with variables passed via `-F` / `-f` — never string-interpolate the PR number or owner into the query body. Inline variables would be unsafe if any downstream reviewer login or repo name contained shell metacharacters, and the `-F` / `-f` form is enforced by `steering/tech.md` → Security.
+Use `gh api graphql` with variables passed via `-F` / `-f` — never string-interpolate the PR number or owner into the query body. Inline variables would be unsafe if any downstream reviewer login or repo name contained shell metacharacters, and the `-F` / `-f` form is enforced by the registered technical steering snippet's Security section.
 
 ```
 gh api graphql \
@@ -49,14 +49,14 @@ The query returns up to 100 threads, each with up to 50 comments. For larger PRs
 Keep a thread only when **both** conditions hold:
 
 1. `isResolved == false`, and
-2. At least one comment in the thread was authored by the automated reviewer per `steering/tech.md` → **Automated Review**. Read that subsection's `bots` and `logins` values each time Step 2 runs — a reviewer-login change is a data edit, not a skill edit.
+2. At least one comment in the thread was authored by the automated reviewer per the registered technical steering snippet's **Automated Review** configuration. Read its `bots` and `logins` values each time Step 2 runs — a reviewer-login change is a data edit, not a workflow edit.
 
 A comment matches the automated reviewer when either:
 
 - `bots` is `true` AND `author.__typename == "Bot"`, or
 - `author.login` appears in the `logins` allow-list.
 
-If the **Automated Review** subsection of `steering/tech.md` is missing or malformed (cannot parse `bots` / `logins`), fail closed: treat every thread as out of scope, log a one-line warning naming the missing or malformed field, and take the AC4 "no-reviewer" exit below.
+If the **Automated Review** configuration is missing or malformed (cannot parse `bots` / `logins`) in the registered technical steering snippet, fail closed: treat every thread as out of scope, log a one-line warning naming the missing or malformed field, and take the AC4 "no-reviewer" exit below.
 
 Human-reviewer threads are out of scope for this skill. They stay unresolved on the PR and this skill never replies to them.
 

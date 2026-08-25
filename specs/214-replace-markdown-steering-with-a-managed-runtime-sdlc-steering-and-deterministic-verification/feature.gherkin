@@ -89,3 +89,12 @@ Feature: Managed steering runtime and deterministic verification
     Then the prompt registry inserts them in declared order with provenance
     And undeclared project files are not scanned
     And snippet prose cannot mutate or raise a core validation result
+
+  @SCN008
+  Scenario: verification proves two real delivery lifecycles
+    Given issue 214 reaches VERIFY with the designated smoke repository available
+    When verification runs with the required Herdr and controller PATH
+    Then two fresh real issues progress through merged pull requests and closed issues
+    And the report preserves issue URLs, pull request URLs, exact observed head SHAs, MERGED proof, and CLOSED proof
+    And fixtures and unit tests cannot substitute for either lifecycle
+    And only verification-created Herdr panes and tabs are closed

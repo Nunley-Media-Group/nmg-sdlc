@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -21,6 +22,7 @@ export const COMMAND_CONSUMERS = Object.freeze([
   "sdlc-write-spec",
   "sdlc-onboard-project",
   "sdlc-upgrade-project",
+  "sdlc-steering",
   "sdlc-run-retro",
   "sdlc-execute",
   "sdlc-status",
@@ -110,22 +112,33 @@ export function registerPromptSnippet(
   registry,
   fragment,
   packageRoot = defaultPackageRoot,
+  trustedProject = false,
 ) {
   validateFragmentShape(fragment);
   if (registry?.byId?.has(fragment.id)) fail("duplicate_fragment_id");
-  if (fragment.provider !== "plugin") fail("disallowed_provider");
+  const projectProvider = typeof fragment.provider === "string"
+    && fragment.provider === `project:${fragment.id}`;
+  if (fragment.provider !== "plugin" && !(trustedProject && projectProvider)) {
+    fail("disallowed_provider");
+  }
   if (fragment.consumers.some((consumer) => !ALLOWED_CONSUMERS.includes(consumer))) {
     fail("disallowed_consumer");
   }
   if (!ALLOWED_SLOTS.includes(fragment.slot)) fail("disallowed_slot");
 
-  const body = fragment.source.startsWith("builtin:")
+  const body = projectProvider || fragment.source.startsWith("builtin:")
     ? String(fragment.body ?? "")
     : loadFileBody(fragment.source, packageRoot);
   if (body.length === 0) fail("empty_body");
   if (renderedPromptBytes(body) > fragment.byteBound) fail("byte_bound_exceeded");
 
   registry.byId.set(fragment.id, Object.freeze({ ...fragment, body }));
+  return registry;
+}
+
+export function registerValidatedProjectSnippets(registry, fragments) {
+  if (!Array.isArray(fragments)) fail("unknown_key");
+  for (const fragment of fragments) registerPromptSnippet(registry, fragment, defaultPackageRoot, true);
   return registry;
 }
 
@@ -195,12 +208,13 @@ const WORKER_HEADER = [
 const CATALOG = [
   ["plugin.workflow.draft-issue", "workflows/draft-issue/WORKFLOW.md", ["sdlc-draft-issue"], "body", 100, 5257],
   ["plugin.workflow.write-spec", "workflows/write-spec/WORKFLOW.md", ["sdlc-write-spec"], "body", 100, 9190],
-  ["plugin.workflow.onboard-project", "workflows/onboard-project/WORKFLOW.md", ["sdlc-onboard-project"], "body", 100, 3041],
-  ["plugin.workflow.upgrade-project", "workflows/upgrade-project/WORKFLOW.md", ["sdlc-upgrade-project"], "body", 100, 3908],
+  ["plugin.workflow.onboard-project", "workflows/onboard-project/WORKFLOW.md", ["sdlc-onboard-project"], "body", 100, 4096],
+  ["plugin.workflow.upgrade-project", "workflows/upgrade-project/WORKFLOW.md", ["sdlc-upgrade-project"], "body", 100, 6144],
+  ["plugin.workflow.steering", "workflows/steering/WORKFLOW.md", ["sdlc-steering"], "body", 100, 4096],
   ["plugin.workflow.run-retro", "workflows/run-retro/WORKFLOW.md", ["sdlc-run-retro"], "body", 100, 1192],
   ["plugin.workflow.execute", "workflows/execute/WORKFLOW.md", ["sdlc-execute"], "body", 100, 1091],
   ["plugin.workflow.status", "workflows/status/WORKFLOW.md", ["sdlc-status"], "body", 100, 713],
-  ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100, 3449],
+  ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100, 6144],
   ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100, 4384],
   ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100, 1163],
   ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100, 5282],
@@ -234,10 +248,23 @@ export function pluginPromptFragments() {
   return CATALOG;
 }
 
-export function defaultPromptRegistry(packageRoot = defaultPackageRoot) {
+export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot } = {}) {
   const registry = createPromptSnippetRegistry();
   for (const fragment of pluginPromptFragments()) {
     registerPromptSnippet(registry, fragment, packageRoot);
+  }
+  if (projectRoot && existsSync(join(projectRoot, "steering", "manifest.json"))) {
+    const command = join(packageRoot, "scripts", "sdlc-steering.mjs");
+    const result = spawnSync(process.execPath, [command, "prompt-fragments", "--project", projectRoot], {
+      encoding: "utf8",
+      shell: false,
+      timeout: 30000,
+    });
+    if (result.error || result.status !== 0) fail("project_runtime_invalid");
+    let payload;
+    try { payload = JSON.parse(result.stdout); } catch { fail("project_runtime_invalid"); }
+    if (payload?.ok !== true || !Array.isArray(payload.fragments)) fail("project_runtime_invalid");
+    registerValidatedProjectSnippets(registry, payload.fragments);
   }
   return registry;
 }

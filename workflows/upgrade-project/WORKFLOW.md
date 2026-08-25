@@ -24,11 +24,13 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 7. Issue dependencies: list every open and closed repository issue and every official blocked-by edge with complete pagination. Propose only missing official edges supported by closed legacy fields or clear sequencing clauses. Ambiguous prose is a finding only. Reject dangling targets and open cycles before proposal.
 
-8. v2 cleanup: sdlc-config.json, legacy runner indicator/state files, and managed .gitignore blocks → propose exact deletion.
+8. Managed steering runtime: if legacy `steering/product.md`, `steering/tech.md`, or `steering/structure.md` exists, propose the exact `steering-runtime:<sourceDigest>` category returned by `scripts/sdlc-upgrade.mjs detect`. Approval calls the shared steering writer in migrate mode. It preserves the prose verbatim as registered snippets, validates the complete staged runtime, then removes the three legacy authorities. Existing manifests use update mode; unknown files, snippets, extensions, and `steering/retrospective.md` are preserved.
 
-9. Plugin runtime ignore: if `.gitignore` lacks an exact `.omp/sdlc/` or `.omp/sdlc` rule, propose adding `.omp/sdlc/` after v2 cleanup.
+9. v2 cleanup: sdlc-config.json, legacy runner indicator/state files, and managed .gitignore blocks → propose exact deletion.
 
-10. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
+10. Plugin runtime ignore: if `.gitignore` lacks an exact `.omp/sdlc/` or `.omp/sdlc` rule, propose adding `.omp/sdlc/` after v2 cleanup.
+
+11. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
 
 Read references/detection.md etc for details (update in tree).
 
@@ -46,6 +48,7 @@ For epic: explicit per group "The detector found an epic group whose child specs
 
 Runner cleanup: approve batch or narrow.
 Official dependency reconciliation is one category-group ask showing the exact proposed edges and evidence. Approval authorizes those writes; do not ask per edge.
+Steering-runtime migration or update is one category-group ask showing the exact source digest, writes, registrations, preserved paths, and legacy deletions. Approval authorizes only that plan.
 
 No silent apply.
 

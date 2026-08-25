@@ -64,6 +64,7 @@ describe('prompt snippet registry', () => {
       'plugin.workflow.write-spec',
       'plugin.workflow.onboard-project',
       'plugin.workflow.upgrade-project',
+      'plugin.workflow.steering',
       'plugin.workflow.run-retro',
       'plugin.workflow.execute',
       'plugin.workflow.status',
@@ -79,7 +80,7 @@ describe('prompt snippet registry', () => {
     ]);
     expect(fragments.filter(({ source }) => !source.startsWith('builtin:'))
       .every(({ source }) => source.startsWith('workflows/'))).toBe(true);
-    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(16);
+    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(17);
   });
 
   it('renders existing workflow text and the exact worker header', () => {

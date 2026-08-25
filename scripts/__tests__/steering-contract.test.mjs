@@ -28,9 +28,9 @@ function frontmatterKeys(source) {
 
 describe('repo steering contract (v3)', () => {
   test('uses the OMP extension identity and package manifest', () => {
-    const product = read('steering/product.md');
-    const tech = read('steering/tech.md');
-    const structure = read('steering/structure.md');
+    const product = read('steering/snippets/project-product.md');
+    const tech = read('steering/snippets/project-tech.md');
+    const structure = read('steering/snippets/project-structure.md');
     const manifest = JSON.parse(read('package.json'));
 
     expect(product).toMatch(/^# nmg-sdlc Product Steering$/m);
@@ -46,8 +46,8 @@ describe('repo steering contract (v3)', () => {
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
-    const tech = read('steering/tech.md');
-    const structure = read('steering/structure.md');
+    const tech = read('steering/snippets/project-tech.md');
+    const structure = read('steering/snippets/project-structure.md');
 
     expect(tech).not.toMatch(/^## Database Standards$/m);
     expect(structure).not.toMatch(/^## Design Tokens \/ UI Standards/m);
@@ -55,7 +55,7 @@ describe('repo steering contract (v3)', () => {
   });
 
   test('documents private workflows and installable agents', () => {
-    const tech = read('steering/tech.md');
+    const tech = read('steering/snippets/project-tech.md');
     const skillFiles = markdownFiles('workflows', 'WORKFLOW.md');
     const agentDirectory = path.join(repoRoot, 'agents');
     const agentFiles = fs.readdirSync(agentDirectory)

@@ -2,7 +2,7 @@
 
 **Consumed by**: open-pr.
 
-No --major flag, no user question. Bump classification from steering/tech.md ## Versioning matrix only (label match → type, unmatched → minor). A leftover `spike` label is unmatched.
+No --major flag, no user question. Bump classification comes from the manifest-registered technical steering snippet's Versioning matrix only (label match → type, unmatched → minor). A leftover `spike` label is unmatched.
 
 Compute new version from VERSION file.
 

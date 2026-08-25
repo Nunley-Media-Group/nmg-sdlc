@@ -6,13 +6,15 @@ Use this reference to create or reconcile root `AGENTS.md` guidance that makes n
 
 ## Preconditions
 
-Run this contract only after the project has current root steering:
+Run this contract only after the project has a valid managed steering runtime:
 
-- `steering/product.md`
-- `steering/tech.md`
-- `steering/structure.md`
+- `steering/manifest.json`
+- `steering/modules/product.mjs`
+- `steering/modules/tech.mjs`
+- `steering/modules/structure.mjs`
+- `steering/modules/verification.mjs`
 
-If any steering doc is missing, do not create or update `AGENTS.md`. Report `AGENTS.md: skipped (missing steering)` and include the missing files in gaps.
+If the runtime is missing or invalid, do not create or update `AGENTS.md`. Report `AGENTS.md: skipped (invalid steering runtime)` with the stable reason code.
 
 ## Managed Section
 

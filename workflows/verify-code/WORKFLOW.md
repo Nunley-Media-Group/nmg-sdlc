@@ -19,9 +19,21 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 
    Any mismatch or missing Approved → failed handoff reasonCode:"spec_not_approved" intervention:true step:"verify"
 
-4. Read the spec files + steering/tech.md structure.md + product.md for rules.
+4. Load and validate `steering/manifest.json` and its registered modules/snippets/extensions. `steering_manifest_missing` or any invalid runtime is an `Incomplete` ceiling. Do not fall back to `steering/product.md`, `steering/tech.md`, or `steering/structure.md`.
 
 5. Read the verification report template from references/report-format.md and checklists/* for the architecture areas.
+
+## Deterministic Steering Gate
+
+Before prose review, run:
+
+```bash
+node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main
+```
+
+Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. A required `failed` result caps overall status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, timeouts, malformed output, missing results, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless every applicable required result passed. Prompt prose and snippets cannot alter or raise the computed result.
+
+For issue #214, verification must additionally run a fresh end-to-end smoke with two real issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`. Fixtures and unit tests do not substitute. Use the required Herdr/controller `PATH` beginning `/tmp/herdr-v0.8.0` for every such command. Preserve both issue URLs, both PR URLs, exact observed head SHAs, explicit `MERGED` proof, and explicit `CLOSED` proof in the verification report and handoff evidence. Close only Herdr panes/tabs created by this verification; never close the main pane or unrelated pre-existing resources.
 
 ## Run Reviews Inline
 
@@ -51,7 +63,7 @@ Use references/report-format.md + checklists/report-template.md to build:
 
 specs/N-SLUG/verification-report.md
 
-With sections: executive summary, AC checklist with evidence, architecture scores + findings, test results, fixes, remaining issues, overall status (Pass | PR Evidence Pending | Partial | Fail | Incomplete)
+With sections: executive summary, deterministic steering artifact and ceiling, AC checklist with evidence, architecture scores + findings, test results, real smoke lifecycle evidence when required, fixes, remaining issues, overall status (Pass | PR Evidence Pending | Partial | Fail | Incomplete)
 
 Write the file using write tool or node cat.
 

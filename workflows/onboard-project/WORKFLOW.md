@@ -27,9 +27,9 @@ Use ask (rec first, max 3 total qs) for vision/personas/success, tech stack, dep
 
 Each interview or preference question, including the already-initialized delegate-or-exit ask, includes a short paragraph stating the situation and the facts needed to choose among the shown options. Do not paste a full product vision or repository dump into `question`.
 
-Bootstrap or enhance steering/product tech structure from templates/ (read runtime).
+Build an exact initialize plan for `node <plugin-root>/scripts/sdlc-steering.mjs apply --project . --plan <approved-plan.json>`. The plan installs the four managed module templates, `steering/manifest.json`, registered project snippets, and deterministic validations. Do not create live `steering/product.md`, `steering/tech.md`, or `steering/structure.md`.
 
-Init VERSION (0.1.0 or from manifest), create specs/ empty.
+Initialize VERSION (0.1.0 or from manifest), create specs/ empty.
 
 Install managed assets: update CONTRIBUTING.md , AGENTS.md , .github/... using v3 snippets (see references/).
 
