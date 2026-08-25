@@ -12,7 +12,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
-- `/sdlc-execute` now waits for the interactive `/review` base-branch picker to render before selecting the repository default branch.
+- `/sdlc-execute` now waits for the interactive `/review` base-branch picker to render, selects the repository default branch, and resumes retained review pickers after a stopped controller.
 
 ## [3.11.1] - 2026-08-24
 

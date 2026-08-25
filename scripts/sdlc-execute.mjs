@@ -470,7 +470,7 @@ function waitForAgentStartRetry() {
 }
 function waitForAgentObservationRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-  Atomics.wait(signal, 0, 0, 100);
+  Atomics.wait(signal, 0, 0, 1_000);
 }
 
 function defaultHerdr(run, cwd) {
@@ -616,6 +616,34 @@ function observeAgentText(herdr, name, expected, attempts = 50) {
     if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return false;
+}
+function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
+  let branchMenuVisible = agentDetectionText(herdr, agentName).includes('Select base branch');
+  if (!branchMenuVisible) {
+    let reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+    if (!reviewModeVisible) {
+      herdr.agentPrompt({ name: agentName, prompt: '/review' });
+      reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+      if (
+        !reviewModeVisible
+        && observeAgentText(herdr, agentName, '/review')
+        && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+      ) {
+        reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+      }
+    }
+    if (
+      !reviewModeVisible
+      || !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+    ) {
+      return false;
+    }
+    branchMenuVisible = observeAgentText(herdr, agentName, 'Select base branch');
+  }
+  return branchMenuVisible
+    && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
+    && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
+    && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
 
 function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd, herdr, output }) {
@@ -889,6 +917,50 @@ export function runExecute({
       }
       if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
         const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+        const reviewStep = step === 'review1' || step === 'review2';
+        const retainedReviewText = reviewStep
+          ? agentDetectionText(herdrApi, agentName)
+          : '';
+        if (
+          !fs.existsSync(handoffPath)
+          && reviewStep
+          && (
+            retainedReviewText.includes('Review Mode')
+            || retainedReviewText.includes('Select base branch')
+          )
+        ) {
+          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+          if (
+            !reviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'review_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          let prompt;
+          try {
+            prompt = workerPrompt({ step, issue, cwd });
+          } catch (error) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          herdrApi.agentPrompt({ name: agentName, prompt });
+          if (
+            !fs.existsSync(handoffPath)
+            && hasPastedWorkerPrompt(herdrApi, agentName, prompt)
+            && !retryPromptSubmission(herdrApi, agentName)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        }
         if (
           !fs.existsSync(handoffPath)
           && step !== 'review1'
@@ -1063,38 +1135,14 @@ export function runExecute({
         });
       }
 
-      if (step === 'review1' || step === 'review2') {
-        const branchSelectionKeys = reviewSelection.keys;
-        let reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-        if (!reviewModeVisible) {
-          herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
-          reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-          if (
-            !reviewModeVisible
-            && observeAgentText(herdrApi, agentName, '/review')
-            && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }))
-          ) {
-            reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-          }
-        }
-        const modeSelected = reviewModeVisible
-          && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }));
-        const branchMenuVisible = modeSelected && observeAgentText(
-          herdrApi,
-          agentName,
-          'Select base branch',
-        );
-        if (
-          !branchMenuVisible
-          || !commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
-          || !commandSucceeded(herdrApi.agentWait({ name: agentName, until: 'working' }))
-          || !commandSucceeded(herdrApi.agentWait({ name: agentName }))
-        ) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'review_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
+      if (
+        (step === 'review1' || step === 'review2')
+        && !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+      ) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'review_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
       }
 
       let prompt;
