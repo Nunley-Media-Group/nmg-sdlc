@@ -19,7 +19,12 @@ import {
   issueDependencyStatus,
   readDependencyGraph,
 } from './issue-dependencies.mjs';
-import { packageRoot, workflowBody } from '../src/sdlc-workflows.mjs';
+import {
+  defaultPromptRegistry,
+  renderPrompt,
+  writePromptProvenance,
+} from '../src/sdlc-prompt-snippets.mjs';
+import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
 import {
@@ -33,7 +38,7 @@ const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
 const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 
-const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
+export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const STEP_SKILL = {
@@ -371,25 +376,21 @@ export function remediationCompletedSteps({
   return VALID_STEPS.slice(0, targetIndex);
 }
 
-export function workerPrompt({ step, issue, skill } = {}) {
+export function workerPrompt({ step, issue, skill, cwd } = {}) {
   if (!step || !VALID_STEPS.includes(step)) throw new Error('invalid step for workerPrompt');
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
-  if (!skillName) throw new Error('no skill for step');
-  const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))]
-    .map((body) => materializeControllerPaths(body, packageRoot));
-  return [
-    `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
-    `Execute the following inlined workflow for #${issue} with no user questions.`,
-    'Write the handoff file then stop.',
-    '',
-    `$ARGUMENTS: #${issue}`,
-    `Handoff path: .omp/sdlc/handoffs/${issue}-${step}.json`,
-    `On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/${issue}-${step}.json`,
-    '',
-    ...workflows,
-  ].join('\n');
+  if (!skillName || skillName !== STEP_SKILL[step]) throw new Error('no skill for step');
+  const { text, provenance } = renderPrompt(defaultPromptRegistry(), {
+    consumer: `worker:${step}`,
+    vars: {
+      issue: String(issue),
+      step,
+      handoffPath: `.omp/sdlc/handoffs/${issue}-${step}.json`,
+    },
+  });
+  if (cwd) writePromptProvenance(cwd, provenance);
+  return materializeControllerPaths(text, packageRoot);
 }
 
 
@@ -879,7 +880,7 @@ export function runExecute({
           !fs.existsSync(handoffPath)
           && step !== 'review1'
           && step !== 'review2'
-          && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue }))
+          && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue, cwd }))
         ) {
           if (!retryPromptSubmission(herdrApi, agentName)) {
             return stopResult({
@@ -1073,7 +1074,7 @@ export function runExecute({
         }
       }
 
-      const prompt = workerPrompt({ step, issue });
+      const prompt = workerPrompt({ step, issue, cwd });
       const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
       let state = agentState(herdrApi.agentGet(agentName));
       const promptStalled = isPromptStalled(prompted);
@@ -1266,7 +1267,7 @@ function runCli(argv = process.argv.slice(2)) {
       process.exit(2);
     }
     try {
-      process.stdout.write(`${workerPrompt({ step, issue })}\n`);
+      process.stdout.write(`${workerPrompt({ step, issue, cwd: process.cwd() })}\n`);
       process.exit(0);
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

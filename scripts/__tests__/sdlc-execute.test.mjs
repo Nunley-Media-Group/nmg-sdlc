@@ -376,7 +376,9 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(prompt).toContain('$ARGUMENTS: #42');
     expect(prompt).not.toMatch(/\/skill:/);
 
+    const cliRoot = makeSpecDir();
     const cli = spawnSync(process.execPath, [SCRIPT, 'worker-prompt', '--step', 'start', '--issue', '42'], {
+      cwd: cliRoot,
       encoding: 'utf8',
     });
     expect(cli.status).toBe(0);
