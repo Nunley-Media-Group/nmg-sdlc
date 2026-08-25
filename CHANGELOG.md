@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.12.0] - 2026-08-24
+
+### Changed
+
+- Issue #213 routes interactive commands, automated command Markdown, and execute worker prompts through an ordered prompt-snippet registry with bounded substitution and machine-readable provenance.
+
+### Fixed
+
+- `/sdlc-execute` now waits for the interactive `/review` base-branch picker to render, selects the repository default branch, and resumes retained review pickers after a stopped controller.
+
 ## [3.11.1] - 2026-08-24
 
 ### Fixed

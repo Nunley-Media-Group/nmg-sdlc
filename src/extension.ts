@@ -10,8 +10,6 @@ import {
   packageRoot,
   rewriteInteractiveInput,
   sessionModeFromEntries,
-  withArguments,
-  workflowBody,
 } from "./sdlc-commands.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
@@ -67,8 +65,13 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
           process.stderr.write(interactiveHeadlessMessage(name));
           return;
         }
-        const body = materializeControllerPaths(workflowBody(skill), packageRoot);
-        pi.sendUserMessage(`/plan\n\n${withArguments(body, args)}`);
+        const rewritten = rewriteInteractiveInput(`/${name}${args ? ` ${args}` : ""}`, {
+          source: "interactive",
+          headless: false,
+          sessionMode: "none",
+        });
+        if (!rewritten?.text) return;
+        pi.sendUserMessage(rewritten.text);
       },
     });
   }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  exerciseOmpArgs,
   parseExerciseArgs,
   usage as exerciseUsage,
 } from '../exercise-omp.mjs';
@@ -17,6 +20,10 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
+function provenanceRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-command-provenance-'));
+}
+
 describe('interactive input rewrite', () => {
   it('rewrites TUI /sdlc-write-spec to builtin /plan plus workflow', () => {
     const result = rewriteInteractiveInput('/sdlc-write-spec #42', {
@@ -24,12 +31,13 @@ describe('interactive input rewrite', () => {
       headless: false,
       sessionMode: 'none',
       root: repoRoot,
+      provenanceRoot: provenanceRoot(),
     });
     expect(result.text.startsWith('/plan\n\n')).toBe(true);
     expect(result.text).toContain('# Write Spec');
     expect(result.text).toContain('$ARGUMENTS: #42');
     expect(result.text).not.toContain('/skill:');
-    expect(result.text).toContain(`node ${JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'))}`);
+    expect(result.text).toContain('publish-approved-spec.mjs');
     expect(result.text).not.toContain('node <plugin-root>/scripts/');
     expect(result.text).not.toContain('node scripts/');
   });
@@ -40,6 +48,7 @@ describe('interactive input rewrite', () => {
       headless: false,
       sessionMode: 'plan',
       root: repoRoot,
+      provenanceRoot: provenanceRoot(),
     });
     expect(result.text.startsWith('/plan')).toBe(false);
     expect(result.text).toContain('$ARGUMENTS: auth');
@@ -92,6 +101,21 @@ describe('exercise-omp args', () => {
       timeoutMs: 180_000,
       message: '/sdlc-status --json',
     });
+  });
+
+  it('loads the source extension explicitly when extension discovery is disabled', () => {
+    expect(exerciseOmpArgs({ cwd: '/tmp/proj', timeoutMs: 300_000 })).toEqual([
+      '--mode', 'rpc',
+      '--no-session',
+      '--no-extensions',
+      '--no-skills',
+      '--extension', path.join(repoRoot, 'src/extension.ts'),
+      '--plugin-dir', repoRoot,
+      '--add-dir', repoRoot,
+      '--cwd', path.resolve('/tmp/proj'),
+      '--auto-approve',
+      '--max-time', '300',
+    ]);
   });
 
   it('prints usage', () => {

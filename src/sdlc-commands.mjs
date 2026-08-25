@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
+import {
+  defaultPromptRegistry,
+  renderPrompt,
+  writePromptProvenance,
+} from "./sdlc-prompt-snippets.mjs";
+import { packageRoot } from "./sdlc-workflows.mjs";
 import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
@@ -62,14 +64,23 @@ export function rewriteInteractiveInput(text, {
   sessionMode,
   headless,
   root,
+  provenanceRoot,
 } = {}) {
   if (source !== "interactive" || headless === true) return undefined;
   const parsed = parseInteractiveSlash(text);
   if (!parsed) return undefined;
+  const { text: prompt, provenance } = renderPrompt(
+    defaultPromptRegistry(root ?? packageRoot),
+    { consumer: parsed.command, vars: {} },
+  );
   const body = withArguments(
-    materializeControllerPaths(workflowBody(parsed.skill, root), root ?? packageRoot),
+    materializeControllerPaths(prompt, root ?? packageRoot),
     parsed.args,
   );
+  const destination = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
+  if (typeof destination === "string" && destination.length > 0) {
+    writePromptProvenance(destination, provenance);
+  }
   if (sessionMode === "plan") return { text: body };
   return { text: `/plan\n\n${body}` };
 }
@@ -115,13 +126,7 @@ export function interactiveHeadlessMessage(commandName) {
 }
 
 export function renderAutomatedCommandMarkdown(name, skill, description, root = packageRoot) {
-  let body = workflowBody(skill, root).replace(/\s*$/, "\n");
-  if (skill === "execute") {
-    const selection = readFileSync(
-      join(root, "workflows", "execute", "references", "selection.md"),
-      "utf8",
-    ).replace(/\s*$/, "\n");
-    body = `${body}\n${selection}`;
-  }
+  const { text } = renderPrompt(defaultPromptRegistry(root), { consumer: name, vars: {} });
+  const body = text.replace(/\s*$/, "\n");
   return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}`;
 }

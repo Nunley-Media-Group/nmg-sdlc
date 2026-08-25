@@ -37,7 +37,8 @@ describe('extension sdlc- commands', () => {
       withArguments,
       workflowBody,
     } = await import('../../src/sdlc-commands.mjs');
-    expect(source).toContain('materializeControllerPaths(workflowBody(skill), packageRoot)');
+    expect(source).toContain('rewriteInteractiveInput(`/${name}${args ? ` ${args}` : \"\"}`');
+    expect(source).not.toContain('materializeControllerPaths(workflowBody(skill), packageRoot)');
     expect(source).toContain('materializeRuntimeMessages(context.messages, packageRoot)');
 
     const interactive = `/plan\n\n${withArguments(

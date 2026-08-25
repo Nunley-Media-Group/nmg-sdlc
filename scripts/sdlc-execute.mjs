@@ -19,7 +19,12 @@ import {
   issueDependencyStatus,
   readDependencyGraph,
 } from './issue-dependencies.mjs';
-import { packageRoot, workflowBody } from '../src/sdlc-workflows.mjs';
+import {
+  defaultPromptRegistry,
+  renderPrompt,
+  writePromptProvenance,
+} from '../src/sdlc-prompt-snippets.mjs';
+import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
 import {
@@ -33,9 +38,10 @@ const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
 const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 
-const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
+export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -371,26 +377,29 @@ export function remediationCompletedSteps({
   return VALID_STEPS.slice(0, targetIndex);
 }
 
-export function workerPrompt({ step, issue, skill } = {}) {
+export function workerPrompt({ step, issue, skill, cwd } = {}) {
   if (!step || !VALID_STEPS.includes(step)) throw new Error('invalid step for workerPrompt');
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
-  if (!skillName) throw new Error('no skill for step');
-  const extras = STEP_EXTRA_WORKFLOWS[step] || [];
-  const workflows = [workflowBody(skillName), ...extras.map((name) => workflowBody(name))]
-    .map((body) => materializeControllerPaths(body, packageRoot));
-  return [
-    `You are the nmg-sdlc ${step} worker for issue #${issue}.`,
-    `Execute the following inlined workflow for #${issue} with no user questions.`,
-    'Write the handoff file then stop.',
-    '',
-    `$ARGUMENTS: #${issue}`,
-    `Handoff path: .omp/sdlc/handoffs/${issue}-${step}.json`,
-    `On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/${issue}-${step}.json`,
-    '',
-    ...workflows,
-  ].join('\n');
+  if (!skillName || skillName !== STEP_SKILL[step]) throw new Error('no skill for step');
+  const { text, provenance } = renderPrompt(defaultPromptRegistry(), {
+    consumer: `worker:${step}`,
+    vars: {
+      issue: String(issue),
+      step,
+      handoffPath: `.omp/sdlc/handoffs/${issue}-${step}.json`,
+    },
+  });
+  if (cwd) writePromptProvenance(cwd, provenance);
+  return materializeControllerPaths(text, packageRoot);
 }
+
+function workerPromptFailureReason(error) {
+  return error instanceof Error && error.message === 'provenance_write_failed'
+    ? error.message
+    : 'worker_prompt_failed';
+}
+
 
 
 function defaultRun(command, args, options = {}) {
@@ -460,10 +469,15 @@ function waitForAgentStartRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
 }
+function waitForAgentObservationRetry() {
+  const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(signal, 0, 0, 1_000);
+}
 
 function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
+    observationPause: waitForAgentObservationRetry,
     integrationStatus: () => invoke(['integration', 'status']),
     paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
     paneSplit: ({ direction, cwd: splitCwd }) => invoke([
@@ -600,8 +614,37 @@ function agentDetectionText(herdr, name) {
 function observeAgentText(herdr, name, expected, attempts = 50) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (agentDetectionText(herdr, name).includes(expected)) return true;
+    if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return false;
+}
+function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
+  let branchMenuVisible = agentDetectionText(herdr, agentName).includes(REVIEW_BRANCH_PICKER_TEXT);
+  if (!branchMenuVisible) {
+    let reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+    if (!reviewModeVisible) {
+      herdr.agentPrompt({ name: agentName, prompt: '/review' });
+      reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+      if (
+        !reviewModeVisible
+        && observeAgentText(herdr, agentName, '/review')
+        && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+      ) {
+        reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+      }
+    }
+    if (
+      !reviewModeVisible
+      || !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+    ) {
+      return false;
+    }
+    branchMenuVisible = observeAgentText(herdr, agentName, REVIEW_BRANCH_PICKER_TEXT);
+  }
+  return branchMenuVisible
+    && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
+    && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
+    && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
 
 function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd, herdr, output }) {
@@ -875,19 +918,73 @@ export function runExecute({
       }
       if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
         const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+        const reviewStep = step === 'review1' || step === 'review2';
+        const retainedReviewText = reviewStep
+          ? agentDetectionText(herdrApi, agentName)
+          : '';
         if (
           !fs.existsSync(handoffPath)
-          && step !== 'review1'
-          && step !== 'review2'
-          && hasPastedWorkerPrompt(herdrApi, agentName, workerPrompt({ step, issue }))
+          && reviewStep
+          && (
+            retainedReviewText.includes('Review Mode')
+            || retainedReviewText.includes(REVIEW_BRANCH_PICKER_TEXT)
+          )
         ) {
-          if (!retryPromptSubmission(herdrApi, agentName)) {
+          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+          if (
+            !reviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'review_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          let prompt;
+          try {
+            prompt = workerPrompt({ step, issue, cwd });
+          } catch (error) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          herdrApi.agentPrompt({ name: agentName, prompt });
+          if (
+            !fs.existsSync(handoffPath)
+            && hasPastedWorkerPrompt(herdrApi, agentName, prompt)
+            && !retryPromptSubmission(herdrApi, agentName)
+          ) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
           }
           state = agentState(herdrApi.agentGet(agentName));
+        }
+        if (
+          !fs.existsSync(handoffPath)
+          && step !== 'review1'
+          && step !== 'review2'
+        ) {
+          let prompt;
+          try {
+            prompt = workerPrompt({ step, issue, cwd });
+          } catch (error) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          }
         }
         if (!fs.existsSync(handoffPath)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
@@ -1039,41 +1136,25 @@ export function runExecute({
         });
       }
 
-      if (step === 'review1' || step === 'review2') {
-        const branchSelectionKeys = reviewSelection.keys;
-        let reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-        if (!reviewModeVisible) {
-          herdrApi.agentPrompt({ name: agentName, prompt: '/review' });
-          reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-          if (
-            !reviewModeVisible
-            && observeAgentText(herdrApi, agentName, '/review')
-            && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }))
-          ) {
-            reviewModeVisible = observeAgentText(herdrApi, agentName, 'Review Mode');
-          }
-        }
-        const modeSelected = reviewModeVisible
-          && commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: ['enter'] }));
-        const branchMenuVisible = modeSelected && observeAgentText(
-          herdrApi,
-          agentName,
-          'Select base branch',
-        );
-        if (
-          !branchMenuVisible
-          || !commandSucceeded(herdrApi.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
-          || !commandSucceeded(herdrApi.agentWait({ name: agentName, until: 'working' }))
-          || !commandSucceeded(herdrApi.agentWait({ name: agentName }))
-        ) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'review_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
+      if (
+        (step === 'review1' || step === 'review2')
+        && !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+      ) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'review_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
       }
 
-      const prompt = workerPrompt({ step, issue });
+      let prompt;
+      try {
+        prompt = workerPrompt({ step, issue, cwd });
+      } catch (error) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
       let state = agentState(herdrApi.agentGet(agentName));
       const promptStalled = isPromptStalled(prompted);
@@ -1266,7 +1347,7 @@ function runCli(argv = process.argv.slice(2)) {
       process.exit(2);
     }
     try {
-      process.stdout.write(`${workerPrompt({ step, issue })}\n`);
+      process.stdout.write(`${workerPrompt({ step, issue, cwd: process.cwd() })}\n`);
       process.exit(0);
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

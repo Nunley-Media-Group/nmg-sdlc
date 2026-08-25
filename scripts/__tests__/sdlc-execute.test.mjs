@@ -376,7 +376,9 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(prompt).toContain('$ARGUMENTS: #42');
     expect(prompt).not.toMatch(/\/skill:/);
 
+    const cliRoot = makeSpecDir();
     const cli = spawnSync(process.execPath, [SCRIPT, 'worker-prompt', '--step', 'start', '--issue', '42'], {
+      cwd: cliRoot,
       encoding: 'utf8',
     });
     expect(cli.status).toBe(0);
@@ -541,6 +543,7 @@ describe('runExecute controller', () => {
     reviewPromptStatus = 'stalled',
     reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
+    branchMenuDelayReads = 0,
     writeHandoffs = true,
     promptStatus = 0,
     agentState = 'done',
@@ -582,6 +585,7 @@ describe('runExecute controller', () => {
     let didStall = false;
     let reviewMenu = null;
     const reviewMenuEvents = [];
+    let branchMenuReadsRemaining = 0;
     const pendingAgentStartStatuses = [...agentStartStatuses];
 
     const run = (command, args) => {
@@ -735,6 +739,13 @@ describe('runExecute controller', () => {
       agentRead: () => {
         if (reviewMenu === 'composer') return '/review';
         if (reviewMenu === 'mode') return 'Review Mode\n/review';
+        if (reviewMenu === 'branch-pending') {
+          if (branchMenuReadsRemaining > 0) {
+            branchMenuReadsRemaining -= 1;
+            return 'Review Mode\n/review';
+          }
+          reviewMenu = 'branch';
+        }
         if (reviewMenu === 'branch') {
           reviewMenuEvents.push('branch-visible');
           return 'Select base branch…';
@@ -753,7 +764,10 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'mode') {
           reviewMenuEvents.push(`mode-keys:${keys.join(',')}`);
           if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
-          if (branchMenuTransition) reviewMenu = 'branch';
+          if (branchMenuTransition) {
+            branchMenuReadsRemaining = branchMenuDelayReads;
+            reviewMenu = branchMenuDelayReads > 0 ? 'branch-pending' : 'branch';
+          }
         } else if (reviewMenu === 'branch') {
           reviewMenuEvents.push(`branch-keys:${keys.join(',')}`);
           reviewMenu = 'reviewing';
@@ -1308,6 +1322,20 @@ describe('runExecute controller', () => {
     ]);
   });
 
+  it('waits for the review branch picker to render', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchMenuDelayReads: 2,
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
   it('stops when interactive review mode cannot be selected', () => {
     const fixture = makeControllerFixture({ reviewPromptStatus: 'worker_failed' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -1372,6 +1400,22 @@ describe('runExecute controller', () => {
     ]);
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_start_failed' });
+  });
+
+  it('keeps a new worker pane open when prompt provenance cannot be written', () => {
+    const fixture = makeControllerFixture();
+    const provenancePath = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
+    fs.mkdirSync(path.dirname(provenancePath), { recursive: true });
+    fs.writeFileSync(provenancePath, 'not a directory');
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.prompts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
   });
 
   it('stops without completing the step when a new worker pane cannot close', () => {
@@ -1491,6 +1535,44 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual([]);
   });
+  it('resumes a retained review picker against the default branch', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    let menu = 'mode';
+    fixture.herdr.agentRead = () => menu === 'mode'
+      ? 'Review Mode'
+      : menu === 'branch'
+        ? 'Select base b…'
+        : 'Review complete';
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
+      else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
+      return sendKeys(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+    expect(fixture.sentKeys).toEqual(expect.arrayContaining([['enter'], ['down', 'enter']]));
+  });
+
   it('fails closed when a matching retained blocked worker does not settle', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { state: 'blocked' } });
@@ -1863,6 +1945,22 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys[0]).toEqual(['enter']);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-start');
     expect(fixture.closed).toContain('kept-pane');
+  });
+
+  it('keeps a retained worker pane open when prompt provenance cannot be written', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const provenancePath = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
+    fs.writeFileSync(provenancePath, 'not a directory');
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
   });
 
   it('keeps a retained pane open when recovered prompt settlement fails', () => {
