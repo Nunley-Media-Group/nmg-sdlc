@@ -468,6 +468,10 @@ function waitForAgentStartRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
 }
+function waitForAgentObservationRetry() {
+  const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(signal, 0, 0, 20);
+}
 
 function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
@@ -608,6 +612,7 @@ function agentDetectionText(herdr, name) {
 function observeAgentText(herdr, name, expected, attempts = 50) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (agentDetectionText(herdr, name).includes(expected)) return true;
+    if (attempt + 1 < attempts) waitForAgentObservationRetry();
   }
   return false;
 }

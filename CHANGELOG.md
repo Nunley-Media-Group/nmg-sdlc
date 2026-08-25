@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-execute` now waits for the interactive `/review` base-branch picker to render before selecting the repository default branch.
+
 ## [3.11.1] - 2026-08-24
 
 ### Fixed

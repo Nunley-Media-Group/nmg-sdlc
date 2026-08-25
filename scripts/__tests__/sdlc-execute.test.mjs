@@ -543,6 +543,7 @@ describe('runExecute controller', () => {
     reviewPromptStatus = 'stalled',
     reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
+    branchMenuDelayReads = 0,
     writeHandoffs = true,
     promptStatus = 0,
     agentState = 'done',
@@ -584,6 +585,7 @@ describe('runExecute controller', () => {
     let didStall = false;
     let reviewMenu = null;
     const reviewMenuEvents = [];
+    let branchMenuReadsRemaining = 0;
     const pendingAgentStartStatuses = [...agentStartStatuses];
 
     const run = (command, args) => {
@@ -737,6 +739,13 @@ describe('runExecute controller', () => {
       agentRead: () => {
         if (reviewMenu === 'composer') return '/review';
         if (reviewMenu === 'mode') return 'Review Mode\n/review';
+        if (reviewMenu === 'branch-pending') {
+          if (branchMenuReadsRemaining > 0) {
+            branchMenuReadsRemaining -= 1;
+            return 'Review Mode\n/review';
+          }
+          reviewMenu = 'branch';
+        }
         if (reviewMenu === 'branch') {
           reviewMenuEvents.push('branch-visible');
           return 'Select base branch…';
@@ -755,7 +764,10 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'mode') {
           reviewMenuEvents.push(`mode-keys:${keys.join(',')}`);
           if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
-          if (branchMenuTransition) reviewMenu = 'branch';
+          if (branchMenuTransition) {
+            branchMenuReadsRemaining = branchMenuDelayReads;
+            reviewMenu = branchMenuDelayReads > 0 ? 'branch-pending' : 'branch';
+          }
         } else if (reviewMenu === 'branch') {
           reviewMenuEvents.push(`branch-keys:${keys.join(',')}`);
           reviewMenu = 'reviewing';
@@ -1304,6 +1316,20 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(0);
     expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toEqual([]);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
+  it('waits for the review branch picker to render', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchMenuDelayReads: 2,
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
     expect(fixture.reviewMenuEvents).toEqual([
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
