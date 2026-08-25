@@ -12,6 +12,7 @@ import {
   inspectVerificationReadiness,
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--remediation-result human_review]';
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
@@ -23,11 +24,17 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: In
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
         nodes {
           id
           isResolved
           isOutdated
           comments(first: 50) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               body
               path
@@ -202,6 +209,23 @@ function configuredBotLogins(tech) {
     }
   }
   return logins;
+}
+
+function registeredTechnicalSteering(fs, cwd) {
+  const manifestPath = resolveSteeringPath(cwd, 'steering/manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const snippet = manifest.snippets?.find((entry) =>
+    entry?.id === 'project.tech'
+    && Array.isArray(entry.consumers)
+    && entry.consumers.includes('worker:deliver'));
+  if (!snippet || typeof snippet.path !== 'string') {
+    throw new Error('steering manifest lacks the worker:deliver technical snippet');
+  }
+  if (!snippet.path.startsWith('steering/snippets/')) {
+    throw new Error('steering manifest technical snippet is outside steering/snippets');
+  }
+  const snippetPath = resolveSteeringPath(cwd, snippet.path);
+  return fs.readFileSync(snippetPath, 'utf8');
 }
 
 function updateChangelog(content, version, date, title, breaking) {
@@ -457,7 +481,7 @@ function normalizeCheck(check) {
   if (!state && bucket === 'pending') state = 'PENDING';
   return {
     name: check.name,
-    event: check.event ?? 'pull_request',
+    event: check.event ?? null,
     state,
     required: check.required === true,
     url: check.link ?? check.url ?? null,
@@ -548,7 +572,8 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     state: review.state,
     submittedAt: review.submittedAt ?? '',
   }));
-  const rawThreads = threadData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const reviewThreads = threadData.data.repository.pullRequest.reviewThreads;
+  const rawThreads = reviewThreads.nodes ?? [];
   const threads = rawThreads.map((thread) => ({
     id: thread.id,
     isResolved: thread.isResolved,
@@ -559,6 +584,21 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
     .map((item) => item.name);
+  const declaredCheckRuns = new Set(evidence
+    .filter((item) => item.kind === 'check_run')
+    .map((item) => item.name));
+  const checkKeys = new Set(checks.map((check) => `${check.name}\0${check.event}`));
+  const snapshotChecks = [
+    ...checks,
+    ...evidenceChecks.filter((check) => {
+      const key = `${check.name}\0${check.event}`;
+      if (!declaredCheckRuns.has(check.name) || checkKeys.has(key)) return false;
+      checkKeys.add(key);
+      return true;
+    }),
+  ];
+  const threadsComplete = reviewThreads.pageInfo?.hasNextPage === false
+    && rawThreads.every((thread) => thread.comments?.pageInfo?.hasNextPage === false);
   const snapshot = {
     schemaVersion: 1,
     issue: { number: issueData.number ?? issue, state: issueData.state },
@@ -566,10 +606,10 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
       ...pr,
       mergeCommitOid: pr.mergeCommit?.oid ?? pr.mergeCommitOid ?? null,
     },
-    checks,
+    checks: snapshotChecks,
     reviews,
     threads,
-    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete: true },
+    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete },
     requiredChecksConfigured: declaredPrOnlyChecks.length > 0,
     declaredPrOnlyChecks,
     verification: {
@@ -598,6 +638,8 @@ function remediationPacket({ issue, pr, classified, rawThreads, botLogins }) {
     issue,
     pullRequest: pr.number,
     headSha: classified.headSha,
+    reasonCode: classified.reasonCode,
+    mergeStateStatus: classified.evidence.pullRequest?.mergeStateStatus ?? null,
     failingChecks,
     threads,
     handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
@@ -633,7 +675,7 @@ export function runDeliver({
     if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
       return fail(context, 'verification_not_ready', `Verification is not ready for delivery: ${readiness.reasonCode}`);
     }
-    const tech = fs.readFileSync(path.join(cwd, 'steering', 'tech.md'), 'utf8');
+    const tech = registeredTechnicalSteering(fs, cwd);
     const botLogins = configuredBotLogins(tech);
     const { value: issueData } = jsonCommand(run, cwd, 'gh', [
       'issue', 'view', String(issueNumber), '--json', 'number,title,body,labels,state,url',

@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.16.0] - 2026-08-25
+
+### Changed
+
+- Issue #214 replaces legacy product/tech/structure Markdown authority with a versioned managed steering runtime, registered project snippets and trusted extensions, approval-gated initialize/update/migrate writes, and deterministic identity-bound verification providers. Adds interactive `/sdlc-steering`; required non-pass results now cap verification in code.
+
+### Changed
+
+- Replace Markdown steering with a managed runtime, /sdlc-steering, and deterministic verification (#214)
+
 ## [3.15.0] - 2026-08-25
 
 ### Fixed

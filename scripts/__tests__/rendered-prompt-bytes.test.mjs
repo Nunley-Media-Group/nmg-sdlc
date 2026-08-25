@@ -6,7 +6,7 @@ import { workerPrompt } from '../sdlc-execute.mjs';
 const AUTOMATED_BODY_CEILINGS = {
   'sdlc-execute': 1040,
   'sdlc-status': 814,
-  'sdlc-verify-code': 3435,
+  'sdlc-verify-code': 5000,
   'sdlc-open-pr': 4384,
 };
 
@@ -17,7 +17,7 @@ const WORKER_PROMPT_CEILINGS = {
   fix1: 958,
   review2: 1388,
   fix2: 958,
-  verify: 3734,
+  verify: 5500,
   deliver: 4939,
 };
 

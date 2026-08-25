@@ -13,9 +13,11 @@ describe('contribution guide contract', () => {
   test('shared reference uses v3 invocations and specs/{N}-{slug}', () => {
     const contract = read('references/contribution-guide.md');
 
-    expect(contract).toContain('steering/product.md');
-    expect(contract).toContain('steering/tech.md');
-    expect(contract).toContain('steering/structure.md');
+    expect(contract).toContain('steering/modules/product.mjs');
+    expect(contract).toContain('steering/manifest.json');
+    expect(contract).toContain('steering/modules/structure.mjs');
+    expect(contract).toContain('steering/modules/tech.mjs');
+    expect(contract).toContain('steering/modules/verification.mjs');
     expect(contract).toContain('specs/{N}-{slug}');
     expect(contract).toContain('/sdlc-draft-issue');
     expect(contract).toContain('/sdlc-write-spec #N');

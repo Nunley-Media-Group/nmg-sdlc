@@ -35,7 +35,7 @@ const SELF_REFERENTIAL_BREAKING_BODY = [
   '**Given** a sibling deliver worker for `#N`',
   '**When** the compact open-pr workflow runs',
   '**Then** it invokes new `scripts/sdlc-deliver.mjs` (no equivalent module; wrap `classifyPrDeliveryState` and verification-readiness, do not fork)',
-  '**And** the controller still performs spec/verification gates, version bump of `VERSION` + `package.json` + `CHANGELOG.md` `[Unreleased]` rollover + `steering/tech.md` versioned-files, push, PR create/resume, poll, `gh pr merge --squash --match-head-commit <head> --delete-branch` unless tech.md says otherwise, re-fetch MERGED+CLOSED, local branch delete only after proof, and writes `.omp/sdlc/handoffs/N-deliver.json`',
+  '**And** the controller still performs spec/verification gates, version bump of `VERSION` + `package.json` + `CHANGELOG.md` `[Unreleased]` rollover + managed technical steering versioned-files, push, PR create/resume, poll, `gh pr merge --squash --match-head-commit <head> --delete-branch` unless managed technical steering says otherwise, re-fetch MERGED+CLOSED, local branch delete only after proof, and writes `.omp/sdlc/handoffs/N-deliver.json`',
   '**And** leftover `spike` labels still do not skip the version bump',
   '**And** BREAKING without spec `**Version bump**: major` still fails `major_bump_required` with intervention',
   '**And** execute still launches a sibling deliver worker and still does not open PRs in the main pane',
@@ -48,7 +48,7 @@ const SELF_REFERENTIAL_BREAKING_BODY = [
   '**And** after edits it re-validates head, checks, and threads in code',
   '**And** green PRs with no unresolved bot threads do not inline `address-pr-comments`',
   '**And** implement still inlines `simplify`',
-  '**And** bot detection remains `__typename === "Bot"` or login `coderabbitai` or logins in `steering/tech.md`',
+  '**And** bot detection remains `__typename === "Bot"` or login `coderabbitai` or logins in the manifest-registered technical steering snippet',
   '',
   '### AC3: human review still stops the queue',
   '',
@@ -86,7 +86,7 @@ function verification(issue = 42, specPath = 'specs/42-delivery') {
   return `# Verification\n\n## Implementation Status: **Pass**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
 
-function controlledVerification(state, headSha = H1) {
+function controlledVerification(state, headSha = H1, evidenceKind = 'required_check') {
   const specPath = 'specs/42-delivery';
   const scope = {
     issueNumber: 42,
@@ -102,7 +102,7 @@ function controlledVerification(state, headSha = H1) {
     steeringGates: 'pass',
   };
   const identity = {
-    kind: 'required_check',
+    kind: evidenceKind,
     name: 'contract-tests',
     event: 'pull_request',
     acceptanceCriteria: ['AC1'],
@@ -128,8 +128,15 @@ function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {})
   const header = `**Issue**: #${issue}\n**Status**: Approved\n`;
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) fs.writeFileSync(path.join(spec, name), `${header}${approvedMajor && ['requirements.md', 'design.md'].includes(name) ? '**Version bump**: major\n' : ''}`);
   fs.writeFileSync(path.join(spec, 'verification-report.md'), verification(issue, `specs/${issue}-delivery`));
-  fs.mkdirSync(path.join(root, 'steering'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'steering', 'tech.md'), '# Tech\n| Predicate | Value | Meaning |\n| `bots` | `true` | bots |\n| `logins` | `["coderabbitai", "review-bot"]` | logins |\n| File | Path | Notes |\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n');
+  fs.mkdirSync(path.join(root, 'steering', 'snippets'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'steering', 'manifest.json'), `${JSON.stringify({
+    snippets: [{
+      id: 'project.tech',
+      path: 'steering/snippets/project-tech.md',
+      consumers: ['worker:deliver'],
+    }],
+  }, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), '# Tech\n| Predicate | Value | Meaning |\n| `bots` | `true` | bots |\n| `logins` | `["coderabbitai", "review-bot"]` | logins |\n| File | Path | Notes |\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n');
   fs.writeFileSync(path.join(root, 'VERSION'), `${version}\n`);
   fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: 'fixture', version }, null, 2)}\n`);
   fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
@@ -191,19 +198,36 @@ function fixture(options = {}) {
     }
     if (args[0] === 'pr' && args[1] === 'ready') { lastView.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
     if (args[0] === 'api' && args[1] === 'graphql') {
+      const graphThreads = lastView.reviewThreads.map((thread) => ({
+        ...thread,
+        comments: {
+          nodes: Array.isArray(thread.comments) ? thread.comments : (thread.comments?.nodes ?? []),
+          pageInfo: { hasNextPage: options.commentsHasNextPage === true },
+        },
+      }));
       const value = options.graphqlErrors
         ? { errors: options.graphqlErrors }
-        : { data: { repository: { pullRequest: { reviewThreads: { nodes: lastView.reviewThreads } } } } };
+        : { data: { repository: { pullRequest: { reviewThreads: {
+          nodes: graphThreads,
+          pageInfo: { hasNextPage: options.threadsHasNextPage === true },
+        } } } } };
       return { status: 0, stdout: JSON.stringify(value), stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'checks') {
-      if (options.noRequiredChecks) {
+      const required = args.includes('--required');
+      if (required && options.noRequiredChecks) {
         const message = typeof options.noRequiredChecks === 'string'
           ? options.noRequiredChecks
           : "no required checks reported on the '42-delivery' branch";
         return { status: 1, stdout: '', stderr: `${message}\n` };
       }
-      return { status: options.checksStatus ?? 0, stdout: JSON.stringify(options.checks ?? []), stderr: '' };
+      const checks = required && options.requiredChecks !== undefined
+        ? options.requiredChecks
+        : (options.checks ?? []);
+      const status = required && options.requiredChecksStatus !== undefined
+        ? options.requiredChecksStatus
+        : (options.checksStatus ?? 0);
+      return { status, stdout: JSON.stringify(checks), stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'merge') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
@@ -311,6 +335,35 @@ describe('sdlc delivery controller', () => {
     expect(result.handoff.reasonCode).toBe('delivery_failed');
     expect(result.handoff.summary).toContain('GraphQL review thread query failed: Review thread query rejected');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toBe(false);
+  });
+
+  test('fails closed for incomplete pagination and missing check event provenance', () => {
+    const paged = fixture({ threadsHasNextPage: true, views: [openPr()] }); roots.push(paged.root);
+    const pagedResult = runDeliver({ issue: 42, cwd: paged.root, run: paged.run, fs, sleep: paged.sleep });
+    expect(pagedResult.status).toBe(1);
+    expect(paged.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
+
+    const unknownEvent = fixture({
+      checks: [{ name: 'test', state: 'SUCCESS', link: 'https://github.test/check/1' }],
+      views: [openPr()],
+    }); roots.push(unknownEvent.root);
+    const eventResult = runDeliver({ issue: 42, cwd: unknownEvent.root, run: unknownEvent.run, fs, sleep: unknownEvent.sleep });
+    expect(eventResult.status).toBe(1);
+    expect(eventResult.handoff.summary).toContain('evidence_incomplete_or_invalid');
+  });
+
+  test('fails closed instead of emitting an empty mergeability remediation packet', () => {
+    const f = fixture({ views: [openPr({ mergeStateStatus: 'BEHIND' })] }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: {
+        reasonCode: 'merge_failed',
+        intervention: true,
+      },
+    });
+    expect(result.handoff.summary).toContain('mergeability_defect');
+    expect(result.stdout).not.toContain('NMG_SDLC_REMEDIATION');
   });
   test('fails closed when required-check collection is not a check status', () => {
     const f = fixture({ checksStatus: 2, views: [openPr()] }); roots.push(f.root);
@@ -429,6 +482,7 @@ describe('sdlc delivery controller', () => {
       existingPr: openPr({ isDraft: true, head: H1 }),
       dirtyPaths: ['specs/42-delivery/verification-report.md'],
       checks: [{ name: 'contract-tests', state: 'SUCCESS', link: 'https://github.test/checks/h2', event: 'pull_request' }],
+      requiredChecks: [],
       views: [
         openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H2 }),
@@ -438,7 +492,7 @@ describe('sdlc delivery controller', () => {
         openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
       ],
     }); roots.push(satisfied.root);
-    fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1));
+    fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1, 'check_run'));
     const result = runDeliver({ issue: 42, cwd: satisfied.root, run: satisfied.run, fs, sleep: satisfied.sleep });
     expect(result.status).toBe(0);
     const ready = satisfied.calls.findIndex((call) => call.join(' ') === 'gh pr ready 77');
@@ -448,6 +502,9 @@ describe('sdlc delivery controller', () => {
     expect(ready).toBeGreaterThan(edit);
     expect(merge).toBeGreaterThan(ready);
     expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
+    expect(satisfied.calls).toContainEqual([
+      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event',
+    ]);
   });
 
   test('uses the repository default base for controlled draft creation and validation', () => {

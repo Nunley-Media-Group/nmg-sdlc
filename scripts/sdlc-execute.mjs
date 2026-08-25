@@ -420,7 +420,7 @@ export function workerPrompt({ step, issue, skill, cwd } = {}) {
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
   if (!skillName || skillName !== STEP_SKILL[step]) throw new Error('no skill for step');
-  const { text, provenance } = renderPrompt(defaultPromptRegistry(), {
+  const { text, provenance } = renderPrompt(defaultPromptRegistry(packageRoot, { projectRoot: cwd }), {
     consumer: `worker:${step}`,
     vars: {
       issue: String(issue),
@@ -1112,7 +1112,11 @@ export function runExecute({
       stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n',
     };
   }
-  if (dirtyTreeBlocks(issues[0], cwd, run, untrack)) {
+  const matchingRun = existingRun && JSON.stringify(existingRun.issues) === JSON.stringify(issues);
+  const dirtyIssue = matchingRun
+    ? issues.find((issue) => nextStep(existingRun.completed?.[String(issue)] ?? []) !== null) ?? issues[0]
+    : issues[0];
+  if (dirtyTreeBlocks(dirtyIssue, cwd, run, untrack)) {
     return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
   }
 

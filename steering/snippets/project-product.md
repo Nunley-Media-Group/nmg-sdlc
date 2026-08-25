@@ -198,5 +198,5 @@ Each skill's postconditions must continue to satisfy its downstream consumer's p
 
 ## References
 
-- Technical standards: `steering/tech.md`
-- Repository structure: `steering/structure.md`
+- Technical standards: `steering/snippets/project-tech.md`
+- Repository structure: `steering/snippets/project-structure.md`

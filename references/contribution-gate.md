@@ -10,8 +10,8 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 6` |
-| Current numeric version | `6` |
+| Managed version | `# nmg-sdlc-managed-version: 7` |
+| Current numeric version | `7` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
 | Maximum paths per diagnostic | `20` |
@@ -25,7 +25,7 @@ Only files containing the managed marker are nmg-sdlc-owned. A file at the appro
 | Pull request title and body | Current issue, spec, steering, verification, and exception evidence |
 | Pull request changed files | Spec discovery, path classification, traceability, and exception validation |
 | `CONTRIBUTING.md` | Contributor-facing remediation target |
-| `steering/product.md`, `steering/tech.md`, `steering/structure.md` | Required steering context |
+| `steering/manifest.json` and the four managed modules | Required steering runtime |
 | Selected `specs/{N}-{slug}` artifacts | Issue correlation and task evidence |
 | Committed `verification-report.md` or `verification.md` artifacts | Specific verification and path evidence |
 
@@ -38,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 6
+# nmg-sdlc-managed-version: 7
 name: nmg-sdlc contribution gate
 
 on:
@@ -297,10 +297,12 @@ jobs:
               'VERSION',
               'README.md',
               'CONTRIBUTING.md',
-              'steering/product.md',
-              'steering/tech.md',
-              'steering/structure.md',
+              'steering/manifest.json',
+              'steering/modules/product.mjs',
+              'steering/modules/tech.mjs',
+              'steering/modules/structure.mjs',
               '.github/workflows/nmg-sdlc-contribution-gate.yml',
+              'steering/modules/verification.mjs',
               'references/rewrite-contract.json',
               'references/rewrite-contract.md',
               'references/rewrite-verification.md',
@@ -336,16 +338,22 @@ jobs:
               }
             }
 
-            const steeringFiles = ['steering/product.md', 'steering/tech.md', 'steering/structure.md'];
+            const steeringFiles = [
+              'steering/manifest.json',
+              'steering/modules/product.mjs',
+              'steering/modules/tech.mjs',
+              'steering/modules/structure.mjs',
+              'steering/modules/verification.mjs',
+            ];
             const steeringPresence = await Promise.all(steeringFiles.map(pathExists));
             const missingSteering = steeringFiles.filter((_, index) => !steeringPresence[index]);
             const currentEvidence = stripQuotedHistory(`${prText}\n${specText}`);
-            const steeringReferenced = /\bsteering\b|steering\/(?:product|tech|structure)\.md|product\.md|tech\.md|structure\.md/i.test(currentEvidence)
-              || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
+            const steeringReferenced = /\bsteering\b|steering\/manifest\.json|steering\/(?:modules|snippets)\//i.test(currentEvidence)
+              || changedPaths.some((path) => /^steering\/(?:manifest\.json|modules\/|snippets\/)/.test(path));
             if (missingSteering.length > 0) {
               failures.push(`Missing steering artifacts: expected ${missingSteering.join(', ')}.`);
             } else if (!steeringReferenced && reducedMode !== 'spec-only') {
-              failures.push('Missing steering evidence: explain alignment with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
+              failures.push('Missing steering evidence: explain alignment with the registered managed steering runtime.');
             }
 
             if (reducedMode !== 'docs-only' && unmatchedPaths.length > 0) {

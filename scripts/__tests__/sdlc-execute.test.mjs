@@ -1371,6 +1371,40 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('uses the first incomplete persisted issue for dirty-tree resume', () => {
+    const fixture = makeControllerFixture({
+      dirty: ' M src/change.mjs\n',
+      branch: '43-ship-it',
+      labelIssues: [42, 43],
+    });
+    const laterSpec = path.join(fixture.cwd, 'specs', '43-ship-it');
+    fs.mkdirSync(laterSpec, { recursive: true });
+    writeApproved(laterSpec, 43);
+    writeRun({
+      schemaVersion: 1,
+      issues: [42, 43],
+      currentIssue: 43,
+      currentStep: 'start',
+      completed: {
+        42: VALID_STEPS,
+        43: [],
+      },
+      failed: null,
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.stderr).not.toBe('Working tree is dirty for a new issue\n');
+    expect(fixture.starts.map(({ name }) => name)).toContain('s43-start');
+  });
+
   it('fails closed when execute cannot untrack tracked runtime', () => {
     const fixture = makeControllerFixture({
       gitignore: '.omp/sdlc/\n',

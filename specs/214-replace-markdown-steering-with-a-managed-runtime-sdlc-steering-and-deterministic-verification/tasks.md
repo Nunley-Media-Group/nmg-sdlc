@@ -109,7 +109,7 @@
 
 ### T009: Update managed surfaces and run full verification
 
-**File(s)**: `README.md`, `CHANGELOG.md`, command files, inventory/baseline fixtures, plugin-surface and exercise fixtures
+**File(s)**: `.github/workflows/`, `commands/`, `references/`, `scripts/`, `src/`, `steering/`, `workflows/`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `VERSION`, `package.json`
 **Type**: Modify
 **Depends**: T008
 **Acceptance**:

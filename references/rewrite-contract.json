@@ -165,6 +165,27 @@
       ]
     },
     {
+      "id": "steering",
+      "title": "Managed Steering Runtime",
+      "surface": "/sdlc-steering [prompt]",
+      "purpose": "Plan and apply versioned steering registrations and deterministic validation contracts.",
+      "sources": [
+        "workflows/steering/",
+        "src/sdlc-steering-runtime.mjs",
+        "scripts/sdlc-steering.mjs"
+      ],
+      "verification": [
+        "scripts/__tests__/sdlc-steering-runtime.test.mjs",
+        "scripts/__tests__/sdlc-verification-runtime.test.mjs"
+      ],
+      "acceptance": [
+        "Given natural-language steering intent, when the interactive command runs, then it proposes exact initialize, update, or migrate actions before mutation.",
+        "Given an approved plan, when apply runs, then the complete candidate runtime validates before live managed files change.",
+        "Given registered project snippets, when prompts render, then only manifest-declared files enter the shared registry with provenance.",
+        "Given required deterministic validations, when verification runs, then identity-bound non-pass outcomes forbid successful status."
+      ]
+    },
+    {
       "id": "run-retro",
       "title": "Run Retrospective",
       "surface": "/sdlc-run-retro",

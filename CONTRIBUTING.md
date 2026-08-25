@@ -6,9 +6,9 @@
 
 Before drafting issues, writing specs, or changing implementation files, review:
 
-- `steering/product.md` for the plugin mission, target users, product principles, and success metrics.
-- `steering/tech.md` for OMP extension architecture, versioning, compatibility, security, verification, and resource-authoring rules.
-- `steering/structure.md` for repository layout, naming conventions, layer responsibilities, and anti-patterns.
+- `steering/manifest.json` for the registered product, technical, structure, and verification runtime.
+- `steering/snippets/` for project-owned product and engineering guidance declared by the manifest.
+- `steering/modules/` for plugin-managed runtime descriptors.
 
 Git history is the archive for superseded behavior. The working-tree `specs/` directory contains only current capability contracts and active issue specs; remove obsolete packages during an approved breaking repository rewrite.
 
@@ -30,7 +30,7 @@ Steering docs are part of the contract for this project:
 
 - Product changes should support a structured, issue-driven SDLC using native `/plan` for interactive stages and Herdr `omp` workers for automated delivery.
 - Technical changes must preserve cross-platform behavior, use Node.js ESM conventions for scripts, avoid hardcoded platform separators, and respect the `VERSION` + `package.json` versioning flow.
-- Skill-bundled file changes must follow the `skill-creator` requirement in `steering/tech.md` when the skill is present.
+- Skill-bundled file changes must follow the `skill-creator` requirement in the registered technical steering snippet when the skill is present.
 - Structure changes should keep reusable rules in `references/`, workflow-specific branches under `workflows/{name}/references/`, templates under each owning workflow, and runner behavior in `scripts/`.
 
 When steering and a proposed implementation conflict, update the issue or spec before changing code.
@@ -56,7 +56,7 @@ Before requesting review, confirm the pull request is ready for the managed nmg-
 
 - Link the GitHub issue in the PR body or spec frontmatter, using `Closes #N`, `Fixes #N`, or `**Issue**: #N`.
 - Link or update the relevant `specs/{N}-{slug}/` artifacts, including `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` (or the matching ADR) when generated.
-- Explain steering alignment against `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.
+- Explain alignment against the manifest-registered product, technical, and structure steering snippets.
 - Summarize verification evidence from tests, exercise runs, verification results, or a committed `verification-report.md`.
 - Include reviewer context for known gaps, intentionally deferred work, or follow-up issues.
 

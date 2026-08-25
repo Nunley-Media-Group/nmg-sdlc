@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   applyBlockedByEdges,
   createIssueDependencyClient,
@@ -26,6 +27,7 @@ import {
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
+import { createInitializePlan } from './sdlc-steering.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -405,15 +407,10 @@ function filterOwnedSections(content, owned, kind) {
       if (scnMatch) {
         keepCurrent = scnOwned.has(scnMatch[1].toUpperCase());
       }
-      // keep following indented scenario lines if keepCurrent
     }
 
     if (keepCurrent || /^# |^## |^\s*$/.test(line)) {
       out.push(line);
-    }
-    // reset keep on next marker for gherkin
-    if (section === 'gherkin' && /^Feature:|^@|^\s*$/.test(line) && !keepCurrent) {
-      keepCurrent = true;
     }
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
@@ -666,6 +663,75 @@ export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = d
   return { id: item.id, status: 'applied', applied };
 }
 
+function detectSteeringRuntime(root) {
+  const legacy = ['product', 'tech', 'structure']
+    .map((role) => ({ role, path: path.join(root, 'steering', `${role}.md`) }))
+    .filter(({ path: target }) => isFile(target));
+  const manifest = path.join(root, 'steering', 'manifest.json');
+  if (legacy.length === 0 && isFile(manifest)) return null;
+  if (legacy.length === 0) return null;
+  const consumersByRole = {
+    product: ['sdlc-draft-issue', 'sdlc-write-spec'],
+    tech: ['sdlc-write-spec', 'worker:implement', 'worker:verify', 'worker:deliver'],
+    structure: ['sdlc-write-spec', 'worker:implement', 'worker:verify'],
+  };
+  const snippets = legacy.map(({ role, path: source }) => ({
+    id: `project.${role}`,
+    path: `steering/snippets/project-${role}.md`,
+    consumers: consumersByRole[role],
+    slot: 'body',
+    order: 500,
+    byteBound: Math.max(8192, Buffer.byteLength(safeRead(source) || '', 'utf8')),
+    content: safeRead(source) || '',
+  }));
+  const existingManifest = isFile(manifest) ? JSON.parse(safeRead(manifest)) : null;
+  const existingSnippets = existingManifest?.snippets ?? [];
+  const migratedIds = new Set(snippets.map(({ id }) => id));
+  const plan = createInitializePlan(root, {
+    snippets,
+    validations: existingManifest?.validations ?? [],
+  });
+  const manifestAction = plan.actions.find(({ path: target }) => target === 'steering/manifest.json');
+  const nextManifest = JSON.parse(manifestAction.content);
+  nextManifest.snippets = [
+    ...existingSnippets.filter(({ id }) => !migratedIds.has(id)),
+    ...nextManifest.snippets,
+  ];
+  nextManifest.extensions = existingManifest?.extensions ?? [];
+  manifestAction.content = `${JSON.stringify(nextManifest, null, 2)}\n`;
+  plan.mode = existingManifest ? 'update' : 'migrate';
+  plan.actions.push(...legacy.map(({ role }) => ({ op: 'delete', path: `steering/${role}.md` })));
+  return {
+    id: `steering-runtime:${plan.sourceDigest}`,
+    kind: 'steering-runtime',
+    description: 'Migrate legacy steering Markdown into the managed runtime and registered project snippets.',
+    actionable: true,
+    plan,
+  };
+}
+
+function applySteeringRuntime(root, item) {
+  const temporary = path.join(root, '.omp', 'sdlc', `steering-plan-${process.pid}.json`);
+  ensureDir(path.dirname(temporary));
+  fs.writeFileSync(temporary, `${JSON.stringify(item.plan, null, 2)}\n`);
+  try {
+    const result = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'sdlc-steering.mjs'), 'apply', '--project', root, '--plan', temporary], {
+      cwd: root,
+      encoding: 'utf8',
+      shell: false,
+      timeout: 120000,
+    });
+    if (result.error || result.status !== 0) {
+      const error = new Error(result.error?.message || result.stdout || result.stderr || 'steering apply failed');
+      error.reasonCode = 'steering_apply_failed';
+      throw error;
+    }
+    return { id: item.id, status: 'applied', result: JSON.parse(result.stdout) };
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -689,6 +755,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       actionable: true,
     });
   }
+  const steeringRuntime = detectSteeringRuntime(rootAbs);
+  if (steeringRuntime) items.push(steeringRuntime);
 
   // Collect current spec state
   const specDirs = listSpecDirs(rootAbs);
@@ -979,18 +1047,14 @@ function applyDirectoryRename(root, item) {
   if (!isDir(fromFull)) return { id: item.id, status: 'skipped:missing' };
   if (item.collision) return { id: item.id, status: 'skipped:collision' };
   try {
-    // copy files then rename dir? use rename for dir
     safeDirRename(fromFull, toFull);
-    // update frontmatter inside the moved dir
-    for (const fname of ['requirements.md', 'design.md', 'tasks.md']) {
+    for (const fname of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
       const fp = path.join(toFull, fname);
       if (isFile(fp)) {
-        let txt = safeRead(fp);
-        txt = rewriteFrontmatter(txt, item.primaryN, item.newStatus || 'Draft');
+        const txt = rewriteFrontmatter(safeRead(fp), item.primaryN, item.newStatus || 'Draft');
         fs.writeFileSync(fp, txt);
       }
     }
-    // cross ref update
     updateCrossReferences(root, item.from, item.to);
     return { id: item.id, status: 'applied' };
   } catch (e) {
@@ -1093,7 +1157,7 @@ function applyEpicFlatten(root, item) {
     // also remove issue-scope if present? per flatten no, but keep if was child executable
     // update frontmatters
     const newStatus = hasVerificationReport(toFull) ? 'Approved' : 'Draft';
-    for (const fname of ['requirements.md', 'design.md', 'tasks.md']) {
+    for (const fname of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
       const fp = path.join(toFull, fname);
       if (isFile(fp)) {
         let txt = safeRead(fp);
@@ -1104,31 +1168,12 @@ function applyEpicFlatten(root, item) {
         fs.writeFileSync(fp, txt);
       }
     }
-
-
-    // remove the aggregate dir and any leftover epic-*
     if (item.aggregateRel) {
-      const aggFull = path.join(root, item.aggregateRel);
-      removeDirSafe(aggFull);
+      removeDirSafe(path.join(root, item.aggregateRel));
     }
-    // also sweep any remaining epic- under specs
-    const specsDir = path.join(root, 'specs');
-    for (const ent of listDir(specsDir)) {
-      if (ent.isDirectory() && ent.name.startsWith('epic-')) {
-        removeDirSafe(path.join(specsDir, ent.name));
-      }
-    }
-    // delete any stray epic-link / scope under specs (defensive)
-    function sweepDelete(p) {
-      for (const ent of listDir(p)) {
-        const fp = path.join(p, ent.name);
-        if (ent.isDirectory()) sweepDelete(fp);
-        else if (ent.name === 'epic-link.json' || ent.name === 'epic-scope.json' || ent.name === 'issue-scope.json') {
-          removeFileSafe(fp);
-        }
-      }
-    }
-    sweepDelete(specsDir);
+
+
+
 
     updateCrossReferences(root, item.from, item.to);
 
@@ -1141,14 +1186,19 @@ function applyEpicFlatten(root, item) {
 }
 
 function applyV2Cleanup(root, item) {
+  const p = path.join(root, item.rel);
+  let stat;
+  try {
+    stat = fs.lstatSync(p);
+  } catch {
+    return { id: item.id, status: 'already clean' };
+  }
+  if (stat.isSymbolicLink()) return { id: item.id, status: 'preserved (unmanaged)' };
   if (item.rel === '.gitignore') {
     const r = editGitignoreForV2(root);
     return { id: item.id, status: r.status };
   }
-  const p = path.join(root, item.rel);
-  const kind = isDir(p) ? 'dir' : isFile(p) ? 'file' : 'absent';
-  if (kind === 'absent') return { id: item.id, status: 'already clean' };
-  if (kind !== 'file') return { id: item.id, status: 'preserved (unmanaged)' };
+  if (!stat.isFile()) return { id: item.id, status: 'preserved (unmanaged)' };
   try {
     fs.unlinkSync(p);
     return { id: item.id, status: isFile(p) ? 'failed:still-present' : 'removed' };
@@ -1259,15 +1309,18 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     }
   }
 
-  // order: packaging/legacy first (non spec), then renames, splits, flattens, spikes, frontmatter, cleanup
+  // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'directory-rename': 2, 'cumulative-split': 3, 'epic-flatten': 4, 'spike-flatten': 5, 'spike-remove': 5, 'spike-issue-form': 5, 'agents-spike-language': 5, 'frontmatter-fix': 6, 'v2-cleanup': 7, 'omp-sdlc-ignore': 8, 'issue-dependencies': 9, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'cumulative-split': 3, 'directory-rename': 4, 'epic-flatten': 5, 'spike-flatten': 6, 'spike-remove': 6, 'spike-issue-form': 6, 'agents-spike-language': 6, 'frontmatter-fix': 7, 'v2-cleanup': 8, 'omp-sdlc-ignore': 9, 'issue-dependencies': 10, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
 
   for (const item of toApply) {
     let res;
+    if (item.kind === 'steering-runtime') {
+      res = applySteeringRuntime(rootAbs, item);
+    } else
     if (item.kind === 'directory-rename') {
       res = applyDirectoryRename(rootAbs, item);
     } else if (item.kind === 'frontmatter-fix') {

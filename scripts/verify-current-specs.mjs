@@ -37,6 +37,7 @@ const WORKFLOW_CAPABILITY = new Map([
   ['start-issue', 'start-issue'],
   ['simplify', 'simplify'],
   ['status', 'status'],
+  ['steering', 'steering'],
   ['upgrade-project', 'project-upgrade'],
   ['verify-code', 'verify-code'],
   ['write-code', 'write-code'],
@@ -52,6 +53,7 @@ const CAPABILITY_SPEC = new Map([
   ['simplify', 106],
   ['start-issue', 10],
   ['status', 145],
+  ['steering', 214],
   ['project-upgrade', 21],
   ['verify-code', 7],
   ['write-code', 6],
@@ -65,6 +67,7 @@ const COMMAND_CAPABILITY = new Map([
   ['sdlc-write-spec', 'write-spec'],
   ['sdlc-onboard-project', 'onboard-project'],
   ['sdlc-upgrade-project', 'project-upgrade'],
+  ['sdlc-steering', 'steering'],
   ['sdlc-run-retro', 'run-retro'],
   ['sdlc-execute', 'execute'],
   ['sdlc-status', 'status'],
@@ -122,6 +125,18 @@ export function verifySpecArchive(specsRoot, requiredDirectories = CURRENT_SPEC_
   const actualDirectories = listDirectories(specsRoot);
   const missingDirectories = requiredDirectories.filter((directory) => !actualDirectories.includes(directory));
   if (missingDirectories.length) errors.push(`Missing current spec directories: ${missingDirectories.join(', ')}`);
+  const directoriesByIssue = new Map();
+  for (const directory of actualDirectories) {
+    const issue = issueFromDirectory(directory);
+    if (issue === null) continue;
+    const siblings = directoriesByIssue.get(issue) ?? [];
+    siblings.push(directory);
+    directoriesByIssue.set(issue, siblings);
+  }
+  for (const [issue, directories] of directoriesByIssue) {
+    if (directories.length > 1) errors.push(`Duplicate spec directories for issue #${issue}: ${directories.join(', ')}`);
+  }
+
 
   for (const directory of actualDirectories) {
     const issue = issueFromDirectory(directory);
@@ -137,9 +152,10 @@ export function verifySpecArchive(specsRoot, requiredDirectories = CURRENT_SPEC_
         continue;
       }
       const text = fs.readFileSync(artifactPath, 'utf8');
-      const hasIssue = artifact === 'feature.gherkin'
-        ? (text.includes(`**Issue**: #${issue}`) || text.includes(`# Issue: #${issue}`))
-        : text.includes(`**Issue**: #${issue}`);
+      const issueMatches = artifact === 'feature.gherkin'
+        ? [...text.matchAll(/^(?:\*\*Issue\*\*:\s*|# Issue:\s*)#?([1-9]\d*)\s*$/gm)]
+        : [...text.matchAll(/^\*\*Issue\*\*:\s*#?([1-9]\d*)\s*$/gm)];
+      const hasIssue = issueMatches.length > 0 && issueMatches.every((match) => Number(match[1]) === issue);
       if (!hasIssue) errors.push(`${directory}/${artifact} lacks singular **Issue**: #${issue}`);
       if (artifact === 'requirements.md' && !text.includes('**Status**: Approved')) {
         errors.push(`${directory}/requirements.md is not Approved`);
@@ -180,7 +196,7 @@ export function verifyCurrentSpecs(projectRoot) {
   }
 
   const capabilities = new Map((contract.capabilities || []).map((capability) => [capability.id, capability]));
-  if (capabilities.size !== 15) errors.push(`Rewrite contract must contain 15 capabilities; found ${capabilities.size}`);
+  if (capabilities.size !== 16) errors.push(`Rewrite contract must contain 16 capabilities; found ${capabilities.size}`);
   for (const [id, capability] of capabilities) {
     if (!capability.purpose || !Array.isArray(capability.acceptance) || capability.acceptance.length < 3) {
       errors.push(`Rewrite capability ${id} lacks purpose or acceptance coverage`);
@@ -237,6 +253,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exitCode = 1;
   } else {
     const actualDirectories = listDirectories(path.join(projectRoot, 'specs'));
-    console.log(`Current spec verification passed: ${actualDirectories.length} genuine issue specs, ${CURRENT_SPEC_DIRECTORIES.length} required archive, 15 rewrite capabilities, ${WORKFLOW_CAPABILITY.size} active workflow mappings, ${DEPRECATED_WORKFLOW_STUBS.size} deprecated stub.`);
+    console.log(`Current spec verification passed: ${actualDirectories.length} genuine issue specs, ${CURRENT_SPEC_DIRECTORIES.length} required archive, 16 rewrite capabilities, ${WORKFLOW_CAPABILITY.size} active workflow mappings, ${DEPRECATED_WORKFLOW_STUBS.size} deprecated stub.`);
   }
 }

@@ -18,6 +18,7 @@ import {
 import {
   AUTOMATED_COMMANDS,
   INTERACTIVE_COMMANDS,
+  rewriteInteractiveInput,
 } from '../../src/sdlc-commands.mjs';
 import { VALID_STEPS } from '../sdlc-execute.mjs';
 import { workflowBody } from '../../src/sdlc-workflows.mjs';
@@ -64,6 +65,7 @@ describe('prompt snippet registry', () => {
       'plugin.workflow.write-spec',
       'plugin.workflow.onboard-project',
       'plugin.workflow.upgrade-project',
+      'plugin.workflow.steering',
       'plugin.workflow.run-retro',
       'plugin.workflow.execute',
       'plugin.workflow.status',
@@ -79,7 +81,7 @@ describe('prompt snippet registry', () => {
     ]);
     expect(fragments.filter(({ source }) => !source.startsWith('builtin:'))
       .every(({ source }) => source.startsWith('workflows/'))).toBe(true);
-    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(16);
+    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(17);
   });
 
   it('renders existing workflow text and the exact worker header', () => {
@@ -102,6 +104,38 @@ describe('prompt snippet registry', () => {
       '',
       workflowBody('start-issue', repoRoot),
     ].join('\n'));
+  });
+
+  it('renders and materializes the steering command controller paths', () => {
+    const rendered = rewriteInteractiveInput('/sdlc-steering', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: '',
+    });
+    expect(rendered.text).toContain(`node "${path.join(repoRoot, 'scripts', 'sdlc-steering.mjs')}" inspect --project .`);
+    expect(rendered.text).not.toContain('<plugin-root>');
+    expect(rendered.text).not.toContain('{{pluginRoot}}');
+  });
+
+  it('renders repair commands from plugin prompts when project steering is invalid', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-invalid-steering-'));
+    fs.mkdirSync(path.join(projectRoot, 'steering'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'steering', 'manifest.json'), '{ invalid\n');
+
+    const repaired = rewriteInteractiveInput('/sdlc-steering', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: projectRoot,
+    });
+    expect(repaired.text).toContain('# Manage Steering');
+    expect(() => rewriteInteractiveInput('/sdlc-write-spec #42', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: projectRoot,
+    })).toThrow('project_runtime_invalid');
   });
 
   it('sorts by order then id and records substituted fragment provenance', () => {

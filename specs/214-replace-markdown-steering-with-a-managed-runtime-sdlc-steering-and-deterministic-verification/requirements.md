@@ -79,6 +79,7 @@ Issue #213 supplies the plugin-owned prompt-snippet registry. This issue extends
 **And** no project directory is scanned for undeclared snippets
 **And** snippet prose cannot mutate, suppress, or raise a core validation result
 
+
 ---
 
 ## Functional Requirements

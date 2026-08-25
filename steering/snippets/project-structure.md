@@ -198,6 +198,6 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 
 ## References
 
-- Product direction: `steering/product.md`
-- Technical standards: `steering/tech.md`
+- Product direction: `steering/snippets/project-product.md`
+- Technical standards: `steering/snippets/project-tech.md`
 - Public workflow: `README.md`

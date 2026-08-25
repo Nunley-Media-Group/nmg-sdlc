@@ -112,6 +112,29 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.nextAction.command).toBe('/sdlc-open-pr #42');
   });
 
+  it('fails closed for unavailable issue evidence, conflicting verification, and completed delivery', () => {
+    const unavailable = baseEvidence();
+    unavailable.issue = null;
+    expect(inferLifecycle(unavailable)).toMatchObject({
+      stage: 'unknown',
+      nextAction: { reason: 'issue_evidence_unavailable', manualRepairRequired: true },
+    });
+
+    expect(inferLifecycle(baseEvidence({
+      verification: { status: 'pass', current: true },
+    }))).toMatchObject({
+      stage: 'specified',
+      nextAction: { command: '/sdlc-execute #42' },
+    });
+
+    expect(inferLifecycle(baseEvidence({
+      project: { branch: '42-example', dirty: false, implementationPaths: ['src/foo.ts'], baseRelativeCommits: [] },
+      issue: { state: 'CLOSED' },
+      verification: { status: 'pass', current: true },
+      pullRequest: { number: 9, state: 'MERGED', isDraft: false },
+    }))).toMatchObject({ stage: 'complete' });
+  });
+
   it('never recommends worker /skill: commands', () => {
     const cases = [
       inferLifecycle(baseEvidence({
@@ -218,9 +241,6 @@ describe('sdlc-status v3 recommendations', () => {
       const observedGitArgs = [];
       const run = (command, args, options = {}) => {
         if (command === 'gh') {
-          if (args[0] === 'repo') {
-            return { ok: true, status: 0, stdout: 'master\n', stderr: '' };
-          }
           return { ok: false, status: 1, stdout: '', stderr: 'offline fixture' };
         }
         observedGitArgs.push(args);

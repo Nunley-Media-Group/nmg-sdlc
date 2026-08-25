@@ -8,6 +8,7 @@ import {
   detectIssueDependencyUpgrade,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
+import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 const temporaryRoots = [];
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
 
@@ -97,14 +98,21 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
       childSpecPath: 'specs/feature-bar',
       outcomes: ['EO001'],
     }, null, 2));
+    write(root, 'specs/feature-bar/feature.gherkin', '**Issues**: #10, #11\nFeature: Bar\n');
+    write(root, 'specs/epic-unapproved/requirements.md', '**Issue**: #12\n');
 
 
-    const ids = detectUpgrade(root).items.filter((item) => item.kind === 'epic-flatten').map((item) => item.id);
-    applyUpgrade(root, ids, noNetworkRun);
+
+    const item = detectUpgrade(root).items.find((candidate) => (
+      candidate.kind === 'epic-flatten' && candidate.from === 'specs/feature-bar'
+    ));
+    applyUpgrade(root, [item.id], noNetworkRun);
     expect(fs.existsSync(path.join(root, 'specs/11-bar/requirements.md'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'specs/epic-foo'))).toBe(false);
-    expect(fs.existsSync(path.join(root, 'specs/feature-bar/epic-link.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'specs/epic-unapproved/requirements.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'specs/11-bar/epic-link.json'))).toBe(false);
     expect(fs.readFileSync(path.join(root, 'specs/11-bar/requirements.md'), 'utf8')).toContain('**Issue**: #11');
+    expect(fs.readFileSync(path.join(root, 'specs/11-bar/feature.gherkin'), 'utf8')).toContain('**Issue**: #11');
   });
 
   it('splits a cumulative feature spec with valid issue-scope.json', () => {
@@ -120,24 +128,35 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     ].join('\n'));
     write(root, 'specs/feature-baz/design.md', '# Design\n\n**Issues**: #2, #6\n');
     write(root, 'specs/feature-baz/tasks.md', '# Tasks\n\n**Issues**: #2, #6\n');
-    write(root, 'specs/feature-baz/feature.gherkin', 'Feature: Baz\n');
+    write(root, 'specs/feature-baz/feature.gherkin', [
+      'Feature: Baz',
+      '@SCN1',
+      'Scenario: Two',
+      '  Given issue two',
+      '@SCN2',
+      'Scenario: Six',
+      '  Given issue six',
+      '',
+    ].join('\n'));
     write(root, 'specs/feature-baz/issue-scope.json', JSON.stringify({
       schemaVersion: 1,
       issues: {
         '2': {
-          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: [], scenarios: [] },
+          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: [], scenarios: ['SCN1'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
         '6': {
-          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: [], scenarios: [] },
+          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: [], scenarios: ['SCN2'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
       },
     }, null, 2));
 
-    const ids = detectUpgrade(root).items.filter((item) => item.kind === 'cumulative-split').map((item) => item.id);
+    const ids = detectUpgrade(root).items
+      .filter((item) => ['cumulative-split', 'directory-rename'].includes(item.kind))
+      .map((item) => item.id);
     applyUpgrade(root, ids, noNetworkRun);
 
     expect(fs.existsSync(path.join(root, 'specs/2-baz/requirements.md'))).toBe(true);
@@ -146,6 +165,9 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/requirements.md'), 'utf8')).toContain('**Issue**: #2');
     expect(fs.readFileSync(path.join(root, 'specs/6-baz/requirements.md'), 'utf8')).toContain('**Issue**: #6');
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/requirements.md'), 'utf8')).not.toMatch(/\*\*Issues\*\*/);
+    expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Two');
+    expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).not.toContain('Scenario: Six');
+    expect(fs.readFileSync(path.join(root, 'specs/6-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Six');
   });
 });
 
@@ -499,5 +521,72 @@ describe('official dependency upgrade reconciliation', () => {
       actionable: true,
     }));
     expect(report.items.some((item) => item.kind === 'already-current')).toBe(false);
+  });
+});
+
+describe('managed steering migration', () => {
+  it('uses the shared writer and removes legacy authority only after validation', () => {
+    const root = makeRoot();
+    write(root, 'steering/product.md', '# Product\n');
+    write(root, 'steering/tech.md', '# Tech\n');
+    write(root, 'steering/structure.md', '# Structure\n');
+    write(root, 'steering/retrospective.md', '# Keep\n');
+    write(root, 'steering/unknown.txt', 'keep\n');
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+    expect(item).toEqual(expect.objectContaining({ actionable: true, plan: expect.objectContaining({ mode: 'migrate' }) }));
+
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+    expect(fs.existsSync(path.join(root, 'steering', 'manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'steering', 'tech.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'steering', 'structure.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe('# Tech\n');
+    expect(fs.readFileSync(path.join(root, 'steering', 'retrospective.md'), 'utf8')).toBe('# Keep\n');
+    expect(fs.readFileSync(path.join(root, 'steering', 'unknown.txt'), 'utf8')).toBe('keep\n');
+  });
+
+  it('updates an existing manifest without discarding runtime registrations', async () => {
+    const root = makeRoot();
+    await applySteeringPlan(root, createInitializePlan(root, {
+      snippets: [{
+        id: 'project.custom',
+        path: 'steering/snippets/project-custom.md',
+        consumers: ['worker:implement'],
+        slot: 'body',
+        order: 600,
+        byteBound: 1024,
+        content: 'Keep custom guidance.\n',
+      }],
+    }));
+    write(root, 'steering/extensions/custom.mjs', [
+      'export const extension = Object.freeze({',
+      '  schemaVersion: 1,',
+      '  id: "project.custom",',
+      '  providers: Object.freeze({ "project.custom-check": async (request) => ({ schemaVersion: 1, status: "passed", summary: "ok", identity: request.identity, evidence: [{ kind: "custom", summary: "ok", artifact: null }] }) }),',
+      '});',
+      '',
+    ].join('\n'));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({ id: 'project.custom', path: 'steering/extensions/custom.mjs', providers: ['project.custom-check'] });
+    manifest.validations.push({ id: 'custom.check', provider: 'project.custom-check', required: true, when: { kind: 'always' }, timeoutMs: 1000, config: {} });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    write(root, 'steering/product.md', '# Migrated Product\n');
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+    expect(item.plan.mode).toBe('update');
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+
+    const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    expect(updated.snippets.map(({ id }) => id)).toEqual(['project.custom', 'project.product']);
+    expect(updated.extensions).toEqual(manifest.extensions);
+    expect(updated.validations).toEqual(manifest.validations);
+    expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-custom.md'), 'utf8')).toBe('Keep custom guidance.\n');
+    expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
   });
 });

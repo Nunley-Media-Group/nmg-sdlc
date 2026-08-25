@@ -129,6 +129,19 @@ Acceptance:
 - Given legacy packaging or layouts, when an approved upgrade runs, then deterministic script mutations converge on the current OMP structure.
 - Given ambiguous ownership, when detected, then the workflow preserves it for explicit user resolution.
 
+## Managed Steering Runtime (`steering`)
+
+- Surface: `/sdlc-steering [prompt]`
+- Sources: `workflows/steering/`, `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs`
+- Verification: `scripts/__tests__/sdlc-steering-runtime.test.mjs`, `scripts/__tests__/sdlc-verification-runtime.test.mjs`
+
+Acceptance:
+
+- Given natural-language steering intent, when the interactive command runs, then it proposes exact initialize, update, or migrate actions before mutation.
+- Given an approved plan, when apply runs, then the complete candidate runtime validates before live managed files change.
+- Given registered project snippets, when prompts render, then only manifest-declared files enter the shared registry with provenance.
+- Given required deterministic validations, when verification runs, then identity-bound non-pass outcomes forbid successful status.
+
 ## Run Retrospective (`run-retro`)
 
 Analyze new or changed defect specs incrementally and update steering/retrospective.md without changing delivery state.
