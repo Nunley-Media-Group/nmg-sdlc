@@ -41,6 +41,7 @@ const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -618,7 +619,7 @@ function observeAgentText(herdr, name, expected, attempts = 50) {
   return false;
 }
 function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
-  let branchMenuVisible = agentDetectionText(herdr, agentName).includes('Select base branch');
+  let branchMenuVisible = agentDetectionText(herdr, agentName).includes(REVIEW_BRANCH_PICKER_TEXT);
   if (!branchMenuVisible) {
     let reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
     if (!reviewModeVisible) {
@@ -638,7 +639,7 @@ function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
     ) {
       return false;
     }
-    branchMenuVisible = observeAgentText(herdr, agentName, 'Select base branch');
+    branchMenuVisible = observeAgentText(herdr, agentName, REVIEW_BRANCH_PICKER_TEXT);
   }
   return branchMenuVisible
     && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
@@ -926,7 +927,7 @@ export function runExecute({
           && reviewStep
           && (
             retainedReviewText.includes('Review Mode')
-            || retainedReviewText.includes('Select base branch')
+            || retainedReviewText.includes(REVIEW_BRANCH_PICKER_TEXT)
           )
         ) {
           const reviewSelection = reviewBranchSelectionKeys(cwd, run);

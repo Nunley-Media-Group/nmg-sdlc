@@ -1556,7 +1556,7 @@ describe('runExecute controller', () => {
     fixture.herdr.agentRead = () => menu === 'mode'
       ? 'Review Mode'
       : menu === 'branch'
-        ? 'Select base branch'
+        ? 'Select base b…'
         : 'Review complete';
     const sendKeys = fixture.herdr.agentSendKeys;
     fixture.herdr.agentSendKeys = (input) => {
