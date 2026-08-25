@@ -64,7 +64,6 @@ export function exerciseOmpArgs({ cwd, timeoutMs }) {
   ];
 }
 
-
 export async function runExercise(options) {
   const cwd = resolve(options.cwd);
   const message = options.message;

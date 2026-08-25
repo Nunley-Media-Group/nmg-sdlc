@@ -104,19 +104,17 @@ describe('exercise-omp args', () => {
   });
 
   it('loads the source extension explicitly when extension discovery is disabled', () => {
-    const args = exerciseOmpArgs({ cwd: '/tmp/proj', timeoutMs: 300_000 });
-    expect(args).toEqual(expect.arrayContaining([
+    expect(exerciseOmpArgs({ cwd: '/tmp/proj', timeoutMs: 300_000 })).toEqual([
+      '--mode', 'rpc',
+      '--no-session',
       '--no-extensions',
-      '--extension',
-      path.join(repoRoot, 'src/extension.ts'),
-      '--plugin-dir',
-      repoRoot,
-      '--add-dir',
-      repoRoot,
-    ]));
-    expect(args.slice(args.indexOf('--extension'), args.indexOf('--plugin-dir'))).toEqual([
-      '--extension',
-      path.join(repoRoot, 'src/extension.ts'),
+      '--no-skills',
+      '--extension', path.join(repoRoot, 'src/extension.ts'),
+      '--plugin-dir', repoRoot,
+      '--add-dir', repoRoot,
+      '--cwd', path.resolve('/tmp/proj'),
+      '--auto-approve',
+      '--max-time', '300',
     ]);
   });
 

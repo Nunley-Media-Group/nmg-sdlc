@@ -103,7 +103,7 @@ Layer separation is sound: `sdlc-workflows.mjs` remains the file adapter; `sdlc-
 
 | Acceptance Criterion | Scenario | Executable Coverage | Passes |
 |---------------------|----------|---------------------|--------|
-| AC1 | SCN001 | Jest plus attempted live TUI | Partial |
+| AC1 | SCN001 | Jest plus corrected explicit-extension TUI diagnostic | Yes |
 | AC2 | SCN002 | Jest | Yes |
 | AC3 | SCN003 | Jest | Yes |
 | AC4 | SCN004 | Jest and byte ceilings | Yes |
