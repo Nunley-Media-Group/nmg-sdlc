@@ -1,0 +1,77 @@
+**Issue**: #259
+**Date**: 2026-08-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/249-make-execute-resume-active-issue-state-safely/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/259-add-controller-owned-fresh-session-remediation-loops/requirements.md
+Feature: Add controller-owned fresh-session remediation loops
+  As a Herdr OMP execute operator
+  I want /sdlc-execute to own fresh-session remediation when a remediable step handoff fails
+  So that recovery does not depend on manually closing a failed worker pane and restarting the same step until the queue can continue
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: Remediable failure starts one fresh rem session
+    Given /sdlc-execute receives a validated status failed handoff for a remediable idle or done worker
+    And the handoff is not blocked, not unknown, and not intervention true
+    When the controller evaluates that outcome
+    Then it persists the failure reason, artifacts, run state, and closed worker identity
+    And it closes that failed top-level step pane before creating any rem session
+    And it starts exactly one fresh OMP rem session named r<N>-<step>
+    And that session reruns the same failed step into the original handoff path
+    And a passed non-intervention original-step handoff is consumed and later steps continue without a manual reinvoke
+
+  # --- Alternative Paths ---
+
+  @SCN002
+  Scenario: Failed rem retries use another fresh session
+    Given a rem session settles without a passed non-intervention original-step handoff
+    And the outcome is still remediable
+    When the controller captures that retry evidence
+    Then it closes that rem pane after the evidence is persisted
+    And it starts another fresh r<N>-<step> session with a new attempt context
+    And it does not leave the previous rem pane open beside the next rem pane
+
+  # --- Error Handling ---
+
+  @SCN003
+  Scenario: Blocked unknown intervention and start stay preserved
+    Given a worker is blocked, unknown, missing or invalid as a handoff, genuinely stalled, intervention true, or the failed step is start
+    When execute evaluates that worker
+    Then it does not close that worker to start a rem session
+    And it stops fail-closed with the relevant pane preserved
+    And persisted run state names the issue, step, worker, pane, and reason
+
+  @SCN004
+  Scenario: Genuine blocker ends rem and leaves rewind available
+    Given remediable retries have run
+    When a rem session reaches a genuine external or intervention blocker
+    Then execute stops fail-closed after persisting that blocker evidence
+    And it does not start another rem session for that outcome
+    And a later resume may use backward-next rewind only after rem has stopped and no live r<N>-<step> remains
+    And later queued issues do not start until the current issue is merged and closed
+
+  # --- Edge Cases ---
+
+  @SCN005
+  Scenario: Topology stays one rem pane and one step identity
+    Given rem is running or has just passed
+    When an operator inspects panes, agents, and handoffs
+    Then the failed s<N>-<step> pane and a rem pane are never open at the same time
+    And no second s<N>-<step> worker exists for the same issue and step
+    And on pass later steps consume the original step handoff
+    And resume of an interrupted rem run does not duplicate a live rem or step worker
+
+  @SCN006
+  Scenario: Behavioral coverage proves the rem loop
+    Given focused execute controller fixtures
+    When those tests run
+    Then they prove close-then-rem pane topology
+    And they prove each retry receives a fresh session
+    And they prove handoff transfer back to the original step
+    And they prove no duplicate workers and automatic continuation after rem pass
+    And they prove fail-closed preservation for blocked, unknown, intervention, start, and external-blocker outcomes
