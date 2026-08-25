@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The implementation satisfies the six acceptance criteria and five approved tasks. The controller persists failure evidence before closing a remediable worker, starts and retries fresh `r<N>-<step>` OMP sessions, preserves the original handoff identity, resumes live remediation without duplicate step workers, and retains fail-closed behavior for non-remediable outcomes. The earlier complete Jest suite, current 155-test focused controller suite, and six-test prompt-contract suite pass. Ten subsequent smoke-product findings were fixed and covered locally; no GitHub smoke rerun was performed or claimed by this correction.
+The implementation satisfies the six acceptance criteria and five approved tasks. The controller persists failure evidence before closing a remediable worker, starts and retries fresh `r<N>-<step>` OMP sessions, preserves the original handoff identity, resumes live remediation without duplicate step workers, and retains fail-closed behavior for non-remediable outcomes. The current 158-test focused controller suite and six-test prompt-contract suite pass. A fresh live two-issue GitHub smoke against exact pushed source `a11237d13572da6801ae74b271a4cf2460a18479` passed end to end.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -40,10 +40,17 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 ## Delivery Validation
 
 - Local verification: Pass
-- PR evidence: Not required
-- Current focused controller verification: Pass (155 tests)
+- PR evidence: Pending remediation pull request
+- Current focused controller verification: Pass (158 tests)
 - Current prompt-contract verification: Pass (6 tests)
-- GitHub smoke rerun: Not run; no smoke pass claimed
+- GitHub smoke rerun: Pass — smoke issues #23 and #24 closed; delivery PRs #27 and #28 merged
+- Smoke repository: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
+- Smoke lifecycle: issue [#23](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/23) → PR [#27](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/27); issue [#24](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/24) → PR [#28](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/28)
+- Preserved summary: `specs/259-add-controller-owned-fresh-session-remediation-loops/live-smoke-evidence.json`
+- Primary evidence: `/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/clean.json`
+- Final runtime: `/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/final-runtime/run.json`
+- Topology and calls: `/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/topology.json`, `/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/smoke-259/herdr-calls.log`
+- Cleanup: `/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/cleanup.json`
 
 ---
 
@@ -56,7 +63,7 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 | AC3 | Blocked, unknown, missing/invalid, stalled, intervention, and start outcomes remain fail-closed with their panes preserved. | Pass | `scripts/sdlc-execute.mjs:1110-1159`, `scripts/__tests__/sdlc-execute.test.mjs:1408-1446` |
 | AC4 | A genuine blocker stops remediation; a later pane-free resume can use the existing backward-next rewind without advancing later issues. | Pass | `scripts/sdlc-execute.mjs:1137-1159`, `scripts/sdlc-execute.mjs:1235-1271`, `scripts/__tests__/sdlc-execute.test.mjs:1254-1325`, `scripts/__tests__/sdlc-execute.test.mjs:2116-2140` |
 | AC5 | Recovery maintains one rem pane and the original step identity; live remediation resume does not duplicate workers. | Pass | `scripts/sdlc-execute.mjs:1229-1285`, `scripts/__tests__/sdlc-execute.test.mjs:1239-1247`, `scripts/__tests__/sdlc-execute.test.mjs:1327-1405` |
-| AC6 | Behavioral fixtures cover topology, retries, identity transfer, automatic continuation, no duplicates, fail-closed outcomes, interactive review picker readiness, retained-worker status races, absent-versus-invalid classification, and bounded settled-handoff correction races. | Pass | Current focused Jest result: 1 suite, 155 tests passed; fresh review fixtures cover direct complete branch pickers after initial and fallback submission, delayed rendering, normal mode-to-branch selection, and partial rejection; retained picker paths remain covered; worker fixtures preserve late handoff correction and permanent fail-closed boundaries. |
+| AC6 | Behavioral fixtures cover topology, retries, identity transfer, automatic continuation, no duplicates, fail-closed outcomes, interactive review picker readiness, retained-worker status races, absent-versus-invalid classification, bounded settled-handoff correction races, and soft-wrapped unnumbered branch rows. | Pass | Current focused Jest result: 1 suite, 158 tests passed. Fresh and retained fixtures reconstruct only the exact ordered Git branch list when cursor and branch names wrap across terminal rows; malformed reconstruction remains fail-closed. |
 
 ---
 
@@ -80,8 +87,9 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 | Existing unreadable, malformed, schema-invalid, or identity-mismatched handoffs must remain distinct from absent handoffs and must never seed remediation. | Pass locally | `readExpectedHandoff` returns `missing_handoff` only when the path is absent and `invalid_handoff` for every existing invalid artifact. Fresh, retained, and active-remediation fixtures verify stable failure state, accurate retained-pane output, no replacement worker, and no additional remediation history. |
 | A settled worker may still be completing or correcting its terminal handoff after its first idle/done observation. | Pass locally | Fresh delivery, retained-worker, and active-remediation fixtures deterministically replace an initially incomplete handoff during the existing bounded observation budget and continue without duplicate workers or remediation. Permanent invalid and missing fixtures exhaust 49 re-observation pauses, retain the pane, and preserve `invalid_handoff` or `missing_handoff`; valid failed/blocked handoffs are consumed immediately and are not retried. |
 | Every post-`/review` observation must recognize either a complete Review Mode picker or a complete base-branch picker. | Pass locally | `selects a complete branch picker shown directly after /review submission` applies only the computed branch keys; `selects a delayed complete branch picker shown after fallback submission` uses one fallback Enter then applies branch keys without a mode-selection Enter; the existing normal mode-to-branch tests preserve PR-style selection; `rejects a partial branch picker shown directly after /review submission` sends no keys; retained picker tests remain unchanged and pass. |
+| Narrow unnumbered branch pickers may soft-wrap known branch names and place the cursor on its own row. | Pass live and locally | Commit `a11237d`; `accepts a wrapped unnumbered branch picker with a standalone cursor`, `rejects wrapped unnumbered rows that do not reconstruct known branches`, and `accepts a wrapped retained branch picker before waiting on the worker` pass. The subsequent exact-head smoke completed both review cycles without manual picker keys. |
 
-No GitHub smoke rerun was performed after these fixes. This section records local changed-contract evidence only.
+Fresh GitHub evidence is from exact source `a11237d13572da6801ae74b271a4cf2460a18479`, not the historical `5c8a393` failed attempt.
 
 ---
 
@@ -93,7 +101,7 @@ No GitHub smoke rerun was performed after these fixes. This section records loca
 | T002 | Start one rem session with deterministic recovery prompt. | Complete | `r<N>-<step>` OMP session, rem CLI, review completion, original handoff identity, and normal pass consumption implemented. |
 | T003 | Retry remediation, resume without duplicates, and defer rewind. | Complete | Fresh retry loop, exact live-rem lookup, active/stopped remediation state, and pane-free rewind implemented. |
 | T004 | Add rem-loop controller tests. | Complete | Fixture and behavioral coverage added in `scripts/__tests__/sdlc-execute.test.mjs`. |
-| T005 | Verify focused controller suite. | Complete | Current focused result: 155/155 controller tests and 6/6 prompt-contract tests passed. |
+| T005 | Verify focused controller suite. | Complete | Current focused result: 158/158 controller tests and 6/6 prompt-contract tests passed. |
 
 ---
 
@@ -173,11 +181,11 @@ Remediation composes existing `workerPrompt`, Herdr adapters, handoff validation
 ### Coverage Summary
 
 - Feature files: 1 feature, 6 scenarios
-- Current focused controller suite: 1 suite passed, 155 tests passed, 0 failed
+- Current focused controller suite: 1 suite passed, 158 tests passed, 0 failed
 - Current prompt-contract suite: 1 suite passed, 6 tests passed, 0 failed
 - Historical complete contract evidence from the initial issue verification: 43 suites passed; 529 tests passed; 2 expected skips; 0 failed
 - Historical expected skips: opt-in exercise suite without `RUN_EXERCISE_TESTS=1`, plus the non-Darwin platform counterpart in `plugin-controller-path.test.mjs`
-- Current correction smoke status: GitHub smoke rerun not performed; no smoke pass claimed
+- Current correction smoke status: Pass — exact source `a11237d13572da6801ae74b271a4cf2460a18479`; smoke issues #23/#24 closed; PRs #27/#28 merged
 
 ---
 
@@ -185,13 +193,13 @@ Remediation composes existing `workerPrompt`, Herdr adapters, handoff validation
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Current focused controller tests | Pass | `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs`: 1 suite passed, 155 tests passed, exit 0. |
+| Current focused controller tests | Pass | `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs`: 1 suite passed, 158 tests passed, exit 0. |
 | Current prompt-contract tests | Pass | `cd scripts && npm test -- --runInBand __tests__/sdlc-prompt-snippets.test.mjs`: 1 suite passed, 6 tests passed, exit 0. |
 | Historical complete contract tests | Pass | Initial issue verification recorded 43 passed suites, 529 passed tests, 2 intentional skips, exit 0. |
 | OMP plugin surface | Pass | Initial issue verification recorded `verify-plugin-surface.mjs --root . --label repository` passing. |
 | Git hygiene | Pass | Current remediation recorded `git diff --check` exiting 0 with no output. |
 
-**Gate Summary**: Current changed-contract verification passes. Complete-suite and plugin-surface results are retained as clearly labeled historical evidence; GitHub smoke remains pending and is not represented as passed.
+**Gate Summary**: Current changed-contract verification and the fresh live GitHub two-issue smoke pass. Complete-suite and plugin-surface results remain clearly labeled historical evidence.
 
 ---
 
@@ -203,7 +211,7 @@ Ten post-verification smoke-product findings were corrected. The tenth correctio
 
 ## Remaining Issues
 
-The GitHub smoke rerun remains pending. No smoke pass is claimed.
+None. The fresh live smoke reached a terminal clean run state with both issues completing all eight lifecycle stages, `failed: null`, and `remediation: null`.
 
 ---
 
@@ -249,6 +257,6 @@ The GitHub smoke rerun remains pending. No smoke pass is claimed.
 
 ## Recommendation
 
-**Ready for GitHub smoke rerun**
+**Ready for remediation PR delivery**
 
-All local acceptance criteria, regression obligations, approved tasks, architecture checks, the 155-test focused controller suite, and the six-test prompt-contract suite pass. GitHub smoke and delivery were not run by this correction.
+All local acceptance criteria, regression obligations, approved tasks, architecture checks, the 158-test focused controller suite, the six-test prompt-contract suite, and the fresh two-issue GitHub smoke pass. Smoke issue #23 was deliberately faulted once after its original verify handoff; the controller closed `s23-verify` pane `w15:pA`, ran exactly one fresh `r23-verify` pane `w15:pB`, consumed the passed original-step retry, and continued serially through both deliveries.
