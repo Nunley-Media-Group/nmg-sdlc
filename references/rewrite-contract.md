@@ -148,7 +148,7 @@ Acceptance:
 Apply worthwhile behavior-preserving cleanup to the changed implementation surface.
 
 - Surface: `automated simplify stage`
-- Sources: `specs/106-simplify-skill/`
+- Sources: `workflows/simplify/`
 - Verification: `scripts/__tests__/simplify-contract.test.mjs`
 
 Acceptance:

@@ -126,7 +126,12 @@ function fixture(options = {}) {
         : { data: { repository: { pullRequest: { reviewThreads: { nodes: lastView.reviewThreads } } } } };
       return { status: 0, stdout: JSON.stringify(value), stderr: '' };
     }
-    if (args[0] === 'pr' && args[1] === 'checks') return { status: options.checksStatus ?? 0, stdout: JSON.stringify(options.checks ?? []), stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'checks') {
+      if (options.noRequiredChecks) {
+        return { status: 1, stdout: '', stderr: "no required checks reported on the '42-delivery' branch\n" };
+      }
+      return { status: options.checksStatus ?? 0, stdout: JSON.stringify(options.checks ?? []), stderr: '' };
+    }
     if (args[0] === 'pr' && args[1] === 'merge') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
   };
@@ -232,6 +237,17 @@ describe('sdlc delivery controller', () => {
     expect(result.handoff.summary).toContain('gh pr checks --required failed');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
   });
+  test('treats the gh no-required-checks response as an empty complete set', () => {
+    const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
+    const f = fixture({
+      existingPr: merged,
+      gitHead: H1,
+      noRequiredChecks: true,
+      views: [merged],
+    }); roots.push(f.root);
+    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+  });
+
 
 
   test('routes pathless automated review threads to human_review', () => {

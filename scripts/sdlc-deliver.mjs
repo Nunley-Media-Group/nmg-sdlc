@@ -488,6 +488,10 @@ function parseChecksResult(result, description) {
     throw new Error(`${description} failed: ${String(result.stderr || result.stdout).trim()}`);
   }
   const output = String(result.stdout || '').trim();
+  if (!output && result.status === 1
+    && /^no required checks reported on the .+ branch$/i.test(String(result.stderr || '').trim())) {
+    return [];
+  }
   if (!output) throw new Error(`${description} returned no JSON`);
   let checks;
   try {
