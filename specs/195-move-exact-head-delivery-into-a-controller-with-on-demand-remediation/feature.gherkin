@@ -82,3 +82,12 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
     When scripts/sdlc-deliver.mjs runs
     Then it prints the usage contract and exits 2
     And it writes no handoff and invokes neither gh nor git
+
+  @SCN009
+  Scenario: verification proves two real smoke issue lifecycles
+    Given the issue 195 implementation is ready for verification
+    When the verification worker runs two distinct issues against the GitHub repository nmg-sdlc-smoke
+    Then each issue creates a pull request that merges at its observed exact head and closes the issue
+    And the verification handoff preserves fresh issue URLs, pull request URLs, head SHAs, merged states, and closed states
+    And unit tests or fixture exercises cannot substitute for this evidence
+    And unavailable GitHub, repository, Herdr, merge, or closure prerequisites fail verification

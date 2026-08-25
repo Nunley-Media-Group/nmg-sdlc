@@ -117,15 +117,15 @@ With an issue number, creates or updates its executable spec package under `spec
 /sdlc-execute          # choose from open spec-created issues
 ```
 
-After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively, then persists the review result; it never starts nested OMP. It creates sibling panes, writes validated handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
+After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code` plus behavior-preserving `simplify`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively, then persists the review result; it never starts nested OMP. It creates sibling panes, writes validated handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
 
 Publishing an approved spec applies the `spec-created` label. Execute accepts comma- or whitespace-separated lists, preserves listed order after deduplication, normalizes OMP-expanded `issue://N` and `pr://N` arguments, and starts only labeled issues. Empty invocation presents the packaged multi-select over open labeled issues; Continue starts selected chips followed by valid Other tokens, while an empty Continue reopens the picker. A failed handoff may route a later resume back to a validated earlier lifecycle gate; execute keeps the current issue and reruns every downstream gate before delivery or later issues.
 
-`open-pr` (via execute) handles staging approved paths, version bump (per steering/tech.md rules), commit, push, PR creation or resume, remediation of actionable findings, exact-head merge, and issue closure. Success requires the PR to be `MERGED` and the issue `CLOSED`.
+`open-pr` invokes the deterministic `sdlc-deliver.mjs` controller for approved-spec and verification gates, version synchronization, commit and non-force push, exact-branch PR creation or resume, readiness polling, exact-head merge, issue-closure proof, and deliver handoff writing. Success requires the PR to be `MERGED` at the observed head and the issue `CLOSED`.
 
 ### Address Review Comments
 
-`/sdlc-execute` includes `address-pr-comments` in the delivery loop for automated-reviewer threads.
+`address-pr-comments` remains on-demand guidance. The deliver worker loads remediation context only when the controller exits 3 with an `NMG_SDLC_REMEDIATION` packet for an actionable automated-reviewer thread or failing check; green delivery does not inline it.
 
 ### Lifecycle Status
 

@@ -7,18 +7,18 @@ const AUTOMATED_BODY_CEILINGS = {
   'sdlc-execute': 1040,
   'sdlc-status': 814,
   'sdlc-verify-code': 3435,
-  'sdlc-open-pr': 3644,
+  'sdlc-open-pr': 2116,
 };
 
 const WORKER_PROMPT_CEILINGS = {
   start: 1445,
-  implement: 5257,
+  implement: 6055,
   review1: 1388,
   fix1: 958,
   review2: 1388,
   fix2: 958,
   verify: 3734,
-  deliver: 5848,
+  deliver: 2671,
 };
 
 describe('rendered prompt byte ceilings', () => {
@@ -35,12 +35,13 @@ describe('rendered prompt byte ceilings', () => {
   });
 
   test('worker prompts inline only their owned workflows', () => {
-    expect(workerPrompt({ step: 'implement', issue: 42 })).not.toContain('# Simplify');
+    expect(workerPrompt({ step: 'implement', issue: 42 })).toContain('# Simplify');
     expect(workerPrompt({ step: 'review1', issue: 42 })).toContain('# Review Main');
     expect(workerPrompt({ step: 'review2', issue: 42 })).toContain('# Review Main');
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'fix2', issue: 42 })).toContain('# Apply Review');
-    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).not.toContain('# Address PR Comments');
+    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
     expect(workerPrompt({ step: 'start', issue: 42 })).toContain('start-issue.mjs');
     expect(workerPrompt({ step: 'start', issue: 42 })).not.toContain('<plugin-root>');
   });

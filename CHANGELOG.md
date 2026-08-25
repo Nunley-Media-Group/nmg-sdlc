@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Changed
+
+- Issue #195 moves versioning, PR create/resume, readiness polling, exact-head merge, closure proof, and deliver handoff ownership into `scripts/sdlc-deliver.mjs`; the deliver worker receives remediation prompt weight only for actionable bot threads or failing checks.
+- Issue #195 restores the implement-only `simplify` prompt fragment and requires verification to preserve fresh two-issue end-to-end GitHub evidence from `nmg-sdlc-smoke`.
+
 ## [3.13.0] - 2026-08-25
 
 ### Fixed
