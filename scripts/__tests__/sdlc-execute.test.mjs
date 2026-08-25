@@ -73,6 +73,91 @@ const UNICODE_TITLELESS_REVIEW_BRANCH_PICKER = [
   '(1/4) Type to search',
   '↑↓ Navigate',
 ].join('\n');
+const CAPTURED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER = [
+  ' ⠙ Working… ⟨esc⟩',
+  '',
+  '╭─ Select base branch to compare against ───────────────────╮',
+  '│                                                           │',
+  '│                                                           │',
+  '│  \uf054 17-add-third-serial-lifecycle-smoke-marker             │',
+  '│    main                                                   │',
+  '│    origin/17-add-third-serial-lifecycle-smoke-marker      │',
+  '│    origin/18-add-fourth-serial-lifecycle-smoke-marker     │',
+  '│    origin                                                 │',
+  '│    origin/main                                            │',
+  '│                                                           │',
+  '│ up/down navigate  enter select  esc cancel                │',
+  '│                                                           │',
+  '╰───────────────────────────────────────────────────────────╯',
+].join('\n');
+
+const UNNUMBERED_BRANCH_PICKER_NEGATIVES = [
+  {
+    label: 'title-only',
+    screen: 'Select base branch to compare against',
+  },
+  {
+    label: 'no-navigation',
+    screen: [
+      'Select base branch to compare against',
+      '> main',
+      'origin/main',
+    ].join('\n'),
+  },
+  {
+    label: 'empty',
+    screen: [
+      'Select base branch to compare against',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'single-row',
+    screen: [
+      'Select base branch to compare against',
+      '> main',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'duplicate-default',
+    screen: [
+      'Select base branch to compare against',
+      '> main',
+      'main',
+      'origin/main',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'prose-row',
+    screen: [
+      'Select base branch to compare against',
+      '> main',
+      'origin/main',
+      'Choose the branch to review',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'ambiguous-row',
+    screen: [
+      'Select base branch to compare against',
+      '> main',
+      'origin/main?',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n'),
+  },
+  {
+    label: 'incomplete-staged',
+    screen: [
+      'Select base branch to compare against',
+      '> 42-ship-it',
+      'main',
+      '(1/6) Type to search',
+    ].join('\n'),
+  },
+];
 
 const temporaryRoots = [];
 
@@ -1812,6 +1897,37 @@ describe('runExecute controller', () => {
     expect(fixture.reviewMenuEvents).toContain('branch-keys:down,enter');
   });
 
+  it('accepts the captured live unnumbered branch picker for a fresh review', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: [CAPTURED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER],
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.reviewMenuEvents).toContain('branch-keys:down,enter');
+  });
+
+  it.each(UNNUMBERED_BRANCH_PICKER_NEGATIVES)(
+    'rejects the $label unnumbered branch picker for a fresh review',
+    ({ screen }) => {
+      const fixture = makeControllerFixture({
+        reviewModeInitiallyVisible: true,
+        branchPickerScreens: [screen],
+      });
+      const result = runExecute({
+        args: '#42',
+        cwd: fixture.cwd,
+        env,
+        run: fixture.run,
+        herdr: fixture.herdr,
+      });
+
+      expect(result.status).toBe(1);
+      expect(fixture.reviewMenuEvents).not.toContain('branch-keys:down,enter');
+    },
+  );
+
   it('rejects a fresh footerless branch picker before navigation renders', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
@@ -2371,6 +2487,53 @@ describe('runExecute controller', () => {
       expect(fixture.sentKeys).not.toContainEqual(['down', 'enter']);
       expect(fixture.closed).not.toContain('kept-review-pane');
     }
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+  });
+
+  it('accepts the captured live unnumbered branch picker for a retained review', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    let menu = 'mode';
+    let waitedBeforeSelection = false;
+    fixture.herdr.agentRead = () => menu === 'mode'
+      ? TITLED_REVIEW_MODE_PICKER
+      : menu === 'branch'
+        ? CAPTURED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER
+        : 'Review complete';
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
+      else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
+      return sendKeys(input);
+    };
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      if (input.name === 's42-review2' && input.until === 'working' && menu !== 'reviewing') {
+        waitedBeforeSelection = true;
+      }
+      return waitAgent(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(waitedBeforeSelection).toBe(false);
+    expect(fixture.sentKeys).toContainEqual(['down', 'enter']);
+    expect(fixture.closed[0]).toBe('kept-review-pane');
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
   });
 

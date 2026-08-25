@@ -702,6 +702,53 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function pickerLineContent(line) {
+  return String(line)
+    .trim()
+    .replace(/^[│╭╮╰╯─\s]+|[│╭╮╰╯─\s]+$/g, '')
+    .trim();
+}
+
+function isPlausibleBranchName(name) {
+  return name !== '@'
+    && !name.startsWith('-')
+    && !name.startsWith('.')
+    && !name.startsWith('/')
+    && !name.endsWith('.')
+    && !name.endsWith('/')
+    && !name.endsWith('.lock')
+    && !name.includes('..')
+    && !name.includes('//')
+    && !name.includes('@{')
+    && !/[~^:?*[\]\\\x00-\x20\x7f]/.test(name);
+}
+
+function isCompleteUnnumberedReviewBranchPicker(text, defaultBranch) {
+  if (!defaultBranch) return false;
+  const lines = String(text).split('\n').map(pickerLineContent);
+  const titleRows = lines
+    .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
+    .filter((index) => index >= 0);
+  if (titleRows.length !== 1) return false;
+  const titleIndex = titleRows[0];
+  const navigationIndex = lines.findIndex(
+    (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
+  );
+  if (navigationIndex < 0) return false;
+
+  const options = [];
+  for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
+    if (!line) continue;
+    const selectedMatch = line.match(/^[>›❯]\s+(\S+)$/);
+    const name = selectedMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
+    if (!name || !isPlausibleBranchName(name)) return false;
+    options.push({ name, selected: Boolean(selectedMatch) });
+  }
+  if (options.length < 2 || options.filter(({ selected }) => selected).length !== 1) return false;
+  return options.filter(({ name }) => name === defaultBranch).length === 1;
+}
+
+
 function isCompleteReviewBranchPicker(text) {
   const hasPickerContext = text.includes(REVIEW_BRANCH_PICKER_TITLE) || hasPickerSearch(text);
   return hasPickerContext
@@ -710,9 +757,9 @@ function isCompleteReviewBranchPicker(text) {
 }
 
 function isReviewBranchPicker(text, defaultBranch) {
-  if (!defaultBranch || !isCompleteReviewBranchPicker(text)) {
-    return false;
-  }
+  if (!defaultBranch) return false;
+  if (isCompleteUnnumberedReviewBranchPicker(text, defaultBranch)) return true;
+  if (!isCompleteReviewBranchPicker(text)) return false;
   const branchOption = new RegExp(
     `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
     'gm',
