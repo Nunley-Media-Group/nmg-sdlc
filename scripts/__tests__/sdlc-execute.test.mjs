@@ -790,6 +790,8 @@ describe('runExecute controller', () => {
     paneCloseFailurePane = null,
     reviewPromptStatus = 'stalled',
     reviewModeInitiallyVisible = false,
+    directBranchAfterPrompt = false,
+    directBranchAfterFallback = false,
     branchMenuTransition = true,
     branchMenuDelayReads = 0,
     titlelessReviewPickers = false,
@@ -957,6 +959,11 @@ describe('runExecute controller', () => {
             reviewMenu = null;
             return { status: 1, reasonCode: reviewPromptStatus };
           }
+          if (directBranchAfterPrompt) {
+            branchMenuReadIndex = 0;
+            reviewMenu = 'branch';
+            return { status: 1, reasonCode: 'agent_prompt_stalled' };
+          }
           if (reviewPromptStatus === 'settled') {
             reviewMenu = 'composer';
             reviewMenuEvents.push('composer-visible');
@@ -1046,8 +1053,13 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'composer') {
           reviewMenuEvents.push(`composer-keys:${keys.join(',')}`);
           if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
-          reviewMenu = 'mode';
-          reviewMenuEvents.push('mode-visible');
+          if (directBranchAfterFallback) {
+            branchMenuReadIndex = 0;
+            reviewMenu = 'branch';
+          } else {
+            reviewMenu = 'mode';
+            reviewMenuEvents.push('mode-visible');
+          }
           return { status: 0 };
         }
         if (reviewMenu === 'mode') {
@@ -1953,6 +1965,74 @@ describe('runExecute controller', () => {
       'branch-visible', 'branch-keys:down,enter',
       'composer-visible', 'composer-keys:enter', 'mode-visible', 'mode-keys:enter',
       'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
+  it('selects a complete branch picker shown directly after /review submission', () => {
+    const fixture = makeControllerFixture({ directBranchAfterPrompt: true });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toHaveLength(2);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'branch-visible', 'branch-keys:down,enter',
+      'branch-visible', 'branch-keys:down,enter',
+    ]);
+    expect(fixture.sentKeys).toEqual([['down', 'enter'], ['down', 'enter']]);
+  });
+
+  it('selects a delayed complete branch picker shown after fallback submission', () => {
+    const fixture = makeControllerFixture({
+      reviewPromptStatus: 'settled',
+      directBranchAfterFallback: true,
+      branchPickerScreens: [
+        'Select base branch to compare against',
+        TITLED_REVIEW_BRANCH_PICKER,
+      ],
+    });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'composer-visible', 'composer-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'composer-visible', 'composer-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+    expect(fixture.sentKeys).toEqual([
+      ['enter'], ['down', 'enter'],
+      ['enter'], ['down', 'enter'],
+    ]);
+  });
+
+  it('rejects a partial branch picker shown directly after /review submission', () => {
+    const fixture = makeControllerFixture({
+      directBranchAfterPrompt: true,
+      branchPickerScreens: [PARTIAL_FOOTERLESS_TITLED_REVIEW_BRANCH_PICKER],
+    });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toHaveLength(1);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1',
     ]);
   });
 

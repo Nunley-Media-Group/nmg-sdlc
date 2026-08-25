@@ -16,6 +16,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Issue #259 re-samples retained review state and complete interactive pickers before blocking settlement waits, preventing stale-status deadlocks without shortening genuine worker waits or starting duplicate workers.
 - Issue #259 now distinguishes an absent worker handoff (`missing_handoff`) from an existing unreadable, malformed, schema-invalid, or identity-mismatched handoff (`invalid_handoff`), retains the worker pane, and never starts remediation from invalid evidence.
 - Issue #259 re-reads missing or invalid handoffs from settled fresh, retained, delivery, and remediation workers within the existing bounded observation budget, allowing an in-flight correction to validate without duplicate workers or remediation. Exhausted observations still retain the pane and record exact `missing_handoff` or `invalid_handoff`; valid failed/blocked evidence is never retried, and generated prompts validate before emitting `NMG_SDLC_HANDOFF`.
+- Issue #259 recognizes either a complete Review Mode picker or a complete base-branch picker on every bounded post-`/review` observation, including after fallback submission. Direct branch pickers receive the computed default-branch keys immediately; mode pickers still select PR-style first, while partial or ambiguous screens receive no keys and fail closed.
 
 ## [3.12.0] - 2026-08-24
 

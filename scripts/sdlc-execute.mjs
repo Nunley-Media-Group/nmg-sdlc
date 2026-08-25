@@ -792,44 +792,67 @@ function isReviewBranchPicker(text, defaultBranch) {
   return [...text.matchAll(branchOption)].length === 1;
 }
 
+function interactiveReviewState(text, defaultBranch, allowComposer = false) {
+  if (isReviewBranchPicker(text, defaultBranch)) return 'branch';
+  if (isReviewModePicker(text)) return 'mode';
+  if (allowComposer && text.includes('/review')) return 'composer';
+  return null;
+}
+
+function observeInteractiveReviewState(
+  herdr,
+  name,
+  defaultBranch,
+  allowComposer = false,
+  attempts = 50,
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const state = interactiveReviewState(
+      agentDetectionText(herdr, name),
+      defaultBranch,
+      allowComposer,
+    );
+    if (state) return state;
+    if (attempt + 1 < attempts) herdr.observationPause?.();
+  }
+  return null;
+}
+
 function isInteractiveReviewPicker(text, defaultBranch) {
-  return isReviewModePicker(text)
-    || isReviewBranchPicker(text, defaultBranch)
+  return interactiveReviewState(text, defaultBranch) !== null
     || (!defaultBranch && isCompleteReviewBranchPicker(text));
 }
 
 function completeInteractiveReview(herdr, agentName, reviewSelection) {
   const { defaultBranch, keys: branchSelectionKeys } = reviewSelection;
-  let branchMenuVisible = isReviewBranchPicker(
+  let reviewState = interactiveReviewState(
     agentDetectionText(herdr, agentName),
     defaultBranch,
   );
-  if (!branchMenuVisible) {
-    let reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
-    if (!reviewModeVisible) {
-      herdr.agentPrompt({ name: agentName, prompt: '/review' });
-      reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
-      if (
-        !reviewModeVisible
-        && observeAgentText(herdr, agentName, '/review')
-        && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
-      ) {
-        reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
+  if (!reviewState) {
+    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
+  }
+  if (!reviewState) {
+    herdr.agentPrompt({ name: agentName, prompt: '/review' });
+    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch, true);
+    if (reviewState === 'composer') {
+      if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
+        return false;
       }
+      reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
     }
-    if (
-      !reviewModeVisible
-      || !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
-    ) {
+  }
+  if (reviewState === 'mode') {
+    if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
       return false;
     }
-    branchMenuVisible = observeAgentScreen(
+    reviewState = observeAgentScreen(
       herdr,
       agentName,
       (text) => isReviewBranchPicker(text, defaultBranch),
-    );
+    ) ? 'branch' : null;
   }
-  return branchMenuVisible
+  return reviewState === 'branch'
     && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
     && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
     && commandSucceeded(herdr.agentWait({ name: agentName }));
