@@ -241,6 +241,8 @@ The GitHub smoke rerun remains pending. No smoke pass is claimed.
 | `scripts/__tests__/sdlc-execute.test.mjs` | 0 | Direct initial and fallback branch pickers, delayed completion, normal mode-to-branch selection, partial rejection, retained picker regression paths, late handoff correction, and permanent missing/invalid boundaries. |
 | `scripts/__tests__/sdlc-prompt-snippets.test.mjs` | 0 | Exact generated validation-before-marker contract. |
 | `CHANGELOG.md` | 0 | `[Unreleased]` records direct post-`/review` branch-picker handling without weakened picker validation or retained behavior. |
+| `VERSION` | 0 | Delivery classifies the issue's `enhancement` label as a minor bump and advances the source version from 3.12.0 to 3.13.0. |
+| `package.json` | 0 | Delivery synchronizes the OMP manifest version with `VERSION` at 3.13.0. |
 | `specs/259-add-controller-owned-fresh-session-remediation-loops/*` | 0 | Approved requirements, design, tasks, Gherkin, and current verification evidence. |
 
 ---
