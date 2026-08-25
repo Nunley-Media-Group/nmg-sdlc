@@ -201,7 +201,7 @@ const CATALOG = [
   ["plugin.workflow.execute", "workflows/execute/WORKFLOW.md", ["sdlc-execute"], "body", 100, 1091],
   ["plugin.workflow.status", "workflows/status/WORKFLOW.md", ["sdlc-status"], "body", 100, 713],
   ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100, 3449],
-  ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100, 3798],
+  ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100, 4384],
   ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100, 1163],
   ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100, 5282],
   ["plugin.workflow.review-main", "workflows/review-main/WORKFLOW.md", ["worker:review1", "worker:review2"], "body", 100, 1114],

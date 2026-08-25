@@ -30,16 +30,24 @@ the exact observed head and issue N is `CLOSED`. Failures such as
 For one `NMG_SDLC_PR_EVIDENCE` packet:
 
 1. Require `kind: pr_evidence_verification_required`, issue N, an exact draft PR,
-   H1 in `headSha`, the active spec path, and bounded evidence identities.
-2. Execute the complete inlined `verify-code` workflow for #N against that exact
-   draft head. Do not claim evidence not observed from GitHub.
-3. Require the refreshed report to be current Pass with
-   `pr_evidence_satisfied` for H1. Preserve a failed verify handoff and stop when
-   verification cannot satisfy the packet.
-4. Return to the controller loop. The controller alone commits and safely pushes
-   the changed report, captures H2, re-polls every declared identity for H2,
-   writes and re-fetches the final delivery marker, validates it, and marks the
-   draft ready.
+   H1 in `headSha`, the active approved spec path, and bounded evidence identities.
+2. Re-fetch that PR and every packet identity from GitHub. Require the PR to
+   remain an open draft at H1. Do not accept evidence for another head or claim
+   evidence that GitHub did not return.
+3. Read the active verification report plus
+   `workflows/verify-code/references/report-format.md` and
+   `references/pr-dependent-verification.md`. Preserve its already-passing local
+   evidence and issue scope. Update only the PR-readiness evidence so every
+   packet identity has a success-equivalent conclusion, URL, and exact H1.
+4. Validate the report with
+   `node <plugin-root>/scripts/verification-readiness.mjs --project <project-root> --spec <spec-path> --issue N --head H1 --json`
+   If the PR changed or the bounded evidence cannot be satisfied, run the
+   controller with `--remediation-result human_review` and stop.
+5. Do not write, preserve, or print an `N-verify.json` handoff. Return directly
+   to the controller loop. The controller alone commits and safely pushes the
+   changed report, captures H2, re-polls every declared identity for H2, writes
+   and re-fetches the final delivery marker, validates it, and marks the draft
+   ready.
 
 Never mark the draft ready, merge, delete a branch, or synthesize H1/H2 evidence
 inside this workflow.

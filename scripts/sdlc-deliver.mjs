@@ -213,7 +213,42 @@ function updateChangelog(content, version, date, title, breaking) {
   return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${preserved}### ${category}\n\n- ${title}\n${suffix}`;
 }
 
-function synchronizeVersion({ fs, cwd, issue, spec, issueData, tech, existingPr, now }) {
+function synchronizedDeliveryVersion(changelog, version, issue, title) {
+  const heading = `## [${version}]`;
+  const start = changelog.indexOf(heading);
+  if (start < 0) return false;
+  const end = changelog.indexOf('\n## [', start + heading.length);
+  const release = changelog.slice(start, end < 0 ? changelog.length : end);
+  return release.includes(`- ${title} (#${issue})`);
+}
+function versionedPaths(tech) {
+  return [...tech.matchAll(/^\|\s*`([^`]+)`\s*\|[^\n]*version/gim)].map((match) => match[1]);
+}
+
+function hasSynchronizedDeliveryState({ run, cwd, issue, issueData, tech, changelog, version }) {
+  if (!synchronizedDeliveryVersion(changelog, version, issue, issueData.title)) return false;
+  const prefix = issueLabels(issueData).includes('bug') ? 'fix' : 'feat';
+  const subject = `${prefix}: deliver issue #${issue}`;
+  const commitResult = command(run, cwd, 'git', [
+    'log', '-1', '--format=%H', '--fixed-strings', `--grep=${subject}`,
+  ], { allowFailure: true });
+  const commit = String(commitResult.stdout || '').trim();
+  if (commitResult.status !== 0 || !SHA.test(commit)) return false;
+  const changedResult = command(run, cwd, 'git', [
+    'show', '--format=', '--name-only', '-z', commit, '--',
+  ]);
+  const committedPaths = new Set(String(changedResult.stdout || '').split('\0').filter(Boolean));
+  if (!['VERSION', 'package.json', 'CHANGELOG.md'].every((relative) => committedPaths.has(relative))) {
+    return false;
+  }
+  const paths = [...new Set(['VERSION', 'package.json', 'CHANGELOG.md', ...versionedPaths(tech)])];
+  const diff = command(run, cwd, 'git', ['diff', '--quiet', commit, '--', ...paths], { allowFailure: true });
+  if (diff.status > 1) throw new Error(`git could not verify delivery commit ${commit}`);
+  return diff.status === 0;
+}
+
+
+function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now }) {
   const versionPath = path.join(cwd, 'VERSION');
   const packagePath = path.join(cwd, 'package.json');
   const changelogPath = path.join(cwd, 'CHANGELOG.md');
@@ -226,7 +261,10 @@ function synchronizeVersion({ fs, cwd, issue, spec, issueData, tech, existingPr,
     error.reasonCode = 'major_bump_required';
     throw error;
   }
-  if (existingPr) return { version: current, changed: [] };
+  const changelog = fs.readFileSync(changelogPath, 'utf8');
+  if (hasSynchronizedDeliveryState({
+    run, cwd, issue, issueData, tech, changelog, version: current,
+  })) return { version: current, changed: [] };
   const labels = issueLabels(issueData);
   const bump = breaking && approvedMajor(spec) ? 'major' : labels.includes('bug') ? 'patch' : 'minor';
   const version = bumpedVersion(current, bump);
@@ -237,10 +275,10 @@ function synchronizeVersion({ fs, cwd, issue, spec, issueData, tech, existingPr,
   const date = new Date(now()).toISOString().slice(0, 10);
   fs.writeFileSync(
     changelogPath,
-    updateChangelog(fs.readFileSync(changelogPath, 'utf8'), version, date, `${issueData.title} (#${issue})`, breaking),
+    updateChangelog(changelog, version, date, `${issueData.title} (#${issue})`, breaking),
   );
 
-  const tablePaths = [...tech.matchAll(/^\|\s*`([^`]+)`\s*\|[^\n]*version/gim)].map((match) => match[1]);
+  const tablePaths = versionedPaths(tech);
   for (const relative of tablePaths) {
     if (changed.includes(relative) || !fs.existsSync(path.join(cwd, relative))) continue;
     const absolute = path.join(cwd, relative);
@@ -286,6 +324,13 @@ function existingPullRequest({ run, cwd, branch, issue }) {
   if (merged.length > 1) throw new Error('multiple merged exact-branch PRs');
   return merged[0] ?? null;
 }
+function resolveDefaultBase({ run, cwd }) {
+  const { value } = jsonCommand(run, cwd, 'gh', ['repo', 'view', '--json', 'defaultBranchRef']);
+  const base = value?.defaultBranchRef?.name;
+  if (typeof base !== 'string' || !base) throw new Error('repository default branch is unavailable');
+  return base;
+}
+
 
 function prEvidenceRequest({ issue, pr, spec, readiness }) {
   const packet = {
@@ -343,10 +388,10 @@ function evidenceForHead(readiness, observed, headSha) {
 function publishVerificationReport({ run, cwd, issue, reportPath }) {
   command(run, cwd, 'git', ['add', '--', reportPath]);
   const staged = command(run, cwd, 'git', ['diff', '--cached', '--quiet'], { allowFailure: true });
-  if (staged.status === 0) return false;
-  command(run, cwd, 'git', ['commit', '-m', `docs: record PR evidence for #${issue}`]);
+  if (staged.status !== 0) {
+    command(run, cwd, 'git', ['commit', '-m', `docs: record PR evidence for #${issue}`]);
+  }
   command(run, cwd, 'git', ['push']);
-  return true;
 }
 
 function writeDeliveryValidation({ run, fs, cwd, issue, spec, pr, headSha, evidence }) {
@@ -385,11 +430,11 @@ function cleanupBranch({ run, cwd, branch, base }) {
   return failures;
 }
 
-function createPullRequest({ run, fs, cwd, issue, issueData, branch, spec, draft }) {
+function createPullRequest({ run, fs, cwd, issue, issueData, branch, base, spec, draft }) {
   const bodyPath = path.join(cwd, '.omp', 'sdlc', `pr-body-${issue}.md`);
   fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
   fs.writeFileSync(bodyPath, `Closes #${issue}\n\nSpec: ${spec.relative}/\n\n## Verification\n\`${spec.relative}/verification-report.md\`\n`);
-  const args = ['pr', 'create', '--head', branch, '--title', issueData.title, '--body-file', bodyPath];
+  const args = ['pr', 'create', '--base', base, '--head', branch, '--title', issueData.title, '--body-file', bodyPath];
   if (draft) args.push('--draft');
   const result = command(run, cwd, 'gh', args);
   fs.rmSync(bodyPath, { force: true });
@@ -422,19 +467,36 @@ function threadComments(thread) {
 
 function threadAuthor(thread) {
   const comments = threadComments(thread);
-  const comment = comments[comments.length - 1] ?? thread.comment ?? {};
+  const latest = comments[comments.length - 1] ?? thread.comment ?? {};
+  const origin = comments[0] ?? thread.comment ?? {};
   return {
-    login: String(comment.author?.login ?? comment.authorLogin ?? thread.author?.login ?? thread.authorLogin ?? '').toLowerCase(),
-    typename: comment.author?.__typename ?? thread.author?.__typename ?? thread.authorType ?? null,
-    body: comment.body ?? thread.body ?? '',
-    path: thread.path ?? comment.path ?? null,
-    line: thread.line ?? comment.line ?? null,
-    url: thread.url ?? comment.url ?? null,
+    login: String(latest.author?.login ?? latest.authorLogin ?? thread.author?.login ?? thread.authorLogin ?? '').toLowerCase(),
+    typename: latest.author?.__typename ?? thread.author?.__typename ?? thread.authorType ?? null,
+    body: latest.body ?? thread.body ?? '',
+    path: thread.path ?? origin.path ?? null,
+    line: thread.line ?? origin.line ?? null,
+    url: thread.url ?? latest.url ?? origin.url ?? null,
   };
 }
 
 function isBot(author, botLogins) {
   return author.typename === 'Bot' || botLogins.has(author.login);
+}
+
+function parseChecksResult(result, description) {
+  if (![0, 1, 8].includes(result.status)) {
+    throw new Error(`${description} failed: ${String(result.stderr || result.stdout).trim()}`);
+  }
+  const output = String(result.stdout || '').trim();
+  if (!output) throw new Error(`${description} returned no JSON`);
+  let checks;
+  try {
+    checks = JSON.parse(output);
+  } catch (error) {
+    throw new Error(`${description} returned invalid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(checks)) throw new Error(`${description} did not return a check array`);
+  return checks.map(normalizeCheck);
 }
 
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
@@ -461,17 +523,14 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const checksResult = command(run, cwd, 'gh', [
     'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event',
   ], { allowFailure: true });
-  let checks = [];
-  if (String(checksResult.stdout || '').trim()) checks = JSON.parse(checksResult.stdout).map(normalizeCheck);
+  const checks = parseChecksResult(checksResult, 'gh pr checks --required');
   let evidenceChecks = checks;
   const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
   if (declaredEvidence.some((item) => item.kind === 'check_run')) {
     const allChecksResult = command(run, cwd, 'gh', [
       'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
     ], { allowFailure: true });
-    if (String(allChecksResult.stdout || '').trim()) {
-      evidenceChecks = JSON.parse(allChecksResult.stdout).map(normalizeCheck);
-    }
+    evidenceChecks = parseChecksResult(allChecksResult, 'gh pr checks');
   }
   const { value: issueData } = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']);
   const reviews = (pr.reviews ?? []).map((review, index) => ({
@@ -576,6 +635,7 @@ export function runDeliver({
     if (!branch.startsWith(`${issueNumber}-`)) return fail(context, 'delivery_failed', `Current branch ${branch || '(detached)'} does not belong to #${issueNumber}`);
     const localHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
     let pr = existingPullRequest({ run, cwd, branch, issue: issueNumber });
+    const base = resolveDefaultBase({ run, cwd });
     const reportPath = path.relative(cwd, spec.verificationPath);
     const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
       .filter((entry) => !entry.startsWith('.omp/'));
@@ -626,7 +686,7 @@ export function runDeliver({
 
     let changed;
     try {
-      ({ version, changed } = synchronizeVersion({ fs, cwd, issue: issueNumber, spec, issueData, tech, existingPr: pr, now }));
+      ({ version, changed } = synchronizeVersion({ run, fs, cwd, issue: issueNumber, spec, issueData, tech, now }));
     } catch (error) {
       if (error.reasonCode === 'major_bump_required') {
         return fail(context, 'major_bump_required', `BREAKING issue #${issueNumber} lacks an approved major version bump`);
@@ -636,7 +696,7 @@ export function runDeliver({
     publishVersionChanges({ run, cwd, issue: issueNumber, issueData, changed });
     if (!pr) {
       pr = createPullRequest({
-        run, fs, cwd, issue: issueNumber, issueData, branch, spec,
+        run, fs, cwd, issue: issueNumber, issueData, branch, base, spec,
         draft: readiness.status === 'pr_evidence_pending',
       });
     }
@@ -645,7 +705,7 @@ export function runDeliver({
     if (readiness.status === 'pr_evidence_pending') {
       const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
       if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true
-        || observed.pr.headRefName !== branch || observed.pr.baseRefName !== 'main') {
+        || observed.pr.headRefName !== branch || observed.pr.baseRefName !== base) {
         return fail(context, 'verification_not_ready', `PR #${pr.number} is not the exact controlled draft`);
       }
       return prEvidenceRequest({ issue: issueNumber, pr: observed.pr, spec, readiness });
@@ -653,7 +713,8 @@ export function runDeliver({
 
     if (readiness.status === 'pr_evidence_satisfied') {
       let observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
-      if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true || observed.pr.headRefName !== branch) {
+      if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true
+        || observed.pr.headRefName !== branch || observed.pr.baseRefName !== base) {
         return fail(context, 'verification_not_ready', `PR #${pr.number} is not a resumable controlled draft`);
       }
       const evidenceHeads = [...new Set(readiness.readiness.evidence.map((item) => item.headSha.toLowerCase()))];
@@ -671,12 +732,12 @@ export function runDeliver({
         if (bound.status !== 'pr_evidence_satisfied') {
           return fail(context, 'verification_not_ready', `Verification report is not satisfied for draft head ${observed.pr.headRefOid}`);
         }
-        const committed = publishVerificationReport({
+        publishVerificationReport({
           run, cwd, issue: issueNumber, reportPath,
         });
         observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
-        if (committed && observed.pr.headRefOid.toLowerCase() === h1) {
-          return fail(context, 'verification_not_ready', 'Verification report commit did not advance H1 to H2');
+        if (observed.pr.headRefOid.toLowerCase() === h1) {
+          return fail(context, 'verification_not_ready', 'Verification report publication did not advance H1 to H2');
         }
       } else {
         const pushedHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
