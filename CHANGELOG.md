@@ -10,9 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.15.0] - 2026-08-25
+
 ### Fixed
 
 - Issue #259 recognizes complete unnumbered review branch pickers when narrow panes soft-wrap known branch names and render the selection cursor on its own line; reconstruction is limited to the controller's exact ordered Git branch list, while incomplete or ambiguous rows still fail closed.
+
+### Changed
+
+- Move exact-head delivery into a controller with on-demand remediation (#195)
 
 ## [3.14.0] - 2026-08-25
 
