@@ -470,12 +470,13 @@ function waitForAgentStartRetry() {
 }
 function waitForAgentObservationRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-  Atomics.wait(signal, 0, 0, 20);
+  Atomics.wait(signal, 0, 0, 100);
 }
 
 function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
+    observationPause: waitForAgentObservationRetry,
     integrationStatus: () => invoke(['integration', 'status']),
     paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
     paneSplit: ({ direction, cwd: splitCwd }) => invoke([
@@ -612,7 +613,7 @@ function agentDetectionText(herdr, name) {
 function observeAgentText(herdr, name, expected, attempts = 50) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (agentDetectionText(herdr, name).includes(expected)) return true;
-    if (attempt + 1 < attempts) waitForAgentObservationRetry();
+    if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return false;
 }
