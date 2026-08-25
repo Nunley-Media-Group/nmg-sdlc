@@ -19,15 +19,21 @@ Use only after `scripts/sdlc-deliver.mjs` exits 3 and emits an
 
 ## Clear Fix
 
+Immediately return to open-pr for a `human_review` result when a packet thread
+has no path or the packet repeats the preceding packet's head, failing checks,
+and thread URLs.
+
 For an obvious, local, safe request:
 
 1. Read the packet's file and line context.
 2. Apply the smallest in-scope correction. Resolve and read
    `skill://skill-creator` first for workflow-bundled targets.
 3. Run targeted verification.
-4. Commit changed non-runtime paths when needed.
-5. Push without force.
-6. Return to open-pr and rerun the controller so it re-fetches current state.
+4. Stage only changed non-runtime paths.
+5. If the staged diff is empty, return to open-pr for a `human_review` result.
+6. Otherwise commit, push without force, and return to open-pr to rerun the
+   controller against fresh required checks and review threads.
 
-For anything else, return to open-pr and invoke the controller with
+For anything ambiguous, design-affecting, unsafe, outside scope, pathless,
+unchanged, or repeated, return to open-pr and invoke the controller with
 `--remediation-result human_review`.

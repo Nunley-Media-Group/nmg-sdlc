@@ -71,10 +71,10 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
 
   @SCN007
   Scenario: merge proof failure cannot report success
-    Given the controller attempted exact-head merge at head H
+    Given the controller attempted exact-head merge at head H without branch deletion
     When the refreshed PR is not MERGED at H or the issue is not CLOSED
     Then it writes a failed merge_failed intervention handoff
-    And it does not delete the local issue branch
+    And it deletes neither the local nor remote issue branch
 
   @SCN008
   Scenario: invalid delivery CLI has no side effects

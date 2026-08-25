@@ -33,20 +33,29 @@ Use only the packet's failing checks and bot-thread context. Apply a fix only wh
 is obvious, local, safe, and inside the approved issue scope. For a workflow-bundled
 target, resolve and read `skill://skill-creator` before editing.
 
+Before editing, if either condition holds, run the controller with
+`--remediation-result human_review` and stop:
+
+- any packet thread has no `path`; or
+- the packet repeats the immediately preceding packet's `headSha`, failing-check
+  names and URLs, and thread URLs.
+
 After a clear fix:
 
 1. Run the narrow verification covering the changed behavior.
 2. Stage only the remediation paths, excluding `.omp/`.
-3. Commit with a conventional `fix:` subject when the staged diff is non-empty.
-4. Push the current branch without force.
-5. Rerun `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N`. The controller always re-fetches
-   the current PR head, checks, reviews, and threads.
+3. If the staged diff is empty, run the controller with
+   `--remediation-result human_review`, preserve its intervention handoff, and stop.
+4. Commit with a conventional `fix:` subject.
+5. Push the current branch without force.
+6. Rerun `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N`. The controller
+   always re-fetches the current PR head, required checks, reviews, and threads.
 
 Never resolve a review thread, merge the PR, resend a prompt, invoke OMP, or start
 another worker from this loop.
 
-If a request is ambiguous, design-affecting, human-authored, unsafe, or outside
-scope, run:
+If a request is ambiguous, design-affecting, human-authored, unsafe, outside
+scope, pathless, unchanged after the attempted fix, or repeated unchanged, run:
 
 ```bash
 node <plugin-root>/scripts/sdlc-deliver.mjs --issue N --remediation-result human_review

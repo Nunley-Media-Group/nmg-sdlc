@@ -32,7 +32,7 @@ function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {})
 }
 
 function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], reviews = [], mergeStateStatus = 'CLEAN', isDraft = false } = {}) {
-  return { number: 77, url: 'https://github.test/pr/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: 'main', mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState };
+  return { number: 77, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: 'main', mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState };
 }
 
 function fixture(options = {}) {
@@ -57,6 +57,7 @@ function fixture(options = {}) {
     if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: JSON.stringify(options.existingPr ? [openPr()] : []), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
     if (args[0] === 'pr' && args[1] === 'view') { lastView = views.length ? views.shift() : lastView; return { status: 0, stdout: JSON.stringify(lastView), stderr: '' }; }
+    if (args[0] === 'api' && args[1] === 'graphql') return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: lastView.reviewThreads } } } } }), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'checks') return { status: options.checksStatus ?? 0, stdout: JSON.stringify(options.checks ?? []), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'merge') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
@@ -108,6 +109,27 @@ describe('sdlc delivery controller', () => {
     expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
   });
 
+  test('fetches threads through GraphQL and scopes checks to exact required arguments', () => {
+    const f = fixture({ checksStatus: 1, checks: [{ name: 'test', state: 'FAILURE', link: 'https://github.test/check/1', event: 'pull_request' }], views: [openPr()] }); roots.push(f.root);
+    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(3);
+    const prView = f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'view');
+    expect(prView.join(',')).not.toContain('reviewThreads');
+    const graphql = f.calls.find((call) => call[0] === 'gh' && call[1] === 'api');
+    expect(graphql.slice(0, 10)).toEqual(['gh', 'api', 'graphql', '-F', 'owner=owner', '-F', 'name=repo', '-F', 'number=77', '-f']);
+    expect(graphql[10]).toContain('reviewThreads(first: 100)');
+    expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toEqual([
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
+    ]);
+  });
+
+  test('routes pathless automated review threads to human_review', () => {
+    const thread = { id: 'T1', isResolved: false, isOutdated: false, path: null, line: null, comments: [{ body: 'General concern', url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
+    const f = fixture({ views: [openPr({ threads: [thread] })] }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.handoff.reasonCode).toBe('human_review');
+    expect(result.status).toBe(1);
+  });
+
   test('routes human and ambiguous remediation to human_review', () => {
     const thread = { id: 'T1', isResolved: false, isOutdated: false, comments: [{ body: 'Redesign', author: { login: 'maintainer', __typename: 'User' } }] };
     const f = fixture({ views: [openPr({ threads: [thread] })] }); roots.push(f.root);
@@ -130,7 +152,9 @@ describe('sdlc delivery controller', () => {
   test('reclassifies changed head and merges exact latest head', () => {
     const f = fixture({ views: [openPr({ head: H1 }), openPr({ head: H2 }), openPr({ head: H2 }), openPr({ head: H2 }), openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' })] }); roots.push(f.root);
     expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
-    expect(f.calls.find((call) => call[0] === 'gh' && call[2] === 'merge')).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2, '--delete-branch']);
+    expect(f.calls.find((call) => call[0] === 'gh' && call[2] === 'merge')).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
+    const proof = f.calls.map((call) => call.join(' ')).lastIndexOf('gh issue view 42 --json number,state,url');
+    expect(f.calls.findIndex((call) => call.join(' ') === 'git push origin --delete 42-delivery')).toBeGreaterThan(proof);
   });
 
   test('requires merge and closure proof before local branch deletion', () => {
@@ -142,5 +166,6 @@ describe('sdlc delivery controller', () => {
     expect(validateHandoff(handoff(passed.root))).toEqual(handoff(passed.root));
     const proof = passed.calls.map((call) => call.join(' ')).lastIndexOf('gh issue view 42 --json number,state,url');
     expect(passed.calls.findIndex((call) => call[0] === 'git' && call[1] === 'checkout')).toBeGreaterThan(proof);
+    expect(passed.calls.findIndex((call) => call.join(' ') === 'git push origin --delete 42-delivery')).toBeGreaterThan(proof);
   });
 });

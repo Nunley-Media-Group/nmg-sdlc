@@ -7,7 +7,7 @@ const AUTOMATED_BODY_CEILINGS = {
   'sdlc-execute': 1040,
   'sdlc-status': 814,
   'sdlc-verify-code': 3435,
-  'sdlc-open-pr': 2116,
+  'sdlc-open-pr': 2566,
 };
 
 const WORKER_PROMPT_CEILINGS = {
@@ -18,7 +18,7 @@ const WORKER_PROMPT_CEILINGS = {
   review2: 1388,
   fix2: 958,
   verify: 3734,
-  deliver: 2671,
+  deliver: 3121,
 };
 
 describe('rendered prompt byte ceilings', () => {

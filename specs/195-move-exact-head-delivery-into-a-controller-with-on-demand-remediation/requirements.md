@@ -67,10 +67,10 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 
 **Given** a ready PR at observed head H
 **When** the controller merges
-**Then** it runs the repository-policy merge command with `--match-head-commit H`
+**Then** it runs the repository-policy merge command with `--match-head-commit H` and without branch deletion
 **And** any head change forces reclassification before merge
 **And** missing merge proof, mismatched head proof, or an open issue produces `reasonCode: merge_failed`
-**And** local branch deletion occurs only after MERGED+CLOSED proof
+**And** local and remote branch deletion occurs only after MERGED+CLOSED proof
 
 ### AC6: verification proves two real issue lifecycles
 

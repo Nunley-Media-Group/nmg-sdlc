@@ -15,6 +15,33 @@ const ISSUE = /^#?([1-9]\d*)$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const POLL_INTERVAL_MS = 30_000;
 const PENDING_CEILING_MS = 60 * 60 * 1000;
+const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first: 50) {
+            nodes {
+              body
+              path
+              line
+              url
+              author {
+                login
+                __typename
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
 
 function defaultRun(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -306,10 +333,19 @@ function isBot(author, botLogins) {
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const { value: pr } = jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
-    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews,reviewThreads',
+    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews',
+  ]);
+  const [, owner, name] = String(pr.url ?? '').match(/\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/) ?? [];
+  if (!owner || !name) throw new Error('pull request base repository is unavailable');
+  const { value: threadData } = jsonCommand(run, cwd, 'gh', [
+    'api', 'graphql',
+    '-F', `owner=${owner}`,
+    '-F', `name=${name}`,
+    '-F', `number=${prNumber}`,
+    '-f', `query=${REVIEW_THREADS_QUERY}`,
   ]);
   const checksResult = command(run, cwd, 'gh', [
-    'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
+    'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event',
   ], { allowFailure: true });
   let checks = [];
   if (String(checksResult.stdout || '').trim()) checks = JSON.parse(checksResult.stdout).map(normalizeCheck);
@@ -320,7 +356,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     state: review.state,
     submittedAt: review.submittedAt ?? '',
   }));
-  const rawThreads = Array.isArray(pr.reviewThreads) ? pr.reviewThreads : pr.reviewThreads?.nodes ?? [];
+  const rawThreads = threadData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
   const threads = rawThreads.map((thread) => ({
     id: thread.id,
     isResolved: thread.isResolved,
@@ -446,6 +482,9 @@ export function runDeliver({
       }
       if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved'].includes(classified.reasonCode)) {
         const packet = remediationPacket({ issue: issueNumber, pr: observed.pr, classified, rawThreads: observed.rawThreads, botLogins });
+        if (packet.threads.some((thread) => !thread.path)) {
+          return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);
+        }
         return {
           status: 3,
           stdout: `NMG_SDLC_REMEDIATION: ${JSON.stringify(packet)}\n`,
@@ -470,7 +509,7 @@ export function runDeliver({
       const refreshed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
       if (refreshed.pr.headRefOid !== head) continue;
       command(run, cwd, 'gh', [
-        'pr', 'merge', String(pr.number), '--squash', '--match-head-commit', head, '--delete-branch',
+        'pr', 'merge', String(pr.number), '--squash', '--match-head-commit', head,
       ]);
       const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
       const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: head });
@@ -479,6 +518,7 @@ export function runDeliver({
       }
       command(run, cwd, 'git', ['checkout', proof.pr.baseRefName]);
       command(run, cwd, 'git', ['branch', '-D', branch]);
+      command(run, cwd, 'git', ['push', 'origin', '--delete', branch]);
       return writeHandoff({
         ...context,
         status: 'passed',
