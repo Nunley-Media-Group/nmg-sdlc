@@ -53,6 +53,7 @@ const REVIEW_MODE_NAVIGATION_HINTS = [
   'up/down navigate  enter select  esc cancel',
 ];
 const PICKER_SEARCH_TEXT = 'Type to search';
+const REVIEW_BRANCH_PICKER_TITLE = 'Select base branch to compare against';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -702,7 +703,8 @@ function escapeRegExp(value) {
 }
 
 function isCompleteReviewBranchPicker(text) {
-  return hasPickerSearch(text)
+  const hasPickerContext = text.includes(REVIEW_BRANCH_PICKER_TITLE) || hasPickerSearch(text);
+  return hasPickerContext
     && REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
     && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
 }
