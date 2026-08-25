@@ -104,7 +104,7 @@ Failed handoffs use status `failed`, intervention true, step `deliver`, next nul
 | workflow/prompt | compact open-pr invocation, deliver excludes Address PR Comments, implement still includes Simplify |
 | injected command | exact `gh pr merge --squash --match-head-commit H --delete-branch`; no force push; no local deletion before proof |
 | focused regression | existing execute, delivery-state, prompt-byte, command rendering, and extension-surface tests |
-| live two-issue smoke | Run two distinct issue lifecycles against `nmg-sdlc-smoke`; preserve issue/PR URLs, observed heads, MERGED proof, and CLOSED proof in the verification handoff; fail rather than substitute fixtures when prerequisites are unavailable |
+| live two-issue smoke | Run two distinct issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`; preserve issue/PR URLs, observed heads, MERGED proof, and CLOSED proof in the verification handoff; fail rather than substitute fixtures when prerequisites are unavailable |
 
 ---
 

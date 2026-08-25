@@ -76,7 +76,7 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 
 **Given** the issue #195 implementation is ready for verification
 **When** the verification worker exercises delivery
-**Then** it runs two distinct issues end to end against the real GitHub repository `nmg-sdlc-smoke`
+**Then** it runs two distinct issues end to end against the real GitHub repository `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
 **And** both issues produce PR creation, exact-head merge, and issue closure evidence
 **And** the verification handoff preserves fresh issue URLs, PR URLs, observed head SHAs, merged states, and closed issue states as artifacts
 **And** injected tests or fixture-only exercises do not substitute for this GitHub smoke evidence
@@ -95,7 +95,7 @@ Issue #194 keeps delivery in a sibling `s<N>-deliver` Herdr OMP worker. This iss
 | FR6 | Remove unconditional deliver `address-pr-comments` from `STEP_EXTRA_WORKFLOWS`; keep implement `simplify`. | Must | On-demand remediation packet replaces unconditional prompt weight. |
 | FR7 | Compact `workflows/open-pr/WORKFLOW.md`; retain `workflows/address-pr-comments/WORKFLOW.md` only as on-demand remediation guidance. | Must | Keep frontmatter stable where applicable. |
 | FR8 | Preserve current versioning, PR, bot identity, exact-head merge, merge proof, and handoff behavior. | Must | No function reduction. |
-| FR9 | Verification must run two real issue lifecycles against `nmg-sdlc-smoke` and preserve fresh GitHub evidence in the verification handoff. | Must | Fail verification if auth, repository, Herdr, merge, or closure proof is unavailable. |
+| FR9 | Verification must run two real issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416` and preserve fresh GitHub evidence in the verification handoff. | Must | Fail verification if auth, repository, Herdr, merge, or closure proof is unavailable. |
 
 ---
 

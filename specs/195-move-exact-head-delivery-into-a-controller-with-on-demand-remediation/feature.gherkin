@@ -86,7 +86,7 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
   @SCN009
   Scenario: verification proves two real smoke issue lifecycles
     Given the issue 195 implementation is ready for verification
-    When the verification worker runs two distinct issues against the GitHub repository nmg-sdlc-smoke
+    When the verification worker runs two distinct issues against the GitHub repository Nunley-Media-Group/nmg-sdlc-smoke-20260820001416
     Then each issue creates a pull request that merges at its observed exact head and closes the issue
     And the verification handoff preserves fresh issue URLs, pull request URLs, head SHAs, merged states, and closed states
     And unit tests or fixture exercises cannot substitute for this evidence

@@ -115,7 +115,7 @@
 - [ ] Tests cover invalid CLI, major gate, spike bump, resume idempotence, remediation JSON, human review, pending timeout, exact-head merge, head change, merge proof, and branch deletion ordering
 - [ ] Existing `classifyPrDeliveryState` tests remain authoritative
 - [ ] Focused controller, execute, delivery-state, command rendering, prompt-byte, and extension tests exit 0
-- [ ] Verification runs two distinct issues end to end against the real GitHub repository `nmg-sdlc-smoke`
+- [ ] Verification runs two distinct issues end to end against the real GitHub repository `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
 - [ ] The verification handoff preserves fresh issue URLs, PR URLs, head SHAs, merged PR states, and closed issue states
 - [ ] Missing GitHub auth, repository access, Herdr execution, merge proof, or closure proof fails verification rather than falling back to fixtures
 
