@@ -701,12 +701,14 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function isCompleteReviewBranchPicker(text) {
+  return hasPickerSearch(text)
+    && REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
+    && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
+}
+
 function isReviewBranchPicker(text, defaultBranch) {
-  if (
-    !defaultBranch
-    || !hasPickerSearch(text)
-    || !REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
-  ) {
+  if (!defaultBranch || !isCompleteReviewBranchPicker(text)) {
     return false;
   }
   const branchOption = new RegExp(
@@ -717,7 +719,9 @@ function isReviewBranchPicker(text, defaultBranch) {
 }
 
 function isInteractiveReviewPicker(text, defaultBranch) {
-  return isReviewModePicker(text) || isReviewBranchPicker(text, defaultBranch);
+  return isReviewModePicker(text)
+    || isReviewBranchPicker(text, defaultBranch)
+    || (!defaultBranch && isCompleteReviewBranchPicker(text));
 }
 
 function completeInteractiveReview(herdr, agentName, reviewSelection) {

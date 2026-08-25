@@ -2120,6 +2120,57 @@ describe('runExecute controller', () => {
     expect(fixture.closed[0]).toBe('kept-review-pane');
   });
 
+  it('fails closed on a complete retained branch picker without a resolvable selection', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'worker_failed' },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review1',
+      pane_id: 'kept-review-pane',
+      state: 'blocked',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'blocked' } });
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-review1'
+      ? TITLED_REVIEW_BRANCH_PICKER
+      : readAgent(input);
+    const runCommand = fixture.run;
+    const run = (command, args, options) => (
+      command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')
+        ? { status: 1, stdout: '', stderr: 'default branch unavailable' }
+        : runCommand(command, args, options)
+    );
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'review1',
+      reasonCode: 'review_failed',
+    });
+    expect(fixture.waits.filter((wait) => wait.name === 's42-review1')).toEqual([]);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+  });
+
   it('keeps the unbounded settlement wait for a genuinely working retained review', () => {
     const fixture = makeControllerFixture();
     writeRun({

@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The implementation satisfies the six acceptance criteria and five approved tasks. The controller persists failure evidence before closing a remediable worker, starts and retries fresh `r<N>-<step>` OMP sessions, preserves the original handoff identity, resumes live remediation without duplicate step workers, and retains fail-closed behavior for non-remediable outcomes. The earlier complete Jest suite and the current 124-test focused controller suite pass. Five subsequent live-review findings were fixed and covered locally; no GitHub smoke rerun was performed or claimed by this correction.
+The implementation satisfies the six acceptance criteria and five approved tasks. The controller persists failure evidence before closing a remediable worker, starts and retries fresh `r<N>-<step>` OMP sessions, preserves the original handoff identity, resumes live remediation without duplicate step workers, and retains fail-closed behavior for non-remediable outcomes. The earlier complete Jest suite and the current 125-test focused controller suite pass. Five subsequent live-review findings were fixed and covered locally; no GitHub smoke rerun was performed or claimed by this correction.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -41,7 +41,7 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 
 - Local verification: Pass
 - PR evidence: Not required
-- Current focused controller verification: Pass (124 tests)
+- Current focused controller verification: Pass (125 tests)
 - GitHub smoke rerun: Not run; no smoke pass claimed
 
 ---
@@ -55,7 +55,7 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 | AC3 | Blocked, unknown, missing/invalid, stalled, intervention, and start outcomes remain fail-closed with their panes preserved. | Pass | `scripts/sdlc-execute.mjs:1110-1159`, `scripts/__tests__/sdlc-execute.test.mjs:1408-1446` |
 | AC4 | A genuine blocker stops remediation; a later pane-free resume can use the existing backward-next rewind without advancing later issues. | Pass | `scripts/sdlc-execute.mjs:1137-1159`, `scripts/sdlc-execute.mjs:1235-1271`, `scripts/__tests__/sdlc-execute.test.mjs:1254-1325`, `scripts/__tests__/sdlc-execute.test.mjs:2116-2140` |
 | AC5 | Recovery maintains one rem pane and the original step identity; live remediation resume does not duplicate workers. | Pass | `scripts/sdlc-execute.mjs:1229-1285`, `scripts/__tests__/sdlc-execute.test.mjs:1239-1247`, `scripts/__tests__/sdlc-execute.test.mjs:1327-1405` |
-| AC6 | Behavioral fixtures cover topology, retries, identity transfer, automatic continuation, no duplicates, fail-closed outcomes, interactive review picker readiness, and retained-worker status races. | Pass | Current focused Jest result: 1 suite, 124 tests passed; named fresh and retained Review Mode/base-branch picker fixtures plus stale-status and genuine-working retained review fixtures in `scripts/__tests__/sdlc-execute.test.mjs`. |
+| AC6 | Behavioral fixtures cover topology, retries, identity transfer, automatic continuation, no duplicates, fail-closed outcomes, interactive review picker readiness, and retained-worker status races. | Pass | Current focused Jest result: 1 suite, 125 tests passed; named fresh and retained Review Mode/base-branch picker fixtures plus stale-status, unresolvable-selection, and genuine-working retained review fixtures in `scripts/__tests__/sdlc-execute.test.mjs`. |
 
 ---
 
@@ -74,7 +74,7 @@ The implementation satisfies the six acceptance criteria and five approved tasks
 | Narrow/titleless Review Mode renderings must be recognized without relying on a title. | Pass locally | Commits `37b9080` and `7ef9f80`; `completes fresh review selection from narrow titleless picker rows` and `resumes a retained review from narrow titleless picker rows`. |
 | Complete Review Mode structure must accept supported Unicode and ASCII navigation hints while rejecting title-only, partial, unrelated, or ambiguous screens. | Pass locally | Commits `fb4ae21` and `8676a88`; `rejects a titled review screen without the complete picker structure`, `keeps Unicode titleless review picker coverage`, and existing ambiguous-screen coverage. |
 | Base-branch selection must wait for structured search/count text, exactly one numbered `main` row, and a supported navigation hint. | Pass locally | Current remediation commit; `waits for the complete live review branch picker structure`, `rejects a fresh title-only review branch picker`, `rejects an ambiguous review branch picker with duplicate default rows`, `waits for a retained live review branch picker to render completely`, and `rejects a retained title-only review branch picker`. Fresh and retained staged fixtures expose title-only, then option/search partial, then complete ASCII-hint renderings before branch-selection keys can be sent. |
-| A stale non-idle retained-review sample must be re-checked with the complete interactive picker before any blocking wait for `working`; genuine working/non-actionable workers retain the unbounded settlement wait. | Pass locally | Current correction; `resamples a stale retained review state before waiting on its complete picker` verifies mode and branch keys precede the `--until working` call, while `keeps the unbounded settlement wait for a genuinely working retained review` verifies no timeout and no duplicate review worker. |
+| A stale non-idle retained-review sample must be re-checked with the complete interactive picker before any blocking wait for `working`; genuine working/non-actionable workers retain the unbounded settlement wait. | Pass locally | Current correction; `resamples a stale retained review state before waiting on its complete picker` verifies mode and branch keys precede the `--until working` call; `fails closed on a complete retained branch picker without a resolvable selection` verifies `review_failed`, no keys, and no wait; and `keeps the unbounded settlement wait for a genuinely working retained review` verifies no timeout and no duplicate review worker. |
 
 No GitHub smoke rerun was performed after these fixes. This section records local changed-contract evidence only.
 
@@ -88,7 +88,7 @@ No GitHub smoke rerun was performed after these fixes. This section records loca
 | T002 | Start one rem session with deterministic recovery prompt. | Complete | `r<N>-<step>` OMP session, rem CLI, review completion, original handoff identity, and normal pass consumption implemented. |
 | T003 | Retry remediation, resume without duplicates, and defer rewind. | Complete | Fresh retry loop, exact live-rem lookup, active/stopped remediation state, and pane-free rewind implemented. |
 | T004 | Add rem-loop controller tests. | Complete | Fixture and behavioral coverage added in `scripts/__tests__/sdlc-execute.test.mjs`. |
-| T005 | Verify focused controller suite. | Complete | Current focused result: 124/124 tests passed. |
+| T005 | Verify focused controller suite. | Complete | Current focused result: 125/125 tests passed. |
 
 ---
 
@@ -165,7 +165,7 @@ Remediation composes existing `workerPrompt`, Herdr adapters, handoff validation
 ### Coverage Summary
 
 - Feature files: 1 feature, 6 scenarios
-- Current focused controller suite: 1 suite passed, 124 tests passed, 0 failed
+- Current focused controller suite: 1 suite passed, 125 tests passed, 0 failed
 - Historical complete contract evidence from the initial issue verification: 43 suites passed; 529 tests passed; 2 expected skips; 0 failed
 - Historical expected skips: opt-in exercise suite without `RUN_EXERCISE_TESTS=1`, plus the non-Darwin platform counterpart in `plugin-controller-path.test.mjs`
 - Current correction smoke status: GitHub smoke rerun not performed; no smoke pass claimed
@@ -176,7 +176,7 @@ Remediation composes existing `workerPrompt`, Herdr adapters, handoff validation
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Current focused controller tests | Pass | `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs`: 1 suite passed, 124 tests passed, exit 0. |
+| Current focused controller tests | Pass | `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs`: 1 suite passed, 125 tests passed, exit 0. |
 | Historical complete contract tests | Pass | Initial issue verification recorded 43 passed suites, 529 passed tests, 2 intentional skips, exit 0. |
 | OMP plugin surface | Pass | Initial issue verification recorded `verify-plugin-surface.mjs --root . --label repository` passing. |
 | Git hygiene | Pass | Current remediation recorded `git diff --check` exiting 0 with no output. |
@@ -237,4 +237,4 @@ The GitHub smoke rerun remains pending. No smoke pass is claimed.
 
 **Ready for GitHub smoke rerun**
 
-All local acceptance criteria, regression obligations, approved tasks, architecture checks, and the 124-test focused controller suite pass. GitHub smoke and delivery were not run by this correction.
+All local acceptance criteria, regression obligations, approved tasks, architecture checks, and the 125-test focused controller suite pass. GitHub smoke and delivery were not run by this correction.
