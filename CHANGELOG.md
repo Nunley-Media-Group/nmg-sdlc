@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-08-25
+
 ### Fixed
 
 - Issue #259 waits for complete `/review` mode and base-branch picker structures with exact default-branch rows and supported navigation hints. Counter-present numbered/titleless paths remain supported; the captured footerless unnumbered layout is accepted only with its exact title, navigation hint, at least two plausible branch rows, exactly one cursor marker anywhere, and exactly one independently matched default branch, while title-only, no-navigation, empty, single-row, zero/multiple-cursor, zero/duplicate-default, prose, ambiguous, and incomplete staged screens fail closed.
