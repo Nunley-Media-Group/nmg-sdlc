@@ -684,8 +684,22 @@ function detectSteeringRuntime(root) {
     byteBound: Math.max(8192, Buffer.byteLength(safeRead(source) || '', 'utf8')),
     content: safeRead(source) || '',
   }));
-  const plan = createInitializePlan(root, { snippets });
-  plan.mode = 'migrate';
+  const existingManifest = isFile(manifest) ? JSON.parse(safeRead(manifest)) : null;
+  const existingSnippets = existingManifest?.snippets ?? [];
+  const migratedIds = new Set(snippets.map(({ id }) => id));
+  const plan = createInitializePlan(root, {
+    snippets,
+    validations: existingManifest?.validations ?? [],
+  });
+  const manifestAction = plan.actions.find(({ path: target }) => target === 'steering/manifest.json');
+  const nextManifest = JSON.parse(manifestAction.content);
+  nextManifest.snippets = [
+    ...existingSnippets.filter(({ id }) => !migratedIds.has(id)),
+    ...nextManifest.snippets,
+  ];
+  nextManifest.extensions = existingManifest?.extensions ?? [];
+  manifestAction.content = `${JSON.stringify(nextManifest, null, 2)}\n`;
+  plan.mode = existingManifest ? 'update' : 'migrate';
   plan.actions.push(...legacy.map(({ role }) => ({ op: 'delete', path: `steering/${role}.md` })));
   return {
     id: `steering-runtime:${plan.sourceDigest}`,

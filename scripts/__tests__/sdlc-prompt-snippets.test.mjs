@@ -118,6 +118,26 @@ describe('prompt snippet registry', () => {
     expect(rendered.text).not.toContain('{{pluginRoot}}');
   });
 
+  it('renders repair commands from plugin prompts when project steering is invalid', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-invalid-steering-'));
+    fs.mkdirSync(path.join(projectRoot, 'steering'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'steering', 'manifest.json'), '{ invalid\n');
+
+    const repaired = rewriteInteractiveInput('/sdlc-steering', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: projectRoot,
+    });
+    expect(repaired.text).toContain('# Manage Steering');
+    expect(() => rewriteInteractiveInput('/sdlc-write-spec #42', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: projectRoot,
+    })).toThrow('project_runtime_invalid');
+  });
+
   it('sorts by order then id and records substituted fragment provenance', () => {
     const registry = createPromptSnippetRegistry();
     registerPromptSnippet(registry, builtin({ id: 'test.z', order: 20, body: 'second {{value}}' }));

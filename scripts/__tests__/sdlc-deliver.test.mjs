@@ -345,16 +345,18 @@ describe('sdlc delivery controller', () => {
     expect(eventResult.handoff.summary).toContain('evidence_incomplete_or_invalid');
   });
 
-  test('emits a remediation route for behind mergeability', () => {
+  test('fails closed instead of emitting an empty mergeability remediation packet', () => {
     const f = fixture({ views: [openPr({ mergeStateStatus: 'BEHIND' })] }); roots.push(f.root);
     const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result).toMatchObject({
-      status: 3,
-      remediation: {
-        reasonCode: 'mergeability_defect',
-        mergeStateStatus: 'BEHIND',
+      status: 1,
+      handoff: {
+        reasonCode: 'merge_failed',
+        intervention: true,
       },
     });
+    expect(result.handoff.summary).toContain('mergeability_defect');
+    expect(result.stdout).not.toContain('NMG_SDLC_REMEDIATION');
   });
   test('fails closed when required-check collection is not a check status', () => {
     const f = fixture({ checksStatus: 2, views: [openPr()] }); roots.push(f.root);

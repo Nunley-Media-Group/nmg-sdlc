@@ -26,6 +26,7 @@ export const AUTOMATED_COMMANDS = [
 ];
 
 const INTERACTIVE_BY_COMMAND = new Map(INTERACTIVE_COMMANDS.map(([name, skill]) => [name, skill]));
+const REPAIR_COMMANDS = new Set(["sdlc-onboard-project", "sdlc-upgrade-project", "sdlc-steering"]);
 
 const INTERACTIVE_SLASH_RE = new RegExp(
   `^/(${INTERACTIVE_COMMANDS.map(([name]) => name).join("|")})(?:\\s+([\\s\\S]*))?$`,
@@ -72,7 +73,10 @@ export function rewriteInteractiveInput(text, {
   if (!parsed) return undefined;
   const projectRoot = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
   const { text: prompt, provenance } = renderPrompt(
-    defaultPromptRegistry(root ?? packageRoot, { projectRoot }),
+    defaultPromptRegistry(root ?? packageRoot, {
+      projectRoot,
+      pluginOnly: REPAIR_COMMANDS.has(parsed.command),
+    }),
     { consumer: parsed.command, vars: {} },
   );
   const body = withArguments(

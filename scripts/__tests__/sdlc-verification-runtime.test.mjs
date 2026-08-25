@@ -88,6 +88,67 @@ describe('deterministic verification runtime', () => {
     expect(artifact.results.map(({ effectiveStatus }) => effectiveStatus)).toEqual(['incomplete', 'incomplete']);
   });
 
+  it('passes an immutable request to a trusted extension provider', async () => {
+    const root = await fixture([]);
+    fs.mkdirSync(path.join(root, 'steering', 'extensions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'steering', 'extensions', 'real-provider.mjs'), [
+      'export const extension = Object.freeze({',
+      '  schemaVersion: 1,',
+      '  id: "test.extension",',
+      '  providers: Object.freeze({',
+      '    "project.real": async (request) => ({',
+      '      schemaVersion: 1,',
+      '      status: Object.isFrozen(request) && Object.isFrozen(request.config) ? "passed" : "failed",',
+      '      summary: "extension provider ran",',
+      '      identity: request.identity,',
+      '      evidence: [{ kind: "extension", summary: request.validationId, artifact: null }],',
+      '    }),',
+      '  }),',
+      '});',
+      '',
+    ].join('\n'));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({ id: 'test.extension', path: 'steering/extensions/real-provider.mjs', providers: ['project.real'] });
+    manifest.validations.push({ id: 'extension.pass', provider: 'project.real', required: true, when: { kind: 'always' }, timeoutMs: 1000, config: { value: 1 } });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    run(root, 'git', ['add', '.']);
+    run(root, 'git', ['commit', '-m', 'register extension']);
+
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(artifact.ceiling).toBeNull();
+    expect(artifact.results[0].effectiveStatus).toBe('passed');
+  });
+
+  it('settles a timed-out command even when a grandchild retains output pipes', async () => {
+    const source = 'const {spawn}=require("node:child_process"); spawn(process.execPath,["-e","setTimeout(()=>{},10000)"],{stdio:["ignore","inherit","inherit"]}); setTimeout(()=>{},10000)';
+    const root = await fixture([{ ...command('required.timeout.tree', source), timeoutMs: 20 }]);
+    const startedAt = Date.now();
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(artifact.results[0].effectiveStatus).toBe('incomplete');
+    expect(artifact.results[0].result.summary).toBe('command timed out');
+  });
+
+  it('records an incomplete artifact when the base ref cannot be diffed', async () => {
+    const root = await fixture([command('changed.pass', 'process.exit(0)', true, { kind: 'changed_paths', include: ['src/**'] })]);
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'missing-base-ref' });
+    expect(artifact).toMatchObject({ ceiling: 'Incomplete', changedPaths: [], results: [] });
+    expect(artifact.runtimeError.summary).toContain('missing-base-ref');
+  });
+
+  it('replaces stale success evidence when identity setup fails', async () => {
+    const root = await fixture([command('required.pass', 'process.exit(0)')]);
+    const artifactPath = path.join(root, '.omp', 'sdlc', 'verification', '42.json');
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, '{"ceiling":null,"stale":true}\n');
+    fs.rmSync(path.join(root, 'specs', '42-test', 'design.md'));
+
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(artifact).toMatchObject({ ceiling: 'Incomplete', results: [] });
+    expect(JSON.parse(fs.readFileSync(artifactPath, 'utf8'))).not.toHaveProperty('stale');
+  });
+
   it('evaluates the closed condition kinds before provider launch', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-condition-'));
     fs.writeFileSync(path.join(root, 'exists.txt'), 'x');

@@ -78,7 +78,7 @@ function validatePlan(plan) {
     || modulePaths.has(target)
     || target.startsWith("steering/snippets/")
     || target.startsWith("steering/extensions/");
-  const allowedDelete = (target) => plan.mode === "migrate"
+  const allowedDelete = (target) => ["migrate", "update"].includes(plan.mode)
     && ROLES.slice(0, 3).some((role) => target === `steering/${role}.md`);
   const seen = new Set();
   for (const action of plan.actions) {

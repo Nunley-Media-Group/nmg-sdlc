@@ -248,12 +248,12 @@ export function pluginPromptFragments() {
   return CATALOG;
 }
 
-export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot } = {}) {
+export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot, pluginOnly = false } = {}) {
   const registry = createPromptSnippetRegistry();
   for (const fragment of pluginPromptFragments()) {
     registerPromptSnippet(registry, fragment, packageRoot);
   }
-  if (projectRoot && existsSync(join(projectRoot, "steering", "manifest.json"))) {
+  if (projectRoot && !pluginOnly && existsSync(join(projectRoot, "steering", "manifest.json"))) {
     const command = join(packageRoot, "scripts", "sdlc-steering.mjs");
     const result = spawnSync(process.execPath, [command, "prompt-fragments", "--project", projectRoot], {
       encoding: "utf8",

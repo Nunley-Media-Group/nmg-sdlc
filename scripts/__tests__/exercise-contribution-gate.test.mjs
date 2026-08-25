@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 6;
+const CURRENT_VERSION = 7;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -184,11 +184,11 @@ function normalScenario({
 }
 
 describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', () => {
-  test('onboarding-style setup creates version 6 and rerun is idempotent', () => {
+  test('onboarding-style setup creates version 7 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 6');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 7');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -201,7 +201,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 6');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 7');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 

@@ -822,7 +822,7 @@ export function runDeliver({
       if (classifyHumanReview(observed.rawThreads, botLogins) || classified.reasonCode === 'changes_requested') {
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
       }
-      if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved', 'mergeability_defect'].includes(classified.reasonCode)) {
+      if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved'].includes(classified.reasonCode)) {
         const packet = remediationPacket({ issue: issueNumber, pr: observed.pr, classified, rawThreads: observed.rawThreads, botLogins });
         if (packet.threads.some((thread) => !thread.path)) {
           return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);

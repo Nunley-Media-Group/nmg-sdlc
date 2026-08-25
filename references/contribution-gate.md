@@ -10,8 +10,8 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 6` |
-| Current numeric version | `6` |
+| Managed version | `# nmg-sdlc-managed-version: 7` |
+| Current numeric version | `7` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
 | Maximum paths per diagnostic | `20` |
@@ -38,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 6
+# nmg-sdlc-managed-version: 7
 name: nmg-sdlc contribution gate
 
 on:

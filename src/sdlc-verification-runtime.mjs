@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
@@ -38,8 +38,8 @@ function porcelainPaths(output) {
   return paths;
 }
 function changedPaths(projectRoot, baseRef) {
-  const committed = git(projectRoot, ["diff", "--name-only", `${baseRef}...HEAD`], true).stdout.split(/\r?\n/);
-  const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z"], true).stdout);
+  const committed = git(projectRoot, ["diff", "--name-only", `${baseRef}...HEAD`]).stdout.split(/\r?\n/);
+  const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z"]).stdout);
   return [...new Set([...committed, ...dirty].filter(Boolean).map((path) => path.split("\\").join("/")))].sort();
 }
 function walk(root, prefix = "") {
@@ -101,12 +101,32 @@ function commandProvider(request) {
     const childEnv = Object.fromEntries(SAFE_ENV.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
     for (const key of env) if (process.env[key] !== undefined) childEnv[key] = process.env[key];
     let stdout = ""; let stderr = ""; let settled = false;
-    const child = spawn(program, args, { cwd: absoluteCwd, env: childEnv, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-    const timer = setTimeout(() => { child.kill("SIGKILL"); }, request.timeoutMs);
+    const child = spawn(program, args, { cwd: absoluteCwd, env: childEnv, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveResult(result);
+    };
+    const timer = setTimeout(() => {
+      try {
+        if (process.platform === "win32") child.kill("SIGKILL");
+        else if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {}
+      child.stdout.destroy();
+      child.stderr.destroy();
+      settle(resultEnvelope("incomplete", "command timed out", request.identity, [{
+        kind: "command",
+        summary: `${program} ${args.join(" ")} timed out`,
+        artifact: null,
+        stdout: bounded(stdout),
+        stderr: bounded(stderr),
+      }]));
+    }, request.timeoutMs);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => { if (!settled) { settled = true; clearTimeout(timer); resolveResult(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity)); } });
-    child.on("close", (code, signal) => { if (settled) return; settled = true; clearTimeout(timer); const timedOut = signal === "SIGKILL"; const status = timedOut ? "incomplete" : code === 0 ? "passed" : "failed"; resolveResult(resultEnvelope(status, timedOut ? "command timed out" : `command exited ${code}`, request.identity, [{ kind: "command", summary: `${program} ${args.join(" ")} exited ${code}`, artifact: null, stdout: bounded(stdout), stderr: bounded(stderr) }])); });
+    child.on("error", (error) => settle(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity)));
+    child.on("close", (code, signal) => settle(resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, [{ kind: "command", summary: `${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`, artifact: null, stdout: bounded(stdout), stderr: bounded(stderr) }])));
   });
 }
 function artifactProvider(request) {
@@ -138,7 +158,7 @@ async function invokeProvider(runtime, validation, request) {
   if (validation.provider === "builtin.artifact") return artifactProvider(request);
   if (validation.provider === "builtin.external-evidence") return externalProvider(request);
   const providerPromise = Promise.resolve().then(
-    () => runtime.providers.get(validation.provider).handler(extensionRequest),
+    () => runtime.providers.get(validation.provider).handler(request),
   );
   providerPromise.catch(() => {});
   let timer;
@@ -159,52 +179,58 @@ export function verificationCeiling(results) {
   if (required.some((result) => result.effectiveStatus !== "passed")) return "Fail";
   return null;
 }
+function writeVerificationArtifact(root, issue, artifact) {
+  const path = join(root, ".omp", "sdlc", "verification", `${issue}.json`);
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  renameSync(temporary, path);
+}
+function setupIdentity(root, specDir, runtime) {
+  let headSha = null;
+  let currentSpecHash = null;
+  try { headSha = git(root, ["rev-parse", "HEAD"]).stdout.trim(); } catch {}
+  try { currentSpecHash = specHash(specDir); } catch {}
+  return { headSha, steeringHash: runtime?.steeringHash ?? null, specHash: currentSpecHash };
+}
 export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main" }) {
   const root = resolve(projectRoot);
   let runtime;
   try {
     runtime = await loadSteeringRuntime(root);
+    const paths = changedPaths(root, baseRef);
+    const results = [];
+    for (const validation of runtime.validations) {
+      const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
+      if (!applicable) { results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null }); continue; }
+      const request = deepFreeze({ schemaVersion: 1, validationId: validation.id, projectRoot: root, timeoutMs: validation.timeoutMs, config: structuredClone(validation.config), identity: identity(root, specDir, runtime, validation) });
+      let result;
+      try {
+        result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
+        if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
+      } catch (error) {
+        result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
+      }
+      results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result });
+    }
+    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), ceiling: verificationCeiling(results), changedPaths: paths, results };
+    writeVerificationArtifact(root, issue, artifact);
+    return artifact;
   } catch (error) {
     const artifact = {
       schemaVersion: 1,
       issue: Number(issue),
       generatedAt: new Date().toISOString(),
-      identity: {
-        headSha: git(root, ["rev-parse", "HEAD"]).stdout.trim(),
-        steeringHash: null,
-        specHash: specHash(specDir),
-      },
+      identity: setupIdentity(root, specDir, runtime),
       ceiling: "Incomplete",
       changedPaths: [],
       runtimeError: {
-        reasonCode: error.reasonCode ?? "steering_manifest_invalid",
+        reasonCode: error.reasonCode ?? "steering_result_invalid",
         summary: error.message,
       },
       results: [],
     };
-    const artifactPath = join(root, ".omp", "sdlc", "verification", `${issue}.json`);
-    mkdirSync(dirname(artifactPath), { recursive: true });
-    writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+    writeVerificationArtifact(root, issue, artifact);
     return artifact;
   }
-  const paths = changedPaths(root, baseRef);
-  const results = [];
-  for (const validation of runtime.validations) {
-    const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
-    if (!applicable) { results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null }); continue; }
-    const request = deepFreeze({ schemaVersion: 1, validationId: validation.id, projectRoot: root, timeoutMs: validation.timeoutMs, config: structuredClone(validation.config), identity: identity(root, specDir, runtime, validation) });
-    let result;
-    try {
-      result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
-      if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
-    } catch (error) {
-      result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
-    }
-    results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result });
-  }
-  const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: { headSha: git(root, ["rev-parse", "HEAD"]).stdout.trim(), steeringHash: runtime.steeringHash, specHash: specHash(specDir) }, ceiling: verificationCeiling(results), changedPaths: paths, results };
-  const path = join(root, ".omp", "sdlc", "verification", `${issue}.json`);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
-  return artifact;
 }

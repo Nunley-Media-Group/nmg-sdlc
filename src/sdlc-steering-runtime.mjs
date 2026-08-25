@@ -73,7 +73,7 @@ function validateWhen(when) {
   if (when.kind === "glob_exists" && (![when.root, when.pattern].every((x) => typeof x === "string" && x))) fail("steering_condition_invalid");
   if (when.kind === "path_exists" && !safeRelativePath(when.path)) fail("steering_condition_invalid");
   if (when.kind === "glob_exists" && (!safeRelativePath(when.root) || when.pattern.startsWith("/") || when.pattern.includes("..") || when.pattern.startsWith("!"))) fail("steering_condition_invalid");
-  if (when.kind === "changed_paths" && [...when.include, ...(when.exclude ?? [])].some((pattern) => pattern.startsWith("!") || pattern.includes(".."))) fail("steering_condition_invalid");
+  if (when.kind === "changed_paths" && [...when.include, ...(when.exclude ?? [])].some((pattern) => !safeRelativePath(pattern) || pattern.startsWith("!"))) fail("steering_condition_invalid");
 }
 
 function validateConfig(validation) {
@@ -81,7 +81,7 @@ function validateConfig(validation) {
   if (!config || typeof config !== "object" || Array.isArray(config)) fail("steering_validation_config_invalid");
   if (validation.provider === "builtin.command") {
     exactKeys(config, ["program", "args", "cwd", "env"], "steering_validation_config_invalid");
-    if (typeof config.program !== "string" || !config.program || ["sh", "bash", "zsh", "cmd", "powershell"].includes(config.program) || !Array.isArray(config.args) || !config.args.every((x) => typeof x === "string") || !safeRelativePath(config.cwd || ".") || !Array.isArray(config.env) || !config.env.every((x) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x)) || new Set(config.env).size !== config.env.length) fail("steering_validation_config_invalid");
+    if (typeof config.program !== "string" || !config.program || ["sh", "bash", "zsh", "cmd", "powershell"].includes(config.program.split(/[\\/]/).at(-1).toLowerCase()) || !Array.isArray(config.args) || !config.args.every((x) => typeof x === "string") || !safeRelativePath(config.cwd || ".") || !Array.isArray(config.env) || !config.env.every((x) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x)) || new Set(config.env).size !== config.env.length) fail("steering_validation_config_invalid");
   } else if (validation.provider === "builtin.artifact") {
     exactKeys(config, ["path", "checks"], "steering_validation_config_invalid");
     const validCheck = (check) => ["nonempty", "json"].includes(check)

@@ -16,20 +16,20 @@ function workflowTemplate() {
 }
 
 describe('contribution gate contract (issues #125, #143, and current repository rewrite)', () => {
-  test('shared reference defines managed version 6, lifecycle status, and collision rules', () => {
+  test('shared reference defines managed version 7, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 
     expect(contract).toContain('.github/workflows/nmg-sdlc-contribution-gate.yml');
     expect(contract).toContain('# nmg-sdlc-managed: contribution-gate');
-    expect(contract).toContain('# nmg-sdlc-managed-version: 6');
-    expect(contract).toContain('| Current numeric version | `6` |');
+    expect(contract).toContain('# nmg-sdlc-managed-version: 7');
+    expect(contract).toContain('| Current numeric version | `7` |');
     expect(contract).toContain('Workflow: created | updated | already present | skipped');
     expect(contract).toContain('skipped (unmanaged file at path)');
     expect(contract).toContain('skipped (newer managed version)');
     expect(contract).toContain('Preserve every unrelated workflow under `.github/workflows/` byte-for-byte');
   });
 
-  test('version-6 template accepts specs/{N}-{slug} and rejects epic aggregates', () => {
+  test('version-7 template accepts specs/{N}-{slug} and rejects epic aggregates', () => {
     const template = workflowTemplate();
     const live = read('.github/workflows/nmg-sdlc-contribution-gate.yml');
 

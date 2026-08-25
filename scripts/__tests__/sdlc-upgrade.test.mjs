@@ -8,6 +8,7 @@ import {
   detectIssueDependencyUpgrade,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
+import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 const temporaryRoots = [];
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
 
@@ -545,5 +546,47 @@ describe('managed steering migration', () => {
     expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe('# Tech\n');
     expect(fs.readFileSync(path.join(root, 'steering', 'retrospective.md'), 'utf8')).toBe('# Keep\n');
     expect(fs.readFileSync(path.join(root, 'steering', 'unknown.txt'), 'utf8')).toBe('keep\n');
+  });
+
+  it('updates an existing manifest without discarding runtime registrations', async () => {
+    const root = makeRoot();
+    await applySteeringPlan(root, createInitializePlan(root, {
+      snippets: [{
+        id: 'project.custom',
+        path: 'steering/snippets/project-custom.md',
+        consumers: ['worker:implement'],
+        slot: 'body',
+        order: 600,
+        byteBound: 1024,
+        content: 'Keep custom guidance.\n',
+      }],
+    }));
+    write(root, 'steering/extensions/custom.mjs', [
+      'export const extension = Object.freeze({',
+      '  schemaVersion: 1,',
+      '  id: "project.custom",',
+      '  providers: Object.freeze({ "project.custom-check": async (request) => ({ schemaVersion: 1, status: "passed", summary: "ok", identity: request.identity, evidence: [{ kind: "custom", summary: "ok", artifact: null }] }) }),',
+      '});',
+      '',
+    ].join('\n'));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({ id: 'project.custom', path: 'steering/extensions/custom.mjs', providers: ['project.custom-check'] });
+    manifest.validations.push({ id: 'custom.check', provider: 'project.custom-check', required: true, when: { kind: 'always' }, timeoutMs: 1000, config: {} });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    write(root, 'steering/product.md', '# Migrated Product\n');
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+    expect(item.plan.mode).toBe('update');
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+
+    const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    expect(updated.snippets.map(({ id }) => id)).toEqual(['project.custom', 'project.product']);
+    expect(updated.extensions).toEqual(manifest.extensions);
+    expect(updated.validations).toEqual(manifest.validations);
+    expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-custom.md'), 'utf8')).toBe('Keep custom guidance.\n');
+    expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
   });
 });

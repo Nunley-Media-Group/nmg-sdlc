@@ -16,10 +16,16 @@ gh api graphql \
       repository(owner: $owner, name: $name) {
         pullRequest(number: $number) {
           reviewThreads(first: 100) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               id
               isResolved
               comments(first: 50) {
+                pageInfo {
+                  hasNextPage
+                }
                 nodes {
                   databaseId
                   body
@@ -42,7 +48,7 @@ gh api graphql \
 
 Resolve `$OWNER` and `$REPO` from `gh pr view $PR_NUMBER --json baseRepository` (use the base repo — that's where review threads live). `$PR_NUMBER` is the value resolved in Step 1.
 
-The query returns up to 100 threads, each with up to 50 comments. For larger PRs see the `> 100 threads fallback` section below.
+The query returns at most 100 threads and 50 comments per thread. Before classifying any thread, require `reviewThreads.pageInfo.hasNextPage == false` and every `comments.pageInfo.hasNextPage == false`.
 
 ## Reviewer-Identity Filter
 
@@ -75,6 +81,6 @@ These messages apply only when the short-circuit fires on round 1 (initial fetch
 
 GraphQL or network failures exit non-zero with the `gh` stderr surfaced verbatim. Report the failure and stop so the user can retry the skill after access recovers. Example exit line: `GraphQL fetch failed on round {N}: {gh stderr}`.
 
-## > 100 Threads Fallback
+## Pagination Completeness
 
-If `reviewThreads.nodes.length == 100`, additional threads may exist on subsequent pages. Paging is intentionally not implemented here: a PR with > 100 review threads indicates a review process that should not be automated end-to-end. Emit the single-line warning `PR #{N} has 100+ review threads — processing the first page only. Consider splitting the PR.` and continue with the first-page set.
+If `reviewThreads.pageInfo.hasNextPage` or any `comments.pageInfo.hasNextPage` is `true` or missing, stop classification and fail closed. Never process a partial first page as complete evidence.

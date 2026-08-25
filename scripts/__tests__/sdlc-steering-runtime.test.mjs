@@ -80,6 +80,27 @@ describe('managed steering runtime', () => {
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode });
   });
 
+  it.each([
+    ['path-qualified shell', { kind: 'always' }, '/bin/bash'],
+    ['absolute include glob', { kind: 'changed_paths', include: ['/src/**'] }, process.execPath],
+    ['absolute exclude glob', { kind: 'changed_paths', include: ['src/**'], exclude: ['/src/generated/**'] }, process.execPath],
+  ])('rejects %s', async (_name, when, program) => {
+    const root = fixture();
+    const approved = plan(root, {
+      validations: [{
+        id: 'invalid.command',
+        provider: 'builtin.command',
+        required: true,
+        when,
+        timeoutMs: 1000,
+        config: { program, args: [], cwd: '.', env: [] },
+      }],
+    });
+    await expect(applySteeringPlan(root, approved)).rejects.toMatchObject({
+      reasonCode: expect.stringMatching(/^steering_(condition|validation_config)_invalid$/),
+    });
+  });
+
   it('rejects approved actions outside managed runtime scope', async () => {
     const root = fixture();
     const approved = plan(root);

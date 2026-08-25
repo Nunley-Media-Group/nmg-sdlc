@@ -340,7 +340,7 @@ No optional environment variable may change interactive `/plan` behavior or broa
 
 ## References
 
-- Product direction: `steering/product.md`
-- Repository organization: `steering/structure.md`
+- Product direction: `steering/snippets/project-product.md`
+- Repository organization: `steering/snippets/project-structure.md`
 - Project instructions: `AGENTS.md`
 - Public workflow: `README.md`

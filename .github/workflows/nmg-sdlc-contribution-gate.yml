@@ -1,5 +1,5 @@
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 6
+# nmg-sdlc-managed-version: 7
 name: nmg-sdlc contribution gate
 
 on:
