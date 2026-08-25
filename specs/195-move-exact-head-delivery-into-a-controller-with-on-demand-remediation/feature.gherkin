@@ -64,7 +64,7 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
 
   @SCN006
   Scenario: breaking work requires approved major bump
-    Given issue title or body contains BREAKING
+    Given the issue title starts with BREAKING: or a body line starts with BREAKING: case-insensitively
     And approved requirements and design omit Version bump major
     When the controller evaluates versioning
     Then it writes a failed major_bump_required intervention handoff
@@ -99,3 +99,11 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
     When it initializes the delivery controller path
     Then it resolves scripts/sdlc-deliver.mjs from that package through the shared controller resolver
     And a package missing that controller fails explicitly with controller unresolved
+
+  @SCN011
+  Scenario: prose about the breaking gate is not a breaking declaration
+    Given the issue body documents or tests the BREAKING gate without a BREAKING: prefix at the start of a body line
+    And the issue title does not start with BREAKING:
+    When the controller evaluates versioning
+    Then it classifies the bump from the issue labels
+    And it does not write a major_bump_required handoff

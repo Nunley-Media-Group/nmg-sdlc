@@ -52,7 +52,7 @@ At extension initialization, `src/extension.ts` resolves `sdlc-deliver.mjs` thro
 
 1. Resolve the unique approved `specs/N-*/` package and read issue title, body, labels, state.
 2. Require the current verification report to satisfy the repository's existing local-pass or `pr_evidence_pending` readiness contract.
-3. Detect BREAKING case-insensitively. Require `**Version bump**: major` in approved requirements or design before any major bump.
+3. Detect a breaking declaration only when the case-insensitive `BREAKING:` prefix starts the issue title or a body line. Prose that merely documents or tests this gate is not a declaration. Require `**Version bump**: major` in approved requirements or design before any major bump.
 4. Read `steering/tech.md` versioning tables. Classify the issue by bug/enhancement matrix; `spike` never suppresses the bump.
 5. Update `VERSION`, `package.json`, `CHANGELOG.md` `[Unreleased]`, and every declared versioned file as one logical change. Resume idempotently: if the exact branch already has an open PR whose delivery commit contains the synchronized target version, do not bump again.
 6. Commit any delivery/version changes, perform the current clean-scope and merge-base preflight, push without force, then create or resume the PR for the exact branch. Preserve draft handling for valid `pr_evidence_pending` verification.

@@ -34,10 +34,10 @@ Post-verification remediation was freshly reviewed and verified at exact impleme
 - Spec: `specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation`
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009, SCN010]
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009, SCN010, SCN011]
 - Regression: AC []; FR []; scenarios []
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":195,"specPath":"specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":195,"specPath":"specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Delivery Validation
 
@@ -51,7 +51,7 @@ Post-verification remediation was freshly reviewed and verified at exact impleme
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, and packaged resolution | Pass | `scripts/sdlc-deliver.mjs:140-445,486-504,506-847`; `src/extension.ts:41-45`; 593-test suite; validated live deliver handoffs for #23 and #24 |
+| AC1 | Controller preserves terminal delivery, versioning, exact-branch PR handling, classifier reuse, exact-head merge, proof, cleanup ordering, and packaged resolution | Pass | `scripts/sdlc-deliver.mjs:140-445,486-504,506-847`; `src/extension.ts:41-45`; 595-test suite; validated live deliver handoffs for #23 and #24 |
 | AC2 | Remediation occurs only on demand in the same worker | Pass | `scripts/sdlc-deliver.mjs:578-600,796-808`; `workflows/open-pr/WORKFLOW.md:54-85`; deliver prompts exclude unconditional Address PR Comments; remediation packet tests pass |
 | AC3 | Human and ambiguous review stop safely | Pass | `scripts/sdlc-deliver.mjs:602-605,620,793-800`; explicit and classified human-review tests pass; no intervention path merges |
 | AC4 | Pending delivery waits at least 30 seconds and stops at one hour | Pass | `scripts/sdlc-deliver.mjs:20-21,754-766,789-815`; injected-time test observes 120 sleeps of 30,000 ms and `delivery_pending` |
@@ -80,7 +80,7 @@ The corrected Herdr session launched `/sdlc-execute #23 #24` with the required `
 | T005 | Bound pending delivery and human intervention | Complete | 30-second/one-hour bounds and controller-owned human review covered |
 | T006 | Compact open-pr workflow around controller loop | Complete | Controller loop, controlled-draft evidence, and on-demand remediation explicit |
 | T007 | Remove unconditional deliver extra workflow | Complete | `STEP_EXTRA_WORKFLOWS` retains only implement simplify; prompt tests pass |
-| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 593 tests passed, 2 expected skips |
+| T008 | Cover controller terminal and remediation paths | Complete | Full suite: 44 suites passed, 595 tests passed, 2 expected skips |
 | T009 | Verify two real GitHub delivery lifecycles | Complete | Two distinct issue URLs, PR URLs, exact heads, merged states, closed states, and validated deliver handoffs preserved above |
 
 ---
@@ -138,7 +138,7 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | Yes (`SCN001`, `SCN003`, `SCN006`, `SCN008`, `SCN010`) | Jest plus live controllers | Yes |
+| AC1 | Yes (`SCN001`, `SCN003`, `SCN006`, `SCN008`, `SCN010`, `SCN011`) | Jest plus live controllers | Yes |
 | AC2 | Yes (`SCN002`) | Jest controller/prompt tests and OMP exercise | Yes |
 | AC3 | Yes (`SCN005`) | Jest controller tests | Yes |
 | AC4 | Yes (`SCN004`) | Injected clock/sleep Jest test | Yes |
@@ -147,7 +147,7 @@ The execute pane owns orchestration only. Sibling deliver workers invoke the det
 
 ### Coverage Summary
 
-- Feature files: 1 feature, 10 scenarios
+- Feature files: 1 feature, 11 scenarios
 - Full local execution at remediation head `ed078e036ff34d1692889236e77589a66bc545a4`: 44 suites passed, 595 tests passed
 - Expected skips: 2 tests in one opt-in exercise suite
 - Focused breaking-declaration execution: `sdlc-deliver.test.mjs`, 22 tests passed
