@@ -9,17 +9,17 @@
 
 | Category | Score (1-5) |
 |---|---:|
-| Spec Compliance | 4 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 5 |
 | Security | 5 |
 | Performance | 4 |
 | Testability | 5 |
 | Error Handling | 5 |
-| **Overall** | **4.7** |
+| **Overall** | **4.8** |
 
-### Implementation Status: Fail
+### Implementation Status: Pass
 
-Registry, provenance, fail-closed composition, native-plan rewriting, byte ceilings, and local compatibility tests pass. The live exercise now proves the corrected caller-pane environment can create workers: issue #11 passed start and implementation, and pushed commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031`. The resumed controller stopped at issue #11 `review1` with persisted `reasonCode: review_failed`; `s11-review1` remains open in the base-branch picker with no review handoff. No delivery PR exists, both issues remain open, and issue #12 has not started. The authoritative two-issue convergence gate remains unmet.
+Registry composition, provenance, fail-closed errors, native-plan rewriting, byte ceilings, compatibility tests, and the authoritative two-issue live lifecycle gate pass. Issues #11 and #12 completed all eight execute steps serially. Delivery PRs #15 and #16 merged at exact verified heads and both issues closed.
 
 ## Issue Scope
 
@@ -34,44 +34,42 @@ Registry, provenance, fail-closed composition, native-plan rewriting, byte ceili
 
 | AC | Status | Evidence |
 |---|---|---|
-| AC1 | Pass | Registry wiring is present in `src/sdlc-commands.mjs`, `src/extension.ts`, and `scripts/sdlc-execute.mjs`; corrected explicit-extension TUI diagnostics observed the draft command rewrite and native `mode_change: plan`. |
-| AC2 | Pass | Registry rendering preserves stable order and writes machine-readable provenance; focused registry coverage passed. |
+| AC1 | Pass | Registry wiring is present in interactive command, automated command, and execute worker-prompt paths; isolated OMP diagnostics observed native plan rewriting. |
+| AC2 | Pass | Registry rendering preserves stable order and writes machine-readable provenance. |
 | AC3 | Pass | Invalid providers, consumers, slots, sources, placeholders, roots, duplicates, and byte bounds fail closed with named errors. |
 | AC4 | Pass | Built-in catalog entries remain plugin-owned and byte ceilings remain enforced. |
-| AC5 | Fail | Corrected execution passed #11 start and implementation but stopped at #11 review1 with `review_failed`; no delivery PRs were created, neither issue closed, and #12 did not start. |
+| AC5 | Pass | Actual draft and write-spec resources for #11/#12 were reused; one persisted serial execute lifecycle completed both issues through merged PRs #15/#16 and closed issues. |
 
 ## Regression Obligations
 
-- [x] FR7: production composition callsites are cut over to the registry while `workflowBody` remains the file-reader adapter.
-- [x] Existing command and worker prompt content and byte ceilings remain covered by passing tests.
-- [x] The harness explicitly loads `src/extension.ts` under `--no-extensions` after commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd`.
-- [ ] AC5 / FR8 / SCN005: #11 reached a pushed implementation, but two merged delivery PRs and two closed issues are absent.
+- [x] FR7: production composition callsites use the registry while `workflowBody` remains the file-reader adapter.
+- [x] Existing command and worker prompt content and byte ceilings pass.
+- [x] The harness explicitly loads `src/extension.ts` with ambient extensions disabled.
+- [x] AC5 / FR8 / SCN005: two live issues reached merged delivery PRs and closed terminal states.
 
 ## Task Completion
 
 | Task | Status | Notes |
 |---|---|---|
 | T001 | Complete | Prompt-snippet registry module and required exports are present. |
-| T002 | Complete | Built-in plugin catalog and immutable records are covered. |
+| T002 | Complete | Built-in catalog and immutable records are covered. |
 | T003 | Complete | Interactive and automated commands compose through the registry. |
-| T004 | Complete | Worker prompts compose through the registry and write provenance. |
+| T004 | Complete | Worker prompts compose through the registry and persist provenance. |
 | T005 | Complete | Registry contracts and named failures have focused coverage. |
 | T006 | Complete | Full compatibility suite passed. |
-| T007 | Incomplete | Actual draft and write-spec succeeded for both issues; corrected execute reached #11 review1, then failed before review completion or delivery. |
+| T007 | Complete | Actual draft, specification, serial execute, review, verification, and merged delivery completed for both live issues. |
 
 ## Architecture Assessment
 
-### SOLID Compliance
-
 | Principle | Score | Finding |
 |---|---:|---|
-| Single Responsibility | 5 | Registry validation, rendering, and provenance remain isolated. |
+| Single Responsibility | 5 | Registry validation, rendering, provenance, and controller review interaction remain separated. |
 | Open/Closed | 5 | Catalog records add fragments without composition branches. |
 | Liskov Substitution | 5 | Registry records and render results preserve stable contracts. |
 | Interface Segregation | 5 | Consumers import only required registry operations. |
-| Dependency Inversion | 5 | Command and worker consumers depend on the registry API. |
+| Dependency Inversion | 5 | Command and worker consumers depend on registry APIs. |
 
-Layer separation remains sound. The corrected environment eliminated the prior `pane_split_failed`: branch workers were created under caller pane `w6:p5V`. The terminal `review_failed` boundary is preserved without attributing it to the issue #213 registry change; the review worker remains in an interactive base-branch picker and no review handoff exists.
+The live review defect was controller timing and terminal rendering, not registry composition: narrow panes truncated `Select base branch` to `Select base b…`, immediate observation raced TUI rendering, and retained pickers lacked a supported resume path. The repair centralizes interactive review completion, recognizes the stable prefix, waits for rendering, resumes retained pickers, and still delegates outcome persistence to the normal `review-main` helper.
 
 ## Security Assessment
 
@@ -79,70 +77,61 @@ Layer separation remains sound. The corrected environment eliminated the prior `
 
 ## Performance Assessment
 
-**Score: 4/5.** Work is bounded and linear in prompt size. Registry reconstruction performs avoidable synchronous reads, but remains within the approved bounded dispatch design.
+**Score: 4/5.** Registry work remains bounded and linear in prompt size. Review observation sleeps only in the production Herdr adapter between failed UI reads; injected tests remain synchronous. Registry reconstruction still performs bounded synchronous file reads within the approved dispatch design.
 
 ## Testability Assessment
 
-**Score: 5/5.** Registry creation and rendering are deterministic; temporary roots cover file and provenance boundaries; errors are directly observable; consumer synchronization and byte ceilings are tested.
+**Score: 5/5.** Registry rendering is deterministic; temporary roots cover file/provenance boundaries; controller coverage now includes delayed review rendering, narrow picker titles, literal-default selection, and retained review recovery.
 
 ## Error Handling Assessment
 
-**Score: 5/5.** Registration validates before mutation, rendering fails before returning partial text, provenance failures collapse to stable codes, and execute persists the live failure as `pane_split_failed` rather than advancing the queue.
+**Score: 5/5.** Registration and provenance fail before partial success. The controller preserved every failed review boundary, retained worker panes for recovery, rejected a schema-invalid delivery handoff, and advanced only after the worker repaired and validated it.
 
 ## Test Results
 
 | Check | Result |
 |---|---|
-| Focused native-plan and harness coverage after remediation | Pass — 14/14 |
-| Full Jest suite after remediation | Pass — 513 passed, 2 expected skips |
+| Final focused `scripts/__tests__/sdlc-execute.test.mjs` | Pass — 100/100 |
+| Final full repository Jest suite | Pass — 43 suites passed, 1 skipped; 515 tests passed, 2 skipped |
 | OMP plugin surface | Pass |
-| Corrected explicit-extension TUI diagnostic | Pass — input rewrite and native plan mode observed |
-| Actual `/sdlc-draft-issue` for issue #11 | Pass — issue #11 |
-| Actual `/sdlc-draft-issue` for issue #12 | Pass — issue #12 |
-| Actual `/sdlc-write-spec #11` | Pass — PR #13 merged, `spec-created` |
-| Actual `/sdlc-write-spec #12` | Pass — PR #14 merged, `spec-created` |
-| One actual `/sdlc-execute #11 #12` corrected round | Fail — #11 start/implement passed; stopped at #11 review1 with `review_failed` |
-| Delivery PRs merged | Fail — none created |
-| Issues closed | Fail — #11 and #12 remain open |
+| Isolated explicit-extension TUI | Pass — caller `w6:p5Z`; ambient extensions/skills disabled |
+| Actual `/sdlc-draft-issue` #11/#12 | Pass — authoritative issues reused |
+| Actual `/sdlc-write-spec #11` / `#12` | Pass — PRs #13/#14 merged |
+| Persisted `/sdlc-execute #11 #12` | Pass — both issues completed all eight steps |
+| Review base selection | Pass — reviews completed against literal `main` |
+| Delivery PRs | Pass — #15/#16 merged |
+| Issues | Pass — #11/#12 closed |
 
 ## Live Exercise Evidence
 
-Repository: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`.
+Caller identifiers were `w6`, `w6:t1`, and `w6:p5Z`; the managed OMP process received those values and `/Users/rnunley/.config/herdr/herdr.sock` explicitly. The branch extension at `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts` was loaded under `--no-extensions --no-skills`.
 
-Before launch, both the environment and `herdr pane current --current` identified caller pane `w6:p5V`. The managed OMP TUI received `HERDR_ENV=1`, `/Users/rnunley/.config/herdr/herdr.sock`, and `HERDR_PANE_ID=w6:p5V` explicitly. It disabled ambient extensions/skills and loaded `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts`.
+The persisted final run records all eight steps for both issues, `currentIssue: null`, `currentStep: null`, and `failed: null`. Final delivery proof:
 
-The corrected round entered `/sdlc-execute #11 #12` once. The branch controller created real workers: `s11-start` in `w6:p5W`, `s11-implement` in `w6:p5X`, and `s11-review1` in `w6:p5Y`. Start and implementation handoffs passed. The implementation branch is clean, pushed, and points at `34c69c6239e87eb0b330e3fb9fc6fb66d22be031`.
+| Issue | PR | Merge commit | Issue |
+|---:|---:|---|---|
+| #11 | #15 | `0e91017b33c81c91297219407251a77a852c8cd7` | CLOSED / COMPLETED |
+| #12 | #16 | `eb91cf4b1018ca773d08e86b20a3b2437f721b0b` | CLOSED / COMPLETED |
 
-The TUI orchestration agent canceled its original background branch-controller process after receiving an advisor recommendation to use the smoke repository's older installed controller. Its reconciliation run did not duplicate the live implementation worker. After implementation settled, a direct branch-controller resume with the same caller environment advanced the persisted queue to review1 and stopped:
-
-```text
-Stopped on #11 review1. Worker pane w6:p5Y agent s11-review1 left open.
-```
-
-Persisted state records completed `["start", "implement"]` for issue #11 and `reasonCode: review_failed` at `review1`. No review handoff exists. The retained worker is idle with `/review` and `Select base branch` visible; the issue branch is selected and `main` is available. No `s12-*` worker exists.
-
-GitHub remains terminally incomplete: issues #11 and #12 are open, specification PRs #13/#14 are merged, repository-scoped delivery-branch PR search returned zero results, and no delivery merge SHA exists. Exact environment, worker topology, handoffs, commit, states, and cleanup are in `live-smoke-evidence.md`.
+Exact worker panes, handoffs, timestamps, URLs, controller commits, and cleanup proof are in `live-smoke-evidence.md`.
 
 ## Fixes Applied
 
-| Severity | Category | Location | Fix | Routing |
+| Severity | Category | Location | Fix | Commit |
 |---|---|---|---|---|
-| High | Verification infrastructure | `scripts/exercise-omp.mjs`, `scripts/__tests__/sdlc-commands.test.mjs` | Explicitly load `src/extension.ts` in the harness and assert the launch invariant. | direct; commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd` |
+| High | Verification harness | `scripts/exercise-omp.mjs`, harness coverage | Explicitly load the branch extension with ambient extensions disabled. | `0dc0596` |
+| High | Review orchestration | `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `CHANGELOG.md` | Wait for review UI rendering, select literal default branch, recover retained pickers, and detect narrow-title truncation. | `a6a91ed`, `8c2a06b`, `ac93d3a`, `c303f8f` |
 
-No nmg-sdlc source fix was applied for this terminal boundary. The corrected caller environment resolved the prior split failure, but this round stopped at the interactive review picker before producing a review handoff. The state is preserved for a fresh verifier rather than manually bypassing the controller contract.
+The approved #213 specification already requires the complete serial lifecycle gate through AC5, FR8, and SCN005; no approved-contract change was needed.
 
 ## Remaining Issues
 
-
-| Severity | Category | Issue | Impact |
-|---|---|---|---|
-| Critical | Live convergence | Execute stopped at #11 review1 with `review_failed`; #11 has no delivery PR, #12 has not started, and both issues remain open. | AC5, FR8, SCN005, and the authoritative completion gate remain unmet. |
-| High | Review orchestration | Retained `s11-review1` is idle in the base-branch picker with no review handoff after the branch controller returned `review_failed`. | A fresh verifier must diagnose/resume the supported review boundary without duplicating resources. |
+None.
 
 ## Cleanup
 
-The corrected TUI and its controller process exited. Completed start/implement workers were closed. `s11-review1` remains open in pane `w6:p5Y`; no issue #12 worker was created. No unrelated process or pane was stopped. The disposable clone remains clean on the pushed issue #11 branch with runtime state and handoffs preserved.
+The final controller exited 0. No `s11-*` or `s12-*` worker remains. The disposable clone is clean on `main...origin/main`; runtime handoffs and reviews remain as evidence. The #213 branch source fixes and reports are committed and pushed.
 
 ## Recommendation
 
-**Needs another fresh verification-fix run.** Reuse issues #11/#12, merged spec PRs #13/#14, the clean clone, passed #11 start/implement handoffs, and retained `s11-review1` pane `w6:p5Y`. Diagnose the review picker/controller boundary and resume the persisted serial queue. Do not pass verification or proceed to issue #213 delivery until both delivery PRs merge and both issues close.
+**Ready for delivery.** Set the #213 verify handoff to passed, non-intervention, next `deliver`.

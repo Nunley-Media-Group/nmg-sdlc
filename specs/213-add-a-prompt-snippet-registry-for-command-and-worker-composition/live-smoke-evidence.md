@@ -2,142 +2,126 @@
 
 **Date**: 2026-08-24
 **Repository**: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
-**Repository URL**: https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416
-**Visibility / access**: private; authenticated viewer had `ADMIN`
 **Disposable clone**: `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo`
 **Extension under test**: `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts`
 
 ## Required lifecycle gate
 
-Required: two distinct live issues, each covering actual `/sdlc-draft-issue` and actual `/sdlc-write-spec`, followed by one actual `/sdlc-execute` invocation processing both issues serially through merged delivery pull requests and closed issues.
+Required: two distinct live issues, each covering actual `/sdlc-draft-issue` and actual `/sdlc-write-spec`, followed by one persisted `/sdlc-execute #11 #12` lifecycle processing both issues serially through merged delivery pull requests and closed issues.
 
-Result: **Fail — corrected resume advanced issue #11 through start and implementation, then stopped at review1.** Both issues and both approved specification packages remain intact. The corrected caller-pane environment created real worker panes, issue #11 implementation commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` is pushed, and passed start/implement handoffs are persisted. The resumed controller stopped with `reasonCode: review_failed` while `s11-review1` remained open in the base-branch picker. No delivery pull request was created; issues #11 and #12 remain open.
+Result: **Pass.** Issues #11 and #12 completed all eight execute steps. Delivery PRs #15 and #16 merged at exact verified heads, both issues closed, the persisted run has no current issue/step or failure, and the disposable clone is clean on `main...origin/main`.
 
-## Extension and harness prerequisite
+## Caller and extension isolation
 
-Commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd` fixed `scripts/exercise-omp.mjs` so the harness explicitly loads `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts` even with `--no-extensions`. Focused coverage passed 14/14 and the full Jest suite passed 513 tests with 2 expected skips before this live attempt. The live OMP processes used both `--no-extensions` and the explicit `--extension` path.
-
-## Draft outcomes
-
-The resumed run reused the existing resources rather than creating duplicate issues:
-
-| Workflow | Issue | Result |
-|---|---:|---|
-| actual `/sdlc-draft-issue` | #11 `Add LIVE_SMOKE_A lifecycle verification marker` | Created; remains open; labels `enhancement`, `spec-created` |
-| actual `/sdlc-draft-issue` | #12 `Add second serial lifecycle smoke marker` | Created; remains open; labels `enhancement`, `spec-created` |
-
-Issue URLs:
-
-- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/11
-- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/12
-
-## Specification outcomes
-
-| Workflow | Issue | Specification PR | Result |
-|---|---:|---:|---|
-| actual `/sdlc-write-spec #11` | #11 | #13 `docs: approve spec for #11` | Merged 2026-08-25T02:57:25Z; four-file Approved package on `main`; `spec-created` present |
-| actual `/sdlc-write-spec #12` | #12 | #14 `docs: approve spec for #12` | Resumed from the surviving `live-spec-12` plan review; merged 2026-08-25T03:08:45Z; four-file Approved package on `main`; `spec-created` present |
-
-Specification PR URLs:
-
-- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/13
-- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/14
-
-The clone was clean on `main...origin/main` at `de3475f437b27c245bd86cb9e74056283483257b` (`docs: approve spec for #12 (#14)`) before execute.
-
-## Execute outcomes
-
-### Preserved pre-step failure
-
-The first real OMP TUI attempt remains preserved in the original run state history. It loaded the branch extension, accepted `/sdlc-execute #11 #12`, invoked the branch controller, and stopped before any worker with `pane_split_failed` because its managed process inherited stale caller pane `w6:p5R`. No worker survived that attempt.
-
-### Corrected caller-pane round
-
-The fresh verifier confirmed the actual environment before launch:
+The continuation verified the live caller before launch:
 
 ```text
 HERDR_ENV=1
 HERDR_SOCKET_PATH=/Users/rnunley/.config/herdr/herdr.sock
-HERDR_PANE_ID=w6:p5V
+HERDR_WORKSPACE_ID=w6
+HERDR_TAB_ID=w6:t1
+HERDR_PANE_ID=w6:p5Z
 ```
 
-`herdr pane current --current` independently reported pane `w6:p5V`. Managed process `live-execute-11-12-fix2` received those three values explicitly. Ambient extensions and skills were disabled, and the TUI explicitly loaded:
+`herdr pane current --current` independently returned pane `w6:p5Z`. Managed OMP process `s213-live-execute-fix3` received those values explicitly, disabled ambient extensions and skills, and explicitly loaded:
 
 ```text
 /Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts
 ```
 
-The existing issues, merged specification PRs, clone, and failed run state were preserved. Source inspection established that the same `[11, 12]` run with no live worker resumes from `nextStep(completed["11"])`; no disposable `.omp/sdlc` state reset was required.
-
-One command was entered in this corrected round:
+The controller command remained the branch controller:
 
 ```text
-/sdlc-execute #11 #12
+node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run '#11' '#12'
 ```
 
-The TUI launched the branch controller with:
+## Authoritative draft and specification resources
 
-```text
-node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run 11 12
-```
+| Issue | Draft result | Specification PR | Specification result |
+|---:|---|---:|---|
+| #11 | `Add LIVE_SMOKE_A lifecycle verification marker`; `enhancement`, `spec-created` | #13 | Merged at `de3475f437b27c245bd86cb9e74056283483257b` ancestry; Approved four-file package |
+| #12 | `Add second serial lifecycle smoke marker`; `enhancement`, `spec-created` | #14 | Merged 2026-08-25T03:08:45Z; Approved four-file package |
 
-That controller successfully created `s11-start` in pane `w6:p5W`, proving the corrected caller-pane boundary. Start passed and the controller created `s11-implement` in `w6:p5X`. The TUI orchestration agent then canceled its background branch-controller process after an advisor incorrectly preferred the smoke repository's installed v3.5.1 controller. Its installed-controller reconciliation correctly detected the live worker and did not duplicate it. After `s11-implement` completed, the verifier resumed the same persisted queue directly with the branch controller and the same explicit caller environment.
+Issues and specification PRs were reused. No duplicate draft issue or specification PR was created.
 
-Observed handoffs:
+## Execute lifecycle
 
-| Issue | Step | Status | Intervention | Summary |
-|---:|---|---|---|---|
-| #11 | start | passed | false | Branch ready for #11 |
-| #11 | implement | passed | false | All tasks from tasks.md executed for #11 |
-| #11 | review1 | absent | — | Controller stopped before a review handoff |
-| #12 | any | absent | — | Serial queue never reached #12 |
+Issue #11 reused passed start and implementation handoffs. Its implementation commit remained `34c69c6239e87eb0b330e3fb9fc6fb66d22be031`. Review1 was completed against literal `main`; its normal `review-main` helper persisted `.omp/sdlc/handoffs/11-review1.json` and `.omp/sdlc/reviews/11-review1.md`. The controller then completed fix1, review2 against literal `main`, fix2, verify, and deliver.
 
-Issue #11 implementation artifacts are `LIVE_SMOKE_A.txt`, `README.md`, and `scripts/__tests__/live-smoke-a.test.mjs`. Commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` (`feat: add live smoke A marker`) is pushed; the branch is clean and aligned with `origin/11-add-live-smoke-a-lifecycle-verification-marker`.
+Issue #12 then completed start and implementation. Review1 and review2 both ran against literal `main`; normal helpers persisted their review artifacts and handoffs. Fix1, fix2, verify, and deliver completed normally. The final delivery worker repaired its own schema-invalid handoff, validated it with `validate-handoff`, and preserved the already-observed PR/issue evidence; no handoff outcome was hand-edited or fabricated by the verifier.
 
-Terminal controller output:
+Observed continuation workers:
 
-```text
-Stopped on #11 review1. Worker pane w6:p5Y agent s11-review1 left open.
-```
+| Issue | Step | Pane | Result |
+|---:|---|---|---|
+| #11 | review1 | `w6:p50` | Pass, no findings |
+| #11 | fix1 | `w6:p61` | Pass |
+| #11 | review2 | `w6:p62` | Pass, no findings |
+| #11 | verify | `w6:p64` | Pass |
+| #11 | deliver | `w6:p65` | PR #15 merged; issue closed |
+| #12 | implement | `w6:p67` | Pass |
+| #12 | review1 | `w6:p68` | Pass against `main` |
+| #12 | fix1 | `w6:p69` | Pass |
+| #12 | review2 | `w6:p6A` | Pass against `main`; final controller fix exercised |
+| #12 | verify | `w6:p6C` | Pass |
+| #12 | deliver | `w6:p6D` | PR #16 merged; issue closed |
 
-Persisted `.omp/sdlc/run.json` state:
+Final persisted state:
 
 ```json
 {
   "schemaVersion": 1,
   "issues": [11, 12],
-  "currentIssue": 11,
-  "currentStep": "review1",
+  "currentIssue": null,
+  "currentStep": null,
   "completed": {
-    "11": ["start", "implement"]
+    "11": ["start", "implement", "review1", "fix1", "review2", "fix2", "verify", "deliver"],
+    "12": ["start", "implement", "review1", "fix1", "review2", "fix2", "verify", "deliver"]
   },
-  "failed": {
-    "issue": 11,
-    "step": "review1",
-    "reasonCode": "review_failed"
-  },
+  "failed": null,
   "startedAt": "2026-08-25T03:10:37.864Z"
 }
 ```
 
-Terminal topology contains only `s11-review1`, idle in pane `w6:p5Y`; no `s12-*` worker exists. Its detection buffer preserves `/review` and the open `Select base branch` picker with the issue branch selected and `main` available. The pane and runtime state remain untouched for supported retained-worker diagnosis in the next fresh iteration.
+## Review-controller defects and remediation
 
-## GitHub terminal state
+The live narrow review panes rendered the branch-picker title as `Select base b…`, while the controller required the untruncated literal `Select base branch`. Immediate polling also raced TUI rendering, and a stopped controller could not resume a retained review picker. The smallest contract-correct repair:
 
-| Resource | State |
+- waits for asynchronous review UI rendering;
+- detects the stable branch-picker prefix in narrow panes;
+- selects the repository default branch by computed menu index;
+- resumes retained `Review Mode` or base-picker states;
+- runs the normal `review-main` helper after the host review completes.
+
+Regression coverage includes delayed picker rendering, narrow-title detection, default-branch key selection, and retained review recovery. Source commits pushed on the #213 branch:
+
+- `a6a91ed` — wait for review branch picker;
+- `8c2a06b` — allow picker render time without slowing injected test fixtures;
+- `ac93d3a` — resume retained review pickers;
+- `c303f8f` — detect the narrow-pane truncated picker title.
+
+Verification after the final source change:
+
+| Check | Result |
 |---|---|
-| Issue #11 | OPEN; `enhancement`, `spec-created` |
-| Issue #12 | OPEN; `enhancement`, `spec-created` |
-| Spec PR #13 | MERGED |
-| Spec PR #14 | MERGED |
-| Issue #11 implementation branch | Pushed at `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` |
-| Delivery PR for #11 | Not created |
-| Delivery PR for #12 | Not created |
+| Focused `sdlc-execute` suite | 100 passed |
+| Full repository Jest suite | 43 suites passed, 1 skipped; 515 tests passed, 2 skipped |
+| Final live retained review2 under `c303f8f` | Pass against literal `main`; helper handoff persisted |
 
-An authenticated repository-scoped pull-request search for both delivery branch names returned zero results. The authoritative completion gate remains unmet: neither delivery PR is merged and neither issue is closed.
+## Delivery proof
 
-## Cleanup state
+| Issue | Delivery PR | State | Merge commit | Merged at | Issue state |
+|---:|---:|---|---|---|---|
+| #11 | #15 | MERGED | `0e91017b33c81c91297219407251a77a852c8cd7` | 2026-08-25T03:59:16Z | CLOSED / COMPLETED |
+| #12 | #16 | MERGED | `eb91cf4b1018ca773d08e86b20a3b2437f721b0b` | 2026-08-25T04:27:41Z | CLOSED / COMPLETED |
 
-The corrected TUI and its controller process are exited. The earlier completed `s11-start` and `s11-implement` panes were closed by the controller. `s11-review1` remains open in pane `w6:p5Y`, as required after the failed review handoff boundary. No `s12-*` worker was created. No unrelated Herdr pane or process was stopped.
+URLs:
 
-The disposable clone remains at `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo` on the clean, pushed issue #11 branch. Its `.omp/sdlc/run.json`, passed start/implement handoffs, failed review state, and open review worker are preserved for the next fresh verification-fix worker. Issues #11/#12 and merged specification PRs #13/#14 were not recreated or modified.
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/15
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/16
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/11
+- https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/12
+
+## Cleanup
+
+The final controller exited 0. No `s11-*` or `s12-*` Herdr agent remains. The disposable clone is clean on `main...origin/main`; both issue branches were cleaned after terminal delivery proof. Runtime handoffs, review artifacts, verification reports, and the completed `run.json` remain in `.omp/sdlc` as evidence.
