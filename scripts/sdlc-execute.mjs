@@ -1441,6 +1441,27 @@ export function runExecute({
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
+    if (step === 'deliver') {
+      const deliverHandoffPath = join(cwd, HANDOFF_DIR, `${issue}-deliver.json`);
+      const deliverHandoff = readExpectedHandoff(deliverHandoffPath, issue, 'deliver').handoff;
+      if (deliverHandoff?.status === 'passed' && !deliverHandoff.intervention) {
+        if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
+          runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
+          writeRun(runState, cwd);
+          return {
+            status: 1,
+            stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
+            stderr: 'Delivery is not MERGED and CLOSED\n',
+          };
+        }
+        runState.completed[String(issue)].push('deliver');
+        runState.currentStep = null;
+        runState.failed = null;
+        runState.remediation = null;
+        writeRun(runState, cwd);
+        continue;
+      }
+    }
     if (step && step !== 'start') {
       const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
       if (reasonCode) {

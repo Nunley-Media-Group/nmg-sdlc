@@ -107,3 +107,13 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
     When the controller evaluates versioning
     Then it classifies the bump from the issue labels
     And it does not write a major_bump_required handoff
+
+  @SCN012
+  Scenario: execute consumes delivered proof after branch deletion
+    Given persisted execute state points at deliver
+    And the validated passed deliver handoff proves the pull request merged and the issue closed
+    And successful delivery deleted the issue branch
+    When execute resumes the queue from the synchronized default branch
+    Then it consumes the deliver handoff without restoring the deleted issue branch
+    And it fast-forwards the default branch and advances to the next issue
+    But a missing or non-passed deliver handoff still requires fail-closed issue-branch restoration

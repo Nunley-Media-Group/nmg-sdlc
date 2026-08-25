@@ -62,6 +62,10 @@ At extension initialization, `src/extension.ts` resolves `sdlc-deliver.mjs` thro
 10. Ready state captures head H immediately before merge and invokes the repository-policy squash merge with `--match-head-commit H`, without deleting either branch.
 11. Re-fetch PR and issue. Only PR `MERGED` at H plus issue `CLOSED` produces a passed handoff. Delete the local and remote issue branches only after this proof.
 
+## Execute reconciliation ordering
+
+When persisted execute state still points at `deliver`, `sdlc-execute` first validates any retained deliver handoff. A passed non-intervention handoff is accepted only when refreshed remote proof still shows a merged PR and closed issue; execute then checks out and fast-forwards the default branch, records `deliver` complete, and advances the queue without restoring the deleted issue branch. Missing, invalid, failed, blocked, or intervention handoffs remain incomplete and retain the existing fail-closed issue-branch restoration requirement before any worker or remediation step starts.
+
 ## Remediation protocol
 
 The controller prints exactly one line with prefix `NMG_SDLC_REMEDIATION: ` followed by compact JSON:
