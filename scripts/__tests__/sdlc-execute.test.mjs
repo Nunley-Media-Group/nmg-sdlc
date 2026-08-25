@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs,
+  VALID_STEPS,
   selectBacklog,
   validateHandoff,
   nextStep,
@@ -13,6 +14,10 @@ import {
   isSpecApproved,
   specStatus,
   workerPrompt,
+  REMEDIABLE_STEPS,
+  remAgentName,
+  isRemediableFailedHandoff,
+  remediationPrompt,
   writeRun,
   runExecute,
   listSpecifiedIssues,
@@ -401,6 +406,76 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('# Address PR Comments');
   });
 
+  it('defines remediable steps, names, and failed-handoff predicate exactly', () => {
+    expect(REMEDIABLE_STEPS).toEqual([
+      'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
+    ]);
+    expect(remAgentName(42, 'verify')).toBe('r42-verify');
+    const handoff = { step: 'verify', status: 'failed', intervention: false };
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff })).toBe(true);
+    expect(isRemediableFailedHandoff({ step: 'start', state: 'idle', handoff: { ...handoff, step: 'start' } })).toBe(false);
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'blocked', handoff })).toBe(false);
+    expect(isRemediableFailedHandoff({
+      step: 'verify',
+      state: 'done',
+      handoff: { ...handoff, intervention: true },
+    })).toBe(false);
+  });
+
+  it('renders the deterministic remediation header before the original worker prompt', () => {
+    const prompt = remediationPrompt({
+      issue: 42,
+      failedStep: 'verify',
+      cwd: makeSpecDir(),
+      evidence: {
+        attempt: 2,
+        reasonCode: 'verification_failed',
+        summary: 'verify failed',
+        artifacts: ['artifacts/verify.txt'],
+        closedName: 'r42-verify',
+        closedPaneId: 'pane-8',
+      },
+    });
+    expect(prompt.startsWith([
+      'You are remediating issue #42 step verify (attempt 2).',
+      'Failed worker r42-verify in pane pane-8 was closed after evidence capture.',
+      'reasonCode: verification_failed',
+      'summary: verify failed',
+      'artifacts:',
+      '- artifacts/verify.txt',
+    ].join('\n'))).toBe(true);
+    expect(prompt).toContain('\n---\n');
+    expect(prompt).toContain('# Verify Code');
+    expect(() => workerPrompt({ step: 'rem', issue: 42 })).toThrow('invalid step for workerPrompt');
+  });
+
+  it('worker-prompt CLI accepts rem evidence and rejects start as a failed step', () => {
+    const root = makeSpecDir();
+    writeRun({
+      schemaVersion: 1,
+      remediation: {
+        issue: 42,
+        step: 'verify',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'verification_failed',
+        summary: 'verify failed',
+        artifacts: [],
+        closedWorker: { name: 's42-verify', paneId: 'pane-7' },
+      },
+    }, root);
+    const accepted = spawnSync(process.execPath, [
+      SCRIPT, 'worker-prompt', '--step', 'rem', '--issue', '42', '--failed-step', 'verify',
+    ], { cwd: root, encoding: 'utf8' });
+    expect(accepted.status).toBe(0);
+    expect(accepted.stdout).toContain('You are remediating issue #42 step verify (attempt 1).');
+    const rejected = spawnSync(process.execPath, [
+      SCRIPT, 'worker-prompt', '--step', 'rem', '--issue', '42', '--failed-step', 'start',
+    ], { cwd: root, encoding: 'utf8' });
+    expect(rejected.status).toBe(2);
+    expect(rejected.stderr.trim()).toBe('Usage: node sdlc-execute.mjs worker-prompt --step rem --issue N --failed-step <implement|review1|fix1|review2|fix2|verify|deliver>');
+  });
+
 
   it('write-run CLI persists run state', () => {
     const root = makeSpecDir();
@@ -536,10 +611,15 @@ describe('runExecute controller', () => {
     settledBeforeSubmit = false,
     agentStartStatuses = [],
     failedStep = null,
+    remediableFailedStep = null,
+    remFailures = 0,
+    remBlocked = false,
+    blockedStep = null,
     failedNext = 'next',
     handoffIssue = 42,
     handoffStep = null,
     paneCloseStatus = 0,
+    paneCloseFailurePane = null,
     reviewPromptStatus = 'stalled',
     reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
@@ -580,6 +660,7 @@ describe('runExecute controller', () => {
     const sentKeys = [];
     const prompts = [];
     const waits = [];
+    const events = [];
     let paneSequence = 0;
     let activePrompt = '';
     let didStall = false;
@@ -587,6 +668,7 @@ describe('runExecute controller', () => {
     const reviewMenuEvents = [];
     let branchMenuReadsRemaining = 0;
     const pendingAgentStartStatuses = [...agentStartStatuses];
+    let remPromptCount = 0;
 
     const run = (command, args) => {
       calls.push([command, ...args]);
@@ -680,10 +762,12 @@ describe('runExecute controller', () => {
       },
       paneClose: (paneId) => {
         closed.push(paneId);
-        return { status: paneCloseStatus };
+        events.push(`close:${paneId}`);
+        return { status: paneId === paneCloseFailurePane ? 1 : paneCloseStatus };
       },
       agentStart: (input) => {
         starts.push(input);
+        events.push(`start:${input.name}`);
         if (reviewModeInitiallyVisible && /^s42-review[12]$/.test(input.name)) {
           reviewMenu = 'mode';
           reviewMenuEvents.push('mode-visible');
@@ -709,6 +793,7 @@ describe('runExecute controller', () => {
         }
         reviewMenu = null;
         const step = name.slice(name.lastIndexOf('-') + 1);
+        const isRem = name.startsWith('r');
         if ((stalled || stalledInStderr) && !didStall) {
           didStall = true;
           return stalledInStderr
@@ -720,18 +805,27 @@ describe('runExecute controller', () => {
           return { status: 0, stdout: '{"state":"idle"}\n', stderr: '' };
         }
         if (writeHandoffs) {
+          if (isRem) remPromptCount += 1;
           const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
           fs.mkdirSync(handoffDir, { recursive: true });
+          const remFailed = isRem && remPromptCount <= remFailures;
+          const status = isRem
+            ? remBlocked ? 'blocked' : remFailed ? 'failed' : 'passed'
+            : step === blockedStep
+              ? 'blocked'
+              : step === failedStep || step === remediableFailedStep ? 'failed' : 'passed';
+          const intervention = !isRem && step === failedStep;
+          const failed = status !== 'passed';
           fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
             schemaVersion: 1,
             issue: handoffIssue,
             step: handoffStep ?? step,
-            status: step === failedStep ? 'failed' : 'passed',
-            intervention: step === failedStep,
+            status,
+            intervention,
             summary: `${step} complete`,
-            artifacts: [],
-            next: step === failedStep ? failedNext : step === 'deliver' ? null : 'next',
-            reasonCode: step === failedStep ? 'implementation_failed' : null,
+            artifacts: failed && !intervention ? [`artifacts/${step}.txt`] : [],
+            next: failed ? failedNext : step === 'deliver' ? null : 'next',
+            reasonCode: intervention ? 'implementation_failed' : failed ? `${step}_failed` : null,
           })}\n`);
         }
         return { status: promptStatus };
@@ -796,11 +890,14 @@ describe('runExecute controller', () => {
         return { status: 0 };
       },
       agentGet: () => ({ result: { state: agentState } }),
-      listAgents: () => [],
+      listAgents: () => starts
+        .filter((started) => !closed.includes(started.paneId))
+        .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState })),
       notificationShow: (notice) => notifications.push(notice),
     };
     return {
-      cwd, calls, starts, closed, notifications, sentKeys, waits, prompts, reviewMenuEvents, run, herdr,
+      cwd, calls, starts, closed, events, notifications, sentKeys, waits, prompts,
+      reviewMenuEvents, run, herdr,
     };
   }
 
@@ -1104,6 +1201,183 @@ describe('runExecute controller', () => {
       'branch-keys:down,enter',
     ]);
     expect(fixture.prompts.some(({ prompt }) => /\bomp\s+\/review\b/.test(prompt))).toBe(false);
+  });
+
+  it('closes a remediable failed verify pane then starts one rem session', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    const verifyStarts = fixture.starts.filter(({ name }) => name === 's42-verify');
+    const remStarts = fixture.starts.filter(({ name }) => name === 'r42-verify');
+
+    expect(result.status).toBe(0);
+    expect(verifyStarts).toHaveLength(1);
+    expect(remStarts).toHaveLength(1);
+    expect(fixture.events.indexOf('close:pane-7')).toBeLessThan(fixture.events.indexOf('start:r42-verify'));
+    expect(persisted.remediation).toBeNull();
+    expect(persisted.completed['42']).toContain('verify');
+    expect(fixture.notifications).toEqual([]);
+  });
+
+  it('retries remediable rem failure with a fresh rem session', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'verify', remFailures: 1 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const remStarts = fixture.starts.filter(({ name }) => name === 'r42-verify');
+
+    expect(result.status).toBe(0);
+    expect(remStarts).toEqual([
+      { name: 'r42-verify', paneId: 'pane-8', kind: 'omp' },
+      { name: 'r42-verify', paneId: 'pane-9', kind: 'omp' },
+    ]);
+    expect(fixture.events.indexOf('close:pane-8')).toBeLessThan(
+      fixture.events.lastIndexOf('start:r42-verify'),
+    );
+    expect(fixture.starts.filter(({ name }) => name === 's42-verify')).toHaveLength(1);
+    expect(fixture.closed).toContain('pane-9');
+  });
+
+  it('consumes the original verify handoff after rem pass', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    const handoff = validateHandoff(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'));
+
+    expect(result.status).toBe(0);
+    expect(handoff).toMatchObject({ issue: 42, step: 'verify', status: 'passed' });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-rem.json'))).toBe(false);
+    expect(persisted.completed['42']).toEqual([
+      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
+    ]);
+  });
+
+  it('stops rem on a genuine blocker and leaves the rem pane open', () => {
+    const fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      remBlocked: true,
+      failedNext: 'implement',
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    expect(fixture.closed).not.toContain('pane-8');
+    expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'active' });
+    expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify', reasonCode: 'verify_failed' });
+  });
+
+  it('resumes a live rem worker without starting the step or another rem', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verification_failed' },
+      remediation: {
+        issue: 42,
+        step: 'verify',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'verification_failed',
+        summary: 'verify failed',
+        artifacts: ['artifacts/verify.txt'],
+        closedWorker: { name: 's42-verify', paneId: 'closed-verify' },
+        remWorker: { name: 'r42-verify', paneId: 'live-rem' },
+        history: [],
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{ name: 'r42-verify', pane_id: 'live-rem', state: 'working' }];
+    let settled = false;
+    const agentWait = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      const result = agentWait(input);
+      if (!input.until) settled = true;
+      return result;
+    };
+    fixture.herdr.agentGet = () => ({ result: { state: settled ? 'done' : 'working' } });
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits).toContainEqual({ name: 'r42-verify' });
+    expect(fixture.starts.some(({ name }) => name === 's42-verify' || name === 'r42-verify')).toBe(false);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-deliver']);
+    expect(fixture.closed).toContain('live-rem');
+  });
+
+  it('does not rem a failed start or intervention handoff', () => {
+    for (const failedStep of ['start', 'implement']) {
+      const fixture = makeControllerFixture({ failedStep });
+      const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+      expect(result.status).toBe(1);
+      expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+      expect(fixture.closed).not.toContain(`pane-${VALID_STEPS.indexOf(failedStep) + 1}`);
+    }
+  });
+
+  it('does not rem blocked unknown missing stalled or invalid outcomes', () => {
+    const blocked = makeControllerFixture({ blockedStep: 'implement' });
+    const blockedResult = runExecute({ args: '#42', cwd: blocked.cwd, env, run: blocked.run, herdr: blocked.herdr });
+    expect(blockedResult.status).toBe(1);
+    expect(blocked.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+
+    const missing = makeControllerFixture({ writeHandoffs: false });
+    const missingResult = runExecute({ args: '#42', cwd: missing.cwd, env, run: missing.run, herdr: missing.herdr });
+    expect(missingResult.status).toBe(1);
+    expect(missing.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+
+    const invalid = makeControllerFixture({ handoffStep: 'rem' });
+    const invalidResult = runExecute({ args: '#42', cwd: invalid.cwd, env, run: invalid.run, herdr: invalid.herdr });
+    expect(invalidResult.status).toBe(1);
+    expect(invalid.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+
+    const stalled = makeControllerFixture({ stalled: true });
+    stalled.herdr.agentRead = () => 'unrelated worker text';
+    const stalledResult = runExecute({ args: '#42', cwd: stalled.cwd, env, run: stalled.run, herdr: stalled.herdr });
+    expect(stalledResult.status).toBe(1);
+    expect(stalled.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+
+    const unknown = makeControllerFixture();
+    configurePassedRetainedStartWorker(unknown, { result: { state: 'idle' } });
+    unknown.herdr.listAgents = () => [{ name: 's42-start', state: 'idle' }];
+    const unknownResult = runExecute({ args: '#42', cwd: unknown.cwd, env, run: unknown.run, herdr: unknown.herdr });
+    expect(unknownResult.status).toBe(1);
+    expect(unknown.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+  });
+
+  it('persists remediation evidence before a failed pane close and starts no rem', () => {
+    const fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      paneCloseFailurePane: 'pane-7',
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'pane_close_failed' });
+    expect(persisted.remediation).toMatchObject({
+      issue: 42,
+      step: 'verify',
+      attempt: 1,
+      reasonCode: 'verify_failed',
+      artifacts: ['artifacts/verify.txt'],
+      closedWorker: { name: 's42-verify', paneId: 'pane-7' },
+      remWorker: null,
+    });
+    expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
+  });
+
+  it('runs interactive review completion for a review rem worker', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'review1' });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
+    expect(fixture.prompts.filter(({ name, prompt }) => name === 'r42-review1' && prompt === '/review')).toHaveLength(1);
+    expect(fixture.prompts.some(({ name, prompt }) => name === 'r42-review1' && prompt.includes('You are remediating issue #42 step review1'))).toBe(true);
   });
 
   it('rejects a passed handoff left by an earlier worker attempt', () => {
