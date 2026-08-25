@@ -41,6 +41,34 @@ describe('deterministic verification runtime', () => {
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'verification', '42.json'))).toBe(true);
   });
 
+  it('hashes untracked directories and preserves complete rename paths', async () => {
+    const root = await fixture([
+      command('renamed.path', 'process.stdout.write("ok")', true, {
+        kind: 'changed_paths',
+        include: ['renamed/**'],
+      }),
+    ]);
+    fs.writeFileSync(path.join(root, 'old.txt'), 'tracked\n');
+    run(root, 'git', ['add', 'old.txt']);
+    run(root, 'git', ['commit', '-m', 'tracked rename source']);
+    fs.mkdirSync(path.join(root, 'renamed'));
+    run(root, 'git', ['mv', 'old.txt', 'renamed/destination.txt']);
+    fs.mkdirSync(path.join(root, 'untracked', 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'untracked', 'nested', 'evidence.txt'), 'evidence\n');
+
+    const artifact = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+    });
+    expect(artifact.results[0].effectiveStatus).toBe('passed');
+    expect(artifact.results[0].request.identity).toMatchObject({
+      treeState: 'dirty',
+      dirtyDiffHash: expect.stringMatching(/^sha256:/),
+    });
+  });
+
   it('caps required failures while optional failures remain recorded', async () => {
     const root = await fixture([command('required.fail', 'process.exit(2)'), command('optional.fail', 'process.exit(3)', false)]);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });

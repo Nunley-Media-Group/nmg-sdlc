@@ -56,12 +56,16 @@ describe('current release specs and rewrite contract', () => {
     }
   });
 
-  test('accepts legacy gherkin issue headings', () => {
+  test('accepts exact legacy Gherkin identity but rejects wrong and duplicate owners', () => {
     const specsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-specs-'));
     try {
       writeSpecPackage(specsRoot, '1-foo', 1, '# Issue: #1');
+      writeSpecPackage(specsRoot, '2-wrong-owner', 2, '**Issue**: #21');
+      writeSpecPackage(specsRoot, '1-duplicate', 1);
 
-      expect(verifySpecArchive(specsRoot, ['1-foo'])).toEqual([]);
+      const errors = verifySpecArchive(specsRoot, []);
+      expect(errors).toContain('2-wrong-owner/feature.gherkin lacks singular **Issue**: #2');
+      expect(errors).toContain('Duplicate spec directories for issue #1: 1-duplicate, 1-foo');
     } finally {
       fs.rmSync(specsRoot, { recursive: true, force: true });
     }

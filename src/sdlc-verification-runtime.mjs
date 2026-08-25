@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
@@ -26,9 +26,20 @@ function git(projectRoot, args, allowFailure = false) {
   if (result.error || (!allowFailure && result.status !== 0)) fail("steering_result_invalid", result.error?.message ?? result.stderr);
   return result;
 }
+function porcelainPaths(output) {
+  const entries = output.split("\0");
+  const paths = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry) continue;
+    paths.push(entry.slice(3));
+    if (/[RC]/.test(entry.slice(0, 2)) && entries[index + 1]) paths.push(entries[index += 1]);
+  }
+  return paths;
+}
 function changedPaths(projectRoot, baseRef) {
   const committed = git(projectRoot, ["diff", "--name-only", `${baseRef}...HEAD`], true).stdout.split(/\r?\n/);
-  const dirty = git(projectRoot, ["status", "--porcelain=v1", "-z"], true).stdout.split("\0").map((entry) => entry.slice(3));
+  const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z"], true).stdout);
   return [...new Set([...committed, ...dirty].filter(Boolean).map((path) => path.split("\\").join("/")))].sort();
 }
 function walk(root, prefix = "") {
@@ -49,12 +60,26 @@ function specHash(specDir) {
   const files = ["design.md", "feature.gherkin", "requirements.md", "tasks.md"];
   return hash(files.map((name) => `${name}\0${readFileSync(join(specDir, name))}`).join("\0"));
 }
+function hashUntrackedPath(projectRoot, relativePath) {
+  const absolute = resolve(projectRoot, relativePath);
+  const stat = lstatSync(absolute);
+  if (stat.isSymbolicLink()) return `${relativePath}\0symlink\0${readlinkSync(absolute)}`;
+  if (stat.isDirectory()) {
+    return readdirSync(absolute, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name, "en"))
+      .map((entry) => hashUntrackedPath(projectRoot, `${relativePath.replace(/\/$/, "")}/${entry.name}`))
+      .join("\0");
+  }
+  if (stat.isFile()) return `${relativePath}\0${hash(readFileSync(absolute))}`;
+  return `${relativePath}\0other`;
+}
 function dirtyIdentity(projectRoot) {
   const status = git(projectRoot, ["status", "--porcelain=v1", "-z"]).stdout;
   if (!status) return { treeState: "clean", dirtyDiffHash: null };
   const staged = git(projectRoot, ["diff", "--cached", "--binary"]).stdout;
   const unstaged = git(projectRoot, ["diff", "--binary"]).stdout;
-  const untracked = status.split("\0").filter((x) => x.startsWith("?? ")).map((entry) => entry.slice(3)).sort().map((path) => `${path}\0${hash(readFileSync(resolve(projectRoot, path)))}`).join("\0");
+  const untracked = porcelainPaths(status).filter((path) => status.includes(`?? ${path}\0`)).sort()
+    .map((path) => hashUntrackedPath(projectRoot, path)).join("\0");
   return { treeState: "dirty", dirtyDiffHash: hash(`${staged}\0${unstaged}\0${untracked}`) };
 }
 function identity(projectRoot, specDir, runtime, validation) {
@@ -112,11 +137,14 @@ async function invokeProvider(runtime, validation, request) {
   if (validation.provider === "builtin.command") return commandProvider(request);
   if (validation.provider === "builtin.artifact") return artifactProvider(request);
   if (validation.provider === "builtin.external-evidence") return externalProvider(request);
-  const extensionRequest = deepFreeze(structuredClone(request));
+  const providerPromise = Promise.resolve().then(
+    () => runtime.providers.get(validation.provider).handler(extensionRequest),
+  );
+  providerPromise.catch(() => {});
   let timer;
   try {
     return await Promise.race([
-      runtime.providers.get(validation.provider).handler(extensionRequest),
+      providerPromise,
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error("provider timed out")), request.timeoutMs);
       }),

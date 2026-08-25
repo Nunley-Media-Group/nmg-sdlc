@@ -125,6 +125,18 @@ export function verifySpecArchive(specsRoot, requiredDirectories = CURRENT_SPEC_
   const actualDirectories = listDirectories(specsRoot);
   const missingDirectories = requiredDirectories.filter((directory) => !actualDirectories.includes(directory));
   if (missingDirectories.length) errors.push(`Missing current spec directories: ${missingDirectories.join(', ')}`);
+  const directoriesByIssue = new Map();
+  for (const directory of actualDirectories) {
+    const issue = issueFromDirectory(directory);
+    if (issue === null) continue;
+    const siblings = directoriesByIssue.get(issue) ?? [];
+    siblings.push(directory);
+    directoriesByIssue.set(issue, siblings);
+  }
+  for (const [issue, directories] of directoriesByIssue) {
+    if (directories.length > 1) errors.push(`Duplicate spec directories for issue #${issue}: ${directories.join(', ')}`);
+  }
+
 
   for (const directory of actualDirectories) {
     const issue = issueFromDirectory(directory);
@@ -140,9 +152,10 @@ export function verifySpecArchive(specsRoot, requiredDirectories = CURRENT_SPEC_
         continue;
       }
       const text = fs.readFileSync(artifactPath, 'utf8');
-      const hasIssue = artifact === 'feature.gherkin'
-        ? (text.includes(`**Issue**: #${issue}`) || text.includes(`# Issue: #${issue}`))
-        : text.includes(`**Issue**: #${issue}`);
+      const issueMatches = artifact === 'feature.gherkin'
+        ? [...text.matchAll(/^(?:\*\*Issue\*\*:\s*|# Issue:\s*)#?([1-9]\d*)\s*$/gm)]
+        : [...text.matchAll(/^\*\*Issue\*\*:\s*#?([1-9]\d*)\s*$/gm)];
+      const hasIssue = issueMatches.length > 0 && issueMatches.every((match) => Number(match[1]) === issue);
       if (!hasIssue) errors.push(`${directory}/${artifact} lacks singular **Issue**: #${issue}`);
       if (artifact === 'requirements.md' && !text.includes('**Status**: Approved')) {
         errors.push(`${directory}/requirements.md is not Approved`);

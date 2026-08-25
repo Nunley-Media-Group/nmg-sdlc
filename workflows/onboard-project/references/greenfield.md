@@ -1,6 +1,6 @@
 # Greenfield (v3)
 
-Detect → interview (ask budget) for vision/tech → write steering from templates + answers (ask only if preserve vs override existing in enhancement).
+Detect → interview (ask budget) for vision/tech → initialize the managed steering manifest, runtime modules, and registered prompt snippets through `/sdlc-steering`. Never recreate legacy `steering/product.md`, `steering/tech.md`, or `steering/structure.md` files.
 
 Init VERSION + specs/ .
 

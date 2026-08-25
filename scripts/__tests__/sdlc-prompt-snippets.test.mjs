@@ -18,6 +18,7 @@ import {
 import {
   AUTOMATED_COMMANDS,
   INTERACTIVE_COMMANDS,
+  rewriteInteractiveInput,
 } from '../../src/sdlc-commands.mjs';
 import { VALID_STEPS } from '../sdlc-execute.mjs';
 import { workflowBody } from '../../src/sdlc-workflows.mjs';
@@ -103,6 +104,18 @@ describe('prompt snippet registry', () => {
       '',
       workflowBody('start-issue', repoRoot),
     ].join('\n'));
+  });
+
+  it('renders and materializes the steering command controller paths', () => {
+    const rendered = rewriteInteractiveInput('/sdlc-steering', {
+      source: 'interactive',
+      sessionMode: 'plan',
+      root: repoRoot,
+      provenanceRoot: '',
+    });
+    expect(rendered.text).toContain(`node "${path.join(repoRoot, 'scripts', 'sdlc-steering.mjs')}" inspect --project .`);
+    expect(rendered.text).not.toContain('<plugin-root>');
+    expect(rendered.text).not.toContain('{{pluginRoot}}');
   });
 
   it('sorts by order then id and records substituted fragment provenance', () => {

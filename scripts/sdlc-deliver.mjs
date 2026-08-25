@@ -23,11 +23,17 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: In
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
         nodes {
           id
           isResolved
           isOutdated
           comments(first: 50) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               body
               path
@@ -457,7 +463,7 @@ function normalizeCheck(check) {
   if (!state && bucket === 'pending') state = 'PENDING';
   return {
     name: check.name,
-    event: check.event ?? 'pull_request',
+    event: check.event ?? null,
     state,
     required: check.required === true,
     url: check.link ?? check.url ?? null,
@@ -548,7 +554,8 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     state: review.state,
     submittedAt: review.submittedAt ?? '',
   }));
-  const rawThreads = threadData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const reviewThreads = threadData.data.repository.pullRequest.reviewThreads;
+  const rawThreads = reviewThreads.nodes ?? [];
   const threads = rawThreads.map((thread) => ({
     id: thread.id,
     isResolved: thread.isResolved,
@@ -559,6 +566,21 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
     .map((item) => item.name);
+  const declaredCheckRuns = new Set(evidence
+    .filter((item) => item.kind === 'check_run')
+    .map((item) => item.name));
+  const checkKeys = new Set(checks.map((check) => `${check.name}\0${check.event}`));
+  const snapshotChecks = [
+    ...checks,
+    ...evidenceChecks.filter((check) => {
+      const key = `${check.name}\0${check.event}`;
+      if (!declaredCheckRuns.has(check.name) || checkKeys.has(key)) return false;
+      checkKeys.add(key);
+      return true;
+    }),
+  ];
+  const threadsComplete = reviewThreads.pageInfo?.hasNextPage === false
+    && rawThreads.every((thread) => thread.comments?.pageInfo?.hasNextPage === false);
   const snapshot = {
     schemaVersion: 1,
     issue: { number: issueData.number ?? issue, state: issueData.state },
@@ -566,10 +588,10 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
       ...pr,
       mergeCommitOid: pr.mergeCommit?.oid ?? pr.mergeCommitOid ?? null,
     },
-    checks,
+    checks: snapshotChecks,
     reviews,
     threads,
-    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete: true },
+    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete },
     requiredChecksConfigured: declaredPrOnlyChecks.length > 0,
     declaredPrOnlyChecks,
     verification: {
@@ -598,6 +620,8 @@ function remediationPacket({ issue, pr, classified, rawThreads, botLogins }) {
     issue,
     pullRequest: pr.number,
     headSha: classified.headSha,
+    reasonCode: classified.reasonCode,
+    mergeStateStatus: classified.evidence.pullRequest?.mergeStateStatus ?? null,
     failingChecks,
     threads,
     handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
@@ -798,7 +822,7 @@ export function runDeliver({
       if (classifyHumanReview(observed.rawThreads, botLogins) || classified.reasonCode === 'changes_requested') {
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
       }
-      if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved'].includes(classified.reasonCode)) {
+      if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved', 'mergeability_defect'].includes(classified.reasonCode)) {
         const packet = remediationPacket({ issue: issueNumber, pr: observed.pr, classified, rawThreads: observed.rawThreads, botLogins });
         if (packet.threads.some((thread) => !thread.path)) {
           return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);

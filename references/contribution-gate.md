@@ -301,6 +301,7 @@ jobs:
               'steering/modules/product.mjs',
               'steering/modules/tech.mjs',
               'steering/modules/structure.mjs',
+              '.github/workflows/nmg-sdlc-contribution-gate.yml',
               'steering/modules/verification.mjs',
               'references/rewrite-contract.json',
               'references/rewrite-contract.md',

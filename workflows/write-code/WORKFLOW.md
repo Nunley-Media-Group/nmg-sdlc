@@ -30,7 +30,7 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
 
 
 
-5. Load steering/ for conventions (tech.md, structure.md) using read.
+5. Use the injected `project.tech` and `project.structure` prompt snippets as the steering conventions. Do not read removed `steering/tech.md` or `steering/structure.md` authorities.
 
 If spec resolution fails any check, produce the failed handoff and stop before any edit.
 
@@ -43,7 +43,7 @@ Parse tasks in order: headings matching ^### T(\d+):\s*(.+)$
 For each task in sequence (lowest to highest T number, follow declared Depends order if present but execute listed sequence):
 
 - Read full task block: File(s), Type, Depends, Acceptance
-- Use design.md + requirements.md + feature.gherkin + steering/ as context.
+- Use design.md + requirements.md + feature.gherkin + the injected `project.tech` and `project.structure` snippets as context.
 - For the listed File(s):
   - If path is skill-bundled (matches **/workflows/**/WORKFLOW.md or **/workflows/**/references/** or **/workflows/**/scripts/** or **/workflows/**/templates/** or **/workflows/**/checklists/** or **/workflows/**/assets/** or root references/** or agents/*.md ):
     - Resolve and read `skill://skill-creator`.

@@ -88,6 +88,18 @@ describe('managed steering runtime', () => {
     expect(fs.readFileSync(path.join(root, 'steering', 'unknown.txt'), 'utf8')).toBe('unknown\n');
   });
 
+  it('rejects staged ancestor symlinks without changing their targets', async () => {
+    const root = fixture();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-steering-outside-'));
+    fs.symlinkSync(outside, path.join(root, 'steering', 'snippets'));
+    const approved = plan(root);
+
+    await expect(applySteeringPlan(root, approved)).rejects.toMatchObject({
+      reasonCode: 'steering_apply_failed',
+    });
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
   it('reports uninitialized state without writing', async () => {
     const root = fixture();
     expect(await inspectSteering(root)).toEqual(expect.objectContaining({ ok: true, state: 'uninitialized' }));

@@ -13,7 +13,7 @@ Manage `steering/manifest.json` through the shared deterministic writer. Treat `
 2. Read applicable repository guidance and run:
 
    ```bash
-   node "{{pluginRoot}}/scripts/sdlc-steering.mjs" inspect --project .
+   node "<plugin-root>/scripts/sdlc-steering.mjs" inspect --project .
    ```
 
 3. Read the current manifest and only its registered module, snippet, and extension files. Do not scan project directories for implicit registrations.
@@ -29,8 +29,8 @@ Manage `steering/manifest.json` through the shared deterministic writer. Treat `
 7. After approval, run exactly:
 
    ```bash
-   node "{{pluginRoot}}/scripts/sdlc-steering.mjs" apply --project . --plan <approved-plan.json>
-   node "{{pluginRoot}}/scripts/sdlc-steering.mjs" validate --project .
+   node "<plugin-root>/scripts/sdlc-steering.mjs" apply --project . --plan <approved-plan.json>
+   node "<plugin-root>/scripts/sdlc-steering.mjs" validate --project .
    ```
 
 8. Report changed paths and the returned steering and registration hashes. On stale plan, staged validation failure, or apply failure, report the stable reason code and make no unapproved retry.

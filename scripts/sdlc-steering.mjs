@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSteeringRuntime, projectPromptFragments, SteeringError } from "../src/sdlc-steering-runtime.mjs";
@@ -19,6 +19,21 @@ function projectPath(projectRoot, path) {
   if (!(absolute === resolve(projectRoot, "steering") || absolute.startsWith(`${resolve(projectRoot, "steering")}/`))) fail("steering_path_outside_root");
   return absolute;
 }
+function rejectSymlinkPath(projectRoot, target) {
+  const root = resolve(projectRoot);
+  const parts = relative(root, target).split(/[\\/]/).filter(Boolean);
+  let current = root;
+  for (const part of parts) {
+    current = join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) fail("steering_apply_failed", `${relative(root, current)} is a symbolic link`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      return;
+    }
+  }
+}
+
 
 export function steeringSourceDigest(projectRoot) {
   const root = resolve(projectRoot, "steering");
@@ -27,7 +42,7 @@ export function steeringSourceDigest(projectRoot) {
     return readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en")).flatMap((entry) => {
       const absolute = join(directory, entry.name);
       const path = relative(projectRoot, absolute).split("\\").join("/");
-      if (entry.isSymbolicLink()) return [`${path}\0symlink\0${readFileSync(absolute, "utf8")}`];
+      if (entry.isSymbolicLink()) return [`${path}\0symlink\0${readlinkSync(absolute)}`];
       if (entry.isDirectory()) return visit(absolute);
       if (entry.isFile()) return [`${path}\0${sha(readFileSync(absolute))}`];
       return [`${path}\0other`];
@@ -94,6 +109,7 @@ export async function applySteeringPlan(projectRoot, plan) {
     copyProjectSteering(root, candidateRoot);
     for (const action of plan.actions) {
       const candidate = projectPath(candidateRoot, action.path);
+      rejectSymlinkPath(candidateRoot, candidate);
       if (action.op === "delete") {
         rmSync(candidate, { force: true });
         continue;
@@ -106,6 +122,7 @@ export async function applySteeringPlan(projectRoot, plan) {
     if (steeringSourceDigest(root) !== plan.sourceDigest) fail("steering_plan_stale");
     for (const action of plan.actions) {
       const live = projectPath(root, action.path);
+      rejectSymlinkPath(root, live);
       if (action.op === "delete") {
         if (existsSync(live) && !lstatSync(live).isFile()) fail("steering_apply_failed", `${action.path} is not a regular file`);
         rmSync(live, { force: true });

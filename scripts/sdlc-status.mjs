@@ -298,9 +298,18 @@ function discoverDefaultBranch(projectRoot, adapters) {
   const name = repository.ok ? repository.stdout.trim() : '';
   if (name) return { name, gap: null };
 
+  for (const candidate of ['main', 'master']) {
+    const local = adapters.run(
+      'git',
+      ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`],
+      { cwd: projectRoot, timeout: 10_000 },
+    );
+    if (local.ok) return { name: candidate, gap: null };
+  }
+
   const detail = boundedMessage(commandFailure(repository))
     || boundedMessage(commandFailure(remoteHead))
-    || 'no remote default-branch evidence';
+    || 'no local or remote default-branch evidence';
   return { name: null, gap: `default branch unavailable: ${detail}` };
 }
 
@@ -491,7 +500,15 @@ export function inferLifecycle(evidence) {
 
   const specApproved = evidence.spec && evidence.spec.complete && !scopeBlocked;
 
-  if (evidence.issue && (dependency.status === 'blocked' || dependency.status === 'unknown')) {
+  if (issueNumber && !evidence.issue) {
+    gaps.push(`issue #${issueNumber} evidence unavailable`);
+    stage = 'unknown';
+    nextAction = {
+      command: '/sdlc-status',
+      reason: 'issue_evidence_unavailable',
+      manualRepairRequired: true,
+    };
+  } else if (evidence.issue && (dependency.status === 'blocked' || dependency.status === 'unknown')) {
     gaps.push(`official blocked-by dependency: ${dependency.reasonCode}`);
     stage = dependency.status === 'blocked' ? 'blocked' : 'unknown';
     nextAction = {
@@ -504,6 +521,18 @@ export function inferLifecycle(evidence) {
     gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
     stage = issueNumber && !onDefaultBranch ? 'started' : 'unknown';
     nextAction = { command: issueNumber ? `/sdlc-write-spec #${issueNumber}` : `/sdlc-write-spec`, reason: 'write spec', manualRepairRequired: false };
+  } else if ((verificationPass || deliveryValidationPending) && !implementationPresent) {
+    gaps.push('passing verification conflicts with missing implementation evidence');
+    stage = 'specified';
+    nextAction = { command: sdlcCommand('execute', issueNumber), reason: 'implementation evidence missing; recommend /sdlc-execute', manualRepairRequired: false };
+  } else if (
+    verificationPass
+    && prState === 'MERGED'
+    && String(evidence.issue?.state ?? '').toUpperCase() === 'CLOSED'
+    && (!controlledReadiness || finalDeliveryValidated)
+  ) {
+    stage = 'complete';
+    nextAction = { command: '/sdlc-status', reason: 'delivery complete', manualRepairRequired: false };
   } else if (exposedPrDependentVerification) {
     stage = 'delivery-validation-pending';
     nextAction = { command: sdlcCommand('open-pr', issueNumber), reason: 'PR evidence pending', manualRepairRequired: false };
