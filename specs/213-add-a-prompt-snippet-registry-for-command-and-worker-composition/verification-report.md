@@ -19,7 +19,7 @@
 
 ### Implementation Status: Fail
 
-Registry, provenance, fail-closed composition, native-plan rewriting, byte ceilings, and local compatibility tests pass. The live attempt advanced substantially: actual draft workflows produced issues #11 and #12, and actual write-spec workflows produced merged specification PRs #13 and #14 with `spec-created` on both issues. The one required `/sdlc-execute #11 #12` invocation then failed at issue #11 `start` with persisted `reasonCode: pane_split_failed`. No delivery PR exists and both issues remain open. The authoritative two-issue convergence gate is therefore unmet.
+Registry, provenance, fail-closed composition, native-plan rewriting, byte ceilings, and local compatibility tests pass. The live exercise now proves the corrected caller-pane environment can create workers: issue #11 passed start and implementation, and pushed commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031`. The resumed controller stopped at issue #11 `review1` with persisted `reasonCode: review_failed`; `s11-review1` remains open in the base-branch picker with no review handoff. No delivery PR exists, both issues remain open, and issue #12 has not started. The authoritative two-issue convergence gate remains unmet.
 
 ## Issue Scope
 
@@ -38,14 +38,14 @@ Registry, provenance, fail-closed composition, native-plan rewriting, byte ceili
 | AC2 | Pass | Registry rendering preserves stable order and writes machine-readable provenance; focused registry coverage passed. |
 | AC3 | Pass | Invalid providers, consumers, slots, sources, placeholders, roots, duplicates, and byte bounds fail closed with named errors. |
 | AC4 | Pass | Built-in catalog entries remain plugin-owned and byte ceilings remain enforced. |
-| AC5 | Fail | The required live lifecycle reached both merged spec PRs but `/sdlc-execute #11 #12` stopped at #11 `start` with `pane_split_failed`; no delivery PRs were created and neither issue closed. |
+| AC5 | Fail | Corrected execution passed #11 start and implementation but stopped at #11 review1 with `review_failed`; no delivery PRs were created, neither issue closed, and #12 did not start. |
 
 ## Regression Obligations
 
 - [x] FR7: production composition callsites are cut over to the registry while `workflowBody` remains the file-reader adapter.
 - [x] Existing command and worker prompt content and byte ceilings remain covered by passing tests.
 - [x] The harness explicitly loads `src/extension.ts` under `--no-extensions` after commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd`.
-- [ ] AC5 / FR8 / SCN005: two merged delivery PRs and two closed issues are absent.
+- [ ] AC5 / FR8 / SCN005: #11 reached a pushed implementation, but two merged delivery PRs and two closed issues are absent.
 
 ## Task Completion
 
@@ -57,7 +57,7 @@ Registry, provenance, fail-closed composition, native-plan rewriting, byte ceili
 | T004 | Complete | Worker prompts compose through the registry and write provenance. |
 | T005 | Complete | Registry contracts and named failures have focused coverage. |
 | T006 | Complete | Full compatibility suite passed. |
-| T007 | Incomplete | Actual draft and write-spec succeeded for both issues; execute failed before the first worker started. |
+| T007 | Incomplete | Actual draft and write-spec succeeded for both issues; corrected execute reached #11 review1, then failed before review completion or delivery. |
 
 ## Architecture Assessment
 
@@ -71,7 +71,7 @@ Registry, provenance, fail-closed composition, native-plan rewriting, byte ceili
 | Interface Segregation | 5 | Consumers import only required registry operations. |
 | Dependency Inversion | 5 | Command and worker consumers depend on the registry API. |
 
-Layer separation remains sound. No source defect was attributed to the live `pane_split_failed` result because the execute process inherited caller identifier `w6:p5R` while the current verification agent occupied `w6:p5T`; the failed run is preserved for a fresh worker to resume safely.
+Layer separation remains sound. The corrected environment eliminated the prior `pane_split_failed`: branch workers were created under caller pane `w6:p5V`. The terminal `review_failed` boundary is preserved without attributing it to the issue #213 registry change; the review worker remains in an interactive base-branch picker and no review handoff exists.
 
 ## Security Assessment
 
@@ -101,7 +101,7 @@ Layer separation remains sound. No source defect was attributed to the live `pan
 | Actual `/sdlc-draft-issue` for issue #12 | Pass — issue #12 |
 | Actual `/sdlc-write-spec #11` | Pass — PR #13 merged, `spec-created` |
 | Actual `/sdlc-write-spec #12` | Pass — PR #14 merged, `spec-created` |
-| One actual `/sdlc-execute #11 #12` | Fail — stopped on #11 `start`, `pane_split_failed` |
+| One actual `/sdlc-execute #11 #12` corrected round | Fail — #11 start/implement passed; stopped at #11 review1 with `review_failed` |
 | Delivery PRs merged | Fail — none created |
 | Issues closed | Fail — #11 and #12 remain open |
 
@@ -109,19 +109,19 @@ Layer separation remains sound. No source defect was attributed to the live `pan
 
 Repository: `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`.
 
-The execute TUI reported `NMG SDLC ready in Herdr`, accepted `/sdlc-execute #11 #12` once, and invoked:
+Before launch, both the environment and `herdr pane current --current` identified caller pane `w6:p5V`. The managed OMP TUI received `HERDR_ENV=1`, `/Users/rnunley/.config/herdr/herdr.sock`, and `HERDR_PANE_ID=w6:p5V` explicitly. It disabled ambient extensions/skills and loaded `/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts`.
+
+The corrected round entered `/sdlc-execute #11 #12` once. The branch controller created real workers: `s11-start` in `w6:p5W`, `s11-implement` in `w6:p5X`, and `s11-review1` in `w6:p5Y`. Start and implementation handoffs passed. The implementation branch is clean, pushed, and points at `34c69c6239e87eb0b330e3fb9fc6fb66d22be031`.
+
+The TUI orchestration agent canceled its original background branch-controller process after receiving an advisor recommendation to use the smoke repository's older installed controller. Its reconciliation run did not duplicate the live implementation worker. After implementation settled, a direct branch-controller resume with the same caller environment advanced the persisted queue to review1 and stopped:
 
 ```text
-node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run '#11' '#12'
+Stopped on #11 review1. Worker pane w6:p5Y agent s11-review1 left open.
 ```
 
-Controller output:
+Persisted state records completed `["start", "implement"]` for issue #11 and `reasonCode: review_failed` at `review1`. No review handoff exists. The retained worker is idle with `/review` and `Select base branch` visible; the issue branch is selected and `main` is available. No `s12-*` worker exists.
 
-```text
-Stopped on #11 start. Worker pane unknown agent s11-start left open.
-```
-
-Persisted run state records issue 11, step `start`, no completed steps, and `reasonCode: pane_split_failed`. Immediate topology inspection found no surviving `s11-start` agent or worker pane. Exact identifiers, states, and cleanup are in `live-smoke-evidence.md`.
+GitHub remains terminally incomplete: issues #11 and #12 are open, specification PRs #13/#14 are merged, repository-scoped delivery-branch PR search returned zero results, and no delivery merge SHA exists. Exact environment, worker topology, handoffs, commit, states, and cleanup are in `live-smoke-evidence.md`.
 
 ## Fixes Applied
 
@@ -129,18 +129,20 @@ Persisted run state records issue 11, step `start`, no completed steps, and `rea
 |---|---|---|---|---|
 | High | Verification infrastructure | `scripts/exercise-omp.mjs`, `scripts/__tests__/sdlc-commands.test.mjs` | Explicitly load `src/extension.ts` in the harness and assert the launch invariant. | direct; commit `0dc05967063d2d1fd329e3b25dfd592ef7cf96cd` |
 
-No new source fix was applied for `pane_split_failed`: the evidence shows a caller-pane identifier mismatch, but does not establish an issue #213 registry regression. The run failed closed and is retained for safe fresh-worker diagnosis.
+No nmg-sdlc source fix was applied for this terminal boundary. The corrected caller environment resolved the prior split failure, but this round stopped at the interactive review picker before producing a review handoff. The state is preserved for a fresh verifier rather than manually bypassing the controller contract.
 
 ## Remaining Issues
 
+
 | Severity | Category | Issue | Impact |
 |---|---|---|---|
-| Critical | Live convergence | Execute failed at #11 start with `pane_split_failed`; no delivery PRs exist and issues #11/#12 remain open. | AC5, FR8, SCN005, and the authoritative completion gate remain unmet. |
+| Critical | Live convergence | Execute stopped at #11 review1 with `review_failed`; #11 has no delivery PR, #12 has not started, and both issues remain open. | AC5, FR8, SCN005, and the authoritative completion gate remain unmet. |
+| High | Review orchestration | Retained `s11-review1` is idle in the base-branch picker with no review handoff after the branch controller returned `review_failed`. | A fresh verifier must diagnose/resume the supported review boundary without duplicating resources. |
 
 ## Cleanup
 
-Smoke processes `live-draft-a`, `live-draft-b`, `live-spec-11`, `live-spec-12`, and `live-execute-11-12` are exited. No unrelated process or Herdr pane was stopped. The disposable clone remains for the fresh verification-fix worker to resume without duplicating issues or specification PRs.
+The corrected TUI is idle and its controller process exited. Completed start/implement workers were closed. `s11-review1` remains open in pane `w6:p5Y`; no issue #12 worker was created. No unrelated process or pane was stopped. The disposable clone remains clean on the pushed issue #11 branch with runtime state and handoffs preserved.
 
 ## Recommendation
 
-**Needs another fresh verification-fix run.** Reuse issues #11/#12, merged spec PRs #13/#14, the clean clone, and `.omp/sdlc/run.json`. Diagnose the current-pane `pane_split_failed` boundary, then resume the existing queue. Do not pass verification or proceed to issue #213 delivery until both delivery PRs merge and both issues close.
+**Needs another fresh verification-fix run.** Reuse issues #11/#12, merged spec PRs #13/#14, the clean clone, passed #11 start/implement handoffs, and retained `s11-review1` pane `w6:p5Y`. Diagnose the review picker/controller boundary and resume the persisted serial queue. Do not pass verification or proceed to issue #213 delivery until both delivery PRs merge and both issues close.

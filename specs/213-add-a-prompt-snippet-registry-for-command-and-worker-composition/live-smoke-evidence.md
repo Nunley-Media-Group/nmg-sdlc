@@ -11,7 +11,7 @@
 
 Required: two distinct live issues, each covering actual `/sdlc-draft-issue` and actual `/sdlc-write-spec`, followed by one actual `/sdlc-execute` invocation processing both issues serially through merged delivery pull requests and closed issues.
 
-Result: **Fail — lifecycle stopped at issue #11 start.** Both issues and both approved specification packages now exist, but the single execute run failed before the first implementation worker started. No delivery pull request was created; issues #11 and #12 remain open.
+Result: **Fail — corrected resume advanced issue #11 through start and implementation, then stopped at review1.** Both issues and both approved specification packages remain intact. The corrected caller-pane environment created real worker panes, issue #11 implementation commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` is pushed, and passed start/implement handoffs are persisted. The resumed controller stopped with `reasonCode: review_failed` while `s11-review1` remained open in the base-branch picker. No delivery pull request was created; issues #11 and #12 remain open.
 
 ## Extension and harness prerequisite
 
@@ -45,27 +45,59 @@ Specification PR URLs:
 
 The clone was clean on `main...origin/main` at `de3475f437b27c245bd86cb9e74056283483257b` (`docs: approve spec for #12 (#14)`) before execute.
 
-## Execute outcome
+## Execute outcomes
 
-Managed process: `live-execute-11-12`.
+### Preserved pre-step failure
 
-The real OMP TUI loaded the branch extension and reported `NMG SDLC ready in Herdr`. One command was entered exactly once:
+The first real OMP TUI attempt remains preserved in the original run state history. It loaded the branch extension, accepted `/sdlc-execute #11 #12`, invoked the branch controller, and stopped before any worker with `pane_split_failed` because its managed process inherited stale caller pane `w6:p5R`. No worker survived that attempt.
+
+### Corrected caller-pane round
+
+The fresh verifier confirmed the actual environment before launch:
+
+```text
+HERDR_ENV=1
+HERDR_SOCKET_PATH=/Users/rnunley/.config/herdr/herdr.sock
+HERDR_PANE_ID=w6:p5V
+```
+
+`herdr pane current --current` independently reported pane `w6:p5V`. Managed process `live-execute-11-12-fix2` received those three values explicitly. Ambient extensions and skills were disabled, and the TUI explicitly loaded:
+
+```text
+/Volumes/Fast Brick/source/repos/nmg-sdlc/src/extension.ts
+```
+
+The existing issues, merged specification PRs, clone, and failed run state were preserved. Source inspection established that the same `[11, 12]` run with no live worker resumes from `nextStep(completed["11"])`; no disposable `.omp/sdlc` state reset was required.
+
+One command was entered in this corrected round:
 
 ```text
 /sdlc-execute #11 #12
 ```
 
-The workflow verified inherited Herdr variables and invoked the controller exactly as:
+The TUI launched the branch controller with:
 
 ```text
-node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run '#11' '#12'
+node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/sdlc-execute.mjs" run 11 12
 ```
 
-Observed controller result:
+That controller successfully created `s11-start` in pane `w6:p5W`, proving the corrected caller-pane boundary. Start passed and the controller created `s11-implement` in `w6:p5X`. The TUI orchestration agent then canceled its background branch-controller process after an advisor incorrectly preferred the smoke repository's installed v3.5.1 controller. Its installed-controller reconciliation correctly detected the live worker and did not duplicate it. After `s11-implement` completed, the verifier resumed the same persisted queue directly with the branch controller and the same explicit caller environment.
+
+Observed handoffs:
+
+| Issue | Step | Status | Intervention | Summary |
+|---:|---|---|---|---|
+| #11 | start | passed | false | Branch ready for #11 |
+| #11 | implement | passed | false | All tasks from tasks.md executed for #11 |
+| #11 | review1 | absent | — | Controller stopped before a review handoff |
+| #12 | any | absent | — | Serial queue never reached #12 |
+
+Issue #11 implementation artifacts are `LIVE_SMOKE_A.txt`, `README.md`, and `scripts/__tests__/live-smoke-a.test.mjs`. Commit `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` (`feat: add live smoke A marker`) is pushed; the branch is clean and aligned with `origin/11-add-live-smoke-a-lifecycle-verification-marker`.
+
+Terminal controller output:
 
 ```text
-Stopped on #11 start. Worker pane unknown agent s11-start left open.
-Exit: 1
+Stopped on #11 review1. Worker pane w6:p5Y agent s11-review1 left open.
 ```
 
 Persisted `.omp/sdlc/run.json` state:
@@ -75,27 +107,20 @@ Persisted `.omp/sdlc/run.json` state:
   "schemaVersion": 1,
   "issues": [11, 12],
   "currentIssue": 11,
-  "currentStep": "start",
-  "completed": {"11": []},
+  "currentStep": "review1",
+  "completed": {
+    "11": ["start", "implement"]
+  },
   "failed": {
     "issue": 11,
-    "step": "start",
-    "reasonCode": "pane_split_failed"
+    "step": "review1",
+    "reasonCode": "review_failed"
   },
   "startedAt": "2026-08-25T03:10:37.864Z"
 }
 ```
 
-Immediately after failure, live Herdr inspection found no `s11-start` or `s12-*` agent and no surviving worker pane; workspace `w6` contained only its pre-existing panes. The execute process inherited caller identifier `w6:p5R`, while the current verification agent occupied `w6:p5T`. This evidence records the mismatch without inferring a source defect.
-
-Because the controller failed at the first `start` step:
-
-- issue #11 implementation did not start;
-- issue #12 was not started;
-- no review, verification, or delivery step ran;
-- delivery PR identifiers: **none**;
-- issue #11 terminal state: **OPEN**;
-- issue #12 terminal state: **OPEN**.
+Terminal topology contains only `s11-review1`, idle in pane `w6:p5Y`; no `s12-*` worker exists. Its detection buffer preserves `/review` and the open `Select base branch` picker with the issue branch selected and `main` available. The pane and runtime state remain untouched for supported retained-worker diagnosis in the next fresh iteration.
 
 ## GitHub terminal state
 
@@ -105,11 +130,14 @@ Because the controller failed at the first `start` step:
 | Issue #12 | OPEN; `enhancement`, `spec-created` |
 | Spec PR #13 | MERGED |
 | Spec PR #14 | MERGED |
+| Issue #11 implementation branch | Pushed at `34c69c6239e87eb0b330e3fb9fc6fb66d22be031` |
 | Delivery PR for #11 | Not created |
 | Delivery PR for #12 | Not created |
 
-The authoritative completion gate is unmet. Unit tests, fixtures, the corrected extension diagnostic, and merged specification PRs do not substitute for two merged delivery PRs and two closed issues.
+An authenticated repository-scoped pull-request search for both delivery branch names returned zero results. The authoritative completion gate remains unmet: neither delivery PR is merged and neither issue is closed.
 
 ## Cleanup state
 
-Only smoke processes from this run were stopped. `live-draft-a`, `live-draft-b`, `live-spec-11`, `live-spec-12`, and `live-execute-11-12` are exited. No unrelated Herdr pane or process was stopped. The failed controller left no observable `s11-start` worker agent or worker pane. The disposable clone remains at `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo` so a fresh verification-fix worker can resume issues #11 and #12 and the persisted run state without duplicating resources.
+The corrected TUI is idle and its controller process has exited. The earlier completed `s11-start` and `s11-implement` panes were closed by the controller. `s11-review1` remains open in pane `w6:p5Y`, as required after the failed review handoff boundary. No `s12-*` worker was created. No unrelated Herdr pane or process was stopped.
+
+The disposable clone remains at `/tmp/nmg-sdlc-smoke-213-live.2oWAHd/repo` on the clean, pushed issue #11 branch. Its `.omp/sdlc/run.json`, passed start/implement handoffs, failed review state, and open review worker are preserved for the next fresh verification-fix worker. Issues #11/#12 and merged specification PRs #13/#14 were not recreated or modified.
