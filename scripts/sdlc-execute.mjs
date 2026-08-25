@@ -42,7 +42,6 @@ export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 export const REMEDIABLE_STEPS = ['implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
-const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
 const REVIEW_MODE_OPTIONS = [
   'Review against a base branch (PR Style)',
   'Review uncommitted changes',
@@ -703,13 +702,18 @@ function escapeRegExp(value) {
 }
 
 function isReviewBranchPicker(text, defaultBranch) {
-  if (text.includes(REVIEW_BRANCH_PICKER_TEXT)) return true;
-  if (!defaultBranch || !hasPickerSearch(text)) return false;
+  if (
+    !defaultBranch
+    || !hasPickerSearch(text)
+    || !REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
+  ) {
+    return false;
+  }
   const branchOption = new RegExp(
-    `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}(?:\\s|$)`,
-    'm',
+    `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
+    'gm',
   );
-  return branchOption.test(text);
+  return [...text.matchAll(branchOption)].length === 1;
 }
 
 function isInteractiveReviewPicker(text, defaultBranch) {

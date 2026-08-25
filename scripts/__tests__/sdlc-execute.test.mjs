@@ -41,6 +41,23 @@ const UNICODE_TITLELESS_REVIEW_MODE_PICKER = [
   '↑↓ Navigate',
 ].join('\n');
 const TITLED_REVIEW_MODE_PICKER = `Review Mode\n${UNICODE_TITLELESS_REVIEW_MODE_PICKER}`;
+const LIVE_TITLELESS_REVIEW_BRANCH_PICKER = [
+  '1. 42-ship-it',
+  '2. main',
+  '3. origin/42-ship-it',
+  '4. origin/main',
+  '(1/6) Type to search',
+  'up/down navigate  enter select  esc cancel',
+].join('\n');
+const TITLED_REVIEW_BRANCH_PICKER = [
+  'Select base branch to compare against',
+  LIVE_TITLELESS_REVIEW_BRANCH_PICKER,
+].join('\n');
+const UNICODE_TITLELESS_REVIEW_BRANCH_PICKER = [
+  '2. main',
+  '(1/4) Type to search',
+  '↑↓ Navigate',
+].join('\n');
 
 const temporaryRoots = [];
 
@@ -643,6 +660,7 @@ describe('runExecute controller', () => {
     titlelessReviewPickers = false,
     titledReviewModePicker = TITLED_REVIEW_MODE_PICKER,
     titlelessReviewModePicker = LIVE_TITLELESS_REVIEW_MODE_PICKER,
+    branchPickerScreens = null,
     ambiguousReviewScreen = false,
     writeHandoffs = true,
     promptStatus = 0,
@@ -687,6 +705,7 @@ describe('runExecute controller', () => {
     let reviewMenu = null;
     const reviewMenuEvents = [];
     let branchMenuReadsRemaining = 0;
+    let branchMenuReadIndex = 0;
     const pendingAgentStartStatuses = [...agentStartStatuses];
     let remPromptCount = 0;
 
@@ -870,10 +889,15 @@ describe('runExecute controller', () => {
           reviewMenu = 'branch';
         }
         if (reviewMenu === 'branch') {
-          reviewMenuEvents.push('branch-visible');
-          return titlelessReviewPickers
-            ? '2. main\n(1/4) Type to search\n↑↓ Navigate'
-            : 'Select base branch…';
+          const screens = branchPickerScreens ?? [
+            titlelessReviewPickers
+              ? UNICODE_TITLELESS_REVIEW_BRANCH_PICKER
+              : TITLED_REVIEW_BRANCH_PICKER,
+          ];
+          const screen = screens[Math.min(branchMenuReadIndex, screens.length - 1)];
+          if (branchMenuReadIndex < screens.length - 1) branchMenuReadIndex += 1;
+          else reviewMenuEvents.push('branch-visible');
+          return screen;
         }
         return activePrompt;
       },
@@ -891,6 +915,7 @@ describe('runExecute controller', () => {
           if (keys.length !== 1 || keys[0] !== 'enter') return { status: 1 };
           if (branchMenuTransition) {
             branchMenuReadsRemaining = branchMenuDelayReads;
+            branchMenuReadIndex = 0;
             reviewMenu = branchMenuDelayReads > 0 ? 'branch-pending' : 'branch';
           }
         } else if (reviewMenu === 'branch') {
@@ -1738,10 +1763,19 @@ describe('runExecute controller', () => {
     ]);
   });
 
-  it('waits for the review branch picker to render', () => {
+  it('waits for the complete live review branch picker structure', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
-      branchMenuDelayReads: 2,
+      branchPickerScreens: [
+        'Select base branch to compare against',
+        [
+          'Select base branch to compare against',
+          '1. 42-ship-it',
+          '2. main',
+          '(1/6) Type to search',
+        ].join('\n'),
+        TITLED_REVIEW_BRANCH_PICKER,
+      ],
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -1750,6 +1784,34 @@ describe('runExecute controller', () => {
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
       'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
     ]);
+  });
+
+  it('rejects a fresh title-only review branch picker', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: ['Select base branch to compare against'],
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.reviewMenuEvents).not.toContain('branch-keys:down,enter');
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1',
+    ]);
+  });
+
+  it('rejects an ambiguous review branch picker with duplicate default rows', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: [[
+        TITLED_REVIEW_BRANCH_PICKER,
+        '5. main',
+      ].join('\n')],
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.reviewMenuEvents).not.toContain('branch-keys:down,enter');
   });
 
   it('completes fresh review selection from narrow titleless picker rows', () => {
@@ -1992,7 +2054,54 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual([]);
   });
-  it('resumes a retained review picker against the default branch', () => {
+  it('waits for a retained live review branch picker to render completely', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const branchScreens = [
+      'Select base branch to compare against',
+      'Select base branch to compare against\n2. main\n(1/6) Type to search',
+      TITLED_REVIEW_BRANCH_PICKER,
+    ];
+    let menu = 'mode';
+    let branchReadIndex = 0;
+    fixture.herdr.agentRead = () => {
+      if (menu === 'mode') return TITLED_REVIEW_MODE_PICKER;
+      if (menu !== 'branch') return 'Review complete';
+      const screen = branchScreens[Math.min(branchReadIndex, branchScreens.length - 1)];
+      if (branchReadIndex < branchScreens.length - 1) branchReadIndex += 1;
+      return screen;
+    };
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
+      else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
+      return sendKeys(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(branchReadIndex).toBe(2);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+    expect(fixture.sentKeys).toEqual(expect.arrayContaining([['enter'], ['down', 'enter']]));
+  });
+
+  it('rejects a retained title-only review branch picker', () => {
     const fixture = makeControllerFixture();
     writeRun({
       schemaVersion: 1,
@@ -2012,22 +2121,19 @@ describe('runExecute controller', () => {
     let menu = 'mode';
     fixture.herdr.agentRead = () => menu === 'mode'
       ? TITLED_REVIEW_MODE_PICKER
-      : menu === 'branch'
-        ? 'Select base b…'
-        : 'Review complete';
+      : 'Select base branch to compare against';
     const sendKeys = fixture.herdr.agentSendKeys;
     fixture.herdr.agentSendKeys = (input) => {
       if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
-      else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
       return sendKeys(input);
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
-    expect(result.status).toBe(0);
-    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
-    expect(fixture.closed[0]).toBe('kept-review-pane');
-    expect(fixture.sentKeys).toEqual(expect.arrayContaining([['enter'], ['down', 'enter']]));
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).not.toContainEqual(['down', 'enter']);
+    expect(fixture.closed).not.toContain('kept-review-pane');
+    expect(fixture.starts).toEqual([]);
   });
 
   it('resumes a retained review from narrow titleless picker rows', () => {
