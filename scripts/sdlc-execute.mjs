@@ -1349,6 +1349,8 @@ export function runExecute({
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
       let state = agentState(herdrApi.agentGet(agentName));
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+      const reviewStep = step === 'review1' || step === 'review2';
       if (!step || agentName !== `s${issue}-${step}`) {
         return stopResult({
           issue,
@@ -1369,20 +1371,42 @@ export function runExecute({
         });
       }
       if (!['idle', 'done'].includes(state)) {
-        const settled = state === 'working'
-          ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
-          : waitForWorkerSettlement(herdrApi, agentName);
-        if (!settled) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
         state = agentState(herdrApi.agentGet(agentName));
+        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
+          ? reviewBranchSelectionKeys(cwd, run)
+          : null;
+        const retainedReviewText = !fs.existsSync(handoffPath) && reviewStep
+          ? agentDetectionText(herdrApi, agentName)
+          : '';
+        const actionableRetainedReview = isInteractiveReviewPicker(
+          retainedReviewText,
+          retainedReviewSelection?.defaultBranch,
+        );
+        if (actionableRetainedReview) {
+          if (
+            !retainedReviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'review_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        } else if (!['idle', 'done'].includes(state)) {
+          const settled = state === 'working'
+            ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
+            : waitForWorkerSettlement(herdrApi, agentName);
+          if (!settled) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        }
       }
       if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
-        const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-        const reviewStep = step === 'review1' || step === 'review2';
         const retainedReviewText = reviewStep
           ? agentDetectionText(herdrApi, agentName)
           : '';

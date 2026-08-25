@@ -13,6 +13,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - Issue #259 waits for complete `/review` mode and base-branch picker structures, including search counts, exact numbered default-branch rows, and supported navigation hints, while rejecting partial titled and titleless screens.
+- Issue #259 re-samples retained review state and complete interactive pickers before blocking settlement waits, preventing stale-status deadlocks without shortening genuine worker waits or starting duplicate workers.
 
 ## [3.12.0] - 2026-08-24
 

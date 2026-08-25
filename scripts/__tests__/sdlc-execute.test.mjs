@@ -2054,6 +2054,117 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual([]);
   });
+  it('resamples a stale retained review state before waiting on its complete picker', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review1',
+      pane_id: 'kept-review-pane',
+      state: 'blocked',
+    }];
+    let stateReadCount = 0;
+    fixture.herdr.agentGet = () => ({
+      result: { state: stateReadCount++ === 0 ? 'blocked' : 'idle' },
+    });
+    let screen = 'mode';
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => {
+      if (input.name !== 's42-review1') return readAgent(input);
+      if (screen === 'mode') return TITLED_REVIEW_MODE_PICKER;
+      if (screen === 'branch') return TITLED_REVIEW_BRANCH_PICKER;
+      return 'Review complete';
+    };
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (input.name === 's42-review1' && screen === 'mode' && input.keys.join(',') === 'enter') {
+        screen = 'branch';
+      } else if (
+        input.name === 's42-review1'
+        && screen === 'branch'
+        && input.keys.join(',') === 'down,enter'
+      ) {
+        screen = 'reviewing';
+      }
+      return sendKeys(input);
+    };
+    const waitAgent = fixture.herdr.agentWait;
+    let waitedForWorkingBeforeSelection = false;
+    fixture.herdr.agentWait = (input) => {
+      if (input.name === 's42-review1' && input.until === 'working' && screen !== 'reviewing') {
+        waitedForWorkingBeforeSelection = true;
+      }
+      return waitAgent(input);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(waitedForWorkingBeforeSelection).toBe(false);
+    expect(fixture.sentKeys).toEqual(expect.arrayContaining([['enter'], ['down', 'enter']]));
+    expect(fixture.waits).toContainEqual({ name: 's42-review1', until: 'working' });
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+  });
+
+  it('keeps the unbounded settlement wait for a genuinely working retained review', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'worker_failed' },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review1',
+      pane_id: 'kept-review-pane',
+      state: 'working',
+    }];
+    let state = 'working';
+    fixture.herdr.agentGet = () => ({ result: { state } });
+    const readAgent = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => input.name === 's42-review1'
+      ? 'Review in progress'
+      : readAgent(input);
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      const result = waitAgent(input);
+      if (input.name === 's42-review1' && !input.until) state = 'idle';
+      return result;
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits).toContainEqual({ name: 's42-review1' });
+    expect(fixture.waits.find((wait) => wait.name === 's42-review1' && !wait.until))
+      .not.toHaveProperty('timeout');
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+  });
+
   it('waits for a retained live review branch picker to render completely', () => {
     const fixture = makeControllerFixture();
     writeRun({
