@@ -20,8 +20,9 @@ Feature: Move exact-head delivery into a controller with on-demand remediation
     When the sibling deliver worker runs node scripts/sdlc-deliver.mjs --issue N
     Then the controller preserves version synchronization, push, PR create or resume, and readiness classification
     And it merges with --match-head-commit for the observed head
+    And the merge command contains no local or remote branch deletion option
     And it writes a passed deliver handoff only after PR MERGED at that head and issue CLOSED
-    And it deletes the local issue branch only after that proof
+    And it deletes the local and remote issue branches only after that proof
     And no Address PR Comments workflow is inlined
 
   @SCN002

@@ -6,7 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { classifyPrDeliveryState } from './pr-delivery-state.mjs';
-import { inspectVerificationReadiness } from './verification-readiness.mjs';
+import {
+  evidenceIdentity,
+  inspectDeliveryValidation,
+  inspectVerificationReadiness,
+} from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--remediation-result human_review]';
@@ -202,9 +206,11 @@ function updateChangelog(content, version, date, title, breaking) {
   const nextHeading = content.indexOf('\n## [', index + marker.length);
   const end = nextHeading < 0 ? content.length : nextHeading;
   const prefix = content.slice(0, index);
+  const unreleased = content.slice(index + marker.length, end).trim();
   const suffix = content.slice(end).replace(/^\n+/, '\n');
   const category = breaking ? 'Changed (BREAKING)' : 'Changed';
-  return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n### ${category}\n\n- ${title}\n${suffix}`;
+  const preserved = unreleased ? `${unreleased}\n\n` : '';
+  return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${preserved}### ${category}\n\n- ${title}\n${suffix}`;
 }
 
 function synchronizeVersion({ fs, cwd, issue, spec, issueData, tech, existingPr, now }) {
@@ -265,15 +271,118 @@ function publishVersionChanges({ run, cwd, issue, issueData, changed }) {
   else command(run, cwd, 'git', ['push', '-u', 'origin', 'HEAD']);
 }
 
-function existingPullRequest({ run, cwd, branch }) {
+function existingPullRequest({ run, cwd, branch, issue }) {
   const { value } = jsonCommand(run, cwd, 'gh', [
-    'pr', 'list', '--head', branch, '--state', 'open',
-    '--json', 'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit',
+    'pr', 'list', '--head', branch, '--state', 'all', '--limit', '100',
+    '--json', 'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
   ]);
   if (!Array.isArray(value)) throw new Error('PR list is not an array');
-  const exact = value.filter((pr) => pr.headRefName === branch);
-  if (exact.length > 1) throw new Error('multiple exact-branch PRs');
-  return exact[0] ?? null;
+  const closingPattern = new RegExp(`(?:^|\\n)Closes #${issue}(?:\\n|$)`, 'i');
+  const exact = value.filter((pr) => pr.headRefName === branch && closingPattern.test(String(pr.body ?? '')));
+  const open = exact.filter((pr) => pr.state === 'OPEN');
+  if (open.length > 1) throw new Error('multiple open exact-branch PRs');
+  if (open.length === 1) return open[0];
+  const merged = exact.filter((pr) => pr.state === 'MERGED');
+  if (merged.length > 1) throw new Error('multiple merged exact-branch PRs');
+  return merged[0] ?? null;
+}
+
+function prEvidenceRequest({ issue, pr, spec, readiness }) {
+  const packet = {
+    schemaVersion: 1,
+    kind: 'pr_evidence_verification_required',
+    issue,
+    pullRequest: pr.number,
+    headSha: pr.headRefOid,
+    specPath: spec.relative,
+    evidence: (readiness.readiness?.pendingEvidence ?? []).map(evidenceIdentity),
+    handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
+  };
+  return {
+    status: 3,
+    stdout: `NMG_SDLC_PR_EVIDENCE: ${JSON.stringify(packet)}\n`,
+    stderr: '',
+    handoff: null,
+    handoffPath: packet.handoffPath,
+    prEvidence: packet,
+  };
+}
+
+function evidenceForHead(readiness, observed, headSha) {
+  const evidence = readiness.readiness?.evidence ?? [];
+  const result = [];
+  for (const item of evidence) {
+    if (item.kind === 'merge_blocking') {
+      const state = String(observed.pr.mergeStateStatus ?? '').toUpperCase();
+      if (!['BLOCKED', 'UNSTABLE', 'DIRTY', 'BEHIND'].includes(state)) return null;
+      result.push({
+        ...evidenceIdentity(item),
+        headSha,
+        conclusion: 'OBSERVED',
+        url: observed.pr.url,
+        observedStates: [state],
+      });
+      continue;
+    }
+    const check = observed.evidenceChecks.find((candidate) => (
+      candidate.name === item.name
+      && candidate.event === item.event
+      && ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(candidate.state)
+    ));
+    if (!check?.url) return null;
+    result.push({
+      ...evidenceIdentity(item),
+      headSha,
+      conclusion: check.state,
+      url: check.url,
+    });
+  }
+  return result;
+}
+
+function publishVerificationReport({ run, cwd, issue, reportPath }) {
+  command(run, cwd, 'git', ['add', '--', reportPath]);
+  const staged = command(run, cwd, 'git', ['diff', '--cached', '--quiet'], { allowFailure: true });
+  if (staged.status === 0) return false;
+  command(run, cwd, 'git', ['commit', '-m', `docs: record PR evidence for #${issue}`]);
+  command(run, cwd, 'git', ['push']);
+  return true;
+}
+
+function writeDeliveryValidation({ run, fs, cwd, issue, spec, pr, headSha, evidence }) {
+  const marker = `<!-- nmg-sdlc-delivery-validation: ${JSON.stringify({
+    schemaVersion: 1,
+    state: 'final_sha_validated',
+    issueNumber: issue,
+    specPath: spec.relative,
+    pullRequestNumber: pr.number,
+    headSha,
+    evidence,
+  })} -->`;
+  const bodyPath = path.join(cwd, '.omp', 'sdlc', `pr-final-body-${issue}.md`);
+  fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+  const body = String(pr.body ?? '')
+    .replace(/^<!-- nmg-sdlc-delivery-validation:.*-->\r?\n?/gm, '')
+    .replace(/\s+$/, '');
+  fs.writeFileSync(bodyPath, `${body}\n\n${marker}\n`);
+  try {
+    command(run, cwd, 'gh', ['pr', 'edit', String(pr.number), '--body-file', bodyPath]);
+  } finally {
+    fs.rmSync(bodyPath, { force: true });
+  }
+}
+
+function cleanupBranch({ run, cwd, branch, base }) {
+  const failures = [];
+  for (const [label, args] of [
+    ['checkout', ['checkout', base]],
+    ['local branch deletion', ['branch', '-D', branch]],
+    ['remote branch deletion', ['push', 'origin', '--delete', branch]],
+  ]) {
+    const result = command(run, cwd, 'git', args, { allowFailure: true });
+    if (result.status !== 0) failures.push(label);
+  }
+  return failures;
 }
 
 function createPullRequest({ run, fs, cwd, issue, issueData, branch, spec, draft }) {
@@ -331,7 +440,7 @@ function isBot(author, botLogins) {
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const { value: pr } = jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
-    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews',
+    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews,body',
   ]);
   const [, owner, name] = String(pr.url ?? '').match(/\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/) ?? [];
   if (!owner || !name) throw new Error('pull request base repository is unavailable');
@@ -354,6 +463,16 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   ], { allowFailure: true });
   let checks = [];
   if (String(checksResult.stdout || '').trim()) checks = JSON.parse(checksResult.stdout).map(normalizeCheck);
+  let evidenceChecks = checks;
+  const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
+  if (declaredEvidence.some((item) => item.kind === 'check_run')) {
+    const allChecksResult = command(run, cwd, 'gh', [
+      'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
+    ], { allowFailure: true });
+    if (String(allChecksResult.stdout || '').trim()) {
+      evidenceChecks = JSON.parse(allChecksResult.stdout).map(normalizeCheck);
+    }
+  }
   const { value: issueData } = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']);
   const reviews = (pr.reviews ?? []).map((review, index) => ({
     id: review.id ?? `review-${index}`,
@@ -368,7 +487,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     isOutdated: thread.isOutdated,
     url: thread.url ?? threadAuthor(thread).url,
   }));
-  const evidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
+  const evidence = declaredEvidence;
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
     .map((item) => item.name);
@@ -386,11 +505,11 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     requiredChecksConfigured: declaredPrOnlyChecks.length > 0,
     declaredPrOnlyChecks,
     verification: {
-      status: ['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status) ? 'pass' : readiness.status,
+      status: readiness.status,
       headSha: pr.headRefOid,
     },
   };
-  return { snapshot, rawThreads, pr, issueData };
+  return { snapshot, rawThreads, pr, issueData, evidenceChecks };
 }
 
 function remediationPacket({ issue, pr, classified, rawThreads, botLogins }) {
@@ -439,7 +558,7 @@ export function runDeliver({
 
   try {
     const spec = approvedSpec(fs, cwd, issueNumber);
-    const readiness = inspectVerificationReadiness({
+    let readiness = inspectVerificationReadiness({
       content: fs.readFileSync(spec.verificationPath, 'utf8'),
       options: { expectedIssueNumber: issueNumber, expectedSpecPath: spec.relative },
     });
@@ -455,12 +574,56 @@ export function runDeliver({
 
     const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
     if (!branch.startsWith(`${issueNumber}-`)) return fail(context, 'delivery_failed', `Current branch ${branch || '(detached)'} does not belong to #${issueNumber}`);
+    const localHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+    let pr = existingPullRequest({ run, cwd, branch, issue: issueNumber });
+    const reportPath = path.relative(cwd, spec.verificationPath);
     const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
       .filter((entry) => !entry.startsWith('.omp/'));
-    if (dirty.length > 0) return fail(context, 'dirty_tree', `Delivery requires a clean worktree: ${dirty.join(', ')}`);
+    const controlledReportOnly = readiness.status === 'pr_evidence_satisfied'
+      && pr?.state === 'OPEN'
+      && pr.isDraft === true
+      && dirty.every((entry) => entry === reportPath);
+    if (dirty.length > 0 && !controlledReportOnly) {
+      return fail(context, 'dirty_tree', `Delivery requires a clean worktree: ${dirty.join(', ')}`);
+    }
 
-    let pr = existingPullRequest({ run, cwd, branch });
-    let version;
+    let version = fs.readFileSync(path.join(cwd, 'VERSION'), 'utf8').trim();
+    if (pr?.state === 'MERGED') {
+      if (pr.headRefOid !== localHead) {
+        return fail(context, 'merge_failed', `Merged PR #${pr.number} does not match local delivery head`);
+      }
+      const terminalReadiness = { ...readiness, status: 'pass' };
+      const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: terminalReadiness });
+      if (readiness.status === 'pr_evidence_satisfied') {
+        const validation = inspectDeliveryValidation({
+          content: proof.pr.body ?? '',
+          options: {
+            expectedIssueNumber: issueNumber,
+            expectedSpecPath: spec.relative,
+            expectedPullRequestNumber: pr.number,
+            expectedHeadSha: pr.headRefOid,
+            deliveryAcceptanceCriteria: readiness.scope?.delivery?.acceptanceCriteria,
+            expectedEvidenceIdentities: readiness.readiness.evidence.map(evidenceIdentity),
+          },
+        });
+        if (validation.status !== 'final_sha_validated') {
+          return fail(context, 'merge_failed', `Merged PR #${pr.number} lacks valid final-head evidence`);
+        }
+      }
+      const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: pr.headRefOid });
+      if (proved.status !== 'complete' || proof.issueData.state !== 'CLOSED') {
+        return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
+      }
+      const cleanupFailures = cleanupBranch({ run, cwd, branch, base: proof.pr.baseRefName });
+      const cleanup = cleanupFailures.length ? `; cleanup incomplete: ${cleanupFailures.join(', ')}` : '';
+      return writeHandoff({
+        ...context,
+        status: 'passed',
+        summary: `PR #${pr.number} merged at ${pr.headRefOid}, issue #${issueNumber} closed, version ${version}${cleanup}`,
+        artifacts: [proof.pr.url],
+      });
+    }
+
     let changed;
     try {
       ({ version, changed } = synchronizeVersion({ fs, cwd, issue: issueNumber, spec, issueData, tech, existingPr: pr, now }));
@@ -478,9 +641,89 @@ export function runDeliver({
       });
     }
 
+    let deliveryReadiness = readiness;
+    if (readiness.status === 'pr_evidence_pending') {
+      const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true
+        || observed.pr.headRefName !== branch || observed.pr.baseRefName !== 'main') {
+        return fail(context, 'verification_not_ready', `PR #${pr.number} is not the exact controlled draft`);
+      }
+      return prEvidenceRequest({ issue: issueNumber, pr: observed.pr, spec, readiness });
+    }
+
+    if (readiness.status === 'pr_evidence_satisfied') {
+      let observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true || observed.pr.headRefName !== branch) {
+        return fail(context, 'verification_not_ready', `PR #${pr.number} is not a resumable controlled draft`);
+      }
+      const evidenceHeads = [...new Set(readiness.readiness.evidence.map((item) => item.headSha.toLowerCase()))];
+      if (evidenceHeads.length !== 1) return fail(context, 'verification_not_ready', 'Satisfied PR evidence does not identify one H1');
+      const h1 = evidenceHeads[0];
+      if (observed.pr.headRefOid.toLowerCase() === h1) {
+        const bound = inspectVerificationReadiness({
+          content: fs.readFileSync(spec.verificationPath, 'utf8'),
+          options: {
+            expectedIssueNumber: issueNumber,
+            expectedSpecPath: spec.relative,
+            expectedHeadSha: observed.pr.headRefOid,
+          },
+        });
+        if (bound.status !== 'pr_evidence_satisfied') {
+          return fail(context, 'verification_not_ready', `Verification report is not satisfied for draft head ${observed.pr.headRefOid}`);
+        }
+        const committed = publishVerificationReport({
+          run, cwd, issue: issueNumber, reportPath,
+        });
+        observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+        if (committed && observed.pr.headRefOid.toLowerCase() === h1) {
+          return fail(context, 'verification_not_ready', 'Verification report commit did not advance H1 to H2');
+        }
+      } else {
+        const pushedHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+        if (dirty.length > 0 || observed.pr.headRefOid !== pushedHead) {
+          return fail(context, 'verification_not_ready', 'Controlled-draft H2 resume is not clean and current');
+        }
+      }
+
+      const h2 = observed.pr.headRefOid;
+      const evidenceStartedAt = now();
+      let finalEvidence = evidenceForHead(readiness, observed, h2);
+      while (!finalEvidence) {
+        if (now() - evidenceStartedAt >= PENDING_CEILING_MS) {
+          return fail(context, 'delivery_pending', `PR #${pr.number} final-head evidence remained pending for one hour`);
+        }
+        sleep(POLL_INTERVAL_MS);
+        observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+        if (observed.pr.headRefOid !== h2 || observed.pr.isDraft !== true) {
+          return fail(context, 'verification_not_ready', 'Controlled draft changed during H2 evidence collection');
+        }
+        finalEvidence = evidenceForHead(readiness, observed, h2);
+      }
+      writeDeliveryValidation({
+        run, fs, cwd, issue: issueNumber, spec, pr: observed.pr, headSha: h2, evidence: finalEvidence,
+      });
+      const validated = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const validation = inspectDeliveryValidation({
+        content: validated.pr.body ?? '',
+        options: {
+          expectedIssueNumber: issueNumber,
+          expectedSpecPath: spec.relative,
+          expectedPullRequestNumber: pr.number,
+          expectedHeadSha: h2,
+          deliveryAcceptanceCriteria: readiness.scope?.delivery?.acceptanceCriteria,
+          expectedEvidenceIdentities: readiness.readiness.evidence.map(evidenceIdentity),
+        },
+      });
+      if (validation.status !== 'final_sha_validated' || validated.pr.headRefOid !== h2 || validated.pr.isDraft !== true) {
+        return fail(context, 'verification_not_ready', `PR #${pr.number} final-head validation failed`);
+      }
+      command(run, cwd, 'gh', ['pr', 'ready', String(pr.number)]);
+      deliveryReadiness = { ...readiness, status: 'pass' };
+    }
+
     const startedAt = now();
     while (true) {
-      const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
       const classified = classifyPrDeliveryState(observed.snapshot, { issueNumber });
       if (classifyHumanReview(observed.rawThreads, botLogins) || classified.reasonCode === 'changes_requested') {
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
@@ -511,23 +754,22 @@ export function runDeliver({
       }
 
       const head = classified.headSha;
-      const refreshed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const refreshed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
       if (refreshed.pr.headRefOid !== head) continue;
       command(run, cwd, 'gh', [
         'pr', 'merge', String(pr.number), '--squash', '--match-head-commit', head,
       ]);
-      const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
       const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: head });
       if (proved.status !== 'complete' || proof.pr.headRefOid !== head || proof.issueData.state !== 'CLOSED') {
         return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
       }
-      command(run, cwd, 'git', ['checkout', proof.pr.baseRefName]);
-      command(run, cwd, 'git', ['branch', '-D', branch]);
-      command(run, cwd, 'git', ['push', 'origin', '--delete', branch]);
+      const cleanupFailures = cleanupBranch({ run, cwd, branch, base: proof.pr.baseRefName });
+      const cleanup = cleanupFailures.length ? `; cleanup incomplete: ${cleanupFailures.join(', ')}` : '';
       return writeHandoff({
         ...context,
         status: 'passed',
-        summary: `PR #${pr.number} merged at ${head}, issue #${issueNumber} closed, version ${version}`,
+        summary: `PR #${pr.number} merged at ${head}, issue #${issueNumber} closed, version ${version}${cleanup}`,
         artifacts: [proof.pr.url],
       });
     }

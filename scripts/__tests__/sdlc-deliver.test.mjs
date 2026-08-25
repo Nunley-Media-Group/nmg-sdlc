@@ -16,6 +16,41 @@ function verification(issue = 42, specPath = 'specs/42-delivery') {
   return `# Verification\n\n## Implementation Status: **Pass**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
 
+function controlledVerification(state, headSha = H1) {
+  const specPath = 'specs/42-delivery';
+  const scope = {
+    issueNumber: 42,
+    specPath,
+    status: 'scoped',
+    delivery: { acceptanceCriteria: ['AC1'], functionalRequirements: ['FR1'], tasks: ['T001'], scenarios: ['SCN001'] },
+    regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
+  };
+  const local = {
+    ...scope.delivery,
+    regression: scope.regression,
+    tests: 'pass',
+    steeringGates: 'pass',
+  };
+  const identity = {
+    kind: 'required_check',
+    name: 'contract-tests',
+    event: 'pull_request',
+    acceptanceCriteria: ['AC1'],
+  };
+  const readiness = state === 'pr_evidence_pending'
+    ? { schemaVersion: 1, state, issueNumber: 42, specPath, local, pendingEvidence: [identity] }
+    : {
+      schemaVersion: 1,
+      state,
+      issueNumber: 42,
+      specPath,
+      local,
+      evidence: [{ ...identity, headSha, conclusion: 'SUCCESS', url: 'https://github.test/checks/h1' }],
+    };
+  const status = state === 'pr_evidence_pending' ? 'PR Evidence Pending' : 'Pass';
+  return `# Verification\n\n## Implementation Status: **${status}**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(readiness)} -->\n`;
+}
+
 function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-deliver-'));
   const spec = path.join(root, 'specs', `${issue}-delivery`);
@@ -31,8 +66,8 @@ function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {})
   return root;
 }
 
-function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], reviews = [], mergeStateStatus = 'CLEAN', isDraft = false } = {}) {
-  return { number: 77, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: 'main', mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState };
+function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], reviews = [], mergeStateStatus = 'CLEAN', isDraft = false, body = 'Closes #42' } = {}) {
+  return { number: 77, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: 'main', mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState, body };
 }
 
 function fixture(options = {}) {
@@ -42,21 +77,43 @@ function fixture(options = {}) {
   const issue = { number: 42, title: options.title ?? 'Ship deterministic delivery', body: options.body ?? '', labels: (options.labels ?? ['enhancement']).map((name) => ({ name })), state: 'OPEN', url: 'https://github.test/issues/42' };
   const views = [...(options.views ?? [openPr(), openPr(), openPr({ state: 'MERGED', issueState: 'CLOSED' })])];
   let lastView = views[views.length - 1] ?? openPr();
+  let editedBody = null;
+  let gitHead = options.gitHead ?? H1;
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (command === 'git') {
       if (args[0] === 'branch' && args[1] === '--show-current') return { status: 0, stdout: '42-delivery\n', stderr: '' };
-      if (args[0] === 'status') return { status: 0, stdout: '', stderr: '' };
-      if (args[0] === 'diff') return { status: 1, stdout: '', stderr: '' };
+      if (args[0] === 'status') {
+        const stdout = (options.dirtyPaths ?? []).map((entry) => ` M ${entry}\0`).join('');
+        return { status: 0, stdout, stderr: '' };
+      }
+      if (args[0] === 'diff') return { status: options.emptyStagedDiff ? 0 : 1, stdout: '', stderr: '' };
       if (args[0] === 'rev-parse' && args.includes('@{upstream}')) return { status: options.noUpstream ? 1 : 0, stdout: 'origin/42-delivery\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { status: 0, stdout: `${gitHead}\n`, stderr: '' };
+      if (args[0] === 'commit') gitHead = H2;
+      const failure = options.gitFailures?.find(({ match }) => args.join(' ').includes(match));
+      if (failure) return { status: 1, stdout: '', stderr: failure.message ?? 'failed' };
       return { status: 0, stdout: '', stderr: '' };
     }
     if (command !== 'gh') throw new Error(`unexpected command ${command}`);
     if (args[0] === 'issue' && args[1] === 'view' && args[4]?.includes('title')) return { status: 0, stdout: JSON.stringify(issue), stderr: '' };
     if (args[0] === 'issue' && args[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 42, state: lastView.issueState, url: issue.url }), stderr: '' };
-    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: JSON.stringify(options.existingPr ? [openPr()] : []), stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') {
+      const existing = options.existingPr === true ? openPr() : options.existingPr;
+      return { status: 0, stdout: JSON.stringify(existing ? [existing] : []), stderr: '' };
+    }
     if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
-    if (args[0] === 'pr' && args[1] === 'view') { lastView = views.length ? views.shift() : lastView; return { status: 0, stdout: JSON.stringify(lastView), stderr: '' }; }
+    if (args[0] === 'pr' && args[1] === 'view') {
+      lastView = views.length ? views.shift() : lastView;
+      if (editedBody !== null) lastView.body = editedBody;
+      return { status: 0, stdout: JSON.stringify(lastView), stderr: '' };
+    }
+    if (args[0] === 'pr' && args[1] === 'edit') {
+      editedBody = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');
+      lastView.body = editedBody;
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    if (args[0] === 'pr' && args[1] === 'ready') { lastView.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
     if (args[0] === 'api' && args[1] === 'graphql') {
       const value = options.graphqlErrors
         ? { errors: options.graphqlErrors }
@@ -181,5 +238,71 @@ describe('sdlc delivery controller', () => {
     const proof = passed.calls.map((call) => call.join(' ')).lastIndexOf('gh issue view 42 --json number,state,url');
     expect(passed.calls.findIndex((call) => call[0] === 'git' && call[1] === 'checkout')).toBeGreaterThan(proof);
     expect(passed.calls.findIndex((call) => call.join(' ') === 'git push origin --delete 42-delivery')).toBeGreaterThan(proof);
+  });
+
+  test('rolls preserved Unreleased notes into the new release', () => {
+    const f = fixture(); roots.push(f.root);
+    fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- retained note\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, now: () => Date.parse('2026-08-25'), sleep: f.sleep }).status).toBe(0);
+    const changelog = fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
+    expect(changelog).toContain('## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Fixed\n\n- retained note');
+    expect(changelog).toContain('### Changed\n\n- Ship deterministic delivery (#42)');
+  });
+
+  test('keeps successful delivery passed when post-proof cleanup is already complete', () => {
+    const f = fixture({
+      gitFailures: [
+        { match: 'branch -D 42-delivery' },
+        { match: 'push origin --delete 42-delivery' },
+      ],
+    }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.status).toBe(0);
+    expect(result.handoff.summary).toContain('cleanup incomplete: local branch deletion, remote branch deletion');
+  });
+
+  test('recognizes an already-merged exact-branch PR without another bump or PR', () => {
+    const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
+    const f = fixture({ existingPr: merged, views: [merged], gitHead: H1 }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
+  });
+
+  test('binds controlled-draft H1 evidence to H2 before readiness and merge', () => {
+    const pending = fixture({ views: [openPr({ isDraft: true, head: H1 })] }); roots.push(pending.root);
+    fs.writeFileSync(path.join(pending.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));
+    const request = runDeliver({ issue: 42, cwd: pending.root, run: pending.run, fs, sleep: pending.sleep });
+    expect(request).toMatchObject({
+      status: 3,
+      prEvidence: { kind: 'pr_evidence_verification_required', headSha: H1, pullRequest: 77 },
+    });
+    expect(pending.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'ready')).toBe(false);
+
+    const satisfied = fixture({
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [{ name: 'contract-tests', state: 'SUCCESS', link: 'https://github.test/checks/h2', event: 'pull_request' }],
+      views: [
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(satisfied.root);
+    fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1));
+    const result = runDeliver({ issue: 42, cwd: satisfied.root, run: satisfied.run, fs, sleep: satisfied.sleep });
+    expect(result.status).toBe(0);
+    const ready = satisfied.calls.findIndex((call) => call.join(' ') === 'gh pr ready 77');
+    const edit = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit');
+    const merge = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
+    expect(edit).toBeGreaterThanOrEqual(0);
+    expect(ready).toBeGreaterThan(edit);
+    expect(merge).toBeGreaterThan(ready);
+    expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
   });
 });

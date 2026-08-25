@@ -54,10 +54,10 @@
 **Acceptance**:
 - [ ] Calls `classifyPrDeliveryState` rather than duplicating its rules
 - [ ] Bot identities come from typename, coderabbitai, and steering configuration
-- [ ] Ready head H is passed to `gh pr merge --match-head-commit H`
+- [ ] Ready head H is passed to `gh pr merge --match-head-commit H` without a branch-deletion option
 - [ ] A changed head is reclassified before merge
 - [ ] Passed handoff requires PR MERGED at H and issue CLOSED
-- [ ] Local branch deletion occurs only after proof
+- [ ] Local and remote branch deletion occurs only after proof and is idempotent
 
 ### T004: Add deterministic remediation packet
 

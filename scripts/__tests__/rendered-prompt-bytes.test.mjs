@@ -7,18 +7,18 @@ const AUTOMATED_BODY_CEILINGS = {
   'sdlc-execute': 1040,
   'sdlc-status': 814,
   'sdlc-verify-code': 3435,
-  'sdlc-open-pr': 2566,
+  'sdlc-open-pr': 3798,
 };
 
 const WORKER_PROMPT_CEILINGS = {
   start: 1445,
-  implement: 6055,
+  implement: 6500,
   review1: 1388,
   fix1: 958,
   review2: 1388,
   fix2: 958,
   verify: 3734,
-  deliver: 3121,
+  deliver: 4323,
 };
 
 describe('rendered prompt byte ceilings', () => {
@@ -44,5 +44,20 @@ describe('rendered prompt byte ceilings', () => {
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
     expect(workerPrompt({ step: 'start', issue: 42 })).toContain('start-issue.mjs');
     expect(workerPrompt({ step: 'start', issue: 42 })).not.toContain('<plugin-root>');
+  });
+
+  test('implement prompt orders simplify before publication and protects generated artifacts', () => {
+    const prompt = workerPrompt({ step: 'implement', issue: 42 });
+    expect(prompt).toContain('execute that entire section now');
+    expect(prompt).toContain('before any final verification, commit, push, or handoff write');
+    expect(prompt).toContain('Do not change generated artifacts.');
+  });
+
+  test('deliver prompt routes every repeated controller result', () => {
+    const prompt = workerPrompt({ step: 'deliver', issue: 42 });
+    expect(prompt).toContain('Route every invocation, including every post-remediation rerun');
+    expect(prompt).toContain('A new exit');
+    expect(prompt).toContain('never terminal by itself and never bypasses repeat detection');
+    expect(prompt).toContain('NMG_SDLC_PR_EVIDENCE');
   });
 });

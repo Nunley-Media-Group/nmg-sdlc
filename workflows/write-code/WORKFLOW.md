@@ -56,6 +56,10 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 If a task file list references a path outside the approved delivery scope or spec, note but continue only on mapped tasks.
 
 
+## Pre-Publication Simplification
+
+If this worker prompt includes the appended `# Simplify` workflow, execute that entire section now, after all implementation tasks and before any final verification, commit, push, or handoff write. Return here only after its narrow checks pass. Never defer simplification until after publication.
+
 ## Commit and Push Implementation
 
 Complete this boundary before writing a passed handoff:
