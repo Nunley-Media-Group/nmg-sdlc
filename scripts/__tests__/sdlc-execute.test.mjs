@@ -624,6 +624,8 @@ describe('runExecute controller', () => {
     reviewModeInitiallyVisible = false,
     branchMenuTransition = true,
     branchMenuDelayReads = 0,
+    titlelessReviewPickers = false,
+    ambiguousReviewScreen = false,
     writeHandoffs = true,
     promptStatus = 0,
     agentState = 'done',
@@ -832,17 +834,28 @@ describe('runExecute controller', () => {
       },
       agentRead: () => {
         if (reviewMenu === 'composer') return '/review';
-        if (reviewMenu === 'mode') return 'Review Mode\n/review';
+        if (reviewMenu === 'mode') {
+          if (ambiguousReviewScreen) {
+            return '2. Review uncommitted changes\nType to search\n↑↓ Navigate';
+          }
+          return titlelessReviewPickers
+            ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+            : 'Review Mode\n/review';
+        }
         if (reviewMenu === 'branch-pending') {
           if (branchMenuReadsRemaining > 0) {
             branchMenuReadsRemaining -= 1;
-            return 'Review Mode\n/review';
+            return titlelessReviewPickers
+              ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+              : 'Review Mode\n/review';
           }
           reviewMenu = 'branch';
         }
         if (reviewMenu === 'branch') {
           reviewMenuEvents.push('branch-visible');
-          return 'Select base branch…';
+          return titlelessReviewPickers
+            ? '2. main\n(1/4) Type to search\n↑↓ Navigate'
+            : 'Select base branch…';
         }
         return activePrompt;
       },
@@ -1707,6 +1720,35 @@ describe('runExecute controller', () => {
     ]);
   });
 
+  it('completes fresh review selection from narrow titleless picker rows', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      titlelessReviewPickers: true,
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ prompt }) => prompt === '/review')).toEqual([]);
+    expect(fixture.reviewMenuEvents).toEqual([
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+      'mode-visible', 'mode-keys:enter', 'branch-visible', 'branch-keys:down,enter',
+    ]);
+  });
+
+  it('rejects ambiguous titleless review text without picker structure', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      ambiguousReviewScreen: true,
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1',
+    ]);
+  });
+
   it('stops when interactive review mode cannot be selected', () => {
     const fixture = makeControllerFixture({ reviewPromptStatus: 'worker_failed' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -1928,6 +1970,44 @@ describe('runExecute controller', () => {
       ? 'Review Mode'
       : menu === 'branch'
         ? 'Select base b…'
+        : 'Review complete';
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
+      else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
+      return sendKeys(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+    expect(fixture.sentKeys).toEqual(expect.arrayContaining([['enter'], ['down', 'enter']]));
+  });
+
+  it('resumes a retained review from narrow titleless picker rows', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    let menu = 'mode';
+    fixture.herdr.agentRead = () => menu === 'mode'
+      ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+      : menu === 'branch'
+        ? '2. main\n(1/4) Type to search\n↑↓ Navigate'
         : 'Review complete';
     const sendKeys = fixture.herdr.agentSendKeys;
     fixture.herdr.agentSendKeys = (input) => {

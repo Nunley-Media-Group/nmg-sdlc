@@ -43,6 +43,8 @@ const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 export const REMEDIABLE_STEPS = ['implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
+const REVIEW_MODE_OPTION_TEXT = 'Review uncommitted changes';
+const PICKER_SEARCH_TEXT = 'Type to search';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -660,26 +662,62 @@ function agentDetectionText(herdr, name) {
   return typeof detection === 'string' ? detection : JSON.stringify(detection);
 }
 
-function observeAgentText(herdr, name, expected, attempts = 50) {
+function observeAgentScreen(herdr, name, predicate, attempts = 50) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (agentDetectionText(herdr, name).includes(expected)) return true;
+    if (predicate(agentDetectionText(herdr, name))) return true;
     if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return false;
 }
-function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
-  let branchMenuVisible = agentDetectionText(herdr, agentName).includes(REVIEW_BRANCH_PICKER_TEXT);
+
+function observeAgentText(herdr, name, expected, attempts = 50) {
+  return observeAgentScreen(herdr, name, (text) => text.includes(expected), attempts);
+}
+
+function hasPickerSearch(text) {
+  return text.includes(PICKER_SEARCH_TEXT) && /\(\d+\/\d+\)\s*Type to search/.test(text);
+}
+
+function isReviewModePicker(text) {
+  return text.includes('Review Mode')
+    || (text.includes(REVIEW_MODE_OPTION_TEXT) && hasPickerSearch(text));
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isReviewBranchPicker(text, defaultBranch) {
+  if (text.includes(REVIEW_BRANCH_PICKER_TEXT)) return true;
+  if (!defaultBranch || !hasPickerSearch(text)) return false;
+  const branchOption = new RegExp(
+    `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}(?:\\s|$)`,
+    'm',
+  );
+  return branchOption.test(text);
+}
+
+function isInteractiveReviewPicker(text, defaultBranch) {
+  return isReviewModePicker(text) || isReviewBranchPicker(text, defaultBranch);
+}
+
+function completeInteractiveReview(herdr, agentName, reviewSelection) {
+  const { defaultBranch, keys: branchSelectionKeys } = reviewSelection;
+  let branchMenuVisible = isReviewBranchPicker(
+    agentDetectionText(herdr, agentName),
+    defaultBranch,
+  );
   if (!branchMenuVisible) {
-    let reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+    let reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
     if (!reviewModeVisible) {
       herdr.agentPrompt({ name: agentName, prompt: '/review' });
-      reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+      reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
       if (
         !reviewModeVisible
         && observeAgentText(herdr, agentName, '/review')
         && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
       ) {
-        reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+        reviewModeVisible = observeAgentScreen(herdr, agentName, isReviewModePicker);
       }
     }
     if (
@@ -688,7 +726,11 @@ function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
     ) {
       return false;
     }
-    branchMenuVisible = observeAgentText(herdr, agentName, REVIEW_BRANCH_PICKER_TEXT);
+    branchMenuVisible = observeAgentScreen(
+      herdr,
+      agentName,
+      (text) => isReviewBranchPicker(text, defaultBranch),
+    );
   }
   return branchMenuVisible
     && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
@@ -1015,7 +1057,7 @@ export function runExecute({
           const reviewSelection = reviewBranchSelectionKeys(cwd, run);
           if (
             !reviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+            || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
           ) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
@@ -1058,7 +1100,7 @@ export function runExecute({
             const reviewSelection = reviewBranchSelectionKeys(cwd, run);
             if (
               !reviewSelection
-              || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+              || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
             ) {
               return stopResult({
                 issue, step, paneId, agentName, reasonCode: 'review_failed',
@@ -1325,18 +1367,20 @@ export function runExecute({
         const retainedReviewText = reviewStep
           ? agentDetectionText(herdrApi, agentName)
           : '';
+        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
+          ? reviewBranchSelectionKeys(cwd, run)
+          : null;
         if (
           !fs.existsSync(handoffPath)
           && reviewStep
-          && (
-            retainedReviewText.includes('Review Mode')
-            || retainedReviewText.includes(REVIEW_BRANCH_PICKER_TEXT)
+          && isInteractiveReviewPicker(
+            retainedReviewText,
+            retainedReviewSelection?.defaultBranch,
           )
         ) {
-          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
           if (
-            !reviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+            !retainedReviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
           ) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
@@ -1548,7 +1592,7 @@ export function runExecute({
 
       if (
         (step === 'review1' || step === 'review2')
-        && !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+        && !completeInteractiveReview(herdrApi, agentName, reviewSelection)
       ) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: 'review_failed',
