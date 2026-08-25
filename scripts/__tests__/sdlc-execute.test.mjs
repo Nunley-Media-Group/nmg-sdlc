@@ -26,6 +26,14 @@ import { startIssue } from '../start-issue.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
 
+const LIVE_TITLELESS_REVIEW_MODE_PICKER = [
+  '1. Review against a base branch (PR Style)',
+  '2. Review uncommitted changes',
+  '3. Review a specific commit',
+  '4. Custom review instructions',
+  '↑↓ Navigate',
+].join('\n');
+
 const temporaryRoots = [];
 
 function makeSpecDir() {
@@ -836,17 +844,17 @@ describe('runExecute controller', () => {
         if (reviewMenu === 'composer') return '/review';
         if (reviewMenu === 'mode') {
           if (ambiguousReviewScreen) {
-            return '2. Review uncommitted changes\nType to search\n↑↓ Navigate';
+            return '2. Review uncommitted changes\n↑↓ Navigate';
           }
           return titlelessReviewPickers
-            ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+            ? LIVE_TITLELESS_REVIEW_MODE_PICKER
             : 'Review Mode\n/review';
         }
         if (reviewMenu === 'branch-pending') {
           if (branchMenuReadsRemaining > 0) {
             branchMenuReadsRemaining -= 1;
             return titlelessReviewPickers
-              ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+              ? LIVE_TITLELESS_REVIEW_MODE_PICKER
               : 'Review Mode\n/review';
           }
           reviewMenu = 'branch';
@@ -2005,7 +2013,7 @@ describe('runExecute controller', () => {
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
     let menu = 'mode';
     fixture.herdr.agentRead = () => menu === 'mode'
-      ? '2. Review uncommitted changes\n(1/4) Type to search\n↑↓ Navigate'
+      ? LIVE_TITLELESS_REVIEW_MODE_PICKER
       : menu === 'branch'
         ? '2. main\n(1/4) Type to search\n↑↓ Navigate'
         : 'Review complete';

@@ -43,7 +43,12 @@ const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 export const REMEDIABLE_STEPS = ['implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
-const REVIEW_MODE_OPTION_TEXT = 'Review uncommitted changes';
+const REVIEW_MODE_OPTIONS = [
+  'Review against a base branch (PR Style)',
+  'Review uncommitted changes',
+  'Review a specific commit',
+  'Custom review instructions',
+];
 const PICKER_SEARCH_TEXT = 'Type to search';
 const STEP_SKILL = {
   start: 'start-issue',
@@ -679,8 +684,15 @@ function hasPickerSearch(text) {
 }
 
 function isReviewModePicker(text) {
-  return text.includes('Review Mode')
-    || (text.includes(REVIEW_MODE_OPTION_TEXT) && hasPickerSearch(text));
+  if (text.includes('Review Mode')) return true;
+  if (!text.includes('↑↓ Navigate')) return false;
+  return REVIEW_MODE_OPTIONS.every((option, index) => {
+    const optionRow = new RegExp(
+      `^\\s*(?:[>›❯]\\s*)?${index + 1}\\.\\s+${escapeRegExp(option)}\\s*$`,
+      'm',
+    );
+    return optionRow.test(text);
+  });
 }
 
 function escapeRegExp(value) {
