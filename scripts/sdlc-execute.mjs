@@ -40,8 +40,20 @@ const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 
 export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
+export const REMEDIABLE_STEPS = ['implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
-const REVIEW_BRANCH_PICKER_TEXT = 'Select base b';
+const REVIEW_MODE_OPTIONS = [
+  'Review against a base branch (PR Style)',
+  'Review uncommitted changes',
+  'Review a specific commit',
+  'Custom review instructions',
+];
+const REVIEW_MODE_NAVIGATION_HINTS = [
+  '↑↓ Navigate',
+  'up/down navigate  enter select  esc cancel',
+];
+const PICKER_SEARCH_TEXT = 'Type to search';
+const REVIEW_BRANCH_PICKER_TITLE = 'Select base branch to compare against';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -312,6 +324,31 @@ export function validateHandoff(input) {
   return data;
 }
 
+function readExpectedHandoff(handoffPath, issue, step) {
+  if (!existsSync(handoffPath)) {
+    return { handoff: null, reasonCode: 'missing_handoff' };
+  }
+  try {
+    const handoff = validateHandoff(handoffPath);
+    if (handoff.issue !== issue || handoff.step !== step) {
+      return { handoff: null, reasonCode: 'invalid_handoff' };
+    }
+    return { handoff, reasonCode: null };
+  } catch {
+    return { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+}
+
+function observeExpectedHandoff(herdr, handoffPath, issue, step, attempts = 50) {
+  let result;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    result = readExpectedHandoff(handoffPath, issue, step);
+    if (result.handoff) return result;
+    if (attempt + 1 < attempts) herdr.observationPause?.();
+  }
+  return result;
+}
+
 export function readRun(root = process.cwd()) {
   const p = join(root, RUN_FILE);
   if (!existsSync(p)) return null;
@@ -392,6 +429,54 @@ export function workerPrompt({ step, issue, skill, cwd } = {}) {
   });
   if (cwd) writePromptProvenance(cwd, provenance);
   return materializeControllerPaths(text, packageRoot);
+}
+
+export function remAgentName(issue, step) {
+  return `r${issue}-${step}`;
+}
+
+export function isRemediableFailedHandoff({ step, state, handoff } = {}) {
+  return REMEDIABLE_STEPS.includes(step)
+    && ['idle', 'done'].includes(state)
+    && handoff?.status === 'failed'
+    && handoff.intervention === false
+    && handoff.step === step;
+}
+
+export function remediationPrompt({ issue, failedStep, evidence, cwd } = {}) {
+  let resolvedEvidence = evidence;
+  if (!resolvedEvidence) {
+    const remediation = readRun(cwd)?.remediation;
+    if (
+      remediation?.issue !== issue
+      || remediation?.step !== failedStep
+      || remediation.status !== 'active'
+    ) {
+      throw new Error('remediation_evidence_missing');
+    }
+    resolvedEvidence = {
+      attempt: remediation.attempt,
+      reasonCode: remediation.reasonCode,
+      summary: remediation.summary,
+      artifacts: remediation.artifacts,
+      closedName: remediation.closedWorker?.name,
+      closedPaneId: remediation.closedWorker?.paneId,
+    };
+  }
+  const artifacts = Array.isArray(resolvedEvidence.artifacts) && resolvedEvidence.artifacts.length > 0
+    ? resolvedEvidence.artifacts.map((artifact) => `- ${artifact}`).join('\n')
+    : '- (none)';
+  const header = [
+    `You are remediating issue #${issue} step ${failedStep} (attempt ${resolvedEvidence.attempt}).`,
+    `Failed worker ${resolvedEvidence.closedName} in pane ${resolvedEvidence.closedPaneId} was closed after evidence capture.`,
+    `reasonCode: ${resolvedEvidence.reasonCode}`,
+    `summary: ${resolvedEvidence.summary}`,
+    'artifacts:',
+    artifacts,
+    '',
+    `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
+  ].join('\n');
+  return `${header}\n---\n${workerPrompt({ step: failedStep, issue, cwd })}`;
 }
 
 function workerPromptFailureReason(error) {
@@ -611,37 +696,163 @@ function agentDetectionText(herdr, name) {
   return typeof detection === 'string' ? detection : JSON.stringify(detection);
 }
 
-function observeAgentText(herdr, name, expected, attempts = 50) {
+function observeAgentScreen(herdr, name, predicate, attempts = 50) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (agentDetectionText(herdr, name).includes(expected)) return true;
+    if (predicate(agentDetectionText(herdr, name))) return true;
     if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return false;
 }
-function completeInteractiveReview(herdr, agentName, branchSelectionKeys) {
-  let branchMenuVisible = agentDetectionText(herdr, agentName).includes(REVIEW_BRANCH_PICKER_TEXT);
-  if (!branchMenuVisible) {
-    let reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
-    if (!reviewModeVisible) {
-      herdr.agentPrompt({ name: agentName, prompt: '/review' });
-      reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
-      if (
-        !reviewModeVisible
-        && observeAgentText(herdr, agentName, '/review')
-        && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
-      ) {
-        reviewModeVisible = observeAgentText(herdr, agentName, 'Review Mode');
+
+function observeAgentText(herdr, name, expected, attempts = 50) {
+  return observeAgentScreen(herdr, name, (text) => text.includes(expected), attempts);
+}
+
+function hasPickerSearch(text) {
+  return text.includes(PICKER_SEARCH_TEXT) && /\(\d+\/\d+\)\s*Type to search/.test(text);
+}
+
+function isReviewModePicker(text) {
+  if (!REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))) return false;
+  return REVIEW_MODE_OPTIONS.every((option, index) => {
+    const optionRow = new RegExp(
+      `^\\s*(?:[>›❯]\\s*)?${index + 1}\\.\\s+${escapeRegExp(option)}\\s*$`,
+      'm',
+    );
+    return optionRow.test(text);
+  });
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function pickerLineContent(line) {
+  return String(line)
+    .trim()
+    .replace(/^[│╭╮╰╯─\s]+|[│╭╮╰╯─\s]+$/g, '')
+    .trim();
+}
+
+function isPlausibleBranchName(name) {
+  return name !== '@'
+    && !name.startsWith('-')
+    && !name.startsWith('.')
+    && !name.startsWith('/')
+    && !name.endsWith('.')
+    && !name.endsWith('/')
+    && !name.endsWith('.lock')
+    && !name.includes('..')
+    && !name.includes('//')
+    && !name.includes('@{')
+    && !/[~^:?*[\]\\\x00-\x20\x7f]/.test(name);
+}
+
+function isCompleteUnnumberedReviewBranchPicker(text, defaultBranch) {
+  if (!defaultBranch) return false;
+  const lines = String(text).split('\n').map(pickerLineContent);
+  const titleRows = lines
+    .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
+    .filter((index) => index >= 0);
+  if (titleRows.length !== 1) return false;
+  const titleIndex = titleRows[0];
+  const navigationIndex = lines.findIndex(
+    (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
+  );
+  if (navigationIndex < 0) return false;
+
+  const options = [];
+  for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
+    if (!line) continue;
+    const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
+    const name = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
+    if (!name || !isPlausibleBranchName(name)) return false;
+    options.push({ name, cursor: Boolean(cursorMatch) });
+  }
+  if (options.length < 2 || options.filter(({ cursor }) => cursor).length !== 1) return false;
+  return options.filter(({ name }) => name === defaultBranch).length === 1;
+}
+
+
+function isCompleteReviewBranchPicker(text) {
+  const hasPickerContext = text.includes(REVIEW_BRANCH_PICKER_TITLE) || hasPickerSearch(text);
+  return hasPickerContext
+    && REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
+    && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
+}
+
+function isReviewBranchPicker(text, defaultBranch) {
+  if (!defaultBranch) return false;
+  if (isCompleteUnnumberedReviewBranchPicker(text, defaultBranch)) return true;
+  if (!isCompleteReviewBranchPicker(text)) return false;
+  const branchOption = new RegExp(
+    `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
+    'gm',
+  );
+  return [...text.matchAll(branchOption)].length === 1;
+}
+
+function interactiveReviewState(text, defaultBranch, allowComposer = false) {
+  if (isReviewBranchPicker(text, defaultBranch)) return 'branch';
+  if (isReviewModePicker(text)) return 'mode';
+  if (allowComposer && text.includes('/review')) return 'composer';
+  return null;
+}
+
+function observeInteractiveReviewState(
+  herdr,
+  name,
+  defaultBranch,
+  allowComposer = false,
+  attempts = 50,
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const state = interactiveReviewState(
+      agentDetectionText(herdr, name),
+      defaultBranch,
+      allowComposer,
+    );
+    if (state) return state;
+    if (attempt + 1 < attempts) herdr.observationPause?.();
+  }
+  return null;
+}
+
+function isInteractiveReviewPicker(text, defaultBranch) {
+  return interactiveReviewState(text, defaultBranch) !== null
+    || (!defaultBranch && isCompleteReviewBranchPicker(text));
+}
+
+function completeInteractiveReview(herdr, agentName, reviewSelection) {
+  const { defaultBranch, keys: branchSelectionKeys } = reviewSelection;
+  let reviewState = interactiveReviewState(
+    agentDetectionText(herdr, agentName),
+    defaultBranch,
+  );
+  if (!reviewState) {
+    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
+  }
+  if (!reviewState) {
+    herdr.agentPrompt({ name: agentName, prompt: '/review' });
+    reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch, true);
+    if (reviewState === 'composer') {
+      if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
+        return false;
       }
+      reviewState = observeInteractiveReviewState(herdr, agentName, defaultBranch);
     }
-    if (
-      !reviewModeVisible
-      || !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
-    ) {
+  }
+  if (reviewState === 'mode') {
+    if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
       return false;
     }
-    branchMenuVisible = observeAgentText(herdr, agentName, REVIEW_BRANCH_PICKER_TEXT);
+    reviewState = observeAgentScreen(
+      herdr,
+      agentName,
+      (text) => isReviewBranchPicker(text, defaultBranch),
+    ) ? 'branch' : null;
   }
-  return branchMenuVisible
+  return reviewState === 'branch'
     && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
     && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
     && commandSucceeded(herdr.agentWait({ name: agentName }));
@@ -843,9 +1054,297 @@ export function runExecute({
 
   const existingAgents = firstAgentList(herdrApi.listAgents());
   const createdPanes = new Set();
+
+  function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {
+    if (!isRemediableFailedHandoff({ step, state, handoff })) return false;
+    const prior = runState.remediation?.issue === issue && runState.remediation?.step === step
+      ? runState.remediation
+      : null;
+    const attempt = (prior?.attempt || 0) + 1;
+    const artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
+    const history = [
+      ...(Array.isArray(prior?.history) ? prior.history : []),
+      {
+        attempt,
+        reasonCode: handoff.reasonCode,
+        artifacts,
+        closedName: agentName,
+        closedPaneId: paneId,
+        at: new Date().toISOString(),
+      },
+    ];
+    runState.failed = { issue, step, reasonCode: handoff.reasonCode };
+    runState.remediation = {
+      issue,
+      step,
+      attempt,
+      status: 'active',
+      reasonCode: handoff.reasonCode,
+      summary: handoff.summary,
+      artifacts,
+      closedWorker: { name: agentName, paneId },
+      remWorker: null,
+      history,
+    };
+    writeRun(runState, cwd);
+    return true;
+  }
+
+  function remediationEvidence() {
+    const remediation = runState.remediation;
+    return {
+      attempt: remediation.attempt,
+      reasonCode: remediation.reasonCode,
+      summary: remediation.summary,
+      artifacts: remediation.artifacts,
+      closedName: remediation.closedWorker.name,
+      closedPaneId: remediation.closedWorker.paneId,
+    };
+  }
+
+  function runRemediationLoop({ issue, step, liveAgent = null }) {
+    let remLive = liveAgent;
+    const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+    while (true) {
+      const agentName = remAgentName(issue, step);
+      let paneId;
+      let state;
+      let prompt;
+      try {
+        prompt = remediationPrompt({
+          issue,
+          failedStep: step,
+          evidence: remediationEvidence(),
+          cwd,
+        });
+      } catch (error) {
+        return stopResult({
+          issue, step, paneId: 'none', agentName, reasonCode: workerPromptFailureReason(error),
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+
+      if (remLive) {
+        paneId = remLive.pane_id ?? remLive.paneId ?? 'unknown';
+        if (paneId === 'unknown') {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'unknown_pane',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        state = agentState(herdrApi.agentGet(agentName));
+        if (!['idle', 'done'].includes(state)) {
+          const settled = state === 'working'
+            ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
+            : waitForWorkerSettlement(herdrApi, agentName);
+          if (!settled) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        }
+      } else {
+        const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
+        const { width, height } = paneDimensions(layout);
+        const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+        const split = herdrApi.paneSplit({ direction, cwd });
+        paneId = splitPaneId(split);
+        if (!paneId || !commandSucceeded(split)) {
+          return stopResult({
+            issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        createdPanes.add(paneId);
+        rmSync(handoffPath, { force: true });
+        let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+        if (!commandSucceeded(started)) {
+          waitForAgentStartRetry();
+          started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+        }
+        if (!commandSucceeded(started)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        runState.remediation.remWorker = { name: agentName, paneId };
+        writeRun(runState, cwd);
+
+        if (step === 'review1' || step === 'review2') {
+          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+          if (
+            !reviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'review_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+        }
+        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+        state = agentState(herdrApi.agentGet(agentName));
+        const promptStalled = isPromptStalled(prompted);
+        if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (appearsWorking(herdrApi, agentName)) {
+            if (!waitForWorkerSettlement(herdrApi, agentName)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (promptStalled) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+        }
+      }
+
+      if (!existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
+        if (remLive) {
+          if (step === 'review1' || step === 'review2') {
+            const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+            if (
+              !reviewSelection
+              || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
+            ) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'review_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+          }
+          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+          state = agentState(herdrApi.agentGet(agentName));
+          const promptStalled = isPromptStalled(prompted);
+          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+              if (!retryPromptSubmission(herdrApi, agentName)) {
+                return stopResult({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (appearsWorking(herdrApi, agentName)) {
+              if (!waitForWorkerSettlement(herdrApi, agentName)) {
+                return stopResult({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (promptStalled) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+          }
+        }
+        if (!existsSync(handoffPath) && !waitForWorkerSettlement(herdrApi, agentName)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'worker_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        state = agentState(herdrApi.agentGet(agentName));
+      }
+      if (!existsSync(handoffPath) && state === 'working') {
+        herdrApi.agentWait({ name: agentName });
+        state = agentState(herdrApi.agentGet(agentName));
+      }
+
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+      if (!handoffResult.handoff) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      const { handoff } = handoffResult;
+      if (isRemediableFailedHandoff({ step, state, handoff })) {
+        persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
+        if (!closePane(herdrApi, paneId)) {
+          return stopResult({
+            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        remLive = null;
+        continue;
+      }
+      if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
+        runState.remediation.reasonCode = handoff.reasonCode || handoff.status || state || 'worker_failed';
+        runState.remediation.summary = handoff.summary;
+        runState.remediation.artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
+        if (
+          ['idle', 'done'].includes(state)
+          && (handoff.status === 'blocked' || handoff.intervention)
+        ) {
+          runState.remediation.status = 'stopped';
+        }
+        return stopResult({
+          issue,
+          step,
+          paneId,
+          agentName,
+          reasonCode: !['idle', 'done'].includes(state)
+            ? state || 'worker_failed'
+            : handoff.reasonCode || handoff.status,
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+      if (!closePane(herdrApi, paneId)) {
+        return stopResult({
+          issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      runState.completed[String(issue)].push(step);
+      runState.currentStep = nextStep(runState.completed[String(issue)]);
+      runState.failed = null;
+      runState.remediation = null;
+      writeRun(runState, cwd);
+      return { passed: true, step: runState.currentStep };
+    }
+  }
+
+  function beginRemediation({ issue, step, state, handoff, agentName, paneId }) {
+    if (!persistRemediationFailure({ issue, step, state, handoff, agentName, paneId })) {
+      return { passed: false };
+    }
+    if (!closePane(herdrApi, paneId)) {
+      return {
+        result: stopResult({
+          issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+          runState, cwd, herdr: herdrApi, output,
+        }),
+      };
+    }
+    return runRemediationLoop({ issue, step });
+  }
+
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
-    const live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
+    let live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
     if (!live) {
       const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
       if (labeled === null) {
@@ -881,10 +1380,68 @@ export function runExecute({
         });
       }
     }
+    const liveRem = step
+      ? existingAgents.find((agent) => String(agent?.name || '') === remAgentName(issue, step))
+      : null;
+    const activeRemediation = runState.remediation?.status === 'active'
+      && runState.remediation.issue === issue
+      && runState.remediation.step === step;
+    const stoppedRemediation = runState.remediation?.status === 'stopped'
+      && runState.remediation.issue === issue
+      && runState.remediation.step === step;
+    if (step && stoppedRemediation && !liveRem) {
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
+      if (!handoffResult.handoff) {
+        return stopResult({
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+          reasonCode: handoffResult.reasonCode,
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      const { handoff } = handoffResult;
+      const rewindHandoff = handoff.status === 'blocked' && !handoff.intervention
+        ? { ...handoff, status: 'failed' }
+        : handoff;
+      const completed = remediationCompletedSteps({
+        issue,
+        step,
+        completed: runState.completed[String(issue)],
+        handoff: rewindHandoff,
+      });
+      if (!completed) {
+        return stopResult({
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'invalid_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      runState.completed[String(issue)] = completed;
+      step = nextStep(completed);
+      runState.currentStep = step;
+      runState.failed = null;
+      runState.remediation = null;
+      writeRun(runState, cwd);
+      live = null;
+    }
+    if (step && (liveRem || activeRemediation)) {
+      const remResult = runRemediationLoop({ issue, step, liveAgent: liveRem });
+      if (remResult.result) return remResult.result;
+      if (Number.isInteger(remResult.status)) return remResult;
+      if (!remResult.passed) {
+        return stopResult({
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'worker_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      step = remResult.step;
+      live = null;
+    }
     if (live) {
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
       let state = agentState(herdrApi.agentGet(agentName));
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+      const reviewStep = step === 'review1' || step === 'review2';
       if (!step || agentName !== `s${issue}-${step}`) {
         return stopResult({
           issue,
@@ -905,35 +1462,59 @@ export function runExecute({
         });
       }
       if (!['idle', 'done'].includes(state)) {
-        const settled = state === 'working'
-          ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
-          : waitForWorkerSettlement(herdrApi, agentName);
-        if (!settled) {
-          return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
         state = agentState(herdrApi.agentGet(agentName));
+        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
+          ? reviewBranchSelectionKeys(cwd, run)
+          : null;
+        const retainedReviewText = !fs.existsSync(handoffPath) && reviewStep
+          ? agentDetectionText(herdrApi, agentName)
+          : '';
+        const actionableRetainedReview = isInteractiveReviewPicker(
+          retainedReviewText,
+          retainedReviewSelection?.defaultBranch,
+        );
+        if (actionableRetainedReview) {
+          if (
+            !retainedReviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
+          ) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'review_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        } else if (!['idle', 'done'].includes(state)) {
+          const settled = state === 'working'
+            ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
+            : waitForWorkerSettlement(herdrApi, agentName);
+          if (!settled) {
+            return stopResult({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
+        }
       }
       if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
-        const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-        const reviewStep = step === 'review1' || step === 'review2';
         const retainedReviewText = reviewStep
           ? agentDetectionText(herdrApi, agentName)
           : '';
+        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
+          ? reviewBranchSelectionKeys(cwd, run)
+          : null;
         if (
           !fs.existsSync(handoffPath)
           && reviewStep
-          && (
-            retainedReviewText.includes('Review Mode')
-            || retainedReviewText.includes(REVIEW_BRANCH_PICKER_TEXT)
+          && isInteractiveReviewPicker(
+            retainedReviewText,
+            retainedReviewSelection?.defaultBranch,
           )
         ) {
-          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
           if (
-            !reviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+            !retainedReviewSelection
+            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
           ) {
             return stopResult({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
@@ -995,70 +1576,74 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        let handoff;
-        try {
-          if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
-          handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
-          if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
-        } catch {
+        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+        if (!handoffResult.handoff) {
           return stopResult({
-            issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+            issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        const remediation = runState.failed?.issue === issue && runState.failed?.step === step
-          ? remediationCompletedSteps({
-            issue,
-            step,
-            completed: runState.completed[String(issue)],
-            handoff,
-          })
-          : null;
-        if (remediation) {
-          if (!['idle', 'done'].includes(state)) {
-            return stopResult({
-              issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          if (!closePane(herdrApi, paneId)) {
-            return stopResult({
-              issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          runState.completed[String(issue)] = remediation;
-          step = nextStep(remediation);
-          runState.currentStep = step;
-          runState.failed = null;
-          writeRun(runState, cwd);
+        const { handoff } = handoffResult;
+        if (isRemediableFailedHandoff({ step, state, handoff })) {
+          const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
+          if (remResult.result) return remResult.result;
+          if (Number.isInteger(remResult.status)) return remResult;
+          step = remResult.step;
         } else {
-          if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
-            return stopResult({
+          const remediation = runState.failed?.issue === issue && runState.failed?.step === step
+            ? remediationCompletedSteps({
               issue,
               step,
-              paneId,
-              agentName,
-              reasonCode: !['idle', 'done'].includes(state)
-                ? state || 'worker_failed'
-                : handoff.reasonCode || handoff.status,
-              runState,
-              cwd,
-              herdr: herdrApi,
-              output,
-            });
+              completed: runState.completed[String(issue)],
+              handoff,
+            })
+            : null;
+          if (remediation) {
+            if (!['idle', 'done'].includes(state)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            if (!closePane(herdrApi, paneId)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            runState.completed[String(issue)] = remediation;
+            step = nextStep(remediation);
+            runState.currentStep = step;
+            runState.failed = null;
+            writeRun(runState, cwd);
+          } else {
+            if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
+              return stopResult({
+                issue,
+                step,
+                paneId,
+                agentName,
+                reasonCode: !['idle', 'done'].includes(state)
+                  ? state || 'worker_failed'
+                  : handoff.reasonCode || handoff.status,
+                runState,
+                cwd,
+                herdr: herdrApi,
+                output,
+              });
+            }
+            if (!closePane(herdrApi, paneId)) {
+              return stopResult({
+                issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            runState.completed[String(issue)].push(step);
+            step = nextStep(runState.completed[String(issue)]);
+            runState.currentStep = step;
+            runState.failed = null;
+            writeRun(runState, cwd);
           }
-          if (!closePane(herdrApi, paneId)) {
-            return stopResult({
-              issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          runState.completed[String(issue)].push(step);
-          step = nextStep(runState.completed[String(issue)]);
-          runState.currentStep = step;
-          runState.failed = null;
-          writeRun(runState, cwd);
         }
       } else {
         return stopResult({
@@ -1138,7 +1723,7 @@ export function runExecute({
 
       if (
         (step === 'review1' || step === 'review2')
-        && !completeInteractiveReview(herdrApi, agentName, reviewSelection.keys)
+        && !completeInteractiveReview(herdrApi, agentName, reviewSelection)
       ) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: 'review_failed',
@@ -1198,21 +1783,20 @@ export function runExecute({
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
-      let handoff;
-      try {
-        if (!fs.existsSync(handoffPath)) throw new Error('handoff missing');
-        handoff = validateHandoff(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
-      } catch {
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+      if (!handoffResult.handoff) {
         return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'missing_handoff',
+          issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      if (handoff.issue !== issue || handoff.step !== step) {
-        return stopResult({
-          issue, step, paneId, agentName, reasonCode: 'invalid_handoff',
-          runState, cwd, herdr: herdrApi, output,
-        });
+      const { handoff } = handoffResult;
+      if (isRemediableFailedHandoff({ step, state, handoff })) {
+        const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
+        if (remResult.result) return remResult.result;
+        if (Number.isInteger(remResult.status)) return remResult;
+        step = remResult.step;
+        continue;
       }
       if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
         return stopResult({
@@ -1339,9 +1923,28 @@ function runCli(argv = process.argv.slice(2)) {
   if (sub === 'worker-prompt') {
     const stepIndex = rest.indexOf('--step');
     const issueIndex = rest.indexOf('--issue');
+    const failedStepIndex = rest.indexOf('--failed-step');
     const step = stepIndex >= 0 ? rest[stepIndex + 1] : '';
+    const failedStep = failedStepIndex >= 0 ? rest[failedStepIndex + 1] : '';
     const issueRaw = issueIndex >= 0 ? rest[issueIndex + 1] : '';
     const issue = Number.parseInt(issueRaw, 10);
+    if (step === 'rem') {
+      if (!REMEDIABLE_STEPS.includes(failedStep) || !Number.isInteger(issue) || issue <= 0) {
+        console.error('Usage: node sdlc-execute.mjs worker-prompt --step rem --issue N --failed-step <implement|review1|fix1|review2|fix2|verify|deliver>');
+        process.exit(2);
+      }
+      try {
+        process.stdout.write(`${remediationPrompt({
+          issue,
+          failedStep,
+          cwd: process.cwd(),
+        })}\n`);
+        process.exit(0);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(2);
+      }
+    }
     if (!VALID_STEPS.includes(step) || !Number.isInteger(issue) || issue <= 0) {
       console.error('Usage: node sdlc-execute.mjs worker-prompt --step <start|implement|review1|fix1|review2|fix2|verify|deliver> --issue N');
       process.exit(2);

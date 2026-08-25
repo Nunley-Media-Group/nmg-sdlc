@@ -181,13 +181,14 @@ export function writePromptProvenance(projectRoot, provenance) {
 }
 
 const WORKER_HEADER = [
-  "You are the nmg-sdlc {{step}} worker for issue #{{issue}}.",
-  "Execute the following inlined workflow for #{{issue}} with no user questions.",
-  "Write the handoff file then stop.",
+  "nmg-sdlc {{step}} worker for #{{issue}}.",
+  "Execute this inlined workflow for #{{issue}} without questions.",
+  "Write and validate the handoff, then stop.",
   "",
   "$ARGUMENTS: #{{issue}}",
   "Handoff path: {{handoffPath}}",
-  "On success print exactly: NMG_SDLC_HANDOFF: {{handoffPath}}",
+  "Before printing the marker, run: node " + "<plugin-root>" + "/scripts/sdlc-execute.mjs validate-handoff --file {{handoffPath}}",
+  "Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: {{handoffPath}}",
   "",
 ].join("\n");
 

@@ -91,13 +91,14 @@ describe('prompt snippet registry', () => {
       vars: { step: 'start', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-start.json' },
     });
     expect(rendered.text).toBe([
-      'You are the nmg-sdlc start worker for issue #42.',
-      'Execute the following inlined workflow for #42 with no user questions.',
-      'Write the handoff file then stop.',
+      'nmg-sdlc start worker for #42.',
+      'Execute this inlined workflow for #42 without questions.',
+      'Write and validate the handoff, then stop.',
       '',
       '$ARGUMENTS: #42',
       'Handoff path: .omp/sdlc/handoffs/42-start.json',
-      'On success print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/42-start.json',
+      'Before printing the marker, run: node ' + '<plugin-root>' + '/scripts/sdlc-execute.mjs validate-handoff --file .omp/sdlc/handoffs/42-start.json',
+      'Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/42-start.json',
       '',
       workflowBody('start-issue', repoRoot),
     ].join('\n'));
