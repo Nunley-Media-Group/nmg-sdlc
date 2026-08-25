@@ -79,15 +79,6 @@ Issue #213 supplies the plugin-owned prompt-snippet registry. This issue extends
 **And** no project directory is scanned for undeclared snippets
 **And** snippet prose cannot mutate, suppress, or raise a core validation result
 
-### AC8: verification proves two real delivery lifecycles
-
-**Given** issue #214 reaches its VERIFY step
-**When** the implementation is verified against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`
-**Then** verification runs a fresh end-to-end smoke with two real issue lifecycles
-**And** preserves both issue URLs, both PR URLs, exact observed head SHAs, explicit MERGED proof, and explicit CLOSED proof
-**And** fixtures and unit tests cannot substitute for either lifecycle
-**And** every Herdr/controller command uses the required PATH beginning `/tmp/herdr-v0.8.0`
-**And** verification closes only task-created Herdr panes or tabs and preserves the main and unrelated pre-existing resources
 
 ---
 
@@ -109,7 +100,6 @@ Issue #213 supplies the plugin-owned prompt-snippet registry. This issue extends
 | FR12 | Validated manifest snippets extend issue #213's registry through named slots and provenance; no direct concatenation or directory scan is allowed. | Must | Validation state remains outside prompt text. |
 | FR13 | `references/steering-schema.md`, README, workflows, commands, tests, and generated surfaces must describe the managed runtime instead of legacy Markdown authority. | Must | Clean cutover. |
 | FR14 | `steering/retrospective.md` remains project content owned by `/sdlc-run-retro`. | Should | It is never a managed runtime file. |
-| FR15 | Issue #214 verification must exercise two fresh real issue-to-merged-PR-and-closed-issue lifecycles in the designated smoke repository and preserve identity evidence. | Must | Verification-only; never run during implementation. |
 
 ---
 

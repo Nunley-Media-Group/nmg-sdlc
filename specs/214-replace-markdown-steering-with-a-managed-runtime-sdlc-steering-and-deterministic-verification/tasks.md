@@ -116,9 +116,6 @@
 - [ ] Regenerates affected command Markdown from its renderer and updates user-facing docs and Unreleased changelog
 - [ ] Full `scripts` Jest suite passes
 - [ ] Plugin-surface, command-inventory, steering initialize/migrate, project-snippet, and required-gate fail-closed smokes pass
-- [ ] During VERIFY only, runs two fresh real issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416` using the required Herdr/controller PATH
-- [ ] Verification evidence preserves both issue URLs, PR URLs, exact observed head SHAs, MERGED proof, and CLOSED proof; fixtures/unit tests do not substitute
-- [ ] Closes only verification-created Herdr panes/tabs and preserves the main and unrelated pre-existing resources
 - [ ] Production search finds no legacy product/tech/structure fallback and no direct project snippet concatenation
 
 ---

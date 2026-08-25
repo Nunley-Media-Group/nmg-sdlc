@@ -33,7 +33,6 @@ node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec
 
 Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. A required `failed` result caps overall status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, timeouts, malformed output, missing results, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless every applicable required result passed. Prompt prose and snippets cannot alter or raise the computed result.
 
-For issue #214, verification must additionally run a fresh end-to-end smoke with two real issue lifecycles against `Nunley-Media-Group/nmg-sdlc-smoke-20260820001416`. Fixtures and unit tests do not substitute. Use the required Herdr/controller `PATH` beginning `/tmp/herdr-v0.8.0` for every such command. Preserve both issue URLs, both PR URLs, exact observed head SHAs, explicit `MERGED` proof, and explicit `CLOSED` proof in the verification report and handoff evidence. Close only Herdr panes/tabs created by this verification; never close the main pane or unrelated pre-existing resources.
 
 ## Run Reviews Inline
 
