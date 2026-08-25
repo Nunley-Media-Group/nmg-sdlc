@@ -35,7 +35,7 @@ const SELF_REFERENTIAL_BREAKING_BODY = [
   '**Given** a sibling deliver worker for `#N`',
   '**When** the compact open-pr workflow runs',
   '**Then** it invokes new `scripts/sdlc-deliver.mjs` (no equivalent module; wrap `classifyPrDeliveryState` and verification-readiness, do not fork)',
-  '**And** the controller still performs spec/verification gates, version bump of `VERSION` + `package.json` + `CHANGELOG.md` `[Unreleased]` rollover + `steering/tech.md` versioned-files, push, PR create/resume, poll, `gh pr merge --squash --match-head-commit <head> --delete-branch` unless tech.md says otherwise, re-fetch MERGED+CLOSED, local branch delete only after proof, and writes `.omp/sdlc/handoffs/N-deliver.json`',
+  '**And** the controller still performs spec/verification gates, version bump of `VERSION` + `package.json` + `CHANGELOG.md` `[Unreleased]` rollover + managed technical steering versioned-files, push, PR create/resume, poll, `gh pr merge --squash --match-head-commit <head> --delete-branch` unless managed technical steering says otherwise, re-fetch MERGED+CLOSED, local branch delete only after proof, and writes `.omp/sdlc/handoffs/N-deliver.json`',
   '**And** leftover `spike` labels still do not skip the version bump',
   '**And** BREAKING without spec `**Version bump**: major` still fails `major_bump_required` with intervention',
   '**And** execute still launches a sibling deliver worker and still does not open PRs in the main pane',
@@ -48,7 +48,7 @@ const SELF_REFERENTIAL_BREAKING_BODY = [
   '**And** after edits it re-validates head, checks, and threads in code',
   '**And** green PRs with no unresolved bot threads do not inline `address-pr-comments`',
   '**And** implement still inlines `simplify`',
-  '**And** bot detection remains `__typename === "Bot"` or login `coderabbitai` or logins in `steering/tech.md`',
+  '**And** bot detection remains `__typename === "Bot"` or login `coderabbitai` or logins in the manifest-registered technical steering snippet',
   '',
   '### AC3: human review still stops the queue',
   '',
@@ -128,8 +128,15 @@ function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {})
   const header = `**Issue**: #${issue}\n**Status**: Approved\n`;
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) fs.writeFileSync(path.join(spec, name), `${header}${approvedMajor && ['requirements.md', 'design.md'].includes(name) ? '**Version bump**: major\n' : ''}`);
   fs.writeFileSync(path.join(spec, 'verification-report.md'), verification(issue, `specs/${issue}-delivery`));
-  fs.mkdirSync(path.join(root, 'steering'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'steering', 'tech.md'), '# Tech\n| Predicate | Value | Meaning |\n| `bots` | `true` | bots |\n| `logins` | `["coderabbitai", "review-bot"]` | logins |\n| File | Path | Notes |\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n');
+  fs.mkdirSync(path.join(root, 'steering', 'snippets'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'steering', 'manifest.json'), `${JSON.stringify({
+    snippets: [{
+      id: 'project.tech',
+      path: 'steering/snippets/project-tech.md',
+      consumers: ['worker:deliver'],
+    }],
+  }, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), '# Tech\n| Predicate | Value | Meaning |\n| `bots` | `true` | bots |\n| `logins` | `["coderabbitai", "review-bot"]` | logins |\n| File | Path | Notes |\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n');
   fs.writeFileSync(path.join(root, 'VERSION'), `${version}\n`);
   fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: 'fixture', version }, null, 2)}\n`);
   fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.4.5] - 2026-01-01\n\n- old\n');

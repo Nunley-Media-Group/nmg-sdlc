@@ -12,6 +12,7 @@ import {
   inspectVerificationReadiness,
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--remediation-result human_review]';
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
@@ -208,6 +209,23 @@ function configuredBotLogins(tech) {
     }
   }
   return logins;
+}
+
+function registeredTechnicalSteering(fs, cwd) {
+  const manifestPath = resolveSteeringPath(cwd, 'steering/manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const snippet = manifest.snippets?.find((entry) =>
+    entry?.id === 'project.tech'
+    && Array.isArray(entry.consumers)
+    && entry.consumers.includes('worker:deliver'));
+  if (!snippet || typeof snippet.path !== 'string') {
+    throw new Error('steering manifest lacks the worker:deliver technical snippet');
+  }
+  if (!snippet.path.startsWith('steering/snippets/')) {
+    throw new Error('steering manifest technical snippet is outside steering/snippets');
+  }
+  const snippetPath = resolveSteeringPath(cwd, snippet.path);
+  return fs.readFileSync(snippetPath, 'utf8');
 }
 
 function updateChangelog(content, version, date, title, breaking) {
@@ -657,7 +675,7 @@ export function runDeliver({
     if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
       return fail(context, 'verification_not_ready', `Verification is not ready for delivery: ${readiness.reasonCode}`);
     }
-    const tech = fs.readFileSync(path.join(cwd, 'steering', 'tech.md'), 'utf8');
+    const tech = registeredTechnicalSteering(fs, cwd);
     const botLogins = configuredBotLogins(tech);
     const { value: issueData } = jsonCommand(run, cwd, 'gh', [
       'issue', 'view', String(issueNumber), '--json', 'number,title,body,labels,state,url',
