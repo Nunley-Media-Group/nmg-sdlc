@@ -1262,8 +1262,66 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     expect(fixture.closed).not.toContain('pane-8');
-    expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'active' });
+    expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'stopped' });
     expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify', reasonCode: 'verify_failed' });
+  });
+
+  it('rewinds a stopped blocked remediation after its pane disappears', () => {
+    const fixture = makeControllerFixture();
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verify_failed' },
+      remediation: {
+        issue: 42,
+        step: 'verify',
+        attempt: 1,
+        status: 'stopped',
+        reasonCode: 'verify_failed',
+        summary: 'verify remediation blocked',
+        artifacts: ['artifacts/verify.txt'],
+        closedWorker: { name: 's42-verify', paneId: 'closed-verify' },
+        remWorker: { name: 'r42-verify', paneId: 'missing-rem' },
+        history: [],
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, fixture.cwd);
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-verify.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'verify',
+      status: 'blocked',
+      intervention: false,
+      summary: 'implementation must be corrected',
+      artifacts: ['artifacts/verify.txt'],
+      next: 'implement',
+      reasonCode: 'verify_failed',
+    })}\n`);
+    fixture.herdr.listAgents = () => [];
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-implement',
+      's42-review1',
+      's42-fix1',
+      's42-review2',
+      's42-fix2',
+      's42-verify',
+      's42-deliver',
+    ]);
+    expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
+    expect(persisted.completed['42']).toEqual([
+      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
+    ]);
+    expect(persisted.remediation).toBeNull();
   });
 
   it('resumes a live rem worker without starting the step or another rem', () => {

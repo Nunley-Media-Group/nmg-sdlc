@@ -1112,6 +1112,12 @@ export function runExecute({
         runState.remediation.reasonCode = handoff.reasonCode || handoff.status || state || 'worker_failed';
         runState.remediation.summary = handoff.summary;
         runState.remediation.artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
+        if (
+          ['idle', 'done'].includes(state)
+          && (handoff.status === 'blocked' || handoff.intervention)
+        ) {
+          runState.remediation.status = 'stopped';
+        }
         return stopResult({
           issue,
           step,
@@ -1200,6 +1206,45 @@ export function runExecute({
     const activeRemediation = runState.remediation?.status === 'active'
       && runState.remediation.issue === issue
       && runState.remediation.step === step;
+    const stoppedRemediation = runState.remediation?.status === 'stopped'
+      && runState.remediation.issue === issue
+      && runState.remediation.step === step;
+    if (step && stoppedRemediation && !liveRem) {
+      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+      let handoff;
+      try {
+        if (!existsSync(handoffPath)) throw new Error('handoff missing');
+        handoff = validateHandoff(JSON.parse(readFileSync(handoffPath, 'utf8')));
+        if (handoff.issue !== issue || handoff.step !== step) throw new Error('handoff mismatch');
+      } catch {
+        return stopResult({
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'missing_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      const rewindHandoff = handoff.status === 'blocked' && !handoff.intervention
+        ? { ...handoff, status: 'failed' }
+        : handoff;
+      const completed = remediationCompletedSteps({
+        issue,
+        step,
+        completed: runState.completed[String(issue)],
+        handoff: rewindHandoff,
+      });
+      if (!completed) {
+        return stopResult({
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'invalid_handoff',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      runState.completed[String(issue)] = completed;
+      step = nextStep(completed);
+      runState.currentStep = step;
+      runState.failed = null;
+      runState.remediation = null;
+      writeRun(runState, cwd);
+      live = null;
+    }
     if (step && (liveRem || activeRemediation)) {
       const remResult = runRemediationLoop({ issue, step, liveAgent: liveRem });
       if (remResult.result) return remResult.result;
