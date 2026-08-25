@@ -5,6 +5,10 @@
 **Head**: `7ef80c9775b10de11532b35cc64ba4aee8ea749d`
 **Overall Status**: Pass
 
+## Implementation Status: **Pass**
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":214,"specPath":"specs/214-replace-markdown-steering-with-a-managed-runtime-sdlc-steering-and-deterministic-verification","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10","FR11","FR12","FR13","FR14"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007"]},"regression":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"scenarios":[]}} -->
+
 ## Executive Summary
 
 Issue #214 passes its approved GitHub contract. The managed steering runtime, shared writer, prompt-registry integration, deterministic validation runner, workflow integration, and legacy-steering migration are implemented. The deterministic steering gate passed at the exact clean head above with no status ceiling. The complete Jest contract suite passed 632 tests, and plugin-surface and skill-inventory checks passed.
