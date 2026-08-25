@@ -1,0 +1,122 @@
+{
+  "verdict": "CLEAN",
+  "schemaVersion": 1,
+  "nmgSdlcIssue": 259,
+  "source": {
+    "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc",
+    "branch": "origin/259-add-controller-owned-fresh-session-remediation-loops",
+    "commit": "a11237d13572da6801ae74b271a4cf2460a18479",
+    "subject": "fix: handle soft-wrapped review branch options",
+    "disposableClone": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/source"
+  },
+  "smokeRepository": {
+    "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416",
+    "disposableClone": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/smoke",
+    "finalBranch": "main",
+    "finalHead": "1d499d22842492b017d7a7e28745d4f0b857b675",
+    "gitStatusPorcelain": "",
+    "clean": true
+  },
+  "controller": {
+    "startedAt": "2026-08-25T15:29:41.701Z",
+    "issues": [23, 24],
+    "invocation": "env PATH=\"/tmp/nmg-sdlc-259-smoke.QVO0Wz/herdr-wrapper-a11237d:/tmp/herdr-v0.8.0:$PATH\" node \"/private/tmp/nmg-sdlc-259-smoke.QVO0Wz/source/scripts/sdlc-execute.mjs\" run 23 24",
+    "workspaceId": "w15",
+    "tabId": "w15:t1",
+    "controllerPaneId": "w15:p3",
+    "manualReviewKeysSent": false,
+    "finalRun": {
+      "currentIssue": null,
+      "currentStep": null,
+      "failed": null,
+      "remediation": null,
+      "completed": {
+        "23": ["start", "implement", "review1", "fix1", "review2", "fix2", "verify", "deliver"],
+        "24": ["start", "implement", "review1", "fix1", "review2", "fix2", "verify", "deliver"]
+      }
+    }
+  },
+  "faultAndRemediation": {
+    "targetIssue": 23,
+    "targetStep": "verify",
+    "reasonCode": "smoke_259_original_verify_fault",
+    "sentinel": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/fault-state-a11237d/original-verify-injected",
+    "sentinelCount": 1,
+    "secondInjection": false,
+    "originalWorker": {
+      "name": "s23-verify",
+      "paneId": "w15:pA",
+      "closed": true,
+      "passedBeforeInjection": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/smoke-259/23-verify-passed-before-injection.json"
+    },
+    "remediationWorkers": [
+      {
+        "name": "r23-verify",
+        "paneId": "w15:pB",
+        "attempt": 1,
+        "freshSession": true,
+        "status": "passed"
+      }
+    ],
+    "remediationAttemptCount": 1,
+    "originalStepIdentityPreserved": true,
+    "finalOriginalStepHandoff": {
+      "path": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/final-runtime/handoffs/23-verify.json",
+      "issue": 23,
+      "step": "verify",
+      "status": "passed",
+      "intervention": false,
+      "next": "deliver"
+    },
+    "issue24FaultInjected": false,
+    "activeRemediationSnapshot": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/remediation-active.json",
+    "herdrCalls": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/smoke-259/herdr-calls.log"
+  },
+  "github": {
+    "issues": [
+      {
+        "number": 23,
+        "url": "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/23",
+        "state": "CLOSED",
+        "closedAt": "2026-08-25T15:49:55Z"
+      },
+      {
+        "number": 24,
+        "url": "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/issues/24",
+        "state": "CLOSED",
+        "closedAt": "2026-08-25T16:09:18Z"
+      }
+    ],
+    "pullRequests": [
+      {
+        "number": 27,
+        "url": "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/27",
+        "state": "MERGED",
+        "mergedAt": "2026-08-25T15:49:54Z",
+        "mergeCommit": "dc61d47a0470a55b6ce133ac9876bb13577dd52f"
+      },
+      {
+        "number": 28,
+        "url": "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke-20260820001416/pull/28",
+        "state": "MERGED",
+        "mergedAt": "2026-08-25T16:09:17Z",
+        "mergeCommit": "1d499d22842492b017d7a7e28745d4f0b857b675"
+      }
+    ]
+  },
+  "environment": {
+    "compatibleHerdrClient": "/tmp/herdr-v0.8.0/herdr",
+    "compatibleHerdrVersion": "0.8.0",
+    "compatibleHerdrSha256": "d53a9f93fccfdfcc55632927bf51002f5add0aa7990bcdf508ffbd84ac658178",
+    "serverRestarted": false,
+    "serverStopped": false,
+    "wrapper": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/herdr-wrapper-a11237d/herdr",
+    "wrapperSha256": "4f4d714360120737bf35a191d12b00f88ac6e2ab2e0d9e218c4bf295f3b3d90f"
+  },
+  "evidence": {
+    "directory": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d",
+    "finalRun": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/final-runtime/run.json",
+    "finalHandoffs": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/evidence-a11237d/final-runtime/handoffs",
+    "historicalFailed5c8a": "/tmp/nmg-sdlc-259-smoke.QVO0Wz/historical-5c8a"
+  }
+}
