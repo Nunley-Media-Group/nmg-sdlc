@@ -1,0 +1,31 @@
+**Issue**: #276
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-276 @bug @write-spec
+Feature: Resolve write-spec templates from their packaged workflow bundle
+  Installed write-spec sessions must load every specification template from
+  the owning workflow directory instead of a nonexistent package-root folder.
+
+  Scenario: Installed workflow names every bundled template explicitly
+    Given nmg-sdlc is installed under an OMP plugin root
+    When the write-spec workflow reaches template loading
+    Then it reads "workflows/write-spec/templates/requirements.md"
+    And it reads "workflows/write-spec/templates/design.md"
+    And it reads "workflows/write-spec/templates/tasks.md"
+    And it reads "workflows/write-spec/templates/feature.gherkin"
+    And it does not read a package-root "templates/" directory
+
+  Scenario: Prompt contract rejects the ambiguous template lookup
+    Given the write-spec interactive-plan contract test
+    When the workflow source is evaluated
+    Then all four explicit packaged template paths are required
+    And the obsolete "Use templates from templates/" instruction is absent
+
+  Scenario: Corrected workflow passes repository verification
+    Given the write-spec workflow bundle and issue 276 spec
+    When focused and applicable repository gates run
+    Then the workflow contract passes
+    And bundle validation passes
+    And the user-visible correction is recorded in the release changelog

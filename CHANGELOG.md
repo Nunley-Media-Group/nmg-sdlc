@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.17.3] - 2026-08-26
+
+### Fixed
+
+- Issue #276 resolves `/sdlc-write-spec` templates from `workflows/write-spec/templates/`, preventing installed sessions from reading a nonexistent package-root `templates/` directory.
+
 ## [3.17.2] - 2026-08-26
 
 ### Fixed

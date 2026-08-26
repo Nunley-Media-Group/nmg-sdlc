@@ -2,4 +2,4 @@
 
 Bug label uses lightweight defect templates for requirements/design/tasks (repro + 2 ACs, root cause minimal fix, flat tasks).
 
-See templates/ for the sections. No epic.
+Use the defect sections in `workflows/write-spec/templates/`. No epic.

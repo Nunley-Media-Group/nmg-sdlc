@@ -134,10 +134,12 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).toContain('Only the first spec in a session uses `xd://propose`');
     expect(source).toContain('Usage: /sdlc-write-spec #N');
     expect(source).toContain('the full file contents to write on approval');
-    expect(source).toContain('requirements.md');
-    expect(source).toContain('design.md');
-    expect(source).toContain('tasks.md');
-    expect(source).toContain('feature.gherkin');
+    for (const template of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
+      expect(source).toContain(`workflows/write-spec/templates/${template}`);
+    }
+    expect(source).not.toContain('Use templates from templates/');
+    expect(read('workflows/write-spec/references/defect-variant.md'))
+      .toContain('workflows/write-spec/templates/');
     expect(source).toContain('publish-approved-spec.mjs discover --issue N');
     expect(source).toContain('publish-approved-spec.mjs candidates [--published N ...]');
     expect(source).toContain('publish-approved-spec.mjs missing-spec-created');

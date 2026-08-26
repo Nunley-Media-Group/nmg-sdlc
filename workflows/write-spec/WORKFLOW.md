@@ -94,7 +94,12 @@ Every written file, including `feature.gherkin` and defect variants, must carry:
 
 Approval rewrites **Status** to Approved on all four files. Defect `tasks.md` and defect Gherkin use Draft | Approved only — never Planning / In Progress / Complete / In Review.
 
-Use templates from templates/ (read at runtime), fill from issue body + steering + investigation (read steering/*, glob source for patterns).
+Read these packaged templates at runtime, then fill them from the issue body, steering, and investigation (read `steering/*`; glob source for patterns):
+
+- `workflows/write-spec/templates/requirements.md`
+- `workflows/write-spec/templates/design.md`
+- `workflows/write-spec/templates/tasks.md`
+- `workflows/write-spec/templates/feature.gherkin`
 
 ## Plan File
 
