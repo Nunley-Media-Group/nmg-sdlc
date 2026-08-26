@@ -83,7 +83,7 @@ export function materializeControllerPaths(text, pluginRoot) {
     (_, _quote, scriptName) => JSON.stringify(controllerPath(scriptName)),
   );
   return source.replace(
-    /node (?:<plugin-root>\/)?scripts\/([A-Za-z0-9._-]+\.mjs)/g,
+    /node <plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)/g,
     (_, scriptName) => `node ${JSON.stringify(controllerPath(scriptName))}`,
   );
 }

@@ -1,0 +1,43 @@
+**Issue**: #266
+**Date**: 2026-08-25
+**Status**: Approved
+**Author**: NMG
+
+@issue-266 @bug @plugin-install
+Feature: Materialize only explicitly owned plugin controller paths
+  nmg-sdlc must resolve packaged controllers independently of consumer cwd
+  without claiming ordinary project-local script commands in runtime text.
+
+  Scenario: Project-local command remains unchanged
+    Given runtime text contains "node scripts/check-gate.mjs"
+    And the installed plugin does not ship "scripts/check-gate.mjs"
+    When controller paths are materialized
+    Then the runtime text still contains "node scripts/check-gate.mjs"
+    And no controller resolution error is raised
+
+  Scenario: Explicit plugin controller resolves absolutely
+    Given runtime text contains "node <plugin-root>/scripts/sdlc-execute.mjs"
+    And the installed plugin ships "scripts/sdlc-execute.mjs"
+    When controller paths are materialized
+    Then the placeholder is replaced by the JSON-quoted absolute controller path
+    And the consumer project cwd is not used for resolution
+
+  Scenario: Missing explicit controller fails closed
+    Given runtime text contains "node <plugin-root>/scripts/missing.mjs"
+    And the installed plugin does not ship "scripts/missing.mjs"
+    When controller paths are materialized
+    Then materialization fails with reason code "controller_unresolved"
+    And no project-local script fallback is used
+
+  Scenario: Extension context accepts project verification evidence
+    Given installed extension context contains "node scripts/check-gate.mjs"
+    When the extension materializes runtime messages
+    Then context processing completes without a controller resolution error
+    And the project command remains unchanged
+
+  Scenario: Bootstrap replaces an existing pinned Git plugin
+    Given nmg-pi bootstrap plans the remote nmg-sdlc commit installation
+    And an nmg-sdlc Git dependency is already installed
+    When the install plan is executed by OMP 18
+    Then the plugin install command includes "--force"
+    And the supported force-reinstall path avoids Bun's unchanged-source dependency loop
