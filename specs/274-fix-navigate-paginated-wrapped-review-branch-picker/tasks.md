@@ -24,7 +24,7 @@
 - [x] T7 — Update `README.md` and `CHANGELOG.md` for the corrected OMP picker integration.
 - [x] T8 — Run focused execute tests and record command plus outcome.
 - [x] T9 — Run repository-required validation and record command plus outcome.
-- [ ] T10 — Open a linked pull request with steering alignment and exact-path evidence, pass hosted checks, merge exact head to `main`, and close #274.
+- [x] T10 — Open a linked pull request with steering alignment and exact-path evidence, pass hosted checks, merge exact head to `main`, and close #274.
 
 ## Verification Evidence
 
@@ -35,6 +35,7 @@
 - Behavior for `scripts/__tests__/sdlc-execute.test.mjs`: covered fresh, retained, upward, malformed, and ambiguous picker transitions.
 - Behavior for `VERSION`: records the requested patch release as 3.17.2.
 - Behavior for `package.json`: publishes the matching package version 3.17.2.
+- GitHub Actions for PR #275 at head `5a5462892f38` — contribution gate and contract verification passed; the final checklist-only head must pass the same checks before merge.
 
 ## Steering Alignment
 
