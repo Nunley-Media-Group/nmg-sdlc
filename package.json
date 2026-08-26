@@ -1,6 +1,6 @@
 {
   "name": "nmg-sdlc",
-  "version": "3.17.3",
+  "version": "3.17.4",
   "description": "Spec-driven delivery for Oh My Pi and Herdr",
   "license": "MIT",
   "type": "module",

@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.17.4] - 2026-08-26
+
+### Changed
+
+- Fix write-spec template path resolution (#276)
+
 ## [3.17.3] - 2026-08-26
 
 ### Fixed
