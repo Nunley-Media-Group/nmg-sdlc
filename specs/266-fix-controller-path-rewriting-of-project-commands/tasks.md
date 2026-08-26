@@ -65,13 +65,14 @@
 
 ## T005: Record and verify the fixes
 
-**File(s)**: `CHANGELOG.md`, `specs/266-fix-controller-path-rewriting-of-project-commands/verification-report.md`
+**File(s)**: `CHANGELOG.md`, `VERSION`, `package.json`, `specs/266-fix-controller-path-rewriting-of-project-commands/verification-report.md`
 **Type**: Modify/Create
 **Depends**: T001, T002, T003, T004
 
 **Acceptance**:
 
 - `[Unreleased]` records the extension-loading correction.
+- `VERSION` and `package.json` remain synchronized at 3.16.1.
 - Verification records focused tests and installed-topology smoke outcomes.
 - Both repository pull requests name exact changed paths and command outcomes.
 
