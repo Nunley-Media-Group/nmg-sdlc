@@ -1,0 +1,52 @@
+**Issue**: #280
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-280 @bug @steering @verification
+Feature: Distinguish zero steering validations from missing results
+  As a developer using deterministic nmg-sdlc verification
+  I want result coverage to reflect exact manifest declarations
+  So that projects with no configured validations can proceed while missing configured evidence fails closed
+
+  Scenario: Zero declared validations is a complete result set
+    Given a schema-valid steering manifest declares zero validations
+    When deterministic steering verification runs
+    Then the artifact reports zero declared validations
+    And the artifact records zero results
+    And declaration/result coverage is complete
+    And the ceiling is null
+
+  Scenario: A missing declared result is incomplete
+    Given the steering manifest declares a required validation
+    And no result exists for that validation id
+    When declaration/result coverage is evaluated
+    Then the missing id is reported
+    And coverage is incomplete
+    And the verification ceiling is "Incomplete"
+
+  Scenario Outline: Invalid result membership is incomplete
+    Given the steering manifest declares known validation ids
+    And the result set contains <condition>
+    When declaration/result coverage is evaluated
+    Then the offending ids are reported deterministically
+    And coverage is incomplete
+    And the verification ceiling is "Incomplete"
+
+    Examples:
+      | condition                    |
+      | a duplicate validation id    |
+      | an undeclared validation id  |
+
+  Scenario: Complete declarations preserve required-result semantics
+    Given every declared validation has exactly one result
+    And declaration/result coverage is complete
+    When the ordinary verification ceiling is computed
+    Then applicable required validations retain their existing pass and failure rules
+    And optional or non-applicable results do not weaken required checks
+
+  Scenario: Consumers distinguish empty from missing
+    Given the runner emits a machine-readable coverage summary
+    When verify-code reads an artifact with zero declarations and zero results
+    Then it does not infer "steering_results_missing" from the empty result array
+    And generated and documented surfaces state the same rule
