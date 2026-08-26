@@ -1,0 +1,56 @@
+**Issue**: #282
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-282 @bug @verify @deliver
+Feature: Publish verification reports before delivery
+  As a developer running nmg-sdlc execute
+  I want passed verification evidence published before delivery
+  So that the clean-tree delivery gate receives the exact verified head
+
+  Scenario: Changed passing report is published
+    Given verification produced a valid passing report
+    And the report is the only non-runtime dirty path
+    When verification finalization runs
+    Then it stages only the report
+    And commits it conventionally
+    And pushes without force
+    And writes a passed verify handoff for the published head
+
+  Scenario: Already published report resumes without an empty commit
+    Given the passing report is identical to HEAD
+    And the branch is synchronized with its upstream
+    When verification finalization runs
+    Then no commit is created
+    And the passed verify handoff advances to delivery
+
+  Scenario Outline: Unsafe finalization fails closed
+    Given verification finalization encounters <condition>
+    When it attempts to publish the report
+    Then it writes a failed intervention handoff
+    And it does not write a passed handoff
+    And delivery does not start
+
+    Examples:
+      | condition                         |
+      | an unrelated dirty product path  |
+      | a missing report                  |
+      | a symlink report                  |
+      | a staging failure                 |
+      | a commit failure                  |
+      | no configured upstream            |
+      | a push failure                    |
+      | branch divergence                 |
+
+  Scenario: Failed verification is never published as success
+    Given the report status is not Pass or PR Evidence Pending
+    When verification finalization runs
+    Then it does not publish a success commit
+    And the failed handoff preserves the verification reason
+
+  Scenario: Execute observes the published boundary
+    Given finalization wrote a passed verify handoff
+    When execute advances the issue queue
+    Then delivery sees a clean tree at the report commit
+    And exact-head PR safety remains authoritative
