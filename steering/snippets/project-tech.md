@@ -77,7 +77,7 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 | `VERSION` | file text | Source of truth |
 | `package.json` | `version` | OMP plugin manifest version |
 
-During the v3 landing, both files are `3.1.0`.
+Never pin a live version number in this snippet. `open-pr` keeps `VERSION` and `package.json` synchronized.
 
 ### Version Bump Classification
 
@@ -104,7 +104,7 @@ Before introducing a new OMP-facing feature or changing model/tool behavior, ver
 
 ### Workflow Bundles
 
-**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by first resolving and reading `skill://skill-creator`, then following that skill's editing procedure. There is no repository-local skill-creator prerequisite and no hand-edit fallback. The v3 landing of this repository is exempt and edits files directly.
+**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by first resolving and reading `skill://skill-creator`, then following that skill's editing procedure. There is no repository-local skill-creator prerequisite and no hand-edit fallback.
 
 WORKFLOW.md frontmatter declares only `name` and `description`.
 
@@ -230,6 +230,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 | Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
 | Live skill proof | Disposable project via `omp --print --no-session` | Verification evidence |
 | Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
+| Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke` and exercise `/sdlc-status --json` with this checkout loaded | Steering validation `repository.nmg-sdlc-smoke` |
 
 ### Disposable Exercise Pattern
 
@@ -242,12 +243,15 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 
 Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
+The live smoke clone of `nmg-sdlc-smoke` is read-only for this gate: do not create issues, branches, PRs, or comments in that repository from verify.
+
 ### Verification Evidence Boundaries
 
 - Local source tests prove the source tree only.
 - A staged-release fixture proves the packaged candidate only.
 - A clean installed root plus fresh session proves discovery behavior.
 - An actual consumer-project upgrade proves cleanup and preservation behavior.
+- A passed `repository.nmg-sdlc-smoke` result proves this checkout still answers `/sdlc-status --json` against the live smoke project.
 - GitHub checks and mergeability are separate from local test success.
 
 Never infer a stronger layer from a weaker one.
@@ -261,6 +265,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
+| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` and run `node scripts/exercise-omp.mjs --cwd <clone> --timeout-ms 240000 -- /sdlc-status --json` with this checkout as `--plugin-dir` | Exit 0; stdout JSON includes `nextAction.command` starting with `/sdlc-` |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
@@ -276,6 +281,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 - A missing applicable fixture is a named verification gap, not an implicit pass.
 - A command pass must include exit status and relevant output summary.
 - Published-install acceptance criteria remain incomplete until the published artifact exists.
+- Clone, `omp`, or network failure on the live smoke gate is `Incomplete`, not an implicit pass. A completed exercise that lacks `/sdlc-` `nextAction.command` is `Fail`.
 
 ### Contract Framework
 

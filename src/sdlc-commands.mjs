@@ -4,7 +4,10 @@ import {
   writePromptProvenance,
 } from "./sdlc-prompt-snippets.mjs";
 import { packageRoot } from "./sdlc-workflows.mjs";
-import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
+import {
+  materializeAvailableControllerPaths,
+  materializeControllerPaths,
+} from "../scripts/plugin-controller-path.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 export { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
@@ -97,7 +100,7 @@ export function materializeRuntimeMessages(messages, root = packageRoot) {
   const materialized = messages.map((message) => {
     if (!message || typeof message !== "object") return message;
     if (typeof message.content === "string") {
-      const content = materializeControllerPaths(message.content, root);
+      const content = materializeAvailableControllerPaths(message.content, root);
       if (content === message.content) return message;
       changed = true;
       return { ...message, content };
@@ -108,7 +111,7 @@ export function materializeRuntimeMessages(messages, root = packageRoot) {
       if (!part || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") {
         return part;
       }
-      const text = materializeControllerPaths(part.text, root);
+      const text = materializeAvailableControllerPaths(part.text, root);
       if (text === part.text) return part;
       contentChanged = true;
       return { ...part, text };

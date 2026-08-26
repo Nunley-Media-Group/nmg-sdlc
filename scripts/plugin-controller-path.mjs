@@ -74,16 +74,37 @@ export function resolvePluginController(scriptName, options = {}) {
   return controller;
 }
 
-export function materializeControllerPaths(text, pluginRoot) {
-  const controllerPath = (scriptName) => resolvePluginController(scriptName, {
-    env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot },
-  });
+function materializeControllerPathsWithPolicy(text, pluginRoot, preserveUnresolved) {
+  const controllerPath = (scriptName) => {
+    try {
+      return resolvePluginController(scriptName, {
+        env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot },
+      });
+    } catch (error) {
+      if (preserveUnresolved && error?.reasonCode === "controller_unresolved") return null;
+      throw error;
+    }
+  };
   const source = String(text).replace(
     /(["'])<plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)\1/g,
-    (_, _quote, scriptName) => JSON.stringify(controllerPath(scriptName)),
+    (match, _quote, scriptName) => {
+      const controller = controllerPath(scriptName);
+      return controller === null ? match : JSON.stringify(controller);
+    },
   );
   return source.replace(
     /node <plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)/g,
-    (_, scriptName) => `node ${JSON.stringify(controllerPath(scriptName))}`,
+    (match, scriptName) => {
+      const controller = controllerPath(scriptName);
+      return controller === null ? match : `node ${JSON.stringify(controller)}`;
+    },
   );
+}
+
+export function materializeControllerPaths(text, pluginRoot) {
+  return materializeControllerPathsWithPolicy(text, pluginRoot, false);
+}
+
+export function materializeAvailableControllerPaths(text, pluginRoot) {
+  return materializeControllerPathsWithPolicy(text, pluginRoot, true);
 }

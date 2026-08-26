@@ -255,7 +255,7 @@ export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projec
   }
   if (projectRoot && !pluginOnly && existsSync(join(projectRoot, "steering", "manifest.json"))) {
     const command = join(packageRoot, "scripts", "sdlc-steering.mjs");
-    const result = spawnSync(process.execPath, [command, "prompt-fragments", "--project", projectRoot], {
+    const result = spawnSync("node", [command, "prompt-fragments", "--project", projectRoot], {
       encoding: "utf8",
       shell: false,
       timeout: 30000,

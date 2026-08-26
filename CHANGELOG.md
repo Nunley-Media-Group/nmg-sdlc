@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Issue #269 launches project steering prompt-fragment loading through Node instead of the compiled OMP host executable, restoring project-aware interactive commands while preserving fail-closed runtime validation.
+
+- Issue #269 preserves unresolved controller examples in arbitrary extension context while strict plugin-owned controller materialization still fails closed.
+
+### Changed
+
+- Issue #269 synchronizes project steering with the current runtime and adds an always-required, read-only `/sdlc-status --json` smoke against `Nunley-Media-Group/nmg-sdlc-smoke`.
+
 ## [3.16.1] - 2026-08-25
 
 ### Fixed

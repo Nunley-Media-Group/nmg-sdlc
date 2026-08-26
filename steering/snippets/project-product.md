@@ -71,6 +71,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Dependency integrity | Open official blockers, unreadable evidence, dangling targets, and open cycles keep an issue out of execute | Keeps sequencing fail-closed and consistent |
 | Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` | Preserves user authority without blocking Herdr |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
+| Live smoke integrity | Every verify exercises `/sdlc-status --json` against `Nunley-Media-Group/nmg-sdlc-smoke` with this checkout loaded | Proves the plugin still works on a real consumer project |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
 | Cleanup idempotence | Repeated upgrade produces no additional diff | Makes migration predictable |
 
@@ -86,17 +87,15 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 - Linked branch and status management (`start-issue` worker)
 - Spec-driven implementation followed by two host reviews against `main` with dedicated fix panes (`write-code`, `review-main`, `apply-review`)
 - Verification and architecture review (`verify-code`)
+- Live smoke against `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke` on every verify
 - Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
 - Review-thread cleanup (`address-pr-comments`)
 - Safe project adoption and managed assets (`/sdlc-onboard-project`, `/sdlc-upgrade-project`)
 - Read-only lifecycle diagnostics (`/sdlc-status`)
-
-### Should Have
-
-- Defect-specific spec variants and retrospective learning
-- Explicit, digest-bound upgrade for legacy epic graphs and cumulative specs
+- Defect-specific spec variants and retrospective learning (`/sdlc-run-retro`)
+- Digest-bound upgrade for legacy epic graphs and cumulative specs (`/sdlc-upgrade-project`)
 - Managed contribution gate and structured GitHub issue form
-- Historical spec reconciliation for brownfield projects
+- Historical spec reconciliation for brownfield projects (`/sdlc-upgrade-project`)
 
 ### Won't Have
 
