@@ -2,13 +2,19 @@
 
 **Consumed by**: `open-pr`.
 
-`VERSION` is the single version source. `open-pr` synchronizes:
+`VERSION` is the required single version source. `open-pr` synchronizes it with `CHANGELOG.md` and every stack-specific mirror declared in the manifest-registered technical steering snippet's `## Versioning` table.
 
-| File | Field |
-|------|-------|
-| `VERSION` | file text |
-| `package.json` | `version` |
-| `CHANGELOG.md` | `[Unreleased]` → versioned heading |
+Each table row declares a repository-relative file and field locator:
+
+| File type | Field locator |
+|-----------|---------------|
+| JSON | Dot-separated property path, such as `version` or `tool.release.version` |
+| TOML | Dot-separated table and key, such as `project.version` |
+| Other text | A field name that occurs with the current version on exactly one line |
+
+`package.json` is not universal. A Node project declares `package.json` and `version`; a Python project can instead declare `pyproject.toml` and a runtime version field. Delivery never invents a compatibility manifest. A missing, unsafe, ambiguous, or unsynchronized declared mirror fails before the delivery commit.
+
+Resume validation uses `VERSION`, `CHANGELOG.md`, and the current steering-declared mirror set. The prior delivery commit must contain every path and the working tree must match that commit for those paths.
 
 There is no `--major` CLI flag and no interactive version gate.
 

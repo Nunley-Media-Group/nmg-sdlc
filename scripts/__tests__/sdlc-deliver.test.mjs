@@ -121,7 +121,12 @@ function controlledVerification(state, headSha = H1, evidenceKind = 'required_ch
   return `# Verification\n\n## Implementation Status: **${status}**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(readiness)} -->\n`;
 }
 
-function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {}) {
+function makeRoot({
+  issue = 42,
+  version = '3.4.5',
+  approvedMajor = false,
+  stack = 'node',
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-deliver-'));
   const spec = path.join(root, 'specs', `${issue}-delivery`);
   fs.mkdirSync(spec, { recursive: true });
@@ -136,9 +141,18 @@ function makeRoot({ issue = 42, version = '3.4.5', approvedMajor = false } = {})
       consumers: ['worker:deliver'],
     }],
   }, null, 2)}\n`);
-  fs.writeFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), '# Tech\n| Predicate | Value | Meaning |\n| `bots` | `true` | bots |\n| `logins` | `["coderabbitai", "review-bot"]` | logins |\n| File | Path | Notes |\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n');
+  const versionRows = stack === 'python'
+    ? '| `VERSION` | file text | version source |\n| `pyproject.toml` | `project.version` | package version |\n| `src/pennyscan/__init__.py` | `__version__` | runtime version |\n'
+    : '| `VERSION` | file text | version source |\n| `package.json` | `version` | package version |\n';
+  fs.writeFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), `# Tech\n| Predicate | Value | Meaning |\n| \`bots\` | \`true\` | bots |\n| \`logins\` | \`["coderabbitai", "review-bot"]\` | logins |\n## Versioning\n\n\`VERSION\` is the single version source. Stack-specific files are synchronized during delivery.\n\n| File | Path | Notes |\n|------|------|-------|\n${versionRows}\n### Version Bump Classification\n\n| Label | Bump Type | Description |\n|-------|-----------|-------------|\n| \`bug\` | patch | defect |\n`);
   fs.writeFileSync(path.join(root, 'VERSION'), `${version}\n`);
-  fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: 'fixture', version }, null, 2)}\n`);
+  if (stack === 'python') {
+    fs.mkdirSync(path.join(root, 'src', 'pennyscan'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'pyproject.toml'), `[project]\nname = "pennyscan"\nversion = "${version}"\n`);
+    fs.writeFileSync(path.join(root, 'src', 'pennyscan', '__init__.py'), `__version__ = "${version}"\n`);
+  } else {
+    fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: 'fixture', version }, null, 2)}\n`);
+  }
   fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
   return root;
 }
@@ -167,7 +181,12 @@ function fixture(options = {}) {
       if (args[0] === 'diff' && args.includes('--cached')) return { status: options.emptyStagedDiff ? 0 : 1, stdout: '', stderr: '' };
       if (args[0] === 'diff' && args[1] === '--quiet') return { status: options.deliveryStateDirty ? 1 : 0, stdout: '', stderr: '' };
       if (args[0] === 'log') return { status: options.deliveryCommit ? 0 : 1, stdout: options.deliveryCommit ? `${H1}\n` : '', stderr: '' };
-      if (args[0] === 'show') return { status: 0, stdout: 'VERSION\0package.json\0CHANGELOG.md\0', stderr: '' };
+      if (args[0] === 'show') {
+        const defaultPaths = options.stack === 'python'
+          ? ['VERSION', 'pyproject.toml', 'src/pennyscan/__init__.py', 'CHANGELOG.md']
+          : ['VERSION', 'package.json', 'CHANGELOG.md'];
+        return { status: 0, stdout: `${(options.deliveryPaths ?? defaultPaths).join('\0')}\0`, stderr: '' };
+      }
       if (args[0] === 'rev-parse' && args.includes('@{upstream}')) return { status: options.noUpstream ? 1 : 0, stdout: 'origin/42-delivery\n', stderr: '' };
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { status: 0, stdout: `${gitHead}\n`, stderr: '' };
       if (args[0] === 'commit') gitHead = H2;
@@ -283,6 +302,89 @@ describe('sdlc delivery controller', () => {
     expect(runDeliver({ issue: 42, cwd: resume.root, run: resume.run, fs, sleep: resume.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(resume.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(resume.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
+  });
+
+  test('synchronizes steering-declared Python mirrors without package.json', () => {
+    const f = fixture({ stack: 'python' }); roots.push(f.root);
+    expect(runDeliver({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      now: () => Date.parse('2026-08-25'),
+      sleep: f.sleep,
+    }).status).toBe(0);
+    expect(fs.existsSync(path.join(f.root, 'package.json'))).toBe(false);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
+    expect(fs.readFileSync(path.join(f.root, 'pyproject.toml'), 'utf8')).toContain('version = "3.5.0"');
+    expect(fs.readFileSync(path.join(f.root, 'src/pennyscan/__init__.py'), 'utf8')).toContain('__version__ = "3.5.0"');
+    const add = f.calls.find((call) => call[0] === 'git' && call[1] === 'add');
+    expect(add).toEqual([
+      'git', 'add', '--', 'VERSION', 'CHANGELOG.md',
+      'pyproject.toml', 'src/pennyscan/__init__.py',
+    ]);
+  });
+
+  test.each([
+    {
+      name: 'missing',
+      arrange: (root) => fs.rmSync(path.join(root, 'pyproject.toml')),
+      message: 'declared version artifact is missing: pyproject.toml',
+    },
+    {
+      name: 'not synchronized',
+      arrange: (root) => fs.writeFileSync(
+        path.join(root, 'pyproject.toml'),
+        '[project]\nname = "pennyscan"\nversion = "0.0.0"\n',
+      ),
+      message: 'declared version field is not synchronized in pyproject.toml: project.version',
+    },
+    {
+      name: 'outside the repository',
+      arrange: (root) => {
+        const techPath = path.join(root, 'steering', 'snippets', 'project-tech.md');
+        const tech = fs.readFileSync(techPath, 'utf8');
+        fs.writeFileSync(
+          techPath,
+          tech.replace(
+            '\n### Version Bump Classification',
+            '\n| `../outside.toml` | `project.version` | package version |\n\n### Version Bump Classification',
+          ),
+        );
+      },
+      message: 'version artifact path escapes the repository: ../outside.toml',
+    },
+    {
+      name: 'ambiguous',
+      arrange: (root) => fs.writeFileSync(
+        path.join(root, 'src', 'pennyscan', '__init__.py'),
+        '__version__ = "3.4.5"\nlegacy___version__ = "3.4.5"\n',
+      ),
+      message: 'declared text version field is ambiguous in src/pennyscan/__init__.py: __version__',
+    },
+  ])('fails before mutation when a declared mirror is $name', ({ arrange, message }) => {
+    const f = fixture({ stack: 'python' }); roots.push(f.root);
+    arrange(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.handoff).toMatchObject({ status: 'failed', reasonCode: 'delivery_failed' });
+    expect(result.handoff.summary).toContain(message);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toBe(false);
+  });
+
+  test('does not resume when the delivery commit omits a configured Python mirror', () => {
+    const f = fixture({
+      stack: 'python',
+      existingPr: true,
+      version: '3.5.0',
+      deliveryCommit: true,
+      deliveryPaths: ['VERSION', 'pyproject.toml', 'CHANGELOG.md'],
+    }); roots.push(f.root);
+    fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.6.0');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(true);
   });
 
   test('emits complete remediation JSON for failing checks and bot threads', () => {

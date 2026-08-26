@@ -166,7 +166,7 @@ Reconciles steering/spec trees, templates, managed assets, and the complete repo
 
 ## Versioning
 
-`VERSION` is the source of truth and must stay synchronized with `package.json` `"version"`. `/sdlc-execute` (via open-pr) consults the registered product and technical steering snippets for label-to-bump rules:
+`VERSION` is the source of truth. `/sdlc-execute` (via `open-pr`) synchronizes `CHANGELOG.md` and each stack-specific version mirror declared in the manifest-registered technical steering `## Versioning` table. JSON and TOML mirrors use dot-separated field paths; other text mirrors use an unambiguous field locator. `package.json` is updated only when the project declares it, so Python and other non-Node projects retain their native version artifacts. The same steering snippets provide label-to-bump rules:
 
 | Issue label   | Default bump |
 |---------------|--------------|
@@ -175,7 +175,7 @@ Reconciles steering/spec trees, templates, managed assets, and the complete repo
 
 Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: major` line (case-insensitive) inside an approved `requirements.md` or `design.md`. If the issue title/body contains `BREAKING` and that marker is absent, delivery fails closed.
 
-`[Unreleased]` changelog entries are rolled into the versioned heading on successful delivery.
+`[Unreleased]` changelog entries are rolled into the versioned heading on successful delivery. Missing, unsafe, ambiguous, or unsynchronized declared version mirrors fail before the delivery commit.
 
 ## Verification Gates
 

@@ -1,0 +1,57 @@
+**Issue**: #278
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-278 @bug @delivery @versioning
+Feature: Synchronize delivery versions from project steering
+  The v3 delivery controller must preserve automated release behavior while
+  updating the native version artifacts declared by each project's technical steering.
+
+  Scenario: Python project delivers without Node metadata
+    Given a project has VERSION and CHANGELOG.md
+    And technical steering declares pyproject.toml field project.version
+    And technical steering declares src/pennyscan/__init__.py field __version__
+    And the project has no package.json
+    When the v3 delivery controller computes a release version
+    Then VERSION contains the release version
+    And pyproject.toml project.version contains the release version
+    And src/pennyscan/__init__.py __version__ contains the release version
+    And CHANGELOG.md contains the release entry
+    And no package.json is read or created
+
+  Scenario: Node project keeps its declared package mirror
+    Given technical steering declares package.json field version
+    And package.json version equals VERSION
+    When the v3 delivery controller computes a release version
+    Then package.json version contains the release version
+    And the remaining JSON document stays valid
+
+  Scenario Outline: Invalid declared mirror stops delivery
+    Given technical steering declares a stack-specific version mirror
+    And the declared mirror is <condition>
+    When the v3 delivery controller attempts synchronization
+    Then delivery writes a failed handoff
+    And no delivery commit is created
+    And no pull request is opened
+
+    Examples:
+      | condition |
+      | missing |
+      | not synchronized with VERSION |
+      | outside the repository root |
+      | ambiguous at its text field locator |
+
+  Scenario: Resume requires every configured artifact
+    Given a prior delivery commit contains a matching changelog release entry
+    And technical steering declares Python version mirrors
+    When a configured mirror is absent from that commit
+    Then the prior delivery state is not considered synchronized
+    And delivery does not skip artifact synchronization
+
+  Scenario: Stack-agnostic synchronization preserves v3 delivery
+    Given every configured version artifact is synchronized
+    When the v3 controller continues delivery
+    Then semver classification and approved-major enforcement are unchanged
+    And automated review remediation is unchanged
+    And exact-head merge and issue closure proof are unchanged

@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Issue #278 makes v3 delivery version synchronization stack-agnostic by updating only the JSON, TOML, and text mirrors declared in project technical steering instead of requiring `package.json`.
+
 ## [3.17.4] - 2026-08-26
 
 ### Changed
