@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.17.2] - 2026-08-26
+
+### Fixed
+
+- Issue #274 recognizes complete wrapped, paginated OMP `/review` branch-picker pages when the default branch is off-screen, reconstructs only a unique contiguous segment of the known Git branch order, and navigates from the current selection while preserving fail-closed malformed-picker handling.
+
 ## [3.17.1] - 2026-08-26
 
 ### Fixed

@@ -1,0 +1,67 @@
+**Issue**: #274
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-274 @bug @execute @review-picker
+Feature: Navigate paginated wrapped review branch picker
+  As a Herdr operator running nmg-sdlc execute
+  I want review workers to select the default branch through paginated picker output
+  So that long branch lists do not stop delivery before project-aware review begins
+
+  Background:
+    Given the repository default branch is "main"
+    And the known Git branch list contains 18 ordered branches
+
+  Scenario: Complete visible page is accepted with main off-screen
+    Given OMP renders the first five branch options
+    And long visible branch names wrap across terminal lines
+    And the picker shows "(1/18) Type to search"
+    And exactly one visible option owns the cursor
+    And "main" is not visible
+    When execute observes the review branch picker
+    Then the visible fragments reconstruct to one contiguous known-branch segment
+    And the picker is recognized as complete
+
+  Scenario: Default branch is selected across the page boundary
+    Given the recognized cursor branch precedes "main" in the known branch order
+    When execute drives the review selection
+    Then it sends one Down event per intervening branch index
+    And it appends Enter
+    And it waits for the review worker to start and settle
+    And only then submits the project-aware review worker prompt
+
+  Scenario: Selection after main navigates upward without wraparound
+    Given the recognized cursor branch follows "main" in the known branch order
+    When execute drives the review selection
+    Then it sends one Up event per intervening branch index
+    And it appends Enter
+
+  Scenario Outline: Unsafe picker output fails closed
+    Given the terminal picker output is <condition>
+    When execute observes the review branch picker
+    Then it sends no branch-selection keys
+    And the review step stops with reason "review_failed"
+
+    Examples:
+      | condition                                      |
+      | partial before its navigation footer renders  |
+      | malformed against known branch names          |
+      | missing a cursor                               |
+      | containing multiple cursors                    |
+      | ambiguous across known contiguous segments     |
+      | unrelated terminal content                     |
+
+  Scenario Outline: Existing review lifecycle remains supported
+    Given a <worker> review worker renders a <layout> picker
+    When execute selects the default branch
+    Then review orchestration continues through the existing handoff boundary
+
+    Examples:
+      | worker   | layout              |
+      | fresh    | numbered            |
+      | fresh    | unnumbered          |
+      | fresh    | wrapped unnumbered  |
+      | retained | numbered            |
+      | retained | wrapped unnumbered  |
+      | retained | paginated wrapped   |
