@@ -17,7 +17,7 @@ function fixture() {
 }
 function plan(root, options = {}) {
   return createInitializePlan(root, {
-    snippets: options.snippets ?? [{ id: 'project.tech', path: 'steering/snippets/project-tech.md', consumers: ['worker:implement'], slot: 'body', order: 500, byteBound: 8192, content: 'Use focused tests.\n' }],
+    snippets: options.snippets ?? [{ id: 'project.tech', path: 'steering/snippets/project-tech.md', consumers: ['worker:implement'], slot: 'body', order: 500, content: 'Use focused tests.\n' }],
     validations: options.validations ?? [],
   });
 }
@@ -42,6 +42,38 @@ describe('managed steering runtime', () => {
       provider: 'project:project.tech',
       source: 'steering/snippets/project-tech.md',
     }));
+  });
+
+  it('writes and renders project snippets without byteBound', async () => {
+    const root = fixture();
+    await applySteeringPlan(root, plan(root));
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'steering', 'manifest.json'), 'utf8'));
+    expect(Object.keys(manifest.snippets[0]).sort()).toEqual(['consumers', 'id', 'order', 'path', 'slot']);
+
+    const runtime = await loadSteeringRuntime(root);
+    const [fragment] = projectPromptFragments(runtime);
+    expect(Object.hasOwn(fragment, 'byteBound')).toBe(false);
+    expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
+      consumer: 'worker:implement',
+      vars: { step: 'implement', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
+    }).text).toContain('Use focused tests.');
+  });
+
+  it('ignores leftover project byteBound values', async () => {
+    const root = fixture();
+    await applySteeringPlan(root, plan(root));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.snippets[0].byteBound = 1;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const runtime = await loadSteeringRuntime(root);
+    expect(runtime.snippets[0]).not.toHaveProperty('byteBound');
+    expect(projectPromptFragments(runtime)[0]).not.toHaveProperty('byteBound');
+    expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
+      consumer: 'worker:implement',
+      vars: { step: 'implement', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
+    }).text).toContain('Use focused tests.');
   });
 
   it('rejects stale plans before mutating live steering', async () => {

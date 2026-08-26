@@ -12,6 +12,7 @@ import {
   defaultPromptRegistry,
   pluginPromptFragments,
   registerPromptSnippet,
+  registerValidatedProjectSnippets,
   renderPrompt,
   writePromptProvenance,
 } from '../../src/sdlc-prompt-snippets.mjs';
@@ -121,10 +122,6 @@ describe('prompt snippet registry', () => {
   it('loads project snippets with Node when the extension host is not Node', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-compiled-host-'));
     fs.cpSync(path.join(repoRoot, 'steering'), path.join(projectRoot, 'steering'), { recursive: true });
-    const manifestPath = path.join(projectRoot, 'steering', 'manifest.json');
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    for (const snippet of manifest.snippets) snippet.byteBound = 65536;
-    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     const originalExecPath = process.execPath;
     process.execPath = path.join(os.tmpdir(), 'compiled-omp-host');
@@ -141,6 +138,21 @@ describe('prompt snippet registry', () => {
     } finally {
       process.execPath = originalExecPath;
     }
+  });
+
+  it('registers project snippets larger than the former bound', () => {
+    const registry = createPromptSnippetRegistry();
+    const body = 'x'.repeat(8193);
+    expect(() => registerValidatedProjectSnippets(registry, [{
+      id: 'project.large',
+      provider: 'project:project.large',
+      source: 'steering/snippets/project-large.md',
+      consumers: ['worker:implement'],
+      slot: 'body',
+      order: 500,
+      body,
+    }])).not.toThrow();
+    expect(renderPrompt(registry, { consumer: 'worker:implement' }).text).toBe(body);
   });
 
   it('renders repair commands from plugin prompts when project steering is invalid', () => {

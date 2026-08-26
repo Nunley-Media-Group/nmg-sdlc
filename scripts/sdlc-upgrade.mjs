@@ -681,7 +681,6 @@ function detectSteeringRuntime(root) {
     consumers: consumersByRole[role],
     slot: 'body',
     order: 500,
-    byteBound: Math.max(8192, Buffer.byteLength(safeRead(source) || '', 'utf8')),
     content: safeRead(source) || '',
   }));
   const existingManifest = isFile(manifest) ? JSON.parse(safeRead(manifest)) : null;

@@ -540,6 +540,8 @@ describe('managed steering migration', () => {
     const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
     expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
     expect(fs.existsSync(path.join(root, 'steering', 'manifest.json'))).toBe(true);
+    const migratedManifest = JSON.parse(fs.readFileSync(path.join(root, 'steering', 'manifest.json'), 'utf8'));
+    expect(migratedManifest.snippets.every((snippet) => !Object.hasOwn(snippet, 'byteBound'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'steering', 'tech.md'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'steering', 'structure.md'))).toBe(false);
@@ -557,7 +559,6 @@ describe('managed steering migration', () => {
         consumers: ['worker:implement'],
         slot: 'body',
         order: 600,
-        byteBound: 1024,
         content: 'Keep custom guidance.\n',
       }],
     }));
@@ -584,6 +585,7 @@ describe('managed steering migration', () => {
 
     const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     expect(updated.snippets.map(({ id }) => id)).toEqual(['project.custom', 'project.product']);
+    expect(updated.snippets.find(({ id }) => id === 'project.custom')).not.toHaveProperty('byteBound');
     expect(updated.extensions).toEqual(manifest.extensions);
     expect(updated.validations).toEqual(manifest.validations);
     expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-custom.md'), 'utf8')).toBe('Keep custom guidance.\n');

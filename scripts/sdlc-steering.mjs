@@ -65,7 +65,7 @@ export function createInitializePlan(projectRoot, { snippets = [], validations =
     modules.push({ id: role, role, path });
   }
   for (const snippet of snippets) actions.push({ op: "write", path: snippet.path, content: snippet.content });
-  const manifest = { schemaVersion: 1, runtimeVersion: "1", managedFiles, modules, snippets: snippets.map(({ content: _content, ...record }) => record), extensions: [], validations };
+  const manifest = { schemaVersion: 1, runtimeVersion: "1", managedFiles, modules, snippets: snippets.map(({ content: _content, byteBound: _byteBound, ...record }) => record), extensions: [], validations };
   actions.push({ op: "write", path: "steering/manifest.json", content: `${JSON.stringify(manifest, null, 2)}\n` });
   return { schemaVersion: 1, mode: "initialize", sourceDigest: steeringSourceDigest(projectRoot), actions };
 }

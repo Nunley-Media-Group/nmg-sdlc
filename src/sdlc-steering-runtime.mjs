@@ -134,11 +134,12 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
 
   const snippets = [];
   for (const record of manifest.snippets) {
-    exactKeys(record, ["id", "path", "consumers", "slot", "order", "byteBound"]);
-    addId("snippet", record.id);
-    const snippetPath = resolveSteeringPath(root, record.path, "snippets");
-    if (!Array.isArray(record.consumers) || !record.consumers.length || record.consumers.some((value) => !ALLOWED_CONSUMERS.includes(value)) || !ALLOWED_SLOTS.includes(record.slot) || !Number.isFinite(record.order) || !Number.isInteger(record.byteBound) || record.byteBound < 1) fail("steering_manifest_invalid");
-    snippets.push(Object.freeze({ ...record, absolutePath: snippetPath }));
+    const { byteBound: _byteBound, ...snippet } = record ?? {};
+    exactKeys(snippet, ["id", "path", "consumers", "slot", "order"]);
+    addId("snippet", snippet.id);
+    const snippetPath = resolveSteeringPath(root, snippet.path, "snippets");
+    if (!Array.isArray(snippet.consumers) || !snippet.consumers.length || snippet.consumers.some((value) => !ALLOWED_CONSUMERS.includes(value)) || !ALLOWED_SLOTS.includes(snippet.slot) || !Number.isFinite(snippet.order)) fail("steering_manifest_invalid");
+    snippets.push(Object.freeze({ ...snippet, absolutePath: snippetPath }));
   }
 
   const extensions = [];
@@ -186,7 +187,6 @@ export function projectPromptFragments(runtime) {
     consumers: record.consumers,
     slot: record.slot,
     order: record.order,
-    byteBound: record.byteBound,
     body: readFileSync(record.absolutePath, "utf8"),
   }));
 }

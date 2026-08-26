@@ -16,6 +16,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 - Issue #269 preserves unresolved controller examples in arbitrary extension context while strict plugin-owned controller materialization still fails closed.
 
+- Issue #271 removes project steering snippet byte caps while retaining explicit plugin catalog bounds and compatibility with legacy project manifests.
+
 ### Changed
 
 - Issue #269 synchronizes project steering with the current runtime and adds an always-required, read-only `/sdlc-status --json` smoke against `Nunley-Media-Group/nmg-sdlc-smoke`.
