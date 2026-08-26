@@ -1,0 +1,62 @@
+**Issue**: #269
+**Date**: 2026-08-25
+**Status**: Approved
+**Author**: NMG
+
+@issue-269 @bug @plugin-runtime
+Feature: Load project steering through Node inside compiled OMP
+  Project-aware nmg-sdlc commands must not treat the compiled extension host
+  as the Node interpreter for project steering controllers.
+
+  Scenario: Valid project steering loads under a compiled host
+    Given the extension host executable is not Node
+    And the project has a valid steering manifest
+    When the project prompt registry is built
+    Then the steering controller is launched with "node"
+    And the project prompt fragments are registered
+
+  Scenario: Draft issue includes project product guidance
+    Given the project has valid product steering for "sdlc-draft-issue"
+    And the current session is not already in plan mode
+    When the user invokes "/sdlc-draft-issue"
+    Then the rendered input begins with native "/plan"
+    And the rendered prompt includes the project product guidance
+    And no "project_runtime_invalid" error is raised
+
+  Scenario: Invalid project steering remains blocked
+    Given the project steering controller fails or returns an invalid payload
+    When a project-aware command is rendered
+    Then rendering fails with "project_runtime_invalid"
+    And plugin-only prompt rendering is not used as a fallback
+
+  Scenario: Packaged command works from a disposable project
+    Given a disposable project with a valid steering runtime
+    And the packaged nmg-sdlc extension is loaded by OMP
+    When "/sdlc-draft-issue" is entered through the actual OMP TUI
+    Then native plan mode opens without "project_runtime_invalid"
+    And no extension error is displayed
+
+  Scenario: Unknown controller example remains context data
+    Given runtime context contains "node <plugin-root>/scripts/missing.mjs"
+    When the extension materializes available controller paths
+    Then the unknown example remains unchanged
+    And no "controller unresolved" extension error is raised
+
+  Scenario: Direct missing controller resolution remains strict
+    Given a plugin-owned prompt names a packaged controller that does not exist
+    When strict controller paths are materialized
+    Then resolution fails with "controller_unresolved"
+
+  Scenario: Live consumer smoke passes on valid status output
+    Given the public nmg-sdlc smoke repository is available
+    And Git and OMP are available
+    When the required live smoke provider runs
+    Then it loads this checkout in the smoke project
+    And exercises "/sdlc-status --json" without mutating the smoke repository
+    And passes only when "nextAction.command" begins with "/sdlc-"
+
+  Scenario: Live consumer smoke cannot run
+    Given the smoke clone or OMP launch is unavailable
+    When the required live smoke provider runs
+    Then its effective status is incomplete
+    And the required validation is not skipped

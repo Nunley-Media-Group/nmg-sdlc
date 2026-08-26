@@ -9,7 +9,13 @@ This document defines repository organization, naming conventions, and architect
 ```text
 nmg-sdlc/
 ├── package.json                  # OMP plugin manifest (version + omp.extensions)
-├── src/extension.ts              # Extension factory
+├── src/
+│   ├── extension.ts              # Extension factory
+│   ├── sdlc-commands.mjs
+│   ├── sdlc-prompt-snippets.mjs
+│   ├── sdlc-steering-runtime.mjs
+│   ├── sdlc-verification-runtime.mjs
+│   └── sdlc-workflows.mjs
 ├── .github/
 │   ├── ISSUE_TEMPLATE/           # Canonical managed issue form
 │   └── workflows/                # Repository CI
@@ -19,12 +25,19 @@ nmg-sdlc/
 ├── scripts/                      # Contract validators, exercises, status CLI, and Jest tests
 ├── specs/                        # specs/{N}-{slug}/
 ├── steering/
+│   ├── manifest.json             # Registration authority
+│   ├── modules/                  # Plugin-managed descriptors
+│   ├── snippets/                 # Project-owned prompt fragments
+│   └── extensions/               # Project-owned validation providers
 ├── AGENTS.md
 ├── CHANGELOG.md
+├── CONTRIBUTING.md
 ├── README.md
 ├── VERSION
 └── LICENSE
 ```
+
+`steering/retrospective.md` and `steering/retrospective-state.json` are project-owned `/sdlc-run-retro` artifacts. They are not manifest-registered runtime files.
 
 ---
 
@@ -33,6 +46,9 @@ nmg-sdlc/
 ```text
 package.json + src/extension.ts
         │ declares OMP identity and /sdlc-* commands
+        ▼
+src/sdlc-*.mjs
+        │ shared runtime libraries used by scripts and the extension
         ▼
 workflows/*/WORKFLOW.md
         │ points on demand
@@ -54,6 +70,7 @@ scripts/
 |-------|------|-------------|
 | Plugin manifest | Declares identity, version, and `omp.extensions` | Define workflow logic |
 | Extension factory | Registers `/sdlc-*` commands, dispatches to plan/skill workers, appends run entries | Interview users or spawn Herdr workers |
+| Runtime libraries | Load steering, render prompts, run deterministic validations | Own lifecycle decisions that belong in workflows |
 | Workflow entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more workflows | Hold one-workflow-only details |
 | Per-workflow references | Hold variants, algorithms, and extended examples for one workflow | Become public command entrypoints |
@@ -148,7 +165,7 @@ The example version is illustrative. `VERSION` and the live `package.json` versi
 
 ### Workflow-Authoring Boundary
 
-Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must first resolve and read `skill://skill-creator`, then follow its editing procedure. A repository-local `skills/` directory is not required. The v3 landing of this repository edits files directly.
+Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must first resolve and read `skill://skill-creator`, then follow its editing procedure. A repository-local `skills/` directory is not required.
 
 ### Interactive-Gate Boundary
 
@@ -192,6 +209,7 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 | One-workflow detail | `workflows/{name}/references/` | Load only at the triggering branch |
 | Generated structure | `workflows/{name}/templates/` | Keep placeholders explicit and stack-agnostic |
 | Deterministic validation | `scripts/*.mjs` plus Jest coverage | Stable exit codes and diagnostics |
+| Project steering provider | `steering/extensions/*.mjs` | Frozen `extension` export; cannot change orchestration or safety contracts |
 | Installable worker | `agents/*.md` | OMP task agent with handoff contract |
 
 ---

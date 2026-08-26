@@ -55,7 +55,7 @@
       ],
       "slot": "body",
       "order": 500,
-      "byteBound": 9900
+      "byteBound": 10527
     },
     {
       "id": "project.tech",
@@ -68,7 +68,7 @@
       ],
       "slot": "body",
       "order": 500,
-      "byteBound": 16614
+      "byteBound": 17841
     },
     {
       "id": "project.structure",
@@ -80,10 +80,18 @@
       ],
       "slot": "body",
       "order": 500,
-      "byteBound": 8657
+      "byteBound": 9959
     }
   ],
-  "extensions": [],
+  "extensions": [
+    {
+      "id": "project.nmg-sdlc-smoke",
+      "path": "steering/extensions/nmg-sdlc-smoke.mjs",
+      "providers": [
+        "project.nmg-sdlc-smoke"
+      ]
+    }
+  ],
   "validations": [
     {
       "id": "repository.tests",
@@ -105,6 +113,16 @@
           "CI"
         ]
       }
+    },
+    {
+      "id": "repository.nmg-sdlc-smoke",
+      "provider": "project.nmg-sdlc-smoke",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "timeoutMs": 900000,
+      "config": {}
     }
   ]
 }

@@ -53,6 +53,7 @@ describe('extension sdlc- commands', () => {
         content: [{ type: 'text', text: 'node <plugin-root>/scripts/sdlc-status.mjs --project .' }],
       },
       { role: 'assistant', content: projectCommand },
+      { role: 'user', content: 'node <plugin-root>/scripts/missing.mjs' },
     ], packageRoot);
     const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
     const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
@@ -60,6 +61,7 @@ describe('extension sdlc- commands', () => {
     expect(interactive).not.toContain('<plugin-root>');
     expect(runtime[0].content[0].text).toBe(`node ${statusController} --project .`);
     expect(runtime[1].content).toBe(projectCommand);
+    expect(runtime[2].content).toBe('node <plugin-root>/scripts/missing.mjs');
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {

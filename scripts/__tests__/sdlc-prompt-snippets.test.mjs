@@ -118,6 +118,31 @@ describe('prompt snippet registry', () => {
     expect(rendered.text).not.toContain('{{pluginRoot}}');
   });
 
+  it('loads project snippets with Node when the extension host is not Node', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-compiled-host-'));
+    fs.cpSync(path.join(repoRoot, 'steering'), path.join(projectRoot, 'steering'), { recursive: true });
+    const manifestPath = path.join(projectRoot, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    for (const snippet of manifest.snippets) snippet.byteBound = 65536;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const originalExecPath = process.execPath;
+    process.execPath = path.join(os.tmpdir(), 'compiled-omp-host');
+    try {
+      const rendered = rewriteInteractiveInput('/sdlc-draft-issue repair runtime loading', {
+        source: 'interactive',
+        sessionMode: 'none',
+        root: repoRoot,
+        provenanceRoot: projectRoot,
+      });
+      expect(rendered.text).toMatch(/^\/plan\n/);
+      expect(rendered.text).toContain('# nmg-sdlc Product Steering');
+      expect(rendered.text).not.toContain('project_runtime_invalid');
+    } finally {
+      process.execPath = originalExecPath;
+    }
+  });
+
   it('renders repair commands from plugin prompts when project steering is invalid', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-invalid-steering-'));
     fs.mkdirSync(path.join(projectRoot, 'steering'), { recursive: true });
