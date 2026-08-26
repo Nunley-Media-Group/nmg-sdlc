@@ -1,4 +1,4 @@
-# Issue: #5
+**Issue**: #5
 Feature: Write Specification
   Create, approve, and publish one issue-owned BDD spec package from the default branch.
 

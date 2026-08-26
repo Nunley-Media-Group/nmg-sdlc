@@ -1,4 +1,4 @@
-# Issue: #21
+**Issue**: #21
 Feature: Project Upgrade Compatibility
   Preserve a strict migration alias while upgrades detect and propose current OMP contract repairs.
 

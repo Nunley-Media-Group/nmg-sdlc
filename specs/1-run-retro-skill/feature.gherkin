@@ -1,4 +1,4 @@
-# Issue: #1
+**Issue**: #1
 Feature: Run Retrospective
   Analyze new or changed defect specs incrementally and update steering/retrospective.md without changing delivery state.
 

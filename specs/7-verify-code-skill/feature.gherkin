@@ -1,4 +1,4 @@
-# Issue: #7
+**Issue**: #7
 Feature: Verify Code
   Verify the current implementation against its approved spec and emit durable delivery evidence.
 

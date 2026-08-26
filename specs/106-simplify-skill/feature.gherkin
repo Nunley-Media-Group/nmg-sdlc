@@ -1,4 +1,4 @@
-# Issue: #106
+**Issue**: #106
 Feature: Simplify Changed Code
   Apply worthwhile behavior-preserving cleanup to the changed implementation surface.
 
