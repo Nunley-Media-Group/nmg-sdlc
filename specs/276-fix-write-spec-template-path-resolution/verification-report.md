@@ -5,6 +5,10 @@
 **Status**: Passed
 **Spec**: specs/276-fix-write-spec-template-path-resolution/
 
+## Implementation Status: Pass
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":276,"specPath":"specs/276-fix-write-spec-template-path-resolution","status":"scoped","delivery":{"acceptanceCriteria":["AC1","AC2","AC3"],"functionalRequirements":["FR1","FR2","FR3","FR4"],"tasks":["T001","T002","T003"],"scenarios":["SCN001","SCN002","SCN003"]},"regression":{"acceptanceCriteria":["AC2"],"functionalRequirements":["FR3"],"scenarios":["SCN002"]}} -->
+
 ## Acceptance Results
 
 | Criterion | Result | Evidence |
