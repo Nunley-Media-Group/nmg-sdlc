@@ -173,7 +173,31 @@ async function invokeProvider(runtime, validation, request) {
     clearTimeout(timer);
   }
 }
-export function verificationCeiling(results) {
+export function validationResultCoverage(validations, results) {
+  const declaredIds = validations.map(({ id }) => id);
+  const declared = new Set(declaredIds);
+  const counts = new Map();
+  const unknown = [];
+  for (const { id } of results) {
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+    if (!declared.has(id) && !unknown.includes(id)) unknown.push(id);
+  }
+  const missing = declaredIds.filter((id) => !counts.has(id));
+  const duplicate = [...counts]
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id);
+  return {
+    declared: declaredIds.length,
+    recorded: results.length,
+    complete: missing.length === 0 && duplicate.length === 0 && unknown.length === 0,
+    missing,
+    duplicate,
+    unknown,
+  };
+}
+
+export function verificationCeiling(results, coverage = { complete: true }) {
+  if (!coverage.complete) return "Incomplete";
   const required = results.filter((result) => result.required && result.applicable);
   if (required.some((result) => result.effectiveStatus === "incomplete")) return "Incomplete";
   if (required.some((result) => result.effectiveStatus !== "passed")) return "Fail";
@@ -213,7 +237,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
       results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result });
     }
-    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), ceiling: verificationCeiling(results), changedPaths: paths, results };
+    const coverage = validationResultCoverage(runtime.validations, results);
+    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
     writeVerificationArtifact(root, issue, artifact);
     return artifact;
   } catch (error) {

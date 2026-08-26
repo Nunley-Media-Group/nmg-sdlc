@@ -22,7 +22,7 @@ export async function main(argv = process.argv.slice(2)) {
     specDir: resolve(options.project, options.spec),
     baseRef: options.base ?? "main",
   });
-  process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue, coverage: artifact.coverage ?? null }, null, 2)}\n`);
   if (artifact.ceiling) process.exitCode = 1;
 }
 

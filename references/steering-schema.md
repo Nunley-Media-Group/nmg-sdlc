@@ -36,7 +36,7 @@ Built-ins:
 - `builtin.artifact`: regular-file checks for nonempty, JSON, SHA-256, or contained text;
 - `builtin.external-evidence`: schema-valid identity-bound result envelope from an external deterministic harness.
 
-Every request and result binds to head SHA, clean/dirty tree identity, spec hash, steering hash, and validation-config hash. For an applicable required validation, only a schema-valid `passed` result with non-empty evidence satisfies the gate. Failure caps verification at `Fail`; missing, malformed, stale, crashed, timed-out, skipped, or not-applicable results cap it at `Incomplete`. Optional outcomes are recorded but do not cap status.
+Every request and result binds to head SHA, clean/dirty tree identity, spec hash, steering hash, and validation-config hash. Each successful artifact includes declaration/result `coverage`: declared and recorded counts, a completeness boolean, and deterministic missing, duplicate, and unknown id arrays. Zero declarations plus zero results is complete and does not impose a ceiling. Any missing, duplicate, or unknown result makes coverage incomplete and caps verification at `Incomplete`. When coverage is complete, only a schema-valid `passed` result with non-empty evidence satisfies an applicable required validation. Failure caps verification at `Fail`; malformed, stale, crashed, timed-out, skipped, or not-applicable required results cap it at `Incomplete`. Optional outcomes are recorded but do not cap status.
 
 ## Mutation
 

@@ -4,7 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
-import { evaluateCondition, runSteeringValidations, verificationCeiling } from '../../src/sdlc-verification-runtime.mjs';
+import { evaluateCondition, runSteeringValidations, validationResultCoverage, verificationCeiling } from '../../src/sdlc-verification-runtime.mjs';
+
+const VERIFY_SCRIPT = path.resolve('sdlc-verify-steering.mjs');
 
 function run(root, program, args) {
   const result = spawnSync(program, args, { cwd: root, encoding: 'utf8', shell: false });
@@ -27,7 +29,74 @@ function command(id, code, required = true, when = { kind: 'always' }) {
   return { id, provider: 'builtin.command', required, when, timeoutMs: 10000, config: { program: process.execPath, args: ['-e', code], cwd: '.', env: [] } };
 }
 
+
+describe('validation result coverage', () => {
+  it('treats zero declarations and zero results as complete', () => {
+    expect(validationResultCoverage([], [])).toEqual({
+      declared: 0,
+      recorded: 0,
+      complete: true,
+      missing: [],
+      duplicate: [],
+      unknown: [],
+    });
+  });
+
+  it('fails closed for missing, duplicate, and unknown result ids', () => {
+    const validations = [{ id: 'required.one' }, { id: 'required.two' }];
+    const results = [
+      { id: 'required.one' },
+      { id: 'required.one' },
+      { id: 'unknown.result' },
+    ];
+    const coverage = validationResultCoverage(validations, results);
+    expect(coverage).toEqual({
+      declared: 2,
+      recorded: 3,
+      complete: false,
+      missing: ['required.two'],
+      duplicate: ['required.one'],
+      unknown: ['unknown.result'],
+    });
+    expect(verificationCeiling([], coverage)).toBe('Incomplete');
+  });
+});
 describe('deterministic verification runtime', () => {
+  it('records complete coverage when the manifest declares no validations', async () => {
+    const root = await fixture([]);
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(artifact).toMatchObject({
+      ceiling: null,
+      coverage: {
+        declared: 0,
+        recorded: 0,
+        complete: true,
+        missing: [],
+        duplicate: [],
+        unknown: [],
+      },
+      results: [],
+    });
+    const cli = spawnSync(process.execPath, [
+      VERIFY_SCRIPT,
+      '--project', root,
+      '--issue', '42',
+      '--spec', 'specs/42-test',
+      '--base', 'HEAD',
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(cli.status).toBe(0);
+    expect(JSON.parse(cli.stdout)).toMatchObject({
+      ok: true,
+      ceiling: null,
+      issue: 42,
+      coverage: {
+        declared: 0,
+        recorded: 0,
+        complete: true,
+      },
+    });
+  });
+
   it('runs every applicable validation and writes identity-bound evidence', async () => {
     const root = await fixture([
       command('required.pass', 'process.stdout.write("ok")'),
@@ -36,6 +105,14 @@ describe('deterministic verification runtime', () => {
     ]);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
     expect(artifact.ceiling).toBeNull();
+    expect(artifact.coverage).toEqual({
+      declared: 3,
+      recorded: 3,
+      complete: true,
+      missing: [],
+      duplicate: [],
+      unknown: [],
+    });
     expect(artifact.results.map(({ effectiveStatus }) => effectiveStatus)).toEqual(['passed', 'passed', 'skipped']);
     expect(artifact.results[0].request.identity).toEqual(expect.objectContaining({ headSha: expect.stringMatching(/^[a-f0-9]{40}$/), treeState: 'clean', specHash: expect.stringMatching(/^sha256:/), steeringHash: expect.stringMatching(/^sha256:/), validationConfigHash: expect.stringMatching(/^sha256:/) }));
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'verification', '42.json'))).toBe(true);
@@ -134,6 +211,7 @@ describe('deterministic verification runtime', () => {
     const root = await fixture([command('changed.pass', 'process.exit(0)', true, { kind: 'changed_paths', include: ['src/**'] })]);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'missing-base-ref' });
     expect(artifact).toMatchObject({ ceiling: 'Incomplete', changedPaths: [], results: [] });
+    expect(artifact).not.toHaveProperty('coverage');
     expect(artifact.runtimeError.summary).toContain('missing-base-ref');
   });
 
@@ -146,6 +224,7 @@ describe('deterministic verification runtime', () => {
 
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
     expect(artifact).toMatchObject({ ceiling: 'Incomplete', results: [] });
+    expect(artifact).not.toHaveProperty('coverage');
     expect(JSON.parse(fs.readFileSync(artifactPath, 'utf8'))).not.toHaveProperty('stale');
   });
 
