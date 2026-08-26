@@ -1,0 +1,56 @@
+**Issue**: #284
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-284 @bug @delivery @check-provenance
+Feature: Resolve missing required-check event provenance
+  As a developer using exact-head delivery
+  I want aggregate required checks bound to authoritative Actions runs
+  So that valid pull-request checks pass without trusting unknown provenance
+
+  Scenario: Missing event resolves from an exact-head pull-request run
+    Given a successful required check has no event
+    And its link names an Actions run
+    And the run event is "pull_request" or "pull_request_target"
+    And the run head SHA equals the PR head
+    When delivery builds the PR snapshot
+    Then the check event is "pull_request"
+    And existing delivery classification may accept it
+
+  Scenario: Pull-request-target run is canonicalized
+    Given a successful required check has no event
+    And its Actions run event is "pull_request_target"
+    And the run head SHA equals the PR head
+    When delivery builds the PR snapshot
+    Then the check event is canonical "pull_request"
+    And existing delivery classification may accept it
+
+  Scenario Outline: Unsafe run evidence remains rejected
+    Given a required check has no event
+    And run resolution produces <condition>
+    When delivery classifies the check
+    Then it cannot satisfy pull-request provenance
+    And delivery does not merge
+
+    Examples:
+      | condition                  |
+      | a push event               |
+      | a merge_group event        |
+      | an empty event             |
+      | an unknown event           |
+      | a mismatched head SHA      |
+      | a malformed Actions link   |
+      | an unreadable run          |
+
+  Scenario: Explicit event is preserved
+    Given a required check already reports event "pull_request"
+    When delivery builds the PR snapshot
+    Then it performs no run lookup for that check
+    And preserves the explicit event
+
+  Scenario: Shared run lookup is cached
+    Given multiple missing-event checks link to the same Actions run
+    When delivery builds one PR snapshot
+    Then it resolves that run exactly once
+    And applies the exact-head event result consistently

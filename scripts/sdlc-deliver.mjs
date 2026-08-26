@@ -627,6 +627,34 @@ function normalizeCheck(check) {
   };
 }
 
+function actionsRunId(url) {
+  const match = String(url ?? '').match(/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/([1-9]\d+)(?:\/|$)/);
+  return match ? Number(match[1]) : null;
+}
+
+export function enrichMissingCheckEvents(checks, { headSha, resolveRun, cache = new Map() }) {
+  return checks.map((check) => {
+    if (String(check.event ?? '').trim()) return check;
+    const runId = actionsRunId(check.url);
+    if (!runId) return check;
+    if (!cache.has(runId)) {
+      try {
+        cache.set(runId, resolveRun(runId));
+      } catch {
+        cache.set(runId, null);
+      }
+    }
+    const resolved = cache.get(runId);
+    if (!resolved || typeof resolved.event !== 'string' || !resolved.event.trim()
+      || typeof resolved.headSha !== 'string'
+      || resolved.headSha.toLowerCase() !== String(headSha ?? '').toLowerCase()) return check;
+    const event = ['pull_request', 'pull_request_target'].includes(resolved.event.trim())
+      ? 'pull_request'
+      : resolved.event.trim();
+    return { ...check, event };
+  });
+}
+
 function threadComments(thread) {
   if (Array.isArray(thread.comments)) return thread.comments;
   if (Array.isArray(thread.comments?.nodes)) return thread.comments.nodes;
@@ -695,14 +723,24 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const checksResult = command(run, cwd, 'gh', [
     'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event',
   ], { allowFailure: true });
-  const checks = parseChecksResult(checksResult, 'gh pr checks --required');
+  const runEvidenceCache = new Map();
+  const resolveRun = (runId) => jsonCommand(run, cwd, 'gh', [
+    'run', 'view', String(runId), '--json', 'event,headSha',
+  ]).value;
+  const checks = enrichMissingCheckEvents(
+    parseChecksResult(checksResult, 'gh pr checks --required'),
+    { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
+  );
   let evidenceChecks = checks;
   const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
   if (declaredEvidence.some((item) => item.kind === 'check_run')) {
     const allChecksResult = command(run, cwd, 'gh', [
       'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
     ], { allowFailure: true });
-    evidenceChecks = parseChecksResult(allChecksResult, 'gh pr checks');
+    evidenceChecks = enrichMissingCheckEvents(
+      parseChecksResult(allChecksResult, 'gh pr checks'),
+      { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
+    );
   }
   const { value: issueData } = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']);
   const reviews = (pr.reviews ?? []).map((review, index) => ({

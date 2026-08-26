@@ -4,12 +4,79 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
+import { enrichMissingCheckEvents, parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
 import { validateHandoff } from '../sdlc-execute.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-deliver.mjs');
 const H1 = '1'.repeat(40);
 const H2 = '2'.repeat(40);
+
+describe('required check event enrichment', () => {
+  const headSha = 'a'.repeat(40);
+  const linked = (event = '') => ({
+    name: 'required aggregate',
+    event,
+    state: 'SUCCESS',
+    required: true,
+    url: 'https://github.com/example/project/actions/runs/12345/job/67890',
+  });
+
+  it.each(['pull_request', 'pull_request_target'])('canonicalizes exact-head %s Actions provenance', (event) => {
+    expect(enrichMissingCheckEvents([linked()], {
+      headSha,
+      resolveRun: () => ({ event, headSha }),
+    })[0].event).toBe('pull_request');
+  });
+
+  it.each(['push', 'merge_group'])('retains resolved non-PR event %s for fail-closed classification', (event) => {
+    expect(enrichMissingCheckEvents([linked()], {
+      headSha,
+      resolveRun: () => ({ event, headSha }),
+    })[0].event).toBe(event);
+  });
+
+  it.each([
+    ['', headSha],
+    ['pull_request', 'b'.repeat(40)],
+  ])('does not enrich unusable event/head evidence', (event, observedHead) => {
+    expect(enrichMissingCheckEvents([linked()], {
+      headSha,
+      resolveRun: () => ({ event, headSha: observedHead }),
+    })[0].event).toBe('');
+  });
+
+  it('preserves explicit events without resolving a run', () => {
+    let calls = 0;
+    const result = enrichMissingCheckEvents([linked('pull_request')], {
+      headSha,
+      resolveRun: () => { calls += 1; return { event: 'push', headSha }; },
+    });
+    expect(result[0].event).toBe('pull_request');
+    expect(calls).toBe(0);
+  });
+
+  it('rejects malformed links and caches shared run lookups', () => {
+    let calls = 0;
+    const checks = [
+      linked(),
+      { ...linked(), name: 'second aggregate' },
+      { ...linked(), name: 'malformed', url: 'https://example.test/actions/runs/12345' },
+    ];
+    const result = enrichMissingCheckEvents(checks, {
+      headSha,
+      resolveRun: () => { calls += 1; return { event: 'pull_request', headSha }; },
+    });
+    expect(result.map(({ event }) => event)).toEqual(['pull_request', 'pull_request', '']);
+    expect(calls).toBe(1);
+  });
+
+  it('keeps unreadable run evidence fail-closed', () => {
+    expect(enrichMissingCheckEvents([linked()], {
+      headSha,
+      resolveRun: () => { throw new Error('unavailable'); },
+    })[0].event).toBe('');
+  });
+});
 const SELF_REFERENTIAL_BREAKING_BODY = [
   '## User Story',
   '',
