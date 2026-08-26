@@ -104,26 +104,26 @@ describe("plugin controller path resolution", () => {
     }
   });
 
-  test("materializes portable and legacy dispatch with validated JSON-quoted paths", () => {
+  test("materializes explicit plugin dispatch and preserves project-local commands", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
     try {
       const root = disposablePackage(fixture, "plugin root");
-      for (const scriptName of ["a.mjs", "b.mjs", "c.mjs"]) {
+      for (const scriptName of ["a.mjs", "c.mjs"]) {
         fs.writeFileSync(path.join(root, "scripts", scriptName), "");
       }
+      const projectCommand = "node scripts/check-gate.mjs two";
       const output = materializeControllerPaths(
         [
           "node <plugin-root>/scripts/a.mjs one",
-          "node scripts/b.mjs two",
+          projectCommand,
           '["node","<plugin-root>/scripts/c.mjs","apply"]',
         ].join("\n"),
         root,
       );
       expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
-      expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "b.mjs"))} two`);
+      expect(output).toContain(projectCommand);
       expect(output).toContain(`["node",${JSON.stringify(path.join(root, "scripts", "c.mjs"))},"apply"]`);
       expect(output).not.toContain("<plugin-root>");
-      expect(output).not.toContain("node scripts/");
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }

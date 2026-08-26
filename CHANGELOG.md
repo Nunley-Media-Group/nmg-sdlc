@@ -10,6 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.16.1] - 2026-08-25
+
+### Fixed
+
+- Issue #266 limits installed controller-path materialization to explicit `<plugin-root>` placeholders, preserving project-local commands in runtime context while retaining fail-closed packaged-controller validation.
+
+
 ## [3.16.0] - 2026-08-25
 
 ### Changed

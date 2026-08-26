@@ -46,17 +46,20 @@ describe('extension sdlc- commands', () => {
       materializeControllerPaths(workflowBody('upgrade-project'), packageRoot),
       '#252',
     )}`;
+    const projectCommand = 'node scripts/check-gate.mjs';
     const runtime = materializeRuntimeMessages([
       {
         role: 'user',
         content: [{ type: 'text', text: 'node <plugin-root>/scripts/sdlc-status.mjs --project .' }],
       },
+      { role: 'assistant', content: projectCommand },
     ], packageRoot);
     const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
     const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
     expect(interactive).toContain(`["node",${upgradeController},"apply"`);
     expect(interactive).not.toContain('<plugin-root>');
     expect(runtime[0].content[0].text).toBe(`node ${statusController} --project .`);
+    expect(runtime[1].content).toBe(projectCommand);
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
