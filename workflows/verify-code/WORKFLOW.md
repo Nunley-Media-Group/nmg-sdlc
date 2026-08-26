@@ -71,14 +71,14 @@ Then:
 gh issue comment N --body "$(cat specs/N-SLUG/verification-report.md | head -c 20000)"
 ```
 
-## Decide Handoff Status
+## Finalize Verification
 
-Determine overall:
-- If "Pass" or "PR Evidence Pending" in the report status: status="passed", intervention=false, next="deliver"
-- Else: status="failed", intervention=true, next=null or "implement" if re-work
+The controller owns report publication and the verify handoff. Never write handoff JSON, commit, or push directly.
 
-Write handoff .omp/sdlc/handoffs/N-verify.json with the decided values, summary of key findings, artifacts:["specs/N-SLUG/verification-report.md"]
+Run:
 
-Print NMG_SDLC_HANDOFF: ...
+```bash
+node "<plugin-root>/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG
+```
 
-Report to stdout the status and next step using /sdlc-open-pr #N on success path.
+Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Controller failure remains an intervention and never advances to delivery.
