@@ -35,15 +35,16 @@
 
 **Covers**: AC1, AC2, AC3, AC4
 
-## T003: Force deterministic pinned bootstrap reinstall
+## T003: Avoid same-ref bootstrap reinstall
 
-**File(s)**: `/Volumes/Fast Brick/source/repos/nmg-pi/src/bootstrap-plan.ts`
+**File(s)**: `/Volumes/Fast Brick/source/repos/nmg-pi/src/bootstrap-plan.ts`, `/Volumes/Fast Brick/source/repos/nmg-pi/scripts/bootstrap.mjs`
 **Type**: Modify in companion repository
 **Depends**: none
 
 **Acceptance**:
 
-- Add OMP's `--force` option to the pinned nmg-sdlc install plan.
+- Skip nmg-sdlc installation when OMP's configured official Git revision matches remote `HEAD`.
+- Use OMP's `--force` replacement path for a changed or unreadable revision.
 - Leave local-link and nmg-pi install plans unchanged.
 
 **Covers**: AC5
@@ -56,7 +57,8 @@
 
 **Acceptance**:
 
-- Exact expected nmg-sdlc command arrays include `--force`.
+- Exact configured/remote revisions produce no install command.
+- Changed revisions include `--force`, including OMP's canonical GitHub source form.
 - Coverage proves unrelated install plans do not gain the option.
 
 **Covers**: AC5

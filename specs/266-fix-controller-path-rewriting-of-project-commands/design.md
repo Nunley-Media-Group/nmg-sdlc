@@ -14,7 +14,7 @@ Narrow `materializeControllerPaths` to the explicit ownership token introduced b
 
 No new resolver, fallback, or compatibility alias is introduced. All current nmg-sdlc command and workflow dispatch surfaces already use `<plugin-root>`, and the existing surface audit prevents a regression to cwd-relative plugin dispatch.
 
-The separate nmg-pi bootstrap fix adds `--force` to its deterministic pinned nmg-sdlc install plan. OMP 18 documents and implements that path for replacing an existing pinned Git source without Bun's dependency-loop failure.
+The separate nmg-pi bootstrap fix reads OMP's plugin manifest and compares the configured official Git source revision with remote `HEAD`. Exact matches skip the installer, avoiding Bun's same-source dependency loop; changed revisions use OMP's `--force` replacement path.
 
 ## Steering Alignment
 
@@ -43,13 +43,13 @@ Remove the second replacement pass that matches `node scripts/*.mjs`. Keep the q
 
 Replace the legacy-dispatch expectation with a project-command preservation assertion. Keep coverage for shell placeholders, quoted argv placeholders, spaces in plugin paths, and missing explicit controllers.
 
-### nmg-pi `src/bootstrap-plan.ts`
+### nmg-pi `src/bootstrap-plan.ts` and `scripts/bootstrap.mjs`
 
-Add `--force` to only `planOmpSdlcEnsure`. Do not alter nmg-pi's own plugin install plan or local-link behavior.
+Recognize OMP's canonical `github:owner/repo#sha` form for the configured SSH source. `planOmpSdlcEnsure` returns no command when that full revision matches remote `HEAD`; bootstrap prints the skip. Different or unreadable revisions retain `--force` installation. Do not alter nmg-pi's own plugin install plan or local-link behavior.
 
 ### nmg-pi `test/bootstrap-plan.test.ts`
 
-Update exact command-plan expectations and assert the nmg-sdlc plan carries `--force` while the unrelated nmg-pi plan does not inherit the change.
+Cover canonical-source exact matches, same-ref no-op planning, changed-ref forced replacement, and unchanged unrelated nmg-pi planning.
 
 ## Failure Behavior
 
@@ -58,7 +58,7 @@ An explicit plugin placeholder for a missing packaged controller still throws `c
 ## Verification
 
 - Focused Jest coverage for `plugin-controller-path.test.mjs` and `extension-commands.test.mjs`.
-- Installed-topology smoke through OMP plugin force install followed by extension loading from a disposable consumer project.
+- Live current-manifest/current-remote-HEAD planning proof returns no install command, plus focused nmg-pi bootstrap-plan coverage.
 - Focused nmg-pi bootstrap-plan test.
 - Each repository's full required verification before PR delivery.
 

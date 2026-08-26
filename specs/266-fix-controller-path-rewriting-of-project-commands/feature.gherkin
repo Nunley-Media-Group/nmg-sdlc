@@ -35,9 +35,9 @@ Feature: Materialize only explicitly owned plugin controller paths
     Then context processing completes without a controller resolution error
     And the project command remains unchanged
 
-  Scenario: Bootstrap replaces an existing pinned Git plugin
-    Given nmg-pi bootstrap plans the remote nmg-sdlc commit installation
-    And an nmg-sdlc Git dependency is already installed
-    When the install plan is executed by OMP 18
-    Then the plugin install command includes "--force"
-    And the supported force-reinstall path avoids Bun's unchanged-source dependency loop
+  Scenario: Bootstrap skips an unchanged pinned Git plugin
+    Given nmg-pi bootstrap resolves the remote nmg-sdlc HEAD
+    And OMP's configured nmg-sdlc Git dependency has that exact revision
+    When bootstrap plans the install
+    Then no plugin install command is executed
+    And a different configured revision still uses the forced replacement path

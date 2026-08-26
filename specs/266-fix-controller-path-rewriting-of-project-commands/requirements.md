@@ -52,12 +52,12 @@ The clean contract is explicit ownership: nmg-sdlc controller dispatch uses `<pl
 **When** the installed extension processes runtime messages
 **Then** extension loading and context materialization do not throw because those project scripts are absent from the plugin package
 
-### AC5: Bootstrap may reinstall an existing pinned source
+### AC5: Bootstrap avoids same-ref dependency loops
 
-**Given** bootstrap installs the remote nmg-sdlc commit over an existing Git plugin entry
-**When** it invokes OMP 18's plugin installer
-**Then** the invocation uses the supported force-reinstall path
-**And** Bun does not reject the unchanged Git source as a dependency loop
+**Given** the configured nmg-sdlc Git dependency already matches remote `HEAD`
+**When** bootstrap plans the pinned plugin install
+**Then** it skips the redundant installer invocation
+**And** a changed revision still uses OMP's supported force-reinstall path
 
 ---
 
@@ -69,6 +69,7 @@ The clean contract is explicit ownership: nmg-sdlc controller dispatch uses `<pl
 | FR2 | Preserve project-local `node scripts/*.mjs` text byte-for-byte. | Must |
 | FR3 | Keep explicit missing-controller validation and installed delivery-controller preflight. | Must |
 | FR4 | Cover both explicit plugin placeholders and unqualified project commands in regression tests. | Must |
+| FR5 | Compare the configured official Git source revision with remote `HEAD`; skip exact matches and force only changed revisions. | Must |
 
 ## Out of Scope
 
