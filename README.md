@@ -179,7 +179,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 
 ## Verification Gates
 
-Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation, records identity-bound results in `.omp/sdlc/verification/<issue>.json`, and forbids successful status when a required gate fails or is incomplete.
+Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation and records identity-bound results plus exact declaration/result coverage in `.omp/sdlc/verification/<issue>.json`. A project with zero declared validations has complete zero-result coverage; declared results that are missing, duplicated, unknown, failed, or incomplete forbid successful status under the applicable ceiling rules.
 
 ## Commands
 

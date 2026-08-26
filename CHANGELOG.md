@@ -8,7 +8,11 @@ This project uses semantic versioning with a deliberate convention: **bug fixes 
 
 Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
-## [Unreleased]
+## [3.17.6] - 2026-08-26
+
+### Fixed
+
+- Issue #280 distinguishes complete zero-validation steering artifacts from missing, duplicate, or unknown declared results without weakening fail-closed verification.
 
 ## [3.17.5] - 2026-08-26
 

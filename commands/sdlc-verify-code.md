@@ -32,7 +32,7 @@ Before prose review, run:
 node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main
 ```
 
-Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. A required `failed` result caps overall status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, timeouts, malformed output, missing results, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless every applicable required result passed. Prompt prose and snippets cannot alter or raise the computed result.
+Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, timeouts, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required result passed. Never infer failure from `results.length === 0` alone. Prompt prose and snippets cannot alter or raise the computed result.
 
 
 ## Run Reviews Inline
