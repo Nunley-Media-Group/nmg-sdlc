@@ -678,19 +678,25 @@ function repositoryDefaultBranch(cwd, run) {
   return commandSucceeded(result) ? String(result.stdout || '').trim() : '';
 }
 
-function reviewBranchSelectionKeys(cwd, run) {
+function reviewBranchSelection(cwd, run) {
   const defaultBranch = repositoryDefaultBranch(cwd, run);
   if (!defaultBranch) return null;
   const branches = run('git', ['branch', '-a', '--format=%(refname:short)'], { cwd });
   if (!commandSucceeded(branches)) return null;
-  const names = String(branches.stdout || '').split('\n').filter(Boolean);
-  const defaultIndex = names.indexOf(defaultBranch);
-  if (defaultIndex < 0) return null;
-  return {
-    defaultBranch,
-    branchNames: names,
-    keys: [...Array.from({ length: defaultIndex }, () => 'down'), 'enter'],
-  };
+  const branchNames = String(branches.stdout || '').split('\n').filter(Boolean);
+  if (!branchNames.includes(defaultBranch)) return null;
+  return { defaultBranch, branchNames };
+}
+
+function branchNavigationKeys(branchNames, selectedBranch, defaultBranch) {
+  const selectedIndex = branchNames.indexOf(selectedBranch);
+  const defaultIndex = branchNames.indexOf(defaultBranch);
+  if (selectedIndex < 0 || defaultIndex < 0) return null;
+  const direction = defaultIndex < selectedIndex ? 'up' : 'down';
+  return [
+    ...Array.from({ length: Math.abs(defaultIndex - selectedIndex) }, () => direction),
+    'enter',
+  ];
 }
 
 function agentDetectionText(herdr, name) {
@@ -750,84 +756,98 @@ function isPlausibleBranchName(name) {
     && !/[~^:?*[\]\\\x00-\x20\x7f]/.test(name);
 }
 
-function isCompleteUnnumberedReviewBranchPicker(text, defaultBranch) {
-  if (!defaultBranch) return false;
+function completeUnnumberedReviewBranchSelection(text, defaultBranch) {
+  if (!defaultBranch) return null;
   const lines = String(text).split('\n').map(pickerLineContent);
   const titleRows = lines
     .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
     .filter((index) => index >= 0);
-  if (titleRows.length !== 1) return false;
+  if (titleRows.length !== 1) return null;
   const titleIndex = titleRows[0];
   const navigationIndex = lines.findIndex(
     (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
   );
-  if (navigationIndex < 0) return false;
+  if (navigationIndex < 0) return null;
 
   const options = [];
   for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
     if (!line) continue;
     const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
     const name = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
-    if (!name || !isPlausibleBranchName(name)) return false;
+    if (!name || !isPlausibleBranchName(name)) return null;
     options.push({ name, cursor: Boolean(cursorMatch) });
   }
-  if (options.length < 2 || options.filter(({ cursor }) => cursor).length !== 1) return false;
-  return options.filter(({ name }) => name === defaultBranch).length === 1;
+  if (options.length < 2 || options.filter(({ cursor }) => cursor).length !== 1) return null;
+  if (options.filter(({ name }) => name === defaultBranch).length !== 1) return null;
+  return options.find(({ cursor }) => cursor).name;
 }
 
-function isCompleteWrappedReviewBranchPicker(text, defaultBranch, branchNames) {
-  if (!defaultBranch || !Array.isArray(branchNames) || branchNames.length < 2) return false;
+function wrappedReviewBranchSelection(text, defaultBranch, branchNames) {
+  if (!defaultBranch || !Array.isArray(branchNames) || branchNames.length < 2) return null;
   const lines = String(text).split('\n').map(pickerLineContent);
   const titleRows = lines
     .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
     .filter((index) => index >= 0);
-  if (titleRows.length !== 1) return false;
+  if (titleRows.length !== 1) return null;
   const titleIndex = titleRows[0];
   const navigationIndex = lines.findIndex(
     (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
   );
-  if (navigationIndex < 0) return false;
+  if (navigationIndex < 0) return null;
 
   const fragments = [];
   let pendingCursor = false;
   for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
-    if (!line) continue;
+    if (!line || /^\(\d+\/\d+\)\s+Type to search$/.test(line)) continue;
     if (/^[>›❯]$/.test(line)) {
-      if (pendingCursor) return false;
+      if (pendingCursor) return null;
       pendingCursor = true;
       continue;
     }
     const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
     const value = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
-    if (!value) return false;
+    if (!value) return null;
     fragments.push({ value, cursor: pendingCursor || Boolean(cursorMatch) });
     pendingCursor = false;
   }
-  if (pendingCursor) return false;
+  if (pendingCursor) return null;
 
-  const options = [];
-  let fragmentIndex = 0;
-  for (const name of branchNames) {
-    let value = '';
-    let cursor = false;
-    while (fragmentIndex < fragments.length) {
-      const fragment = fragments[fragmentIndex];
-      const combined = `${value}${fragment.value}`;
-      if (!name.startsWith(combined)) break;
-      if (fragment.cursor) {
-        if (value || cursor) return false;
-        cursor = true;
+  const candidates = [];
+  for (let startIndex = 0; startIndex < branchNames.length; startIndex += 1) {
+    const options = [];
+    let fragmentIndex = 0;
+    for (const name of branchNames.slice(startIndex)) {
+      let value = '';
+      let cursor = false;
+      while (fragmentIndex < fragments.length) {
+        const fragment = fragments[fragmentIndex];
+        const combined = `${value}${fragment.value}`;
+        if (!name.startsWith(combined)) break;
+        if (fragment.cursor) {
+          if (value || cursor) {
+            fragmentIndex = -1;
+            break;
+          }
+          cursor = true;
+        }
+        value = combined;
+        fragmentIndex += 1;
+        if (value === name) break;
       }
-      value = combined;
-      fragmentIndex += 1;
-      if (value === name) break;
+      if (fragmentIndex < 0 || value !== name) break;
+      options.push({ name, cursor });
+      if (fragmentIndex === fragments.length) break;
     }
-    if (value !== name) return false;
-    options.push({ name, cursor });
+    if (
+      fragmentIndex === fragments.length
+      && options.length >= 2
+      && options.filter(({ cursor }) => cursor).length === 1
+    ) {
+      candidates.push(options);
+    }
   }
-  if (fragmentIndex !== fragments.length) return false;
-  if (options.filter(({ cursor }) => cursor).length !== 1) return false;
-  return options.filter(({ name }) => name === defaultBranch).length === 1;
+  if (candidates.length !== 1) return null;
+  return candidates[0].find(({ cursor }) => cursor).name;
 }
 
 
@@ -838,16 +858,24 @@ function isCompleteReviewBranchPicker(text) {
     && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
 }
 
-function isReviewBranchPicker(text, defaultBranch, branchNames = []) {
-  if (!defaultBranch) return false;
-  if (isCompleteUnnumberedReviewBranchPicker(text, defaultBranch)) return true;
-  if (isCompleteWrappedReviewBranchPicker(text, defaultBranch, branchNames)) return true;
-  if (!isCompleteReviewBranchPicker(text)) return false;
+function reviewBranchPickerSelection(text, defaultBranch, branchNames = []) {
+  if (!defaultBranch) return null;
+  const unnumberedSelection = completeUnnumberedReviewBranchSelection(text, defaultBranch);
+  if (unnumberedSelection) return unnumberedSelection;
+  const wrappedSelection = wrappedReviewBranchSelection(text, defaultBranch, branchNames);
+  if (wrappedSelection) return wrappedSelection;
+  if (!isCompleteReviewBranchPicker(text)) return null;
   const branchOption = new RegExp(
     `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
     'gm',
   );
-  return [...text.matchAll(branchOption)].length === 1;
+  if ([...text.matchAll(branchOption)].length !== 1) return null;
+  const selectedOption = String(text).match(/^\s*[>›❯]\s*\d+\.\s+(\S.*)$/m)?.[1]?.trim();
+  return selectedOption || branchNames[0] || null;
+}
+
+function isReviewBranchPicker(text, defaultBranch, branchNames = []) {
+  return reviewBranchPickerSelection(text, defaultBranch, branchNames) !== null;
 }
 
 function interactiveReviewState(text, defaultBranch, branchNames = [], allowComposer = false) {
@@ -866,13 +894,9 @@ function observeInteractiveReviewState(
   attempts = 50,
 ) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const state = interactiveReviewState(
-      agentDetectionText(herdr, name),
-      defaultBranch,
-      branchNames,
-      allowComposer,
-    );
-    if (state) return state;
+    const text = agentDetectionText(herdr, name);
+    const state = interactiveReviewState(text, defaultBranch, branchNames, allowComposer);
+    if (state) return { state, text };
     if (attempt + 1 < attempts) herdr.observationPause?.();
   }
   return null;
@@ -884,52 +908,62 @@ function isInteractiveReviewPicker(text, defaultBranch, branchNames = []) {
 }
 
 function completeInteractiveReview(herdr, agentName, reviewSelection) {
-  const { defaultBranch, branchNames, keys: branchSelectionKeys } = reviewSelection;
-  let reviewState = interactiveReviewState(
-    agentDetectionText(herdr, agentName),
-    defaultBranch,
-    branchNames,
-  );
+  const { defaultBranch, branchNames } = reviewSelection;
+  let reviewText = agentDetectionText(herdr, agentName);
+  let reviewState = interactiveReviewState(reviewText, defaultBranch, branchNames);
   if (!reviewState) {
-    reviewState = observeInteractiveReviewState(
+    const observation = observeInteractiveReviewState(
       herdr,
       agentName,
       defaultBranch,
       branchNames,
     );
+    reviewState = observation?.state ?? null;
+    reviewText = observation?.text ?? '';
   }
   if (!reviewState) {
     herdr.agentPrompt({ name: agentName, prompt: '/review' });
-    reviewState = observeInteractiveReviewState(
+    const observation = observeInteractiveReviewState(
       herdr,
       agentName,
       defaultBranch,
       branchNames,
       true,
     );
+    reviewState = observation?.state ?? null;
+    reviewText = observation?.text ?? '';
     if (reviewState === 'composer') {
       if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
         return false;
       }
-      reviewState = observeInteractiveReviewState(
+      const nextObservation = observeInteractiveReviewState(
         herdr,
         agentName,
         defaultBranch,
         branchNames,
       );
+      reviewState = nextObservation?.state ?? null;
+      reviewText = nextObservation?.text ?? '';
     }
   }
   if (reviewState === 'mode') {
     if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
       return false;
     }
-    reviewState = observeAgentScreen(
+    const observation = observeInteractiveReviewState(
       herdr,
       agentName,
-      (text) => isReviewBranchPicker(text, defaultBranch, branchNames),
-    ) ? 'branch' : null;
+      defaultBranch,
+      branchNames,
+    );
+    reviewState = observation?.state === 'branch' ? 'branch' : null;
+    reviewText = observation?.text ?? '';
   }
-  return reviewState === 'branch'
+  if (reviewState !== 'branch') return false;
+  const parsedSelection = reviewBranchPickerSelection(reviewText, defaultBranch, branchNames);
+  const selectedBranch = branchNames.includes(parsedSelection) ? parsedSelection : branchNames[0];
+  const branchSelectionKeys = branchNavigationKeys(branchNames, selectedBranch, defaultBranch);
+  return branchSelectionKeys !== null
     && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
     && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
     && commandSucceeded(herdr.agentWait({ name: agentName }));
@@ -1255,7 +1289,7 @@ export function runExecute({
         writeRun(runState, cwd);
 
         if (step === 'review1' || step === 'review2') {
-          const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+          const reviewSelection = reviewBranchSelection(cwd, run);
           if (
             !reviewSelection
             || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
@@ -1298,7 +1332,7 @@ export function runExecute({
       if (!existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
         if (remLive) {
           if (step === 'review1' || step === 'review2') {
-            const reviewSelection = reviewBranchSelectionKeys(cwd, run);
+            const reviewSelection = reviewBranchSelection(cwd, run);
             if (
               !reviewSelection
               || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
@@ -1566,7 +1600,7 @@ export function runExecute({
       if (!['idle', 'done'].includes(state)) {
         state = agentState(herdrApi.agentGet(agentName));
         const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
-          ? reviewBranchSelectionKeys(cwd, run)
+          ? reviewBranchSelection(cwd, run)
           : null;
         const retainedReviewText = !fs.existsSync(handoffPath) && reviewStep
           ? agentDetectionText(herdrApi, agentName)
@@ -1605,7 +1639,7 @@ export function runExecute({
           ? agentDetectionText(herdrApi, agentName)
           : '';
         const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
-          ? reviewBranchSelectionKeys(cwd, run)
+          ? reviewBranchSelection(cwd, run)
           : null;
         if (
           !fs.existsSync(handoffPath)
@@ -1773,7 +1807,7 @@ export function runExecute({
 
       let reviewSelection = null;
       if (step === 'review1' || step === 'review2') {
-        reviewSelection = reviewBranchSelectionKeys(cwd, run);
+        reviewSelection = reviewBranchSelection(cwd, run);
         if (!reviewSelection) {
           return stopResult({
             issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_failed',

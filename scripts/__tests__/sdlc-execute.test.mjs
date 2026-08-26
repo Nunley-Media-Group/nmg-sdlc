@@ -106,6 +106,43 @@ const WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER = [
   '│ up/down navigate  enter select  esc cancel    │',
   '╰───────────────────────────────────────────────╯',
 ].join('\n');
+const PAGINATED_REVIEW_BRANCHES = [
+  '274-fix-navigate-paginated-wrapped-review-branch-picker',
+  'feature/long-running-terminal-observation-support',
+  'bugfix/preserve-controller-owned-review-state',
+  'origin/274-fix-navigate-paginated-wrapped-review-branch-picker',
+  'origin/feature/long-running-terminal-observation-support',
+  'origin/bugfix/preserve-controller-owned-review-state',
+  'release/3.17',
+  'hotfix/review-worker-transition',
+  'main',
+  'origin/main',
+  'origin/release/3.17',
+  'origin/hotfix/review-worker-transition',
+  'archive/one',
+  'archive/two',
+  'archive/three',
+  'archive/four',
+  'archive/five',
+  'archive/six',
+];
+const PAGINATED_WRAPPED_REVIEW_BRANCH_PICKER = [
+  '╭─ Select base branch to compare against ───────╮',
+  '│                                              │',
+  '│  274-fix-navigate-paginated-                  │',
+  '│  wrapped-review-branch-picker                 │',
+  '│    feature/long-running-terminal-             │',
+  '│  observation-support                          │',
+  '│    bugfix/preserve-controller-owned-          │',
+  '│  review-state                                 │',
+  '│    origin/274-fix-navigate-paginated-         │',
+  '│  wrapped-review-branch-picker                 │',
+  '│    origin/feature/long-running-terminal-      │',
+  '│  observation-support                          │',
+  '│    (1/18) Type to search                      │',
+  '│ up/down navigate  enter select  esc cancel    │',
+  '╰───────────────────────────────────────────────╯',
+].join('\n');
 
 const UNNUMBERED_BRANCH_PICKER_NEGATIVES = [
   {
@@ -815,6 +852,7 @@ describe('runExecute controller', () => {
     titledReviewModePicker = TITLED_REVIEW_MODE_PICKER,
     titlelessReviewModePicker = LIVE_TITLELESS_REVIEW_MODE_PICKER,
     branchPickerScreens = null,
+    reviewBranches = ['42-ship-it', 'main', 'origin/42-ship-it', 'origin/main'],
     ambiguousReviewScreen = false,
     writeHandoffs = true,
     handoffContent = null,
@@ -929,7 +967,7 @@ describe('runExecute controller', () => {
         return { status: 0, stdout: `${branch}\n`, stderr: '' };
       }
       if (command === 'git' && args[0] === 'branch' && args[1] === '-a') {
-        return { status: 0, stdout: '42-ship-it\nmain\norigin/42-ship-it\norigin/main\n', stderr: '' };
+        return { status: 0, stdout: `${reviewBranches.join('\n')}\n`, stderr: '' };
       }
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
         return { status: 0, stdout: JSON.stringify({ title: 'Ship It' }), stderr: '' };
@@ -2169,6 +2207,51 @@ describe('runExecute controller', () => {
     expect(fixture.reviewMenuEvents).toContain('branch-keys:down,enter');
   });
 
+  it('selects off-screen main from a paginated wrapped branch picker', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      branchPickerScreens: [PAGINATED_WRAPPED_REVIEW_BRANCH_PICKER],
+      reviewBranches: PAGINATED_REVIEW_BRANCHES,
+    });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys).toContainEqual([
+      ...Array.from({ length: 8 }, () => 'down'),
+      'enter',
+    ]);
+  });
+
+  it('navigates upward when the current picker option follows main', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      reviewBranches: ['main', '42-ship-it'],
+      branchPickerScreens: [[
+        'Select base branch to compare against',
+        '1. main',
+        '> 2. 42-ship-it',
+        '(2/2) Type to search',
+        'up/down navigate  enter select  esc cancel',
+      ].join('\n')],
+    });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.sentKeys).toContainEqual(['up', 'enter']);
+  });
+
   it('rejects wrapped unnumbered rows that do not reconstruct known branches', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
@@ -2183,6 +2266,36 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.reviewMenuEvents).not.toContain('branch-keys:down,enter');
+  });
+
+  it('rejects wrapped fragments with multiple contiguous reconstructions', () => {
+    const fixture = makeControllerFixture({
+      reviewModeInitiallyVisible: true,
+      reviewBranches: ['a', 'bcd', 'ab', 'cd', 'main'],
+      branchPickerScreens: [[
+        'Select base branch to compare against',
+        '',
+        'a',
+        'b',
+        'c',
+        'd',
+        '(1/5) Type to search',
+        'up/down navigate  enter select  esc cancel',
+      ].join('\n')],
+    });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).not.toContainEqual([
+      ...Array.from({ length: 4 }, () => 'down'),
+      'enter',
+    ]);
   });
 
   it.each(UNNUMBERED_BRANCH_PICKER_NEGATIVES)(
@@ -2993,6 +3106,60 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(waitedBeforeSelection).toBe(false);
     expect(fixture.sentKeys).toContainEqual(['down', 'enter']);
+    expect(fixture.closed[0]).toBe('kept-review-pane');
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
+  });
+
+  it('accepts a paginated wrapped picker for a retained review', () => {
+    const fixture = makeControllerFixture({ reviewBranches: PAGINATED_REVIEW_BRANCHES });
+    writeRun({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review2',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
+      failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
+      startedAt: '2026-08-26T00:00:00.000Z',
+    }, fixture.cwd);
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review2',
+      pane_id: 'kept-review-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const expectedKeys = [
+      ...Array.from({ length: 8 }, () => 'down'),
+      'enter',
+    ];
+    let menu = 'branch';
+    let waitedBeforeSelection = false;
+    fixture.herdr.agentRead = () => menu === 'branch'
+      ? PAGINATED_WRAPPED_REVIEW_BRANCH_PICKER
+      : 'Review complete';
+    const sendKeys = fixture.herdr.agentSendKeys;
+    fixture.herdr.agentSendKeys = (input) => {
+      if (menu === 'branch' && input.keys.join(',') === expectedKeys.join(',')) menu = 'reviewing';
+      return sendKeys(input);
+    };
+    const waitAgent = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => {
+      if (input.name === 's42-review2' && input.until === 'working' && menu !== 'reviewing') {
+        waitedBeforeSelection = true;
+      }
+      return waitAgent(input);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(waitedBeforeSelection).toBe(false);
+    expect(fixture.sentKeys).toContainEqual(expectedKeys);
     expect(fixture.closed[0]).toBe('kept-review-pane');
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
   });
