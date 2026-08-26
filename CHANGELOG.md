@@ -8,6 +8,12 @@ This project uses semantic versioning with a deliberate convention: **bug fixes 
 
 Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
+## [3.17.8] - 2026-08-26
+
+### Fixed
+
+- Issue #284 resolves missing aggregate-check events from exact-head GitHub Actions runs and canonicalizes PR-scoped provenance without trusting empty fields.
+
 ## [3.17.7] - 2026-08-26
 
 ### Fixed

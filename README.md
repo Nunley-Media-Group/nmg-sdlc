@@ -179,7 +179,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 
 ## Verification Gates
 
-Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation and records identity-bound results plus exact declaration/result coverage in `.omp/sdlc/verification/<issue>.json`. A project with zero declared validations has complete zero-result coverage; declared results that are missing, duplicated, unknown, failed, or incomplete forbid successful status under the applicable ceiling rules. After a passing report is generated, the verification finalizer publishes only that report and proves a synchronized clean branch before writing the handoff that permits delivery.
+Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation and records identity-bound results plus exact declaration/result coverage in `.omp/sdlc/verification/<issue>.json`. A project with zero declared validations has complete zero-result coverage; declared results that are missing, duplicated, unknown, failed, or incomplete forbid successful status under the applicable ceiling rules. After a passing report is generated, the verification finalizer publishes only that report and proves a synchronized clean branch before writing the handoff that permits delivery. When GitHub omits an aggregate required-check event, delivery resolves the linked Actions run, requires the exact PR head, and canonicalizes only `pull_request` or `pull_request_target` as PR-scoped provenance; other events remain fail-closed.
 
 ## Commands
 

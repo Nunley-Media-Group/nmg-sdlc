@@ -18,7 +18,7 @@ Keep fail-closed classification in `pr-delivery-state.mjs`. Enrich check records
 2. Resolve each run id once per snapshot with `gh run view <id> --json event,headSha`.
 3. Require schema-valid non-empty event and 40-hex head SHA.
 4. Require run head SHA equals the fetched PR `headRefOid`.
-5. Set the check event to the resolved event; classification still accepts only exact `pull_request`.
+5. Canonicalize exact-head `pull_request` and `pull_request_target` run events to the existing `pull_request` check identity; preserve other resolved events so classification rejects them. `pull_request_target` is accepted only with the same exact PR-head equality required for `pull_request`, preventing base-head or unrelated-run substitution.
 6. On any failure, retain the empty event so existing classification rejects it.
 
 ## Affected Paths
@@ -32,10 +32,11 @@ Keep fail-closed classification in `pr-delivery-state.mjs`. Enrich check records
 - Focused delivery controller tests.
 - Full scripts suite and plugin compatibility.
 - Deterministic steering validation.
-- Live PR evidence proving an empty aggregate event resolves to an exact-head pull_request run.
+- Live PR evidence proving an empty aggregate event resolves from an exact-head `pull_request_target` run to canonical `pull_request` provenance.
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #284 | 2026-08-26 | Initial approved bug-fix design |
+| #284 | 2026-08-26 | Approved amendment: canonicalize exact-head `pull_request_target` provenance |

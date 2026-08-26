@@ -28,11 +28,11 @@
 **When** delivery fetches the PR snapshot
 **Then** it resolves that exact run
 **And** requires the run head SHA to equal the PR head
-**And** uses the run's exact event as check provenance
+**And** canonicalizes an exact `pull_request` or `pull_request_target` event to the existing `pull_request` check provenance
 
 ### AC2: Pull-request runs may pass
 
-**Given** the resolved run event is `pull_request`
+**Given** the resolved run event is `pull_request` or `pull_request_target`
 **And** the run head equals the PR head
 **When** delivery classifies the successful required check
 **Then** the check may satisfy the existing provenance gate
@@ -62,7 +62,7 @@
 |----|-------------|----------|
 | FR1 | Enrich only missing events from links matching the repository Actions-run URL shape. | Must |
 | FR2 | Fetch run `event` and `headSha` through argument-array GitHub CLI calls. | Must |
-| FR3 | Accept enrichment only for an exact PR-head match. | Must |
+| FR3 | Accept and canonicalize only `pull_request` or `pull_request_target` enrichment for an exact PR-head match. | Must |
 | FR4 | Leave malformed, unreadable, mismatched, or unsupported evidence fail-closed. | Must |
 | FR5 | Cache one run lookup per run id within a snapshot. | Must |
 | FR6 | Add stack-agnostic controller regressions. | Must |
@@ -78,4 +78,5 @@
 
 | Issue | Date | Summary |
 |-------|------|---------|
+| #284 | 2026-08-26 | Approved amendment: exact-head `pull_request_target` is PR-scoped evidence and canonicalizes to the existing identity |
 | #284 | 2026-08-26 | Initial approved bug-fix spec |

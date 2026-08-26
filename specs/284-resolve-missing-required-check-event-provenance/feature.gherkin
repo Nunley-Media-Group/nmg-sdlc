@@ -12,10 +12,18 @@ Feature: Resolve missing required-check event provenance
   Scenario: Missing event resolves from an exact-head pull-request run
     Given a successful required check has no event
     And its link names an Actions run
-    And the run event is "pull_request"
+    And the run event is "pull_request" or "pull_request_target"
     And the run head SHA equals the PR head
     When delivery builds the PR snapshot
     Then the check event is "pull_request"
+    And existing delivery classification may accept it
+
+  Scenario: Pull-request-target run is canonicalized
+    Given a successful required check has no event
+    And its Actions run event is "pull_request_target"
+    And the run head SHA equals the PR head
+    When delivery builds the PR snapshot
+    Then the check event is canonical "pull_request"
     And existing delivery classification may accept it
 
   Scenario Outline: Unsafe run evidence remains rejected
