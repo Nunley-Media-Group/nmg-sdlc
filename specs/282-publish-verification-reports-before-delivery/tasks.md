@@ -37,6 +37,15 @@
 - `node scripts/sdlc-verify-steering.mjs --project . --issue 282 --spec specs/282-publish-verification-reports-before-delivery --base main` — passed with complete 2/2 required validation coverage and no ceiling.
 
 
+## Changed-Path Evidence
+
+- Behavior for `scripts/sdlc-finalize-verification.mjs`: publishes only the active passing report, proves synchronization and cleanliness, and writes the verify handoff.
+- Behavior for `scripts/__tests__/sdlc-finalize-verification.test.mjs`: covers publication, idempotent no-op, unrelated dirt, unsafe reports, Git failures, missing upstream, and divergence.
+- Behavior for `workflows/verify-code/WORKFLOW.md`: delegates publication and handoff creation to the deterministic controller.
+- Behavior for `commands/sdlc-verify-code.md`: keeps the generated command surface synchronized with the workflow.
+- Behavior for `VERSION`: records patch release 3.17.7.
+- Behavior for `package.json`: publishes matching plugin version 3.17.7.
+
 ## Change History
 
 | Issue | Date | Summary |
