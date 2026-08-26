@@ -1,4 +1,4 @@
-# Issue: #2
+**Issue**: #2
 Feature: OMP Extension Surface
   Package nmg-sdlc as an Oh My Pi extension with native interactive commands and print-safe automated commands.
 

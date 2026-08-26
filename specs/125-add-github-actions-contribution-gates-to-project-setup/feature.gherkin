@@ -1,4 +1,4 @@
-# Issue: #125
+**Issue**: #125
 Feature: Contribution Evidence Gate
   Validate a connected issue, spec, steering, changed-path, and verification evidence graph with narrow documented exceptions.
 

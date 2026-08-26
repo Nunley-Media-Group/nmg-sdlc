@@ -1,4 +1,4 @@
-# Issue: #8
+**Issue**: #8
 Feature: Open and Merge Pull Request
   Deliver one verified issue through exact-head pull-request merge and issue closure.
 

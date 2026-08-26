@@ -61,6 +61,26 @@ The contribution gate validates issue/spec identity (using singular `**Issue**: 
 This repository's own CI (`.github/workflows/nmg-sdlc-verify.yml`) runs `cd scripts && npm test`, `node scripts/verify-plugin-surface.mjs --root . --label repository`, and `node scripts/verify-current-specs.mjs` on every pull request. Workflow-text drift is still gated by `.github/workflows/skill-inventory-audit.yml`.
 
 
+## Managed Steering
+
+Run `/sdlc-steering` from the project root when project context or verification policy changes:
+
+```text
+/sdlc-steering "update the supported runtime and deployment constraints"
+/sdlc-steering "register a required integration-test validation"
+```
+
+The command is interactive and TUI-only. It enters native `/plan`, inspects the current steering runtime, and proposes an exact `initialize`, `update`, or `migrate` plan. No live file changes occur until that plan is explicitly approved. Apply rejects a stale source digest, builds and validates the complete candidate runtime before replacing live files, and reports stable reason codes without making an unapproved retry.
+
+`steering/manifest.json` is the only registration authority:
+
+- `steering/modules/{product,tech,structure,verification}.mjs` are the four plugin-managed runtime descriptors.
+- `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, order, and byte bounds.
+- `steering/extensions/*.mjs` are explicitly trusted project providers.
+- `validations[]` registers deterministic required or optional gates and their closed applicability conditions.
+
+The command reads only registered module, snippet, and extension files. Unknown project-owned files are preserved and never loaded implicitly. `/sdlc-run-retro` separately maintains `steering/retrospective.md`; `/sdlc-steering` does not manage that file.
+
 ## Spec Context
 
 Project-root `specs/` contains the canonical current BDD contracts and active issue specs with genuine GitHub issue owners. Superseded or mismatched packages remain available in Git history instead of staying normative in the working tree. Rewrite-only behavior without an issue owner is documented in `references/rewrite-contract.{json,md}` with evidence in `references/rewrite-verification.md`, never assigned a synthetic `#N`. Workflows resolve the active issue spec first, then load only a bounded, relevant set of neighbors.

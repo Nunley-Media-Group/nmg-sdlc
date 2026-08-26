@@ -1,4 +1,4 @@
-# Issue: #151
+**Issue**: #151
 Feature: Remove the automated SDLC loop and unattended mode
   The 3.0 plugin uses explicit OMP and Herdr workflows without the retired runner.
 

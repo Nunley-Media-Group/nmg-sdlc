@@ -1,4 +1,4 @@
-# Issue: #145
+**Issue**: #145
 Feature: Lifecycle Status
   Report current SDLC lifecycle evidence and the exact next action without mutation.
 

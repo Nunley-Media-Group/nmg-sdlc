@@ -1,4 +1,4 @@
-# Issue: #86
+**Issue**: #86
 Feature: Address Pull Request Comments
   Resolve eligible automated review threads while preserving human ownership and exact-head safety.
 

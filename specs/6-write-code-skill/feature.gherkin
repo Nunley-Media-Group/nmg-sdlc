@@ -1,4 +1,4 @@
-# Issue: #6
+**Issue**: #6
 Feature: Write Code
   Implement an approved issue spec in task order and perform in-process behavior-preserving simplification.
 
