@@ -70,14 +70,14 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 
 ## Versioning
 
-`VERSION` is the single version source. Stack-specific files are synchronized during `open-pr`.
+`VERSION` is the single version source. Stack-specific files declared below are synchronized during `open-pr`.
 
 | File | Path | Notes |
 |------|------|-------|
 | `VERSION` | file text | Source of truth |
 | `package.json` | `version` | OMP plugin manifest version |
 
-Never pin a live version number in this snippet. `open-pr` keeps `VERSION` and `package.json` synchronized.
+Never pin a live version number in this snippet. `open-pr` keeps `VERSION` and every declared stack-specific mirror synchronized.
 
 ### Version Bump Classification
 
@@ -90,7 +90,7 @@ Default unmatched issues to minor. Never infer major. A leftover `spike` label i
 
 Approved major note used by `open-pr`: a line in the approved spec `requirements.md` or `design.md` matching `^\*\*Version bump\*\*:\s*major\s*$` (case-insensitive). If the issue title or body contains `BREAKING` and that line is absent, fail closed with `reasonCode: major_bump_required`. There is no `--major` CLI flag and no interactive version gate.
 
-`open-pr` reads this table, updates `VERSION`, `package.json` `version`, declared stack files, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
+`open-pr` reads this table, updates `VERSION`, each declared stack file at its configured field, and `CHANGELOG.md`, then includes all version artifacts in the delivery commit.
 
 The delivery stage continues through checks, review remediation, exact-head merge, and issue closure. A prepared or open PR is not a successful terminal state.
 

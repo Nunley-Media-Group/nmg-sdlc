@@ -250,11 +250,149 @@ function synchronizedDeliveryVersion(changelog, version, issue, title) {
   const release = changelog.slice(start, end < 0 ? changelog.length : end);
   return release.includes(`- ${title} (#${issue})`);
 }
-function versionedPaths(tech) {
-  return [...tech.matchAll(/^\|\s*`([^`]+)`\s*\|[^\n]*version/gim)].map((match) => match[1]);
+function versionedArtifacts(tech) {
+  const source = String(tech);
+  const heading = source.match(/^## Versioning\s*$/m);
+  if (!heading) return [];
+  const body = source.slice(heading.index + heading[0].length);
+  const nextHeading = body.search(/^#{2,3}\s/m);
+  const section = nextHeading < 0 ? body : body.slice(0, nextHeading);
+  const artifacts = [];
+  const seen = new Map();
+  for (const line of section.split('\n')) {
+    const row = line.match(/^\|\s*`([^`]+)`\s*\|\s*(?:`([^`]+)`|([^|]+?))\s*\|/);
+    if (!row) continue;
+    const relative = row[1].trim();
+    const field = (row[2] ?? row[3]).trim();
+    if (!relative || !field) throw new Error('technical steering has an invalid version artifact declaration');
+    if (seen.has(relative)) {
+      if (seen.get(relative) !== field) {
+        throw new Error(`technical steering declares conflicting fields for ${relative}`);
+      }
+      continue;
+    }
+    seen.set(relative, field);
+    artifacts.push({ relative, field });
+  }
+  return artifacts;
 }
 
-function hasSynchronizedDeliveryState({ run, cwd, issue, issueData, tech, changelog, version }) {
+function safeVersionArtifactPath(cwd, relative, fs = null) {
+  if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
+    throw new Error(`version artifact path escapes the repository: ${relative}`);
+  }
+  const absolute = path.resolve(cwd, relative);
+  const root = path.resolve(cwd);
+  if (absolute === root || !absolute.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`version artifact path escapes the repository: ${relative}`);
+  }
+  if (fs?.existsSync(absolute)) {
+    const realRoot = fs.realpathSync(root);
+    const realArtifact = fs.realpathSync(absolute);
+    if (realArtifact === realRoot || !realArtifact.startsWith(`${realRoot}${path.sep}`)) {
+      throw new Error(`version artifact path escapes the repository: ${relative}`);
+    }
+  }
+  return absolute;
+}
+
+function jsonVersionMirror(content, field, current, version, relative) {
+  const document = JSON.parse(content);
+  const keys = field.split('.').map((key) => key.trim()).filter(Boolean);
+  if (keys.length === 0 || keys.some((key) => ['__proto__', 'constructor', 'prototype'].includes(key))) {
+    throw new Error(`invalid JSON version field for ${relative}: ${field}`);
+  }
+  let owner = document;
+  for (const key of keys.slice(0, -1)) {
+    if (!owner || typeof owner !== 'object' || !Object.hasOwn(owner, key)) {
+      throw new Error(`declared version field is missing from ${relative}: ${field}`);
+    }
+    owner = owner[key];
+  }
+  const key = keys.at(-1);
+  if (!owner || typeof owner !== 'object' || !Object.hasOwn(owner, key)) {
+    throw new Error(`declared version field is missing from ${relative}: ${field}`);
+  }
+  if (owner[key] !== current) {
+    throw new Error(`declared version field is not synchronized in ${relative}: ${field}`);
+  }
+  owner[key] = version;
+  return `${JSON.stringify(document, null, 2)}\n`;
+}
+
+function regexEscape(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function tomlVersionMirror(content, field, current, version, relative) {
+  const parts = field.split('.').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) throw new Error(`invalid TOML version field for ${relative}: ${field}`);
+  const table = parts.slice(0, -1).join('.');
+  const key = parts.at(-1);
+  const assignment = new RegExp(`^(\\s*${regexEscape(key)}\\s*=\\s*)(["'])([^"']*)(["'])(\\s*(?:#.*)?)$`);
+  let activeTable = '';
+  const matches = [];
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (heading) {
+      activeTable = heading[1].trim();
+      continue;
+    }
+    if (activeTable !== table) continue;
+    const match = lines[index].match(assignment);
+    if (match && match[2] === match[4]) matches.push({ index, match });
+  }
+  if (matches.length !== 1) {
+    throw new Error(`declared TOML version field is ${matches.length ? 'ambiguous' : 'missing'} in ${relative}: ${field}`);
+  }
+  const [{ index, match }] = matches;
+  if (match[3] !== current) {
+    throw new Error(`declared version field is not synchronized in ${relative}: ${field}`);
+  }
+  lines[index] = `${match[1]}${match[2]}${version}${match[4]}${match[5]}`;
+  return lines.join('\n');
+}
+
+function textVersionMirror(content, field, current, version, relative) {
+  if (field.toLowerCase() === 'file text') {
+    if (content.trim() !== current) {
+      throw new Error(`declared version field is not synchronized in ${relative}: ${field}`);
+    }
+    return content.replace(current, version);
+  }
+  const lines = content.split('\n');
+  const matches = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.includes(field) && line.includes(current));
+  if (matches.length !== 1 || matches[0].line.split(current).length !== 2) {
+    throw new Error(`declared text version field is ${matches.length ? 'ambiguous' : 'missing'} in ${relative}: ${field}`);
+  }
+  lines[matches[0].index] = matches[0].line.replace(current, version);
+  return lines.join('\n');
+}
+
+function updatedVersionMirror(content, artifact, current, version) {
+  const extension = path.extname(artifact.relative).toLowerCase();
+  if (extension === '.json') {
+    return jsonVersionMirror(content, artifact.field, current, version, artifact.relative);
+  }
+  if (extension === '.toml') {
+    return tomlVersionMirror(content, artifact.field, current, version, artifact.relative);
+  }
+  return textVersionMirror(content, artifact.field, current, version, artifact.relative);
+}
+
+function deliveryVersionArtifacts(tech, cwd, fs) {
+  const declared = versionedArtifacts(tech);
+  for (const { relative } of declared) safeVersionArtifactPath(cwd, relative, fs);
+  return {
+    declared,
+    paths: [...new Set(['VERSION', 'CHANGELOG.md', ...declared.map(({ relative }) => relative)])],
+  };
+}
+
+function hasSynchronizedDeliveryState({ run, fs, cwd, issue, issueData, tech, changelog, version }) {
   if (!synchronizedDeliveryVersion(changelog, version, issue, issueData.title)) return false;
   const prefix = issueLabels(issueData).includes('bug') ? 'fix' : 'feat';
   const subject = `${prefix}: deliver issue #${issue}`;
@@ -267,23 +405,18 @@ function hasSynchronizedDeliveryState({ run, cwd, issue, issueData, tech, change
     'show', '--format=', '--name-only', '-z', commit, '--',
   ]);
   const committedPaths = new Set(String(changedResult.stdout || '').split('\0').filter(Boolean));
-  if (!['VERSION', 'package.json', 'CHANGELOG.md'].every((relative) => committedPaths.has(relative))) {
-    return false;
-  }
-  const paths = [...new Set(['VERSION', 'package.json', 'CHANGELOG.md', ...versionedPaths(tech)])];
+  const { paths } = deliveryVersionArtifacts(tech, cwd, fs);
+  if (!paths.every((relative) => committedPaths.has(relative))) return false;
   const diff = command(run, cwd, 'git', ['diff', '--quiet', commit, '--', ...paths], { allowFailure: true });
   if (diff.status > 1) throw new Error(`git could not verify delivery commit ${commit}`);
   return diff.status === 0;
 }
 
-
 function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now }) {
   const versionPath = path.join(cwd, 'VERSION');
-  const packagePath = path.join(cwd, 'package.json');
   const changelogPath = path.join(cwd, 'CHANGELOG.md');
   const current = fs.readFileSync(versionPath, 'utf8').trim();
-  const manifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-  if (manifest.version !== current) throw new Error('VERSION and package.json are not synchronized');
+  semver(current);
   const breaking = isBreakingDeclaration(issueData);
   if (breaking && !approvedMajor(spec)) {
     const error = new Error('major_bump_required');
@@ -292,33 +425,39 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   }
   const changelog = fs.readFileSync(changelogPath, 'utf8');
   if (hasSynchronizedDeliveryState({
-    run, cwd, issue, issueData, tech, changelog, version: current,
+    run, fs, cwd, issue, issueData, tech, changelog, version: current,
   })) return { version: current, changed: [] };
   const labels = issueLabels(issueData);
   const bump = breaking && approvedMajor(spec) ? 'major' : labels.includes('bug') ? 'patch' : 'minor';
   const version = bumpedVersion(current, bump);
-  const changed = ['VERSION', 'package.json', 'CHANGELOG.md'];
-  fs.writeFileSync(versionPath, `${version}\n`);
-  manifest.version = version;
-  fs.writeFileSync(packagePath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const { declared } = deliveryVersionArtifacts(tech, cwd, fs);
+  const mirrors = declared.filter(({ relative }) => !['VERSION', 'CHANGELOG.md'].includes(relative));
+  const updates = mirrors.map((artifact) => {
+    const absolute = safeVersionArtifactPath(cwd, artifact.relative, fs);
+    if (!fs.existsSync(absolute)) throw new Error(`declared version artifact is missing: ${artifact.relative}`);
+    const stat = fs.lstatSync(absolute);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`declared version artifact is not a regular file: ${artifact.relative}`);
+    }
+    const original = fs.readFileSync(absolute, 'utf8');
+    return {
+      ...artifact,
+      absolute,
+      content: updatedVersionMirror(original, artifact, current, version),
+    };
+  });
   const date = new Date(now()).toISOString().slice(0, 10);
-  fs.writeFileSync(
-    changelogPath,
-    updateChangelog(changelog, version, date, `${issueData.title} (#${issue})`, breaking),
+  const nextChangelog = updateChangelog(
+    changelog, version, date, `${issueData.title} (#${issue})`, breaking,
   );
 
-  const tablePaths = versionedPaths(tech);
-  for (const relative of tablePaths) {
-    if (changed.includes(relative) || !fs.existsSync(path.join(cwd, relative))) continue;
-    const absolute = path.join(cwd, relative);
-    const original = fs.readFileSync(absolute, 'utf8');
-    const replaced = original.replaceAll(current, version);
-    if (replaced !== original) {
-      fs.writeFileSync(absolute, replaced);
-      changed.push(relative);
-    }
-  }
-  return { version, changed };
+  fs.writeFileSync(versionPath, `${version}\n`);
+  for (const update of updates) fs.writeFileSync(update.absolute, update.content);
+  fs.writeFileSync(changelogPath, nextChangelog);
+  return {
+    version,
+    changed: [...new Set(['VERSION', 'CHANGELOG.md', ...mirrors.map(({ relative }) => relative)])],
+  };
 }
 
 function parsePorcelain(output) {
