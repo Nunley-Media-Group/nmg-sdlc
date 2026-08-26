@@ -33,6 +33,8 @@
 - `node scripts/sdlc-verify-steering.mjs --project . --issue 274 --spec specs/274-fix-navigate-paginated-wrapped-review-branch-picker --base main` — passed with `ceiling: null`, including the required read-only consumer smoke.
 - Behavior for `scripts/sdlc-execute.mjs`: recognized a five-option wrapped first page from 18 known branches, sent eight Down events plus Enter to off-screen `main`, and preserved fail-closed ambiguity handling.
 - Behavior for `scripts/__tests__/sdlc-execute.test.mjs`: covered fresh, retained, upward, malformed, and ambiguous picker transitions.
+- Behavior for `VERSION`: records the requested patch release as 3.17.2.
+- Behavior for `package.json`: publishes the matching package version 3.17.2.
 
 ## Steering Alignment
 
