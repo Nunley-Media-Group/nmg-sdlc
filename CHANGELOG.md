@@ -10,13 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.17.1] - 2026-08-26
+
 ### Fixed
 
 - Issue #269 launches project steering prompt-fragment loading through Node instead of the compiled OMP host executable, restoring project-aware interactive commands while preserving fail-closed runtime validation.
 
 - Issue #269 preserves unresolved controller examples in arbitrary extension context while strict plugin-owned controller materialization still fails closed.
 
-- Issue #271 removes project steering snippet byte caps while retaining explicit plugin catalog bounds and compatibility with legacy project manifests.
+- Issue #271 removes project steering snippet byte caps while retaining explicit plugin catalog bounds, compatibility with legacy project manifests, and existing invalid-record error classification.
 
 ### Changed
 

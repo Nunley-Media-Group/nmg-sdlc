@@ -134,7 +134,8 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
 
   const snippets = [];
   for (const record of manifest.snippets) {
-    const { byteBound: _byteBound, ...snippet } = record ?? {};
+    if (!record || typeof record !== "object" || Array.isArray(record)) fail("steering_manifest_invalid");
+    const { byteBound: _byteBound, ...snippet } = record;
     exactKeys(snippet, ["id", "path", "consumers", "slot", "order"]);
     addId("snippet", snippet.id);
     const snippetPath = resolveSteeringPath(root, snippet.path, "snippets");

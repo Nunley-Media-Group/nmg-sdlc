@@ -98,6 +98,9 @@ describe('managed steering runtime', () => {
 
   it.each([
     ['unknown key', (manifest) => { manifest.extra = true; }, 'steering_manifest_unknown_key'],
+    ['null snippet', (manifest) => { manifest.snippets[0] = null; }, 'steering_manifest_invalid'],
+    ['array snippet', (manifest) => { manifest.snippets[0] = []; }, 'steering_manifest_invalid'],
+    ['primitive snippet', (manifest) => { manifest.snippets[0] = 1; }, 'steering_manifest_invalid'],
     ['duplicate snippet id', (manifest) => { manifest.snippets.push({ ...manifest.snippets[0] }); }, 'steering_duplicate_id'],
     ['escaping snippet path', (manifest) => { manifest.snippets[0].path = '../outside.md'; }, 'steering_path_outside_root'],
     ['unresolved provider', (manifest) => { manifest.validations.push({ id: 'x', provider: 'project.missing', required: true, when: { kind: 'always' }, timeoutMs: 10, config: {} }); }, 'steering_provider_unresolved'],
