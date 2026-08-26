@@ -1,0 +1,42 @@
+**Issue**: #271
+**Date**: 2026-08-26
+**Status**: Approved
+**Author**: NMG
+
+@issue-271 @bug @steering-runtime
+Feature: Load project steering without snippet byte bounds
+  Project-owned steering guidance must be able to grow without blocking prompt
+  construction, while plugin catalog fragments retain explicit safety bounds.
+
+  Scenario: Worker start loads unbounded project snippets
+    Given this repository has registered project steering snippets
+    And a project snippet body exceeds its former byte bound
+    When the worker start prompt is constructed for issue 102
+    Then prompt construction returns a non-empty string
+    And no "byte_bound_exceeded" or "worker_prompt_failed" error is raised
+
+  Scenario: Project manifest snippets omit byteBound
+    Given a valid project steering manifest
+    When the steering runtime loads its snippet records
+    Then each normalized snippet contains "id", "path", "consumers", "slot", and "order"
+    And no normalized or repository snippet contains "byteBound"
+
+  Scenario: Legacy project byteBound is ignored
+    Given a project manifest snippet has "byteBound" 1
+    And its body is longer than 1 byte
+    When the project runtime and default prompt registry load it
+    Then loading and registration succeed
+    And the project prompt fragment has no "byteBound" property
+    And its consumer prompt renders the snippet body
+
+  Scenario: Plugin catalog bounds remain enforced
+    Given a plugin fragment has "byteBound" 1
+    And its body is longer than 1 byte
+    When the prompt registry registers the plugin fragment
+    Then registration fails with "byte_bound_exceeded"
+
+  Scenario: Initialize and migrate plans omit byteBound
+    Given project steering is initialized or detected for migration
+    When the candidate steering manifest is written
+    Then every snippet record omits "byteBound"
+    And each snippet retains its id, path, consumers, slot, and order

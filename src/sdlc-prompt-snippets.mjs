@@ -63,7 +63,6 @@ const REQUIRED_FRAGMENT_KEYS = [
   "consumers",
   "slot",
   "order",
-  "byteBound",
 ];
 const PLACEHOLDER_RE = /\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g;
 
@@ -84,7 +83,7 @@ function validateFragmentShape(fragment) {
   if (!Array.isArray(fragment.consumers) || fragment.consumers.length === 0) fail("unknown_key");
   if (Object.hasOwn(fragment, "body") && typeof fragment.body !== "string") fail("unknown_key");
   if (!Number.isFinite(fragment.order)) fail("unknown_key");
-  if (!Number.isInteger(fragment.byteBound) || fragment.byteBound <= 0) fail("unknown_key");
+  if (Object.hasOwn(fragment, "byteBound") && (!Number.isInteger(fragment.byteBound) || fragment.byteBound <= 0)) fail("unknown_key");
 }
 
 function loadFileBody(source, packageRoot) {
@@ -130,7 +129,7 @@ export function registerPromptSnippet(
     ? String(fragment.body ?? "")
     : loadFileBody(fragment.source, packageRoot);
   if (body.length === 0) fail("empty_body");
-  if (renderedPromptBytes(body) > fragment.byteBound) fail("byte_bound_exceeded");
+  if (Number.isInteger(fragment.byteBound) && renderedPromptBytes(body) > fragment.byteBound) fail("byte_bound_exceeded");
 
   registry.byId.set(fragment.id, Object.freeze({ ...fragment, body }));
   return registry;
@@ -158,7 +157,7 @@ export function renderPrompt(registry, { consumer, vars = {} } = {}) {
     if (PLACEHOLDER_RE.test(text)) fail("unknown_placeholder");
     PLACEHOLDER_RE.lastIndex = 0;
     const byteCount = renderedPromptBytes(text);
-    if (byteCount > fragment.byteBound) fail("byte_bound_exceeded");
+    if (Number.isInteger(fragment.byteBound) && byteCount > fragment.byteBound) fail("byte_bound_exceeded");
     provenanceFragments.push({
       id: fragment.id,
       provider: fragment.provider,
