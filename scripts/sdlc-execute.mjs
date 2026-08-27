@@ -460,7 +460,9 @@ export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
           && !hasRunIdentity(existing)
           && expectedRevision === 0
           && JSON.stringify(existing.issues) === JSON.stringify(runData.issues)
-          && (!Object.hasOwn(existing, 'currentIssue') || existing.currentIssue === runData.currentIssue);
+          && (!Object.hasOwn(existing, 'currentIssue')
+            || existing.currentIssue === null
+            || existing.currentIssue === runData.currentIssue);
         if (!bindable) throw new Error('identity_mismatch');
       } else {
         if (existing.revision !== expectedRevision) throw new Error('stale_revision');

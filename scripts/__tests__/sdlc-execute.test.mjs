@@ -617,6 +617,26 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'handoffs'))).toBe(true);
   });
 
+  it('writeRun binds a legacy completed checkpoint with a null current issue', () => {
+    const root = makeSpecDir();
+    const runPath = path.join(root, '.omp', 'sdlc', 'run.json');
+    fs.mkdirSync(path.dirname(runPath), { recursive: true });
+    fs.writeFileSync(runPath, `${JSON.stringify({
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: null,
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      failed: null,
+      startedAt: '2026-08-27T00:00:00.000Z',
+    }, null, 2)}\n`);
+
+    const rebound = boundRunData(root);
+    writeRun(rebound, root, 0);
+
+    expect(JSON.parse(fs.readFileSync(runPath, 'utf8'))).toEqual(rebound);
+  });
+
   it('writeRun rejects stale or mismatched CAS writes without changing checkpoint bytes', () => {
     const root = makeSpecDir();
     const initial = seedRun(root);
