@@ -340,14 +340,21 @@ function readExpectedHandoff(handoffPath, issue, step) {
   }
 }
 
-function observeExpectedHandoff(herdr, handoffPath, issue, step, attempts = 50) {
-  let result;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    result = readExpectedHandoff(handoffPath, issue, step);
+function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
+  let terminalObservation = false;
+  for (;;) {
+    const result = readExpectedHandoff(handoffPath, issue, step);
     if (result.handoff) return result;
-    if (attempt + 1 < attempts) herdr.observationPause?.();
+    const state = observedAgentState(herdr, agentName);
+    if (!state) return { handoff: null, reasonCode: 'process_lost' };
+    if (['idle', 'done'].includes(state)) {
+      if (terminalObservation) return result;
+      terminalObservation = true;
+    } else {
+      terminalObservation = false;
+    }
+    herdr.observationPause?.();
   }
-  return result;
 }
 
 export function readRun(root = process.cwd()) {
@@ -610,6 +617,16 @@ function agentState(value) {
   ).toLowerCase();
 }
 
+function observedAgentState(herdr, name) {
+  try {
+    const response = herdr.agentGet(name);
+    if (!commandSucceeded(response)) return null;
+    return agentState(response) || null;
+  } catch {
+    return null;
+  }
+}
+
 function firstNumericProperty(value, key) {
   if (!value || typeof value !== 'object') return null;
   if (Number.isFinite(Number(value[key]))) return Number(value[key]);
@@ -704,16 +721,25 @@ function agentDetectionText(herdr, name) {
   return typeof detection === 'string' ? detection : JSON.stringify(detection);
 }
 
-function observeAgentScreen(herdr, name, predicate, attempts = 50) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (predicate(agentDetectionText(herdr, name))) return true;
-    if (attempt + 1 < attempts) herdr.observationPause?.();
+function observeAgentScreen(herdr, name, predicate) {
+  let terminalText = null;
+  for (;;) {
+    const text = agentDetectionText(herdr, name);
+    if (predicate(text)) return true;
+    const state = observedAgentState(herdr, name);
+    if (!state) return false;
+    if (['idle', 'done'].includes(state)) {
+      if (text === terminalText) return false;
+      terminalText = text;
+    } else {
+      terminalText = null;
+    }
+    herdr.observationPause?.();
   }
-  return false;
 }
 
-function observeAgentText(herdr, name, expected, attempts = 50) {
-  return observeAgentScreen(herdr, name, (text) => text.includes(expected), attempts);
+function observeAgentText(herdr, name, expected) {
+  return observeAgentScreen(herdr, name, (text) => text.includes(expected));
 }
 
 function hasPickerSearch(text) {
@@ -891,15 +917,22 @@ function observeInteractiveReviewState(
   defaultBranch,
   branchNames = [],
   allowComposer = false,
-  attempts = 50,
 ) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  let terminalText = null;
+  for (;;) {
     const text = agentDetectionText(herdr, name);
     const state = interactiveReviewState(text, defaultBranch, branchNames, allowComposer);
     if (state) return { state, text };
-    if (attempt + 1 < attempts) herdr.observationPause?.();
+    const agentStatus = observedAgentState(herdr, name);
+    if (!agentStatus) return null;
+    if (['idle', 'done'].includes(agentStatus)) {
+      if (text === terminalText) return null;
+      terminalText = text;
+    } else {
+      terminalText = null;
+    }
+    herdr.observationPause?.();
   }
-  return null;
 }
 
 function isInteractiveReviewPicker(text, defaultBranch, branchNames = []) {
@@ -1384,7 +1417,7 @@ export function runExecute({
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -1714,7 +1747,7 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
         if (!handoffResult.handoff) {
           return stopResult({
             issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -1921,7 +1954,7 @@ export function runExecute({
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step);
+      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stopResult({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,

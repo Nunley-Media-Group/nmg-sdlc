@@ -8,6 +8,12 @@ This project uses semantic versioning with a deliberate convention: **bug fixes 
 
 Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
+## [3.18.1] - 2026-08-27
+
+### Fixed
+
+- Issue #286 removes the remaining one-hour delivery ceilings and 50-attempt execute observation bounds, keeping live controller waits unbounded until success, genuine failure, explicit cancellation, or confirmed process loss.
+
 ## [3.18.0] - 2026-08-27
 
 ### Changed

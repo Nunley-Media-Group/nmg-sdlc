@@ -235,6 +235,7 @@ function fixture(options = {}) {
   const issue = { number: 42, title: options.title ?? 'Ship deterministic delivery', body: options.body ?? '', labels: (options.labels ?? ['enhancement']).map((name) => ({ name })), state: 'OPEN', url: 'https://github.test/issues/42' };
   const views = [...(options.views ?? [openPr(), openPr(), openPr({ state: 'MERGED', issueState: 'CLOSED' })])];
   let lastView = views[views.length - 1] ?? openPr();
+  const checksSequence = [...(options.checksSequence ?? [])];
   let editedBody = null;
   let gitHead = options.gitHead ?? H1;
   const run = (command, args) => {
@@ -307,15 +308,20 @@ function fixture(options = {}) {
           : "no required checks reported on the '42-delivery' branch";
         return { status: 1, stdout: '', stderr: `${message}\n` };
       }
-      const checks = required && options.requiredChecks !== undefined
-        ? options.requiredChecks
-        : (options.checks ?? []);
+      const checks = !required && checksSequence.length
+        ? checksSequence.shift()
+        : required && options.requiredChecks !== undefined
+          ? options.requiredChecks
+          : (options.checks ?? []);
       const status = required && options.requiredChecksStatus !== undefined
         ? options.requiredChecksStatus
         : (options.checksStatus ?? 0);
       return { status, stdout: JSON.stringify(checks), stderr: '' };
     }
-    if (args[0] === 'pr' && args[1] === 'merge') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'merge') {
+      if (options.mergeView) lastView = options.mergeView;
+      return { status: 0, stdout: '', stderr: '' };
+    }
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
   };
   return { root, calls, sleeps, run, sleep: (milliseconds) => sleeps.push(milliseconds) };
@@ -575,12 +581,22 @@ describe('sdlc delivery controller', () => {
     expect(validateHandoff(result.handoff)).toEqual(result.handoff);
   });
 
-  test('bounds pending delivery with injected 30-second sleeps', () => {
-    const f = fixture({ views: [openPr({ mergeStateStatus: 'UNKNOWN', isDraft: true })] }); roots.push(f.root);
-    let current = 0;
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, now: () => current, sleep: (milliseconds) => { f.sleeps.push(milliseconds); current += milliseconds; } });
-    expect(result.handoff.reasonCode).toBe('delivery_pending');
-    expect(f.sleeps).toHaveLength(120);
+  test('continues pending delivery beyond the former one-hour ceiling', () => {
+    const pendingViews = Array.from(
+      { length: 125 },
+      () => openPr({ mergeStateStatus: 'UNKNOWN', isDraft: true }),
+    );
+    const f = fixture({
+      views: [
+        ...pendingViews,
+        openPr(),
+        openPr(),
+        openPr({ state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result.status).toBe(0);
+    expect(f.sleeps.length).toBeGreaterThan(120);
     expect(new Set(f.sleeps)).toEqual(new Set([30_000]));
   });
 
@@ -669,11 +685,43 @@ describe('sdlc delivery controller', () => {
     const merge = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
     expect(edit).toBeGreaterThanOrEqual(0);
     expect(ready).toBeGreaterThan(edit);
+
     expect(merge).toBeGreaterThan(ready);
     expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
     expect(satisfied.calls).toContainEqual([
       'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event',
     ]);
+  });
+  test('waits for final-head evidence beyond the former one-hour ceiling', () => {
+    const successCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/checks/h2',
+      event: 'pull_request',
+    };
+    const options = {
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [],
+      requiredChecks: [],
+      views: [
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H2 }),
+      ],
+      mergeView: openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+    };
+    const f = fixture(options); roots.push(f.root);
+    fs.writeFileSync(
+      path.join(f.root, 'specs/42-delivery/verification-report.md'),
+      controlledVerification('pr_evidence_satisfied', H1, 'check_run'),
+    );
+    const sleep = (milliseconds) => {
+      f.sleeps.push(milliseconds);
+      if (f.sleeps.length === 125) options.checks = [successCheck];
+    };
+    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep });
+    expect(result.status).toBe(0);
+    expect(f.sleeps.length).toBeGreaterThan(120);
   });
 
   test('uses the repository default base for controlled draft creation and validation', () => {

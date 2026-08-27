@@ -41,15 +41,22 @@
 - [x] T18 — Run focused runtime, workflow, controller, and managed-artifact tests.
 - [x] T19 — Run the complete local contribution, Jest, compatibility, steering, inventory, plugin-surface, and live smoke gates.
 - [x] T20 — Commit a verification report correlating every acceptance criterion to exact commands and outcomes.
-- [ ] T21 — Open a linked PR, remediate eligible automated review and CI, and merge exact verified HEAD.
-- [ ] T22 — Close issue #286, publish the minor release, install it into OMP, and prove the installed version.
+- [x] T21 — Open a linked PR, remediate eligible automated review and CI, and merge exact verified HEAD for the initial 3.18.0 delivery.
+- [x] T22 — Close issue #286, publish the initial minor release, install it into OMP, and prove the installed version.
+
+## Release Remediation
+
+- [x] T23 — Remove the remaining one-hour delivery pending ceilings and 50-attempt execute observation bounds.
+- [x] T24 — Cover delivery waits beyond 120 polls, live state/content transitions, confirmed process loss, and remediation-worker identity.
+- [ ] T25 — Verify, merge, publish, install, and prove corrected patch release 3.18.1.
 
 ## Verification Evidence
 
-See `verification-report.md`: 681 full-suite tests passed with 2 intentional skips; 216 focused supervision/controller tests passed; plugin surface, current specs, 43-item skill inventory, verify-code exercise, three workflow-bundle validations, steering coverage 2/2, live smoke, and diff hygiene passed. No gate used a finite timeout replacement.
+See `verification-report.md`: 682 full-suite tests passed with 2 intentional skips; 206 corrected execute/deliver controller tests and 216 earlier supervision/controller tests passed; plugin surface, current specs, 43-item skill inventory, verify-code exercise, three workflow-bundle validations, steering coverage 2/2, live smoke, and diff hygiene passed. No gate used a finite timeout replacement.
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
+| #286 | 2026-08-27 | Added release remediation after remaining delivery and execute bounds were discovered |
 | #286 | 2026-08-27 | Initial approved task plan |

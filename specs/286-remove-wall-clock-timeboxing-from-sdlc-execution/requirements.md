@@ -137,4 +137,5 @@ The replacement contract is state-based. Missing `timeoutMs` is valid and means 
 
 | Issue | Date | Summary |
 |-------|------|---------|
+| #286 | 2026-08-27 | Approved remediation: delivery pending states and execute handoff/screen/review observations remain unbounded while their process is live |
 | #286 | 2026-08-27 | Initial approved feature requirements |
