@@ -46,7 +46,9 @@ Verification should cover the behavior promised by the spec:
 - Verify generated or managed artifacts such as `README.md`, `CONTRIBUTING.md`, steering templates, issue forms, contribution workflows, `CHANGELOG.md`, `VERSION`, `package.json`, and extension metadata stay in sync.
 - Use verification evidence before delivery.
 
-Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. The only issue-less implementation path is the validated repository-rewrite exception below. Delivery continues through exact-head merge and issue closure when an executable issue exists. Human-reviewer comments remain human-owned; eligible automated-review threads use the bounded review-loop contract.
+Canonical workflow and verification commands have no wall-clock deadline. Supervise them until success, genuine failure, explicit cancellation, or confirmed process loss; cancellation and process-loss cleanup must target only the owned child process group.
+
+Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. The only issue-less implementation path is the validated repository-rewrite exception below. Delivery continues through exact-head merge and issue closure when an executable issue exists. Human-reviewer comments remain human-owned; eligible automated-review threads use the state-based review-loop contract.
 
 Legacy backlog correction and layout modernization belong to `/sdlc-upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
 

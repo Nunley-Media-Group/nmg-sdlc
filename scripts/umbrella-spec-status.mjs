@@ -46,7 +46,6 @@ function defaultRun(command, args, options = {}) {
     cwd: options.cwd,
     encoding: 'utf8',
     stdio: 'pipe',
-    timeout: options.timeout ?? 30_000,
     maxBuffer: MAX_GIT_OUTPUT,
     env: process.env,
   });
@@ -133,8 +132,8 @@ function hasMultiPrTrigger(requirements, design) {
   ));
 }
 
-function git(projectRoot, args, adapters, options = {}) {
-  return adapters.run('git', args, { cwd: projectRoot, timeout: options.timeout });
+function git(projectRoot, args, adapters) {
+  return adapters.run('git', args, { cwd: projectRoot });
 }
 
 function resolveCommit(projectRoot, ref, adapters) {
@@ -279,7 +278,7 @@ function discoverRemoteDefault(projectRoot, adapters) {
   const remote = git(projectRoot, ['remote', 'get-url', 'origin'], adapters);
   if (!remote.ok) return { ok: false, reasonCode: 'origin_unavailable', reason: commandFailure(remote) };
 
-  const lsRemote = git(projectRoot, ['ls-remote', '--symref', 'origin', 'HEAD'], adapters, { timeout: 60_000 });
+  const lsRemote = git(projectRoot, ['ls-remote', '--symref', 'origin', 'HEAD'], adapters);
   if (!lsRemote.ok) return { ok: false, reasonCode: 'default_branch_discovery_failed', reason: commandFailure(lsRemote) };
   const lines = lsRemote.stdout.split(/\r?\n/).filter(Boolean);
   const symref = lines.find((line) => line.startsWith('ref: refs/heads/') && line.endsWith('\tHEAD'));
@@ -294,7 +293,6 @@ function discoverRemoteDefault(projectRoot, adapters) {
     projectRoot,
     ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', 'origin', commit],
     adapters,
-    { timeout: 120_000 },
   );
   if (!fetch.ok) return { ok: false, reasonCode: 'default_branch_fetch_failed', reason: commandFailure(fetch) };
   const resolved = resolveCommit(projectRoot, commit, adapters);

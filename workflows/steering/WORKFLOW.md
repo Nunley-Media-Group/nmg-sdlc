@@ -22,7 +22,7 @@ Manage `steering/manifest.json` through the shared deterministic writer. Treat `
    - every write and deletion with its project-relative path;
    - every snippet consumer, slot, order, and byte bound;
    - every extension provider registration;
-   - every validation provider, closed `when` condition, required flag, timeout, and config;
+   - every validation provider, closed `when` condition, required flag, and config; validations have no wall-clock deadline;
    - preservation of every unknown project-owned file.
 5. Write a machine-readable plan JSON matching the shared writer contract. Set `sourceDigest` to the exact digest returned by `inspect`. Never edit live steering directly.
 6. Finish at `xd://propose` with the prose proposal and plan path. Wait indefinitely for explicit approval; do not apply a default.

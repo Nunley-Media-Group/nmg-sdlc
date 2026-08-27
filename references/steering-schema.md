@@ -24,7 +24,7 @@ The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `mod
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
 - `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, and hashes use the shared renderer. A leftover project-manifest `byteBound` is accepted and ignored for compatibility; project fragments are not size-capped. Plugin catalog fragments still declare and enforce registry `byteBound` values.
 - `extensions[]`: `{ id, path, providers }`. The module exports one frozen `extension` descriptor whose id and provider keys exactly match.
-- `validations[]`: `{ id, provider, required, when, timeoutMs, config }`. Provider ids resolve exactly once.
+- `validations[]`: `{ id, provider, required, when, config }`. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
 
 ## Deterministic Validations
 
@@ -36,7 +36,7 @@ Built-ins:
 - `builtin.artifact`: regular-file checks for nonempty, JSON, SHA-256, or contained text;
 - `builtin.external-evidence`: schema-valid identity-bound result envelope from an external deterministic harness.
 
-Every request and result binds to head SHA, clean/dirty tree identity, spec hash, steering hash, and validation-config hash. Each successful artifact includes declaration/result `coverage`: declared and recorded counts, a completeness boolean, and deterministic missing, duplicate, and unknown id arrays. Zero declarations plus zero results is complete and does not impose a ceiling. Any missing, duplicate, or unknown result makes coverage incomplete and caps verification at `Incomplete`. When coverage is complete, only a schema-valid `passed` result with non-empty evidence satisfies an applicable required validation. Failure caps verification at `Fail`; malformed, stale, crashed, timed-out, skipped, or not-applicable required results cap it at `Incomplete`. Optional outcomes are recorded but do not cap status.
+Every request and result binds to head SHA, clean/dirty tree identity, spec hash, steering hash, and validation-config hash. Provider requests expose an explicit cancellation signal but no automatic deadline. Each successful artifact includes declaration/result `coverage`: declared and recorded counts, a completeness boolean, and deterministic missing, duplicate, and unknown id arrays. Zero declarations plus zero results is complete and does not impose a ceiling. Any missing, duplicate, or unknown result makes coverage incomplete and caps verification at `Incomplete`. When coverage is complete, only a schema-valid `passed` result with non-empty evidence satisfies an applicable required validation. Failure caps verification at `Fail`; malformed, stale, crashed, explicitly cancelled, process-lost, skipped, or not-applicable required results cap it at `Incomplete`. Optional results remain evidence without raising the ceiling.
 
 ## Mutation
 

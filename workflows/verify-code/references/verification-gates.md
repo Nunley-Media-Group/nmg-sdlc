@@ -17,6 +17,6 @@ Run `scripts/sdlc-verify-steering.mjs` for the active issue and read `.omp/sdlc/
 
 Coverage is complete only when every declared validation id has exactly one result and no undeclared id appears. Zero declarations plus zero results is complete; an empty result array alone is not an error. Missing, duplicate, or unknown declared-result coverage caps overall status at `Incomplete`.
 
-When coverage is complete, only an effective `passed` result with non-empty evidence satisfies an applicable required validation. A required `failed` result caps overall status at `Fail`. A required `incomplete` result, invalid runtime, unresolved provider, crash, timeout, malformed output, or stale identity caps overall status at `Incomplete`. Optional results remain evidence but do not cap status.
+When coverage is complete, only an effective `passed` result with non-empty evidence satisfies an applicable required validation. A required `failed` result caps overall status at `Fail`. A required `incomplete` result, invalid runtime, unresolved provider, crash, explicit cancellation, confirmed process loss, malformed output, or stale identity caps overall status at `Incomplete`. Optional results remain evidence but do not cap status.
 
 The JSON artifact is authoritative. Prompt prose, project snippets, and report prose cannot suppress, mutate, or raise a core result. `Pass` and `PR Evidence Pending` remain forbidden until coverage is complete and every applicable required validation passed.

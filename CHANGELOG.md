@@ -8,6 +8,12 @@ This project uses semantic versioning with a deliberate convention: **bug fixes 
 
 Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
+## [3.18.0] - 2026-08-27
+
+### Changed
+
+- Issue #286 removes wall-clock deadlines from workflow, Herdr/controller, and canonical verification supervision. Missing `timeoutMs` now means no deadline; explicit cancellation and confirmed process loss remain fail-closed and clean up only owned process groups.
+
 ## [3.17.8] - 2026-08-26
 
 ### Fixed

@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { evaluateCondition, runSteeringValidations, validationResultCoverage, verificationCeiling } from '../../src/sdlc-verification-runtime.mjs';
 
@@ -26,7 +28,7 @@ async function fixture(validations) {
   return root;
 }
 function command(id, code, required = true, when = { kind: 'always' }) {
-  return { id, provider: 'builtin.command', required, when, timeoutMs: 10000, config: { program: process.execPath, args: ['-e', code], cwd: '.', env: [] } };
+  return { id, provider: 'builtin.command', required, when, config: { program: process.execPath, args: ['-e', code], cwd: '.', env: [] } };
 }
 
 
@@ -100,7 +102,7 @@ describe('deterministic verification runtime', () => {
   it('runs every applicable validation and writes identity-bound evidence', async () => {
     const root = await fixture([
       command('required.pass', 'process.stdout.write("ok")'),
-      { id: 'artifact.pass', provider: 'builtin.artifact', required: true, when: { kind: 'always' }, timeoutMs: 10000, config: { path: 'evidence.json', checks: ['nonempty', 'json'] } },
+      { id: 'artifact.pass', provider: 'builtin.artifact', required: true, when: { kind: 'always' }, config: { path: 'evidence.json', checks: ['nonempty', 'json'] } },
       command('not.changed', 'process.exit(9)', true, { kind: 'changed_paths', include: ['src/**'] }),
     ]);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
@@ -154,15 +156,17 @@ describe('deterministic verification runtime', () => {
     expect(verificationCeiling([artifact.results[1]])).toBeNull();
   });
 
-  it('converts timeout and malformed external evidence to incomplete', async () => {
+  it('ignores a legacy timeout and preserves eventual success', async () => {
     const validations = [
-      { ...command('required.timeout', 'setTimeout(() => {}, 10000)'), timeoutMs: 20 },
-      { id: 'external.bad', provider: 'builtin.external-evidence', required: true, when: { kind: 'always' }, timeoutMs: 10000, config: { path: 'evidence.json' } },
+      { ...command('required.slow', 'setTimeout(() => process.stdout.write("done"), 40)'), timeoutMs: 1 },
+      { id: 'external.bad', provider: 'builtin.external-evidence', required: true, when: { kind: 'always' }, config: { path: 'evidence.json' } },
     ];
     const root = await fixture(validations);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
     expect(artifact.ceiling).toBe('Incomplete');
-    expect(artifact.results.map(({ effectiveStatus }) => effectiveStatus)).toEqual(['incomplete', 'incomplete']);
+    expect(artifact.results.map(({ effectiveStatus }) => effectiveStatus)).toEqual(['passed', 'incomplete']);
+    expect(artifact.results[0].request).not.toHaveProperty('timeoutMs');
+    expect(artifact.results[0].result.evidence[0].stdout).toBe('done');
   });
 
   it('passes an immutable request to a trusted extension provider', async () => {
@@ -173,13 +177,16 @@ describe('deterministic verification runtime', () => {
       '  schemaVersion: 1,',
       '  id: "test.extension",',
       '  providers: Object.freeze({',
-      '    "project.real": async (request) => ({',
-      '      schemaVersion: 1,',
-      '      status: Object.isFrozen(request) && Object.isFrozen(request.config) ? "passed" : "failed",',
-      '      summary: "extension provider ran",',
-      '      identity: request.identity,',
-      '      evidence: [{ kind: "extension", summary: request.validationId, artifact: null }],',
-      '    }),',
+      '    "project.real": async (request) => {',
+      '      await new Promise((resolve) => setTimeout(resolve, 30));',
+      '      return {',
+      '        schemaVersion: 1,',
+      '        status: Object.isFrozen(request) && Object.isFrozen(request.config) && request.signal === undefined ? "passed" : "failed",',
+      '        summary: "extension provider ran",',
+      '        identity: request.identity,',
+      '        evidence: [{ kind: "extension", summary: request.validationId, artifact: null }],',
+      '      };',
+      '    },',
       '  }),',
       '});',
       '',
@@ -187,7 +194,7 @@ describe('deterministic verification runtime', () => {
     const manifestPath = path.join(root, 'steering', 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     manifest.extensions.push({ id: 'test.extension', path: 'steering/extensions/real-provider.mjs', providers: ['project.real'] });
-    manifest.validations.push({ id: 'extension.pass', provider: 'project.real', required: true, when: { kind: 'always' }, timeoutMs: 1000, config: { value: 1 } });
+    manifest.validations.push({ id: 'extension.pass', provider: 'project.real', required: true, when: { kind: 'always' }, timeoutMs: 1, config: { value: 1 } });
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     run(root, 'git', ['add', '.']);
     run(root, 'git', ['commit', '-m', 'register extension']);
@@ -195,16 +202,73 @@ describe('deterministic verification runtime', () => {
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
     expect(artifact.ceiling).toBeNull();
     expect(artifact.results[0].effectiveStatus).toBe('passed');
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5);
+    const cancelled = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+      signal: controller.signal,
+    });
+    expect(cancelled.ceiling).toBe('Incomplete');
+    expect(cancelled.results[0].result.summary).toBe('cancelled');
   });
 
-  it('settles a timed-out command even when a grandchild retains output pipes', async () => {
-    const source = 'const {spawn}=require("node:child_process"); spawn(process.execPath,["-e","setTimeout(()=>{},10000)"],{stdio:["ignore","inherit","inherit"]}); setTimeout(()=>{},10000)';
-    const root = await fixture([{ ...command('required.timeout.tree', source), timeoutMs: 20 }]);
-    const startedAt = Date.now();
-    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
-    expect(Date.now() - startedAt).toBeLessThan(1000);
+  it('cancels an active command and cleans up its process group', async () => {
+    const source = 'const {spawn}=require("node:child_process"); spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:["ignore","inherit","inherit"]}); setInterval(()=>{},1000)';
+    const root = await fixture([command('required.cancelled.tree', source)]);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 40);
+    const artifact = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+      signal: controller.signal,
+    });
+    expect(artifact.ceiling).toBe('Incomplete');
     expect(artifact.results[0].effectiveStatus).toBe('incomplete');
-    expect(artifact.results[0].result.summary).toBe('command timed out');
+    expect(artifact.results[0].result.summary).toBe('command cancelled');
+  });
+
+  it('does not launch a command when cancellation is already explicit', async () => {
+    const root = await fixture([command('required.pre.cancelled', 'process.stdout.write("unexpected")')]);
+    const controller = new AbortController();
+    controller.abort();
+    const artifact = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+      signal: controller.signal,
+    });
+    expect(artifact.results[0].result.summary).toBe('command cancelled');
+    expect(artifact.results[0].result.evidence).toEqual([]);
+  });
+
+  it('classifies confirmed command process loss as incomplete', async () => {
+    const root = await fixture([command('required.process.lost', 'unused')]);
+    const spawnCommand = () => {
+      const child = new EventEmitter();
+      child.pid = undefined;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => child.emit('close', null, null));
+      return child;
+    };
+    const artifact = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+      spawnCommand,
+    });
+    expect(artifact.ceiling).toBe('Incomplete');
+    expect(artifact.results[0].result.summary).toBe('command process lost');
   });
 
   it('records an incomplete artifact when the base ref cannot be diffed', async () => {

@@ -88,7 +88,6 @@ function defaultRun(command, args, options = {}) {
     cwd: options.cwd,
     encoding: 'utf8',
     stdio: 'pipe',
-    timeout: options.timeout ?? 30_000,
     maxBuffer: MAX_OUTPUT,
     env: process.env,
   });
@@ -507,7 +506,6 @@ export function inspectUmbrellaPublication(options, adapters = createAdapters())
   for (let page = 0; page < MAX_TIMELINE_PAGES; page += 1) {
     const query = adapters.run('gh', graphqlArgs(expected, cursor), {
       cwd: options.projectRoot,
-      timeout: 30_000,
     });
     if (!query.ok) {
       return invalid('github_query_failed', expected, [commandFailure(query)]);

@@ -77,7 +77,7 @@ The command is interactive and TUI-only. It enters native `/plan`, inspects the 
 - `steering/modules/{product,tech,structure,verification}.mjs` are the four plugin-managed runtime descriptors.
 - `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, order, and byte bounds.
 - `steering/extensions/*.mjs` are explicitly trusted project providers.
-- `validations[]` registers deterministic required or optional gates and their closed applicability conditions.
+- `validations[]` registers deterministic required or optional gates and their closed applicability conditions. Canonical descriptors omit `timeoutMs`; missing means no deadline.
 
 The command reads only registered module, snippet, and extension files. Unknown project-owned files are preserved and never loaded implicitly. `/sdlc-run-retro` separately maintains `steering/retrospective.md`; `/sdlc-steering` does not manage that file.
 
@@ -137,11 +137,11 @@ With an issue number, creates or updates its executable spec package under `spec
 /sdlc-execute          # choose from open spec-created issues
 ```
 
-After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code` plus behavior-preserving `simplify`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively—including when OMP wraps long branch names and paginates `main` off-screen—then persists the review result; it never starts nested OMP. It creates sibling panes, writes validated handoff records under `.omp/sdlc/handoffs/`, and advances only on explicit handoff `passed` with `intervention=false`.
+After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code` plus behavior-preserving `simplify`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Herdr/controller waits remain unbounded while the worker is observable; they end only on success, genuine failure, explicit cancellation, or confirmed process loss. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively—including when OMP wraps long prompts—and never starts `--kind pi` workers or stops Herdr.
 
 Publishing an approved spec applies the `spec-created` label. Execute accepts comma- or whitespace-separated lists, preserves listed order after deduplication, normalizes OMP-expanded `issue://N` and `pr://N` arguments, and starts only labeled issues. Empty invocation presents the packaged multi-select over open labeled issues; Continue starts selected chips followed by valid Other tokens, while an empty Continue reopens the picker. A failed handoff may route a later resume back to a validated earlier lifecycle gate; execute keeps the current issue and reruns every downstream gate before delivery or later issues.
 
-`open-pr` invokes the deterministic `sdlc-deliver.mjs` controller for approved-spec and verification gates, version synchronization, commit and non-force push, exact-branch PR creation or resume, readiness polling, exact-head merge, issue-closure proof, and deliver handoff writing. Success requires the PR to be `MERGED` at the observed head and the issue `CLOSED`.
+`open-pr` invokes the deterministic `sdlc-deliver.mjs` controller for approved-spec and verification gates, version synchronization, commit and non-force push, exact-branch PR creation or resume, readiness polling, exact-head merge, issue-closure proof, and deliver handoff writing. Readiness and automated-review polling have no wall-clock or poll-count deadline while their processes remain observable. Success requires the PR to be `MERGED` at the observed head and the issue `CLOSED`.
 
 ### Address Review Comments
 
@@ -179,7 +179,7 @@ Unmatched defaults to minor. Major bumps require an explicit `**Version bump**: 
 
 ## Verification Gates
 
-Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation and records identity-bound results plus exact declaration/result coverage in `.omp/sdlc/verification/<issue>.json`. A project with zero declared validations has complete zero-result coverage; declared results that are missing, duplicated, unknown, failed, or incomplete forbid successful status under the applicable ceiling rules. After a passing report is generated, the verification finalizer publishes only that report and proves a synchronized clean branch before writing the handoff that permits delivery. When GitHub omits an aggregate required-check event, delivery resolves the linked Actions run, requires the exact PR head, and canonicalizes only `pull_request` or `pull_request_target` as PR-scoped provenance; other events remain fail-closed.
+Manifest validations declare deterministic providers and closed applicability conditions. `/sdlc-verify-code` runs every applicable validation without a wall-clock deadline and records identity-bound results plus exact declaration/result coverage in `.omp/sdlc/verification/<issue>.json`. Commands run in owned process groups; explicit cancellation and confirmed process loss trigger platform-appropriate cleanup and remain fail-closed outcomes. A project with zero declared validations has complete zero-result coverage; declared results that are missing, duplicated, unknown, failed, or incomplete forbid successful status under the applicable ceiling rules. After a passing report is generated, delivery revalidates the same immutable evidence against the exact head.
 
 ## Commands
 

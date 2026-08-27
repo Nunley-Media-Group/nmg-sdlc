@@ -342,13 +342,9 @@ async function attemptCodexExercise(skillName, fixtureDir) {
     prompt,
   ], {
     encoding: 'utf8',
-    timeout: 300000,
   });
 
   const output = [proc.stdout, proc.stderr].filter(Boolean).join('\n').trim();
-  if (proc.error?.code === 'ETIMEDOUT') {
-    return { output, reason: 'timeout' };
-  }
   if (/unsupported interactive gate|interactive gate unsupported|request_user_input is not supported/i.test(output)) {
     return { output, reason: 'unsupported interactive gate' };
   }

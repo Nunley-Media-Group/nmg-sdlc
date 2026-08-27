@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSy
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
+import { terminateOwnedProcessGroup } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
 const RESULT_STATUSES = new Set(["passed", "failed", "incomplete", "skipped", "not_applicable"]);
@@ -22,7 +23,7 @@ function globRegex(glob) {
 }
 function matches(path, patterns) { return patterns.some((pattern) => globRegex(pattern).test(path)); }
 function git(projectRoot, args, allowFailure = false) {
-  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false, timeout: 30000 });
+  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false });
   if (result.error || (!allowFailure && result.status !== 0)) fail("steering_result_invalid", result.error?.message ?? result.stderr);
   return result;
 }
@@ -98,35 +99,58 @@ function commandProvider(request) {
     const { program, args, cwd, env } = request.config;
     const absoluteCwd = resolve(request.projectRoot, cwd || ".");
     if (!(absoluteCwd === request.projectRoot || absoluteCwd.startsWith(`${request.projectRoot}/`))) return resolveResult(resultEnvelope("incomplete", "command cwd escapes project", request.identity));
+    if (request.signal?.aborted) return resolveResult(resultEnvelope("incomplete", "command cancelled", request.identity));
     const childEnv = Object.fromEntries(SAFE_ENV.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
     for (const key of env) if (process.env[key] !== undefined) childEnv[key] = process.env[key];
-    let stdout = ""; let stderr = ""; let settled = false;
-    const child = spawn(program, args, { cwd: absoluteCwd, env: childEnv, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = ""; let stderr = ""; let settled = false; let terminalOverride = null;
+    let child;
     const settle = (result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (request.signal) request.signal.removeEventListener("abort", cancel);
       resolveResult(result);
     };
-    const timer = setTimeout(() => {
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL");
-        else if (child.pid) process.kill(-child.pid, "SIGKILL");
-      } catch {}
-      child.stdout.destroy();
-      child.stderr.destroy();
-      settle(resultEnvelope("incomplete", "command timed out", request.identity, [{
-        kind: "command",
-        summary: `${program} ${args.join(" ")} timed out`,
-        artifact: null,
-        stdout: bounded(stdout),
-        stderr: bounded(stderr),
-      }]));
-    }, request.timeoutMs);
+    const evidence = (summary) => [{
+      kind: "command",
+      summary,
+      artifact: null,
+      stdout: bounded(stdout),
+      stderr: bounded(stderr),
+    }];
+    const cancel = async () => {
+      if (settled || terminalOverride) return;
+      terminalOverride = "cancelled";
+      const cleanup = await terminateOwnedProcessGroup(child);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      settle(resultEnvelope("incomplete", cleanup.ok ? "command cancelled" : `command cancellation cleanup failed: ${cleanup.error.message}`, request.identity, evidence(`${program} ${args.join(" ")} cancelled`)));
+    };
+    try {
+      child = (request.spawnCommand ?? spawn)(program, args, { cwd: absoluteCwd, env: childEnv, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      return settle(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity));
+    }
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => settle(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity)));
-    child.on("close", (code, signal) => settle(resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, [{ kind: "command", summary: `${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`, artifact: null, stdout: bounded(stdout), stderr: bounded(stderr) }])));
+    child.on("error", (error) => {
+      if (!terminalOverride) settle(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity));
+    });
+    child.on("close", async (code, signal) => {
+      if (terminalOverride || settled) return;
+      if (typeof code === "number") {
+        settle(resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, evidence(`${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`)));
+        return;
+      }
+      if (signal) {
+        settle(resultEnvelope("failed", `command exited by signal ${signal}`, request.identity, evidence(`${program} ${args.join(" ")} exited by signal ${signal}`)));
+        return;
+      }
+      terminalOverride = "process_lost";
+      const cleanup = await terminateOwnedProcessGroup(child, { closed: true });
+      settle(resultEnvelope("incomplete", cleanup.ok ? "command process lost" : `command process-loss cleanup failed: ${cleanup.error.message}`, request.identity, evidence(`${program} ${args.join(" ")} process lost`)));
+    });
+    if (request.signal) request.signal.addEventListener("abort", cancel, { once: true });
+    if (request.signal?.aborted) void cancel();
   });
 }
 function artifactProvider(request) {
@@ -148,29 +172,49 @@ function externalProvider(request) {
   try { return validateProviderResult(JSON.parse(readFileSync(path, "utf8")), request.identity); } catch (error) { return resultEnvelope("incomplete", error.reasonCode ?? "external evidence malformed", request.identity); }
 }
 function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  if (!value || typeof value !== "object" || Object.isFrozen(value) || value instanceof AbortSignal) return value;
   for (const child of Object.values(value)) deepFreeze(child);
   return Object.freeze(value);
+}
+
+function providerRequest(value, signal, spawnCommand) {
+  Object.defineProperties(value, {
+    signal: { value: signal, enumerable: false },
+    spawnCommand: { value: spawnCommand, enumerable: false },
+  });
+  return deepFreeze(value);
 }
 
 async function invokeProvider(runtime, validation, request) {
   if (validation.provider === "builtin.command") return commandProvider(request);
   if (validation.provider === "builtin.artifact") return artifactProvider(request);
   if (validation.provider === "builtin.external-evidence") return externalProvider(request);
+  if (request.signal?.aborted) {
+    const error = new Error("provider cancelled");
+    error.reasonCode = "cancelled";
+    throw error;
+  }
   const providerPromise = Promise.resolve().then(
     () => runtime.providers.get(validation.provider).handler(request),
   );
   providerPromise.catch(() => {});
-  let timer;
+  if (!request.signal) return providerPromise;
+  let cancel;
   try {
     return await Promise.race([
       providerPromise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("provider timed out")), request.timeoutMs);
+        cancel = () => {
+          const error = new Error("provider cancelled");
+          error.reasonCode = "cancelled";
+          reject(error);
+        };
+        request.signal.addEventListener("abort", cancel, { once: true });
+        if (request.signal.aborted) cancel();
       }),
     ]);
   } finally {
-    clearTimeout(timer);
+    request.signal.removeEventListener("abort", cancel);
   }
 }
 export function validationResultCoverage(validations, results) {
@@ -217,7 +261,7 @@ function setupIdentity(root, specDir, runtime) {
   try { currentSpecHash = specHash(specDir); } catch {}
   return { headSha, steeringHash: runtime?.steeringHash ?? null, specHash: currentSpecHash };
 }
-export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main" }) {
+export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", signal, spawnCommand } = {}) {
   const root = resolve(projectRoot);
   let runtime;
   try {
@@ -227,7 +271,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     for (const validation of runtime.validations) {
       const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
       if (!applicable) { results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null }); continue; }
-      const request = deepFreeze({ schemaVersion: 1, validationId: validation.id, projectRoot: root, timeoutMs: validation.timeoutMs, config: structuredClone(validation.config), identity: identity(root, specDir, runtime, validation) });
+      const request = providerRequest({ schemaVersion: 1, validationId: validation.id, projectRoot: root, config: structuredClone(validation.config), identity: identity(root, specDir, runtime, validation) }, signal, spawnCommand);
       let result;
       try {
         result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);

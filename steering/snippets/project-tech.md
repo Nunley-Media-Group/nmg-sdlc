@@ -265,7 +265,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
-| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` and run `node scripts/exercise-omp.mjs --cwd <clone> --timeout-ms 240000 -- /sdlc-status --json` with this checkout as `--plugin-dir` | Exit 0; stdout JSON includes `nextAction.command` starting with `/sdlc-` |
+| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` and run `node scripts/exercise-omp.mjs --cwd <clone> -- /sdlc-status --json` with this checkout as `--plugin-dir`; wait while the child remains alive and terminate only on completion, genuine failure, explicit cancellation, or confirmed process loss | Exit 0; stdout JSON includes `nextAction.command` starting with `/sdlc-` |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |

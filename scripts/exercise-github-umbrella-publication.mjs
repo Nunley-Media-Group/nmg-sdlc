@@ -27,7 +27,6 @@ function run(command, args, options = {}) {
     cwd: options.cwd,
     encoding: 'utf8',
     stdio: options.stdio ?? 'pipe',
-    timeout: options.timeout ?? 120_000,
     env: process.env,
   }).trim();
 }
@@ -182,20 +181,24 @@ function classify(inputs) {
 }
 
 async function waitForStatus(expectedStatus, inputs) {
-  let result = null;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    result = classify(inputs);
+  const transient = expectedStatus === 'publication_closed_umbrella'
+    ? new Set(['closing_relationship'])
+    : new Set(['pending_safe']);
+  for (;;) {
+    const result = classify(inputs);
     if (result.status === expectedStatus) return result;
+    if (!transient.has(result.status)) {
+      throw new Error(`unexpected status while waiting for ${expectedStatus}: ${JSON.stringify(result)}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error(`timed out waiting for ${expectedStatus}; last result: ${JSON.stringify(result)}`);
 }
 
 function mergeFixture(repository, pullRequestNumber, sourceCommit) {
   run('gh', [
     'pr', 'merge', String(pullRequestNumber), '--repo', repository,
     '--squash', '--match-head-commit', sourceCommit,
-  ], { timeout: 300_000 });
+  ]);
 }
 
 function bestEffort(command, args, options = {}) {

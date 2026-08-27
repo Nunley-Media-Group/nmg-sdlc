@@ -1,0 +1,105 @@
+**Issue**: #286
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+
+@issue-286 @enhancement @verification @process-supervision
+Feature: Remove wall-clock timeboxing from SDLC execution
+  As a developer running nmg-sdlc workflows
+  I want healthy work supervised by process state rather than elapsed time
+  So that long-running delivery and verification reach their real outcome
+
+  Scenario: Missing timeout means no deadline
+    Given a valid steering validation omits "timeoutMs"
+    When the steering runtime loads and executes it
+    Then validation succeeds
+    And no finite deadline is attached to the provider request
+
+  Scenario: Managed validation descriptors omit timeout fields
+    Given nmg-sdlc generates or upgrades managed steering
+    When validation descriptors and canonical commands are written
+    Then they contain no "timeoutMs" field
+    And they contain no "--timeout-ms" or "--max-time" deadline flag
+    And a second generation is byte-identical
+
+  Scenario: Healthy command outlives a former deadline
+    Given a built-in validation command remains alive and healthy
+    And it completes successfully after a former finite limit
+    When verification supervises the command
+    Then the command is not killed because time elapsed
+    And its result is passed
+
+  Scenario: Healthy extension provider outlives a former deadline
+    Given an extension provider remains pending before returning valid evidence
+    When verification invokes the provider
+    Then no timer races the provider
+    And its eventual valid result is preserved
+
+  Scenario: Active command is explicitly cancelled
+    Given a validation command owns a child process group
+    When the caller aborts its cancellation signal
+    Then the owned process group is terminated exactly once
+    And the result is incomplete with stable cancelled evidence
+    And unrelated processes remain untouched
+
+  Scenario: Exercise process is explicitly cancelled
+    Given the OMP RPC exercise child is alive
+    When the CLI receives explicit cancellation
+    Then the owned process group is cleaned up
+    And the exercise exits as cancelled rather than timed out
+
+  Scenario Outline: Cleanup is cross-platform and bounded to owned work
+    Given an active owned child on <platform>
+    When cancellation or confirmed process loss requires cleanup
+    Then <cleanup> targets only that child group or tree
+    And an already-exited child is tolerated
+
+    Examples:
+      | platform | cleanup                              |
+      | POSIX    | a negative owned process-group pid   |
+      | Windows  | taskkill with the owned pid and tree |
+
+  Scenario: Child disappears without terminal status
+    Given a supervised child has not produced a valid terminal result
+    When the runtime observes closure without an exit code or signal
+    Then it classifies confirmed process loss
+    And it does not wait forever or report success
+
+  Scenario: Herdr worker remains active without a deadline
+    Given an execute worker remains observable and working
+    When the controller waits for settlement
+    Then every Herdr wait omits a timeout
+    And elapsed time and poll count do not end the wait
+
+  Scenario: Herdr worker loss fails closed
+    Given an execute worker disappears before a valid handoff
+    When the controller confirms the pane or process is lost
+    Then execution stops with a stable process-loss reason
+    And no later issue or lifecycle step starts
+
+  Scenario: Review and CI polling remains unbounded
+    Given a PR check or eligible automated review remains pending
+    When delivery continues observing it
+    Then no elapsed-time or poll-count ceiling ends observation
+    And observation ends only on success, genuine failure, explicit cancellation, or confirmed process loss
+
+  Scenario Outline: Existing fail-closed verification remains strict
+    Given an applicable required validation produces <condition>
+    When verification aggregates results
+    Then the overall status is not Pass
+    And evidence identity and coverage rules remain enforced
+
+    Examples:
+      | condition            |
+      | a nonzero exit       |
+      | a launch failure     |
+      | malformed evidence   |
+      | stale identity       |
+      | explicit cancellation|
+      | confirmed process loss |
+
+  Scenario: Published release is installed and reported
+    Given the exact verified issue branch is merged and released
+    When the released plugin is installed into the active OMP installation
+    Then a fresh installed-plugin query reports that released version
+    And the release, merge, issue, and PR evidence identify the same change

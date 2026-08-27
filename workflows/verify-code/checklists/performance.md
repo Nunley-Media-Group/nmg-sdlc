@@ -10,7 +10,7 @@ Evaluate performance patterns across both server-side and client-side code.
 
 - [ ] No blocking operations on main thread / event loop
 - [ ] Parallel operations where independent (Promise.all, Future.wait, goroutines, etc.)
-- [ ] Proper timeout handling for external calls
+- [ ] External calls use explicit cancellation and confirmed process-loss handling without arbitrary wall-clock termination
 - [ ] Cancellation support for long-running operations
 - [ ] Debouncing/throttling for rapid user input
 
