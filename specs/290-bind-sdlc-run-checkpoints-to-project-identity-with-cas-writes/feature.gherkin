@@ -1,0 +1,31 @@
+**Issue**: #290
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/259-add-controller-owned-fresh-session-remediation-loops/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/290-bind-sdlc-run-checkpoints-to-project-identity-with-cas-writes/requirements.md
+Feature: Bind SDLC run checkpoints to project identity with CAS writes
+  The run checkpoint previously accepted any schemaVersion 1 overwrite of .omp/sdlc/run.json.
+  This was fixed by identity-bound compare-and-swap writes with a monotonic revision.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Mismatched identity or stale revision leaves bytes unchanged
+    Given an existing run checkpoint bound to project P, run R, issue A, branch B, head H, and revision N
+    When a helper attempts a write whose identity differs or whose expected revision is not N
+    Then the write is rejected
+    And the on-disk checkpoint bytes are unchanged
+    And a successful same-identity transition stores revision N+1 with CAS
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Same-identity step advance updates workflow fields only
+    Given a single controller that owns the current identity
+    When it advances A from one valid step to the next
+    Then the checkpoint updates step and completed/failed fields
+    And project, run, issue, branch, and head remain the same for that transition
