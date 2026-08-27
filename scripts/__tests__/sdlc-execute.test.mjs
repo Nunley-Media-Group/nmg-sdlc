@@ -250,6 +250,32 @@ function makeSpecDir() {
   return root;
 }
 
+function boundRunData(root, fields = {}) {
+  const currentIssue = fields.currentIssue ?? 42;
+  return {
+    schemaVersion: 1,
+    projectRoot: fields.projectRoot ?? fs.realpathSync(root),
+    runId: fields.runId ?? 'test-run-id',
+    issue: fields.issue ?? currentIssue,
+    branch: fields.branch ?? 'issue-branch',
+    head: fields.head ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    issues: fields.issues ?? [currentIssue],
+    revision: fields.revision ?? 1,
+    currentIssue,
+    currentStep: 'start',
+    completed: { [currentIssue]: [] },
+    failed: null,
+    startedAt: '2026-08-27T00:00:00.000Z',
+    ...fields,
+  };
+}
+
+function seedRun(root, fields = {}) {
+  const runData = boundRunData(root, fields);
+  writeRun(runData, root, 0);
+  return runData;
+}
+
 function writeApproved(dir, issueN, extra = {}) {
   const body = [
     extra.issue === undefined ? `**Issue**: #${issueN}` : extra.issue,
@@ -586,9 +612,50 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
 
   it('writeRun creates run and handoff state beneath the supplied root', () => {
     const root = makeSpecDir();
-    writeRun({ schemaVersion: 1 }, root);
+    seedRun(root, { schemaVersion: 1 });
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'run.json'))).toBe(true);
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'handoffs'))).toBe(true);
+  });
+
+  it('writeRun rejects stale or mismatched CAS writes without changing checkpoint bytes', () => {
+    const root = makeSpecDir();
+    const initial = seedRun(root);
+    const runPath = path.join(root, '.omp', 'sdlc', 'run.json');
+    const initialBytes = fs.readFileSync(runPath, 'utf8');
+
+    expect(() => writeRun({ ...initial, issue: 43, revision: 2 }, root, 1))
+      .toThrow('identity_mismatch');
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
+    expect(() => writeRun({ ...initial, revision: 1 }, root, 0))
+      .toThrow('stale_revision');
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
+
+    const advanced = {
+      ...initial,
+      revision: 2,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'implementation_failed' },
+    };
+    writeRun(advanced, root, 1);
+    expect(JSON.parse(fs.readFileSync(runPath, 'utf8'))).toEqual(advanced);
+  });
+
+  it('writeRun rejects a held checkpoint lock without changing checkpoint bytes', () => {
+    const root = makeSpecDir();
+    const initial = seedRun(root);
+    const runPath = path.join(root, '.omp', 'sdlc', 'run.json');
+    const lockPath = `${runPath}.lock`;
+    const initialBytes = fs.readFileSync(runPath, 'utf8');
+    const lock = fs.openSync(lockPath, 'wx');
+    try {
+      expect(() => writeRun({ ...initial, revision: 2 }, root, 1))
+        .toThrow('checkpoint_locked');
+      expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
+    } finally {
+      fs.closeSync(lock);
+      fs.unlinkSync(lockPath);
+    }
   });
 
   it('workerPrompt and CLI inline start-issue without /skill:', () => {
@@ -673,7 +740,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
 
   it('worker-prompt CLI accepts rem evidence and rejects start as a failed step', () => {
     const root = makeSpecDir();
-    writeRun({
+    seedRun(root, {
       schemaVersion: 1,
       remediation: {
         issue: 42,
@@ -685,7 +752,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
         artifacts: [],
         closedWorker: { name: 's42-verify', paneId: 'pane-7' },
       },
-    }, root);
+    });
     const accepted = spawnSync(process.execPath, [
       SCRIPT, 'worker-prompt', '--step', 'rem', '--issue', '42', '--failed-step', 'verify',
     ], { cwd: root, encoding: 'utf8' });
@@ -699,15 +766,35 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
 
-  it('write-run CLI persists run state', () => {
+  it('write-run CLI persists run state with an expected revision', () => {
     const root = makeSpecDir();
-    const run = { schemaVersion: 1 };
-    const cli = spawnSync(process.execPath, [SCRIPT, 'write-run', JSON.stringify(run)], {
+    const run = boundRunData(root);
+    const cli = spawnSync(process.execPath, [
+      SCRIPT,
+      'write-run',
+      '--expected-revision',
+      '0',
+      JSON.stringify(run),
+    ], {
       cwd: root,
       encoding: 'utf8',
     });
     expect(cli.status).toBe(0);
     expect(JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/run.json'), 'utf8'))).toEqual(run);
+  });
+
+  it('write-run CLI requires an expected revision', () => {
+    const root = makeSpecDir();
+    const cli = spawnSync(process.execPath, [
+      SCRIPT,
+      'write-run',
+      JSON.stringify(boundRunData(root)),
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    expect(cli.status).toBe(2);
+    expect(cli.stderr).toBe('Usage: node sdlc-execute.mjs write-run --expected-revision N <json>\n');
   });
 
   it('specStatus keeps a worktree Draft unapproved when origin is Approved', () => {
@@ -878,7 +965,15 @@ describe('runExecute controller', () => {
     if (integratedRuntimeMigration) {
       const runtimePath = path.join(cwd, '.omp/sdlc/run.json');
       fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
-      fs.writeFileSync(runtimePath, '{}\n');
+      fs.writeFileSync(runtimePath, `${JSON.stringify({
+        schemaVersion: 1,
+        issues: [42],
+        currentIssue: 42,
+        currentStep: 'start',
+        completed: { 42: [] },
+        failed: null,
+        startedAt: '2026-08-23T00:00:00.000Z',
+      }, null, 2)}\n`);
       runGitResult(cwd, ['init', '-b', 'main']);
       runGitResult(cwd, ['config', 'user.name', 'Test']);
       runGitResult(cwd, ['config', 'user.email', 'test@example.com']);
@@ -967,6 +1062,9 @@ describe('runExecute controller', () => {
       if (command === 'git' && args[0] === 'status') return { status: 0, stdout: dirty, stderr: '' };
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
         return { status: 0, stdout: `${branch}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n', stderr: '' };
       }
       if (command === 'git' && args[0] === 'branch' && args[1] === '-a') {
         return { status: 0, stdout: `${reviewBranches.join('\n')}\n`, stderr: '' };
@@ -1172,7 +1270,7 @@ describe('runExecute controller', () => {
   const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock', HERDR_PANE_ID: 'main-pane' };
 
   function configurePassedRetainedStartWorker(fixture, agentPayload) {
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -1180,7 +1278,7 @@ describe('runExecute controller', () => {
       completed: { 42: [] },
       failed: { issue: 42, step: 'start', reasonCode: 'missing_handoff' },
       startedAt: '2026-08-21T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'), `${JSON.stringify({
       schemaVersion: 1,
       issue: 42,
@@ -1206,7 +1304,7 @@ describe('runExecute controller', () => {
     issues = [42],
     paneCloseStatus,
   } = {}) {
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues,
       currentIssue: 42,
@@ -1216,7 +1314,7 @@ describe('runExecute controller', () => {
       },
       failed: { issue: 42, step: 'verify', reasonCode: 'verification_failed' },
       startedAt: '2026-08-23T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'), `${JSON.stringify({
       schemaVersion: 1,
       issue: 42,
@@ -1300,7 +1398,7 @@ describe('runExecute controller', () => {
 
   it('resumes an existing run issue list on empty args', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -1308,12 +1406,77 @@ describe('runExecute controller', () => {
       completed: { 42: [] },
       failed: null,
       startedAt: '2026-08-23T00:00:00.000Z',
-    }, fixture.cwd);
+    });
 
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result.status).toBe(0);
     expect(fixture.starts[0].name).toBe('s42-start');
+  });
+
+  it('advances workflow fields while preserving the bound run identity', () => {
+    const fixture = makeControllerFixture({ blockedStep: 'implement' });
+    const initial = seedRun(fixture.cwd, {
+      branch: '42-ship-it',
+      currentStep: 'start',
+      completed: { 42: [] },
+    });
+    const identityFields = ['projectRoot', 'runId', 'issue', 'branch', 'head', 'issues'];
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.currentStep).toBe('implement');
+    expect(persisted.completed['42']).toEqual(['start']);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'implement', reasonCode: 'implement_failed' });
+    expect(Object.fromEntries(identityFields.map((field) => [field, persisted[field]])))
+      .toEqual(Object.fromEntries(identityFields.map((field) => [field, initial[field]])));
+    expect(persisted.revision).toBeGreaterThan(initial.revision);
+  });
+
+  it('rejects a different issue list without changing the existing checkpoint', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43] });
+    const initial = seedRun(fixture.cwd);
+    const runPath = path.join(fixture.cwd, '.omp', 'sdlc', 'run.json');
+    const initialBytes = fs.readFileSync(runPath, 'utf8');
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+
+    const result = runExecute({
+      args: '#43',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
+    expect(initial.issue).toBe(42);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects an unreadable create-time branch without writing a checkpoint', () => {
+    const fixture = makeControllerFixture({ branch: '' });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Run checkpoint identity unreadable\n' });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
+    expect(fixture.starts).toEqual([]);
   });
 
   it('names every unlabeled explicit issue and starts no workers', () => {
@@ -1423,7 +1586,7 @@ describe('runExecute controller', () => {
     const laterSpec = path.join(fixture.cwd, 'specs', '43-ship-it');
     fs.mkdirSync(laterSpec, { recursive: true });
     writeApproved(laterSpec, 43);
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42, 43],
       currentIssue: 43,
@@ -1434,7 +1597,7 @@ describe('runExecute controller', () => {
       },
       failed: null,
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
 
     const result = runExecute({
       args: '',
@@ -1570,7 +1733,7 @@ describe('runExecute controller', () => {
 
   it('rewinds a stopped blocked remediation after its pane disappears', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -1590,7 +1753,7 @@ describe('runExecute controller', () => {
         history: [],
       },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
     fs.mkdirSync(handoffDir, { recursive: true });
     fs.writeFileSync(path.join(handoffDir, '42-verify.json'), `${JSON.stringify({
@@ -1628,7 +1791,7 @@ describe('runExecute controller', () => {
 
   it('resumes a live rem worker without starting the step or another rem', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -1648,7 +1811,7 @@ describe('runExecute controller', () => {
         history: [],
       },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{ name: 'r42-verify', pane_id: 'live-rem', state: 'working' }];
     let settled = false;
     const agentWait = fixture.herdr.agentWait;
@@ -1670,7 +1833,7 @@ describe('runExecute controller', () => {
 
   it('submits a pasted prompt when resuming an idle remediation worker', () => {
     const fixture = makeControllerFixture({ stalled: true });
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -1690,7 +1853,7 @@ describe('runExecute controller', () => {
         history: [],
       },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{ name: 'r42-verify', pane_id: 'live-rem', state: 'idle' }];
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
 
@@ -2701,7 +2864,7 @@ describe('runExecute controller', () => {
   });
   it('waits once for a retained idle implement handoff before continuing', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2709,7 +2872,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start'] },
       failed: { issue: 42, step: 'implement', reasonCode: 'missing_handoff' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-implement',
       pane_id: 'kept-implement-pane',
@@ -2743,7 +2906,7 @@ describe('runExecute controller', () => {
 
   it('fails closed when a retained idle implement worker does not resume', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2751,7 +2914,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start'] },
       failed: { issue: 42, step: 'implement', reasonCode: 'missing_handoff' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-implement',
       pane_id: 'kept-implement-pane',
@@ -2774,7 +2937,7 @@ describe('runExecute controller', () => {
   });
   it('resamples a stale retained review state before waiting on its complete picker', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2782,7 +2945,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement'] },
       failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review1',
       pane_id: 'kept-review-pane',
@@ -2840,7 +3003,7 @@ describe('runExecute controller', () => {
 
   it('fails closed on a complete retained branch picker without a resolvable selection', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2848,7 +3011,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement'] },
       failed: { issue: 42, step: 'review1', reasonCode: 'worker_failed' },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review1',
       pane_id: 'kept-review-pane',
@@ -2891,7 +3054,7 @@ describe('runExecute controller', () => {
 
   it('keeps the unbounded settlement wait for a genuinely working retained review', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2899,7 +3062,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement'] },
       failed: { issue: 42, step: 'review1', reasonCode: 'worker_failed' },
       startedAt: '2026-08-25T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review1',
       pane_id: 'kept-review-pane',
@@ -2936,7 +3099,7 @@ describe('runExecute controller', () => {
 
   it('waits for a retained live review branch picker to render completely', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -2944,7 +3107,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3000,7 +3163,7 @@ describe('runExecute controller', () => {
     selected,
   }) => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3008,7 +3171,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3048,7 +3211,7 @@ describe('runExecute controller', () => {
 
   it('accepts the captured live unnumbered branch picker for a retained review', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3056,7 +3219,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3095,7 +3258,7 @@ describe('runExecute controller', () => {
 
   it('accepts a wrapped retained branch picker before waiting on the worker', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3103,7 +3266,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3139,7 +3302,7 @@ describe('runExecute controller', () => {
 
   it('accepts a paginated wrapped picker for a retained review', () => {
     const fixture = makeControllerFixture({ reviewBranches: PAGINATED_REVIEW_BRANCHES });
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3147,7 +3310,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-26T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3193,7 +3356,7 @@ describe('runExecute controller', () => {
 
   it('rejects a retained title-only review branch picker', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3201,7 +3364,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3231,7 +3394,7 @@ describe('runExecute controller', () => {
 
   it('resumes a retained review from narrow titleless picker rows', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3239,7 +3402,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1'] },
       failed: { issue: 42, step: 'review2', reasonCode: 'review_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     fixture.herdr.listAgents = () => [{
       name: 's42-review2',
       pane_id: 'kept-review-pane',
@@ -3469,7 +3632,7 @@ describe('runExecute controller', () => {
     const laterSpec = path.join(fixture.cwd, 'specs', '43-later');
     fs.mkdirSync(laterSpec, { recursive: true });
     writeApproved(laterSpec, 43);
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42, 43],
       currentIssue: 43,
@@ -3480,7 +3643,7 @@ describe('runExecute controller', () => {
       },
       failed: null,
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     const baseRun = fixture.run;
     let currentBranch = '42-ship-it';
     const events = [];
@@ -3534,7 +3697,7 @@ describe('runExecute controller', () => {
 
   it('consumes a passed retained deliver handoff after the delivered branch was deleted', () => {
     const fixture = makeControllerFixture({ branch: 'main' });
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3542,7 +3705,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
       failed: { issue: 42, step: 'deliver', reasonCode: 'branch_checkout_failed' },
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
     fs.mkdirSync(handoffDir, { recursive: true });
     fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
@@ -3572,7 +3735,7 @@ describe('runExecute controller', () => {
 
   it('keeps branch restoration fail-closed when delivery is incomplete', () => {
     const fixture = makeControllerFixture({ branch: 'main' });
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3580,7 +3743,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
       failed: null,
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
@@ -3594,7 +3757,7 @@ describe('runExecute controller', () => {
 
   it('does not prompt review when issue branch checkout is ineffective', () => {
     const fixture = makeControllerFixture();
-    writeRun({
+    seedRun(fixture.cwd, {
       schemaVersion: 1,
       issues: [42],
       currentIssue: 42,
@@ -3602,7 +3765,7 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement'] },
       failed: null,
       startedAt: '2026-08-24T00:00:00.000Z',
-    }, fixture.cwd);
+    });
     const baseRun = fixture.run;
     fixture.run = (command, args) => {
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
@@ -3630,7 +3793,9 @@ describe('runExecute controller', () => {
     configureFailedRetainedVerifyWorker(fixture, { state: 'working' });
     const runState = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
     runState.failed = null;
-    writeRun(runState, fixture.cwd);
+    const expectedRevision = runState.revision;
+    runState.revision += 1;
+    writeRun(runState, fixture.cwd, expectedRevision);
     let state = 'working';
     fixture.herdr.agentGet = () => ({ result: { state } });
     fixture.herdr.agentWait = (input) => {
