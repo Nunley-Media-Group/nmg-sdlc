@@ -19,7 +19,6 @@ const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'featur
 const ISSUE = /^#?([1-9]\d*)$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const POLL_INTERVAL_MS = 30_000;
-const PENDING_CEILING_MS = 60 * 60 * 1000;
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -975,12 +974,8 @@ export function runDeliver({
       }
 
       const h2 = observed.pr.headRefOid;
-      const evidenceStartedAt = now();
       let finalEvidence = evidenceForHead(readiness, observed, h2);
       while (!finalEvidence) {
-        if (now() - evidenceStartedAt >= PENDING_CEILING_MS) {
-          return fail(context, 'delivery_pending', `PR #${pr.number} final-head evidence remained pending for one hour`);
-        }
         sleep(POLL_INTERVAL_MS);
         observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
         if (observed.pr.headRefOid !== h2 || observed.pr.isDraft !== true) {
@@ -1010,7 +1005,6 @@ export function runDeliver({
       deliveryReadiness = { ...readiness, status: 'pass' };
     }
 
-    const startedAt = now();
     while (true) {
       const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
       const classified = classifyPrDeliveryState(observed.snapshot, { issueNumber });
@@ -1032,9 +1026,6 @@ export function runDeliver({
         };
       }
       if (classified.status === 'pending') {
-        if (now() - startedAt >= PENDING_CEILING_MS) {
-          return fail(context, 'delivery_pending', `PR #${pr.number} remained pending for one hour`);
-        }
         sleep(POLL_INTERVAL_MS);
         continue;
       }

@@ -132,4 +132,5 @@ Update both source templates and generated copies where the manifest records che
 
 | Issue | Date | Summary |
 |-------|------|---------|
+| #286 | 2026-08-27 | Remediation: replace delivery clock ceilings and execute attempt counts with state/content observation plus confirmed process-loss termination |
 | #286 | 2026-08-27 | Initial approved state-based supervision design |

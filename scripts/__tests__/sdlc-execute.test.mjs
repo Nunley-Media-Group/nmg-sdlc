@@ -867,6 +867,7 @@ describe('runExecute controller', () => {
     lsFilesStatus = 0,
     rmStatus = 0,
     integratedRuntimeMigration = false,
+    loseAgentAfterObservation = false,
   } = {}) {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-run-controller-'));
     roots.push(cwd);
@@ -901,6 +902,7 @@ describe('runExecute controller', () => {
     let branchMenuReadIndex = 0;
     const pendingAgentStartStatuses = [...agentStartStatuses];
     let remPromptCount = 0;
+    let agentLost = false;
 
     const run = (command, args) => {
       calls.push([command, ...args]);
@@ -1131,6 +1133,9 @@ describe('runExecute controller', () => {
         }
         return { status: 0 };
       },
+      observationPause: () => {
+        if (loseAgentAfterObservation) agentLost = true;
+      },
       agentWait: (input) => {
         waits.push(input);
         if (!input.until && writeHandoffs) {
@@ -1152,7 +1157,7 @@ describe('runExecute controller', () => {
         }
         return { status: 0 };
       },
-      agentGet: () => ({ result: { state: agentState } }),
+      agentGet: () => agentLost ? { status: 1 } : ({ result: { state: agentState } }),
       listAgents: () => starts
         .filter((started) => !closed.includes(started.paneId))
         .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState })),
@@ -1767,7 +1772,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(observations).toBe(49);
+    expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     expect(fixture.closed).not.toContain('pane-8');
     expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'invalid_handoff' });
@@ -1787,6 +1792,12 @@ describe('runExecute controller', () => {
         ? '{"schemaVersion":1'
         : JSON.stringify(handoff),
     });
+    const agentGets = [];
+    const getAgent = fixture.herdr.agentGet;
+    fixture.herdr.agentGet = (name) => {
+      agentGets.push(name);
+      return getAgent(name);
+    };
     let observations = 0;
     fixture.herdr.observationPause = () => {
       const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
@@ -1817,6 +1828,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    expect(agentGets).toContain('r42-verify');
     expect(persisted.remediation).toBeNull();
     expect(persisted.completed['42']).toEqual(VALID_STEPS);
   });
@@ -2108,6 +2120,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       directBranchAfterPrompt: true,
       branchPickerScreens: [PARTIAL_FOOTERLESS_TITLED_REVIEW_BRANCH_PICKER],
+      loseAgentAfterObservation: true,
     });
     const result = runExecute({
       args: '#42',
@@ -2141,6 +2154,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
       titledReviewModePicker: 'Review Mode',
+      loseAgentAfterObservation: true,
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -2255,6 +2269,7 @@ describe('runExecute controller', () => {
   it('rejects wrapped unnumbered rows that do not reconstruct known branches', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
+      loseAgentAfterObservation: true,
       branchPickerScreens: [
         WRAPPED_LIVE_UNNUMBERED_REVIEW_BRANCH_PICKER.replace(
           '│  it                                           │\n',
@@ -2272,6 +2287,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
       reviewBranches: ['a', 'bcd', 'ab', 'cd', 'main'],
+      loseAgentAfterObservation: true,
       branchPickerScreens: [[
         'Select base branch to compare against',
         '',
@@ -2304,6 +2320,7 @@ describe('runExecute controller', () => {
       const fixture = makeControllerFixture({
         reviewModeInitiallyVisible: true,
         branchPickerScreens: [screen],
+        loseAgentAfterObservation: true,
       });
       const result = runExecute({
         args: '#42',
@@ -2322,6 +2339,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
       branchPickerScreens: [PARTIAL_FOOTERLESS_TITLED_REVIEW_BRANCH_PICKER],
+      loseAgentAfterObservation: true,
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -2332,6 +2350,7 @@ describe('runExecute controller', () => {
   it('rejects a fresh footerless branch picker without populated options', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
+      loseAgentAfterObservation: true,
       branchPickerScreens: [[
         'Select base branch to compare against',
         'up/down navigate  enter select  esc cancel',
@@ -2347,6 +2366,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
       branchPickerScreens: ['Select base branch to compare against'],
+      loseAgentAfterObservation: true,
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -2360,6 +2380,7 @@ describe('runExecute controller', () => {
   it('rejects an ambiguous review branch picker with duplicate default rows', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
+      loseAgentAfterObservation: true,
       branchPickerScreens: [[
         TITLED_REVIEW_BRANCH_PICKER,
         '5. main',
@@ -2402,6 +2423,7 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({
       reviewModeInitiallyVisible: true,
       ambiguousReviewScreen: true,
+      loseAgentAfterObservation: true,
     });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -2425,7 +2447,7 @@ describe('runExecute controller', () => {
   });
 
   it('stops when the branch menu transition is not observed', () => {
-    const fixture = makeControllerFixture({ branchMenuTransition: false });
+    const fixture = makeControllerFixture({ branchMenuTransition: false, loseAgentAfterObservation: true });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const reviewHandoff = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json');
 
@@ -2453,7 +2475,7 @@ describe('runExecute controller', () => {
       stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.\n',
       stderr: '',
     });
-    expect(observations).toBe(49);
+    expect(observations).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
     expect(fixture.closed).toEqual([]);
@@ -2566,7 +2588,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(observations).toBe(49);
+    expect(observations).toBe(1);
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
@@ -3005,6 +3027,11 @@ describe('runExecute controller', () => {
       else if (menu === 'branch' && input.keys.join(',') === 'down,enter') menu = 'reviewing';
       return sendKeys(input);
     };
+    if (!selected) {
+      fixture.herdr.observationPause = () => {
+        fixture.herdr.agentGet = () => ({ status: 1 });
+      };
+    }
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -3189,6 +3216,9 @@ describe('runExecute controller', () => {
     fixture.herdr.agentSendKeys = (input) => {
       if (menu === 'mode' && input.keys.join(',') === 'enter') menu = 'branch';
       return sendKeys(input);
+    };
+    fixture.herdr.observationPause = () => {
+      fixture.herdr.agentGet = () => ({ status: 1 });
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -3721,11 +3751,12 @@ describe('runExecute controller', () => {
     let observations = 0;
     fixture.herdr.observationPause = () => {
       observations += 1;
+      fixture.herdr.agentGet = () => ({ status: 1 });
     };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result.status).toBe(1);
-    expect(observations).toBe(49);
+    expect(observations).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual([]);
     expect(fixture.waits).toEqual([
@@ -3733,7 +3764,7 @@ describe('runExecute controller', () => {
       { name: 's42-start' },
     ]);
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    expect(persisted.failed.reasonCode).toBe('missing_handoff');
+    expect(persisted.failed.reasonCode).toBe('process_lost');
   });
 
 

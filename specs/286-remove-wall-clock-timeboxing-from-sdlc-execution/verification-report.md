@@ -16,7 +16,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 | AC1 | Pass | `src/sdlc-steering-runtime.mjs` accepts omitted `timeoutMs`, strips and ignores a legacy value, and forwards no deadline; Jest covers both shapes. |
 | AC2 | Pass | `steering/manifest.json`, `scripts/sdlc-steering.mjs`, `steering/extensions/nmg-sdlc-smoke.mjs`, `commands/`, `workflows/`, and steering/docs omit canonical finite timeout fields and flags. |
 | AC3 | Pass | `src/sdlc-verification-runtime.mjs` has no elapsed-time timer race; a legacy 1 ms field does not kill a command or extension provider that completes later. |
-| AC4 | Pass | `scripts/sdlc-execute.mjs` retains unbounded `agentWait` calls; 216 focused tests include explicit no-timeout assertions. Review polling has no timeout, poll ceiling, or round ceiling. |
+| AC4 | Pass | `scripts/sdlc-deliver.mjs` has no pending clock ceiling; regressions continue both readiness and final-evidence polling beyond 120 observations. `scripts/sdlc-execute.mjs` observes live handoff/screen/review state without attempt counts and terminates on stable terminal state or confirmed process loss. |
 | AC5 | Pass | `AbortSignal` cancellation covers verification commands/providers and `scripts/exercise-omp.mjs`; POSIX group and Windows `taskkill /pid N /t /f` cleanup are regression-tested. |
 | AC6 | Pass | Command and RPC child loss return stable incomplete/process-loss outcomes; confirmed-closed children are never signalled again, preventing PID-reuse targeting. |
 | AC7 | Pass | Required cancellation/process-loss/malformed/stale outcomes remain `Incomplete`; required nonzero exits remain `Fail`; exact evidence identity and coverage remain enforced. |
@@ -27,7 +27,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 ## Changed-Path Behavior Evidence
 
 - Behavior for `src/`: optional legacy timeout normalization, immutable signal-bearing provider requests, unbounded command/provider supervision, cancellation, process loss, and owned process-group cleanup.
-- Behavior for `scripts/`: canonical commands no longer pass subprocess deadlines; OMP RPC exercise is event-driven; verification CLI translates SIGINT/SIGTERM into explicit cancellation; generators omit timeout fields.
+- Behavior for `scripts/`: canonical commands no longer pass subprocess deadlines; delivery pending loops have no clock ceiling; execute observers have no attempt ceiling and bind the actual standard or remediation agent identity; OMP RPC exercise is event-driven; generators omit timeout fields.
 - Behavior for `scripts/__tests__/`: covers healthy post-limit completion, provider completion, normal RPC completion, explicit cancellation, command/RPC process loss, POSIX/Windows cleanup, already-exited safety, and unbounded Herdr waits.
 - Behavior for `workflows/`: verify, steering, automated-review, checklist, and exercise contracts use state-based termination with no time or poll ceiling.
 - Behavior for `commands/`: packaged verify command matches the updated state-based verification contract.
@@ -42,7 +42,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-commands.test.mjs` — passed, 11 tests at the blocker-fix checkpoint, including normal non-cancelled exercise completion.
 - `cd scripts && npm test -- --runInBand __tests__/process-supervision.test.mjs __tests__/sdlc-commands.test.mjs __tests__/sdlc-steering-runtime.test.mjs __tests__/sdlc-verification-runtime.test.mjs __tests__/sdlc-execute.test.mjs` — passed, 216 tests.
-- `cd scripts && npm test -- --runInBand` — passed, 681 tests with 2 intentional skips; 48/49 suites passed and 1 suite skipped.
+- `cd scripts && npm test -- --runInBand` — passed after remediation, 682 tests with 2 intentional skips; 48/49 suites passed and 1 suite skipped.
 - `cd scripts && npm run compat` — passed; repository plugin surface valid.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
 - `node scripts/verify-current-specs.mjs` — passed; 48 genuine issue specs, 16 required archive entries, 16 rewrite capabilities, 16 active workflow mappings, 1 deprecated stub.
@@ -52,6 +52,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 - `node scripts/sdlc-verify-steering.mjs --project . --issue 286 --spec specs/286-remove-wall-clock-timeboxing-from-sdlc-execution --base main` — passed; 2 declared/2 recorded, complete coverage, no ceiling.
 - Live `repository.nmg-sdlc-smoke` provider — passed; `/sdlc-status --json` returned `nextAction.command: /sdlc-draft-issue` with empty stderr.
 - `git diff --check` — passed.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs __tests__/sdlc-deliver.test.mjs` — passed, 206 tests; both delivery loops exceeded the former 120-poll ceiling and execute covered standard/remediation identity, live state/content changes, stable terminal failure, and confirmed process loss.
 
 ## Architecture Review
 
