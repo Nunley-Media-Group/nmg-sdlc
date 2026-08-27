@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.2] - 2026-08-27
+
+### Changed
+
+- Bind SDLC run checkpoints to project identity with CAS writes (#290)
+
 ## [3.18.1] - 2026-08-27
 
 ### Fixed
