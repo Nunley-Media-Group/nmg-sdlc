@@ -1,0 +1,49 @@
+**Issue**: #293
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+#
+# Generated from: specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens/requirements.md
+Feature: Persist exact-head delivery CAS and isolated session tokens
+  Delivery previously rediscovered live PR identity and allowed unscoped canonical-state mutation.
+  This was fixed by scoped state namespaces and a CAS-bound expected PR/head.
+
+  # --- Exact Head Through Merge ---
+
+  @SCN001 @regression
+  Scenario: Delivery merges and completes only at the persisted expected head
+    Given controller-owned delivery has CAS-persisted expected PR P and head H
+    When readiness and merge complete
+    Then every snapshot and merge uses P at H
+    And the passed handoff requires P MERGED at H and the issue CLOSED
+
+  # --- Stable Reconciliation ---
+
+  @SCN002 @regression
+  Scenario: Unexpected PR or head identity records one terminal reconciliation failure
+    Given delivery expects PR P at head H
+    When P is merged at another head or changes outside an authorized transition
+    Then delivery persists delivery_reconciliation_required with expected and observed identity
+    And subsequent invocations return the same failure without another PR mutation
+
+  # --- Isolated Standalone Session ---
+
+  @SCN003 @regression
+  Scenario: Standalone delivery cannot overwrite another issue's canonical checkpoint
+    Given issue A owns the canonical checkpoint
+    When standalone open-pr for issue B uses a dedicated session token
+    Then B writes only its session run state and handoff paths
+    And A's canonical checkpoint and handoff bytes remain unchanged
+    And an unscoped delivery is rejected before mutation
+
+  # --- Normal Path Preserved ---
+
+  @SCN004 @regression
+  Scenario: Matching scoped delivery still reaches terminal proof
+    Given a scoped delivery whose live PR remains at the expected head
+    When required checks and review evidence pass
+    Then exact-head squash merge and issue closure complete
+    And the controller writes a passed deliver handoff
