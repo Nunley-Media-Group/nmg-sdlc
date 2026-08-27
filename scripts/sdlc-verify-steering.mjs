@@ -14,21 +14,30 @@ function parse(argv) {
   return options;
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), { signal } = {}) {
   const options = parse(argv);
   const artifact = await runSteeringValidations({
     projectRoot: resolve(options.project),
     issue: Number(options.issue),
     specDir: resolve(options.project, options.spec),
     baseRef: options.base ?? "main",
+    signal,
   });
   process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue, coverage: artifact.coverage ?? null }, null, 2)}\n`);
   if (artifact.ceiling) process.exitCode = 1;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main().catch((error) => {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
+  main(process.argv.slice(2), { signal: controller.signal }).catch((error) => {
     process.stdout.write(`${JSON.stringify({ ok: false, ceiling: "Incomplete", reasonCode: error.reasonCode ?? error.message }, null, 2)}\n`);
     process.exitCode = 1;
+  }).finally(() => {
+    process.removeListener("SIGINT", cancel);
+    process.removeListener("SIGTERM", cancel);
+    if (controller.signal.aborted) process.exitCode = 130;
   });
 }

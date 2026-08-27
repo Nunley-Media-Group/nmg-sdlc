@@ -35,13 +35,11 @@ From the disposable project directory:
 omp --print --no-session --no-extensions --no-skills \
   --plugin-dir /path/to/this/nmg-sdlc \
   --add-dir /path/to/this/nmg-sdlc \
-  --auto-approve --max-time 300 \
   "/sdlc-CHANGED_SKILL_NAME [args]"
 
 # Or the RPC harness (also expands file commands when --plugin-dir is set)
 node <plugin-root>/scripts/exercise-omp.mjs \
   --cwd . \
-  --timeout-ms 300000 \
   -- /sdlc-CHANGED_SKILL_NAME [args]
 ```
 
@@ -51,7 +49,7 @@ Interactive `/sdlc-*` commands enter native `/plan` only in the TUI (input rewri
 
 If the omp harness is unavailable, record "omp harness not available for exercise" and degrade gracefully (still evaluate any local artifacts produced).
 
-**Timeout and error rules preserved**: 5 min bound. On timeout capture partial output. Non-zero capture error output for later evaluation as finding.
+**Cancellation and error rules**: wait without a wall-clock deadline while the child remains alive. On explicit cancellation or confirmed process loss, capture partial output and classify that terminal state. Capture non-zero output for later evaluation as a finding.
 
 ## 5d: Evaluate Exercise Output
 
@@ -65,4 +63,4 @@ Always rm -rf the temp project dir.
 
 ## Notes for OMP/Herdr
 
-The exercise exercises the published /sdlc- surface with the exact same skill text that Herdr workers will receive. Keep dry-run and timeout contract identical to prior.
+The exercise exercises the published /sdlc- surface with the exact same skill text that Herdr workers will receive. Keep the dry-run and state-based termination contract identical.

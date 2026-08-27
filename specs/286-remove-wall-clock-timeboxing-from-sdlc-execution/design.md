@@ -10,7 +10,7 @@
 
 ## Overview
 
-Replace elapsed-time termination with state-based supervision across steering validation, workflow exercises, Herdr/controller waits, and current workflow documentation. The runtime accepts validation records with exactly `id`, `provider`, `required`, `when`, and `config`. It no longer generates or forwards `timeoutMs`.
+Replace elapsed-time termination with state-based supervision across steering validation, workflow exercises, Herdr/controller waits, and current workflow documentation. The runtime accepts canonical validation records with `id`, `provider`, `required`, `when`, and `config`; a legacy `timeoutMs` key is accepted but stripped and ignored. It no longer generates or forwards `timeoutMs`.
 
 Commands run as owned process groups. The caller may supply an `AbortSignal`; abort initiates process-group cleanup and returns a stable cancelled result. Unexpected child closure or disappearance before a valid completion is process loss. Extension providers receive the same signal in their immutable request and must settle naturally or respond to cancellation; the runtime does not race them against a timer.
 
@@ -49,9 +49,9 @@ A validation record has this exact current shape:
 }
 ```
 
-`timeoutMs` is not required and is not emitted by managed contracts. For compatibility with consumer-owned steering written against the preceding schema, omission is the semantic boundary: no deadline. Current nmg-sdlc-managed output removes the field. Exact-key validation continues to reject unknown keys so stale finite-timeout descriptors cannot silently claim current managed semantics after upgrade.
+`timeoutMs` is not required and is not emitted by managed contracts. For compatibility with consumer-owned steering written against the preceding schema, a present legacy value is accepted, stripped from runtime registrations, and ignored; omission is canonical and means no deadline. Exact-key validation continues to reject every unrelated unknown key.
 
-Provider requests have exact immutable fields `schemaVersion`, `validationId`, `projectRoot`, `signal`, `config`, and `identity`. The signal carries explicit cancellation only; no automatic timer aborts it.
+Provider requests expose immutable enumerable fields `schemaVersion`, `validationId`, `projectRoot`, `config`, and `identity`, plus a non-enumerable `signal` so persisted artifacts stay deterministic. The signal carries explicit cancellation only; no automatic timer aborts it.
 
 ## Process Supervision
 
@@ -73,7 +73,7 @@ A child `close` event with neither a numeric exit code nor a termination signal 
 
 ### Extension providers
 
-Extension handlers are awaited directly. They receive the cancellation signal and remain responsible for responding to it. A thrown/rejected provider remains a crash. A provider result remains subject to exact schema and identity checks. There is no `Promise.race` timer and no synthetic timeout result.
+Extension handlers are awaited directly unless the explicit cancellation signal aborts the call. They receive that signal and remain responsible for cleaning up owned resources. A thrown/rejected provider remains a crash. A provider result remains subject to exact schema and identity checks. There is no timer race and no synthetic timeout result.
 
 ## Workflow and Verification Contracts
 
@@ -108,7 +108,7 @@ Update both source templates and generated copies where the manifest records che
 
 ## Testing Strategy
 
-1. Steering runtime accepts omitted `timeoutMs` and rejects stale unknown keys where exact managed schema applies.
+1. Steering runtime accepts omitted `timeoutMs`, strips and ignores a legacy value, and rejects unrelated unknown keys.
 2. Command provider remains alive past a former short deadline and preserves eventual success.
 3. Abort before and during command execution returns cancelled and invokes cleanup exactly once.
 4. POSIX and Windows cleanup choose only the owned group/tree; already-exited cleanup is harmless.

@@ -718,7 +718,6 @@ function applySteeringRuntime(root, item) {
       cwd: root,
       encoding: 'utf8',
       shell: false,
-      timeout: 120000,
     });
     if (result.error || result.status !== 0) {
       const error = new Error(result.error?.message || result.stdout || result.stderr || 'steering apply failed');

@@ -164,14 +164,18 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
 
   const validations = [];
   for (const record of manifest.validations) {
-    exactKeys(record, ["id", "provider", "required", "when", "timeoutMs", "config"]);
+    const keys = Object.hasOwn(record, "timeoutMs")
+      ? ["id", "provider", "required", "when", "timeoutMs", "config"]
+      : ["id", "provider", "required", "when", "config"];
+    exactKeys(record, keys);
     addId("validation", record.id);
     validateId(record.provider);
     if (!providers.has(record.provider)) fail("steering_provider_unresolved");
-    if (typeof record.required !== "boolean" || !Number.isInteger(record.timeoutMs) || record.timeoutMs < 1 || record.timeoutMs > 900000) fail("steering_manifest_invalid");
+    if (typeof record.required !== "boolean") fail("steering_manifest_invalid");
     validateWhen(record.when);
     validateConfig(record);
-    validations.push(Object.freeze(record));
+    const { timeoutMs: _legacyTimeoutMs, ...validation } = record;
+    validations.push(Object.freeze(validation));
   }
 
   const steeringFiles = [absoluteManifest, ...manifest.modules.map((x) => resolve(root, x.path)), ...manifest.snippets.map((x) => resolve(root, x.path)), ...manifest.extensions.map((x) => resolve(root, x.path))];

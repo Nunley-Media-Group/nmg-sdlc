@@ -257,7 +257,6 @@ export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projec
     const result = spawnSync("node", [command, "prompt-fragments", "--project", projectRoot], {
       encoding: "utf8",
       shell: false,
-      timeout: 30000,
     });
     if (result.error || result.status !== 0) fail("project_runtime_invalid");
     let payload;

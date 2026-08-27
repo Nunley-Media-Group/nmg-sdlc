@@ -103,7 +103,7 @@ describe('managed steering runtime', () => {
     ['primitive snippet', (manifest) => { manifest.snippets[0] = 1; }, 'steering_manifest_invalid'],
     ['duplicate snippet id', (manifest) => { manifest.snippets.push({ ...manifest.snippets[0] }); }, 'steering_duplicate_id'],
     ['escaping snippet path', (manifest) => { manifest.snippets[0].path = '../outside.md'; }, 'steering_path_outside_root'],
-    ['unresolved provider', (manifest) => { manifest.validations.push({ id: 'x', provider: 'project.missing', required: true, when: { kind: 'always' }, timeoutMs: 10, config: {} }); }, 'steering_provider_unresolved'],
+    ['unresolved provider', (manifest) => { manifest.validations.push({ id: 'x', provider: 'project.missing', required: true, when: { kind: 'always' }, config: {} }); }, 'steering_provider_unresolved'],
   ])('fails closed for %s', async (_name, mutate, reasonCode) => {
     const root = fixture();
     const approved = plan(root);
@@ -127,13 +127,35 @@ describe('managed steering runtime', () => {
         provider: 'builtin.command',
         required: true,
         when,
-        timeoutMs: 1000,
         config: { program, args: [], cwd: '.', env: [] },
       }],
     });
     await expect(applySteeringPlan(root, approved)).rejects.toMatchObject({
       reasonCode: expect.stringMatching(/^steering_(condition|validation_config)_invalid$/),
     });
+  });
+
+  it('accepts missing timeoutMs and strips a legacy value from runtime registrations', async () => {
+    const root = fixture();
+    const approved = plan(root, {
+      validations: [{
+        id: 'valid.command',
+        provider: 'builtin.command',
+        required: true,
+        when: { kind: 'always' },
+        config: { program: process.execPath, args: [], cwd: '.', env: [] },
+      }],
+    });
+    await applySteeringPlan(root, approved);
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const current = await loadSteeringRuntime(root);
+    expect(current.validations[0]).not.toHaveProperty('timeoutMs');
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.validations[0].timeoutMs = 1;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const legacy = await loadSteeringRuntime(root);
+    expect(legacy.validations[0]).not.toHaveProperty('timeoutMs');
   });
 
   it('rejects approved actions outside managed runtime scope', async () => {

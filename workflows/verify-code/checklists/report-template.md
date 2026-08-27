@@ -167,7 +167,7 @@ Use this template to generate the final verification report.
 
 | Field | Value |
 |-------|-------|
-| **Reason** | [e.g., codex CLI not found, timeout] |
+| **Reason** | [e.g., OMP CLI not found, explicit cancellation, confirmed process loss] |
 | **Recommendation** | Manual exercise testing recommended as follow-up |
 
 ---

@@ -573,7 +573,7 @@ describe('managed steering migration', () => {
     const manifestPath = path.join(root, 'steering', 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     manifest.extensions.push({ id: 'project.custom', path: 'steering/extensions/custom.mjs', providers: ['project.custom-check'] });
-    manifest.validations.push({ id: 'custom.check', provider: 'project.custom-check', required: true, when: { kind: 'always' }, timeoutMs: 1000, config: {} });
+    manifest.validations.push({ id: 'custom.check', provider: 'project.custom-check', required: true, when: { kind: 'always' }, config: {} });
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     write(root, 'steering/product.md', '# Migrated Product\n');
 

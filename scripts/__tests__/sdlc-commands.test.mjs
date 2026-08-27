@@ -3,10 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 import {
   exerciseOmpArgs,
   parseExerciseArgs,
+  runExercise,
   usage as exerciseUsage,
 } from '../exercise-omp.mjs';
 import {
@@ -98,13 +101,12 @@ describe('exercise-omp args', () => {
   it('parses cwd and command after --', () => {
     expect(parseExerciseArgs(['--cwd', '/tmp/proj', '--', '/sdlc-status', '--json'])).toEqual({
       cwd: '/tmp/proj',
-      timeoutMs: 180_000,
       message: '/sdlc-status --json',
     });
   });
 
   it('loads the source extension explicitly when extension discovery is disabled', () => {
-    expect(exerciseOmpArgs({ cwd: '/tmp/proj', timeoutMs: 300_000 })).toEqual([
+    expect(exerciseOmpArgs({ cwd: '/tmp/proj' })).toEqual([
       '--mode', 'rpc',
       '--no-session',
       '--no-extensions',
@@ -114,8 +116,94 @@ describe('exercise-omp args', () => {
       '--add-dir', repoRoot,
       '--cwd', path.resolve('/tmp/proj'),
       '--auto-approve',
-      '--max-time', '300',
     ]);
+  });
+
+  it('completes a normal non-cancelled RPC exercise without a deadline', async () => {
+    const spawnProcess = () => {
+      const child = new EventEmitter();
+      child.pid = undefined;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin.setEncoding('utf8');
+      let input = '';
+      child.stdin.on('data', (chunk) => {
+        input += chunk;
+        for (;;) {
+          const newline = input.indexOf('\n');
+          if (newline < 0) break;
+          const frame = JSON.parse(input.slice(0, newline));
+          input = input.slice(newline + 1);
+          if (frame.type === 'prompt') {
+            child.stdout.write(`${JSON.stringify({ type: 'response', id: frame.id, success: true })}\n`);
+            child.stdout.write(`${JSON.stringify({ type: 'agent_end' })}\n`);
+          } else if (frame.type === 'get_last_assistant_text') {
+            child.stdout.write(`${JSON.stringify({ type: 'response', id: frame.id, success: true, data: { text: 'complete' } })}\n`);
+          }
+        }
+      });
+      queueMicrotask(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`));
+      return child;
+    };
+
+    await expect(runExercise({
+      cwd: '/tmp/proj',
+      message: '/sdlc-status --json',
+      spawnProcess,
+    })).resolves.toEqual({ text: 'complete', stderr: '' });
+  });
+
+  it('classifies confirmed RPC child loss without a wall-clock wait', async () => {
+    const spawnProcess = () => {
+      const child = new EventEmitter();
+      child.pid = undefined;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin.once('data', () => {
+        child.exitCode = 0;
+        child.emit('close', 0, null);
+      });
+      queueMicrotask(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`));
+      return child;
+    };
+
+    await expect(runExercise({
+      cwd: '/tmp/proj',
+      message: '/sdlc-status --json',
+      spawnProcess,
+    })).rejects.toMatchObject({ reasonCode: 'process_lost' });
+  });
+
+  it('honors explicit exercise cancellation', async () => {
+    const spawnProcess = () => {
+      const child = new EventEmitter();
+      child.pid = undefined;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      return child;
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(runExercise({
+      cwd: '/tmp/proj',
+      message: '/sdlc-status --json',
+      signal: controller.signal,
+      spawnProcess,
+    })).rejects.toMatchObject({ reasonCode: 'cancelled' });
+  });
+
+  it('rejects the removed timeout flag', () => {
+    expect(() => parseExerciseArgs(['--timeout-ms', '300000', '--', '/sdlc-status'])).toThrow('Unknown argument: --timeout-ms');
   });
 
   it('prints usage', () => {

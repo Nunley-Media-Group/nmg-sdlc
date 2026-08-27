@@ -303,7 +303,6 @@ describeExercise('exercise: bare start-issue shortlist backfill', () => {
         prompt,
       ], {
         encoding: 'utf8',
-        timeout: 300_000,
         env: {
           ...process.env,
           PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,

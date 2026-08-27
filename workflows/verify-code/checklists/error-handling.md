@@ -58,7 +58,7 @@ Each error type should carry:
 
 ## Client-Side Error Handling
 
-- [ ] Network errors handled gracefully (timeout, offline, server error)
+- [ ] Network errors handled gracefully (offline, server error, explicit cancellation, confirmed process loss)
 - [ ] User-facing error messages are helpful and actionable
 - [ ] Retry logic for transient failures
 - [ ] Error state in UI (not just console logging)

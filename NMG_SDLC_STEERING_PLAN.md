@@ -26,7 +26,7 @@ All three snippets currently exceed their `byteBound`. `renderPrompt` throws `by
 
 Extensions: none.
 
-Validations: one required always gate, `repository.tests` → `npm test -- --runInBand` in `scripts/`, `timeoutMs` 900000, `env` `["CI"]`.
+Validations: one required always gate, `repository.tests` → `npm test -- --runInBand` in `scripts/`, no wall-clock deadline, `env` `["CI"]`.
 
 Unknown project files to preserve (do not delete, do not register): `steering/retrospective.md`, `steering/retrospective-state.json`.
 
@@ -50,13 +50,13 @@ That plan is `schemaVersion` 1, `mode` `update`, `sourceDigest` as above, five w
 - `steering/extensions/nmg-sdlc-smoke.mjs` — frozen export `extension` with `schemaVersion` 1, `id` `"project.nmg-sdlc-smoke"`, provider `project.nmg-sdlc-smoke`. Provider `runSmoke(request)`:
   - `git clone --depth 1 --single-branch https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` into `mkdtempSync(join(tmpdir(), "nmg-sdlc-smoke-"))`.
   - On clone error/nonzero: `incomplete`, evidence kind `command`.
-  - `spawnSync(process.execPath, [join(request.projectRoot, "scripts/exercise-omp.mjs"), "--cwd", work, "--timeout-ms", "240000", "--", "/sdlc-status", "--json"], { timeout: 255000, env: process.env })`.
-  - Launch error: `incomplete`. Nonzero exit: `failed`. Unparseable JSON or `nextAction.command` not a string starting with `/sdlc-`: `failed`. Else `passed` with summary `nmg-sdlc-smoke status next ${command}`.
+  - Spawn `process.execPath` with `[join(request.projectRoot, "scripts/exercise-omp.mjs"), "--cwd", work, "--", "/sdlc-status", "--json"]`, pass `request.signal`, and wait without a wall-clock deadline.
+  - Launch error, explicit cancellation, or confirmed process loss: `incomplete`. Nonzero exit: `failed`. Unparseable JSON or `nextAction.command` not a string starting with `/sdlc-`: `failed`. Else `passed` with summary `nmg-sdlc-smoke status next ${command}`.
   - Always `rmSync(work, { recursive: true, force: true })`.
   - Return `request.identity` unchanged. `passed` always includes nonempty evidence.
 - `steering/manifest.json` — keep the four `managedFiles`/`modules` hashes exactly as inspect returned. Keep `repository.tests` unchanged. Add:
   - `extensions`: `[{ "id": "project.nmg-sdlc-smoke", "path": "steering/extensions/nmg-sdlc-smoke.mjs", "providers": ["project.nmg-sdlc-smoke"] }]`
-  - `validations` second row: `id` `repository.nmg-sdlc-smoke`, `provider` `project.nmg-sdlc-smoke`, `required` true, `when` `{ "kind": "always" }`, `timeoutMs` 900000, `config` `{}`.
+  - `validations` second row: `id` `repository.nmg-sdlc-smoke`, `provider` `project.nmg-sdlc-smoke`, `required` true, `when` `{ "kind": "always" }`, `config` `{}`.
 
 3. Validate:
 

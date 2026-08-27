@@ -40,7 +40,6 @@ function defaultRun(command, args, options = {}) {
     cwd: options.cwd,
     encoding: 'utf8',
     stdio: 'pipe',
-    timeout: options.timeout ?? 30_000,
     env: process.env,
   });
   return {
@@ -224,7 +223,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
     return result;
   }
   try {
-    const issueRes = adapters.run('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,state,body,labels,projectItems'], { cwd: projectRoot, timeout: 20_000 });
+    const issueRes = adapters.run('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,state,body,labels,projectItems'], { cwd: projectRoot });
     if (issueRes.ok) {
       const raw = JSON.parse(issueRes.stdout);
       result.issue = {
@@ -256,7 +255,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
 
   // PR from branch
   try {
-    const prRes = adapters.run('gh', ['pr', 'view', '--json', 'number,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,closingIssuesReferences,reviewThreads'], { cwd: projectRoot, timeout: 20_000 });
+    const prRes = adapters.run('gh', ['pr', 'view', '--json', 'number,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,closingIssuesReferences,reviewThreads'], { cwd: projectRoot });
     if (prRes.ok) {
       const p = JSON.parse(prRes.stdout);
       if (p && p.headRefName === branch) {
@@ -281,7 +280,7 @@ function discoverDefaultBranch(projectRoot, adapters) {
   const remoteHead = adapters.run(
     'git',
     ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
-    { cwd: projectRoot, timeout: 10_000 },
+    { cwd: projectRoot },
   );
   if (remoteHead.ok) {
     const ref = remoteHead.stdout.trim();
@@ -293,7 +292,7 @@ function discoverDefaultBranch(projectRoot, adapters) {
   const repository = adapters.run(
     'gh',
     ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-    { cwd: projectRoot, timeout: 10_000 },
+    { cwd: projectRoot },
   );
   const name = repository.ok ? repository.stdout.trim() : '';
   if (name) return { name, gap: null };
@@ -302,7 +301,7 @@ function discoverDefaultBranch(projectRoot, adapters) {
     const local = adapters.run(
       'git',
       ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`],
-      { cwd: projectRoot, timeout: 10_000 },
+      { cwd: projectRoot },
     );
     if (local.ok) return { name: candidate, gap: null };
   }
@@ -315,7 +314,7 @@ function discoverDefaultBranch(projectRoot, adapters) {
 
 export function collectEvidence(projectPath, adapterOverrides = {}) {
   const adapters = createAdapters(adapterOverrides);
-  const rootResult = adapters.run('git', ['rev-parse', '--show-toplevel'], { cwd: projectPath, timeout: 10_000 });
+  const rootResult = adapters.run('git', ['rev-parse', '--show-toplevel'], { cwd: projectPath });
   if (!rootResult.ok) {
     throw new Error(`not a git project: ${boundedMessage(commandFailure(rootResult))}`);
   }

@@ -321,7 +321,6 @@ function run(command, args, cwd, maxBuffer = MAX_TREE_OUTPUT_BYTES) {
     cwd,
     encoding: 'utf8',
     stdio: 'pipe',
-    timeout: 30_000,
     maxBuffer,
     env: process.env,
   });

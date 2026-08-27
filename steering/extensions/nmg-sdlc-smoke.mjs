@@ -1,10 +1,48 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
-const EXERCISE_MS = 240000;
+function waitForClose(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once("close", resolve));
+}
+
+function terminateOwnedProcessGroup(child) {
+  const pid = child?.pid;
+  if (child?.exitCode !== null || child?.signalCode !== null || !Number.isInteger(pid) || pid <= 0) {
+    return Promise.resolve({ ok: true, alreadyExited: true });
+  }
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch (error) {
+      if (error?.code === "ESRCH") return Promise.resolve({ ok: true, alreadyExited: true });
+      return Promise.resolve({ ok: false, error });
+    }
+    return waitForClose(child).then(() => ({ ok: true, alreadyExited: false }));
+  }
+  return new Promise((resolve) => {
+    const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      shell: false,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.once("error", (error) => {
+      resolve(error?.code === "ESRCH" ? { ok: true, alreadyExited: true } : { ok: false, error });
+    });
+    killer.once("close", async (code) => {
+      if (code !== 0) {
+        if (child.exitCode !== null || child.signalCode !== null) resolve({ ok: true, alreadyExited: true });
+        else resolve({ ok: false, error: new Error(`taskkill exited ${code}`) });
+        return;
+      }
+      await waitForClose(child);
+      resolve({ ok: true, alreadyExited: false });
+    });
+  });
+}
 
 function envelope(status, summary, identity, evidence = []) {
   return { schemaVersion: 1, status, summary, identity, evidence };
@@ -15,17 +53,61 @@ function bounded(value, size = 8000) {
   return text.length <= size ? text : `${text.slice(0, size)}\n[truncated]`;
 }
 
+function runCommand(program, args, { cwd, env, signal } = {}) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve({ status: null, signal: null, stdout: "", stderr: "", reasonCode: "cancelled" });
+    let child;
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let terminalOverride = null;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", cancel);
+      resolve({ stdout, stderr, ...result });
+    };
+    const cancel = async () => {
+      if (settled || terminalOverride) return;
+      terminalOverride = "cancelled";
+      const cleanup = await terminateOwnedProcessGroup(child);
+      settle({ status: null, signal: null, reasonCode: cleanup.ok ? "cancelled" : "cleanup_failed", error: cleanup.error });
+    };
+    try {
+      child = spawn(program, args, {
+        cwd,
+        env,
+        detached: process.platform !== "win32",
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      return settle({ status: null, signal: null, reasonCode: "launch_failed", error });
+    }
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", (error) => {
+      if (!terminalOverride) settle({ status: null, signal: null, reasonCode: "launch_failed", error });
+    });
+    child.once("close", (code, childSignal) => {
+      if (terminalOverride || settled) return;
+      if (typeof code === "number") settle({ status: code, signal: childSignal, reasonCode: code === 0 ? null : "failed" });
+      else if (childSignal) settle({ status: null, signal: childSignal, reasonCode: "failed" });
+      else settle({ status: null, signal: null, reasonCode: "process_lost" });
+    });
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) void cancel();
+  });
+}
+
 async function runSmoke(request) {
   const identity = request.identity;
   const pluginRoot = request.projectRoot;
   const work = mkdtempSync(join(tmpdir(), "nmg-sdlc-smoke-"));
   try {
-    const clone = spawnSync("git", ["clone", "--depth", "1", "--single-branch", SMOKE_REPO, work], {
-      encoding: "utf8",
-      timeout: 60000,
-    });
-    if (clone.error || clone.status !== 0) {
-      return envelope("incomplete", "nmg-sdlc-smoke clone failed", identity, [{
+    const clone = await runCommand("git", ["clone", "--depth", "1", "--single-branch", SMOKE_REPO, work], { signal: request.signal });
+    if (clone.reasonCode || clone.status !== 0) {
+      return envelope("incomplete", `nmg-sdlc-smoke clone ${clone.reasonCode ?? `exited ${clone.status}`}`, identity, [{
         kind: "command",
         summary: "git clone https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git",
         artifact: null,
@@ -35,19 +117,16 @@ async function runSmoke(request) {
     }
 
     const exercise = join(pluginRoot, "scripts", "exercise-omp.mjs");
-    const run = spawnSync(process.execPath, [
+    const run = await runCommand(process.execPath, [
       exercise,
       "--cwd",
       work,
-      "--timeout-ms",
-      String(EXERCISE_MS),
       "--",
       "/sdlc-status",
       "--json",
     ], {
-      encoding: "utf8",
-      timeout: EXERCISE_MS + 15000,
       env: process.env,
+      signal: request.signal,
     });
     const evidence = [{
       kind: "command",
@@ -56,11 +135,11 @@ async function runSmoke(request) {
       stdout: bounded(run.stdout),
       stderr: bounded(run.error?.message ?? run.stderr, 4000),
     }];
-    if (run.error) {
-      return envelope("incomplete", `nmg-sdlc-smoke status exercise launch failed: ${run.error.message}`, identity, evidence);
+    if (run.reasonCode === "cancelled" || run.reasonCode === "process_lost" || run.reasonCode === "cleanup_failed" || run.reasonCode === "launch_failed") {
+      return envelope("incomplete", `nmg-sdlc-smoke status exercise ${run.reasonCode}`, identity, evidence);
     }
     if (run.status !== 0) {
-      return envelope("failed", `nmg-sdlc-smoke status exercise exited ${run.status}`, identity, evidence);
+      return envelope("failed", `nmg-sdlc-smoke status exercise exited ${run.status}${run.signal ? ` (${run.signal})` : ""}`, identity, evidence);
     }
 
     const stdout = String(run.stdout ?? "");
