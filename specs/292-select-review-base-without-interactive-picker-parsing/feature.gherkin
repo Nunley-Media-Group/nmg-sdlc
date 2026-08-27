@@ -1,0 +1,39 @@
+**Issue**: #292
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/292-select-review-base-without-interactive-picker-parsing/requirements.md
+Feature: Select review base without interactive picker parsing
+  Review workers previously depended on a local default branch and terminal-rendered picker text.
+  This was fixed by exact local-or-origin ref resolution and a direct review request.
+
+  # --- Remote-Only Default ---
+
+  @SCN001 @regression
+  Scenario: Remote-only GitHub default branch reviews without a picker
+    Given GitHub reports main and only refs/remotes/origin/main exists
+    When execute reaches review1 or review2
+    Then review starts against origin/main
+    And execute does not submit slash-review, parse picker output, or send picker navigation keys
+    And terminal width and wrapped branch names cannot change the result
+
+  # --- Local Default Preserved ---
+
+  @SCN002 @regression
+  Scenario: Existing local default branch remains the review base
+    Given GitHub reports main and refs/heads/main exists
+    When execute reaches review
+    Then review starts against main
+    And execute still waits for the review result and handoff before advancing
+
+  # --- Missing Ref Fails Closed ---
+
+  @SCN003 @regression
+  Scenario: Missing default refs do not trigger a guessed review
+    Given GitHub reports a default branch with no matching local or origin ref
+    When execute reaches review
+    Then execute stops with review_failed before submitting a review prompt
