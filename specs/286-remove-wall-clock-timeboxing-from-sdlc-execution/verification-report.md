@@ -22,7 +22,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 | AC7 | Pass | Required cancellation/process-loss/malformed/stale outcomes remain `Incomplete`; required nonzero exits remain `Fail`; exact evidence identity and coverage remain enforced. |
 | AC8 | Pass | `scripts/__tests__/process-supervision.test.mjs`, `scripts/__tests__/sdlc-commands.test.mjs`, `scripts/__tests__/sdlc-steering-runtime.test.mjs`, `scripts/__tests__/sdlc-verification-runtime.test.mjs`, and existing execute tests cover the complete contract. |
 | AC9 | Pass | `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `NMG_SDLC_STEERING_PLAN.md`, `references/steering-schema.md`, `steering/`, `workflows/`, and packaged `commands/` are synchronized. |
-| AC10 | PR Evidence Pending | All local contribution, contract, managed-artifact, workflow exercise, plugin-surface, steering, and live smoke gates passed without a finite deadline. Exact-head hosted checks, merge, release, and installed-version proof remain delivery-stage evidence. |
+| AC10 | Pass | Corrective PR #288 merged exact verified head `4a021a3598f1f1a7b01339c77d0ee488859fb100` as `2e8d36f1c379daf0c6c86b415c96fbe1475cc71a`; hosted checks passed, issue #286 closed, release `v3.18.1` targets that merge, and OMP reports installed plugin version `3.18.1`. |
 
 ## Changed-Path Behavior Evidence
 
@@ -36,7 +36,7 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 - Behavior for `NMG_SDLC_STEERING_PLAN.md`: generated steering plan examples and descriptors omit finite deadlines.
 - Behavior for `README.md`: public workflow, delivery polling, validation, cancellation, and process-loss semantics are documented.
 - Behavior for `CONTRIBUTING.md`: contribution verification requires state-based supervision and owned-group cleanup.
-- Behavior for `CHANGELOG.md`: `[Unreleased]` records issue #286.
+- Behavior for `CHANGELOG.md`: versioned entries `3.18.0` and corrective `3.18.1` record issue #286.
 
 ## Commands and Outcomes
 
@@ -53,6 +53,16 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 - Live `repository.nmg-sdlc-smoke` provider — passed; `/sdlc-status --json` returned `nextAction.command: /sdlc-draft-issue` with empty stderr.
 - `git diff --check` — passed.
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs __tests__/sdlc-deliver.test.mjs` — passed, 206 tests; both delivery loops exceeded the former 120-poll ceiling and execute covered standard/remediation identity, live state/content changes, stable terminal failure, and confirmed process loss.
+
+## Delivery Evidence
+
+- Initial delivery: PR #287 merged verified head `603ac561e4921f813938b4b56ec611b691d503f3` and published `v3.18.0`; later audit found remaining controller bounds.
+- Corrective delivery: PR #288 merged exact verified head `4a021a3598f1f1a7b01339c77d0ee488859fb100` as main commit `2e8d36f1c379daf0c6c86b415c96fbe1475cc71a`.
+- Hosted result: contract verification and the corrected contribution gate passed for PR #288; no automated-review findings remained.
+- Issue result: issue #286 is `CLOSED` with reason `COMPLETED`.
+- Release result: GitHub release `v3.18.1` is published, not draft or prerelease, and targets `2e8d36f1c379daf0c6c86b415c96fbe1475cc71a`.
+- Installation command: `omp plugin install github:Nunley-Media-Group/nmg-sdlc#v3.18.1 --force` — passed with `Installed nmg-sdlc@3.18.1`.
+- Installed proof: `omp plugin list --json` reports `name: nmg-sdlc`, package and manifest version `3.18.1`, path `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc`, and `enabled: true`.
 
 ## Architecture Review
 
@@ -73,4 +83,4 @@ Verified state-based supervision across steering schema/runtime, built-in comman
 
 ## Verdict
 
-Pass locally with PR Evidence Pending for AC10. Implementation satisfies AC1–AC9 and every local AC10 gate. Exact-head hosted checks, merge, release, and installation are completed during delivery and recorded in PR/release evidence.
+Pass. AC1–AC10 are complete. The corrected implementation, hosted checks, exact-head merge, issue closure, `v3.18.1` release target, installation result, and installed-version proof are recorded above.

@@ -48,15 +48,16 @@
 
 - [x] T23 — Remove the remaining one-hour delivery pending ceilings and 50-attempt execute observation bounds.
 - [x] T24 — Cover delivery waits beyond 120 polls, live state/content transitions, confirmed process loss, and remediation-worker identity.
-- [ ] T25 — Verify, merge, publish, install, and prove corrected patch release 3.18.1.
+- [x] T25 — Verify, merge, publish, install, and prove corrected patch release 3.18.1.
 
 ## Verification Evidence
 
-See `verification-report.md`: 682 full-suite tests passed with 2 intentional skips; 206 corrected execute/deliver controller tests and 216 earlier supervision/controller tests passed; plugin surface, current specs, 43-item skill inventory, verify-code exercise, three workflow-bundle validations, steering coverage 2/2, live smoke, and diff hygiene passed. No gate used a finite timeout replacement.
+See `verification-report.md`: 682 full-suite tests passed with 2 intentional skips; 206 corrected execute/deliver controller tests and 216 earlier supervision/controller tests passed; plugin surface, current specs, 43-item skill inventory, verify-code exercise, three workflow-bundle validations, steering coverage 2/2, live smoke, and diff hygiene passed. PR #288 merged exact verified head `4a021a3598f1f1a7b01339c77d0ee488859fb100` as `2e8d36f1c379daf0c6c86b415c96fbe1475cc71a`; release `v3.18.1` targets that merge; OMP reports installed version `3.18.1`.
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
+| #286 | 2026-08-27 | Recorded completed PR #288, exact-head merge, v3.18.1 release, issue closure, installation, and installed-version proof |
 | #286 | 2026-08-27 | Added release remediation after remaining delivery and execute bounds were discovered |
 | #286 | 2026-08-27 | Initial approved task plan |
