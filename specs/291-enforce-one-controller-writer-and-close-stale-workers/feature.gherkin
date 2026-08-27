@@ -1,0 +1,40 @@
+**Issue**: #291
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/290-bind-sdlc-run-checkpoints-to-project-identity-with-cas-writes/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/291-enforce-one-controller-writer-and-close-stale-workers/requirements.md
+Feature: Enforce one controller writer and close stale workers
+  Multiple controllers and prefix-matched stale workers previously wrote the same project without exact ownership.
+  This was fixed by an exclusive project lease, exact worker identity, and owner-only pane cleanup.
+
+  # --- Competing Writers Fail Closed ---
+
+  @SCN001 @regression
+  Scenario: A foreign controller or phase helper cannot mutate a leased project
+    Given canonical project P has an active controller lease for run R
+    When a second execute or an unscoped verify or deliver helper starts for P
+    Then it fails before changing run state, handoffs, branches, verification evidence, or pull requests
+    And the active controller and its owned worker remain unchanged
+
+  # --- Retained Ownership Is Exact ---
+
+  @SCN002 @regression
+  Scenario: Retained reuse requires exact worker and checkout identity
+    Given run R records the expected worker name, pane, project, issue, step, branch, and head
+    When execute discovers exact and prefix-colliding Herdr agents
+    Then it reuses only the exact live worker whose complete ownership matches
+    And an ownership mismatch fails closed without closing an unrelated pane
+
+  # --- Owned Cleanup ---
+
+  @SCN003 @regression
+  Scenario: Terminal stop and cancellation close owned panes by default
+    Given execute owns a worker pane under its active lease
+    When the controller is cancelled or reaches a terminal non-debug stop
+    Then it closes that owned pane and releases its lease
+    And it keeps the pane open only when retain-worker was explicitly requested
+    And unrelated panes remain open
