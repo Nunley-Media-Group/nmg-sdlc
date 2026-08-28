@@ -205,6 +205,25 @@ describe("plugin controller path resolution", () => {
     }
   });
 
+  test("foreign packaged invocation starts the copied active controller", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-foreign-copy-"));
+    try {
+      const consumer = path.join(fixture, "consumer");
+      fs.mkdirSync(consumer);
+      const root = disposablePackage(fixture);
+      const invocation = materializeControllerPaths(
+        'node "/Users/author/.omp/plugins/node_modules/nmg-sdlc/scripts/probe.mjs"',
+        root,
+      );
+      const controller = JSON.parse(invocation.slice("node ".length));
+      expect(controller).toBe(path.join(root, "scripts", "probe.mjs"));
+      const probeFile = path.join(fixture, "probe.txt");
+      expectSingleConsumerRun(spawnProbe(controller, consumer, probeFile), probeFile, consumer);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   (process.platform === "win32" ? test.skip : test)("Unix symlink install runs the CLI once while preserving consumer cwd", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-link-"));
     try {
