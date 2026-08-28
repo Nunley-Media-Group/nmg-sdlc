@@ -16,6 +16,7 @@
 | T002 | Replace picker tests with deterministic ref coverage | [ ] |
 | T003 | Verify review lifecycle and prompt contracts | [ ] |
 | T004 | Accept waited review completion exactly once | [ ] |
+| T005 | Make review completion handoff-driven in one sibling prompt | [ ] |
 
 ---
 
@@ -68,6 +69,19 @@
 - [ ] A non-stall prompt failure returns `review_failed` without recovery waits or send-keys
 - [ ] New, retained, and remediation paths retain deterministic base resolution, controller ownership, handoff validation, and pane cleanup
 - [ ] Jest regressions cover settled success, stalled-but-visibly-working recovery, and true failure
+
+### T005: Remove State-Detection Review Completion
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `workflows/review-main/WORKFLOW.md`, `README.md`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T004
+**Acceptance**:
+- [ ] New, retained, and remediation review paths submit one resolved-base prompt containing host review plus artifact/handoff finalization
+- [ ] A stalled prompt with skipped or narrow detection remains open while the exact owned worker is registered
+- [ ] Review completion waits for the actual handoff or confirmed worker disappearance, not idle/working detection or another future transition
+- [ ] Exact pasted-prompt recovery sends one Enter; cancellation, controller lease, exact base, and pane ownership remain unchanged
+- [ ] Passed review handoffs name an existing non-empty canonical review artifact
+- [ ] Regressions reproduce the approximately 13-second stalled/no-handoff state and prove no-findings, findings, direct failure, invalid evidence, and process-loss outcomes
 
 ---
 

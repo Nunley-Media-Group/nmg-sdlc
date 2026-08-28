@@ -13,6 +13,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - Reject unknown steering snippet fields, including obsolete `byteBound`, at initialize and migration input boundaries before producing plan actions or manifest output (#291).
+- Run each controller-owned review and artifact/handoff finalization in one resolved-base sibling OMP prompt, waiting on validated evidence instead of unreliable worker-state detection (#292).
 
 ## [3.18.5] - 2026-08-28
 

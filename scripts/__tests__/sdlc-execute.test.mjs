@@ -619,8 +619,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(implement).toContain('git push');
     expect(review).toContain('# Review Main');
     expect(review).toContain('sdlc-review-main.mjs');
-    expect(review).toContain('controller-started review has already completed');
-    expect(review).toContain('Do not invoke `/review`, `omp`, or a nested agent.');
+    expect(review).toContain('Run the host review now in this sibling OMP worker');
+    expect(review).toContain('Do not invoke `/review`, start `omp`, or route review work through the controller or main pane.');
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('sdlc-apply-review.mjs');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
@@ -867,7 +867,7 @@ describe('runExecute controller', () => {
     remBlocked = false,
     blockedStep = null,
     failedNext = 'next',
-    handoffIssue = 42,
+    handoffIssue = null,
     handoffStep = null,
     paneCloseStatus = 0,
     paneCloseFailurePane = null,
@@ -876,6 +876,8 @@ describe('runExecute controller', () => {
     remoteDefaultRef = true,
     reviewRequestFailure = false,
     reviewRequestStalled = false,
+    reviewArtifactBody = 'No findings.\n',
+    reviewPromptStatus = 0,
     paneWidth = 120,
     writeHandoffs = true,
     handoffContent = null,
@@ -1045,14 +1047,13 @@ describe('runExecute controller', () => {
       agentPrompt: ({ name, prompt }) => {
         activePrompt = prompt;
         prompts.push({ name, prompt });
-        if (prompt.startsWith('Review the current branch against ')) {
+        const reviewPrompt = prompt.includes('# Controller-Owned Host Review');
+        if (reviewPrompt) {
           reviewInProgress = reviewRequestStalled;
           if (reviewRequestFailure) return { status: 1, reasonCode: 'worker_failed' };
-          return reviewRequestStalled
-            ? { status: 1, reasonCode: 'agent_prompt_stalled' }
-            : { status: 0 };
         }
         const step = name.slice(name.lastIndexOf('-') + 1);
+        const workerIssue = Number(/^.[^0-9]*([1-9]\d*)-/.exec(name)?.[1] || 42);
         const isRem = name.startsWith('r');
         if ((stalled || stalledInStderr) && !didStall) {
           didStall = true;
@@ -1078,21 +1079,31 @@ describe('runExecute controller', () => {
           const failed = status !== 'passed';
           const handoff = {
             schemaVersion: 1,
-            issue: handoffIssue,
+            issue: handoffIssue ?? workerIssue,
             step: handoffStep ?? step,
             status,
             intervention,
             summary: `${step} complete`,
-            artifacts: failed && !intervention ? [`artifacts/${step}.txt`] : [],
+            artifacts: !failed && reviewPrompt
+              ? [`.omp/sdlc/reviews/${workerIssue}-${step}.md`]
+              : failed && !intervention ? [`artifacts/${step}.txt`] : [],
             next: failed ? failedNext : step === 'deliver' ? null : 'next',
             reasonCode: intervention ? 'implementation_failed' : failed ? `${step}_failed` : null,
           };
           const content = handoffContent
             ? handoffContent(handoff, { isRem, step })
             : JSON.stringify(handoff);
-          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${content}\n`);
+          fs.writeFileSync(path.join(handoffDir, `${workerIssue}-${step}.json`), `${content}\n`);
+          if (!failed && reviewPrompt) {
+            const artifactPath = path.join(cwd, `.omp/sdlc/reviews/${workerIssue}-${step}.md`);
+            fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+            fs.writeFileSync(artifactPath, reviewArtifactBody);
+          }
         }
-        return { status: promptStatus };
+        if (reviewPrompt && reviewRequestStalled) {
+          return { status: 1, reasonCode: 'agent_prompt_stalled' };
+        }
+        return { status: reviewPrompt ? reviewPromptStatus : promptStatus };
       },
       agentRead: () => activePrompt,
       agentSendKeys: ({ keys }) => {
@@ -1410,7 +1421,7 @@ describe('runExecute controller', () => {
     expect(nextRun.issues).toEqual([43]);
     expect(fs.existsSync(path.join(handoffDir, '42-deliver.json'))).toBe(false);
     expect(fs.existsSync(path.join(provenanceDir, 'worker-verify.json'))).toBe(false);
-    expect(fixture.starts.map(({ name }) => name)).toEqual(['s43-start']);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s43-start', 's43-implement']);
   });
   it('fails closed when startup cannot release a completed checkpoint', () => {
     const fixture = makeControllerFixture({ labelIssues: [42, 43] });
@@ -1676,15 +1687,13 @@ describe('runExecute controller', () => {
       'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7', 'pane-8',
     ]);
     const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.startsWith('Review the current branch against ')
+      prompt.includes('# Controller-Owned Host Review')
     ));
     expect(reviewPrompts.map(({ name }) => name)).toEqual([
       's42-review1',
       's42-review2',
     ]);
-    expect(reviewPrompts.every(({ prompt }) => (
-      prompt.includes('against main using PR-style merge-base comparison')
-    ))).toBe(true);
+    expect(reviewPrompts.every(({ prompt }) => prompt.includes('exact base `main`'))).toBe(true);
     expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
     expect(fixture.sentKeys).toEqual([]);
   });
@@ -2035,7 +2044,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
     expect(fixture.prompts.some(({ name, prompt }) => (
       name === 'r42-review1'
-      && prompt.includes('against main using PR-style merge-base comparison')
+      && prompt.includes('exact base `main`')
     ))).toBe(true);
     expect(fixture.prompts.some(({ name, prompt }) => name === 'r42-review1' && prompt.includes('You are remediating issue #42 step review1'))).toBe(true);
     expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
@@ -2283,6 +2292,26 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
   });
 
+  function writeReviewEvidence(fixture, step, body = 'No findings.\n') {
+    const artifact = `.omp/sdlc/reviews/42-${step}.md`;
+    const artifactPath = path.join(fixture.cwd, artifact);
+    const handoffPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+    fs.writeFileSync(artifactPath, body);
+    fs.writeFileSync(handoffPath, `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step,
+      status: 'passed',
+      intervention: false,
+      summary: `${step} complete`,
+      artifacts: [artifact],
+      next: step === 'review1' ? 'fix1' : 'fix2',
+      reasonCode: null,
+    })}\n`);
+  }
+
   it('SCN001 reviews both passes against a remote-only default ref without picker interaction', () => {
     const defaultBranch = 'main-with-a-name-long-enough-to-wrap-in-a-narrow-pane';
     const fixture = makeControllerFixture({
@@ -2301,11 +2330,12 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(0);
     const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.startsWith('Review the current branch against ')
+      prompt.startsWith('# Controller-Owned Host Review')
     ));
     expect(reviewPrompts.map(({ name }) => name)).toEqual(['s42-review1', 's42-review2']);
     expect(reviewPrompts.every(({ prompt }) => (
-      prompt.includes(`against origin/${defaultBranch} using PR-style merge-base comparison`)
+      prompt.includes(`exact base \`origin/${defaultBranch}\``)
+      && prompt.includes('# Review Finalization Contract')
     ))).toBe(true);
     expect(fixture.calls).toContainEqual([
       'git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${defaultBranch}`,
@@ -2326,18 +2356,16 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(0);
     const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.startsWith('Review the current branch against ')
+      prompt.startsWith('# Controller-Owned Host Review')
     ));
     expect(reviewPrompts.map(({ name }) => name)).toEqual(['s42-review1', 's42-review2']);
-    expect(reviewPrompts.every(({ prompt }) => (
-      prompt.includes('against main using PR-style merge-base comparison')
-    ))).toBe(true);
+    expect(reviewPrompts.every(({ prompt }) => prompt.includes('exact base `main`'))).toBe(true);
     expect(fixture.calls).not.toContainEqual([
       'git', 'show-ref', '--verify', '--quiet', 'refs/remotes/origin/main',
     ]);
   });
 
-  it('SCN004 accepts a successful waited review exactly once without a second settlement wait', () => {
+  it('SCN004 accepts a successful review handoff without a settlement wait', () => {
     const fixture = makeControllerFixture();
     const agentWait = fixture.herdr.agentWait;
     fixture.herdr.agentWait = (input) => (
@@ -2359,14 +2387,23 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-3');
   });
 
-  it('SCN005 observes a visibly working review only after agent_prompt_stalled', () => {
-    const fixture = makeControllerFixture({ reviewRequestStalled: true });
-    const agentRead = fixture.herdr.agentRead;
-    fixture.herdr.agentRead = (input) => (
-      input.name === 's42-review1' || input.name === 's42-review2'
-        ? 'Working'
-        : agentRead(input)
-    );
+  it('SCN005 submits one Enter for an exactly pasted stalled review prompt', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    const pending = new Map();
+    fixture.herdr.agentPrompt = (input) => {
+      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
+      fixture.prompts.push(input);
+      pending.set(input.name, input.prompt);
+      return { status: 1, reasonCode: 'agent_prompt_stalled' };
+    };
+    fixture.herdr.agentRead = ({ name }) => pending.get(name) || '';
+    fixture.herdr.agentSendKeys = ({ name, keys }) => {
+      fixture.sentKeys.push(keys);
+      writeReviewEvidence(fixture, name.endsWith('review1') ? 'review1' : 'review2');
+      pending.delete(name);
+      return { status: 0 };
+    };
 
     const result = runExecute({
       args: '#42',
@@ -2377,15 +2414,8 @@ describe('runExecute controller', () => {
     });
 
     expect(result.status).toBe(0);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([
-      { name: 's42-review1', until: 'working' },
-      { name: 's42-review1' },
-    ]);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review2')).toEqual([
-      { name: 's42-review2', until: 'working' },
-      { name: 's42-review2' },
-    ]);
-    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.sentKeys).toEqual([['enter'], ['enter']]);
+    expect(fixture.waits.filter(({ name }) => name.startsWith('s42-review'))).toEqual([]);
   });
 
   it('SCN003 fails review before submission when both exact default refs are missing', () => {
@@ -2404,12 +2434,12 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement']);
     expect(fixture.prompts.some(({ prompt }) => (
-      prompt.startsWith('Review the current branch against ') || prompt === '/review'
+      prompt.startsWith('# Controller-Owned Host Review') || prompt === '/review'
     ))).toBe(false);
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('SCN006 fails closed when the direct review request cannot start', () => {
+  it('SCN006 fails closed when the single review prompt cannot start', () => {
     const fixture = makeControllerFixture({ reviewRequestFailure: true });
     const result = runExecute({
       args: '#42',
@@ -2425,6 +2455,156 @@ describe('runExecute controller', () => {
     ]);
     expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.sentKeys).toEqual([]);
+  });
+
+  it('SCN006 rejects a non-stall prompt failure even when that call wrote passed evidence', () => {
+    const fixture = makeControllerFixture({ reviewPromptStatus: 1 });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'review1',
+      reasonCode: 'review_failed',
+    });
+    expect(fs.existsSync(
+      path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'),
+    )).toBe(true);
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
+    expect(fixture.sentKeys).toEqual([]);
+  });
+
+  it('SCN007 survives the 13-second stalled result with skipped detection until evidence appears', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let pendingStep = null;
+    let observations = 0;
+    fixture.herdr.agentPrompt = (input) => {
+      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
+      fixture.prompts.push(input);
+      pendingStep = input.name.endsWith('review1') ? 'review1' : 'review2';
+      return { status: 1, reasonCode: 'agent_prompt_stalled', stderr: 'after 13 seconds' };
+    };
+    fixture.herdr.agentRead = () => '';
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+      writeReviewEvidence(fixture, pendingStep);
+      pendingStep = null;
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(observations).toBe(2);
+    expect(fixture.sentKeys).toEqual([]);
+    expect(fixture.waits.filter(({ name }) => name.startsWith('s42-review'))).toEqual([]);
+  });
+
+  it('SCN008 preserves findings artifacts and validates their handoffs', () => {
+    const fixture = makeControllerFixture({ reviewArtifactBody: 'P1: fix the race\n' });
+    const captured = [];
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      for (const step of ['review1', 'review2']) {
+        const handoffPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+        if (fs.existsSync(handoffPath)) captured.push(JSON.parse(fs.readFileSync(handoffPath, 'utf8')));
+      }
+      return paneClose(paneId);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(
+      path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.md'),
+      'utf8',
+    )).toBe('P1: fix the race\n');
+    expect(captured).toContainEqual(expect.objectContaining({
+      step: 'review1',
+      status: 'passed',
+      artifacts: ['.omp/sdlc/reviews/42-review1.md'],
+    }));
+  });
+
+  it('rejects a passed review handoff whose canonical artifact is empty', () => {
+    const fixture = makeControllerFixture({ reviewArtifactBody: '' });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'review1',
+      reasonCode: 'invalid_handoff',
+    });
+    expect(fixture.closed).toContain('pane-3');
+  });
+
+  it('SCN009 fails hard when the owned review worker disappears without a handoff', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    const listAgents = fixture.herdr.listAgents;
+    let reviewLost = false;
+    fixture.herdr.agentPrompt = (input) => {
+      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
+      fixture.prompts.push(input);
+      return { status: 1, reasonCode: 'agent_prompt_stalled' };
+    };
+    fixture.herdr.agentRead = () => '';
+    fixture.herdr.observationPause = () => {
+      reviewLost = true;
+    };
+    fixture.herdr.listAgents = () => listAgents().filter((agent) => (
+      !reviewLost || !agent.name.startsWith('s42-review')
+    ));
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'review1',
+      reasonCode: 'process_lost',
+    });
+    expect(fixture.closed).toContain('pane-3');
   });
   it.each([
     ['malformed JSON', () => '{"schemaVersion":'],
@@ -2797,14 +2977,14 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(fixture.prompts.some(({ name, prompt }) => (
       name === 's42-review1'
-      && prompt.includes('against origin/main using PR-style merge-base comparison')
+      && prompt.includes('exact base `origin/main`')
     ))).toBe(true);
     expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('keeps the unbounded settlement wait for a genuinely working retained review', () => {
+  it('accepts a retained review handoff without consulting a working state', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
       schemaVersion: 1,
@@ -2820,18 +3000,9 @@ describe('runExecute controller', () => {
       pane_id: 'kept-review-pane',
       state: 'working',
     }];
-    let state = 'working';
-    fixture.herdr.agentGet = () => ({ result: { state } });
-    const readAgent = fixture.herdr.agentRead;
-    fixture.herdr.agentRead = (input) => input.name === 's42-review1'
-      ? 'Review in progress'
-      : readAgent(input);
-    const waitAgent = fixture.herdr.agentWait;
-    fixture.herdr.agentWait = (input) => {
-      const result = waitAgent(input);
-      if (input.name === 's42-review1' && !input.until) state = 'idle';
-      return result;
-    };
+    fixture.herdr.agentGet = (name) => ({
+      result: { state: name === 's42-review1' ? 'working' : 'done' },
+    });
 
     const result = runExecute({
       args: '#42',
@@ -2842,9 +3013,7 @@ describe('runExecute controller', () => {
     });
 
     expect(result.status).toBe(0);
-    expect(fixture.waits).toContainEqual({ name: 's42-review1' });
-    expect(fixture.waits.find((wait) => wait.name === 's42-review1' && !wait.until))
-      .not.toHaveProperty('timeout');
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
     expect(fixture.closed[0]).toBe('kept-review-pane');
   });
@@ -3023,12 +3192,13 @@ describe('runExecute controller', () => {
       's42-verify',
       's42-deliver',
       's43-start',
+      's43-implement',
     ]);
     expect(persisted.completed['42']).toEqual([
       'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
     ]);
     expect(persisted.currentIssue).toBe(43);
-    expect(persisted.completed['43']).toEqual([]);
+    expect(persisted.completed['43']).toEqual(['start', 'implement']);
   });
   it('restores a later issue branch after finalizing an earlier delivered issue', () => {
     const fixture = makeControllerFixture({ labelIssues: [42, 43] });

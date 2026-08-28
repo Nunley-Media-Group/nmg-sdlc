@@ -46,19 +46,19 @@
 **Then** it stops with `review_failed` before submitting a review prompt
 **And** it does not guess another branch
 
-### AC4: Successful Waited Review Settles Exactly Once
+### AC4: Successful Review Prompt Requires Its Handoff
 
-**Given** `herdr agent prompt <review-worker> <review-request> --wait` exits successfully
+**Given** the single review/finalization prompt exits successfully
 **When** execute starts review1 or review2
-**Then** execute accepts that result as the completed host review
-**And** it does not wait for a new future `working` transition before submitting the controller-owned workflow prompt
+**Then** execute accepts completion only from the validated artifact-backed handoff
+**And** it does not wait for a new future `working` transition or submit another workflow prompt
 
-### AC5: Stalled Review Recovery Observes Existing Work
+### AC5: Exact Pasted Prompt Recovery Sends One Enter
 
-**Given** the direct review request returns `agent_prompt_stalled`
-**When** the exact request is visibly pasted or the worker is visibly working
-**Then** execute uses the existing bounded pasted-prompt recovery or settlement observation
-**And** it does not resend the review request or accept an unknown completion
+**Given** the single review/finalization prompt returns `agent_prompt_stalled`
+**When** that exact prompt is visibly pasted and no handoff exists
+**Then** execute sends one Enter and observes the owned worker and handoff
+**And** it does not resend the review prompt or require working-state detection
 
 ### AC6: Direct Review Failure Fails Closed
 
@@ -67,14 +67,31 @@
 **Then** it stops with `review_failed`
 **And** it does not attempt prompt recovery or a second settlement wait
 
+### AC7: Skipped State Detection Cannot End an Active Review
+
+**Given** the single controller-owned review prompt returns `agent_prompt_stalled` after about 13 seconds
+**And** Herdr detection omits both the pasted prompt and a working state while the sibling OMP worker remains registered
+**When** the worker continues the host review
+**Then** execute waits for the actual review handoff or confirmed worker disappearance
+**And** it does not close the pane, submit a second workflow prompt, or require a future working transition
+
+### AC8: One Prompt Finalizes Review Evidence
+
+**Given** a controller-owned sibling review reports findings or no findings
+**When** its resolved-base host review completes
+**Then** that same prompt writes the canonical review artifact and validated review handoff
+**And** execute advances only when a passed handoff names the existing non-empty review artifact
+**And** prompt failure, worker disappearance without a handoff, or invalid review evidence fails closed
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1 | Resolve the GitHub default name to `refs/heads/<name>` first, then `refs/remotes/origin/<name>`, using exact git ref checks. | Must |
-| FR2 | Submit the existing review contract with the resolved base ref directly; do not invoke or parse the interactive `/review` picker. | Must |
-| FR3 | Preserve review settlement, artifact, handoff, and fail-closed behavior. | Must |
-| FR4 | Treat a successful waited direct-review prompt as settled exactly once; only `agent_prompt_stalled` may enter existing pasted-prompt recovery or visible-working observation. | Must |
+| FR2 | Submit one sibling `--kind omp` prompt that runs the host review against the resolved base and finalizes its artifact and handoff; do not invoke or parse the interactive `/review` picker. | Must |
+| FR3 | Wait for a validated review handoff while the exact owned worker remains registered; state detection, idle guesses, and a second future working transition must not control review completion. | Must |
+| FR4 | Only `agent_prompt_stalled` may use the existing one-Enter pasted-prompt recovery; otherwise continue observing the owned worker without requiring detection text. | Must |
+| FR5 | Accept a passed review handoff only when it names an existing non-empty canonical review artifact; fail closed on direct prompt failure, invalid evidence, or confirmed worker disappearance. | Must |
 
 ## Out of Scope
 
@@ -91,3 +108,4 @@
 |-------|------|---------|
 | #292 | 2026-08-27 | Initial defect report |
 | #292 | 2026-08-28 | Accept successful waited reviews exactly once and confine recovery to actual prompt stalls |
+| #292 | 2026-08-28 | Replace the two-prompt/state-detection lifecycle with one handoff-driven sibling review protocol |

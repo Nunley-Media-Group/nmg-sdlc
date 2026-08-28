@@ -17,6 +17,8 @@ The installed OMP `/review` branch mode itself uses UI selectors and has no expl
 
 The remediation exposed a second lifecycle defect in `startReviewAgainstBase()`. `defaultHerdr.agentPrompt()` already invokes `herdr agent prompt ... --wait`, so status 0 means the host review settled. The helper nevertheless called `waitForWorkerSettlement()`, which required a new future `working` transition after completion. A correctly settled review could therefore become `review_failed` and have its owned pane closed before the workflow handoff prompt ran.
 
+Three fresh controller-owned review workers exposed a third lifecycle defect. The controller sent a waited host-review prompt and expected to send `review-main` as a second prompt after Herdr detected settlement. On the affected Herdr surface, the first prompt returned `agent_prompt_stalled` after about 13 seconds while OMP visibly continued, but detection omitted both the pasted prompt and `Working`. `startReviewAgainstBase()` therefore returned false, execute recorded `review_failed`, and pane cleanup closed the active worker before any artifact or handoff could be written. Agent state and narrow detection text are not authoritative review-completion evidence.
+
 ### Affected Code
 
 | File | Lines / Symbols | Role |
@@ -41,27 +43,30 @@ The remediation exposed a second lifecycle defect in `startReviewAgainstBase()`.
 
 Replace `reviewBranchSelection()` with `resolveReviewBase(cwd, run)`. Read the default branch through the existing GitHub helper. Check `refs/heads/<name>` using `git show-ref --verify --quiet`; if present return `<name>`. Otherwise check `refs/remotes/origin/<name>` and return `origin/<name>`. If neither exact ref exists, return null. Every subprocess call uses an explicit argument array. Do not list all branches or select a fallback.
 
-Replace `completeInteractiveReview()` and its rendered-screen parser/key-navigation helpers with `startReviewAgainstBase(herdr, agentName, baseRef)`. It submits the repository's existing review request contract directly, adding only the resolved base ref and PR-style merge-base comparison instruction. Because `agentPrompt` uses `--wait`, a successful result is the completed host review and is accepted exactly once. Only an `agent_prompt_stalled` result may inspect the existing prompt: an exact visibly pasted request uses the existing single-Enter recovery, while a visibly working worker uses the existing settlement observation. Neither path resends the review request or accepts unknown completion. It never submits `/review`, reads picker presentation, or sends picker navigation keys. New, remediation, and retained review call sites use the same helper. Review findings, three-reviewer file assignment, scoring, persistence through `review-main`, and handoff validation remain unchanged.
+Replace `completeInteractiveReview()` and the later two-prompt `startReviewAgainstBase()` sequence with one controller-owned review protocol prompt. The prompt runs the PR-style merge-base host review in the sibling `--kind omp` worker and includes `review-main` artifact/handoff finalization. Normal, retained, and remediation paths resolve the base before constructing this prompt. No review work runs through generic task agents in the controller/main pane.
 
-Update `workflows/review-main/WORKFLOW.md` so its precondition refers to the immediately preceding controller-started review against the resolved base rather than an interactive `/review`. This workflow-bundled edit must follow `skill://skill-creator`. Update README wording to describe deterministic reviews against the GitHub default ref.
+After submission, a direct non-stall prompt failure returns `review_failed`. An `agent_prompt_stalled` result may still use the existing exact-pasted one-Enter recovery, but missing/narrow detection never proves failure. The controller observes the canonical handoff while the exact owned worker name and pane remain registered. A validated passed handoff must name an existing non-empty canonical review artifact. Worker disappearance without a handoff, malformed evidence, or failed finalization fails closed. A valid handoff is authoritative and does not require an idle state or second future working transition.
+
+Update `workflows/review-main/WORKFLOW.md` so one prompt performs both the host review and finalization. This workflow-bundled edit must follow `skill://skill-creator`. Update README wording to describe handoff-driven deterministic reviews.
 
 ### Interface Contracts
 
 | Interface | Contract |
 |-----------|----------|
 | `resolveReviewBase(cwd, run)` | Returns exact local default name, exact `origin/<default>`, or null; never another branch |
-| `startReviewAgainstBase(herdr, agentName, baseRef)` | Starts the existing waited review request directly; success is settled exactly once, while only `agent_prompt_stalled` may use pasted-prompt or visible-working recovery |
-| `review-main` precondition | Persists the immediately preceding controller-started review response |
+| `reviewProtocolPrompt(baseRef, finalizationPrompt)` | Produces one sibling-worker prompt containing exact-base host review and artifact/handoff finalization |
+| `submitReviewProtocol(...)` | Preserves one-Enter pasted recovery, then waits for a valid review handoff or exact worker disappearance without state/detection guesses |
+| `review-main` | Runs the host review and persists its artifact and controller-owned handoff before stopping |
 
 ### Changes
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `scripts/sdlc-execute.mjs` | Exact local/remote ref resolution; deterministic review start; delete picker parsing/navigation | Removes both root causes |
-| `scripts/__tests__/sdlc-execute.test.mjs` | Replace picker-shape fixtures with local, remote-only, width-independent, retained, remediation, and missing-ref cases | Proves AC1–AC3 |
-| `workflows/review-main/WORKFLOW.md` | Align preceding-review wording with noninteractive controller start | Keeps executable contract truthful |
-| `scripts/__tests__/sdlc-prompt-snippets.test.mjs` | Update workflow prompt synchronization assertion if affected | Protects bundled prompt provenance |
-| `README.md` | Document deterministic GitHub-default review base | Public workflow behavior changed |
+| `scripts/sdlc-execute.mjs` | Exact local/remote ref resolution; one review/finalization prompt; owned-worker presence and artifact-aware handoff observation | Removes picker, second-transition, and skipped-detection failures |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Cover local, remote-only, retained, remediation, stalled/narrow detection, artifact variants, and hard failures | Proves the complete controller protocol |
+| `workflows/review-main/WORKFLOW.md` | Run host review and finalization in one sibling prompt | Makes artifact/handoff creation independent of a second prompt |
+| `scripts/__tests__/sdlc-prompt-snippets.test.mjs` | Keep workflow prompt synchronization assertions current | Protects bundled prompt provenance |
+| `README.md` | Document one-prompt, handoff-driven GitHub-default reviews | Keeps public behavior accurate |
 
 ### Blast Radius
 
@@ -77,10 +82,13 @@ Update `workflows/review-main/WORKFLOW.md` so its precondition refers to the imm
 |------|------------|------------|
 | Local default branch stops working | Low | Prefer exact local ref and cover it separately from remote-only resolution |
 | Remote name differs from `origin` | Low | Requirement is specifically `origin/<default>`; do not guess other remotes |
-| Review prompt settles without a handoff | Med | Preserve existing settlement observation and review-main prompt/handoff validation |
-| Retained or remediation reviews still use old UI path | Med | Route every review start call site through one helper and assert no `/review` prompt/send-keys |
-| Successful `agentPrompt --wait` is observed a second time | Med | Return immediately on status 0; regression makes any review settlement wait fail |
-| Non-stall failure enters prompt recovery | Med | Guard all recovery behind `isPromptStalled`; assert true failure performs no wait or send-keys |
+| Review prompt returns without a handoff | Med | Keep observing the exact owned worker until an artifact-backed handoff or confirmed disappearance |
+| Retained or remediation reviews still use the old two-prompt path | Med | Route every review path through the single protocol prompt and assert no `/review` or second prompt |
+| Successful `agentPrompt --wait` lacks finalization evidence | Med | Require the canonical handoff even after status 0; never infer completion from prompt status |
+| Non-stall failure enters prompt recovery | Med | Guard one-Enter recovery behind `isPromptStalled`; assert true failure performs no recovery |
+| Stalled prompt detection omits active work | High | Ignore idle/working guesses for review lifecycle; observe the owned worker and canonical handoff |
+| Passed handoff omits durable review output | Med | Require the canonical non-empty review artifact named by the passed handoff |
+| Worker exits before finalization | Med | Treat exact worker disappearance without a valid handoff as `process_lost` |
 | Deleted parser removal affects non-review prompt recovery | Low | Delete only review-picker helpers; preserve generic prompt-stall detection |
 
 ---

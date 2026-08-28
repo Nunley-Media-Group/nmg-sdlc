@@ -373,6 +373,48 @@ function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
   }
 }
 
+function reviewArtifactPath(issue, step) {
+  return `.omp/sdlc/reviews/${issue}-${step}.md`;
+}
+
+function validReviewArtifact(cwd, issue, step, handoff) {
+  if (handoff.status !== 'passed') return true;
+  const artifactPath = reviewArtifactPath(issue, step);
+  if (!handoff.artifacts.includes(artifactPath)) return false;
+  try {
+    return readFileSync(join(cwd, artifactPath), 'utf8').trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function workerStillPresent(herdr, agentName, paneId) {
+  try {
+    return firstAgentList(herdr.listAgents()).some((agent) => (
+      String(agent?.name || '') === agentName
+      && String(agent?.pane_id ?? agent?.paneId ?? '') === String(paneId)
+    ));
+  } catch {
+    return false;
+  }
+}
+
+function observeReviewHandoff(herdr, handoffPath, issue, step, agentName, paneId, cwd) {
+  for (;;) {
+    const result = readExpectedHandoff(handoffPath, issue, step);
+    if (result.handoff) {
+      return validReviewArtifact(cwd, issue, step, result.handoff)
+        ? result
+        : { handoff: null, reasonCode: 'invalid_handoff' };
+    }
+    if (result.reasonCode !== 'missing_handoff') return result;
+    if (!workerStillPresent(herdr, agentName, paneId)) {
+      return { handoff: null, reasonCode: 'process_lost' };
+    }
+    herdr.observationPause?.();
+  }
+}
+
 export function readRun(root = process.cwd()) {
   const p = join(root, RUN_FILE);
   if (!existsSync(p)) return null;
@@ -652,7 +694,14 @@ export function isRemediableFailedHandoff({ step, state, handoff } = {}) {
     && handoff.step === step;
 }
 
-export function remediationPrompt({ issue, failedStep, evidence, cwd, controllerRunId } = {}) {
+export function remediationPrompt({
+  issue,
+  failedStep,
+  evidence,
+  cwd,
+  controllerRunId,
+  reviewBase,
+} = {}) {
   let resolvedEvidence = evidence;
   if (!resolvedEvidence) {
     const runState = readRun(cwd);
@@ -687,12 +736,16 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd, controller
     '',
     `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
   ].join('\n');
-  return `${header}\n---\n${workerPrompt({
+  const stepPrompt = workerPrompt({
     step: failedStep,
     issue,
     cwd,
     controllerRunId,
-  })}`;
+  });
+  const contract = failedStep === 'review1' || failedStep === 'review2'
+    ? reviewProtocolPrompt(reviewBase, stepPrompt)
+    : stepPrompt;
+  return `${header}\n---\n${contract}`;
 }
 
 function workerPromptFailureReason(error) {
@@ -917,22 +970,60 @@ function resolveReviewBase(cwd, run) {
   return commandSucceeded(remoteRef) ? `origin/${defaultBranch}` : null;
 }
 
-function startReviewAgainstBase(herdr, agentName, baseRef) {
-  const prompt = [
-    `Review the current branch against ${baseRef} using PR-style merge-base comparison.`,
-    'Use three parallel task-tool agents with file-assigned scopes.',
+function reviewProtocolPrompt(baseRef, finalizationPrompt) {
+  if (!baseRef) throw new Error('review_base_missing');
+  return [
+    '# Controller-Owned Host Review',
+    '',
+    `In this sibling \`--kind omp\` worker, review the current branch against exact base \`${baseRef}\` using a PR-style merge-base comparison.`,
+    'Use three parallel task-tool agents with file-assigned scopes. Do not use generic task agents in the controller or main pane.',
     'Group files by locality, pair tests with implementation, and assign each changed file and diff hunk to exactly one reviewer.',
     'Each reviewer must inspect only assigned files and diff hunks, read full-file context only as needed, and report findings and verdict fields incrementally via yield sections without a separate finding tool.',
-    'Consolidate the findings into the final review response.',
-  ].join(' ');
+    'Consolidate the findings, then complete the review artifact and handoff finalization below in this same prompt. Do not stop after reporting findings and do not wait for another controller prompt.',
+    '',
+    '# Review Finalization Contract',
+    '',
+    finalizationPrompt,
+  ].join('\n');
+}
+
+function submitReviewProtocol({
+  herdr,
+  agentName,
+  paneId,
+  prompt,
+  handoffPath,
+  issue,
+  step,
+  cwd,
+}) {
   const prompted = herdr.agentPrompt({ name: agentName, prompt });
-  if (commandSucceeded(prompted)) return true;
-  if (!isPromptStalled(prompted)) return false;
-  if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
-    return retryPromptSubmission(herdr, agentName);
+  if (!commandSucceeded(prompted) && !isPromptStalled(prompted)) {
+    return { handoff: null, reasonCode: 'review_failed' };
   }
-  return appearsWorking(herdr, agentName)
-    && waitForWorkerSettlement(herdr, agentName);
+  const existing = readExpectedHandoff(handoffPath, issue, step);
+  if (existing.handoff) {
+    return validReviewArtifact(cwd, issue, step, existing.handoff)
+      ? existing
+      : { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+  if (
+    isPromptStalled(prompted)
+    && !existsSync(handoffPath)
+    && hasPastedWorkerPrompt(herdr, agentName, prompt)
+    && !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+  ) {
+    return { handoff: null, reasonCode: 'worker_failed' };
+  }
+  return observeReviewHandoff(
+    herdr,
+    handoffPath,
+    issue,
+    step,
+    agentName,
+    paneId,
+    cwd,
+  );
 }
 function agentDetectionText(herdr, name) {
   const detection = parseCommandOutput(herdr.agentRead({ name, source: 'detection' }));
@@ -1389,6 +1480,15 @@ export function runExecute({
       let paneId;
       let state;
       let prompt;
+      const reviewStep = step === 'review1' || step === 'review2';
+      const reviewBase = reviewStep ? resolveReviewBase(cwd, run) : null;
+      let reviewHandoffResult = null;
+      if (reviewStep && !reviewBase) {
+        return stop({
+          issue, step, paneId: 'none', agentName, reasonCode: 'review_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       try {
         prompt = remediationPrompt({
           issue,
@@ -1396,6 +1496,7 @@ export function runExecute({
           evidence: remediationEvidence(),
           cwd,
           controllerRunId: runState.runId,
+          reviewBase,
         });
       } catch (error) {
         return stop({
@@ -1413,7 +1514,7 @@ export function runExecute({
           });
         }
         state = agentState(herdrApi.agentGet(agentName));
-        if (!['idle', 'done'].includes(state)) {
+        if (!reviewStep && !['idle', 'done'].includes(state)) {
           const settled = state === 'working'
             ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
             : waitForWorkerSettlement(herdrApi, agentName);
@@ -1472,55 +1573,51 @@ export function runExecute({
         runState.remediation.remWorker = { name: agentName, paneId };
         persistRunState(runState, cwd);
 
-        if (step === 'review1' || step === 'review2') {
-          const reviewBase = resolveReviewBase(cwd, run);
-          if (!reviewBase || !startReviewAgainstBase(herdrApi, agentName, reviewBase)) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'review_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-        }
-        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
-        state = agentState(herdrApi.agentGet(agentName));
-        const promptStalled = isPromptStalled(prompted);
-        if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
-          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-            if (!retryPromptSubmission(herdrApi, agentName)) {
+        if (reviewStep) {
+          reviewHandoffResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
+          if (reviewHandoffResult.handoff) state = 'done';
+        } else {
+          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+          state = agentState(herdrApi.agentGet(agentName));
+          const promptStalled = isPromptStalled(prompted);
+          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+              if (!retryPromptSubmission(herdrApi, agentName)) {
+                return stop({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (appearsWorking(herdrApi, agentName)) {
+              if (!waitForWorkerSettlement(herdrApi, agentName)) {
+                return stop({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (promptStalled) {
               return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (appearsWorking(herdrApi, agentName)) {
-            if (!waitForWorkerSettlement(herdrApi, agentName)) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (promptStalled) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-              runState, cwd, herdr: herdrApi, output,
-            });
           }
         }
       }
 
-      if (!existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
+      if (!reviewStep && !existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
         if (remLive) {
-          if (step === 'review1' || step === 'review2') {
-            const reviewBase = resolveReviewBase(cwd, run);
-            if (!reviewBase || !startReviewAgainstBase(herdrApi, agentName, reviewBase)) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'review_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-          }
           const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
           state = agentState(herdrApi.agentGet(agentName));
           const promptStalled = isPromptStalled(prompted);
@@ -1557,12 +1654,29 @@ export function runExecute({
         }
         state = agentState(herdrApi.agentGet(agentName));
       }
-      if (!existsSync(handoffPath) && state === 'working') {
+      if (!reviewStep && !existsSync(handoffPath) && state === 'working') {
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+      if (reviewStep && remLive && !existsSync(handoffPath)) {
+        reviewHandoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
+        if (reviewHandoffResult.handoff) state = 'done';
+      }
+      const handoffResult = reviewStep
+        ? reviewHandoffResult || observeReviewHandoff(
+          herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
+        )
+        : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -1820,6 +1934,7 @@ export function runExecute({
       let state = agentState(herdrApi.agentGet(agentName));
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       const reviewStep = step === 'review1' || step === 'review2';
+      let retainedReviewResult = null;
       if (!step || agentName !== `s${issue}-${step}`) {
         return stop({
           issue,
@@ -1839,8 +1954,7 @@ export function runExecute({
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      let retainedReviewCompleted = false;
-      if (!['idle', 'done'].includes(state)) {
+      if (!reviewStep && !['idle', 'done'].includes(state)) {
         state = agentState(herdrApi.agentGet(agentName));
         if (!['idle', 'done'].includes(state)) {
           const settled = state === 'working'
@@ -1853,50 +1967,50 @@ export function runExecute({
             });
           }
           state = agentState(herdrApi.agentGet(agentName));
-          retainedReviewCompleted = reviewStep;
         }
       }
-      if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
+      if (
+        step
+        && agentName === `s${issue}-${step}`
+        && (reviewStep || ['idle', 'done'].includes(state))
+        && paneId !== 'unknown'
+      ) {
         if (!fs.existsSync(handoffPath) && reviewStep) {
-          if (!retainedReviewCompleted) {
-            const retainedReviewBase = resolveReviewBase(cwd, run);
-            if (
-              !retainedReviewBase
-              || !startReviewAgainstBase(herdrApi, agentName, retainedReviewBase)
-            ) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'review_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-          }
+          const retainedReviewBase = resolveReviewBase(cwd, run);
           let prompt;
           try {
-            prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
+            prompt = reviewProtocolPrompt(
+              retainedReviewBase,
+              workerPrompt({ step, issue, cwd, controllerRunId: runState.runId }),
+            );
           } catch (error) {
             return stop({
-              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
-              runState, cwd, herdr: herdrApi, output,
+              issue,
+              step,
+              paneId,
+              agentName,
+              reasonCode: error.message === 'review_base_missing'
+                ? 'review_failed'
+                : workerPromptFailureReason(error),
+              runState,
+              cwd,
+              herdr: herdrApi,
+              output,
             });
           }
-          herdrApi.agentPrompt({ name: agentName, prompt });
-          if (
-            !fs.existsSync(handoffPath)
-            && hasPastedWorkerPrompt(herdrApi, agentName, prompt)
-            && !retryPromptSubmission(herdrApi, agentName)
-          ) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          state = agentState(herdrApi.agentGet(agentName));
+          retainedReviewResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
+          if (retainedReviewResult.handoff) state = 'done';
         }
-        if (
-          !fs.existsSync(handoffPath)
-          && step !== 'review1'
-          && step !== 'review2'
-        ) {
+        if (!reviewStep && !fs.existsSync(handoffPath)) {
           let prompt;
           try {
             prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
@@ -1916,7 +2030,7 @@ export function runExecute({
             state = agentState(herdrApi.agentGet(agentName));
           }
         }
-        if (!fs.existsSync(handoffPath)) {
+        if (!reviewStep && !fs.existsSync(handoffPath)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
@@ -1925,7 +2039,12 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+        const handoffResult = reviewStep
+          ? retainedReviewResult || observeReviewHandoff(
+            herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
+          )
+          : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+        if (reviewStep && handoffResult.handoff) state = 'done';
         if (!handoffResult.handoff) {
           return stop({
             issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -2092,41 +2211,65 @@ export function runExecute({
       runState.workers[agentName] = ownership;
       persistRunState(runState, cwd);
 
-      if (
-        (step === 'review1' || step === 'review2')
-        && !startReviewAgainstBase(herdrApi, agentName, reviewBase)
-      ) {
-        return stop({
-          issue, step, paneId, agentName, reasonCode: 'review_failed',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
-
+      const reviewStep = step === 'review1' || step === 'review2';
       let prompt;
       try {
-        prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
+        const stepPrompt = workerPrompt({
+          step, issue, cwd, controllerRunId: runState.runId,
+        });
+        prompt = reviewStep ? reviewProtocolPrompt(reviewBase, stepPrompt) : stepPrompt;
       } catch (error) {
         return stop({
           issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+
       let state = agentState(herdrApi.agentGet(agentName));
-      const promptStalled = isPromptStalled(prompted);
-      if (
-        !fs.existsSync(handoffPath)
-        && (promptStalled || ['idle', 'done'].includes(state))
-      ) {
-        if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-          if (!retryPromptSubmission(herdrApi, agentName)) {
+      let handoffResult;
+      if (reviewStep) {
+        handoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
+        if (handoffResult.handoff) state = 'done';
+      } else {
+        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+        const promptStalled = isPromptStalled(prompted);
+        if (
+          !fs.existsSync(handoffPath)
+          && (promptStalled || ['idle', 'done'].includes(state))
+        ) {
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (appearsWorking(herdrApi, agentName)) {
+            if (!waitForWorkerSettlement(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (promptStalled) {
             return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
               runState, cwd, herdr: herdrApi, output,
             });
           }
-          state = agentState(herdrApi.agentGet(agentName));
-        } else if (appearsWorking(herdrApi, agentName)) {
+        }
+        if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
@@ -2134,27 +2277,15 @@ export function runExecute({
             });
           }
           state = agentState(herdrApi.agentGet(agentName));
-        } else if (promptStalled) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-            runState, cwd, herdr: herdrApi, output,
-          });
         }
-      }
-      if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
-        if (!waitForWorkerSettlement(herdrApi, agentName)) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
+        if (!fs.existsSync(handoffPath) && state === 'working') {
+          herdrApi.agentWait({ name: agentName });
+          state = agentState(herdrApi.agentGet(agentName));
         }
-        state = agentState(herdrApi.agentGet(agentName));
+        handoffResult = observeExpectedHandoff(
+          herdrApi, handoffPath, issue, step, agentName,
+        );
       }
-      if (!fs.existsSync(handoffPath) && state === 'working') {
-        herdrApi.agentWait({ name: agentName });
-        state = agentState(herdrApi.agentGet(agentName));
-      }
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
