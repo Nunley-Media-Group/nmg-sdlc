@@ -46,6 +46,10 @@ import {
   isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
 } from './omp-sdlc-ignore.mjs';
+import {
+  acquireControllerLease,
+  releaseControllerLease,
+} from './sdlc-controller-lease.mjs';
 
 
 
@@ -86,7 +90,7 @@ const STEP_EXTRA_WORKFLOWS = {
 
 
 function usageError() {
-  return 'Usage: /sdlc-execute [#N ...]';
+  return 'Usage: /sdlc-execute [--retain-worker] [#N ...]';
 }
 
 
@@ -99,7 +103,13 @@ export function parseArgs(input = '') {
   if (tokens.length === 0) throw new Error(usageError());
   const issues = [];
   const seen = new Set();
+  let retainWorker = false;
   for (const tok of tokens) {
+    if (tok === '--retain-worker') {
+      if (retainWorker) throw new Error(usageError());
+      retainWorker = true;
+      continue;
+    }
     const m = tok.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
     if (!m) {
       throw new Error(usageError());
@@ -114,7 +124,9 @@ export function parseArgs(input = '') {
   if (issues.length > 20) {
     throw new Error(usageError());
   }
-  return { issues, defaultBacklog: false };
+  const parsed = { issues, defaultBacklog: issues.length === 0 };
+  if (retainWorker) parsed.retainWorker = true;
+  return parsed;
 }
 
 function officialGraphForIssues(issues, { run = defaultRun, cwd = process.cwd() } = {}) {
@@ -386,7 +398,9 @@ export function readRun(root = process.cwd()) {
 }
 
 function validRunIdentity(runData) {
-  return typeof runData.projectRoot === 'string'
+  return runData !== null
+    && typeof runData === 'object'
+    && typeof runData.projectRoot === 'string'
     && runData.projectRoot.length > 0
     && typeof runData.runId === 'string'
     && runData.runId.length > 0
@@ -620,7 +634,7 @@ export function remediationCompletedSteps({
   return VALID_STEPS.slice(0, targetIndex);
 }
 
-export function workerPrompt({ step, issue, skill, cwd } = {}) {
+export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) {
   if (!step || !VALID_STEPS.includes(step)) throw new Error('invalid step for workerPrompt');
   if (!Number.isInteger(issue) || issue <= 0) throw new Error('invalid issue for workerPrompt');
   const skillName = skill || STEP_SKILL[step];
@@ -631,6 +645,7 @@ export function workerPrompt({ step, issue, skill, cwd } = {}) {
       issue: String(issue),
       step,
       handoffPath: `.omp/sdlc/handoffs/${issue}-${step}.json`,
+      controllerRunId: controllerRunId || '',
     },
   });
   if (cwd) writePromptProvenance(cwd, provenance);
@@ -649,10 +664,11 @@ export function isRemediableFailedHandoff({ step, state, handoff } = {}) {
     && handoff.step === step;
 }
 
-export function remediationPrompt({ issue, failedStep, evidence, cwd } = {}) {
+export function remediationPrompt({ issue, failedStep, evidence, cwd, controllerRunId } = {}) {
   let resolvedEvidence = evidence;
   if (!resolvedEvidence) {
-    const remediation = readRun(cwd)?.remediation;
+    const runState = readRun(cwd);
+    const remediation = runState?.remediation;
     if (
       remediation?.issue !== issue
       || remediation?.step !== failedStep
@@ -668,6 +684,7 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd } = {}) {
       closedName: remediation.closedWorker?.name,
       closedPaneId: remediation.closedWorker?.paneId,
     };
+    controllerRunId ||= runState.runId;
   }
   const artifacts = Array.isArray(resolvedEvidence.artifacts) && resolvedEvidence.artifacts.length > 0
     ? resolvedEvidence.artifacts.map((artifact) => `- ${artifact}`).join('\n')
@@ -682,7 +699,12 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd } = {}) {
     '',
     `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
   ].join('\n');
-  return `${header}\n---\n${workerPrompt({ step: failedStep, issue, cwd })}`;
+  return `${header}\n---\n${workerPrompt({
+    step: failedStep,
+    issue,
+    cwd,
+    controllerRunId,
+  })}`;
 }
 
 function workerPromptFailureReason(error) {
@@ -1200,8 +1222,75 @@ function completeInteractiveReview(herdr, agentName, reviewSelection) {
     && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
 
-function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd, herdr, output }) {
-  const sentence = `Stopped on #${issue} ${step}. Worker pane ${paneId} agent ${agentName} left open.`;
+function currentCheckout(cwd, run) {
+  const branchResult = run('git', ['branch', '--show-current'], { cwd });
+  const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
+  if (!commandSucceeded(branchResult) || !commandSucceeded(headResult)) return null;
+  const branch = String(branchResult.stdout || '').trim();
+  const head = String(headResult.stdout || '').trim();
+  return branch && head ? { branch, head } : null;
+}
+
+function workerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
+  const checkout = currentCheckout(cwd, run);
+  if (!checkout) return null;
+  return {
+    name: agentName,
+    paneId,
+    projectRoot: runState.projectRoot,
+    runId: runState.runId,
+    issue,
+    step,
+    ...checkout,
+  };
+}
+
+function matchingWorkerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
+  const expected = workerOwnership({ runState, issue, step, agentName, paneId, cwd, run });
+  const recorded = runState.workers?.[agentName];
+  return expected
+    && recorded
+    && Object.keys(expected).every((key) => recorded[key] === expected[key]);
+}
+
+function stopResult({
+  issue,
+  step,
+  paneId,
+  agentName,
+  reasonCode,
+  runState,
+  cwd,
+  run,
+  herdr,
+  output,
+  retainWorker = false,
+}) {
+  const recorded = runState.workers?.[agentName];
+  const owned = recorded?.paneId === paneId
+    && recorded.name === agentName
+    && recorded.projectRoot === runState.projectRoot
+    && recorded.runId === runState.runId
+    && recorded.issue === issue
+    && recorded.step === step;
+  let disposition = 'left open';
+  if (owned && retainWorker) {
+    const checkout = currentCheckout(cwd, run);
+    if (checkout) Object.assign(recorded, checkout);
+    disposition = 'retained by request';
+  } else if (
+    owned
+    && reasonCode !== 'pane_close_failed'
+    && reasonCode !== 'retained_worker_mismatch'
+  ) {
+    if (closePane(herdr, paneId)) {
+      delete runState.workers[agentName];
+      disposition = 'closed';
+    } else {
+      reasonCode = 'pane_close_failed';
+    }
+  }
+  const sentence = `Stopped on #${issue} ${step}. Worker pane ${paneId} agent ${agentName} ${disposition}.`;
   try {
     herdr.notificationShow({ title: 'nmg-sdlc stopped', body: sentence, sound: 'request' });
   } catch {
@@ -1288,6 +1377,8 @@ export function runExecute({
   run = defaultRun,
   fs = { existsSync, readFileSync },
   herdr,
+  installSignalHandlers = false,
+  processApi = process,
 } = {}) {
   const output = [];
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
@@ -1369,6 +1460,66 @@ export function runExecute({
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
+  const controllerRunId = validRunIdentity(existingRun) ? existingRun.runId : randomUUID();
+  let runState = existingRun;
+  let controllerLease;
+  try {
+    controllerLease = acquireControllerLease({
+      projectRoot: cwd,
+      runId: controllerRunId,
+      controllerPaneId: env.HERDR_PANE_ID,
+    });
+  } catch (error) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: `${error?.reasonCode || error?.message || 'controller_lease_held'}\n`,
+    };
+  }
+  const signalHandlers = [];
+  if (installSignalHandlers) {
+    const handleSignal = (signal) => {
+      if (runState?.workers && validRunIdentity(runState)) {
+        let changed = false;
+        for (const [name, worker] of Object.entries(runState.workers)) {
+          if (
+            worker?.name !== name
+            || worker.projectRoot !== runState.projectRoot
+            || worker.runId !== runState.runId
+          ) {
+            continue;
+          }
+          if (parsedArgs.retainWorker) {
+            const checkout = currentCheckout(cwd, run);
+            if (checkout) {
+              Object.assign(worker, checkout);
+              changed = true;
+            }
+          } else if (closePane(herdrApi, worker.paneId)) {
+            delete runState.workers[name];
+            changed = true;
+          }
+        }
+        if (changed) {
+          try {
+            persistRunState(runState, cwd);
+          } catch {
+            // Signal cleanup remains fail-closed with any unclosed records intact.
+          }
+        }
+      }
+      releaseControllerLease(controllerLease);
+      controllerLease = null;
+      processApi.exit(signal === 'SIGINT' ? 130 : 143);
+    };
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      const handler = () => handleSignal(signal);
+      processApi.once(signal, handler);
+      signalHandlers.push([signal, handler]);
+    }
+  }
+
+  try {
   const untrack = untrackOmpSdlcRuntime({ cwd, run });
   if (!untrack.ok) {
     return {
@@ -1397,7 +1548,7 @@ export function runExecute({
     return { status: 2, stdout: '', stderr: 'Working tree is dirty for a new issue\n' };
   }
 
-  let runState = existingRun;
+  runState = existingRun;
   if (!runState) {
     const branchResult = run('git', ['branch', '--show-current'], { cwd });
     const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
@@ -1409,7 +1560,7 @@ export function runExecute({
     runState = {
       schemaVersion: 1,
       projectRoot: realpathSync(cwd),
-      runId: randomUUID(),
+      runId: controllerRunId,
       issue: issues[0],
       branch,
       head,
@@ -1439,7 +1590,7 @@ export function runExecute({
     }
     Object.assign(runState, {
       projectRoot: realpathSync(cwd),
-      runId: randomUUID(),
+      runId: controllerRunId,
       issue: runState.currentIssue ?? issues[0],
       branch,
       head,
@@ -1454,6 +1605,12 @@ export function runExecute({
   } else if (runState.projectRoot !== realpathSync(cwd)) {
     return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
   }
+  runState.workers ||= {};
+  const stop = (input) => stopResult({
+    ...input,
+    run,
+    retainWorker: parsedArgs.retainWorker,
+  });
 
   try {
     const existingAgents = firstAgentList(herdrApi.listAgents());
@@ -1520,9 +1677,10 @@ export function runExecute({
           failedStep: step,
           evidence: remediationEvidence(),
           cwd,
+          controllerRunId: runState.runId,
         });
       } catch (error) {
-        return stopResult({
+        return stop({
           issue, step, paneId: 'none', agentName, reasonCode: workerPromptFailureReason(error),
           runState, cwd, herdr: herdrApi, output,
         });
@@ -1531,7 +1689,7 @@ export function runExecute({
       if (remLive) {
         paneId = remLive.pane_id ?? remLive.paneId ?? 'unknown';
         if (paneId === 'unknown') {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'unknown_pane',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -1542,7 +1700,7 @@ export function runExecute({
             ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
             : waitForWorkerSettlement(herdrApi, agentName);
           if (!settled) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1556,7 +1714,7 @@ export function runExecute({
         const split = herdrApi.paneSplit({ direction, cwd });
         paneId = splitPaneId(split);
         if (!paneId || !commandSucceeded(split)) {
-          return stopResult({
+          return stop({
             issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -1569,11 +1727,21 @@ export function runExecute({
           started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
         }
         if (!commandSucceeded(started)) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
             runState, cwd, herdr: herdrApi, output,
           });
         }
+        const ownership = workerOwnership({
+          runState, issue, step, agentName, paneId, cwd, run,
+        });
+        if (!ownership) {
+          return stop({
+            issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        runState.workers[agentName] = ownership;
         runState.remediation.remWorker = { name: agentName, paneId };
         persistRunState(runState, cwd);
 
@@ -1583,7 +1751,7 @@ export function runExecute({
             !reviewSelection
             || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
           ) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1595,7 +1763,7 @@ export function runExecute({
         if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
           if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
             if (!retryPromptSubmission(herdrApi, agentName)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'worker_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
@@ -1603,14 +1771,14 @@ export function runExecute({
             state = agentState(herdrApi.agentGet(agentName));
           } else if (appearsWorking(herdrApi, agentName)) {
             if (!waitForWorkerSettlement(herdrApi, agentName)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'worker_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
             state = agentState(herdrApi.agentGet(agentName));
           } else if (promptStalled) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1626,7 +1794,7 @@ export function runExecute({
               !reviewSelection
               || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
             ) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'review_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
@@ -1638,7 +1806,7 @@ export function runExecute({
           if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
             if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
               if (!retryPromptSubmission(herdrApi, agentName)) {
-                return stopResult({
+                return stop({
                   issue, step, paneId, agentName, reasonCode: 'worker_failed',
                   runState, cwd, herdr: herdrApi, output,
                 });
@@ -1646,14 +1814,14 @@ export function runExecute({
               state = agentState(herdrApi.agentGet(agentName));
             } else if (appearsWorking(herdrApi, agentName)) {
               if (!waitForWorkerSettlement(herdrApi, agentName)) {
-                return stopResult({
+                return stop({
                   issue, step, paneId, agentName, reasonCode: 'worker_failed',
                   runState, cwd, herdr: herdrApi, output,
                 });
               }
               state = agentState(herdrApi.agentGet(agentName));
             } else if (promptStalled) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
                 runState, cwd, herdr: herdrApi, output,
               });
@@ -1661,7 +1829,7 @@ export function runExecute({
           }
         }
         if (!existsSync(handoffPath) && !waitForWorkerSettlement(herdrApi, agentName)) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'worker_failed',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -1675,7 +1843,7 @@ export function runExecute({
 
       const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
@@ -1684,11 +1852,12 @@ export function runExecute({
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
         if (!closePane(herdrApi, paneId)) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
             runState, cwd, herdr: herdrApi, output,
           });
         }
+        delete runState.workers[agentName];
         remLive = null;
         continue;
       }
@@ -1702,7 +1871,7 @@ export function runExecute({
         ) {
           runState.remediation.status = 'stopped';
         }
-        return stopResult({
+        return stop({
           issue,
           step,
           paneId,
@@ -1717,11 +1886,12 @@ export function runExecute({
         });
       }
       if (!closePane(herdrApi, paneId)) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      delete runState.workers[agentName];
       runState.completed[String(issue)].push(step);
       runState.currentStep = nextStep(runState.completed[String(issue)]);
       runState.failed = null;
@@ -1737,19 +1907,22 @@ export function runExecute({
     }
     if (!closePane(herdrApi, paneId)) {
       return {
-        result: stopResult({
+        result: stop({
           issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
           runState, cwd, herdr: herdrApi, output,
         }),
       };
     }
+    delete runState.workers[agentName];
     return runRemediationLoop({ issue, step });
   }
 
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
-    let live = existingAgents.find((agent) => String(agent?.name || '').startsWith(`s${issue}-`));
-    if (!live) {
+    const issueAgents = existingAgents.filter(
+      (agent) => String(agent?.name || '').startsWith(`s${issue}-`),
+    );
+    if (issueAgents.length === 0) {
       const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
       if (labeled === null) {
         return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `Unable to read labels for #${issue}\n` };
@@ -1768,6 +1941,39 @@ export function runExecute({
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
+    let live = step
+      ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
+      : null;
+    if (
+      step
+      && !live
+      && runState.failed?.issue === issue
+      && runState.failed.step === step
+    ) {
+      const failedHandoff = readExpectedHandoff(
+        join(cwd, HANDOFF_DIR, `${issue}-${step}.json`),
+        issue,
+        step,
+      ).handoff;
+      const completed = failedHandoff
+        ? remediationCompletedSteps({
+          issue,
+          step,
+          completed: runState.completed[String(issue)],
+          handoff: failedHandoff,
+        })
+        : null;
+      if (completed) {
+        runState.completed[String(issue)] = completed;
+        step = nextStep(completed);
+        runState.currentStep = step;
+        runState.failed = null;
+        persistRunState(runState, cwd);
+        live = step
+          ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
+          : null;
+      }
+    }
     if (step === 'deliver') {
       const deliverHandoffPath = join(cwd, HANDOFF_DIR, `${issue}-deliver.json`);
       const deliverHandoff = readExpectedHandoff(deliverHandoffPath, issue, 'deliver').handoff;
@@ -1789,10 +1995,36 @@ export function runExecute({
         continue;
       }
     }
-    if (step && step !== 'start') {
+    if (step && !live && issueAgents.length > 0) {
+      const collision = issueAgents[0];
+      return stop({
+        issue,
+        step,
+        paneId: collision.pane_id ?? collision.paneId ?? 'unknown',
+        agentName: String(collision.name),
+        reasonCode: 'retained_worker_mismatch',
+        runState,
+        cwd,
+        herdr: herdrApi,
+        output,
+      });
+    }
+    if (live) {
+      const agentName = String(live.name);
+      const paneId = live.pane_id ?? live.paneId ?? 'unknown';
+      if (!matchingWorkerOwnership({
+        runState, issue, step, agentName, paneId, cwd, run,
+      })) {
+        return stop({
+          issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+    }
+    if (step && step !== 'start' && !live) {
       const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
       if (reasonCode) {
-        return stopResult({
+        return stop({
           issue,
           step,
           paneId: 'none',
@@ -1818,7 +2050,7 @@ export function runExecute({
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       const handoffResult = readExpectedHandoff(handoffPath, issue, step);
       if (!handoffResult.handoff) {
-        return stopResult({
+        return stop({
           issue, step, paneId: 'none', agentName: remAgentName(issue, step),
           reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
@@ -1835,7 +2067,7 @@ export function runExecute({
         handoff: rewindHandoff,
       });
       if (!completed) {
-        return stopResult({
+        return stop({
           issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'invalid_handoff',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -1853,7 +2085,7 @@ export function runExecute({
       if (remResult.result) return remResult.result;
       if (Number.isInteger(remResult.status)) return remResult;
       if (!remResult.passed) {
-        return stopResult({
+        return stop({
           issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'worker_failed',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -1868,7 +2100,7 @@ export function runExecute({
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       const reviewStep = step === 'review1' || step === 'review2';
       if (!step || agentName !== `s${issue}-${step}`) {
-        return stopResult({
+        return stop({
           issue,
           step: step || runState.currentStep || 'start',
           paneId,
@@ -1881,7 +2113,7 @@ export function runExecute({
         });
       }
       if (paneId === 'unknown') {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: 'unknown_pane',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -1904,7 +2136,7 @@ export function runExecute({
             !retainedReviewSelection
             || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
           ) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1915,7 +2147,7 @@ export function runExecute({
             ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
             : waitForWorkerSettlement(herdrApi, agentName);
           if (!settled) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1943,16 +2175,16 @@ export function runExecute({
             !retainedReviewSelection
             || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
           ) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'review_failed',
               runState, cwd, herdr: herdrApi, output,
             });
           }
           let prompt;
           try {
-            prompt = workerPrompt({ step, issue, cwd });
+            prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
           } catch (error) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1963,7 +2195,7 @@ export function runExecute({
             && hasPastedWorkerPrompt(herdrApi, agentName, prompt)
             && !retryPromptSubmission(herdrApi, agentName)
           ) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -1977,16 +2209,16 @@ export function runExecute({
         ) {
           let prompt;
           try {
-            prompt = workerPrompt({ step, issue, cwd });
+            prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
           } catch (error) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
               runState, cwd, herdr: herdrApi, output,
             });
           }
           if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
             if (!retryPromptSubmission(herdrApi, agentName)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'worker_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
@@ -1996,7 +2228,7 @@ export function runExecute({
         }
         if (!fs.existsSync(handoffPath)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -2005,7 +2237,7 @@ export function runExecute({
         }
         const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
         if (!handoffResult.handoff) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
             runState, cwd, herdr: herdrApi, output,
           });
@@ -2027,17 +2259,18 @@ export function runExecute({
             : null;
           if (remediation) {
             if (!['idle', 'done'].includes(state)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
             if (!closePane(herdrApi, paneId)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
+            delete runState.workers[agentName];
             runState.completed[String(issue)] = remediation;
             step = nextStep(remediation);
             runState.currentStep = step;
@@ -2045,7 +2278,7 @@ export function runExecute({
             persistRunState(runState, cwd);
           } else {
             if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
-              return stopResult({
+              return stop({
                 issue,
                 step,
                 paneId,
@@ -2060,11 +2293,12 @@ export function runExecute({
               });
             }
             if (!closePane(herdrApi, paneId)) {
-              return stopResult({
+              return stop({
                 issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
+            delete runState.workers[agentName];
             runState.completed[String(issue)].push(step);
             step = nextStep(runState.completed[String(issue)]);
             runState.currentStep = step;
@@ -2073,7 +2307,7 @@ export function runExecute({
           }
         }
       } else {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: state || 'worker_failed',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2098,7 +2332,7 @@ export function runExecute({
       if (step === 'review1' || step === 'review2') {
         reviewSelection = reviewBranchSelection(cwd, run);
         if (!reviewSelection) {
-          return stopResult({
+          return stop({
             issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_failed',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -2113,7 +2347,7 @@ export function runExecute({
           || currentBranch !== expectedBranch
           || currentBranch === reviewSelection.defaultBranch
         ) {
-          return stopResult({
+          return stop({
             issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_branch_mismatch',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -2128,7 +2362,7 @@ export function runExecute({
       const agentName = `s${issue}-${step}`;
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       if (!paneId || !commandSucceeded(split)) {
-        return stopResult({
+        return stop({
           issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2142,17 +2376,28 @@ export function runExecute({
         started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       }
       if (!commandSucceeded(started)) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      const ownership = workerOwnership({
+        runState, issue, step, agentName, paneId, cwd, run,
+      });
+      if (!ownership) {
+        return stop({
+          issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      runState.workers[agentName] = ownership;
+      persistRunState(runState, cwd);
 
       if (
         (step === 'review1' || step === 'review2')
         && !completeInteractiveReview(herdrApi, agentName, reviewSelection)
       ) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: 'review_failed',
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2160,9 +2405,9 @@ export function runExecute({
 
       let prompt;
       try {
-        prompt = workerPrompt({ step, issue, cwd });
+        prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
       } catch (error) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2176,7 +2421,7 @@ export function runExecute({
       ) {
         if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
           if (!retryPromptSubmission(herdrApi, agentName)) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
@@ -2184,14 +2429,14 @@ export function runExecute({
           state = agentState(herdrApi.agentGet(agentName));
         } else if (appearsWorking(herdrApi, agentName)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
-            return stopResult({
+            return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
           }
           state = agentState(herdrApi.agentGet(agentName));
         } else if (promptStalled) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -2199,7 +2444,7 @@ export function runExecute({
       }
       if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
         if (!waitForWorkerSettlement(herdrApi, agentName)) {
-          return stopResult({
+          return stop({
             issue, step, paneId, agentName, reasonCode: 'worker_failed',
             runState, cwd, herdr: herdrApi, output,
           });
@@ -2212,7 +2457,7 @@ export function runExecute({
       }
       const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2226,18 +2471,19 @@ export function runExecute({
         continue;
       }
       if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status || state || 'worker_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
 
       if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
-        return stopResult({
+        return stop({
           issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      delete runState.workers[agentName];
       runState.completed[String(issue)].push(step);
       step = nextStep(runState.completed[String(issue)]);
       runState.currentStep = step;
@@ -2260,6 +2506,10 @@ export function runExecute({
   } catch (error) {
     return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${error.message}\n` };
   }
+  } finally {
+    for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
+    releaseControllerLease(controllerLease);
+  }
 }
 
 function runCli(argv = process.argv.slice(2)) {
@@ -2269,7 +2519,7 @@ function runCli(argv = process.argv.slice(2)) {
     process.exit(2);
   }
   if (sub === 'run') {
-    const result = runExecute({ args: rest.join(' ') });
+    const result = runExecute({ args: rest.join(' '), installSignalHandlers: true });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     process.exit(result.status);

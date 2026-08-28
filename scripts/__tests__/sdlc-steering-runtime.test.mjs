@@ -34,7 +34,7 @@ describe('managed steering runtime', () => {
     expect(projectPromptFragments(runtime)).toEqual([expect.objectContaining({ provider: 'project:project.tech', source: 'steering/snippets/project-tech.md' })]);
     const rendered = renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
       consumer: 'worker:implement',
-      vars: { step: 'implement', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
+      vars: { step: 'implement', issue: '42', controllerRunId: 'run-42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
     });
     expect(rendered.text).toContain('Use focused tests.');
     expect(rendered.provenance.fragments).toContainEqual(expect.objectContaining({
@@ -55,7 +55,7 @@ describe('managed steering runtime', () => {
     expect(Object.hasOwn(fragment, 'byteBound')).toBe(false);
     expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
       consumer: 'worker:implement',
-      vars: { step: 'implement', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
+      vars: { step: 'implement', issue: '42', controllerRunId: 'run-42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
     }).text).toContain('Use focused tests.');
   });
 
@@ -72,7 +72,7 @@ describe('managed steering runtime', () => {
     expect(projectPromptFragments(runtime)[0]).not.toHaveProperty('byteBound');
     expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
       consumer: 'worker:implement',
-      vars: { step: 'implement', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
+      vars: { step: 'implement', issue: '42', controllerRunId: 'run-42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
     }).text).toContain('Use focused tests.');
   });
 

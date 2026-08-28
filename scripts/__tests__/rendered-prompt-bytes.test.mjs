@@ -4,21 +4,21 @@ import { renderedPromptBytes, workflowBody } from '../../src/sdlc-workflows.mjs'
 import { workerPrompt } from '../sdlc-execute.mjs';
 
 const AUTOMATED_BODY_CEILINGS = {
-  'sdlc-execute': 1040,
+  'sdlc-execute': 1160,
   'sdlc-status': 814,
   'sdlc-verify-code': 5000,
-  'sdlc-open-pr': 4384,
+  'sdlc-open-pr': 4600,
 };
 
 const WORKER_PROMPT_CEILINGS = {
-  start: 1445,
-  implement: 6500,
-  review1: 1388,
-  fix1: 958,
-  review2: 1388,
-  fix2: 958,
-  verify: 5500,
-  deliver: 4939,
+  start: 1475,
+  implement: 6530,
+  review1: 1418,
+  fix1: 988,
+  review2: 1418,
+  fix2: 988,
+  verify: 5700,
+  deliver: 5150,
 };
 
 describe('rendered prompt byte ceilings', () => {

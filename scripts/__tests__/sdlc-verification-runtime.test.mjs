@@ -7,6 +7,10 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { evaluateCondition, runSteeringValidations, validationResultCoverage, verificationCeiling } from '../../src/sdlc-verification-runtime.mjs';
+import {
+  acquireControllerLease,
+  releaseControllerLease,
+} from '../sdlc-controller-lease.mjs';
 
 const VERIFY_SCRIPT = path.resolve('sdlc-verify-steering.mjs');
 
@@ -97,6 +101,43 @@ describe('deterministic verification runtime', () => {
         complete: true,
       },
     });
+  });
+
+  it('rejects an unscoped verifier under an execute lease and accepts the exact run id', async () => {
+    const root = await fixture([]);
+    const lease = acquireControllerLease({
+      projectRoot: root,
+      runId: 'execute-run',
+      controllerPaneId: 'execute-pane',
+    });
+    const artifactPath = path.join(root, '.omp/sdlc/verification/42.json');
+    const args = [
+      VERIFY_SCRIPT,
+      '--project', root,
+      '--issue', '42',
+      '--spec', 'specs/42-test',
+      '--base', 'HEAD',
+    ];
+
+    const rejected = spawnSync(process.execPath, args, {
+      cwd: root,
+      encoding: 'utf8',
+      shell: false,
+    });
+    expect(rejected.status).toBe(1);
+    expect(JSON.parse(rejected.stdout)).toMatchObject({
+      ok: false,
+      reasonCode: 'controller_lease_held',
+    });
+    expect(fs.existsSync(artifactPath)).toBe(false);
+
+    const scoped = spawnSync(process.execPath, [
+      ...args,
+      '--controller-run-id', 'execute-run',
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(scoped.status).toBe(0);
+    expect(JSON.parse(scoped.stdout)).toMatchObject({ ok: true, issue: 42 });
+    expect(releaseControllerLease(lease)).toBe(true);
   });
 
   it('runs every applicable validation and writes identity-bound evidence', async () => {

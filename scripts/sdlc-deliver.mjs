@@ -13,8 +13,12 @@ import {
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
+import {
+  enterControllerLease,
+  releaseControllerLease,
+} from './sdlc-controller-lease.mjs';
 
-const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--remediation-result human_review]';
+const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--controller-run-id R] [--remediation-result human_review]';
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const ISSUE = /^#?([1-9]\d*)$/;
 const SHA = /^[0-9a-f]{40}$/i;
@@ -92,11 +96,17 @@ function positiveIssue(value) {
 export function parseDeliverCli(argv) {
   let issue = null;
   let remediationResult = null;
+  let controllerRunId = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--issue' && issue === null && index + 1 < argv.length) {
       issue = positiveIssue(argv[index += 1]);
       if (!issue) throw new Error(USAGE);
+      continue;
+    }
+    if (arg === '--controller-run-id' && controllerRunId === null && index + 1 < argv.length) {
+      controllerRunId = argv[index += 1];
+      if (!controllerRunId) throw new Error(USAGE);
       continue;
     }
     if (arg === '--remediation-result' && remediationResult === null && index + 1 < argv.length) {
@@ -107,7 +117,9 @@ export function parseDeliverCli(argv) {
     throw new Error(USAGE);
   }
   if (!issue) throw new Error(USAGE);
-  return { issue, remediationResult };
+  const parsed = { issue, remediationResult };
+  if (controllerRunId !== null) parsed.controllerRunId = controllerRunId;
+  return parsed;
 }
 
 function handoffFor(issue, status, summary, artifacts, reasonCode) {
@@ -828,7 +840,7 @@ function classifyHumanReview(rawThreads, botLogins) {
     .some((thread) => !isBot(threadAuthor(thread), botLogins));
 }
 
-export function runDeliver({
+function runDeliverUnlocked({
   issue,
   cwd = process.cwd(),
   run = defaultRun,
@@ -1058,6 +1070,30 @@ export function runDeliver({
       : error.message === 'verification_not_ready' ? 'verification_not_ready'
         : 'delivery_failed';
     return fail(context, reasonCode, `Delivery failed for #${issueNumber}: ${error.message}`);
+  }
+}
+
+export function runDeliver(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  let leaseContext;
+  try {
+    leaseContext = enterControllerLease({
+      projectRoot: cwd,
+      runId: options.controllerRunId,
+    });
+  } catch (error) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: `${error?.reasonCode || 'controller_lease_held'}\n`,
+      handoff: null,
+      handoffPath: `.omp/sdlc/handoffs/${options.issue}-deliver.json`,
+    };
+  }
+  try {
+    return runDeliverUnlocked(options);
+  } finally {
+    if (leaseContext.owned) releaseControllerLease(leaseContext.lease);
   }
 }
 

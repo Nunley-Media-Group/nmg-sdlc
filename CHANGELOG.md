@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Enforce one canonical-project controller lease, exact retained-worker ownership, and default cleanup of controller-owned panes; `--retain-worker` remains the explicit debugging escape (#291).
+
 ## [3.18.4] - 2026-08-28
 
 ### Changed

@@ -91,7 +91,12 @@ describe('prompt snippet registry', () => {
       .toBe(workflowBody('write-spec', repoRoot));
     const rendered = renderPrompt(registry, {
       consumer: 'worker:start',
-      vars: { step: 'start', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-start.json' },
+      vars: {
+        step: 'start',
+        issue: '42',
+        controllerRunId: 'run-42',
+        handoffPath: '.omp/sdlc/handoffs/42-start.json',
+      },
     });
     expect(rendered.text).toBe([
       'nmg-sdlc start worker for #42.',
@@ -99,6 +104,7 @@ describe('prompt snippet registry', () => {
       'Write and validate the handoff, then stop.',
       '',
       '$ARGUMENTS: #42',
+      'Controller run id: run-42',
       'Handoff path: .omp/sdlc/handoffs/42-start.json',
       'Before printing the marker, run: node ' + '<plugin-root>' + '/scripts/sdlc-execute.mjs validate-handoff --file .omp/sdlc/handoffs/42-start.json',
       'Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/42-start.json',
@@ -251,7 +257,12 @@ describe('prompt snippet registry', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-provenance-'));
     const { provenance } = renderPrompt(defaultPromptRegistry(repoRoot), {
       consumer: 'worker:start',
-      vars: { step: 'start', issue: '42', handoffPath: '.omp/sdlc/handoffs/42-start.json' },
+      vars: {
+        step: 'start',
+        issue: '42',
+        controllerRunId: 'run-42',
+        handoffPath: '.omp/sdlc/handoffs/42-start.json',
+      },
     });
     writePromptProvenance(projectRoot, provenance);
     const sidecar = path.join(
