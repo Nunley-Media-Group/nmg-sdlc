@@ -91,7 +91,7 @@ After a clear fix:
 4. Commit with a conventional `fix:` subject.
 5. Push the current branch without force.
 6. Save this packet's fingerprint as the immediately preceding fingerprint.
-7. Return to the controller loop and route the next result from step 4. A new exit
+7. Return to the controller loop and route the next result from step 5. A new exit
    3 is never terminal by itself and never bypasses repeat detection.
 
 Never resolve a review thread, merge the PR, resend a prompt, invoke OMP, or start
