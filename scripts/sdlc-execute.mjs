@@ -9,7 +9,21 @@
  * Exports support direct import by tests and the skill.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -369,17 +383,118 @@ export function readRun(root = process.cwd()) {
   return null;
 }
 
-export function writeRun(runData, root = process.cwd()) {
-  if (!runData || runData.schemaVersion !== 1) {
+function validRunIdentity(runData) {
+  return typeof runData.projectRoot === 'string'
+    && runData.projectRoot.length > 0
+    && typeof runData.runId === 'string'
+    && runData.runId.length > 0
+    && Number.isSafeInteger(runData.issue)
+    && runData.issue > 0
+    && typeof runData.branch === 'string'
+    && runData.branch.length > 0
+    && typeof runData.head === 'string'
+    && runData.head.length > 0
+    && Array.isArray(runData.issues)
+    && runData.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
+    && Number.isSafeInteger(runData.revision)
+    && runData.revision > 0;
+}
+
+function hasRunIdentity(runData) {
+  return ['projectRoot', 'runId', 'issue', 'branch', 'head', 'revision']
+    .every((field) => Object.hasOwn(runData, field));
+}
+
+function sameRunIdentity(left, right) {
+  return left.projectRoot === right.projectRoot
+    && left.runId === right.runId
+    && left.issue === right.issue
+    && left.branch === right.branch
+    && left.head === right.head
+    && JSON.stringify(left.issues) === JSON.stringify(right.issues);
+}
+
+export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
+  if (
+    !runData
+    || runData.schemaVersion !== 1
+    || !Number.isSafeInteger(expectedRevision)
+    || expectedRevision < 0
+    || !validRunIdentity(runData)
+    || runData.revision !== expectedRevision + 1
+  ) {
     throw new Error('invalid run schema');
   }
+
+  const canonicalRoot = realpathSync(root);
+  if (runData.projectRoot !== canonicalRoot) throw new Error('identity_mismatch');
+
   const p = join(root, RUN_FILE);
   const d = dirname(p);
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
   const handoffDir = join(root, HANDOFF_DIR);
   if (!existsSync(handoffDir)) mkdirSync(handoffDir, { recursive: true });
-  const content = JSON.stringify(runData, null, 2) + '\n';
-  writeFileSync(p, content);
+
+  const lockPath = `${p}.lock`;
+  const temporaryPath = `${p}.tmp`;
+  let lock;
+  try {
+    try {
+      lock = openSync(lockPath, 'wx');
+    } catch (error) {
+      if (error?.code === 'EEXIST') throw new Error('checkpoint_locked');
+      throw error;
+    }
+
+    if (existsSync(p)) {
+      let existing;
+      try {
+        existing = JSON.parse(readFileSync(p, 'utf8'));
+      } catch {
+        throw new Error('identity_mismatch');
+      }
+
+      const bound = existing?.schemaVersion === 1 && validRunIdentity(existing);
+      if (!bound) {
+        const bindable = existing?.schemaVersion === 1
+          && !hasRunIdentity(existing)
+          && expectedRevision === 0
+          && JSON.stringify(existing.issues) === JSON.stringify(runData.issues)
+          && (!Object.hasOwn(existing, 'currentIssue')
+            || existing.currentIssue === null
+            || existing.currentIssue === runData.currentIssue);
+        if (!bindable) throw new Error('identity_mismatch');
+      } else {
+        if (existing.revision !== expectedRevision) throw new Error('stale_revision');
+        if (!sameRunIdentity(existing, runData)) throw new Error('identity_mismatch');
+      }
+    } else if (expectedRevision !== 0) {
+      throw new Error('stale_revision');
+    }
+
+    writeFileSync(temporaryPath, `${JSON.stringify(runData, null, 2)}\n`);
+    renameSync(temporaryPath, p);
+  } finally {
+    if (lock !== undefined) {
+      try {
+        closeSync(lock);
+      } finally {
+        unlinkSync(lockPath);
+      }
+    }
+  }
+}
+
+function persistRunState(runState, root) {
+  const expectedRevision = Number.isSafeInteger(runState.revision) ? runState.revision : 0;
+  const previous = runState.revision;
+  runState.revision = expectedRevision + 1;
+  try {
+    writeRun(runState, root, expectedRevision);
+  } catch (error) {
+    runState.revision = previous;
+    throw error;
+  }
 }
 
 export function resolveSpecDirForIssue(root, issueN) {
@@ -1010,7 +1125,7 @@ function stopResult({ issue, step, paneId, agentName, reasonCode, runState, cwd,
     // The orchestrator sentence remains authoritative when notifications are unavailable.
   }
   runState.failed = { issue, step, reasonCode };
-  writeRun(runState, cwd);
+  persistRunState(runState, cwd);
   output.push(sentence);
   return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
 }
@@ -1179,7 +1294,11 @@ export function runExecute({
       stderr: 'Failed to untrack plugin runtime under .omp/sdlc\n',
     };
   }
+  const runFileExists = existsSync(join(cwd, RUN_FILE));
   const matchingRun = existingRun && JSON.stringify(existingRun.issues) === JSON.stringify(issues);
+  if (runFileExists && !matchingRun) {
+    return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+  }
   const dirtyIssue = matchingRun
     ? issues.find((issue) => nextStep(existingRun.completed?.[String(issue)] ?? []) !== null) ?? issues[0]
     : issues[0];
@@ -1188,20 +1307,66 @@ export function runExecute({
   }
 
   let runState = existingRun;
-  if (!runState || JSON.stringify(runState.issues) !== JSON.stringify(issues)) {
+  if (!runState) {
+    const branchResult = run('git', ['branch', '--show-current'], { cwd });
+    const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
+    const branch = commandSucceeded(branchResult) ? String(branchResult.stdout || '').trim() : '';
+    const head = commandSucceeded(headResult) ? String(headResult.stdout || '').trim() : '';
+    if (!branch || !head) {
+      return { status: 2, stdout: '', stderr: 'Run checkpoint identity unreadable\n' };
+    }
     runState = {
       schemaVersion: 1,
+      projectRoot: realpathSync(cwd),
+      runId: randomUUID(),
+      issue: issues[0],
+      branch,
+      head,
       issues,
+      revision: 0,
       currentIssue: issues[0],
       currentStep: 'start',
       completed: {},
       failed: null,
       startedAt: new Date().toISOString(),
     };
+    try {
+      persistRunState(runState, cwd);
+    } catch (error) {
+      return { status: 1, stdout: '', stderr: `${error.message}\n` };
+    }
+  } else if (!validRunIdentity(runState)) {
+    if (hasRunIdentity(runState)) {
+      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+    }
+    const branchResult = run('git', ['branch', '--show-current'], { cwd });
+    const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
+    const branch = commandSucceeded(branchResult) ? String(branchResult.stdout || '').trim() : '';
+    const head = commandSucceeded(headResult) ? String(headResult.stdout || '').trim() : '';
+    if (!branch || !head) {
+      return { status: 2, stdout: '', stderr: 'Run checkpoint identity unreadable\n' };
+    }
+    Object.assign(runState, {
+      projectRoot: realpathSync(cwd),
+      runId: randomUUID(),
+      issue: runState.currentIssue ?? issues[0],
+      branch,
+      head,
+      revision: 0,
+      currentIssue: runState.currentIssue ?? issues[0],
+    });
+    try {
+      persistRunState(runState, cwd);
+    } catch {
+      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+    }
+  } else if (runState.projectRoot !== realpathSync(cwd)) {
+    return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
   }
 
-  const existingAgents = firstAgentList(herdrApi.listAgents());
-  const createdPanes = new Set();
+  try {
+    const existingAgents = firstAgentList(herdrApi.listAgents());
+    const createdPanes = new Set();
 
   function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {
     if (!isRemediableFailedHandoff({ step, state, handoff })) return false;
@@ -1234,7 +1399,7 @@ export function runExecute({
       remWorker: null,
       history,
     };
-    writeRun(runState, cwd);
+    persistRunState(runState, cwd);
     return true;
   }
 
@@ -1319,7 +1484,7 @@ export function runExecute({
           });
         }
         runState.remediation.remWorker = { name: agentName, paneId };
-        writeRun(runState, cwd);
+        persistRunState(runState, cwd);
 
         if (step === 'review1' || step === 'review2') {
           const reviewSelection = reviewBranchSelection(cwd, run);
@@ -1470,7 +1635,7 @@ export function runExecute({
       runState.currentStep = nextStep(runState.completed[String(issue)]);
       runState.failed = null;
       runState.remediation = null;
-      writeRun(runState, cwd);
+      persistRunState(runState, cwd);
       return { passed: true, step: runState.currentStep };
     }
   }
@@ -1518,7 +1683,7 @@ export function runExecute({
       if (deliverHandoff?.status === 'passed' && !deliverHandoff.intervention) {
         if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
           runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
-          writeRun(runState, cwd);
+          persistRunState(runState, cwd);
           return {
             status: 1,
             stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
@@ -1529,7 +1694,7 @@ export function runExecute({
         runState.currentStep = null;
         runState.failed = null;
         runState.remediation = null;
-        writeRun(runState, cwd);
+        persistRunState(runState, cwd);
         continue;
       }
     }
@@ -1589,7 +1754,7 @@ export function runExecute({
       runState.currentStep = step;
       runState.failed = null;
       runState.remediation = null;
-      writeRun(runState, cwd);
+      persistRunState(runState, cwd);
       live = null;
     }
     if (step && (liveRem || activeRemediation)) {
@@ -1786,7 +1951,7 @@ export function runExecute({
             step = nextStep(remediation);
             runState.currentStep = step;
             runState.failed = null;
-            writeRun(runState, cwd);
+            persistRunState(runState, cwd);
           } else {
             if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
               return stopResult({
@@ -1813,7 +1978,7 @@ export function runExecute({
             step = nextStep(runState.completed[String(issue)]);
             runState.currentStep = step;
             runState.failed = null;
-            writeRun(runState, cwd);
+            persistRunState(runState, cwd);
           }
         }
       } else {
@@ -1836,7 +2001,7 @@ export function runExecute({
     while (step) {
       runState.currentStep = step;
       runState.failed = null;
-      writeRun(runState, cwd);
+      persistRunState(runState, cwd);
 
       let reviewSelection = null;
       if (step === 'review1' || step === 'review2') {
@@ -1985,12 +2150,12 @@ export function runExecute({
       runState.completed[String(issue)].push(step);
       step = nextStep(runState.completed[String(issue)]);
       runState.currentStep = step;
-      writeRun(runState, cwd);
+      persistRunState(runState, cwd);
     }
 
     if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
       runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
-      writeRun(runState, cwd);
+      persistRunState(runState, cwd);
       return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };
     }
   }
@@ -1998,8 +2163,11 @@ export function runExecute({
   runState.currentIssue = null;
   runState.currentStep = null;
   runState.failed = null;
-  writeRun(runState, cwd);
+  persistRunState(runState, cwd);
   return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
+  } catch (error) {
+    return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${error.message}\n` };
+  }
 }
 
 function runCli(argv = process.argv.slice(2)) {
@@ -2077,17 +2245,21 @@ function runCli(argv = process.argv.slice(2)) {
     process.exit(0);
   }
   if (sub === 'write-run') {
-    const input = rest.join(' ');
-    if (!input) {
-      console.error('provide run json');
+    const revisionIndex = rest.indexOf('--expected-revision');
+    const expectedRevision = revisionIndex >= 0 ? Number(rest[revisionIndex + 1]) : NaN;
+    const input = revisionIndex >= 0
+      ? rest.filter((_value, index) => index !== revisionIndex && index !== revisionIndex + 1).join(' ')
+      : '';
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !input) {
+      console.error('Usage: node sdlc-execute.mjs write-run --expected-revision N <json>');
       process.exit(2);
     }
     try {
       const data = JSON.parse(input);
-      writeRun(data);
+      writeRun(data, process.cwd(), expectedRevision);
       process.exit(0);
-    } catch (e) {
-      console.error('invalid json or schema for write-run');
+    } catch (error) {
+      console.error(error.message);
       process.exit(1);
     }
   }
