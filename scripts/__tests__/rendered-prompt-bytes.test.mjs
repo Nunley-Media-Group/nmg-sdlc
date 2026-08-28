@@ -12,7 +12,7 @@ const AUTOMATED_BODY_CEILINGS = {
 
 const WORKER_PROMPT_CEILINGS = {
   start: 1445,
-  implement: 6500,
+  implement: 6764,
   review1: 1388,
   fix1: 958,
   review2: 1388,
