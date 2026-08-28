@@ -46,22 +46,30 @@ describe('extension sdlc- commands', () => {
       materializeControllerPaths(workflowBody('upgrade-project'), packageRoot),
       '#252',
     )}`;
-    const projectCommand = 'node scripts/check-gate.mjs';
+    const projectCommands = [
+      'node scripts/check-gate.mjs',
+      'node "/opt/consumer/scripts/check-gate.mjs"',
+      String.raw`node "C:\consumer\scripts\check-gate.mjs"`,
+    ];
     const runtime = materializeRuntimeMessages([
       {
         role: 'user',
-        content: [{ type: 'text', text: 'node <plugin-root>/scripts/sdlc-status.mjs --project .' }],
+        content: [{ type: 'text', text: 'node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-status.mjs" --project .' }],
       },
-      { role: 'assistant', content: projectCommand },
+      ...projectCommands.map((content) => ({ role: 'assistant', content })),
       { role: 'user', content: 'node <plugin-root>/scripts/missing.mjs' },
+      { role: 'user', content: String.raw`node "\\foreign\plugins\nmg-sdlc\scripts\missing.mjs"` },
     ], packageRoot);
     const upgradeController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-upgrade.mjs'));
     const statusController = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'));
     expect(interactive).toContain(`["node",${upgradeController},"apply"`);
     expect(interactive).not.toContain('<plugin-root>');
     expect(runtime[0].content[0].text).toBe(`node ${statusController} --project .`);
-    expect(runtime[1].content).toBe(projectCommand);
-    expect(runtime[2].content).toBe('node <plugin-root>/scripts/missing.mjs');
+    for (const [index, command] of projectCommands.entries()) {
+      expect(runtime[index + 1].content).toBe(command);
+    }
+    expect(runtime.at(-2).content).toBe('node <plugin-root>/scripts/missing.mjs');
+    expect(runtime.at(-1).content).toBe(String.raw`node "\\foreign\plugins\nmg-sdlc\scripts\missing.mjs"`);
   });
 
   it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
@@ -74,8 +82,8 @@ describe('extension sdlc- commands', () => {
     }
   });
 
-  it('ships no cwd-relative controller dispatch in public prompt surfaces', () => {
-    const roots = ['commands', 'workflows'];
+  it('ships no cwd-relative or host-absolute controller dispatch in active prompt surfaces', () => {
+    const roots = ['commands', 'workflows', 'references'];
     const markdown = [];
     while (roots.length > 0) {
       const relative = roots.pop();
@@ -87,7 +95,12 @@ describe('extension sdlc- commands', () => {
       }
     }
     for (const file of markdown) {
-      expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
+      if (!file.startsWith('references/')) {
+        expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
+      }
+      expect(read(file)).not.toMatch(
+        /(?:\/|[A-Za-z]:[\\/]|\\\\)[^"'\r\n`]*[\\/]nmg-sdlc[\\/]+scripts[\\/]+[A-Za-z0-9._-]+\.mjs/,
+      );
     }
   });
 

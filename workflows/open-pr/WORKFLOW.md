@@ -15,7 +15,7 @@ Run deterministic delivery for issue N. No user questions and no nested worker.
      `--controller-run-id R` and the canonical
      `.omp/sdlc/handoffs/N-deliver.json`.
    - Otherwise, run
-     `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" session-init --issue N`
+     `node <plugin-root>/scripts/sdlc-deliver.mjs session-init --issue N`
      exactly once. Require exactly one `NMG_SDLC_SESSION: T` line whose token is
      a lowercase UUID. Retain `--session-token T` and
      `.omp/sdlc/sessions/T/handoffs/N-deliver.json` through every rerun.
@@ -24,7 +24,7 @@ Run deterministic delivery for issue N. No user questions and no nested worker.
 3. Keep the immediately preceding remediation packet fingerprint in worker
    context.
 4. Run
-   `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N <scope-option>`
+   `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N <scope-option>`
    with the retained scope option.
 5. Route every invocation, including every post-remediation rerun:
    - `0`: require the exact namespace-specific handoff marker, validate that
@@ -100,7 +100,7 @@ If a request is ambiguous, design-affecting, human-authored, unsafe, outside
 scope, pathless, unchanged after the attempted fix, or repeated unchanged, run:
 
 ```bash
-node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N <scope-option> --remediation-result human_review
+node <plugin-root>/scripts/sdlc-deliver.mjs --issue N <scope-option> --remediation-result human_review
 ```
 
 Preserve that controller-owned intervention handoff and stop.

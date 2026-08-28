@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_NAME_PATTERN = /^[A-Za-z0-9._-]+\.mjs$/;
@@ -74,6 +74,20 @@ export function resolvePluginController(scriptName, options = {}) {
   return controller;
 }
 
+function controllerNameFromOperand(operand) {
+  const canonical = /^<plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)$/.exec(operand);
+  if (canonical) return canonical[1];
+  if (!posix.isAbsolute(operand) && !win32.isAbsolute(operand)) return null;
+
+  const segments = operand.split(/[\\/]+/).filter(Boolean);
+  const scriptName = segments.at(-1);
+  return segments.at(-3) === "nmg-sdlc"
+    && segments.at(-2) === "scripts"
+    && SCRIPT_NAME_PATTERN.test(scriptName)
+    ? scriptName
+    : null;
+}
+
 function materializeControllerPathsWithPolicy(text, pluginRoot, preserveUnresolved) {
   const controllerPath = (scriptName) => {
     try {
@@ -85,19 +99,19 @@ function materializeControllerPathsWithPolicy(text, pluginRoot, preserveUnresolv
       throw error;
     }
   };
-  const source = String(text).replace(
-    /(["'])<plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)\1/g,
-    (match, _quote, scriptName) => {
-      const controller = controllerPath(scriptName);
-      return controller === null ? match : JSON.stringify(controller);
-    },
+  const replaceOperand = (match, prefix, operand, suffix = "") => {
+    const scriptName = controllerNameFromOperand(operand);
+    if (scriptName === null) return match;
+    const controller = controllerPath(scriptName);
+    return controller === null ? match : `${prefix}${JSON.stringify(controller)}${suffix}`;
+  };
+  const quoted = String(text).replace(
+    /(["'])([^"'\r\n]+)\1/g,
+    (match, quote, operand) => replaceOperand(match, "", operand),
   );
-  return source.replace(
-    /node <plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)/g,
-    (match, scriptName) => {
-      const controller = controllerPath(scriptName);
-      return controller === null ? match : `node ${JSON.stringify(controller)}`;
-    },
+  return quoted.replace(
+    /(\bnode\s+)((?:<plugin-root>\/scripts\/|[^\s"'`]*[\\/])[A-Za-z0-9._-]+\.mjs)(?=\s|$|[),.;:\]])/g,
+    (match, prefix, operand) => replaceOperand(match, prefix, operand),
   );
 }
 

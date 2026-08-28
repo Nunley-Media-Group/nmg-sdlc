@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   isCliEntry,
+  materializeAvailableControllerPaths,
   materializeControllerPaths,
   resolvePluginController,
   resolvePluginRoot,
@@ -104,39 +105,72 @@ describe("plugin controller path resolution", () => {
     }
   });
 
-  test("materializes explicit plugin dispatch and preserves project-local commands", () => {
+  test("materializes canonical and foreign plugin dispatch across host path shapes", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
     try {
       const root = disposablePackage(fixture, "plugin root");
-      for (const scriptName of ["a.mjs", "c.mjs"]) {
+      for (const scriptName of ["a.mjs", "c.mjs", "sdlc-execute.mjs"]) {
         fs.writeFileSync(path.join(root, "scripts", scriptName), "");
       }
-      const projectCommand = "node scripts/check-gate.mjs two";
+      const controller = JSON.stringify(path.join(root, "scripts", "sdlc-execute.mjs"));
+      const canonicalArgv = JSON.stringify(path.join(root, "scripts", "c.mjs"));
+      const projectCommands = [
+        "node scripts/check-gate.mjs two",
+        'node "/opt/app/scripts/check-gate.mjs" three',
+        String.raw`node "C:\consumer\scripts\check-gate.mjs" four`,
+      ];
       const output = materializeControllerPaths(
         [
           "node <plugin-root>/scripts/a.mjs one",
-          projectCommand,
+          ...projectCommands,
+          'node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs" --issue 19',
+          String.raw`node "C:\\Users\\other\\.omp\\plugins\\node_modules\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 20`,
+          String.raw`node "\\\\server\\plugins\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 21`,
+          String.raw`node "C:\Users/other\plugins/nmg-sdlc\scripts/sdlc-execute.mjs" --issue 22`,
+          "run(node /checkout/nmg-sdlc/scripts/sdlc-execute.mjs); next",
           '["node","<plugin-root>/scripts/c.mjs","apply"]',
+          '["node","/opt/plugins/nmg-sdlc/scripts/c.mjs","verify"]',
         ].join("\n"),
         root,
       );
       expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
-      expect(output).toContain(projectCommand);
-      expect(output).toContain(`["node",${JSON.stringify(path.join(root, "scripts", "c.mjs"))},"apply"]`);
+      for (const command of projectCommands) expect(output).toContain(command);
+      expect(output).toContain(`node ${controller} --issue 19`);
+      expect(output).toContain(`node ${controller} --issue 20`);
+      expect(output).toContain(`node ${controller} --issue 21`);
+      expect(output).toContain(`node ${controller} --issue 22`);
+      expect(output).toContain(`run(node ${controller}); next`);
+      expect(output).toContain(`["node",${canonicalArgv},"apply"]`);
+      expect(output).toContain(`["node",${canonicalArgv},"verify"]`);
       expect(output).not.toContain("<plugin-root>");
+      expect(output).not.toContain("/Users/rnunley/");
+      expect(output).not.toContain(String.raw`C:\\Users\\other`);
+      expect(output).not.toContain(String.raw`\\\\server`);
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }
   });
 
-  test("fails explicitly before materializing a missing controller", () => {
+  test("fails closed for missing canonical and foreign controllers", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
     try {
       const root = disposablePackage(fixture);
-      expect(() => materializeControllerPaths(
+      const inputs = [
         "node <plugin-root>/scripts/missing.mjs",
-        root,
-      )).toThrow("controller unresolved: missing.mjs");
+        'node "/foreign/nmg-sdlc/scripts/missing.mjs"',
+        String.raw`node "\\server\plugins\nmg-sdlc\scripts\missing.mjs"`,
+      ];
+      for (const input of inputs) {
+        try {
+          materializeControllerPaths(input, root);
+          throw new Error("expected controller resolution to fail");
+        } catch (error) {
+          expect(error.message).toBe("controller unresolved: missing.mjs");
+          expect(error.reasonCode).toBe("controller_unresolved");
+          expect(error.exitCode).toBe(2);
+        }
+        expect(materializeAvailableControllerPaths(input, root)).toBe(input);
+      }
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }
@@ -166,6 +200,25 @@ describe("plugin controller path resolution", () => {
       const root = disposablePackage(fixture);
       const probeFile = path.join(fixture, "probe.txt");
       expectSingleConsumerRun(spawnProbe(path.join(root, "scripts", "probe.mjs"), consumer, probeFile), probeFile, consumer);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("foreign packaged invocation starts the copied active controller", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-foreign-copy-"));
+    try {
+      const consumer = path.join(fixture, "consumer");
+      fs.mkdirSync(consumer);
+      const root = disposablePackage(fixture);
+      const invocation = materializeControllerPaths(
+        'node "/Users/author/.omp/plugins/node_modules/nmg-sdlc/scripts/probe.mjs"',
+        root,
+      );
+      const controller = JSON.parse(invocation.slice("node ".length));
+      expect(controller).toBe(path.join(root, "scripts", "probe.mjs"));
+      const probeFile = path.join(fixture, "probe.txt");
+      expectSingleConsumerRun(spawnProbe(controller, consumer, probeFile), probeFile, consumer);
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }
