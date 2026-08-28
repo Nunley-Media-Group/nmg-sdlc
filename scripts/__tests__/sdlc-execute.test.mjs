@@ -1552,11 +1552,25 @@ describe('runExecute controller', () => {
     expect(persisted.revision).toBeGreaterThan(initial.revision);
   });
 
-  it('rejects a different issue list without changing the existing checkpoint', () => {
+  it.each([
+    ['in-progress', {}],
+    ['blocked', {
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'worker_blocked' },
+    }],
+    ['failed', {
+      currentStep: 'verify',
+      completed: { 42: VALID_STEPS.slice(0, -2) },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verification_failed' },
+    }],
+  ])('rejects a different issue list for a %s checkpoint without changing runtime', (_state, fields) => {
     const fixture = makeControllerFixture({ labelIssues: [42, 43] });
-    const initial = seedRun(fixture.cwd);
+    const initial = seedRun(fixture.cwd, fields);
     const runPath = path.join(fixture.cwd, '.omp', 'sdlc', 'run.json');
+    const handoffPath = path.join(fixture.cwd, '.omp', 'sdlc', 'handoffs', '42-start.json');
     const initialBytes = fs.readFileSync(runPath, 'utf8');
+    fs.writeFileSync(handoffPath, '{}\n');
     const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
     fs.mkdirSync(otherSpec, { recursive: true });
     writeApproved(otherSpec, 43);
@@ -1571,7 +1585,70 @@ describe('runExecute controller', () => {
 
     expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
     expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
+    expect(fs.existsSync(handoffPath)).toBe(true);
     expect(initial.issue).toBe(42);
+    expect(fixture.starts).toEqual([]);
+  });
+  it('releases a leftover completed checkpoint before starting a different issue list', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43], blockedStep: 'implement' });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    const provenanceDir = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
+    seedRun(fixture.cwd, {
+      currentIssue: null,
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      failed: null,
+      remediation: null,
+    });
+    fs.mkdirSync(provenanceDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), '{}\n');
+    fs.writeFileSync(path.join(provenanceDir, 'worker-verify.json'), '{}\n');
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+
+    const result = runExecute({
+      args: '#43',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const nextRun = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(nextRun.issue).toBe(43);
+    expect(nextRun.issues).toEqual([43]);
+    expect(fs.existsSync(path.join(handoffDir, '42-deliver.json'))).toBe(false);
+    expect(fs.existsSync(path.join(provenanceDir, 'worker-verify.json'))).toBe(false);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s43-start']);
+  });
+  it('fails closed when startup cannot release a completed checkpoint', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43] });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    seedRun(fixture.cwd, {
+      currentIssue: null,
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      failed: null,
+      remediation: null,
+    });
+    fs.mkdirSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+
+    const result = runExecute({
+      args: '#43',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(fs.existsSync(runPath)).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
   it('starts a different issue after completed runtime cleanup', () => {
