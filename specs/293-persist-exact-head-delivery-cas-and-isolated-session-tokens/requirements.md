@@ -26,6 +26,10 @@
 6. Observe ownership matching run against the default-branch checkout and falsely stop with `retained_worker_mismatch`.
 7. Replace an initialized isolated session's `run.json` or `handoffs` directory with a symlink outside `.omp/sdlc/sessions/<token>/`.
 8. Observe resumed delivery follow the symlink to read foreign state or redirect its terminal handoff outside the session namespace.
+9. Let controller-owned delivery CAS-advance the canonical checkpoint while execute is synchronously waiting on the delivery worker.
+10. Settle the worker without a deliver handoff, then cancel the controller.
+11. Observe execute wait indefinitely for a future `working` transition or release the controller lease after suppressing `stale_revision`, while the checkpoint remains nonterminal with stale worker ownership.
+
 
 ## Expected vs Actual
 
@@ -91,6 +95,17 @@
 **Then** resumed delivery fails with `unsafe_session_path` before reading run state or invoking Git or GitHub commands
 **And** it does not write a terminal handoff through the unsafe path
 
+### AC8: Cancellation Persists the Latest Terminal Checkpoint
+
+**Given** a controller-owned delivery child has CAS-advanced the canonical checkpoint
+**And** the worker settles without a valid handoff
+**When** execute is cancelled
+**Then** it does not wait for a future `working` transition from the settled worker
+**And** it terminates only the owned child process group
+**And** it reloads the latest identity-matching checkpoint after the child stops
+**And** it CAS-persists `controller_cancelled` and the final worker disposition before releasing the lease
+**And** stale-revision or checkpoint-lock failure cannot be suppressed as successful cleanup
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -103,6 +118,8 @@
 | FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when it remains open on the exact issue branch, its PR number and branch identity match independently, and its head equals this run's clean current HEAD; otherwise reconcile. | Must |
 | FR7 | For non-start steps, restore a clean expected active issue branch before retained-worker ownership matching and fail closed on dirty or foreign work. | Must |
 | FR8 | Before resuming an isolated session, require `run.json` to be a regular non-symlink file and `handoffs` to be a real non-symlink directory; reject unsafe artifacts before state reads or command invocation. | Must |
+| FR9 | On cancellation, stop owned child processes, refresh subordinate checkpoint writes, persist terminal worker state with CAS, and release the controller lease only after that checkpoint succeeds. | Must |
+
 
 ## Out of Scope
 
@@ -119,3 +136,4 @@
 | #293 | 2026-08-27 | Initial defect report |
 | #293 | 2026-08-28 | Added version-push head rebinding and multi-issue retained-worker resume remediation |
 | #293 | 2026-08-28 | Added isolated-session run-state and handoff symlink boundary remediation |
+| #293 | 2026-08-28 | Added cancellation settlement and stale-revision checkpoint remediation |

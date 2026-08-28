@@ -1061,6 +1061,71 @@ function currentCheckout(cwd, run) {
   return branch && head ? { branch, head } : null;
 }
 
+const WORKER_IDENTITY_FIELDS = [
+  'name',
+  'paneId',
+  'projectRoot',
+  'runId',
+  'issue',
+  'step',
+];
+
+function sameWorkerIdentity(left, right) {
+  return left && right
+    && WORKER_IDENTITY_FIELDS.every((field) => left[field] === right[field]);
+}
+
+function latestMatchingRunState(runState, cwd) {
+  const latest = readRun(cwd);
+  if (
+    !validRunIdentity(latest)
+    || !sameRunIdentity(latest, runState)
+    || latest.revision < runState.revision
+  ) {
+    throw new Error('checkpoint_identity_mismatch');
+  }
+  return latest;
+}
+
+function cleanupControllerWorkers({
+  runState,
+  cwd,
+  run,
+  herdr,
+  retainWorker,
+}) {
+  const actions = [];
+  const checkout = retainWorker ? currentCheckout(cwd, run) : null;
+  for (const [name, worker] of Object.entries(runState.workers || {})) {
+    if (
+      worker?.name !== name
+      || worker.projectRoot !== runState.projectRoot
+      || worker.runId !== runState.runId
+    ) {
+      continue;
+    }
+    if (retainWorker) {
+      if (checkout) actions.push({ name, worker, checkout });
+    } else if (closePane(herdr, worker.paneId)) {
+      actions.push({ name, worker, closed: true });
+    }
+  }
+
+  const latest = latestMatchingRunState(runState, cwd);
+  latest.workers ||= {};
+  for (const action of actions) {
+    const recorded = latest.workers[action.name];
+    if (!sameWorkerIdentity(recorded, action.worker)) continue;
+    if (action.closed) {
+      delete latest.workers[action.name];
+    } else {
+      Object.assign(recorded, action.checkout);
+    }
+  }
+  return latest;
+}
+
+
 function workerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
   const checkout = currentCheckout(cwd, run);
   if (!checkout) return null;
@@ -1293,6 +1358,7 @@ export function runExecute({
   const controllerRunId = validRunIdentity(existingRun) ? existingRun.runId : randomUUID();
   let runState = existingRun;
   let controllerLease;
+  let releaseLeaseInFinally = true;
   try {
     controllerLease = acquireControllerLease({
       projectRoot: cwd,
@@ -1310,36 +1376,33 @@ export function runExecute({
   if (installSignalHandlers) {
     const handleSignal = (signal) => {
       if (runState?.workers && validRunIdentity(runState)) {
-        let changed = false;
-        for (const [name, worker] of Object.entries(runState.workers)) {
+        try {
+          runState = cleanupControllerWorkers({
+            runState,
+            cwd,
+            run,
+            herdr: herdrApi,
+            retainWorker: parsedArgs.retainWorker,
+          });
           if (
-            worker?.name !== name
-            || worker.projectRoot !== runState.projectRoot
-            || worker.runId !== runState.runId
+            Number.isSafeInteger(runState.currentIssue)
+            && VALID_STEPS.includes(runState.currentStep)
           ) {
-            continue;
+            runState.failed = {
+              issue: runState.currentIssue,
+              step: runState.currentStep,
+              reasonCode: 'controller_cancelled',
+            };
           }
-          if (parsedArgs.retainWorker) {
-            const checkout = currentCheckout(cwd, run);
-            if (checkout) {
-              Object.assign(worker, checkout);
-              changed = true;
-            }
-          } else if (closePane(herdrApi, worker.paneId)) {
-            delete runState.workers[name];
-            changed = true;
-          }
-        }
-        if (changed) {
-          try {
-            persistRunState(runState, cwd);
-          } catch {
-            // Signal cleanup remains fail-closed with any unclosed records intact.
-          }
+          persistRunState(runState, cwd);
+        } catch {
+          releaseLeaseInFinally = false;
         }
       }
-      releaseControllerLease(controllerLease);
-      controllerLease = null;
+      if (releaseLeaseInFinally) {
+        releaseControllerLease(controllerLease);
+        controllerLease = null;
+      }
       processApi.exit(signal === 'SIGINT' ? 130 : 143);
     };
     for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -2291,19 +2354,12 @@ export function runExecute({
             });
           }
         }
-        if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
-          if (!waitForWorkerSettlement(herdrApi, agentName)) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          state = agentState(herdrApi.agentGet(agentName));
-        }
         if (!fs.existsSync(handoffPath) && state === 'working') {
           herdrApi.agentWait({ name: agentName });
           state = agentState(herdrApi.agentGet(agentName));
         }
+        runState = latestMatchingRunState(runState, cwd);
+
         handoffResult = observeExpectedHandoff(
           herdrApi, handoffPath, issue, step, agentName,
         );
@@ -2389,7 +2445,7 @@ export function runExecute({
   }
   } finally {
     for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
-    releaseControllerLease(controllerLease);
+    if (releaseLeaseInFinally) releaseControllerLease(controllerLease);
   }
 }
 

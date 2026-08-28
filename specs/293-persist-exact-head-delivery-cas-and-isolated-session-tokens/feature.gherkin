@@ -83,3 +83,16 @@ Feature: Persist exact-head delivery CAS and isolated session tokens
       | artifact           |
       | run.json           |
       | handoffs directory |
+
+  # --- Cancellation Checkpoint Integrity ---
+
+  @SCN008 @regression
+  Scenario: Cancellation preserves subordinate CAS writes and terminal worker state
+    Given controller-owned delivery has advanced the canonical checkpoint while execute waits
+    And the worker settles without a valid deliver handoff
+    When execute is cancelled
+    Then execute does not wait for a future working transition
+    And it stops only owned child processes
+    And it reloads the latest identity-matching checkpoint
+    And it persists controller_cancelled with the final worker disposition before releasing the lease
+    And stale revision failure is not suppressed as successful cleanup

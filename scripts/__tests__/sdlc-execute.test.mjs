@@ -2204,6 +2204,31 @@ describe('runExecute controller', () => {
     }]);
   });
 
+  it('stops a settled worker without waiting for future work when its handoff is missing', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'done' });
+    fixture.herdr.agentRead = () => '';
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.waits).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
+    });
+  });
+
   it('fails closed when prompt wait fails with a passed but busy worker', () => {
     const fixture = makeControllerFixture({ promptStatus: 1, agentState: 'working' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -2353,14 +2378,29 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('closes owned panes and releases the lease on handled cancellation', () => {
+  it('persists cancellation after a subordinate checkpoint CAS before releasing the lease', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
     const processApi = new EventEmitter();
+    let subordinateRevision;
     processApi.exit = (code) => {
       const error = new Error(`signal_exit_${code}`);
       throw error;
     };
     fixture.herdr.agentPrompt = () => {
+      const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+      const checkpoint = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      subordinateRevision = checkpoint.revision + 1;
+      writeRun({
+        ...checkpoint,
+        revision: subordinateRevision,
+        delivery: {
+          issue: 42,
+          pullRequest: 77,
+          expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          status: 'expected',
+          reconciliation: null,
+        },
+      }, fixture.cwd, checkpoint.revision);
       processApi.emit('SIGINT');
       return { status: 1 };
     };
@@ -2381,8 +2421,55 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toBe('signal_exit_130\n');
     expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.revision).toBe(subordinateRevision + 1);
+    expect(persisted.delivery).toEqual({
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'expected',
+      reconciliation: null,
+    });
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'controller_cancelled',
+    });
     expect(persisted.workers).toEqual({});
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('keeps the controller lease when cancellation checkpoint persistence fails', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const processApi = new EventEmitter();
+    processApi.exit = (code) => {
+      const error = new Error(`signal_exit_${code}`);
+      throw error;
+    };
+    fixture.herdr.agentPrompt = () => {
+      fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
+      processApi.emit('SIGINT');
+      return { status: 1 };
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      installSignalHandlers: true,
+      processApi,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('signal_exit_130\n');
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toBeNull();
+    expect(persisted.workers['s42-start']).toBeDefined();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   function writeReviewEvidence(fixture, step, body = 'No findings.\n') {

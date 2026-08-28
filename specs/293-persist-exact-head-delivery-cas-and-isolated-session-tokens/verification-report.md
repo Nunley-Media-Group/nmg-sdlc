@@ -9,9 +9,9 @@
 
 ## Executive Summary
 
-The implementation satisfies the approved delivery contract. Delivery requires exactly one controller or isolated-session scope, persists the selected pull request and expected head through checkpoint CAS, rejects unexpected identity with stable reconciliation evidence, rebinds only the controller-owned post-version head, and restores a clean next-issue checkout before retained-worker matching.
+The implementation satisfies the approved delivery contract. Delivery requires exactly one controller or isolated-session scope, persists the selected pull request and expected head through checkpoint CAS, rejects unexpected identity with stable reconciliation evidence, rebinds only the controller-owned post-version head, restores a clean next-issue checkout before retained-worker matching, and persists cancellation from the latest checkpoint revision before releasing the lease.
 
-Verification identified a real session-namespace symlink-boundary defect, but its verifier-owned implementation edit was not a valid deliverable and ended as `verification_publish_failed`. Implementation remediation intentionally adopted and refined the finding: resumed isolated sessions now require a regular non-symlink `run.json` and a real non-symlink `handoffs` directory before reading state or invoking Git or GitHub commands. The specification now owns AC7, FR8, T007, and SCN007 for this invariant. Overall status is **Pass** after the remediation checks recorded below.
+Verification identified a real session-namespace symlink-boundary defect, but its verifier-owned implementation edit was not a valid deliverable and ended as `verification_publish_failed`. Implementation remediation intentionally adopted and refined the finding: resumed isolated sessions now require a regular non-symlink `run.json` and a real non-symlink `handoffs` directory before reading state or invoking Git or GitHub commands. A subsequent live cancellation exposed a subordinate-writer race: delivery advanced the checkpoint while execute waited, then cleanup suppressed `stale_revision` and released the lease with stale worker ownership. The amended specification owns AC7–AC8, FR8–FR9, T007 and T009, and SCN007–SCN008 for these invariants. Overall status is **Pass** after the remediation checks recorded below.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -71,10 +71,10 @@ VERSION=3.18.7 package.json.version=3.18.7 synchronized
 - Spec: `specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens`
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8]; tasks [T001, T002, T003, T004, T005, T006, T007]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007]
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008]
 - Regression: issue #291 AC [AC1, AC2]; FR [FR2, FR3]; scenarios [SCN001, SCN002]
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":293,"specPath":"specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004","T005","T006","T007"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007"]},"regression":{"acceptanceCriteria":["AC1","AC2"],"functionalRequirements":["FR2","FR3"],"scenarios":["SCN001","SCN002"]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":293,"specPath":"specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008"]},"regression":{"acceptanceCriteria":["AC1","AC2"],"functionalRequirements":["FR2","FR3"],"scenarios":["SCN001","SCN002"]}} -->
 
 ## Delivery Validation
 
@@ -94,6 +94,7 @@ VERSION=3.18.7 package.json.version=3.18.7 synchronized
 | AC5 | Existing PR is re-read and rebound only to the clean controller-owned version head | Pass | `scripts/sdlc-deliver.mjs:305-343`, `736-741`, `1262-1275`; `scripts/__tests__/sdlc-deliver.test.mjs:571-619` |
 | AC6 | Execute restores the active branch before retained-worker ownership matching | Pass | `scripts/sdlc-execute.mjs:1161-1179`, `1854-1887`; `scripts/__tests__/sdlc-execute.test.mjs:3363-3499` |
 | AC7 | Isolated session state and handoff leaf artifacts cannot cross symlink boundaries | Pass | `scripts/sdlc-deliver.mjs:204-215`, `224-239`; `scripts/__tests__/sdlc-deliver.test.mjs:513-555` |
+| AC8 | Cancellation preserves subordinate CAS writes and terminal worker disposition before lease release | Pass | `scripts/sdlc-execute.mjs`: `latestMatchingRunState`, `cleanupControllerWorkers`, signal cleanup, and settled missing-handoff handling; `scripts/__tests__/sdlc-execute.test.mjs` covers subordinate revision advance, checkpoint-lock failure, and absence of future-working waits |
 
 ## Regression Obligations
 
@@ -111,11 +112,12 @@ VERSION=3.18.7 package.json.version=3.18.7 synchronized
 | T001 | Add scoped delivery namespaces and session initialization | Complete | Exactly one scope is required; isolated run state and handoffs use the UUID namespace; symlink boundaries fail closed |
 | T002 | Persist expected PR/head and reconciliation through CAS | Complete | Expected identity, authorized transitions, reconciliation, and complete status use revision-checked checkpoint writes |
 | T003 | Update open-pr scope propagation and public docs | Complete | Workflow and packaged command retain one scope through every rerun; README documents isolated delivery and handoff-only completion |
-| T004 | Add exact-head, isolation, and terminal-proof regressions | Complete | All seven scenarios map to named Jest cases; full and focused suites pass |
+| T004 | Add exact-head, isolation, and terminal-proof regressions | Complete | All eight scenarios map to named Jest cases; full and focused suites pass |
 | T005 | Rebind an existing PR after the controller-owned version push | Complete | Persisted PR is re-read after push; stale H1 is never merged; foreign drift reconciles |
 | T006 | Restore the next issue branch before retained-worker matching | Complete | Clean restoration occurs before collision/ownership checks; dirty restoration failures retain the worker and fail closed |
 | T007 | Harden isolated session leaf artifact boundaries | Complete | Both unsafe leaf types fail before state use, command invocation, CAS writes, or redirected handoffs |
 | T008 | Record managed steering alignment and synchronize release metadata | Complete | Registered steering consumers and validation providers are identified; `VERSION` and `package.json` both publish `3.18.7`; executed parsing and equality verification exited 0 |
+| T009 | Persist cancellation after subordinate checkpoint writes | Complete | Settled missing-handoff workers stop without a future-working wait; cancellation refreshes the latest revision, preserves delivery state, persists `controller_cancelled`, and keeps the lease when checkpoint persistence fails |
 
 ---
 
@@ -194,13 +196,14 @@ A verified controller lease or isolated token selects one namespace before deliv
 | AC5 | SCN005 | Yes | Yes |
 | AC6 | SCN006 | Yes | Yes |
 | AC7 | SCN007 | Yes | Yes |
+| AC8 | SCN008 | Yes | Yes |
 
 ### Coverage Summary
 
-- Feature files: 1 active feature with 7 regression scenarios
+- Feature files: 1 active feature with 8 regression scenarios
 - Step definitions: Jest behavior cases mapped to each scenario contract
-- Focused delivery, execute, and open-pr contract execution: 3 suites and 221 tests passed
-- Full repository execution through the deterministic steering runner: exit 0
+- Focused execute controller execution: 1 suite and 172 tests passed
+- Full repository execution: 49 suites and 698 tests passed; 1 suite and 2 tests skipped by their existing applicability contracts
 - Current-spec validation: 54 genuine issue specs, 16 required archive entries, 16 rewrite capabilities, 16 active workflow mappings, and 1 deprecated stub passed
 
 - Release metadata synchronization: `VERSION=3.18.7 package.json.version=3.18.7 synchronized`; exit 0
@@ -236,9 +239,9 @@ The harness loaded the changed open-pr surface, initialized isolated session `1b
 | Gate | Status | Evidence |
 |------|--------|----------|
 | Mandatory steering runner | Pass | Current execution exited 0 with `ok: true`, `ceiling: null`, and complete 2/2 provider coverage |
-| `repository.tests` | Pass | Current steering artifact records `effectiveStatus: passed` and command exit 0 |
-| `repository.nmg-sdlc-smoke` | Pass | Current steering artifact records `effectiveStatus: passed`; summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
-| Focused delivery, execute, and open-pr suites | Pass | 3/3 suites and 221/221 tests passed |
+| `repository.tests` | Pass | `npm test -- --runInBand`: 49 suites and 698 tests passed; 1 suite and 2 tests skipped by existing applicability contracts |
+| `repository.nmg-sdlc-smoke` | Pass | `node scripts/exercise-omp.mjs --cwd /tmp/nmg-sdlc-smoke.pxND2w/project -- /sdlc-status --json` exited 0 with `nextAction.command: /sdlc-draft-issue` |
+| Focused execute controller suite | Pass | `npm test -- --runInBand __tests__/sdlc-execute.test.mjs`: 172/172 tests passed |
 | Current specs | Pass | `node scripts/verify-current-specs.mjs` passed 54 genuine issue specs and all reported mappings |
 | Release metadata synchronization | Pass | Node parsed `package.json`, read `VERSION`, compared both values, reported `3.18.7` for each, and exited 0 |
 | Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
@@ -286,14 +289,14 @@ No unresolved implementation, architecture, security, performance, testability, 
 | File | Issues | Notes |
 |------|--------|-------|
 | `scripts/sdlc-deliver.mjs` | 1 resolved | Scope parsing, isolated namespace leaf security, CAS identity, reconciliation, version-head rebinding, exact merge proof |
-| `scripts/sdlc-execute.mjs` | 0 | Explicit-path CAS and branch restoration ordering |
+| `scripts/sdlc-execute.mjs` | 0 | Explicit-path CAS, branch restoration ordering, settled missing-handoff handling, and latest-revision cancellation checkpointing |
 | `scripts/__tests__/sdlc-deliver.test.mjs` | 0 | AC1-AC5, AC7, and symlink-boundary behavior |
-| `scripts/__tests__/sdlc-execute.test.mjs` | 0 | AC6 clean, dirty, retained-worker, and delivered-branch resume behavior |
+| `scripts/__tests__/sdlc-execute.test.mjs` | 0 | AC6 and AC8 branch-resume, subordinate-CAS cancellation, checkpoint-lock, and settled-worker behavior |
 | `scripts/__tests__/open-pr-delivery-contract.test.mjs` | 0 | Scope retention and handoff-only completion contract |
 | `workflows/open-pr/WORKFLOW.md` | 0 | Execute/session scope selection and reuse across every rerun |
 | `commands/sdlc-open-pr.md` | 0 | Packaged command synchronized with workflow behavior |
-| `README.md` | 0 | Public isolated-session and exact-head completion behavior |
-| `CHANGELOG.md` | 0 | Unreleased issue behavior documented |
+| `README.md` | 0 | Public isolated-session, exact-head completion, and cancellation checkpoint behavior |
+| `CHANGELOG.md` | 0 | Issue #293 delivery and cancellation fixes documented |
 | `VERSION` | 0 | Steering-defined version source publishes `3.18.7`; executed synchronization check passed |
 | `package.json` | 0 | OMP plugin manifest preserves its extension surface and mirrors version `3.18.7`; executed JSON parse and synchronization check passed |
 

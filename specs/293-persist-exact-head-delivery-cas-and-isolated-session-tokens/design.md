@@ -20,6 +20,8 @@ The initial CAS implementation persists an existing PR's H1 before `publishVersi
 Execute also matches a live retained worker's recorded branch/head against the current checkout before calling `restoreActiveIssueBranch`. After an earlier issue's delivered branch is synchronized and removed, the checkout is on the default branch. A live next-issue non-start worker is therefore rejected even though its recorded ownership is exact.
 
 Resumed isolated sessions validate each namespace directory segment, but then `readRunAt` follows a symlinked `run.json` and terminal handoff writes can follow a symlinked `handoffs` directory. A valid token therefore does not by itself preserve the namespace boundary after initialization.
+Controller-owned delivery now writes `runState.delivery` through the same checkpoint CAS while execute retains an older in-memory revision. If cancellation closes the worker after that subordinate write, the signal handler deletes ownership from the stale object, `persistRunState` raises `stale_revision`, and the catch suppresses the failure before releasing the lease. The closed worker therefore remains recorded in a nonterminal checkpoint. A related settled-without-handoff path calls `herdr agent wait --until working`, so a worker that is already `idle` or `done` can block cleanup forever waiting for a transition that will never occur.
+
 
 ### Affected Code
 
@@ -32,6 +34,8 @@ Resumed isolated sessions validate each namespace directory segment, but then `r
 | `scripts/__tests__/sdlc-execute.test.mjs` | multi-issue resume fixture | Must cover default-branch checkout plus an exact live next-issue worker |
 | `scripts/__tests__/open-pr-delivery-contract.test.mjs` | workflow contract | Encodes current invocation and handoff path |
 | `scripts/sdlc-deliver.mjs` | `resolveDeliveryNamespace`, `assertSafeSessionArtifacts` | Must reject unsafe isolated-session leaf artifacts before state reads or command invocation |
+| `scripts/sdlc-execute.mjs` | signal cleanup, settled worker handling, checkpoint refresh | Must stop owned children, reload subordinate CAS writes, persist terminal cancellation before lease release, and never wait for future work from a settled worker |
+
 
 ### Triggering Conditions
 
@@ -42,6 +46,9 @@ Resumed isolated sessions validate each namespace directory segment, but then `r
 - An existing PR is selected at H1 before delivery publishes its version commit at H2.
 - A completed earlier issue leaves a clean multi-issue checkout on the default branch while the next issue's exact non-start worker remains live.
 - An initialized isolated session's `run.json` file or `handoffs` directory is replaced by a symlink outside its token namespace before resume.
+- A delivery child advances canonical run-state revision while execute waits with an older in-memory checkpoint, then cancellation or missing-handoff handling attempts to persist controller state.
+- A worker settles `idle` or `done` without a handoff and execute waits for a future `working` transition.
+
 
 ---
 
@@ -80,6 +87,10 @@ Immediately after `publishVersionChanges`, an existing-PR path fetches the persi
 For every non-start execute step, call `restoreActiveIssueBranch` before collision and live-worker ownership matching. The existing restoration contract reads the expected issue branch, refuses to switch away from dirty foreign work, checks out only from a clean different branch, and verifies the resulting branch. Ownership matching then compares the retained worker against the restored branch/head.
 
 `workflows/open-pr/WORKFLOW.md` carries the execute run id supplied by the worker prompt. For standalone `/sdlc-open-pr`, it calls `session-init` once and retains the token through controlled-draft and remediation reruns. It validates only the marker path for the selected namespace. Resolve and follow `skill://skill-creator` before editing this workflow; update README for the public isolated-session behavior.
+On a settled `idle` or `done` worker without a valid handoff, stop immediately with `missing_handoff`; do not invoke the future-transition `--until working` wait used only for a verified prompt-submission race.
+
+For cancellation, stop or retain only workers whose recorded ownership matches the active run, then reload the latest canonical checkpoint after owned children have stopped. Require the refreshed checkpoint to preserve the same immutable run identity, apply the terminal `controller_cancelled` state and final worker disposition to that revision, and CAS-persist it before releasing the lease. A failed refresh or persist leaves cleanup fail-closed rather than converting it into a released-lease success.
+
 
 ### Interface Contracts
 
@@ -90,6 +101,8 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 | `sdlc-deliver.mjs --issue N --session-token T` | Isolated mode; T must identify a bound session for N/project whose `run.json` is a regular non-symlink file and `handoffs` is a real non-symlink directory |
 | `runState.delivery` | CAS-protected expected PR/head and terminal reconciliation/complete state |
 | Passed deliver handoff | Exists only after persisted PR/head MERGED identity plus issue CLOSED proof |
+| Controller cancellation checkpoint | Latest identity-matching run revision plus `failed.reasonCode: controller_cancelled` and final owned-worker disposition, persisted before lease release |
+
 
 ### Changes
 
@@ -102,6 +115,8 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 | `commands/sdlc-open-pr.md` | Regenerate the packaged file command from its workflow body | Keeps the installed automated command synchronized with the scoped delivery controller |
 | `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Add CAS, reconciliation, namespace isolation, version-push remote-head, and live multi-issue resume regressions | Proves AC1–AC6 |
 | `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Validate isolated-session leaf artifact types and reject symlinked state/handoff targets before resume | Prevents foreign state reads and redirected terminal handoffs |
+| `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Stop settled missing-handoff workers without a future-working wait; refresh subordinate CAS writes and persist terminal cancellation before lease release | Prevents live-lock and stale worker ownership after delivery cancellation |
+
 
 ### Blast Radius
 
@@ -125,6 +140,8 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 | Existing-PR version push is mistaken for foreign drift | High | Re-read the persisted PR after push and rebind only to the same branch's clean current local head |
 | Earlier delivery leaves live next-issue worker mismatched on default branch | High | Restore the clean expected non-start issue branch before comparing worker ownership |
 | Branch restoration overwrites user work | Low | Refuse checkout when a different current branch has dirty work and verify the restored branch |
+| Delivery advances checkpoint while controller waits | High | Stop the owned worker, reload the latest identity-matching revision, then persist terminal cancellation before releasing the lease |
+| Settled worker has no handoff | High | Classify `missing_handoff` immediately; reserve future-working waits for positively identified prompt-submission races |
 
 ---
 

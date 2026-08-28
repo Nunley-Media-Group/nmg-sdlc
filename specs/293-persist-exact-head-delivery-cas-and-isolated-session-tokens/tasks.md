@@ -20,6 +20,8 @@
 | T006 | Restore the next issue branch before retained-worker matching | [ ] |
 | T007 | Harden isolated session leaf artifact boundaries | [ ] |
 | T008 | Record managed steering alignment and synchronize release metadata | [ ] |
+| T009 | Persist cancellation after subordinate checkpoint writes | [ ] |
+
 
 ---
 
@@ -93,6 +95,20 @@
 - [ ] `package.json` preserves the OMP plugin manifest and mirrors `VERSION` exactly as version `3.18.7`
 - [ ] An executed Node verification parses `package.json`, reads `VERSION`, compares the two values, and exits 0 with both values reported
 
+### T009: Persist Cancellation After Subordinate Checkpoint Writes
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify, Verify
+**Depends**: T001, T002
+**Acceptance**:
+- [ ] A settled `idle` or `done` worker without a handoff fails as `missing_handoff` without waiting for a future `working` transition
+- [ ] Cancellation stops or retains only exact owned workers before refreshing checkpoint state
+- [ ] Cancellation reloads the latest identity-matching revision after subordinate delivery writes
+- [ ] `controller_cancelled` and final worker disposition are CAS-persisted before lease release
+- [ ] Failed refresh, stale revision, or checkpoint lock cannot be suppressed as successful cleanup
+- [ ] Regression coverage advances the checkpoint revision during a worker wait and proves terminal state, worker cleanup, and lease ordering
+
+
 ### T003: Propagate Scope Through Open-PR
 
 **File(s)**: `workflows/open-pr/WORKFLOW.md`, `commands/sdlc-open-pr.md`, `README.md`
@@ -119,6 +135,7 @@
 - [ ] AC5 covers clean post-version-push rebinding, foreign drift rejection, remote-head mock movement, and no pre-bump merge
 - [ ] AC6 covers multi-issue default-branch resume with an exact live retained worker plus dirty-work refusal
 - [ ] AC7 covers symlinked isolated-session `run.json` and `handoffs` paths and proves rejection before commands or redirected writes
+- [ ] AC8 covers settled missing-handoff behavior plus cancellation after a subordinate delivery CAS advance
 - [ ] Every `@regression` scenario maps to a Jest case
 - [ ] Focused execute, delivery, open-pr/prompt contract suites, `node scripts/verify-current-specs.mjs`, and `git diff --check` exit 0
 
