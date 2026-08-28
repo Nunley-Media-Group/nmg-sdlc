@@ -1,0 +1,67 @@
+**Issue**: #311
+**Date**: 2026-08-28
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/266-fix-controller-path-rewriting-of-project-commands/
+
+# File: specs/311-materialize-packaged-controller-paths-across-hosts/feature.gherkin
+#
+# Generated from: specs/311-materialize-packaged-controller-paths-across-hosts/requirements.md
+@issue-311 @packaging @cross-platform
+Feature: Materialize packaged controller paths across hosts
+  As a developer running a packaged nmg-sdlc command on a different host
+  I want plugin-owned controller paths resolved from the active installation
+  So that every packaged workflow starts the current host's controller
+
+  @SCN001
+  Scenario: Execute uses the installed Windows controller
+    Given nmg-sdlc is installed on Windows
+    And the packaged execute prompt contains a foreign POSIX path to "scripts/sdlc-execute.mjs"
+    When the user runs "/sdlc-execute 19"
+    Then Node invokes "scripts/sdlc-execute.mjs" beneath the active installed package root
+    And the emitted invocation contains no foreign contributor-host path
+    And controller startup does not fail with "MODULE_NOT_FOUND"
+
+  @SCN002
+  Scenario Outline: Every packaged controller uses the active package root
+    Given a packaged "<surface>" prompt invokes an nmg-sdlc-owned controller
+    When the prompt is materialized using "<source path style>" on "<host>"
+    Then the invocation uses the corresponding controller beneath the active installed package root
+    And its existing arguments and workflow behavior are preserved
+
+    Examples:
+      | surface     | source path style | host    |
+      | execute     | foreign POSIX     | Windows |
+      | verify      | foreign Windows   | macOS   |
+      | delivery    | canonical token   | Linux   |
+      | interactive | canonical token   | Windows |
+      | worker      | foreign POSIX     | Linux   |
+
+  @SCN003
+  Scenario: Packaged artifacts stay host-neutral
+    Given packaged workflow and file-command artifacts are generated or validated
+    When repository contract checks inspect active commands, workflows, and shared references
+    Then every plugin-owned controller invocation uses the canonical "<plugin-root>/scripts/<name>.mjs" representation
+    And no contributor-host absolute nmg-sdlc controller path is accepted
+    And each generated command remains byte-identical to its workflow source
+
+  @SCN004
+  Scenario Outline: Project-local commands remain unchanged
+    Given prompt text contains the project-local command "<command>"
+    When plugin-controller path materialization runs
+    Then the command remains byte-for-byte unchanged
+    And the command is not redirected into the nmg-sdlc package
+
+    Examples:
+      | command                                      |
+      | node scripts/check-gate.mjs                  |
+      | node /opt/consumer/scripts/check-gate.mjs    |
+      | node C:\consumer\scripts\check-gate.mjs      |
+
+  @SCN005
+  Scenario: Missing packaged controllers still fail closed
+    Given an explicit plugin-owned reference names "scripts/missing.mjs"
+    And the active package does not ship that controller
+    When strict packaged-prompt materialization runs
+    Then resolution fails with reason code "controller_unresolved"
+    And no consumer-cwd or project-local fallback is consulted
