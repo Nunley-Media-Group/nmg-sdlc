@@ -81,7 +81,9 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG --controller-run-id {{controllerRunId}}
+node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
+
+When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
 Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Controller failure remains an intervention and never advances to delivery.

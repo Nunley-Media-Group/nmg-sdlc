@@ -127,6 +127,7 @@ function finalizeVerificationUnlocked({
 
 export function finalizeVerification(options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const processApi = options.processApi ?? process;
   let leaseContext;
   try {
     leaseContext = enterControllerLease({
@@ -142,10 +143,23 @@ export function finalizeVerification(options = {}) {
       handoffPath: `.omp/sdlc/handoffs/${options.issue}-verify.json`,
     };
   }
+  const signalHandlers = [];
+  if (leaseContext.owned) {
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      const handler = () => {
+        releaseControllerLease(leaseContext.lease);
+        leaseContext = null;
+        processApi.exit(signal === 'SIGINT' ? 130 : 143);
+      };
+      processApi.once(signal, handler);
+      signalHandlers.push([signal, handler]);
+    }
+  }
   try {
     return finalizeVerificationUnlocked(options);
   } finally {
-    if (leaseContext.owned) releaseControllerLease(leaseContext.lease);
+    for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
+    if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);
   }
 }
 
