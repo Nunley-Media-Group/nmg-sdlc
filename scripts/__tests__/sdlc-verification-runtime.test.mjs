@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
@@ -12,7 +13,10 @@ import {
   releaseControllerLease,
 } from '../sdlc-controller-lease.mjs';
 
-const VERIFY_SCRIPT = path.resolve('sdlc-verify-steering.mjs');
+const SCRIPTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const VERIFY_SCRIPT = path.join(SCRIPTS_ROOT, 'sdlc-verify-steering.mjs');
+const STEERING_SCRIPT = path.join(SCRIPTS_ROOT, 'sdlc-steering.mjs');
+const CURRENT_SPECS_SCRIPT = path.join(SCRIPTS_ROOT, 'verify-current-specs.mjs');
 
 function run(root, program, args) {
   const result = spawnSync(program, args, { cwd: root, encoding: 'utf8', shell: false });
@@ -101,6 +105,64 @@ describe('deterministic verification runtime', () => {
         complete: true,
       },
     });
+  });
+
+  it('runs audited CLIs through a linked plugin path while imports stay inert', async () => {
+    const root = await fixture([]);
+    const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-linked-plugin-'));
+    const linkedPlugin = path.join(installRoot, 'nmg-sdlc');
+    fs.symlinkSync(path.dirname(SCRIPTS_ROOT), linkedPlugin, process.platform === 'win32' ? 'junction' : 'dir');
+    const linkedSteering = path.join(linkedPlugin, 'scripts', path.basename(STEERING_SCRIPT));
+    const linkedVerifier = path.join(linkedPlugin, 'scripts', path.basename(VERIFY_SCRIPT));
+    const linkedCurrentSpecs = path.join(linkedPlugin, 'scripts', path.basename(CURRENT_SPECS_SCRIPT));
+    const artifactPath = path.join(root, '.omp', 'sdlc', 'verification', '42.json');
+
+    const importOnly = spawnSync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      [
+        `await import(${JSON.stringify(pathToFileURL(linkedSteering).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(linkedVerifier).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(linkedCurrentSpecs).href)});`,
+      ].join('\n'),
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(importOnly.status).toBe(0);
+    expect(importOnly.stdout).toBe('');
+    expect(fs.existsSync(artifactPath)).toBe(false);
+
+    const inspect = spawnSync(process.execPath, [
+      linkedSteering,
+      'inspect',
+      '--project', root,
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(inspect.status).toBe(0);
+    expect(JSON.parse(inspect.stdout)).toMatchObject({
+      ok: true,
+      state: 'valid',
+      manifest: { schemaVersion: 1 },
+    });
+
+    const currentSpecs = spawnSync(process.execPath, [
+      linkedCurrentSpecs,
+      path.dirname(SCRIPTS_ROOT),
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(currentSpecs.status).toBe(0);
+    expect(currentSpecs.stdout).toContain('Current spec verification passed:');
+
+    const verify = spawnSync(process.execPath, [
+      linkedVerifier,
+      '--project', root,
+      '--issue', '42',
+      '--spec', 'specs/42-test',
+      '--base', 'HEAD',
+    ], { cwd: root, encoding: 'utf8', shell: false });
+    expect(verify.status).toBe(0);
+    expect(JSON.parse(verify.stdout)).toMatchObject({
+      ok: true,
+      issue: 42,
+      coverage: { complete: true },
+    });
+    expect(fs.existsSync(artifactPath)).toBe(true);
   });
 
   it('rejects an unscoped verifier under an execute lease and accepts the exact run id', async () => {

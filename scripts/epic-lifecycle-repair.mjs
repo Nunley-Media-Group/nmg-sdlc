@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const OID = /^[0-9a-f]{40}$/;
 const ID = /^(?:AC|FR|T|SCN)\d+$/;
@@ -368,4 +369,4 @@ function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isCliEntry(import.meta.url)) main();

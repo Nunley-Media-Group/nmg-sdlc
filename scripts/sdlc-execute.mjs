@@ -62,18 +62,6 @@ export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
 export const REMEDIABLE_STEPS = ['implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
-const REVIEW_MODE_OPTIONS = [
-  'Review against a base branch (PR Style)',
-  'Review uncommitted changes',
-  'Review a specific commit',
-  'Custom review instructions',
-];
-const REVIEW_MODE_NAVIGATION_HINTS = [
-  '↑↓ Navigate',
-  'up/down navigate  enter select  esc cancel',
-];
-const PICKER_SEARCH_TEXT = 'Type to search';
-const REVIEW_BRANCH_PICKER_TITLE = 'Select base branch to compare against';
 const STEP_SKILL = {
   start: 'start-issue',
   implement: 'write-code',
@@ -385,6 +373,48 @@ function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
   }
 }
 
+function reviewArtifactPath(issue, step) {
+  return `.omp/sdlc/reviews/${issue}-${step}.md`;
+}
+
+function validReviewArtifact(cwd, issue, step, handoff) {
+  if (handoff.status !== 'passed') return true;
+  const artifactPath = reviewArtifactPath(issue, step);
+  if (!handoff.artifacts.includes(artifactPath)) return false;
+  try {
+    return readFileSync(join(cwd, artifactPath), 'utf8').trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function workerStillPresent(herdr, agentName, paneId) {
+  try {
+    return firstAgentList(herdr.listAgents()).some((agent) => (
+      String(agent?.name || '') === agentName
+      && String(agent?.pane_id ?? agent?.paneId ?? '') === String(paneId)
+    ));
+  } catch {
+    return false;
+  }
+}
+
+function observeReviewHandoff(herdr, handoffPath, issue, step, agentName, paneId, cwd) {
+  for (;;) {
+    const result = readExpectedHandoff(handoffPath, issue, step);
+    if (result.handoff) {
+      return validReviewArtifact(cwd, issue, step, result.handoff)
+        ? result
+        : { handoff: null, reasonCode: 'invalid_handoff' };
+    }
+    if (result.reasonCode !== 'missing_handoff') return result;
+    if (!workerStillPresent(herdr, agentName, paneId)) {
+      return { handoff: null, reasonCode: 'process_lost' };
+    }
+    herdr.observationPause?.();
+  }
+}
+
 export function readRun(root = process.cwd()) {
   const p = join(root, RUN_FILE);
   if (!existsSync(p)) return null;
@@ -664,7 +694,14 @@ export function isRemediableFailedHandoff({ step, state, handoff } = {}) {
     && handoff.step === step;
 }
 
-export function remediationPrompt({ issue, failedStep, evidence, cwd, controllerRunId } = {}) {
+export function remediationPrompt({
+  issue,
+  failedStep,
+  evidence,
+  cwd,
+  controllerRunId,
+  reviewBase,
+} = {}) {
   let resolvedEvidence = evidence;
   if (!resolvedEvidence) {
     const runState = readRun(cwd);
@@ -699,12 +736,16 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd, controller
     '',
     `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
   ].join('\n');
-  return `${header}\n---\n${workerPrompt({
+  const stepPrompt = workerPrompt({
     step: failedStep,
     issue,
     cwd,
     controllerRunId,
-  })}`;
+  });
+  const contract = failedStep === 'review1' || failedStep === 'review2'
+    ? reviewProtocolPrompt(reviewBase, stepPrompt)
+    : stepPrompt;
+  return `${header}\n---\n${contract}`;
 }
 
 function workerPromptFailureReason(error) {
@@ -915,312 +956,80 @@ function repositoryDefaultBranch(cwd, run) {
   return commandSucceeded(result) ? String(result.stdout || '').trim() : '';
 }
 
-function reviewBranchSelection(cwd, run) {
+function resolveReviewBase(cwd, run) {
   const defaultBranch = repositoryDefaultBranch(cwd, run);
   if (!defaultBranch) return null;
-  const branches = run('git', ['branch', '-a', '--format=%(refname:short)'], { cwd });
-  if (!commandSucceeded(branches)) return null;
-  const branchNames = String(branches.stdout || '').split('\n').filter(Boolean);
-  if (!branchNames.includes(defaultBranch)) return null;
-  return { defaultBranch, branchNames };
+  const localRef = run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${defaultBranch}`,
+  ], { cwd });
+  if (commandSucceeded(localRef)) return defaultBranch;
+  if (localRef?.status !== 1) return null;
+  const remoteRef = run('git', [
+    'show-ref', '--verify', '--quiet', `refs/remotes/origin/${defaultBranch}`,
+  ], { cwd });
+  return commandSucceeded(remoteRef) ? `origin/${defaultBranch}` : null;
 }
 
-function branchNavigationKeys(branchNames, selectedBranch, defaultBranch) {
-  const selectedIndex = branchNames.indexOf(selectedBranch);
-  const defaultIndex = branchNames.indexOf(defaultBranch);
-  if (selectedIndex < 0 || defaultIndex < 0) return null;
-  const direction = defaultIndex < selectedIndex ? 'up' : 'down';
+function reviewProtocolPrompt(baseRef, finalizationPrompt) {
+  if (!baseRef) throw new Error('review_base_missing');
   return [
-    ...Array.from({ length: Math.abs(defaultIndex - selectedIndex) }, () => direction),
-    'enter',
-  ];
+    '# Controller-Owned Host Review',
+    '',
+    `In this sibling \`--kind omp\` worker, review the current branch against exact base \`${baseRef}\` using a PR-style merge-base comparison.`,
+    'Use three parallel task-tool agents with file-assigned scopes. Do not use generic task agents in the controller or main pane.',
+    'Group files by locality, pair tests with implementation, and assign each changed file and diff hunk to exactly one reviewer.',
+    'Each reviewer must inspect only assigned files and diff hunks, read full-file context only as needed, and report findings and verdict fields incrementally via yield sections without a separate finding tool.',
+    'Consolidate the findings, then complete the review artifact and handoff finalization below in this same prompt. Do not stop after reporting findings and do not wait for another controller prompt.',
+    '',
+    '# Review Finalization Contract',
+    '',
+    finalizationPrompt,
+  ].join('\n');
 }
 
+function submitReviewProtocol({
+  herdr,
+  agentName,
+  paneId,
+  prompt,
+  handoffPath,
+  issue,
+  step,
+  cwd,
+}) {
+  const prompted = herdr.agentPrompt({ name: agentName, prompt });
+  if (!commandSucceeded(prompted) && !isPromptStalled(prompted)) {
+    return { handoff: null, reasonCode: 'review_failed' };
+  }
+  const existing = readExpectedHandoff(handoffPath, issue, step);
+  if (existing.handoff) {
+    return validReviewArtifact(cwd, issue, step, existing.handoff)
+      ? existing
+      : { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+  if (
+    isPromptStalled(prompted)
+    && !existsSync(handoffPath)
+    && hasPastedWorkerPrompt(herdr, agentName, prompt)
+    && !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+  ) {
+    return { handoff: null, reasonCode: 'worker_failed' };
+  }
+  return observeReviewHandoff(
+    herdr,
+    handoffPath,
+    issue,
+    step,
+    agentName,
+    paneId,
+    cwd,
+  );
+}
 function agentDetectionText(herdr, name) {
   const detection = parseCommandOutput(herdr.agentRead({ name, source: 'detection' }));
   return typeof detection === 'string' ? detection : JSON.stringify(detection);
 }
 
-function observeAgentScreen(herdr, name, predicate) {
-  let terminalText = null;
-  for (;;) {
-    const text = agentDetectionText(herdr, name);
-    if (predicate(text)) return true;
-    const state = observedAgentState(herdr, name);
-    if (!state) return false;
-    if (['idle', 'done'].includes(state)) {
-      if (text === terminalText) return false;
-      terminalText = text;
-    } else {
-      terminalText = null;
-    }
-    herdr.observationPause?.();
-  }
-}
-
-function observeAgentText(herdr, name, expected) {
-  return observeAgentScreen(herdr, name, (text) => text.includes(expected));
-}
-
-function hasPickerSearch(text) {
-  return text.includes(PICKER_SEARCH_TEXT) && /\(\d+\/\d+\)\s*Type to search/.test(text);
-}
-
-function isReviewModePicker(text) {
-  if (!REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))) return false;
-  return REVIEW_MODE_OPTIONS.every((option, index) => {
-    const optionRow = new RegExp(
-      `^\\s*(?:[>›❯]\\s*)?${index + 1}\\.\\s+${escapeRegExp(option)}\\s*$`,
-      'm',
-    );
-    return optionRow.test(text);
-  });
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function pickerLineContent(line) {
-  return String(line)
-    .trim()
-    .replace(/^[│╭╮╰╯─\s]+|[│╭╮╰╯─\s]+$/g, '')
-    .trim();
-}
-
-function isPlausibleBranchName(name) {
-  return name !== '@'
-    && !name.startsWith('-')
-    && !name.startsWith('.')
-    && !name.startsWith('/')
-    && !name.endsWith('.')
-    && !name.endsWith('/')
-    && !name.endsWith('.lock')
-    && !name.includes('..')
-    && !name.includes('//')
-    && !name.includes('@{')
-    && !/[~^:?*[\]\\\x00-\x20\x7f]/.test(name);
-}
-
-function completeUnnumberedReviewBranchSelection(text, defaultBranch) {
-  if (!defaultBranch) return null;
-  const lines = String(text).split('\n').map(pickerLineContent);
-  const titleRows = lines
-    .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
-    .filter((index) => index >= 0);
-  if (titleRows.length !== 1) return null;
-  const titleIndex = titleRows[0];
-  const navigationIndex = lines.findIndex(
-    (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
-  );
-  if (navigationIndex < 0) return null;
-
-  const options = [];
-  for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
-    if (!line) continue;
-    const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
-    const name = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
-    if (!name || !isPlausibleBranchName(name)) return null;
-    options.push({ name, cursor: Boolean(cursorMatch) });
-  }
-  if (options.length < 2 || options.filter(({ cursor }) => cursor).length !== 1) return null;
-  if (options.filter(({ name }) => name === defaultBranch).length !== 1) return null;
-  return options.find(({ cursor }) => cursor).name;
-}
-
-function wrappedReviewBranchSelection(text, defaultBranch, branchNames) {
-  if (!defaultBranch || !Array.isArray(branchNames) || branchNames.length < 2) return null;
-  const lines = String(text).split('\n').map(pickerLineContent);
-  const titleRows = lines
-    .map((line, index) => line === REVIEW_BRANCH_PICKER_TITLE ? index : -1)
-    .filter((index) => index >= 0);
-  if (titleRows.length !== 1) return null;
-  const titleIndex = titleRows[0];
-  const navigationIndex = lines.findIndex(
-    (line, index) => index > titleIndex && REVIEW_MODE_NAVIGATION_HINTS.includes(line),
-  );
-  if (navigationIndex < 0) return null;
-
-  const fragments = [];
-  let pendingCursor = false;
-  for (const line of lines.slice(titleIndex + 1, navigationIndex)) {
-    if (!line || /^\(\d+\/\d+\)\s+Type to search$/.test(line)) continue;
-    if (/^[>›❯]$/.test(line)) {
-      if (pendingCursor) return null;
-      pendingCursor = true;
-      continue;
-    }
-    const cursorMatch = line.match(/^[>›❯]\s+(\S+)$/);
-    const value = cursorMatch?.[1] ?? (/^\S+$/.test(line) ? line : '');
-    if (!value) return null;
-    fragments.push({ value, cursor: pendingCursor || Boolean(cursorMatch) });
-    pendingCursor = false;
-  }
-  if (pendingCursor) return null;
-
-  const candidates = [];
-  for (let startIndex = 0; startIndex < branchNames.length; startIndex += 1) {
-    const options = [];
-    let fragmentIndex = 0;
-    for (const name of branchNames.slice(startIndex)) {
-      let value = '';
-      let cursor = false;
-      while (fragmentIndex < fragments.length) {
-        const fragment = fragments[fragmentIndex];
-        const combined = `${value}${fragment.value}`;
-        if (!name.startsWith(combined)) break;
-        if (fragment.cursor) {
-          if (value || cursor) {
-            fragmentIndex = -1;
-            break;
-          }
-          cursor = true;
-        }
-        value = combined;
-        fragmentIndex += 1;
-        if (value === name) break;
-      }
-      if (fragmentIndex < 0 || value !== name) break;
-      options.push({ name, cursor });
-      if (fragmentIndex === fragments.length) break;
-    }
-    if (
-      fragmentIndex === fragments.length
-      && options.length >= 2
-      && options.filter(({ cursor }) => cursor).length === 1
-    ) {
-      candidates.push(options);
-    }
-  }
-  if (candidates.length !== 1) return null;
-  return candidates[0].find(({ cursor }) => cursor).name;
-}
-
-
-function isCompleteReviewBranchPicker(text) {
-  const hasPickerContext = text.includes(REVIEW_BRANCH_PICKER_TITLE) || hasPickerSearch(text);
-  return hasPickerContext
-    && REVIEW_MODE_NAVIGATION_HINTS.some((hint) => text.includes(hint))
-    && /^\s*(?:[>›❯]\s*)?\d+\.\s+\S.*$/m.test(text);
-}
-
-function reviewBranchPickerSelection(text, defaultBranch, branchNames = []) {
-  if (!defaultBranch) return null;
-  const unnumberedSelection = completeUnnumberedReviewBranchSelection(text, defaultBranch);
-  if (unnumberedSelection) return unnumberedSelection;
-  const wrappedSelection = wrappedReviewBranchSelection(text, defaultBranch, branchNames);
-  if (wrappedSelection) return wrappedSelection;
-  if (!isCompleteReviewBranchPicker(text)) return null;
-  const branchOption = new RegExp(
-    `^\\s*(?:[>›❯]\\s*)?\\d+\\.\\s+${escapeRegExp(defaultBranch)}\\s*$`,
-    'gm',
-  );
-  if ([...text.matchAll(branchOption)].length !== 1) return null;
-  const selectedOption = String(text).match(/^\s*[>›❯]\s*\d+\.\s+(\S.*)$/m)?.[1]?.trim();
-  return selectedOption || branchNames[0] || null;
-}
-
-function isReviewBranchPicker(text, defaultBranch, branchNames = []) {
-  return reviewBranchPickerSelection(text, defaultBranch, branchNames) !== null;
-}
-
-function interactiveReviewState(text, defaultBranch, branchNames = [], allowComposer = false) {
-  if (isReviewBranchPicker(text, defaultBranch, branchNames)) return 'branch';
-  if (isReviewModePicker(text)) return 'mode';
-  if (allowComposer && text.includes('/review')) return 'composer';
-  return null;
-}
-
-function observeInteractiveReviewState(
-  herdr,
-  name,
-  defaultBranch,
-  branchNames = [],
-  allowComposer = false,
-) {
-  let terminalText = null;
-  for (;;) {
-    const text = agentDetectionText(herdr, name);
-    const state = interactiveReviewState(text, defaultBranch, branchNames, allowComposer);
-    if (state) return { state, text };
-    const agentStatus = observedAgentState(herdr, name);
-    if (!agentStatus) return null;
-    if (['idle', 'done'].includes(agentStatus)) {
-      if (text === terminalText) return null;
-      terminalText = text;
-    } else {
-      terminalText = null;
-    }
-    herdr.observationPause?.();
-  }
-}
-
-function isInteractiveReviewPicker(text, defaultBranch, branchNames = []) {
-  return interactiveReviewState(text, defaultBranch, branchNames) !== null
-    || (!defaultBranch && isCompleteReviewBranchPicker(text));
-}
-
-function completeInteractiveReview(herdr, agentName, reviewSelection) {
-  const { defaultBranch, branchNames } = reviewSelection;
-  let reviewText = agentDetectionText(herdr, agentName);
-  let reviewState = interactiveReviewState(reviewText, defaultBranch, branchNames);
-  if (!reviewState) {
-    const observation = observeInteractiveReviewState(
-      herdr,
-      agentName,
-      defaultBranch,
-      branchNames,
-    );
-    reviewState = observation?.state ?? null;
-    reviewText = observation?.text ?? '';
-  }
-  if (!reviewState) {
-    herdr.agentPrompt({ name: agentName, prompt: '/review' });
-    const observation = observeInteractiveReviewState(
-      herdr,
-      agentName,
-      defaultBranch,
-      branchNames,
-      true,
-    );
-    reviewState = observation?.state ?? null;
-    reviewText = observation?.text ?? '';
-    if (reviewState === 'composer') {
-      if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
-        return false;
-      }
-      const nextObservation = observeInteractiveReviewState(
-        herdr,
-        agentName,
-        defaultBranch,
-        branchNames,
-      );
-      reviewState = nextObservation?.state ?? null;
-      reviewText = nextObservation?.text ?? '';
-    }
-  }
-  if (reviewState === 'mode') {
-    if (!commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))) {
-      return false;
-    }
-    const observation = observeInteractiveReviewState(
-      herdr,
-      agentName,
-      defaultBranch,
-      branchNames,
-    );
-    reviewState = observation?.state === 'branch' ? 'branch' : null;
-    reviewText = observation?.text ?? '';
-  }
-  if (reviewState !== 'branch') return false;
-  const parsedSelection = reviewBranchPickerSelection(reviewText, defaultBranch, branchNames);
-  const selectedBranch = branchNames.includes(parsedSelection) ? parsedSelection : branchNames[0];
-  const branchSelectionKeys = branchNavigationKeys(branchNames, selectedBranch, defaultBranch);
-  return branchSelectionKeys !== null
-    && commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: branchSelectionKeys }))
-    && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
-    && commandSucceeded(herdr.agentWait({ name: agentName }));
-}
 
 function currentCheckout(cwd, run) {
   const branchResult = run('git', ['branch', '--show-current'], { cwd });
@@ -1668,9 +1477,18 @@ export function runExecute({
     const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
     while (true) {
       const agentName = remAgentName(issue, step);
-      let paneId;
+      let paneId = remLive?.pane_id ?? remLive?.paneId;
       let state;
       let prompt;
+      const reviewStep = step === 'review1' || step === 'review2';
+      const reviewBase = reviewStep ? resolveReviewBase(cwd, run) : null;
+      let reviewHandoffResult = null;
+      if (reviewStep && !reviewBase) {
+        return stop({
+          issue, step, paneId: paneId ?? 'none', agentName, reasonCode: 'review_failed',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
       try {
         prompt = remediationPrompt({
           issue,
@@ -1678,6 +1496,7 @@ export function runExecute({
           evidence: remediationEvidence(),
           cwd,
           controllerRunId: runState.runId,
+          reviewBase,
         });
       } catch (error) {
         return stop({
@@ -1687,7 +1506,7 @@ export function runExecute({
       }
 
       if (remLive) {
-        paneId = remLive.pane_id ?? remLive.paneId ?? 'unknown';
+        paneId ??= 'unknown';
         if (paneId === 'unknown') {
           return stop({
             issue, step, paneId, agentName, reasonCode: 'unknown_pane',
@@ -1695,7 +1514,7 @@ export function runExecute({
           });
         }
         state = agentState(herdrApi.agentGet(agentName));
-        if (!['idle', 'done'].includes(state)) {
+        if (!reviewStep && !['idle', 'done'].includes(state)) {
           const settled = state === 'working'
             ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
             : waitForWorkerSettlement(herdrApi, agentName);
@@ -1754,61 +1573,51 @@ export function runExecute({
         runState.remediation.remWorker = { name: agentName, paneId };
         persistRunState(runState, cwd);
 
-        if (step === 'review1' || step === 'review2') {
-          const reviewSelection = reviewBranchSelection(cwd, run);
-          if (
-            !reviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
-          ) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'review_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-        }
-        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
-        state = agentState(herdrApi.agentGet(agentName));
-        const promptStalled = isPromptStalled(prompted);
-        if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
-          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-            if (!retryPromptSubmission(herdrApi, agentName)) {
+        if (reviewStep) {
+          reviewHandoffResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
+          if (reviewHandoffResult.handoff) state = 'done';
+        } else {
+          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+          state = agentState(herdrApi.agentGet(agentName));
+          const promptStalled = isPromptStalled(prompted);
+          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+              if (!retryPromptSubmission(herdrApi, agentName)) {
+                return stop({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (appearsWorking(herdrApi, agentName)) {
+              if (!waitForWorkerSettlement(herdrApi, agentName)) {
+                return stop({
+                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                  runState, cwd, herdr: herdrApi, output,
+                });
+              }
+              state = agentState(herdrApi.agentGet(agentName));
+            } else if (promptStalled) {
               return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
                 runState, cwd, herdr: herdrApi, output,
               });
             }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (appearsWorking(herdrApi, agentName)) {
-            if (!waitForWorkerSettlement(herdrApi, agentName)) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (promptStalled) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-              runState, cwd, herdr: herdrApi, output,
-            });
           }
         }
       }
 
-      if (!existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
+      if (!reviewStep && !existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
         if (remLive) {
-          if (step === 'review1' || step === 'review2') {
-            const reviewSelection = reviewBranchSelection(cwd, run);
-            if (
-              !reviewSelection
-              || !completeInteractiveReview(herdrApi, agentName, reviewSelection)
-            ) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'review_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-          }
           const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
           state = agentState(herdrApi.agentGet(agentName));
           const promptStalled = isPromptStalled(prompted);
@@ -1845,12 +1654,29 @@ export function runExecute({
         }
         state = agentState(herdrApi.agentGet(agentName));
       }
-      if (!existsSync(handoffPath) && state === 'working') {
+      if (!reviewStep && !existsSync(handoffPath) && state === 'working') {
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+      if (reviewStep && remLive && !existsSync(handoffPath)) {
+        reviewHandoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
+        if (reviewHandoffResult.handoff) state = 'done';
+      }
+      const handoffResult = reviewStep
+        ? reviewHandoffResult || observeReviewHandoff(
+          herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
+        )
+        : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -2108,6 +1934,7 @@ export function runExecute({
       let state = agentState(herdrApi.agentGet(agentName));
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       const reviewStep = step === 'review1' || step === 'review2';
+      let retainedReviewResult = null;
       if (!step || agentName !== `s${issue}-${step}`) {
         return stop({
           issue,
@@ -2127,31 +1954,9 @@ export function runExecute({
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      if (!['idle', 'done'].includes(state)) {
+      if (!reviewStep && !['idle', 'done'].includes(state)) {
         state = agentState(herdrApi.agentGet(agentName));
-        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
-          ? reviewBranchSelection(cwd, run)
-          : null;
-        const retainedReviewText = !fs.existsSync(handoffPath) && reviewStep
-          ? agentDetectionText(herdrApi, agentName)
-          : '';
-        const actionableRetainedReview = isInteractiveReviewPicker(
-          retainedReviewText,
-          retainedReviewSelection?.defaultBranch,
-          retainedReviewSelection?.branchNames,
-        );
-        if (actionableRetainedReview) {
-          if (
-            !retainedReviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
-          ) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'review_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          state = agentState(herdrApi.agentGet(agentName));
-        } else if (!['idle', 'done'].includes(state)) {
+        if (!['idle', 'done'].includes(state)) {
           const settled = state === 'working'
             ? commandSucceeded(herdrApi.agentWait({ name: agentName }))
             : waitForWorkerSettlement(herdrApi, agentName);
@@ -2164,58 +1969,48 @@ export function runExecute({
           state = agentState(herdrApi.agentGet(agentName));
         }
       }
-      if (step && agentName === `s${issue}-${step}` && ['idle', 'done'].includes(state) && paneId !== 'unknown') {
-        const retainedReviewText = reviewStep
-          ? agentDetectionText(herdrApi, agentName)
-          : '';
-        const retainedReviewSelection = !fs.existsSync(handoffPath) && reviewStep
-          ? reviewBranchSelection(cwd, run)
-          : null;
-        if (
-          !fs.existsSync(handoffPath)
-          && reviewStep
-          && isInteractiveReviewPicker(
-            retainedReviewText,
-            retainedReviewSelection?.defaultBranch,
-            retainedReviewSelection?.branchNames,
-          )
-        ) {
-          if (
-            !retainedReviewSelection
-            || !completeInteractiveReview(herdrApi, agentName, retainedReviewSelection)
-          ) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'review_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
+      if (
+        step
+        && agentName === `s${issue}-${step}`
+        && (reviewStep || ['idle', 'done'].includes(state))
+        && paneId !== 'unknown'
+      ) {
+        if (!fs.existsSync(handoffPath) && reviewStep) {
+          const retainedReviewBase = resolveReviewBase(cwd, run);
           let prompt;
           try {
-            prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
+            prompt = reviewProtocolPrompt(
+              retainedReviewBase,
+              workerPrompt({ step, issue, cwd, controllerRunId: runState.runId }),
+            );
           } catch (error) {
             return stop({
-              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
-              runState, cwd, herdr: herdrApi, output,
+              issue,
+              step,
+              paneId,
+              agentName,
+              reasonCode: error.message === 'review_base_missing'
+                ? 'review_failed'
+                : workerPromptFailureReason(error),
+              runState,
+              cwd,
+              herdr: herdrApi,
+              output,
             });
           }
-          herdrApi.agentPrompt({ name: agentName, prompt });
-          if (
-            !fs.existsSync(handoffPath)
-            && hasPastedWorkerPrompt(herdrApi, agentName, prompt)
-            && !retryPromptSubmission(herdrApi, agentName)
-          ) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          state = agentState(herdrApi.agentGet(agentName));
+          retainedReviewResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
+          if (retainedReviewResult.handoff) state = 'done';
         }
-        if (
-          !fs.existsSync(handoffPath)
-          && step !== 'review1'
-          && step !== 'review2'
-        ) {
+        if (!reviewStep && !fs.existsSync(handoffPath)) {
           let prompt;
           try {
             prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
@@ -2235,7 +2030,7 @@ export function runExecute({
             state = agentState(herdrApi.agentGet(agentName));
           }
         }
-        if (!fs.existsSync(handoffPath)) {
+        if (!reviewStep && !fs.existsSync(handoffPath)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
@@ -2244,7 +2039,12 @@ export function runExecute({
           }
           state = agentState(herdrApi.agentGet(agentName));
         }
-        const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+        const handoffResult = reviewStep
+          ? retainedReviewResult || observeReviewHandoff(
+            herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
+          )
+          : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+        if (reviewStep && handoffResult.handoff) state = 'done';
         if (!handoffResult.handoff) {
           return stop({
             issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -2337,10 +2137,10 @@ export function runExecute({
       runState.failed = null;
       persistRunState(runState, cwd);
 
-      let reviewSelection = null;
+      let reviewBase = null;
       if (step === 'review1' || step === 'review2') {
-        reviewSelection = reviewBranchSelection(cwd, run);
-        if (!reviewSelection) {
+        reviewBase = resolveReviewBase(cwd, run);
+        if (!reviewBase) {
           return stop({
             issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_failed',
             runState, cwd, herdr: herdrApi, output,
@@ -2354,7 +2154,7 @@ export function runExecute({
         if (
           !expectedBranch
           || currentBranch !== expectedBranch
-          || currentBranch === reviewSelection.defaultBranch
+          || currentBranch === reviewBase
         ) {
           return stop({
             issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_branch_mismatch',
@@ -2411,41 +2211,65 @@ export function runExecute({
       runState.workers[agentName] = ownership;
       persistRunState(runState, cwd);
 
-      if (
-        (step === 'review1' || step === 'review2')
-        && !completeInteractiveReview(herdrApi, agentName, reviewSelection)
-      ) {
-        return stop({
-          issue, step, paneId, agentName, reasonCode: 'review_failed',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
-
+      const reviewStep = step === 'review1' || step === 'review2';
       let prompt;
       try {
-        prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
+        const stepPrompt = workerPrompt({
+          step, issue, cwd, controllerRunId: runState.runId,
+        });
+        prompt = reviewStep ? reviewProtocolPrompt(reviewBase, stepPrompt) : stepPrompt;
       } catch (error) {
         return stop({
           issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
           runState, cwd, herdr: herdrApi, output,
         });
       }
-      const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+
       let state = agentState(herdrApi.agentGet(agentName));
-      const promptStalled = isPromptStalled(prompted);
-      if (
-        !fs.existsSync(handoffPath)
-        && (promptStalled || ['idle', 'done'].includes(state))
-      ) {
-        if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-          if (!retryPromptSubmission(herdrApi, agentName)) {
+      let handoffResult;
+      if (reviewStep) {
+        handoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
+        if (handoffResult.handoff) state = 'done';
+      } else {
+        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
+        const promptStalled = isPromptStalled(prompted);
+        if (
+          !fs.existsSync(handoffPath)
+          && (promptStalled || ['idle', 'done'].includes(state))
+        ) {
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (appearsWorking(herdrApi, agentName)) {
+            if (!waitForWorkerSettlement(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (promptStalled) {
             return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
               runState, cwd, herdr: herdrApi, output,
             });
           }
-          state = agentState(herdrApi.agentGet(agentName));
-        } else if (appearsWorking(herdrApi, agentName)) {
+        }
+        if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
           if (!waitForWorkerSettlement(herdrApi, agentName)) {
             return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
@@ -2453,27 +2277,15 @@ export function runExecute({
             });
           }
           state = agentState(herdrApi.agentGet(agentName));
-        } else if (promptStalled) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-            runState, cwd, herdr: herdrApi, output,
-          });
         }
-      }
-      if (!fs.existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
-        if (!waitForWorkerSettlement(herdrApi, agentName)) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
+        if (!fs.existsSync(handoffPath) && state === 'working') {
+          herdrApi.agentWait({ name: agentName });
+          state = agentState(herdrApi.agentGet(agentName));
         }
-        state = agentState(herdrApi.agentGet(agentName));
+        handoffResult = observeExpectedHandoff(
+          herdrApi, handoffPath, issue, step, agentName,
+        );
       }
-      if (!fs.existsSync(handoffPath) && state === 'working') {
-        herdrApi.agentWait({ name: agentName });
-        state = agentState(herdrApi.agentGet(agentName));
-      }
-      const handoffResult = observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -2666,10 +2478,13 @@ function runCli(argv = process.argv.slice(2)) {
         process.exit(2);
       }
       try {
+        const reviewStep = failedStep === 'review1' || failedStep === 'review2';
+        const reviewBase = reviewStep ? resolveReviewBase(process.cwd(), defaultRun) : null;
         process.stdout.write(`${remediationPrompt({
           issue,
           failedStep,
           cwd: process.cwd(),
+          reviewBase,
         })}\n`);
         process.exit(0);
       } catch (error) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isCliEntry } from "./plugin-controller-path.mjs";
 import { runSteeringValidations } from "../src/sdlc-verification-runtime.mjs";
 import {
   enterControllerLease,
@@ -39,7 +39,7 @@ export async function main(argv = process.argv.slice(2), { signal } = {}) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isCliEntry(import.meta.url)) {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   process.once("SIGINT", cancel);

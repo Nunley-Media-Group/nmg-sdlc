@@ -12,7 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const TEXT_EXTENSIONS = new Set(['.json', '.md', '.txt', '.yaml', '.yml', '.ts']);
 const MANIFEST_PATH = 'package.json';
@@ -445,9 +446,6 @@ export function run(argv = process.argv.slice(2)) {
   }
 }
 
-const isMain = process.argv[1]
-  && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-
-if (isMain) {
+if (isCliEntry(import.meta.url)) {
   process.exitCode = run();
 }

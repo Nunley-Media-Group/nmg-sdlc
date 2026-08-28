@@ -4,7 +4,7 @@
 **Author**: NMG
 **Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
 
-# File: scripts/__tests__/sdlc-execute.test.mjs
+# Files: scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-verification-runtime.test.mjs
 #
 # Generated from: specs/292-select-review-base-without-interactive-picker-parsing/requirements.md
 Feature: Select review base without interactive picker parsing
@@ -37,3 +37,71 @@ Feature: Select review base without interactive picker parsing
     Given GitHub reports a default branch with no matching local or origin ref
     When execute reaches review
     Then execute stops with review_failed before submitting a review prompt
+
+  # --- Successful Review Handoff ---
+
+  @SCN004 @regression
+  Scenario: Successful review prompt advances from its handoff without another wait
+    Given the single review and finalization prompt exits successfully
+    And it writes the canonical artifact-backed handoff
+    When execute observes the controller-owned review worker
+    Then execute does not wait for a new future working transition
+    And the owned review pane advances without a second prompt
+
+  # --- Pasted-Prompt Recovery ---
+
+  @SCN005 @regression
+  Scenario: Exactly pasted stalled review receives one Enter
+    Given the single review and finalization prompt returns agent_prompt_stalled
+    And that exact prompt is visibly pasted with no handoff
+    When execute recovers the prompt
+    Then execute sends one Enter and observes the artifact-backed handoff
+    And execute does not resend the prompt or require working-state detection
+
+  # --- Direct Review Failure ---
+
+  @SCN006 @regression
+  Scenario: True direct review failure stops without recovery
+    Given the direct review request fails without agent_prompt_stalled
+    When execute starts review
+    Then execute stops with review_failed
+    And execute does not wait for recovery or send keys
+
+  # --- Skipped Detection With Active Worker ---
+
+  @SCN007 @regression
+  Scenario: Stalled review with skipped detection completes from its no-findings handoff
+    Given the single review and finalization prompt returns agent_prompt_stalled after about 13 seconds
+    And detection reports neither the pasted prompt nor a working state
+    And the exact owned sibling OMP worker remains registered
+    When that worker writes the canonical no-findings artifact and validated handoff
+    Then execute advances without a second prompt or future working transition
+    And the owned pane closes only after the handoff is accepted
+
+  # --- Findings Evidence ---
+
+  @SCN008 @regression
+  Scenario: Single review prompt persists findings before advancing
+    Given the controller submits one exact-base host-review and finalization prompt
+    When the sibling reviewers report actionable findings
+    Then the worker writes the findings-only canonical artifact
+    And the passed review handoff names that existing non-empty artifact
+
+  # --- Hard Failure ---
+
+  @SCN009 @regression
+  Scenario: Review worker disappearance without evidence fails closed
+    Given the review prompt has not produced a valid handoff
+    When the exact owned review worker disappears
+    Then execute stops with process_lost
+    And execute does not advance or guess completion from state text
+
+  # --- Linked Plugin CLI Entry ---
+
+  @SCN010 @regression
+  Scenario: Linked plugin steering CLIs execute while imports remain inert
+    Given the installed OMP plugin path is a symbolic link to the source package
+    When the steering inspector and deterministic verifier are invoked through that linked path
+    Then both commands produce their normal stdout
+    And the verifier writes the issue verification artifact
+    And importing either CLI produces no output or artifact

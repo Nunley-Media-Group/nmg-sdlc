@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AUTOMATED_COMMANDS, INTERACTIVE_COMMANDS } from '../src/sdlc-commands.mjs';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const REQUIRED_ARTIFACTS = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 
@@ -245,7 +246,7 @@ export function verifyCurrentSpecs(projectRoot) {
   return errors;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (isCliEntry(import.meta.url)) {
   const projectRoot = path.resolve(process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
   const errors = verifyCurrentSpecs(projectRoot);
   if (errors.length) {

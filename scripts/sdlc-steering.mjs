@@ -2,8 +2,9 @@
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { loadSteeringRuntime, projectPromptFragments, SteeringError } from "../src/sdlc-steering-runtime.mjs";
+import { isCliEntry } from "./plugin-controller-path.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROLES = ["product", "tech", "structure", "verification"];
@@ -235,7 +236,7 @@ export async function main(argv = process.argv.slice(2)) {
   fail("steering_apply_failed", "unknown command");
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     json({ ok: false, reasonCode: error.reasonCode ?? "steering_apply_failed", message: error.message });
     process.exitCode = 1;

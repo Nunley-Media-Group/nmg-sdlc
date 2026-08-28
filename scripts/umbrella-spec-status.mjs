@@ -11,8 +11,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
 
+import { isCliEntry } from './plugin-controller-path.mjs';
 import { inspectEpicSpecAuthority, normalizeEpicScope } from './epic-spec-authority.mjs';
 
 const MAX_REFS = 200;
@@ -981,4 +981,4 @@ function main() {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isCliEntry(import.meta.url)) main();
