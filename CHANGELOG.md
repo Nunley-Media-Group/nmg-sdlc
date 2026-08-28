@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.10] - 2026-08-28
+
 ### Fixed
 
 - Reuse exact local or origin issue branches during start instead of failing when a merged spec pull request left the canonical branch name on the remote (#316).
