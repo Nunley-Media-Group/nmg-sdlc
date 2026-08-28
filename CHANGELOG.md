@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.11] - 2026-08-28
+
+### Changed
+
+- Materialize packaged controller paths across hosts (#311)
+
 ## [3.18.10] - 2026-08-28
 
 ### Fixed
