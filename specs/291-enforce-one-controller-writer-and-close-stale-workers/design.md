@@ -54,6 +54,8 @@ Prompt composition becomes unbounded. Delete automated-body and worker-prompt ce
 
 This is a clean cutover. No compatibility alias, optional bound, ignored-bound normalization, quota error, or alternate bounded renderer remains. It explicitly supersedes the prompt-quota portions of issues #193, #259, #265, and #271 while preserving all unrelated controller lifecycle, snippet ordering, placeholder, provider, consumer, slot, source-path, hash, provenance, and non-empty-body contracts.
 
+The merged implementation still has one writer-boundary gap. `createInitializePlan` removes only `content` and spreads every remaining input field into `manifest.snippets`; migration likewise spreads existing manifest snippet records into the next manifest. Both boundaries must validate the exact input key set before constructing a plan, return no actions or output on rejection, and canonicalize accepted records by explicit field selection. `byteBound` and every other unknown snippet key fail `steering_manifest_unknown_key`; input objects and live steering files remain byte-for-byte unchanged.
+
 ### Interface Contracts
 
 | Interface | Contract |
@@ -76,6 +78,7 @@ This is a clean cutover. No compatibility alias, optional bound, ignored-bound n
 | `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, applicable verification tests | Add lease, exact ownership, cleanup, and helper-guard regressions | Proves AC1–AC3 |
 | `src/sdlc-prompt-snippets.mjs` | Remove fragment `byteBound` schema, catalog/header declarations, and registration/render enforcement | Makes plugin, builtin, worker, and command prompt composition unbounded |
 | `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs` | Remove legacy bound stripping; require the canonical project snippet key set | Eliminates the compatibility quota path while preserving fail-closed unknown-key validation |
+| `scripts/sdlc-upgrade.mjs` | Canonicalize preserved migration snippet records before plan construction and reject unknown fields | Prevents migration from carrying quota compatibility fields into a new manifest |
 | `scripts/__tests__/rendered-prompt-contract.test.mjs`, prompt registry/runtime tests | Delete quota constants and size assertions; retain structural contracts and prove `byteBound` is unknown | Covers the clean cutover without weakening prompt validation |
 | `references/steering-schema.md`, `README.md`, `CHANGELOG.md`, active #291 spec | Document unbounded prompt composition and historical supersession | Keeps public and executable contracts aligned |
 
@@ -85,6 +88,7 @@ This is a clean cutover. No compatibility alias, optional bound, ignored-bound n
 - **Indirect impact**: remediation panes, multi-issue queues, public phase commands, and tests that seed run checkpoints or Herdr agent lists.
 - **Risk level**: High — cleanup must never close an unrelated pane, and scoped workers must remain able to verify and deliver under the active lease.
 - **Prompt impact**: automated command bodies, worker prompts, plugin fragments, builtin fragments, and project fragments no longer have byte ceilings; malformed structure still fails closed.
+- **Writer impact**: initialization and migration reject unknown snippet fields before constructing plan actions; accepted manifests contain only canonical snippet registration keys.
 
 ---
 

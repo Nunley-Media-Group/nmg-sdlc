@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject unknown steering snippet fields, including obsolete `byteBound`, at initialize and migration input boundaries before producing plan actions or manifest output (#291).
+
 ## [3.18.5] - 2026-08-28
 
 ### Changed

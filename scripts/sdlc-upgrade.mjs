@@ -27,7 +27,7 @@ import {
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
-import { createInitializePlan } from './sdlc-steering.mjs';
+import { canonicalSnippetRecord, createInitializePlan } from './sdlc-steering.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -684,7 +684,7 @@ function detectSteeringRuntime(root) {
     content: safeRead(source) || '',
   }));
   const existingManifest = isFile(manifest) ? JSON.parse(safeRead(manifest)) : null;
-  const existingSnippets = existingManifest?.snippets ?? [];
+  const existingSnippets = (existingManifest?.snippets ?? []).map(canonicalSnippetRecord);
   const migratedIds = new Set(snippets.map(({ id }) => id));
   const plan = createInitializePlan(root, {
     snippets,

@@ -22,7 +22,7 @@ The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `mod
 
 - `managedFiles[]`: `{ path, template, sha256 }` for exactly the four module copies.
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
-- `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, hashes, provider identity, source confinement, and non-empty bodies use the shared renderer. Prompt composition has no byte ceiling. `byteBound` is not part of the manifest or fragment schema and fails as an unknown key; there is no legacy compatibility or enforcement path.
+- `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, hashes, provider identity, source confinement, and non-empty bodies use the shared renderer. Prompt composition has no byte ceiling. `byteBound` is not part of the manifest or fragment schema and fails as an unknown key; there is no legacy compatibility or enforcement path. Initialize and migration writers validate the exact input key set and canonicalize accepted records before returning any plan actions or manifest output.
 - `extensions[]`: `{ id, path, providers }`. The module exports one frozen `extension` descriptor whose id and provider keys exactly match.
 - `validations[]`: `{ id, provider, required, when, config }`. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
 

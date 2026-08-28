@@ -591,4 +591,39 @@ describe('managed steering migration', () => {
     expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-custom.md'), 'utf8')).toBe('Keep custom guidance.\n');
     expect(fs.existsSync(path.join(root, 'steering', 'product.md'))).toBe(false);
   });
+
+  it('rejects migration byteBound input before producing actions or mutating steering', async () => {
+    const root = makeRoot();
+    await applySteeringPlan(root, createInitializePlan(root, {
+      snippets: [{
+        id: 'project.custom',
+        path: 'steering/snippets/project-custom.md',
+        consumers: ['worker:implement'],
+        slot: 'body',
+        order: 600,
+        content: 'Keep custom guidance.\n',
+      }],
+    }));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.snippets[0].byteBound = 1;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    write(root, 'steering/product.md', '# Migrated Product\n');
+    const originalManifest = fs.readFileSync(manifestPath, 'utf8');
+    const originalLegacy = fs.readFileSync(path.join(root, 'steering', 'product.md'), 'utf8');
+    let producedReport;
+
+    expect(() => {
+      producedReport = detectUpgrade(root, {
+        run: noNetworkRun,
+        includeIssueDependencies: false,
+      });
+    }).toThrow('steering_manifest_unknown_key');
+
+    expect(producedReport).toBeUndefined();
+    expect(fs.readFileSync(manifestPath, 'utf8')).toBe(originalManifest);
+    expect(fs.readFileSync(path.join(root, 'steering', 'product.md'), 'utf8')).toBe(originalLegacy);
+    expect(fs.existsSync(path.join(root, 'steering', 'snippets', 'project-product.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.omp', 'sdlc'))).toBe(false);
+  });
 });

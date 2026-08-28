@@ -9,6 +9,8 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROLES = ["product", "tech", "structure", "verification"];
 const PLAN_KEYS = new Set(["schemaVersion", "mode", "sourceDigest", "actions"]);
 const ACTION_KEYS = new Set(["op", "path", "content", "template"]);
+const SNIPPET_RECORD_KEYS = ["id", "path", "consumers", "slot", "order"];
+const INITIALIZE_SNIPPET_KEYS = new Set([...SNIPPET_RECORD_KEYS, "content"]);
 
 function sha(value) { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
 function json(value) { process.stdout.write(`${JSON.stringify(value, null, 2)}\n`); }
@@ -34,6 +36,48 @@ function rejectSymlinkPath(projectRoot, target) {
   }
 }
 
+export function canonicalSnippetRecord(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    fail("steering_manifest_invalid");
+  }
+  if (Object.keys(record).some((key) => !SNIPPET_RECORD_KEYS.includes(key))) {
+    fail("steering_manifest_unknown_key");
+  }
+  if (SNIPPET_RECORD_KEYS.some((key) => !Object.hasOwn(record, key))) {
+    fail("steering_manifest_invalid");
+  }
+  return {
+    id: record.id,
+    path: record.path,
+    consumers: record.consumers,
+    slot: record.slot,
+    order: record.order,
+  };
+}
+
+function canonicalInitializeSnippet(snippet) {
+  if (!snippet || typeof snippet !== "object" || Array.isArray(snippet)) {
+    fail("steering_manifest_invalid");
+  }
+  if (Object.keys(snippet).some((key) => !INITIALIZE_SNIPPET_KEYS.has(key))) {
+    fail("steering_manifest_unknown_key");
+  }
+  if (SNIPPET_RECORD_KEYS.some((key) => !Object.hasOwn(snippet, key))) {
+    fail("steering_manifest_invalid");
+  }
+  if (!Object.hasOwn(snippet, "content") || typeof snippet.content !== "string") {
+    fail("steering_manifest_invalid");
+  }
+  const record = canonicalSnippetRecord({
+    id: snippet.id,
+    path: snippet.path,
+    consumers: snippet.consumers,
+    slot: snippet.slot,
+    order: snippet.order,
+  });
+  return { record, content: snippet.content };
+}
+
 
 export function steeringSourceDigest(projectRoot) {
   const root = resolve(projectRoot, "steering");
@@ -53,6 +97,8 @@ export function steeringSourceDigest(projectRoot) {
 
 
 export function createInitializePlan(projectRoot, { snippets = [], validations = [] } = {}) {
+  if (!Array.isArray(snippets)) fail("steering_manifest_invalid");
+  const canonicalSnippets = snippets.map(canonicalInitializeSnippet);
   const actions = [];
   const managedFiles = [];
   const modules = [];
@@ -64,9 +110,9 @@ export function createInitializePlan(projectRoot, { snippets = [], validations =
     managedFiles.push({ path, template, sha256: sha(content) });
     modules.push({ id: role, role, path });
   }
-  for (const snippet of snippets) actions.push({ op: "write", path: snippet.path, content: snippet.content });
+  for (const snippet of canonicalSnippets) actions.push({ op: "write", path: snippet.record.path, content: snippet.content });
   const canonicalValidations = validations.map(({ timeoutMs: _legacyTimeoutMs, ...validation }) => validation);
-  const manifest = { schemaVersion: 1, runtimeVersion: "1", managedFiles, modules, snippets: snippets.map(({ content: _content, ...record }) => record), extensions: [], validations: canonicalValidations };
+  const manifest = { schemaVersion: 1, runtimeVersion: "1", managedFiles, modules, snippets: canonicalSnippets.map(({ record }) => record), extensions: [], validations: canonicalValidations };
   actions.push({ op: "write", path: "steering/manifest.json", content: `${JSON.stringify(manifest, null, 2)}\n` });
   return { schemaVersion: 1, mode: "initialize", sourceDigest: steeringSourceDigest(projectRoot), actions };
 }
