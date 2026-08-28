@@ -15,7 +15,7 @@
 
 Finally, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` can start independently in the same checkout. Their controllers have no shared exclusive project lease, so they may write run state, handoffs, verification evidence, branches, commits, or pull requests concurrently.
 
-### Affected Code
+### Pre-Remediation Affected Code
 
 | File | Lines / Symbols | Role |
 |------|-----------------|------|
@@ -25,9 +25,9 @@ Finally, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` can start ind
 | `workflows/execute/WORKFLOW.md` | Execution argument contract | Documents issue tokens only |
 | `workflows/open-pr/WORKFLOW.md`, `workflows/verify-code/WORKFLOW.md` | Controller command invocation | Must pass execute-scoped run identity when present |
 | `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Controller fixtures | Cover current prefix reuse and left-open behavior |
-| `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs` | Fragment schema, catalog, registration, and rendering | Enforces plugin/builtin `byteBound` values and accepts legacy project bounds |
-| `scripts/__tests__/rendered-prompt-bytes.test.mjs` | Automated-body and worker-prompt quota suite | Must be replaced by quota-free `rendered-prompt-contract.test.mjs` structural coverage |
-| `references/steering-schema.md` | Current prompt-fragment contract | Documents quota enforcement and a legacy compatibility path |
+| `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs` | Fragment schema, catalog, registration, and rendering | Before AC4, enforced plugin/builtin `byteBound` values and accepted legacy project bounds; the current schema is unbounded and rejects that key as unknown |
+| `scripts/__tests__/rendered-prompt-bytes.test.mjs` | Historical automated-body and worker-prompt quota suite | Removed and replaced by quota-free `rendered-prompt-contract.test.mjs` structural coverage |
+| `references/steering-schema.md` | Current prompt-fragment contract | Declares unbounded prompt composition, rejects obsolete `byteBound` keys, and retains structural validation and provenance |
 
 ### Triggering Conditions
 
