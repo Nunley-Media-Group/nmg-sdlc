@@ -101,12 +101,12 @@
 **Type**: Modify, Verify
 **Depends**: T001, T002
 **Acceptance**:
-- [ ] A settled `idle` or `done` worker without a handoff fails as `missing_handoff` without waiting for a future `working` transition
+- [ ] Newly-created, retained, and remediation `idle` or `done` workers without handoffs stop without a future `working` transition unless pasted-prompt or working detection proves a submission race
 - [ ] Cancellation stops or retains only exact owned workers before refreshing checkpoint state
 - [ ] Cancellation reloads the latest identity-matching revision after subordinate delivery writes
 - [ ] `controller_cancelled` and final worker disposition are CAS-persisted before lease release
 - [ ] Failed refresh, stale revision, or checkpoint lock cannot be suppressed as successful cleanup
-- [ ] Regression coverage advances the checkpoint revision during a worker wait and proves terminal state, worker cleanup, and lease ordering
+- [ ] Regression coverage advances the checkpoint revision during a worker wait and proves terminal state, worker cleanup, lease ordering, and no future-working wait for settled retained and remediation workers
 
 
 ### T003: Propagate Scope Through Open-PR

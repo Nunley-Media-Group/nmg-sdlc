@@ -100,7 +100,7 @@
 **Given** a controller-owned delivery child has CAS-advanced the canonical checkpoint
 **And** the worker settles without a valid handoff
 **When** execute is cancelled
-**Then** it does not wait for a future `working` transition from the settled worker
+**Then** newly-created, retained, and remediation worker paths do not wait for a future `working` transition from a settled worker unless prompt text or working detection positively proves a submission race
 **And** it terminates only the owned child process group
 **And** it reloads the latest identity-matching checkpoint after the child stops
 **And** it CAS-persists `controller_cancelled` and the final worker disposition before releasing the lease
@@ -118,7 +118,7 @@
 | FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when it remains open on the exact issue branch, its PR number and branch identity match independently, and its head equals this run's clean current HEAD; otherwise reconcile. | Must |
 | FR7 | For non-start steps, restore a clean expected active issue branch before retained-worker ownership matching and fail closed on dirty or foreign work. | Must |
 | FR8 | Before resuming an isolated session, require `run.json` to be a regular non-symlink file and `handoffs` to be a real non-symlink directory; reject unsafe artifacts before state reads or command invocation. | Must |
-| FR9 | On cancellation, stop owned child processes, refresh subordinate checkpoint writes, persist terminal worker state with CAS, and release the controller lease only after that checkpoint succeeds. | Must |
+| FR9 | On every newly-created, retained, and remediation worker path, classify settled missing-handoff state without a future-working wait unless prompt-race evidence exists; on cancellation, stop owned child processes, refresh subordinate checkpoint writes, persist terminal worker state with CAS, and release the controller lease only after that checkpoint succeeds. | Must |
 
 
 ## Out of Scope
