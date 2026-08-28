@@ -90,11 +90,25 @@
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] Audit every supported script CLI entry guard and replace raw URL or lexical path equality with shared canonical-real-path detection
-- [ ] Missing `process.argv[1]` keeps imported modules inert
-- [ ] Execute `sdlc-steering.mjs` through an actual temporary plugin symlink and assert normal JSON output
-- [ ] Execute `sdlc-verify-steering.mjs` through the same link and assert stdout plus `.omp/sdlc/verification/<issue>.json`
-- [ ] Import both affected modules through the link and assert no stdout or artifact
+- [x] Audit every supported script CLI entry guard and replace raw URL or lexical path equality with shared canonical-real-path detection
+- [x] Missing `process.argv[1]` keeps imported modules inert
+- [x] Execute `sdlc-steering.mjs` through an actual temporary plugin symlink and assert normal JSON output
+- [x] Execute `sdlc-verify-steering.mjs` through the same link and assert stdout plus `.omp/sdlc/verification/<issue>.json`
+- [x] Import both affected modules through the link and assert no stdout or artifact
+
+**Changed-path evidence**:
+
+| Path | Delivered behavior | Executed verification |
+|------|--------------------|-----------------------|
+| `scripts/epic-lifecycle-repair.mjs` | Uses shared `isCliEntry(import.meta.url)` canonical-real-path detection, so the lifecycle repair CLI runs through a linked plugin path while imports remain inert. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/epic-lifecycle-repair.mjs --help` exited 0 and printed its usage. |
+| `scripts/epic-spec-authority.mjs` | Uses the same symlink-safe guard for epic authority inspection without changing its imported API. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/epic-spec-authority.mjs --help` exited 0 and printed all three modes. |
+| `scripts/issue-spec-scope.mjs` | Uses the same symlink-safe guard for issue-spec scope inspection without executing on import. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/issue-spec-scope.mjs --help` exited 0 and printed its required scope arguments. |
+| `scripts/pr-delivery-state.mjs` | Uses the same symlink-safe guard for delivery-state classification while preserving inert module imports. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/pr-delivery-state.mjs --help` exited 0 and printed its evidence contract. |
+| `scripts/skill-exercise-runner.mjs` | Uses the same symlink-safe guard for its asynchronous CLI and still exits with the resolved runner status. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/skill-exercise-runner.mjs --help` exited 0 and printed its option list. |
+| `scripts/umbrella-publication-status.mjs` | Uses the same symlink-safe guard for standalone and aggregate publication inspection. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/umbrella-publication-status.mjs --help` exited 0 and printed both publication modes. |
+| `scripts/umbrella-spec-status.mjs` | Uses the same symlink-safe guard for parent, publication, aggregate-child, and audit modes. | `node /Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/umbrella-spec-status.mjs --help` exited 0 and printed all four modes. |
+| `VERSION` | Records the delivery version bump from `3.18.5` to `3.18.6`. | `git diff main -- VERSION package.json` showed the one-line version transition. |
+| `package.json` | Keeps the published package manifest synchronized at version `3.18.6`. | The same diff showed only the manifest version transition and exact agreement with `VERSION`. |
 
 ---
 

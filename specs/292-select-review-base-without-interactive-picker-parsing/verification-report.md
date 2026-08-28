@@ -212,11 +212,12 @@ The OMP harness loaded and invoked `/sdlc-execute`. Execution stopped before rev
 | `repository.tests` | Pass | Mandatory artifact records `effectiveStatus: passed`; focused execution passed 3 suites and 196 tests; deterministic full execution passed 49 suites and 687 tests |
 | `repository.nmg-sdlc-smoke` | Pass | Mandatory artifact records `effectiveStatus: passed` with summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
 | Current specs | Pass | `node scripts/verify-current-specs.mjs`: 54 genuine issue specs verified |
+| Diff hygiene | Pass | `git diff --check` exited 0 with no output after the contribution-evidence edits |
 | Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | Workflow bundle validation | Not applicable | `skill://skill-creator` was resolved and read; its validator requires a `SKILL.md`, while `workflows/review-main` is an OMP `WORKFLOW.md` bundle. Plugin-surface and prompt-synchronization tests pass. |
 
-**Gate Summary**: 6 passed, 0 failed, 0 incomplete, 1 not applicable
+**Gate Summary**: 7 passed, 0 failed, 0 incomplete, 1 not applicable
 
 ---
 
@@ -226,6 +227,22 @@ The OMP harness loaded and invoked `/sdlc-execute`. Execution stopped before rev
 |----------|----------|----------|----------------|-------------|---------|
 | High | Verification | `scripts/sdlc-verify-steering.mjs`, `scripts/sdlc-steering.mjs` | Linked installed path differed from the real module path, so direct URL equality silently skipped both CLIs | Reused canonical-real-path `isCliEntry`; added actual-symlink execution and inert-import coverage | Fixed locally |
 | Medium | Reliability | Equivalent guarded `scripts/*.mjs` CLIs, including `verify-current-specs.mjs` | Raw lexical entry comparisons had the same linked-install no-op | Audited and migrated all 12 equivalent supported script guards to the shared helper | Fixed locally |
+
+### Contribution Changed-Path Evidence
+
+| Path | Verified behavior | Executed evidence |
+|------|-------------------|-------------------|
+| `VERSION` | Delivery artifact advances the canonical release version from `3.18.5` to `3.18.6`. | `git diff main -- VERSION package.json` showed the exact one-line version transition. |
+| `package.json` | Delivery artifact keeps the published package version synchronized at `3.18.6`. | The same diff showed only the manifest version transition and exact agreement with `VERSION`. |
+| `scripts/epic-lifecycle-repair.mjs` | Its standalone lifecycle-repair entrypoint now uses shared canonical-real-path `isCliEntry`, so invocation through a plugin symlink executes and import remains inert. | Linked-path `node …/scripts/epic-lifecycle-repair.mjs --help` exited 0 and printed the `--evidence <snapshot.json> --json` usage. |
+| `scripts/epic-spec-authority.mjs` | Its epic authority entrypoint uses the symlink-safe guard without changing exported inspection behavior. | Linked-path `node …/scripts/epic-spec-authority.mjs --help` exited 0 and printed epic, child, and all modes. |
+| `scripts/issue-spec-scope.mjs` | Its issue-scope entrypoint uses the symlink-safe guard and remains inert when imported. | Linked-path `node …/scripts/issue-spec-scope.mjs --help` exited 0 and printed the project/spec/issue contract. |
+| `scripts/pr-delivery-state.mjs` | Its delivery-state entrypoint uses the symlink-safe guard while preserving evidence classification exports. | Linked-path `node …/scripts/pr-delivery-state.mjs --help` exited 0 and printed the evidence, issue, and optional expected-head contract. |
+| `scripts/skill-exercise-runner.mjs` | Its asynchronous runner entrypoint uses the symlink-safe guard and still exits with the resolved runner status. | Linked-path `node …/scripts/skill-exercise-runner.mjs --help` exited 0 and printed the skill, base, artifact, and help options. |
+| `scripts/umbrella-publication-status.mjs` | Its publication-status entrypoint uses the symlink-safe guard for standalone and aggregate-child publication modes. | Linked-path `node …/scripts/umbrella-publication-status.mjs --help` exited 0 and printed both modes. |
+| `scripts/umbrella-spec-status.mjs` | Its umbrella-spec entrypoint uses the symlink-safe guard for parent, publication, aggregate-child, and all-spec audit modes. | Linked-path `node …/scripts/umbrella-spec-status.mjs --help` exited 0 and printed all four modes. |
+
+All seven linked-path commands used `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc`, which resolves to the current checkout, and completed in one `&&`-chained audit with exit 0. The existing actual-symlink regression additionally executes steering and current-spec behavior and proves linked imports remain inert.
 
 ## Non-Blocking Limitations
 
