@@ -65,7 +65,7 @@
 - [ ] A successful direct `agentPrompt --wait` result confirms prompt submission, but review completion still requires a validated artifact-backed handoff
 - [ ] Only `agent_prompt_stalled` may inspect the pasted request; no path inspects visible idle or working state
 - [ ] Exact pasted-request recovery submits one Enter, never resends the review, and then waits for the handoff
-- [ ] A stalled prompt without a handoff remains open while the exact owned worker exists and uses bounded observation for handoff creation or confirmed worker disappearance
+- [ ] A stalled prompt without a handoff remains open while the exact owned worker exists and waits until validated handoff creation, confirmed worker disappearance, genuine failure, or cancellation
 - [ ] A non-stall prompt failure returns `review_failed` without recovery waits or send-keys
 - [ ] New, retained, and remediation paths retain deterministic base resolution, controller ownership, handoff validation, and pane cleanup
 - [ ] Jest regressions cover accepted submission awaiting handoff, exact pasted-request recovery, and true failure

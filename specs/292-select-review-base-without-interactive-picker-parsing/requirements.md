@@ -90,7 +90,7 @@
 | FR1 | Resolve the GitHub default name to `refs/heads/<name>` first, then `refs/remotes/origin/<name>`, using exact git ref checks. | Must |
 | FR2 | Submit one sibling `--kind omp` prompt that runs the host review against the resolved base and finalizes its artifact and handoff; do not invoke or parse the interactive `/review` picker. | Must |
 | FR3 | Wait for a validated review handoff while the exact owned worker remains registered; state detection, idle guesses, and a second future working transition must not control review completion. | Must |
-| FR4 | Only `agent_prompt_stalled` may use the existing one-Enter pasted-prompt recovery; otherwise continue observing the owned worker without requiring detection text. | Must |
+| FR4 | Only `agent_prompt_stalled` may continue observing the owned worker without detection text or use the existing one-Enter pasted-prompt recovery; every other prompt error fails closed with `review_failed` and skips recovery. | Must |
 | FR5 | Accept a passed review handoff only when it names an existing non-empty canonical review artifact; fail closed on direct prompt failure, invalid evidence, or confirmed worker disappearance. | Must |
 
 ## Out of Scope
@@ -100,7 +100,7 @@
 - Delivery merge/CAS behavior owned by issue #293
 - Changing review findings, scoring, file assignment, or remediation contracts except to supply the resolved base ref
 - Guessing a non-default branch when GitHub/default-ref evidence is missing
-- Changing controller ownership, deterministic base selection, or pane cleanup
+- Avoiding regressions in controller lease and exact worker-ownership policy owned by issue #291; deterministic base selection and review-completion pane lifecycle remain in scope for #292
 
 ## Change History
 
