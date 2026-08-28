@@ -1730,13 +1730,6 @@ export function runExecute({
             }
           }
         }
-        if (!existsSync(handoffPath) && !waitForWorkerSettlement(herdrApi, agentName)) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
-        state = agentState(herdrApi.agentGet(agentName));
       }
       if (!reviewStep && !existsSync(handoffPath) && state === 'working') {
         herdrApi.agentWait({ name: agentName });
@@ -2113,16 +2106,15 @@ export function runExecute({
               });
             }
             state = agentState(herdrApi.agentGet(agentName));
+          } else if (appearsWorking(herdrApi, agentName)) {
+            if (!waitForWorkerSettlement(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
           }
-        }
-        if (!reviewStep && !fs.existsSync(handoffPath)) {
-          if (!waitForWorkerSettlement(herdrApi, agentName)) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'worker_failed',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
-          state = agentState(herdrApi.agentGet(agentName));
         }
         const handoffResult = reviewStep
           ? retainedReviewResult || observeReviewHandoff(

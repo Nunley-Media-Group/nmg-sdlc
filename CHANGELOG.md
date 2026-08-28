@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop settled retained and remediation workers with missing handoffs instead of waiting indefinitely for a future `working` transition; future-working waits now require positive prompt-race evidence (#293).
+
+
 ## [3.18.8] - 2026-08-28
 
 ### Changed

@@ -1983,6 +1983,73 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('live-rem');
   });
 
+  it('stops a settled remediation worker without waiting for future work', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verification_failed' },
+      remediation: {
+        issue: 42,
+        step: 'verify',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'verification_failed',
+        summary: 'verify failed',
+        artifacts: ['artifacts/verify.txt'],
+        closedWorker: { name: 's42-verify', paneId: 'closed-verify' },
+        remWorker: { name: 'r42-verify', paneId: 'live-rem' },
+        history: [],
+      },
+      workers: {
+        'r42-verify': {
+          name: 'r42-verify',
+          paneId: 'live-rem',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'verify',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 'r42-verify',
+      pane_id: 'live-rem',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    fixture.herdr.agentRead = () => 'Unrelated settled worker output';
+    fixture.herdr.agentWait = () => {
+      throw new Error('must not wait for future work from a settled remediation worker');
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toEqual(['live-rem']);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'verify',
+      reasonCode: 'missing_handoff',
+    });
+    expect(persisted.workers).toEqual({});
+  });
+
   it('does not rem a failed start or intervention handoff', () => {
     for (const failedStep of ['start', 'implement']) {
       const fixture = makeControllerFixture({ failedStep });
@@ -3074,7 +3141,7 @@ describe('runExecute controller', () => {
     }];
     const readAgent = fixture.herdr.agentRead;
     fixture.herdr.agentRead = (input) => input.name === 's42-implement'
-      ? 'You are implementing approved issue tasks'
+      ? workerPrompt({ step: 'implement', issue: 42 })
       : readAgent(input);
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
     const agentWait = fixture.herdr.agentWait;
@@ -3114,7 +3181,7 @@ describe('runExecute controller', () => {
       state: 'idle',
     }];
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
-    fixture.herdr.agentRead = () => 'You are implementing approved issue tasks';
+    fixture.herdr.agentRead = () => workerPrompt({ step: 'implement', issue: 42 });
     fixture.herdr.agentWait = (input) => {
       fixture.waits.push(input);
       return { status: input.until ? 1 : 0 };
@@ -3790,31 +3857,36 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'worker_failed' });
   });
 
-  it('does not press enter on a retained worker without a pasted prompt', () => {
+  it('does not wait on a settled retained worker without prompt-race evidence', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
     fixture.herdr.agentRead = () => 'You are the reviewer for unrelated work';
-    fixture.herdr.agentWait = (input) => {
-      fixture.waits.push(input);
-      return { status: 0 };
+    fixture.herdr.agentWait = () => {
+      throw new Error('must not wait for future work from a settled retained worker');
     };
     let observations = 0;
     fixture.herdr.observationPause = () => {
       observations += 1;
       fixture.herdr.agentGet = () => ({ status: 1 });
     };
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
 
     expect(result.status).toBe(1);
     expect(observations).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual(['kept-pane']);
-    expect(fixture.waits).toEqual([
-      { name: 's42-start', until: 'working' },
-      { name: 's42-start' },
-    ]);
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(fixture.waits).toEqual([]);
     expect(persisted.failed.reasonCode).toBe('process_lost');
   });
 
