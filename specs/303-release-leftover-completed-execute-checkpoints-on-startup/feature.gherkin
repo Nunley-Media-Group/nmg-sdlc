@@ -1,0 +1,47 @@
+**Issue**: #303
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: rnunley-nmg
+**Related Spec**: specs/299-remove-completed-execute-runtime-checkpoints/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/303-release-leftover-completed-execute-checkpoints-on-startup/requirements.md
+Feature: Release leftover completed execute checkpoints on startup
+  The execute controller previously rejected a different eligible issue list when a fully completed checkpoint remained on disk.
+  Startup now releases terminal run-owned runtime through the existing guarded cleanup before applying identity rejection.
+
+  @SCN001 @regression
+  Scenario: Leftover completed checkpoint is released
+    Given a fully completed terminal checkpoint for issue 290 and its run-owned artifacts remain on disk
+    When the execute controller starts an eligible queue for issue 291
+    Then the issue 290 checkpoint and owned artifacts are released
+    And the issue 291 queue starts normally
+
+  @SCN002 @regression
+  Scenario Outline: Resumable identity mismatches stay fail-closed
+    Given a <state> checkpoint for issue 290 and its supporting runtime remain on disk
+    When the execute controller starts an eligible queue for issue 291
+    Then it exits status 1 with stderr exactly "Run checkpoint identity mismatch"
+    And the issue 290 checkpoint and supporting runtime remain unchanged
+    And no issue 291 worker starts
+
+    Examples:
+      | state       |
+      | in-progress |
+      | blocked     |
+      | failed      |
+
+  @SCN003 @regression
+  Scenario: Successful finalize cleanup remains effective
+    Given the execute controller starts a queue for issue 290
+    When every delivery step completes in that invocation
+    Then the completed issue 290 runtime is released
+    And a later eligible queue for issue 291 starts without an identity mismatch
+
+  @SCN004 @regression
+  Scenario: Failed startup cleanup does not bypass identity ownership
+    Given a fully completed terminal checkpoint whose owned artifact cannot be removed
+    When the execute controller starts a different eligible issue list
+    Then it exits status 1 with stderr exactly "Run checkpoint identity mismatch"
+    And no worker for the new list starts
