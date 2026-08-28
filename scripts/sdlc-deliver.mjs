@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fsDefault from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,13 +15,14 @@ import {
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 import {
-  enterControllerLease,
-  releaseControllerLease,
+  assertControllerLease,
 } from './sdlc-controller-lease.mjs';
+import { readRunAt, writeRunAt } from './sdlc-execute.mjs';
 
-const USAGE = 'Usage: node scripts/sdlc-deliver.mjs --issue N [--controller-run-id R] [--remediation-result human_review]';
+const USAGE = 'Usage: node scripts/sdlc-deliver.mjs session-init --issue N | --issue N (--controller-run-id R | --session-token T) [--remediation-result human_review]';
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const ISSUE = /^#?([1-9]\d*)$/;
+const SESSION_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const POLL_INTERVAL_MS = 30_000;
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -94,32 +96,265 @@ function positiveIssue(value) {
 }
 
 export function parseDeliverCli(argv) {
+  const sessionInit = argv[0] === 'session-init';
+  const args = sessionInit ? argv.slice(1) : argv;
   let issue = null;
   let remediationResult = null;
   let controllerRunId = null;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === '--issue' && issue === null && index + 1 < argv.length) {
-      issue = positiveIssue(argv[index += 1]);
+  let sessionToken = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--issue' && issue === null && index + 1 < args.length) {
+      issue = positiveIssue(args[index += 1]);
       if (!issue) throw new Error(USAGE);
       continue;
     }
-    if (arg === '--controller-run-id' && controllerRunId === null && index + 1 < argv.length) {
-      controllerRunId = argv[index += 1];
+    if (!sessionInit && arg === '--controller-run-id' && controllerRunId === null && index + 1 < args.length) {
+      controllerRunId = args[index += 1];
       if (!controllerRunId) throw new Error(USAGE);
       continue;
     }
-    if (arg === '--remediation-result' && remediationResult === null && index + 1 < argv.length) {
-      remediationResult = argv[index += 1];
+    if (!sessionInit && arg === '--session-token' && sessionToken === null && index + 1 < args.length) {
+      sessionToken = args[index += 1];
+      if (!SESSION_TOKEN.test(sessionToken)) throw new Error(USAGE);
+      continue;
+    }
+    if (!sessionInit && arg === '--remediation-result' && remediationResult === null && index + 1 < args.length) {
+      remediationResult = args[index += 1];
       if (remediationResult !== 'human_review') throw new Error(USAGE);
       continue;
     }
     throw new Error(USAGE);
   }
   if (!issue) throw new Error(USAGE);
+  if (sessionInit) return { command: 'session-init', issue };
+  if ((controllerRunId === null) === (sessionToken === null)) throw new Error(USAGE);
   const parsed = { issue, remediationResult };
   if (controllerRunId !== null) parsed.controllerRunId = controllerRunId;
+  if (sessionToken !== null) parsed.sessionToken = sessionToken;
   return parsed;
+}
+
+function deliveryPaths(sessionToken = null) {
+  const root = sessionToken ? `.omp/sdlc/sessions/${sessionToken}` : '.omp/sdlc';
+  return {
+    runFile: `${root}/run.json`,
+    handoffDir: `${root}/handoffs`,
+  };
+}
+
+function ensureDirectoryChain(fs, cwd, segments) {
+  let current = cwd;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    if (fs.existsSync(current)) {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('unsafe_session_path');
+    } else {
+      fs.mkdirSync(current);
+    }
+  }
+  return current;
+}
+
+export function initializeDeliverySession({
+  issue,
+  cwd = process.cwd(),
+  run = defaultRun,
+  fs = fsDefault,
+  token = randomUUID(),
+  now = () => new Date().toISOString(),
+} = {}) {
+  const issueNumber = positiveIssue(issue);
+  if (!issueNumber || !SESSION_TOKEN.test(token)) throw new Error('invalid_session');
+  const projectRoot = fs.realpathSync(cwd);
+  const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
+  const head = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+  if (!branch.startsWith(`${issueNumber}-`) || !SHA.test(head)) throw new Error('invalid_session_identity');
+
+  const sessionsDir = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'sessions']);
+  const sessionDir = path.join(sessionsDir, token);
+  fs.mkdirSync(sessionDir);
+  const paths = deliveryPaths(token);
+  const runState = {
+    schemaVersion: 1,
+    projectRoot,
+    runId: token,
+    issue: issueNumber,
+    branch,
+    head,
+    issues: [issueNumber],
+    revision: 1,
+    currentIssue: issueNumber,
+    currentStep: 'deliver',
+    completed: {},
+    failed: null,
+    startedAt: now(),
+  };
+  writeRunAt(runState, cwd, paths.runFile, paths.handoffDir, 0);
+  return {
+    status: 0,
+    stdout: `NMG_SDLC_SESSION: ${token}\n`,
+    stderr: '',
+    token,
+    runState,
+  };
+}
+
+function assertSafeSessionArtifacts(fs, cwd, paths) {
+  const runStat = fs.lstatSync(path.join(cwd, paths.runFile));
+  const handoffStat = fs.lstatSync(path.join(cwd, paths.handoffDir));
+  if (
+    runStat.isSymbolicLink()
+    || !runStat.isFile()
+    || handoffStat.isSymbolicLink()
+    || !handoffStat.isDirectory()
+  ) {
+    throw new Error('unsafe_session_path');
+  }
+}
+
+function resolveDeliveryNamespace({
+  cwd,
+  fs,
+  issue,
+  controllerRunId = null,
+  sessionToken = null,
+}) {
+  if ((controllerRunId === null) === (sessionToken === null)) throw new Error('delivery_scope_required');
+  const paths = deliveryPaths(sessionToken);
+  if (controllerRunId !== null) {
+    const lease = assertControllerLease({ projectRoot: cwd, runId: controllerRunId });
+    if (!lease) throw new Error('delivery_scope_mismatch');
+  } else {
+    let current = cwd;
+    for (const segment of ['.omp', 'sdlc', 'sessions', sessionToken]) {
+      current = path.join(current, segment);
+      if (!fs.existsSync(current)) throw new Error('delivery_scope_mismatch');
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('unsafe_session_path');
+    }
+    assertSafeSessionArtifacts(fs, cwd, paths);
+  }
+  const runState = readRunAt(paths.runFile, cwd);
+  const expectedRunId = sessionToken ?? controllerRunId;
+  if (
+    !runState
+    || runState.projectRoot !== fs.realpathSync(cwd)
+    || runState.runId !== expectedRunId
+    || runState.currentIssue !== issue
+    || runState.currentStep !== 'deliver'
+    || !Array.isArray(runState.issues)
+    || !runState.issues.includes(issue)
+  ) {
+    throw new Error('delivery_scope_mismatch');
+  }
+  return {
+    ...paths,
+    sessionToken,
+    runState,
+    handoffPath: `${paths.handoffDir}/${issue}-deliver.json`,
+  };
+}
+
+function persistDelivery(namespace, cwd, delivery) {
+  const expectedRevision = namespace.runState.revision;
+  const next = {
+    ...namespace.runState,
+    revision: expectedRevision + 1,
+    delivery,
+  };
+  writeRunAt(next, cwd, namespace.runFile, namespace.handoffDir, expectedRevision);
+  namespace.runState = next;
+  return delivery;
+}
+
+function expectedDelivery(issue, pr) {
+  return {
+    issue,
+    pullRequest: pr.number,
+    expectedHead: pr.headRefOid,
+    status: 'expected',
+    reconciliation: null,
+  };
+}
+
+function observedIdentity(pr) {
+  return {
+    pullRequest: pr?.number ?? null,
+    head: pr?.headRefOid ?? null,
+    state: pr?.state ?? null,
+  };
+}
+
+function reconciliationFailure(context, namespace, observed) {
+  const prior = namespace.runState.delivery;
+  const delivery = prior.status === 'reconciliation_required'
+    ? prior
+    : persistDelivery(namespace, context.cwd, {
+      ...prior,
+      status: 'reconciliation_required',
+      reconciliation: {
+        expected: {
+          pullRequest: prior.pullRequest,
+          head: prior.expectedHead,
+        },
+        observed: observedIdentity(observed),
+      },
+    });
+  const reconciliation = delivery.reconciliation;
+  return fail(
+    context,
+    'delivery_reconciliation_required',
+    `Delivery reconciliation required: expected PR #${reconciliation.expected.pullRequest} at ${reconciliation.expected.head}; observed PR #${reconciliation.observed.pullRequest ?? '(missing)'} at ${reconciliation.observed.head ?? '(missing)'} (${reconciliation.observed.state ?? 'UNKNOWN'})`,
+  );
+}
+
+function abortDelivery(result) {
+  const error = new Error('delivery_aborted');
+  error.deliveryResult = result;
+  throw error;
+}
+
+function scopedSnapshot({
+  context,
+  namespace,
+  run,
+  cwd,
+  issue,
+  prNumber,
+  readiness,
+  branch,
+  allowHeadAdvance = false,
+  requireCurrentHead = false,
+}) {
+  const observed = fetchSnapshot({ run, cwd, issue, prNumber, readiness });
+  const expected = namespace.runState.delivery;
+  const exactExpected = observed.pr.number === expected.pullRequest
+    && observed.pr.headRefOid === expected.expectedHead;
+  const currentHeadMismatch = requireCurrentHead && (
+    command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== observed.pr.headRefOid
+    || !parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+      .every((entry) => entry.startsWith('.omp/'))
+  );
+  if (exactExpected && !currentHeadMismatch) return observed;
+  const cleanHeadAdvance = allowHeadAdvance
+    && observed.pr.number === expected.pullRequest
+    && observed.pr.state === 'OPEN'
+    && observed.pr.headRefName === branch
+    && SHA.test(observed.pr.headRefOid)
+    && command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() === observed.pr.headRefOid
+    && parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+      .every((entry) => entry.startsWith('.omp/'));
+  if (cleanHeadAdvance) {
+    persistDelivery(namespace, cwd, {
+      ...expected,
+      expectedHead: observed.pr.headRefOid,
+      reconciliation: null,
+    });
+    return observed;
+  }
+  abortDelivery(reconciliationFailure(context, namespace, observed.pr));
 }
 
 function handoffFor(issue, status, summary, artifacts, reasonCode) {
@@ -136,9 +371,18 @@ function handoffFor(issue, status, summary, artifacts, reasonCode) {
   };
 }
 
-function writeHandoff({ cwd, fs, issue, status, summary, artifacts = [], reasonCode = null }) {
-  const handoffPath = `.omp/sdlc/handoffs/${issue}-deliver.json`;
-  const absolute = path.join(cwd, handoffPath);
+function writeHandoff({
+  cwd,
+  fs,
+  issue,
+  status,
+  summary,
+  artifacts = [],
+  reasonCode = null,
+  namespace,
+}) {
+  const handoffPath = namespace?.handoffPath ?? `.omp/sdlc/handoffs/${issue}-deliver.json`;
+  const absolute = path.resolve(cwd, handoffPath);
   fs.mkdirSync(path.dirname(absolute), { recursive: true });
   const handoff = handoffFor(issue, status, summary, artifacts, reasonCode);
   fs.writeFileSync(absolute, `${JSON.stringify(handoff, null, 2)}\n`);
@@ -503,6 +747,13 @@ function existingPullRequest({ run, cwd, branch, issue }) {
   if (merged.length > 1) throw new Error('multiple merged exact-branch PRs');
   return merged[0] ?? null;
 }
+function pullRequestByNumber({ run, cwd, prNumber }) {
+  return jsonCommand(run, cwd, 'gh', [
+    'pr', 'view', String(prNumber), '--json',
+    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
+  ]).value;
+}
+
 function resolveDefaultBase({ run, cwd }) {
   const { value } = jsonCommand(run, cwd, 'gh', ['repo', 'view', '--json', 'defaultBranchRef']);
   const base = value?.defaultBranchRef?.name;
@@ -511,7 +762,7 @@ function resolveDefaultBase({ run, cwd }) {
 }
 
 
-function prEvidenceRequest({ issue, pr, spec, readiness }) {
+function prEvidenceRequest({ issue, pr, spec, readiness, namespace }) {
   const packet = {
     schemaVersion: 1,
     kind: 'pr_evidence_verification_required',
@@ -520,7 +771,7 @@ function prEvidenceRequest({ issue, pr, spec, readiness }) {
     headSha: pr.headRefOid,
     specPath: spec.relative,
     evidence: (readiness.readiness?.pendingEvidence ?? []).map(evidenceIdentity),
-    handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
+    handoffPath: namespace.handoffPath,
   };
   return {
     status: 3,
@@ -808,7 +1059,14 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   return { snapshot, rawThreads, pr, issueData, evidenceChecks };
 }
 
-function remediationPacket({ issue, pr, classified, rawThreads, botLogins }) {
+function remediationPacket({
+  issue,
+  pr,
+  classified,
+  rawThreads,
+  botLogins,
+  handoffPath,
+}) {
   const failingNames = new Set(classified.evidence.checks
     .filter((check) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(check.state))
     .map((check) => check.name));
@@ -830,7 +1088,7 @@ function remediationPacket({ issue, pr, classified, rawThreads, botLogins }) {
     mergeStateStatus: classified.evidence.pullRequest?.mergeStateStatus ?? null,
     failingChecks,
     threads,
-    handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
+    handoffPath,
   };
 }
 
@@ -848,10 +1106,14 @@ function runDeliverUnlocked({
   now = Date.now,
   sleep = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
   remediationResult = null,
+  namespace,
 } = {}) {
   const issueNumber = positiveIssue(issue);
   if (!issueNumber) throw new Error('issue must be a positive integer');
-  const context = { cwd, fs, issue: issueNumber };
+  const context = { cwd, fs, issue: issueNumber, namespace };
+  if (namespace.runState.delivery?.status === 'reconciliation_required') {
+    return reconciliationFailure(context, namespace, null);
+  }
   if (remediationResult === 'human_review') return fail(context, 'human_review', `Delivery for #${issueNumber} requires human review`);
 
   try {
@@ -873,7 +1135,16 @@ function runDeliverUnlocked({
     const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
     if (!branch.startsWith(`${issueNumber}-`)) return fail(context, 'delivery_failed', `Current branch ${branch || '(detached)'} does not belong to #${issueNumber}`);
     const localHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
-    let pr = existingPullRequest({ run, cwd, branch, issue: issueNumber });
+    if (namespace.sessionToken && (
+      namespace.runState.branch !== branch
+      || namespace.runState.head !== localHead && !namespace.runState.delivery
+    )) {
+      return fail(context, 'delivery_scope_mismatch', 'Standalone delivery session no longer matches its bound branch and initial head');
+    }
+    const persisted = namespace.runState.delivery;
+    let pr = persisted
+      ? pullRequestByNumber({ run, cwd, prNumber: persisted.pullRequest })
+      : existingPullRequest({ run, cwd, branch, issue: issueNumber });
     const base = resolveDefaultBase({ run, cwd });
     const reportPath = path.relative(cwd, spec.verificationPath);
     const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
@@ -885,14 +1156,42 @@ function runDeliverUnlocked({
     if (dirty.length > 0 && !controlledReportOnly) {
       return fail(context, 'dirty_tree', `Delivery requires a clean worktree: ${dirty.join(', ')}`);
     }
+    if (persisted && (
+      pr.number !== persisted.pullRequest
+      || pr.headRefOid !== persisted.expectedHead
+      || pr.state === 'CLOSED'
+    )) {
+      const authorizedAdvance = pr.number === persisted.pullRequest
+        && pr.state === 'OPEN'
+        && pr.headRefName === branch
+        && pr.headRefOid === localHead
+        && dirty.length === 0;
+      if (!authorizedAdvance) return reconciliationFailure(context, namespace, pr);
+      persistDelivery(namespace, cwd, {
+        ...persisted,
+        expectedHead: pr.headRefOid,
+        reconciliation: null,
+      });
+    } else if (!persisted && pr) {
+      persistDelivery(namespace, cwd, expectedDelivery(issueNumber, pr));
+    }
 
     let version = fs.readFileSync(path.join(cwd, 'VERSION'), 'utf8').trim();
+    if (pr?.state === 'MERGED' && pr.headRefOid !== localHead) {
+      return reconciliationFailure(context, namespace, pr);
+    }
     if (pr?.state === 'MERGED') {
-      if (pr.headRefOid !== localHead) {
-        return fail(context, 'merge_failed', `Merged PR #${pr.number} does not match local delivery head`);
-      }
       const terminalReadiness = { ...readiness, status: 'pass' };
-      const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: terminalReadiness });
+      const proof = scopedSnapshot({
+        context,
+        namespace,
+        run,
+        cwd,
+        issue: issueNumber,
+        prNumber: pr.number,
+        readiness: terminalReadiness,
+        branch,
+      });
       if (readiness.status === 'pr_evidence_satisfied') {
         const validation = inspectDeliveryValidation({
           content: proof.pr.body ?? '',
@@ -913,6 +1212,11 @@ function runDeliverUnlocked({
       if (proved.status !== 'complete' || proof.issueData.state !== 'CLOSED') {
         return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
       }
+      persistDelivery(namespace, cwd, {
+        ...namespace.runState.delivery,
+        status: 'complete',
+        reconciliation: null,
+      });
       const cleanupFailures = cleanupBranch({ run, cwd, branch, base: proof.pr.baseRefName });
       const cleanup = cleanupFailures.length ? `; cleanup incomplete: ${cleanupFailures.join(', ')}` : '';
       return writeHandoff({
@@ -933,25 +1237,57 @@ function runDeliverUnlocked({
       throw error;
     }
     publishVersionChanges({ run, cwd, issue: issueNumber, issueData, changed });
+    if (pr) {
+      pr = scopedSnapshot({
+        context,
+        namespace,
+        run,
+        cwd,
+        issue: issueNumber,
+        prNumber: pr.number,
+        readiness,
+        branch,
+        allowHeadAdvance: true,
+        requireCurrentHead: !controlledReportOnly,
+      }).pr;
+    }
     if (!pr) {
-      pr = createPullRequest({
+      const created = createPullRequest({
         run, fs, cwd, issue: issueNumber, issueData, branch, base, spec,
         draft: readiness.status === 'pr_evidence_pending',
       });
+      pr = pullRequestByNumber({ run, cwd, prNumber: created.number });
+      if (!Number.isSafeInteger(pr?.number) || !SHA.test(pr?.headRefOid)) {
+        throw new Error('created PR identity is invalid');
+      }
+      persistDelivery(namespace, cwd, expectedDelivery(issueNumber, pr));
     }
+    const observe = (snapshotReadiness, allowHeadAdvance = false) => scopedSnapshot({
+      context,
+      namespace,
+      run,
+      cwd,
+      issue: issueNumber,
+      prNumber: namespace.runState.delivery.pullRequest,
+      readiness: snapshotReadiness,
+      branch,
+      allowHeadAdvance,
+    });
 
     let deliveryReadiness = readiness;
     if (readiness.status === 'pr_evidence_pending') {
-      const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const observed = observe(readiness);
       if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true
         || observed.pr.headRefName !== branch || observed.pr.baseRefName !== base) {
         return fail(context, 'verification_not_ready', `PR #${pr.number} is not the exact controlled draft`);
       }
-      return prEvidenceRequest({ issue: issueNumber, pr: observed.pr, spec, readiness });
+      return prEvidenceRequest({
+        issue: issueNumber, pr: observed.pr, spec, readiness, namespace,
+      });
     }
 
     if (readiness.status === 'pr_evidence_satisfied') {
-      let observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      let observed = observe(readiness);
       if (observed.pr.state !== 'OPEN' || observed.pr.isDraft !== true
         || observed.pr.headRefName !== branch || observed.pr.baseRefName !== base) {
         return fail(context, 'verification_not_ready', `PR #${pr.number} is not a resumable controlled draft`);
@@ -974,7 +1310,7 @@ function runDeliverUnlocked({
         publishVerificationReport({
           run, cwd, issue: issueNumber, reportPath,
         });
-        observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+        observed = observe(readiness, true);
         if (observed.pr.headRefOid.toLowerCase() === h1) {
           return fail(context, 'verification_not_ready', 'Verification report publication did not advance H1 to H2');
         }
@@ -989,7 +1325,7 @@ function runDeliverUnlocked({
       let finalEvidence = evidenceForHead(readiness, observed, h2);
       while (!finalEvidence) {
         sleep(POLL_INTERVAL_MS);
-        observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+        observed = observe(readiness);
         if (observed.pr.headRefOid !== h2 || observed.pr.isDraft !== true) {
           return fail(context, 'verification_not_ready', 'Controlled draft changed during H2 evidence collection');
         }
@@ -998,7 +1334,7 @@ function runDeliverUnlocked({
       writeDeliveryValidation({
         run, fs, cwd, issue: issueNumber, spec, pr: observed.pr, headSha: h2, evidence: finalEvidence,
       });
-      const validated = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness });
+      const validated = observe(readiness);
       const validation = inspectDeliveryValidation({
         content: validated.pr.body ?? '',
         options: {
@@ -1018,13 +1354,20 @@ function runDeliverUnlocked({
     }
 
     while (true) {
-      const observed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
+      const observed = observe(deliveryReadiness);
       const classified = classifyPrDeliveryState(observed.snapshot, { issueNumber });
       if (classifyHumanReview(observed.rawThreads, botLogins) || classified.reasonCode === 'changes_requested') {
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
       }
       if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved'].includes(classified.reasonCode)) {
-        const packet = remediationPacket({ issue: issueNumber, pr: observed.pr, classified, rawThreads: observed.rawThreads, botLogins });
+        const packet = remediationPacket({
+          issue: issueNumber,
+          pr: observed.pr,
+          classified,
+          rawThreads: observed.rawThreads,
+          botLogins,
+          handoffPath: namespace.handoffPath,
+        });
         if (packet.threads.some((thread) => !thread.path)) {
           return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);
         }
@@ -1045,17 +1388,23 @@ function runDeliverUnlocked({
         return fail(context, 'merge_failed', `PR #${pr.number} is not mergeable: ${classified.reasonCode}`);
       }
 
-      const head = classified.headSha;
-      const refreshed = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
+      const head = namespace.runState.delivery.expectedHead;
+      const refreshed = observe(deliveryReadiness);
       if (refreshed.pr.headRefOid !== head) continue;
       command(run, cwd, 'gh', [
-        'pr', 'merge', String(pr.number), '--squash', '--match-head-commit', head,
+        'pr', 'merge', String(namespace.runState.delivery.pullRequest),
+        '--squash', '--match-head-commit', head,
       ]);
-      const proof = fetchSnapshot({ run, cwd, issue: issueNumber, prNumber: pr.number, readiness: deliveryReadiness });
+      const proof = observe(deliveryReadiness);
       const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: head });
       if (proved.status !== 'complete' || proof.pr.headRefOid !== head || proof.issueData.state !== 'CLOSED') {
         return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
       }
+      persistDelivery(namespace, cwd, {
+        ...namespace.runState.delivery,
+        status: 'complete',
+        reconciliation: null,
+      });
       const cleanupFailures = cleanupBranch({ run, cwd, branch, base: proof.pr.baseRefName });
       const cleanup = cleanupFailures.length ? `; cleanup incomplete: ${cleanupFailures.join(', ')}` : '';
       return writeHandoff({
@@ -1066,6 +1415,7 @@ function runDeliverUnlocked({
       });
     }
   } catch (error) {
+    if (error.deliveryResult) return error.deliveryResult;
     const reasonCode = error.message === 'spec_not_approved' ? 'spec_not_approved'
       : error.message === 'verification_not_ready' ? 'verification_not_ready'
         : 'delivery_failed';
@@ -1075,40 +1425,26 @@ function runDeliverUnlocked({
 
 export function runDeliver(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const processApi = options.processApi ?? process;
-  let leaseContext;
+  let namespace;
   try {
-    leaseContext = enterControllerLease({
-      projectRoot: cwd,
-      runId: options.controllerRunId,
+    namespace = resolveDeliveryNamespace({
+      cwd,
+      fs: options.fs ?? fsDefault,
+      issue: positiveIssue(options.issue),
+      controllerRunId: options.controllerRunId ?? null,
+      sessionToken: options.sessionToken ?? null,
     });
   } catch (error) {
+    const paths = deliveryPaths(SESSION_TOKEN.test(options.sessionToken ?? '') ? options.sessionToken : null);
     return {
       status: 1,
       stdout: '',
-      stderr: `${error?.reasonCode || 'controller_lease_held'}\n`,
+      stderr: `${error?.reasonCode || error?.message || 'delivery_scope_mismatch'}\n`,
       handoff: null,
-      handoffPath: `.omp/sdlc/handoffs/${options.issue}-deliver.json`,
+      handoffPath: `${paths.handoffDir}/${options.issue}-deliver.json`,
     };
   }
-  const signalHandlers = [];
-  if (leaseContext.owned) {
-    for (const signal of ['SIGINT', 'SIGTERM']) {
-      const handler = () => {
-        releaseControllerLease(leaseContext.lease);
-        leaseContext = null;
-        processApi.exit(signal === 'SIGINT' ? 130 : 143);
-      };
-      processApi.once(signal, handler);
-      signalHandlers.push([signal, handler]);
-    }
-  }
-  try {
-    return runDeliverUnlocked(options);
-  } finally {
-    for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
-    if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);
-  }
+  return runDeliverUnlocked({ ...options, cwd, namespace });
 }
 
 function main() {
@@ -1120,7 +1456,16 @@ function main() {
     process.exitCode = 2;
     return;
   }
-  const result = runDeliver({ ...options, cwd: process.cwd() });
+  let result;
+  try {
+    result = options.command === 'session-init'
+      ? initializeDeliverySession({ issue: options.issue, cwd: process.cwd() })
+      : runDeliver({ ...options, cwd: process.cwd() });
+  } catch (error) {
+    process.stderr.write(`${error?.message || 'delivery initialization failed'}\n`);
+    process.exitCode = 2;
+    return;
+  }
   process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   process.exitCode = result.status;

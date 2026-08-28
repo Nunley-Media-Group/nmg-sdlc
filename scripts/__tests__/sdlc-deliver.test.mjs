@@ -4,8 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { enrichMissingCheckEvents, parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
-import { validateHandoff } from '../sdlc-execute.mjs';
+import {
+  enrichMissingCheckEvents,
+  initializeDeliverySession,
+  parseDeliverCli,
+  runDeliver,
+} from '../sdlc-deliver.mjs';
+import { validateHandoff, writeRun } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
   releaseControllerLease,
@@ -232,6 +237,8 @@ function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], 
   return { number: 77, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: base, mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState, body };
 }
 
+const leases = [];
+
 function fixture(options = {}) {
   const root = makeRoot(options);
   const calls = [];
@@ -239,15 +246,39 @@ function fixture(options = {}) {
   const issue = { number: 42, title: options.title ?? 'Ship deterministic delivery', body: options.body ?? '', labels: (options.labels ?? ['enhancement']).map((name) => ({ name })), state: 'OPEN', url: 'https://github.test/issues/42' };
   const views = [...(options.views ?? [openPr(), openPr(), openPr({ state: 'MERGED', issueState: 'CLOSED' })])];
   let lastView = views[views.length - 1] ?? openPr();
+  const existingPr = options.existingPr === true ? openPr() : options.existingPr;
   const checksSequence = [...(options.checksSequence ?? [])];
   let editedBody = null;
   let gitHead = options.gitHead ?? H1;
+  let dirtyPaths = [...(options.dirtyPaths ?? [])];
+  writeRun({
+    schemaVersion: 1,
+    projectRoot: fs.realpathSync(root),
+    runId: 'execute-run',
+    issue: 42,
+    branch: '42-delivery',
+    head: gitHead,
+    issues: [42],
+    revision: 1,
+    currentIssue: 42,
+    currentStep: 'deliver',
+    completed: {},
+    failed: null,
+    startedAt: '2026-08-25T00:00:00.000Z',
+  }, root, 0);
+  if (options.scoped !== false) {
+    leases.push(acquireControllerLease({
+      projectRoot: root,
+      runId: 'execute-run',
+      controllerPaneId: 'execute-pane',
+    }));
+  }
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (command === 'git') {
       if (args[0] === 'branch' && args[1] === '--show-current') return { status: 0, stdout: '42-delivery\n', stderr: '' };
       if (args[0] === 'status') {
-        const stdout = (options.dirtyPaths ?? []).map((entry) => ` M ${entry}\0`).join('');
+        const stdout = dirtyPaths.map((entry) => ` M ${entry}\0`).join('');
         return { status: 0, stdout, stderr: '' };
       }
       if (args[0] === 'diff' && args.includes('--cached')) return { status: options.emptyStagedDiff ? 0 : 1, stdout: '', stderr: '' };
@@ -261,7 +292,21 @@ function fixture(options = {}) {
       }
       if (args[0] === 'rev-parse' && args.includes('@{upstream}')) return { status: options.noUpstream ? 1 : 0, stdout: 'origin/42-delivery\n', stderr: '' };
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { status: 0, stdout: `${gitHead}\n`, stderr: '' };
-      if (args[0] === 'commit') gitHead = H2;
+      if (args[0] === 'commit') {
+        gitHead = H2;
+        const message = args[args.indexOf('-m') + 1] ?? '';
+        dirtyPaths = message.startsWith('docs: record PR evidence')
+          ? []
+          : dirtyPaths.filter((entry) => entry.endsWith('/verification-report.md'));
+      }
+      if (args[0] === 'push' && dirtyPaths.length === 0
+        && existingPr?.state === 'OPEN' && options.advanceExistingPrOnPush !== false) {
+        for (const view of views) {
+          if (view.headRefName === existingPr.headRefName && view.headRefOid === existingPr.headRefOid) {
+            view.headRefOid = gitHead;
+          }
+        }
+      }
       const failure = options.gitFailures?.find(({ match }) => args.join(' ').includes(match));
       if (failure) return { status: 1, stdout: '', stderr: failure.message ?? 'failed' };
       return { status: 0, stdout: '', stderr: '' };
@@ -273,12 +318,12 @@ function fixture(options = {}) {
     if (args[0] === 'issue' && args[1] === 'view' && args[4]?.includes('title')) return { status: 0, stdout: JSON.stringify(issue), stderr: '' };
     if (args[0] === 'issue' && args[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 42, state: lastView.issueState, url: issue.url }), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'list') {
-      const existing = options.existingPr === true ? openPr() : options.existingPr;
-      return { status: 0, stdout: JSON.stringify(existing ? [existing] : []), stderr: '' };
+      return { status: 0, stdout: JSON.stringify(existingPr ? [existingPr] : []), stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
     if (args[0] === 'pr' && args[1] === 'view') {
-      lastView = views.length ? views.shift() : lastView;
+      const identityOnly = !String(args[4] ?? '').includes('reviews');
+      lastView = views.length ? (identityOnly ? views[0] : views.shift()) : lastView;
       if (editedBody !== null) lastView.body = editedBody;
       return { status: 0, stdout: JSON.stringify(lastView), stderr: '' };
     }
@@ -333,11 +378,15 @@ function fixture(options = {}) {
 
 function handoff(root) { return JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/handoffs/42-deliver.json'), 'utf8')); }
 const roots = [];
-afterEach(() => { while (roots.length) fs.rmSync(roots.pop(), { recursive: true, force: true }); });
+afterEach(() => {
+  while (leases.length) releaseControllerLease(leases.pop());
+  while (roots.length) fs.rmSync(roots.pop(), { recursive: true, force: true });
+});
 
 describe('sdlc delivery controller', () => {
   test('parses only supported CLI forms and invalid CLI has no handoff', () => {
-    expect(parseDeliverCli(['--issue', '#42'])).toEqual({ issue: 42, remediationResult: null });
+    expect(() => parseDeliverCli(['--issue', '#42'])).toThrow();
+    expect(parseDeliverCli(['session-init', '--issue', '#42'])).toEqual({ command: 'session-init', issue: 42 });
     expect(parseDeliverCli([
       '--issue', '42', '--controller-run-id', 'run-42', '--remediation-result', 'human_review',
     ])).toEqual({
@@ -345,15 +394,23 @@ describe('sdlc delivery controller', () => {
       controllerRunId: 'run-42',
       remediationResult: 'human_review',
     });
+    const token = '11111111-1111-4111-8111-111111111111';
+    expect(parseDeliverCli([
+      '--issue', '42', '--session-token', token,
+    ])).toEqual({
+      issue: 42,
+      sessionToken: token,
+      remediationResult: null,
+    });
     const root = makeRoot(); roots.push(root);
     const result = spawnSync(process.execPath, [SCRIPT, '--issue', 'nope'], { cwd: root, encoding: 'utf8' });
     expect(result.status).toBe(2);
-    expect(result.stderr.trim()).toBe('Usage: node scripts/sdlc-deliver.mjs --issue N [--controller-run-id R] [--remediation-result human_review]');
+    expect(result.stderr.trim()).toBe('Usage: node scripts/sdlc-deliver.mjs session-init --issue N | --issue N (--controller-run-id R | --session-token T) [--remediation-result human_review]');
     expect(fs.existsSync(path.join(root, '.omp/sdlc/handoffs'))).toBe(false);
   });
 
   test('rejects an unscoped delivery helper without changing protected artifacts', () => {
-    const f = fixture();
+    const f = fixture({ scoped: false });
     roots.push(f.root);
     const lease = acquireControllerLease({
       projectRoot: f.root,
@@ -374,7 +431,7 @@ describe('sdlc delivery controller', () => {
 
     expect(rejected).toMatchObject({
       status: 1,
-      stderr: 'controller_lease_held\n',
+      stderr: 'delivery_scope_required\n',
       handoff: null,
     });
     expect(f.calls).toHaveLength(callCount);
@@ -394,9 +451,112 @@ describe('sdlc delivery controller', () => {
     expect(releaseControllerLease(lease)).toBe(true);
   });
 
+  test('isolates standalone session state and handoffs from canonical execute state', () => {
+    const f = fixture(); roots.push(f.root);
+    const token = '22222222-2222-4222-8222-222222222222';
+    const canonicalRunPath = path.join(f.root, '.omp/sdlc/run.json');
+    fs.writeFileSync(canonicalRunPath, `${JSON.stringify({
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(f.root),
+      runId: 'execute-run',
+      issue: 41,
+      branch: '41-canonical',
+      head: H1,
+      issues: [41],
+      revision: 1,
+      currentIssue: 41,
+      currentStep: 'verify',
+      completed: {},
+      failed: null,
+      startedAt: '2026-08-25T00:00:00.000Z',
+    }, null, 2)}\n`);
+    const canonicalHandoff = path.join(f.root, '.omp/sdlc/handoffs/41-deliver.json');
+    fs.writeFileSync(canonicalHandoff, 'canonical-handoff\n');
+    const canonicalRun = fs.readFileSync(canonicalRunPath, 'utf8');
+    const canonicalHandoffBytes = fs.readFileSync(canonicalHandoff, 'utf8');
+
+    const initialized = initializeDeliverySession({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      token,
+      now: () => '2026-08-25T00:00:00.000Z',
+    });
+    expect(initialized.stdout).toBe(`NMG_SDLC_SESSION: ${token}\n`);
+    expect(initialized.runState).toMatchObject({
+      schemaVersion: 1,
+      runId: token,
+      issue: 42,
+      revision: 1,
+      currentStep: 'deliver',
+    });
+
+    const result = runDeliver({
+      issue: 42,
+      sessionToken: token,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(result).toMatchObject({
+      status: 0,
+      handoffPath: `.omp/sdlc/sessions/${token}/handoffs/42-deliver.json`,
+      handoff: { status: 'passed' },
+    });
+    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).toBe(canonicalRun);
+    expect(fs.readFileSync(canonicalHandoff, 'utf8')).toBe(canonicalHandoffBytes);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
+  });
+
+  test.each([
+    ['run.json', '33333333-3333-4333-8333-333333333333'],
+    ['handoffs', '44444444-4444-4444-8444-444444444444'],
+  ])('rejects a symlinked isolated-session %s before reading state or invoking commands', (entry, token) => {
+    const f = fixture(); roots.push(f.root);
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-session-boundary-')); roots.push(external);
+    initializeDeliverySession({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      token,
+      now: () => '2026-08-25T00:00:00.000Z',
+    });
+    const sessionRoot = path.join(f.root, '.omp/sdlc/sessions', token);
+    const sessionEntry = path.join(sessionRoot, entry);
+    if (entry === 'run.json') {
+      fs.copyFileSync(sessionEntry, path.join(external, 'run.json'));
+      fs.rmSync(sessionEntry);
+      fs.symlinkSync(path.join(external, 'run.json'), sessionEntry);
+    } else {
+      fs.rmSync(sessionEntry, { recursive: true });
+      fs.symlinkSync(external, sessionEntry);
+    }
+    const callCount = f.calls.length;
+
+    const result = runDeliver({
+      issue: 42,
+      sessionToken: token,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      stderr: 'unsafe_session_path\n',
+      handoff: null,
+    });
+    expect(f.calls).toHaveLength(callCount);
+    expect(fs.readdirSync(external)).toEqual(entry === 'run.json' ? ['run.json'] : []);
+  });
+
   test('does not treat the exact self-referential issue body as a breaking declaration', () => {
     const f = fixture({ body: SELF_REFERENTIAL_BREAKING_BODY }); roots.push(f.root);
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
   });
 
@@ -405,7 +565,7 @@ describe('sdlc delivery controller', () => {
     { body: 'Compatibility impact follows.\nBrEaKiNg: Remove the legacy API' },
   ])('fails a genuine BREAKING declaration before mutation: $title$body', (declaration) => {
     const f = fixture(declaration); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('major_bump_required');
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
     expect(f.calls.some((call) => call[1] === 'commit' || call[2] === 'create')).toBe(false);
@@ -413,32 +573,61 @@ describe('sdlc delivery controller', () => {
 
   test('bumps leftover spike and resumes only a verified synchronized delivery state', () => {
     const fresh = fixture({ labels: ['spike'] }); roots.push(fresh.root);
-    expect(runDeliver({ issue: 42, cwd: fresh.root, run: fresh.run, fs, now: () => Date.parse('2026-08-25'), sleep: fresh.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: fresh.root, run: fresh.run, fs, now: () => Date.parse('2026-08-25'), sleep: fresh.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(fresh.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(JSON.parse(fs.readFileSync(path.join(fresh.root, 'package.json'), 'utf8')).version).toBe('3.5.0');
 
     const preVersionPr = fixture({ existingPr: true }); roots.push(preVersionPr.root);
-    expect(runDeliver({ issue: 42, cwd: preVersionPr.root, run: preVersionPr.run, fs, sleep: preVersionPr.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: preVersionPr.root, run: preVersionPr.run, fs, sleep: preVersionPr.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(preVersionPr.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(preVersionPr.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(true);
+    expect(preVersionPr.calls).toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2,
+    ]);
+    expect(preVersionPr.calls).not.toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H1,
+    ]);
 
     const resume = fixture({ existingPr: true, version: '3.5.0', deliveryCommit: true }); roots.push(resume.root);
     fs.writeFileSync(path.join(resume.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
-    expect(runDeliver({ issue: 42, cwd: resume.root, run: resume.run, fs, sleep: resume.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: resume.root, run: resume.run, fs, sleep: resume.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(resume.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(resume.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
   });
 
-  test('synchronizes steering-declared Python mirrors without package.json', () => {
-    const f = fixture({ stack: 'python' }); roots.push(f.root);
-    expect(runDeliver({
+  test('never merges a stale existing PR at its pre-version head', () => {
+    const f = fixture({
+      existingPr: openPr({ head: H1 }),
+      advanceExistingPrOnPush: false,
+      views: [openPr({ head: H1 })],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
       issue: 42,
+      controllerRunId: 'execute-run',
       cwd: f.root,
       run: f.run,
       fs,
-      now: () => Date.parse('2026-08-25'),
       sleep: f.sleep,
-    }).status).toBe(0);
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(f.calls).toContainEqual(['git', 'push']);
+    expect(f.calls.some((call) => (
+      call[0] === 'gh' && call[1] === 'pr' && ['ready', 'merge'].includes(call[2])
+    ))).toBe(false);
+  });
+
+  test('synchronizes steering-declared Python mirrors without package.json', () => {
+    const f = fixture({ stack: 'python' }); roots.push(f.root);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root,
+    run: f.run,
+    fs,
+    now: () => Date.parse('2026-08-25'),
+    sleep: f.sleep, }).status).toBe(0);
     expect(fs.existsSync(path.join(f.root, 'package.json'))).toBe(false);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(fs.readFileSync(path.join(f.root, 'pyproject.toml'), 'utf8')).toContain('version = "3.5.0"');
@@ -490,7 +679,7 @@ describe('sdlc delivery controller', () => {
   ])('fails before mutation when a declared mirror is $name', ({ arrange, message }) => {
     const f = fixture({ stack: 'python' }); roots.push(f.root);
     arrange(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff).toMatchObject({ status: 'failed', reasonCode: 'delivery_failed' });
     expect(result.handoff.summary).toContain(message);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
@@ -507,7 +696,7 @@ describe('sdlc delivery controller', () => {
       deliveryPaths: ['VERSION', 'pyproject.toml', 'CHANGELOG.md'],
     }); roots.push(f.root);
     fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.6.0');
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(true);
   });
@@ -515,7 +704,7 @@ describe('sdlc delivery controller', () => {
   test('emits complete remediation JSON for failing checks and bot threads', () => {
     const thread = { id: 'T1', isResolved: false, isOutdated: false, comments: [{ body: 'Fix this', path: 'src/a.mjs', line: 9, url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
     const f = fixture({ checksStatus: 1, checks: [{ name: 'test', state: 'FAILURE', link: 'https://github.test/check/1', event: 'pull_request' }], views: [openPr({ threads: [thread] })] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(3);
     expect(result.stdout.match(/NMG_SDLC_REMEDIATION:/g)).toHaveLength(1);
     expect(result.remediation).toMatchObject({ schemaVersion: 1, kind: 'remediation_required', issue: 42, pullRequest: 77, headSha: H1, failingChecks: [{ name: 'test', url: 'https://github.test/check/1' }], threads: [{ path: 'src/a.mjs', line: 9, body: 'Fix this', url: 'https://github.test/thread/1' }], handoffPath: '.omp/sdlc/handoffs/42-deliver.json' });
@@ -532,7 +721,7 @@ describe('sdlc delivery controller', () => {
       ],
     };
     const f = fixture({ views: [openPr({ threads: [thread] })] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.remediation.threads).toEqual([{
       path: 'src/origin.mjs',
       line: 17,
@@ -544,7 +733,7 @@ describe('sdlc delivery controller', () => {
 
   test('fetches threads through GraphQL and scopes checks to exact required arguments', () => {
     const f = fixture({ checksStatus: 1, checks: [{ name: 'test', state: 'FAILURE', link: 'https://github.test/check/1', event: 'pull_request' }], views: [openPr()] }); roots.push(f.root);
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(3);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(3);
     const prView = f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'view');
     expect(prView.join(',')).not.toContain('reviewThreads');
     const graphql = f.calls.find((call) => call[0] === 'gh' && call[1] === 'api');
@@ -558,7 +747,7 @@ describe('sdlc delivery controller', () => {
 
   test('fails closed when GraphQL returns response errors', () => {
     const f = fixture({ graphqlErrors: [{ message: 'Review thread query rejected' }], views: [openPr()] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('delivery_failed');
     expect(result.handoff.summary).toContain('GraphQL review thread query failed: Review thread query rejected');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toBe(false);
@@ -566,7 +755,7 @@ describe('sdlc delivery controller', () => {
 
   test('fails closed for incomplete pagination and missing check event provenance', () => {
     const paged = fixture({ threadsHasNextPage: true, views: [openPr()] }); roots.push(paged.root);
-    const pagedResult = runDeliver({ issue: 42, cwd: paged.root, run: paged.run, fs, sleep: paged.sleep });
+    const pagedResult = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: paged.root, run: paged.run, fs, sleep: paged.sleep });
     expect(pagedResult.status).toBe(1);
     expect(paged.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
 
@@ -574,14 +763,14 @@ describe('sdlc delivery controller', () => {
       checks: [{ name: 'test', state: 'SUCCESS', link: 'https://github.test/check/1' }],
       views: [openPr()],
     }); roots.push(unknownEvent.root);
-    const eventResult = runDeliver({ issue: 42, cwd: unknownEvent.root, run: unknownEvent.run, fs, sleep: unknownEvent.sleep });
+    const eventResult = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: unknownEvent.root, run: unknownEvent.run, fs, sleep: unknownEvent.sleep });
     expect(eventResult.status).toBe(1);
     expect(eventResult.handoff.summary).toContain('evidence_incomplete_or_invalid');
   });
 
   test('fails closed instead of emitting an empty mergeability remediation packet', () => {
     const f = fixture({ views: [openPr({ mergeStateStatus: 'BEHIND' })] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result).toMatchObject({
       status: 1,
       handoff: {
@@ -594,7 +783,7 @@ describe('sdlc delivery controller', () => {
   });
   test('fails closed when required-check collection is not a check status', () => {
     const f = fixture({ checksStatus: 2, views: [openPr()] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('delivery_failed');
     expect(result.handoff.summary).toContain('gh pr checks --required failed');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
@@ -610,7 +799,7 @@ describe('sdlc delivery controller', () => {
       noRequiredChecks: message,
       views: [merged],
     }); roots.push(f.root);
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
   });
 
 
@@ -618,7 +807,7 @@ describe('sdlc delivery controller', () => {
   test('routes pathless automated review threads to human_review', () => {
     const thread = { id: 'T1', isResolved: false, isOutdated: false, path: null, line: null, comments: [{ body: 'General concern', url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
     const f = fixture({ views: [openPr({ threads: [thread] })] }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('human_review');
     expect(result.status).toBe(1);
   });
@@ -626,9 +815,24 @@ describe('sdlc delivery controller', () => {
   test('routes human and ambiguous remediation to human_review', () => {
     const thread = { id: 'T1', isResolved: false, isOutdated: false, comments: [{ body: 'Redesign', author: { login: 'maintainer', __typename: 'User' } }] };
     const f = fixture({ views: [openPr({ threads: [thread] })] }); roots.push(f.root);
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).handoff.reasonCode).toBe('human_review');
-    const explicit = makeRoot(); roots.push(explicit);
-    const result = runDeliver({ issue: 42, cwd: explicit, run: () => { throw new Error('must not run'); }, fs, remediationResult: 'human_review' });
+    expect(runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    }).handoff.reasonCode).toBe('human_review');
+
+    const explicit = fixture(); roots.push(explicit.root);
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: explicit.root,
+      run: explicit.run,
+      fs,
+      remediationResult: 'human_review',
+    });
     expect(result.handoff.reasonCode).toBe('human_review');
     expect(validateHandoff(result.handoff)).toEqual(result.handoff);
   });
@@ -646,27 +850,62 @@ describe('sdlc delivery controller', () => {
         openPr({ state: 'MERGED', issueState: 'CLOSED' }),
       ],
     }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(0);
     expect(f.sleeps.length).toBeGreaterThan(120);
     expect(new Set(f.sleeps)).toEqual(new Set([30_000]));
   });
-
-  test('reclassifies changed head and merges exact latest head', () => {
-    const f = fixture({ views: [openPr({ head: H1 }), openPr({ head: H2 }), openPr({ head: H2 }), openPr({ head: H2 }), openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' })] }); roots.push(f.root);
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
-    expect(f.calls.find((call) => call[0] === 'gh' && call[2] === 'merge')).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
-    const proof = f.calls.map((call) => call.join(' ')).lastIndexOf('gh issue view 42 --json number,state,url');
-    expect(f.calls.findIndex((call) => call.join(' ') === 'git push origin --delete 42-delivery')).toBeGreaterThan(proof);
+  test('persists unexpected head changes as byte-stable reconciliation failures', () => {
+    const f = fixture({
+      views: [openPr({ head: H1 }), openPr({ head: H2 })],
+    }); roots.push(f.root);
+    const options = {
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    };
+    const result = runDeliver(options);
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    const handoffPath = path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json');
+    const runBytes = fs.readFileSync(runPath, 'utf8');
+    const handoffBytes = fs.readFileSync(handoffPath, 'utf8');
+    const calls = f.calls.length;
+    expect(runDeliver(options)).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(runBytes);
+    expect(fs.readFileSync(handoffPath, 'utf8')).toBe(handoffBytes);
+    expect(f.calls).toHaveLength(calls);
+    expect(f.calls.filter((call) => call[0] === 'gh' && call[2] === 'create')).toHaveLength(1);
+    expect(f.calls.some((call) => call[0] === 'gh' && ['ready', 'merge'].includes(call[2]))).toBe(false);
   });
 
   test('requires merge and closure proof before local branch deletion', () => {
     const failed = fixture({ views: [openPr(), openPr(), openPr({ state: 'MERGED', issueState: 'OPEN' })] }); roots.push(failed.root);
-    expect(runDeliver({ issue: 42, cwd: failed.root, run: failed.run, fs, sleep: failed.sleep }).handoff.reasonCode).toBe('merge_failed');
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: failed.root, run: failed.run, fs, sleep: failed.sleep }).handoff.reasonCode).toBe('merge_failed');
     expect(failed.calls.some((call) => call[0] === 'git' && call[1] === 'checkout')).toBe(false);
     const passed = fixture(); roots.push(passed.root);
-    expect(runDeliver({ issue: 42, cwd: passed.root, run: passed.run, fs, sleep: passed.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: passed.root, run: passed.run, fs, sleep: passed.sleep }).status).toBe(0);
     expect(validateHandoff(handoff(passed.root))).toEqual(handoff(passed.root));
+    const completed = JSON.parse(fs.readFileSync(path.join(passed.root, '.omp/sdlc/run.json'), 'utf8'));
+    expect(completed.delivery).toEqual({
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: H1,
+      status: 'complete',
+      reconciliation: null,
+    });
+    expect(passed.calls).toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H1,
+    ]);
     const proof = passed.calls.map((call) => call.join(' ')).lastIndexOf('gh issue view 42 --json number,state,url');
     expect(passed.calls.findIndex((call) => call[0] === 'git' && call[1] === 'checkout')).toBeGreaterThan(proof);
     expect(passed.calls.findIndex((call) => call.join(' ') === 'git push origin --delete 42-delivery')).toBeGreaterThan(proof);
@@ -675,7 +914,7 @@ describe('sdlc delivery controller', () => {
   test('rolls preserved Unreleased notes into the new release', () => {
     const f = fixture(); roots.push(f.root);
     fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- retained note\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
-    expect(runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, now: () => Date.parse('2026-08-25'), sleep: f.sleep }).status).toBe(0);
+    expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, now: () => Date.parse('2026-08-25'), sleep: f.sleep }).status).toBe(0);
     const changelog = fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
     expect(changelog).toContain('## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Fixed\n\n- retained note');
     expect(changelog).toContain('### Changed\n\n- Ship deterministic delivery (#42)');
@@ -688,7 +927,7 @@ describe('sdlc delivery controller', () => {
         { match: 'push origin --delete 42-delivery' },
       ],
     }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(0);
     expect(result.handoff.summary).toContain('cleanup incomplete: local branch deletion, remote branch deletion');
   });
@@ -696,17 +935,72 @@ describe('sdlc delivery controller', () => {
   test('recognizes an already-merged exact-branch PR without another bump or PR', () => {
     const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
     const f = fixture({ existingPr: merged, views: [merged], gitHead: H1 }); roots.push(f.root);
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(0);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toBe(false);
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
   });
 
+  test('refuses merged-PR cleanup when local HEAD has diverged', () => {
+    const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
+    const f = fixture({ existingPr: merged, views: [merged], gitHead: H2 }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'checkout')).toBe(false);
+    expect(f.calls.some((call) => call.join(' ') === 'git branch -D 42-delivery')).toBe(false);
+  });
+
+  test('reconciles a persisted PR closed before version mutation', () => {
+    const closed = openPr({ state: 'CLOSED' });
+    const f = fixture({ existingPr: closed, views: [closed] }); roots.push(f.root);
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    const expectedRevision = runState.revision;
+    runState.revision += 1;
+    runState.delivery = {
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: H1,
+      status: 'expected',
+      reconciliation: null,
+    };
+    writeRun(runState, f.root, expectedRevision);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'git' && ['commit', 'push'].includes(call[1]))).toBe(false);
+  });
+
   test('binds controlled-draft H1 evidence to H2 before readiness and merge', () => {
     const pending = fixture({ views: [openPr({ isDraft: true, head: H1 })] }); roots.push(pending.root);
     fs.writeFileSync(path.join(pending.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));
-    const request = runDeliver({ issue: 42, cwd: pending.root, run: pending.run, fs, sleep: pending.sleep });
+    const request = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: pending.root, run: pending.run, fs, sleep: pending.sleep });
     expect(request).toMatchObject({
       status: 3,
       prEvidence: { kind: 'pr_evidence_verification_required', headSha: H1, pullRequest: 77 },
@@ -722,6 +1016,7 @@ describe('sdlc delivery controller', () => {
       requiredChecks: [],
       views: [
         openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H2 }),
         openPr({ isDraft: true, head: H2 }),
         openPr({ head: H2 }),
@@ -730,8 +1025,15 @@ describe('sdlc delivery controller', () => {
       ],
     }); roots.push(satisfied.root);
     fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1, 'check_run'));
-    const result = runDeliver({ issue: 42, cwd: satisfied.root, run: satisfied.run, fs, sleep: satisfied.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: satisfied.root, run: satisfied.run, fs, sleep: satisfied.sleep });
     expect(result.status).toBe(0);
+    expect(JSON.parse(
+      fs.readFileSync(path.join(satisfied.root, '.omp/sdlc/run.json'), 'utf8'),
+    ).delivery).toMatchObject({
+      pullRequest: 77,
+      expectedHead: H2,
+      status: 'complete',
+    });
     const ready = satisfied.calls.findIndex((call) => call.join(' ') === 'gh pr ready 77');
     const edit = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit');
     const merge = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
@@ -758,6 +1060,7 @@ describe('sdlc delivery controller', () => {
       requiredChecks: [],
       views: [
         openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H2 }),
       ],
       mergeView: openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
@@ -771,7 +1074,7 @@ describe('sdlc delivery controller', () => {
       f.sleeps.push(milliseconds);
       if (f.sleeps.length === 125) options.checks = [successCheck];
     };
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep });
     expect(result.status).toBe(0);
     expect(f.sleeps.length).toBeGreaterThan(120);
   });
@@ -782,7 +1085,7 @@ describe('sdlc delivery controller', () => {
       views: [openPr({ isDraft: true, head: H1, base: 'trunk' })],
     }); roots.push(f.root);
     fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(3);
     expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toEqual(expect.arrayContaining([
       'gh', 'pr', 'create', '--base', 'trunk',
@@ -796,6 +1099,7 @@ describe('sdlc delivery controller', () => {
       deliveryCommit: true,
       gitHead: H2,
       emptyStagedDiff: true,
+      advanceExistingPrOnPush: false,
       views: [
         openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H1 }),
@@ -803,7 +1107,7 @@ describe('sdlc delivery controller', () => {
     }); roots.push(f.root);
     fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
     fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1));
-    const result = runDeliver({ issue: 42, cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('verification_not_ready');
     expect(result.handoff.summary).toContain('did not advance H1 to H2');
     expect(f.calls.some((call) => call.join(' ') === 'git push')).toBe(true);

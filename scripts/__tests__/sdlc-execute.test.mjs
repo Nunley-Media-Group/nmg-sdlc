@@ -2204,6 +2204,31 @@ describe('runExecute controller', () => {
     }]);
   });
 
+  it('stops a settled worker without waiting for future work when its handoff is missing', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'done' });
+    fixture.herdr.agentRead = () => '';
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.waits).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
+    });
+  });
+
   it('fails closed when prompt wait fails with a passed but busy worker', () => {
     const fixture = makeControllerFixture({ promptStatus: 1, agentState: 'working' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -2353,14 +2378,29 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('closes owned panes and releases the lease on handled cancellation', () => {
+  it('persists cancellation after a subordinate checkpoint CAS before releasing the lease', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
     const processApi = new EventEmitter();
+    let subordinateRevision;
     processApi.exit = (code) => {
       const error = new Error(`signal_exit_${code}`);
       throw error;
     };
     fixture.herdr.agentPrompt = () => {
+      const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+      const checkpoint = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      subordinateRevision = checkpoint.revision + 1;
+      writeRun({
+        ...checkpoint,
+        revision: subordinateRevision,
+        delivery: {
+          issue: 42,
+          pullRequest: 77,
+          expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          status: 'expected',
+          reconciliation: null,
+        },
+      }, fixture.cwd, checkpoint.revision);
       processApi.emit('SIGINT');
       return { status: 1 };
     };
@@ -2381,8 +2421,55 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toBe('signal_exit_130\n');
     expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.revision).toBe(subordinateRevision + 1);
+    expect(persisted.delivery).toEqual({
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'expected',
+      reconciliation: null,
+    });
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'controller_cancelled',
+    });
     expect(persisted.workers).toEqual({});
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('keeps the controller lease when cancellation checkpoint persistence fails', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const processApi = new EventEmitter();
+    processApi.exit = (code) => {
+      const error = new Error(`signal_exit_${code}`);
+      throw error;
+    };
+    fixture.herdr.agentPrompt = () => {
+      fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
+      processApi.emit('SIGINT');
+      return { status: 1 };
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      installSignalHandlers: true,
+      processApi,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('signal_exit_130\n');
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toBeNull();
+    expect(persisted.workers['s42-start']).toBeDefined();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   function writeReviewEvidence(fixture, step, body = 'No findings.\n') {
@@ -3360,6 +3447,144 @@ describe('runExecute controller', () => {
     expect(reviewStart).toBeGreaterThan(checkoutLater);
     expect(reviewPromptBranches).not.toContain('main');
   });
+  it('restores a later issue branch before matching its live retained worker', () => {
+    const fixture = makeControllerFixture({ branch: 'main', labelIssues: [42, 43] });
+    const laterSpec = path.join(fixture.cwd, 'specs', '43-later');
+    fs.mkdirSync(laterSpec, { recursive: true });
+    writeApproved(laterSpec, 43);
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42, 43],
+      currentIssue: 43,
+      currentStep: 'review1',
+      completed: {
+        42: VALID_STEPS,
+        43: ['start', 'implement'],
+      },
+      failed: null,
+      workers: {
+        's43-review1': {
+          name: 's43-review1',
+          paneId: 'kept-review-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 43,
+          step: 'review1',
+          branch: '43-later',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 's43-review1',
+      pane_id: 'kept-review-pane',
+      state: 'working',
+    }];
+    const baseRun = fixture.run;
+    let currentBranch = 'main';
+    const events = [];
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      if (paneId === 'kept-review-pane') events.push(`retained:${paneId}:${currentBranch}`);
+      return paneClose(paneId);
+    };
+    fixture.herdr.agentGet = (name) => ({
+      result: { state: name === 's43-review1' ? 'working' : 'done' },
+    });
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        fixture.calls.push([command, ...args]);
+        events.push(`branch:${currentBranch}`);
+        return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        currentBranch = args[1];
+        events.push(`checkout:${args[1]}`);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
+        fixture.calls.push([command, ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ title: Number(args[2]) === 43 ? 'Later' : 'Ship It' }),
+          stderr: '',
+        };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('retained_worker_mismatch');
+    const checkout = events.indexOf('checkout:43-later');
+    const retained = events.indexOf('retained:kept-review-pane:43-later');
+    expect(checkout).toBeGreaterThanOrEqual(0);
+    expect(retained).toBeGreaterThan(checkout);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s43-review1');
+    expect(fixture.closed).toContain('kept-review-pane');
+  });
+
+  it('keeps a live retained worker open when issue branch restoration fails', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: null,
+      workers: {
+        's42-review1': {
+          name: 's42-review1',
+          paneId: 'kept-review-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'review1',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review1',
+      pane_id: 'kept-review-pane',
+      state: 'working',
+    }];
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        return { status: 1, stdout: '', stderr: 'checkout failed' };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('branch_checkout_failed');
+    expect(fixture.closed).not.toContain('kept-review-pane');
+    expect(fixture.starts).toEqual([]);
+  });
+
 
   it('consumes a passed retained deliver handoff after the delivered branch was deleted', () => {
     const fixture = makeControllerFixture({ branch: 'main' });

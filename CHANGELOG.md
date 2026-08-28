@@ -10,6 +10,22 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.8] - 2026-08-28
+
+### Changed
+
+- Persist exact-head delivery CAS and isolated session tokens (#293)
+
+## [3.18.7] - 2026-08-28
+
+### Fixed
+
+- Rebind existing delivery PRs to controller-owned version commits without accepting foreign head drift, restore later issue branches before matching live retained workers during multi-issue resume, reject symlinked isolated-session state or handoff targets before state reads or command execution, and persist terminal cancellation from the latest checkpoint revision before releasing the controller lease (#293).
+
+### Changed
+
+- Persist exact-head delivery CAS and isolated session tokens (#293)
+
 ## [3.18.6] - 2026-08-28
 
 ### Fixed

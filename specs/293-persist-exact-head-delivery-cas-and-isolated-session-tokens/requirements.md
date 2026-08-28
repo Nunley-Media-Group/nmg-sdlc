@@ -16,6 +16,21 @@
 4. Merge P at an unexpected head or change the live PR head after it was selected, then rerun delivery.
 5. Observe `merge_failed` without a durable expected PR/head tuple, allowing selection or creation pressure for another PR and permitting command exit to be mistaken for terminal completion.
 
+### Remediation Observations
+
+1. Resume an existing exact-branch PR at H1 with a clean issue branch.
+2. Let delivery persist H1, publish and push its version commit at H2, and then observe the PR.
+3. Observe the controller reject its own H1→H2 push as `delivery_reconciliation_required`.
+4. Resume a two-issue execute run after the first issue delivered and left the checkout on the default branch.
+5. Keep the exact retained non-start worker for the second issue live with ownership bound to its issue branch and head.
+6. Observe ownership matching run against the default-branch checkout and falsely stop with `retained_worker_mismatch`.
+7. Replace an initialized isolated session's `run.json` or `handoffs` directory with a symlink outside `.omp/sdlc/sessions/<token>/`.
+8. Observe resumed delivery follow the symlink to read foreign state or redirect its terminal handoff outside the session namespace.
+9. Let controller-owned delivery CAS-advance the canonical checkpoint while execute is synchronously waiting on the delivery worker.
+10. Settle the worker without a deliver handoff, then cancel the controller.
+11. Observe execute wait indefinitely for a future `working` transition or release the controller lease after suppressing `stale_revision`, while the checkpoint remains nonterminal with stale worker ownership.
+
+
 ## Expected vs Actual
 
 | | Description |
@@ -55,6 +70,42 @@
 **When** required checks and review evidence pass
 **Then** exact-head squash merge, issue closure proof, cleanup, and passed handoff still complete
 
+### AC5: Existing PR Rebinds the Controller-Owned Version Head
+
+**Given** delivery has persisted an existing exact-branch PR at H1
+**When** its version publication creates and pushes clean local head H2
+**Then** delivery re-reads that exact PR after the push
+**And** it CAS-rebinds the expected head to H2 only when the PR remains open on that exact issue branch, the PR number and branch identity still match independently, and its head equals the clean current local head
+**And** it never readies or merges the PR at pre-bump H1
+**And** a different remote head remains a reconciliation failure
+
+### AC6: Multi-Issue Resume Restores Checkout Before Live Ownership Matching
+
+**Given** an earlier delivered issue left a clean multi-issue execute checkout on the default branch
+**And** the next issue has an exact live retained non-start worker bound to its issue branch and head
+**When** execute resumes the next issue
+**Then** it restores the expected active issue branch before matching retained-worker ownership
+**And** it resumes the exact worker without `retained_worker_mismatch`
+**And** dirty or foreign checkout work is never overwritten
+
+### AC7: Isolated Session Artifacts Cannot Cross Symlink Boundaries
+
+**Given** an initialized isolated delivery session
+**When** its `run.json` is not a regular non-symlink file or its `handoffs` path is not a real non-symlink directory
+**Then** resumed delivery fails with `unsafe_session_path` before reading run state or invoking Git or GitHub commands
+**And** it does not write a terminal handoff through the unsafe path
+
+### AC8: Cancellation Persists the Latest Terminal Checkpoint
+
+**Given** a controller-owned delivery child has CAS-advanced the canonical checkpoint
+**And** the worker settles without a valid handoff
+**When** execute is cancelled
+**Then** it does not wait for a future `working` transition from the settled worker
+**And** it terminates only the owned child process group
+**And** it reloads the latest identity-matching checkpoint after the child stops
+**And** it CAS-persists `controller_cancelled` and the final worker disposition before releasing the lease
+**And** stale-revision or checkpoint-lock failure cannot be suppressed as successful cleanup
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -64,6 +115,11 @@
 | FR3 | Namespace isolated run state and handoffs under `.omp/sdlc/sessions/<token>/` and bind them to canonical project, issue, branch, and initial head. | Must |
 | FR4 | Stop idempotently on unexpected PR/head identity and never open a follow-up PR from that state. | Must |
 | FR5 | Pass delivery only after the persisted PR is MERGED at the persisted expected head and the issue is CLOSED. | Must |
+| FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when it remains open on the exact issue branch, its PR number and branch identity match independently, and its head equals this run's clean current HEAD; otherwise reconcile. | Must |
+| FR7 | For non-start steps, restore a clean expected active issue branch before retained-worker ownership matching and fail closed on dirty or foreign work. | Must |
+| FR8 | Before resuming an isolated session, require `run.json` to be a regular non-symlink file and `handoffs` to be a real non-symlink directory; reject unsafe artifacts before state reads or command invocation. | Must |
+| FR9 | On cancellation, stop owned child processes, refresh subordinate checkpoint writes, persist terminal worker state with CAS, and release the controller lease only after that checkpoint succeeds. | Must |
+
 
 ## Out of Scope
 
@@ -78,3 +134,6 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #293 | 2026-08-27 | Initial defect report |
+| #293 | 2026-08-28 | Added version-push head rebinding and multi-issue retained-worker resume remediation |
+| #293 | 2026-08-28 | Added isolated-session run-state and handoff symlink boundary remediation |
+| #293 | 2026-08-28 | Added cancellation settlement and stale-revision checkpoint remediation |
