@@ -1,0 +1,37 @@
+**Issue**: #316
+**Date**: 2026-08-28
+**Status**: Approved
+**Author**: NMG
+
+@issue-316 @start-issue @bug
+Feature: Reuse existing issue branches during start
+  The start controller must reuse the exact canonical issue branch before attempting to create it.
+
+  Scenario: Reuse a local canonical issue branch
+    Given the repository is clean on another branch
+    And the canonical issue branch exists locally
+    When the start controller prepares the issue
+    Then it checks out the local canonical issue branch
+    And it does not create a GitHub development branch
+
+  Scenario: Reuse an origin canonical issue branch
+    Given the repository is clean on another branch
+    And the canonical issue branch does not exist locally
+    And the exact canonical issue branch exists on origin
+    When the start controller prepares the issue
+    Then it fetches the exact origin branch
+    And it creates a local branch tracking that origin branch
+    And it does not create a GitHub development branch
+
+  Scenario: Create a missing canonical issue branch
+    Given the repository is clean on another branch
+    And the canonical issue branch does not exist locally or on origin
+    When the start controller prepares the issue
+    Then it creates and checks out the canonical GitHub development branch
+
+  Scenario: Fail closed when checkout does not activate the canonical branch
+    Given a canonical branch path was selected
+    And checkout does not leave the canonical branch active
+    When the start controller verifies the branch
+    Then the start handoff fails with reason code branch_checkout_failed
+    And no user work is reset, stashed, forced, or discarded
