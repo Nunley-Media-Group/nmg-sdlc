@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove completed `/sdlc-execute` checkpoints and exact run-owned handoff and prompt-provenance files so a differently identified queue can start; unsafe cleanup now fails closed with `completed_cleanup_failed` (#299).
+
 ## [3.18.2] - 2026-08-27
 
 ### Changed

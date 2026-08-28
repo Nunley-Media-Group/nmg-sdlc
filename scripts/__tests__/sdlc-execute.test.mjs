@@ -19,11 +19,13 @@ import {
   isRemediableFailedHandoff,
   remediationPrompt,
   writeRun,
+  cleanupCompletedRun,
   runExecute,
   listSpecifiedIssues,
 } from '../sdlc-execute.mjs';
 import { startIssue } from '../start-issue.mjs';
 
+const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
 
 const LIVE_TITLELESS_REVIEW_MODE_PICKER = [
@@ -677,6 +679,95 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       fs.unlinkSync(lockPath);
     }
   });
+  it('removes only exact runtime owned by a completed queue', () => {
+    const root = makeSpecDir();
+    const runPath = path.join(root, '.omp/sdlc/run.json');
+    const handoffDir = path.join(root, '.omp/sdlc/handoffs');
+    const provenanceDir = path.join(root, '.omp/sdlc/prompt-provenance');
+    const stored = seedRun(root, {
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      remediation: null,
+    });
+    fs.mkdirSync(provenanceDir, { recursive: true });
+    for (const step of VALID_STEPS) {
+      fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), '{}\n');
+      fs.writeFileSync(path.join(provenanceDir, `worker-${step}.json`), '{}\n');
+    }
+    fs.writeFileSync(path.join(handoffDir, 'unrelated.json'), '{}\n');
+    fs.writeFileSync(path.join(provenanceDir, 'sdlc-execute.json'), '{}\n');
+    fs.writeFileSync(`${runPath}.tmp`, 'temporary\n');
+
+    cleanupCompletedRun({ ...stored, currentIssue: null }, root);
+
+    expect(fs.existsSync(runPath)).toBe(false);
+    expect(fs.existsSync(`${runPath}.tmp`)).toBe(false);
+    for (const step of VALID_STEPS) {
+      expect(fs.existsSync(path.join(handoffDir, `42-${step}.json`))).toBe(false);
+      expect(fs.existsSync(path.join(provenanceDir, `worker-${step}.json`))).toBe(false);
+    }
+    expect(fs.existsSync(path.join(handoffDir, 'unrelated.json'))).toBe(true);
+    expect(fs.existsSync(path.join(provenanceDir, 'sdlc-execute.json'))).toBe(true);
+  });
+
+  it.each([
+    ['held lock', (root, runPath) => fs.closeSync(fs.openSync(`${runPath}.lock`, 'wx'))],
+    ['identity mismatch', (_root, _runPath, released) => { released.runId = 'other-run'; }],
+    ['symlink boundary', (root) => {
+      const handoffDir = path.join(root, '.omp/sdlc/handoffs');
+      const outside = makeSpecDir();
+      fs.rmSync(handoffDir, { recursive: true });
+      fs.symlinkSync(outside, handoffDir);
+    }],
+    ['deletion failure', (root) => {
+      fs.mkdirSync(path.join(root, '.omp/sdlc/handoffs/42-start.json'));
+    }],
+  ])('fails completed cleanup closed for %s', (_label, arrange) => {
+    const root = makeSpecDir();
+    const stored = seedRun(root, {
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      remediation: null,
+    });
+    const runPath = path.join(root, '.omp/sdlc/run.json');
+    const released = { ...stored, currentIssue: null };
+    arrange(root, runPath, released);
+
+    expect(() => cleanupCompletedRun(released, root)).toThrow('completed_cleanup_failed');
+    expect(fs.existsSync(runPath)).toBe(true);
+  });
+
+  it('rejects cleanup for incomplete and failed queues without removing runtime', () => {
+    for (const fields of [
+      { currentStep: 'verify', completed: { 42: VALID_STEPS.slice(0, -2) } },
+      {
+        currentStep: null,
+        completed: { 42: VALID_STEPS },
+        failed: { issue: 42, step: 'deliver', reasonCode: 'delivery_failed' },
+      },
+
+    ]) {
+      const root = makeSpecDir();
+      const stored = seedRun(root, fields);
+      const runPath = path.join(root, '.omp/sdlc/run.json');
+      expect(() => cleanupCompletedRun({ ...stored, currentIssue: null }, root))
+        .toThrow('completed_cleanup_failed');
+      expect(fs.existsSync(runPath)).toBe(true);
+    }
+  });
+  it('keeps execute runtime ignored and untracked', () => {
+    expect(() => execFileSync(
+      'git',
+      ['check-ignore', '-q', '.omp/sdlc/run.json'],
+      { cwd: REPOSITORY_ROOT },
+    )).not.toThrow();
+    expect(execFileSync(
+      'git',
+      ['ls-files', '--', '.omp/sdlc'],
+      { cwd: REPOSITORY_ROOT, encoding: 'utf8' },
+    )).toBe('');
+  });
+
 
   it('workerPrompt and CLI inline start-issue without /skill:', () => {
     const prompt = workerPrompt({ step: 'start', issue: 42 });
@@ -1483,6 +1574,60 @@ describe('runExecute controller', () => {
     expect(initial.issue).toBe(42);
     expect(fixture.starts).toEqual([]);
   });
+  it('starts a different issue after completed runtime cleanup', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43] });
+    const first = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+
+    const second = runExecute({
+      args: '#43',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const nextRun = JSON.parse(fs.readFileSync(
+      path.join(fixture.cwd, '.omp/sdlc/run.json'),
+      'utf8',
+    ));
+
+    expect(first.status).toBe(0);
+    expect(second.stderr).not.toBe('Run checkpoint identity mismatch\n');
+    expect(nextRun.issue).toBe(43);
+    expect(nextRun.issues).toEqual([43]);
+  });
+
+  it('fails closed when terminal cleanup cannot remove an owned artifact', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it',
+      currentStep: null,
+      completed: { 42: VALID_STEPS },
+      remediation: null,
+    });
+    fs.mkdirSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'completed_cleanup_failed\n' });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
 
   it('rejects an unreadable create-time branch without writing a checkpoint', () => {
     const fixture = makeControllerFixture({ branch: '' });
@@ -1691,7 +1836,6 @@ describe('runExecute controller', () => {
   it('closes a remediable failed verify pane then starts one rem session', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
     const verifyStarts = fixture.starts.filter(({ name }) => name === 's42-verify');
     const remStarts = fixture.starts.filter(({ name }) => name === 'r42-verify');
 
@@ -1699,8 +1843,7 @@ describe('runExecute controller', () => {
     expect(verifyStarts).toHaveLength(1);
     expect(remStarts).toHaveLength(1);
     expect(fixture.events.indexOf('close:pane-7')).toBeLessThan(fixture.events.indexOf('start:r42-verify'));
-    expect(persisted.remediation).toBeNull();
-    expect(persisted.completed['42']).toContain('verify');
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.notifications).toEqual([]);
   });
 
@@ -1724,15 +1867,11 @@ describe('runExecute controller', () => {
   it('consumes the original verify handoff after rem pass', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    const handoff = validateHandoff(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'));
 
     expect(result.status).toBe(0);
-    expect(handoff).toMatchObject({ issue: 42, step: 'verify', status: 'passed' });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'))).toBe(false);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-rem.json'))).toBe(false);
-    expect(persisted.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('stops rem on a genuine blocker and leaves the rem pane open', () => {
@@ -1790,7 +1929,6 @@ describe('runExecute controller', () => {
     fixture.herdr.listAgents = () => [];
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(fixture.starts.map(({ name }) => name)).toEqual([
@@ -1803,10 +1941,7 @@ describe('runExecute controller', () => {
       's42-deliver',
     ]);
     expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
-    expect(persisted.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
-    expect(persisted.remediation).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('resumes a live rem worker without starting the step or another rem', () => {
@@ -2006,14 +2141,12 @@ describe('runExecute controller', () => {
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     expect(agentGets).toContain('r42-verify');
-    expect(persisted.remediation).toBeNull();
-    expect(persisted.completed['42']).toEqual(VALID_STEPS);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('persists remediation evidence before a failed pane close and starts no rem', () => {
@@ -2085,11 +2218,9 @@ describe('runExecute controller', () => {
   it('honors a passed idle handoff when the prompt wait reports failure', () => {
     const fixture = makeControllerFixture({ promptStatus: 1 });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
-    expect(persisted.failed).toBeNull();
-    expect(persisted.completed['42']).toContain('start');
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.closed).toContain('pane-1');
     expect(fixture.starts.map(({ name }) => name)).toContain('s42-implement');
   });
@@ -2694,14 +2825,12 @@ describe('runExecute controller', () => {
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 's42-deliver')).toHaveLength(1);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
-    expect(persisted.failed).toBeNull();
-    expect(persisted.completed['42']).toEqual(VALID_STEPS);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('re-reads an incomplete retained handoff without duplicating or remediating the worker', () => {
@@ -2798,14 +2927,13 @@ describe('runExecute controller', () => {
   it('retries one transient agent startup failure in the same pane', () => {
     const fixture = makeControllerFixture({ agentStartStatuses: [1, 0] });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(fixture.starts.slice(0, 2)).toEqual([
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
-    expect(persisted.failed).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('fails closed after two agent startup failures', () => {
@@ -2911,11 +3039,10 @@ describe('runExecute controller', () => {
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(paneWasOpenDuringWait).toBe(true);
-    expect(persisted.failed).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-implement');
     expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1');
     expect(fixture.closed[0]).toBe('kept-implement-pane');
@@ -3489,7 +3616,6 @@ describe('runExecute controller', () => {
     configurePassedRetainedStartWorker(fixture, agentPayload);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain('no second worker started');
@@ -3505,9 +3631,7 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toEqual([
       'kept-pane', 'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7',
     ]);
-    expect(persisted.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('reports failed verification before a later run consumes its implement transition', () => {
@@ -3557,7 +3681,6 @@ describe('runExecute controller', () => {
     };
 
     const resumed = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const completed = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(resumed.status).toBe(0);
     expect(fixture.starts.slice(7).map(({ name }) => name)).toEqual([
@@ -3569,10 +3692,7 @@ describe('runExecute controller', () => {
       's42-verify',
       's42-deliver',
     ]);
-    expect(completed.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
-    expect(completed.failed).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it('resumes failed verification at implement and reruns every downstream gate', () => {
@@ -3580,7 +3700,6 @@ describe('runExecute controller', () => {
     configureFailedRetainedVerifyWorker(fixture);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
     expect(fixture.closed).toEqual([
@@ -3595,10 +3714,7 @@ describe('runExecute controller', () => {
       's42-verify',
       's42-deliver',
     ]);
-    expect(persisted.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
-    expect(persisted.failed).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
   it.each([
@@ -3741,14 +3857,9 @@ describe('runExecute controller', () => {
     })}\n`);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(0);
-    expect(persisted.completed['42']).toEqual([
-      'start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
-    ]);
-    expect(persisted.currentIssue).toBeNull();
-    expect(persisted.failed).toBeNull();
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.calls).toContainEqual(['git', 'pull', '--ff-only']);
     expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
   });
