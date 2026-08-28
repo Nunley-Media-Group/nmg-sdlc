@@ -176,9 +176,9 @@ Repository/GitHub evidence resolves the base before prompt construction. Prompt 
 
 - Feature files: 1 active feature with 10 scenarios
 - Step definitions: Jest behavior cases mapped by scenario id
-- Focused execution: 4 suites passed; 69 tests passed and 1 platform test skipped; exit 0
-- Full test execution: 49 suites passed, 1 opt-in exercise suite skipped; 687 tests passed, 2 platform/opt-in tests skipped; exit 0
-- Expected skips: opt-in exercise suite requires `RUN_EXERCISE_TESTS=1`; the Windows junction case is skipped on Darwin
+- Focused execution: 3 suites passed; 196 tests passed; exit 0
+- Full test execution: 49 suites passed, 1 opt-in exercise suite skipped; 687 tests passed, 2 platform/opt-in tests skipped; exit 0 in the deterministic steering artifact
+- Expected full-suite skips: opt-in exercise suite requires `RUN_EXERCISE_TESTS=1`; the Windows junction case is skipped on Darwin
 
 ---
 
@@ -187,10 +187,10 @@ Repository/GitHub evidence resolves the base before prompt construction. Prompt 
 | Field | Value |
 |-------|-------|
 | **Skill Exercised** | `/sdlc-execute 292` |
-| **Test Project** | `/tmp/nmg-sdlc-292-exercise.FGCdtH` (removed after capture) |
-| **Exercise Method** | `node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/exercise-omp.mjs" --cwd /tmp/nmg-sdlc-292-exercise.FGCdtH -- /sdlc-execute 292` |
+| **Test Project** | `/tmp/nmg-sdlc-292-exercise.dHn4Hb` (removed after capture) |
+| **Exercise Method** | `node "/Volumes/Fast Brick/source/repos/nmg-sdlc/scripts/exercise-omp.mjs" --cwd /tmp/nmg-sdlc-292-exercise.dHn4Hb -- /sdlc-execute 292` |
 | **Interactive gate handling** | N/A (automated command) |
-| **Duration** | 15.22 seconds |
+| **Duration** | 13.74 seconds |
 
 ### Captured Output Summary
 
@@ -209,14 +209,14 @@ The OMP harness loaded and invoked `/sdlc-execute`. Execution stopped before rev
 | Gate | Status | Evidence |
 |------|--------|----------|
 | Mandatory linked-path runner | Pass | Exit 0; stdout reports `ok: true`, `ceiling: null`, and complete 2/2 coverage; `.omp/sdlc/verification/292.json` created |
-| `repository.tests` | Pass | Mandatory artifact records `effectiveStatus: passed`; direct `npm test -- --runInBand` passed 49 suites and 687 tests |
+| `repository.tests` | Pass | Mandatory artifact records `effectiveStatus: passed`; focused execution passed 3 suites and 196 tests; deterministic full execution passed 49 suites and 687 tests |
 | `repository.nmg-sdlc-smoke` | Pass | Mandatory artifact records `effectiveStatus: passed` with summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
 | Current specs | Pass | `node scripts/verify-current-specs.mjs`: 54 genuine issue specs verified |
-| Plugin surface | Pass | Covered by the full repository suite and the passing mandatory `repository.tests` provider |
-| Skill inventory | Pass | Covered by the full repository suite and the passing mandatory `repository.tests` provider |
-| Workflow bundle validation | Incomplete | Generic `skill-creator` validation expects `SKILL.md`; `workflows/review-main` is an OMP `WORKFLOW.md` bundle. Plugin-surface and prompt-synchronization tests pass. |
+| Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
+| Workflow bundle validation | Not applicable | `skill://skill-creator` was resolved and read; its validator requires a `SKILL.md`, while `workflows/review-main` is an OMP `WORKFLOW.md` bundle. Plugin-surface and prompt-synchronization tests pass. |
 
-**Gate Summary**: 6 passed, 0 failed, 1 inapplicable generic validator
+**Gate Summary**: 6 passed, 0 failed, 0 incomplete, 1 not applicable
 
 ---
 
