@@ -47,13 +47,15 @@
 **And** `--retain-worker` is the only option that keeps the owned pane open
 **And** a successful passed-handoff lifecycle still closes the owned pane and advances normally
 
-### AC4: Prompt Composition Has No Size Ceiling
+### AC4: Prompt Composition and Writers Have No Size-Quota Path
 
 **Given** an automated command body, worker prompt, plugin fragment, builtin fragment, or project fragment is structurally valid
 **When** the prompt registry loads and renders it
 **Then** prompt construction does not reject it because of its UTF-8 byte length
 **And** automated-body and worker-prompt ceiling constants and tests do not exist
 **And** fragment schemas contain no `byteBound` compatibility or enforcement path
+**And** initialize and migration inputs containing `byteBound` fail as unknown before any plan actions or manifest output are returned, written, or mutated
+**And** every manifest/snippet writer emits only the canonical snippet keys `id`, `path`, `consumers`, `slot`, and `order`
 **And** provenance, placeholder, provider, consumer, slot, ordering, source-path, and non-empty-body validation remains unchanged
 
 ## Functional Requirements
@@ -64,7 +66,7 @@
 | FR2 | Guard standalone verify and deliver controllers against a foreign active lease; execute-scoped workers must present the matching run id. | Must |
 | FR3 | Persist worker ownership and require exact name, pane, project root, run id, issue, step, branch, and head before retained reuse. | Must |
 | FR4 | Close only controller-owned panes on cancellation or terminal stop by default; honor explicit `--retain-worker`. | Must |
-| FR5 | Remove every automated-body, worker-prompt, plugin-fragment, builtin-fragment, and worker-header prompt-size ceiling. Reject `byteBound` as an unknown fragment or manifest key instead of accepting, stripping, or enforcing it. | Must |
+| FR5 | Remove every automated-body, worker-prompt, plugin-fragment, builtin-fragment, worker-header, initialize-writer, and migration-writer prompt-size quota path. Reject `byteBound` as an unknown input key before creating plan actions or manifest output; do not accept, spread, strip, alias, preserve, or enforce it. | Must |
 
 ## Out of Scope
 
@@ -84,3 +86,4 @@ Issue #291 explicitly supersedes only the prompt-quota rules from issues #193, #
 | Issue | Date | Summary |
 |-------|------|---------|
 | #291 | 2026-08-28 | Extended to remove all prompt-size ceilings and supersede historical quota rules from #193, #259, #265, and #271 |
+| #291 | 2026-08-28 | Follow-up closes initialize and migration writer input-boundary compatibility paths |

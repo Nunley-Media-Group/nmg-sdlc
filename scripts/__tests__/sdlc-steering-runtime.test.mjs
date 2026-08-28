@@ -59,6 +59,32 @@ describe('managed steering runtime', () => {
     }).text).toContain('Use focused tests.');
   });
 
+  it.each(['byteBound', 'extra'])('rejects initialize snippet input key %s before producing a plan', (unknownKey) => {
+    const root = fixture();
+    const snippets = [{
+      id: 'project.tech',
+      path: 'steering/snippets/project-tech.md',
+      consumers: ['worker:implement'],
+      slot: 'body',
+      order: 500,
+      content: 'Use focused tests.\n',
+      [unknownKey]: 1,
+    }];
+    const originalInput = structuredClone(snippets);
+    const originalEntries = fs.readdirSync(path.join(root, 'steering')).sort();
+    let producedPlan;
+
+    expect(() => {
+      producedPlan = createInitializePlan(root, { snippets });
+    }).toThrow('steering_manifest_unknown_key');
+
+    expect(producedPlan).toBeUndefined();
+    expect(snippets).toEqual(originalInput);
+    expect(fs.readdirSync(path.join(root, 'steering')).sort()).toEqual(originalEntries);
+    expect(fs.existsSync(path.join(root, 'steering', 'manifest.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'steering', 'snippets', 'project-tech.md'))).toBe(false);
+  });
+
   it('rejects leftover project byteBound values as unknown keys', async () => {
     const root = fixture();
     await applySteeringPlan(root, plan(root));

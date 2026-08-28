@@ -71,13 +71,16 @@
 
 ### T005: Remove All Prompt-Size Ceiling Contracts
 
-**File(s)**: `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs`, `scripts/__tests__/rendered-prompt-contract.test.mjs`, `scripts/__tests__/sdlc-prompt-snippets.test.mjs`, `scripts/__tests__/sdlc-steering-runtime.test.mjs`, `references/steering-schema.md`, `README.md`, `CHANGELOG.md`
+**File(s)**: `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs`, `scripts/sdlc-upgrade.mjs`, `scripts/__tests__/rendered-prompt-contract.test.mjs`, `scripts/__tests__/sdlc-prompt-snippets.test.mjs`, `scripts/__tests__/sdlc-steering-runtime.test.mjs`, `scripts/__tests__/sdlc-upgrade.test.mjs`, `references/steering-schema.md`, `README.md`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
 - [ ] Delete automated-body and worker-prompt ceiling constants and every UTF-8 size assertion
 - [ ] Delete plugin and builtin fragment `byteBound` declarations, the worker-header bound, and registration/render exceeded-bound checks
 - [ ] Reject `byteBound` as an unknown fragment or project-manifest key; do not accept, ignore, strip, alias, or enforce it
+- [ ] Reject initialize and migration snippet inputs containing `byteBound` or any unknown field before returning plan actions or manifest output
+- [ ] Canonicalize every accepted manifest/snippet writer record by explicit key selection rather than arbitrary-field spread
+- [ ] Prove rejected initialize and migration inputs return no plan, create no actions/output files, and leave input objects and existing steering files byte-for-byte unchanged
 - [ ] Preserve non-size structural validation, prompt provenance byte counts, placeholder expansion, deterministic ordering, hashes, provider/consumer/slot rules, source-path confinement, and non-empty bodies
 - [ ] Preserve every #291 controller lease, worker ownership, and cleanup path
 - [ ] Record explicit supersession of prompt-quota rules from #193, #259, #265, and #271

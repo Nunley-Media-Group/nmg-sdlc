@@ -47,5 +47,8 @@ Feature: Enforce one controller writer and close stale workers
     When the prompt registry loads and renders them at any UTF-8 byte length
     Then no automated-body, worker-prompt, fragment, or worker-header size ceiling is enforced
     And byteBound is rejected as an unknown fragment or manifest key
+    And initialize or migration input containing byteBound fails before producing plan actions or manifest output
+    And rejected writer input leaves input objects and existing steering files unchanged
+    And accepted writers emit only id, path, consumers, slot, and order for each manifest snippet
     And prompt provenance, placeholders, ordering, hashes, providers, consumers, slots, source paths, and non-empty bodies remain validated
     And the controller lease, exact worker ownership, and owned-pane cleanup behavior from SCN001 through SCN003 remains unchanged
