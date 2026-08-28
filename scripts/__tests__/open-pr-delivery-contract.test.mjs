@@ -19,6 +19,16 @@ describe('open-pr terminal delivery contract', () => {
     expect(openPr).not.toContain('epic ancestor');
   });
 
+  it('retains one execute or standalone session scope through every rerun', () => {
+    const openPr = read('workflows/open-pr/WORKFLOW.md');
+    expect(openPr).toContain('session-init --issue N');
+    expect(openPr).toContain('--controller-run-id R');
+    expect(openPr).toContain('--session-token T');
+    expect(openPr).toContain('.omp/sdlc/sessions/T/handoffs/N-deliver.json');
+    expect(openPr).toContain('Exit 0 is not completion');
+    expect(openPr).toContain('<scope-option> --remediation-result human_review');
+  });
+
   it('hard-removes commit-push from the OMP package surface', () => {
     const manifest = JSON.parse(read('package.json'));
     expect(manifest.omp.extensions).toEqual(['./src/extension.ts']);

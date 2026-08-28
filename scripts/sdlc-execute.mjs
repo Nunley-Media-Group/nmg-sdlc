@@ -25,7 +25,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
@@ -415,8 +415,11 @@ function observeReviewHandoff(herdr, handoffPath, issue, step, agentName, paneId
   }
 }
 
-export function readRun(root = process.cwd()) {
-  const p = join(root, RUN_FILE);
+export function readRunAt(runFile, root = process.cwd()) {
+  const canonicalRoot = realpathSync(root);
+  const p = resolve(canonicalRoot, runFile);
+  const rel = relative(canonicalRoot, p);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('unsafe run path');
   if (!existsSync(p)) return null;
   try {
     const data = JSON.parse(readFileSync(p, 'utf8'));
@@ -425,6 +428,10 @@ export function readRun(root = process.cwd()) {
     // fallthrough
   }
   return null;
+}
+
+export function readRun(root = process.cwd()) {
+  return readRunAt(RUN_FILE, root);
 }
 
 function validRunIdentity(runData) {
@@ -460,7 +467,13 @@ function sameRunIdentity(left, right) {
     && JSON.stringify(left.issues) === JSON.stringify(right.issues);
 }
 
-export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
+export function writeRunAt(
+  runData,
+  root = process.cwd(),
+  runFile = RUN_FILE,
+  handoffDirectory = HANDOFF_DIR,
+  expectedRevision = 0,
+) {
   if (
     !runData
     || runData.schemaVersion !== 1
@@ -475,10 +488,14 @@ export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
   const canonicalRoot = realpathSync(root);
   if (runData.projectRoot !== canonicalRoot) throw new Error('identity_mismatch');
 
-  const p = join(root, RUN_FILE);
+  const p = resolve(canonicalRoot, runFile);
+  const handoffDir = resolve(canonicalRoot, handoffDirectory);
+  for (const candidate of [p, handoffDir]) {
+    const rel = relative(canonicalRoot, candidate);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('unsafe run path');
+  }
   const d = dirname(p);
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
-  const handoffDir = join(root, HANDOFF_DIR);
   if (!existsSync(handoffDir)) mkdirSync(handoffDir, { recursive: true });
 
   const lockPath = `${p}.lock`;
@@ -529,6 +546,10 @@ export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
       }
     }
   }
+}
+
+export function writeRun(runData, root = process.cwd(), expectedRevision = 0) {
+  writeRunAt(runData, root, RUN_FILE, HANDOFF_DIR, expectedRevision);
 }
 
 function persistRunState(runState, root) {

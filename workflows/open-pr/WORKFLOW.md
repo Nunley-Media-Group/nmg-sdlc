@@ -10,19 +10,38 @@ Run deterministic delivery for issue N. No user questions and no nested worker.
 ## Controller Loop
 
 1. Resolve N from `$ARGUMENTS` or the current `N-*` branch.
-2. Keep the immediately preceding remediation packet fingerprint in worker context.
-3. Run `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N`. When the worker header provides a non-empty controller run id, append `--controller-run-id R` with that exact value. Omit the option only for standalone delivery.
-4. Route every invocation, including every post-remediation rerun:
-   - `0`: validate the controller-written deliver handoff, print its marker, and stop.
-   - `1`: preserve the controller-written failed handoff and stop.
+2. Resolve exactly one delivery scope and retain it for the complete controller loop:
+   - When the worker header provides a non-empty controller run id R, use
+     `--controller-run-id R` and the canonical
+     `.omp/sdlc/handoffs/N-deliver.json`.
+   - Otherwise, run
+     `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" session-init --issue N`
+     exactly once. Require exactly one `NMG_SDLC_SESSION: T` line whose token is
+     a lowercase UUID. Retain `--session-token T` and
+     `.omp/sdlc/sessions/T/handoffs/N-deliver.json` through every rerun.
+   - A missing, conflicting, or changed scope stops before any delivery
+     mutation. Never fall back from one namespace to the other.
+3. Keep the immediately preceding remediation packet fingerprint in worker
+   context.
+4. Run
+   `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N <scope-option>`
+   with the retained scope option.
+5. Route every invocation, including every post-remediation rerun:
+   - `0`: require the exact namespace-specific handoff marker, validate that
+     handoff, print its marker, and stop.
+   - `1`: preserve the controller-written failed handoff at the exact selected
+     namespace and stop.
    - `2`: stop on the invalid controller invocation; do not invent a handoff.
    - `3` with `NMG_SDLC_PR_EVIDENCE`: execute the controlled-draft branch below.
    - `3` with `NMG_SDLC_REMEDIATION`: execute the remediation branch below.
    - Any other output: stop without inventing a handoff.
 
-The controller writes a passed handoff only after the pull request is `MERGED` at
-the exact observed head and issue N is `CLOSED`. Failures such as
-`major_bump_required` remain controller-owned intervention handoffs.
+Exit 0 is not completion without the validated marker and passed handoff for the
+selected namespace.
+
+The controller writes a passed handoff only after the persisted pull request is
+`MERGED` at its persisted expected head and issue N is `CLOSED`. Failures such
+as `major_bump_required` remain controller-owned intervention handoffs.
 
 ## Controlled-Draft PR Evidence
 
@@ -81,7 +100,7 @@ If a request is ambiguous, design-affecting, human-authored, unsafe, outside
 scope, pathless, unchanged after the attempted fix, or repeated unchanged, run:
 
 ```bash
-node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N [--controller-run-id R] --remediation-result human_review
+node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N <scope-option> --remediation-result human_review
 ```
 
 Preserve that controller-owned intervention handoff and stop.
