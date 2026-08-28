@@ -83,6 +83,15 @@
 **And** execute advances only when a passed handoff names the existing non-empty review artifact
 **And** prompt failure, worker disappearance without a handoff, or invalid review evidence fails closed
 
+### AC9: Linked Plugin Steering CLIs Execute
+
+**Given** the installed OMP plugin path is a symbolic link to the source package
+**When** either steering CLI is executed through that linked path
+**Then** `scripts/sdlc-steering.mjs` produces its normal command output
+**And** `scripts/sdlc-verify-steering.mjs` produces stdout and the deterministic verification artifact
+**And** importing either module does not run its CLI
+**And** a missing `process.argv[1]` is treated as an import rather than an entry point
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -92,6 +101,7 @@
 | FR3 | Wait for a validated review handoff while the exact owned worker remains registered; state detection, idle guesses, and a second future working transition must not control review completion. | Must |
 | FR4 | Only `agent_prompt_stalled` may continue observing the owned worker without detection text or use the existing one-Enter pasted-prompt recovery; every other prompt error fails closed with `review_failed` and skips recovery. | Must |
 | FR5 | Accept a passed review handoff only when it names an existing non-empty canonical review artifact; fail closed on direct prompt failure, invalid evidence, or confirmed worker disappearance. | Must |
+| FR6 | Every supported script CLI entry guard compares canonical real paths through the shared `isCliEntry` helper so copied and linked installs execute once while imports remain inert. | Must |
 
 ## Out of Scope
 
@@ -101,6 +111,7 @@
 - Changing review findings, scoring, file assignment, or remediation contracts except to supply the resolved base ref
 - Guessing a non-default branch when GitHub/default-ref evidence is missing
 - Avoiding regressions in controller lease and exact worker-ownership policy owned by issue #291; deterministic base selection and review-completion pane lifecycle remain in scope for #292
+- Changing steering validation semantics, provider selection, or artifact contents; this remediation changes only CLI entry detection and its regression coverage
 
 ## Change History
 
@@ -108,4 +119,5 @@
 |-------|------|---------|
 | #292 | 2026-08-27 | Initial defect report |
 | #292 | 2026-08-28 | Accept successful waited reviews exactly once and confine recovery to actual prompt stalls |
+| #292 | 2026-08-28 | Require symlink-safe steering CLI entry detection after the mandatory verifier silently skipped execution through a linked install |
 | #292 | 2026-08-28 | Replace the two-prompt/state-detection lifecycle with one handoff-driven sibling review protocol |

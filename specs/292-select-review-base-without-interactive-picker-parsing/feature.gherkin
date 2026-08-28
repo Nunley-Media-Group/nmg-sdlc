@@ -4,7 +4,7 @@
 **Author**: NMG
 **Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
 
-# File: scripts/__tests__/sdlc-execute.test.mjs
+# Files: scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-verification-runtime.test.mjs
 #
 # Generated from: specs/292-select-review-base-without-interactive-picker-parsing/requirements.md
 Feature: Select review base without interactive picker parsing
@@ -95,3 +95,13 @@ Feature: Select review base without interactive picker parsing
     When the exact owned review worker disappears
     Then execute stops with process_lost
     And execute does not advance or guess completion from state text
+
+  # --- Linked Plugin CLI Entry ---
+
+  @SCN010 @regression
+  Scenario: Linked plugin steering CLIs execute while imports remain inert
+    Given the installed OMP plugin path is a symbolic link to the source package
+    When the steering inspector and deterministic verifier are invoked through that linked path
+    Then both commands produce their normal stdout
+    And the verifier writes the issue verification artifact
+    And importing either CLI produces no output or artifact

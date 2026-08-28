@@ -19,6 +19,8 @@ The remediation exposed a second lifecycle defect in `startReviewAgainstBase()`.
 
 Three fresh controller-owned review workers exposed a third lifecycle defect. The controller sent a waited host-review prompt and expected to send `review-main` as a second prompt after Herdr detected settlement. On the affected Herdr surface, the first prompt returned `agent_prompt_stalled` after about 13 seconds while OMP visibly continued, but detection omitted both the pasted prompt and `Working`. `startReviewAgainstBase()` therefore returned false, execute recorded `review_failed`, and pane cleanup closed the active worker before any artifact or handoff could be written. Agent state and narrow detection text are not authoritative review-completion evidence.
 
+Verification exposed a fourth defect outside the review controller. The installed OMP plugin is locally linked, so Node receives the symlinked script path in `process.argv[1]` while `import.meta.url` identifies the real source file. The direct URL and lexical path equality guards in `sdlc-verify-steering.mjs`, `sdlc-steering.mjs`, and equivalent supported CLIs therefore classify a real CLI invocation as an import and silently skip `main()`.
+
 ### Affected Code
 
 | File | Lines / Symbols | Role |
@@ -28,6 +30,7 @@ Three fresh controller-owned review workers exposed a third lifecycle defect. Th
 | `scripts/__tests__/sdlc-execute.test.mjs` | review menu fixtures and picker-shape cases | Encodes interactive parser behavior |
 | `workflows/review-main/WORKFLOW.md` | preceding-review precondition | Says the host `/review` ran interactively |
 | `README.md` | execute review lifecycle | Describes two host `/review` passes |
+| `scripts/sdlc-verify-steering.mjs`, `scripts/sdlc-steering.mjs`, equivalent `scripts/*.mjs` entry guards | Direct URL or lexical path equality | Silently skips linked-plugin CLI invocations |
 
 ### Triggering Conditions
 
@@ -49,6 +52,8 @@ After submission, a direct non-stall prompt failure returns `review_failed`. An 
 
 Update `workflows/review-main/WORKFLOW.md` so one prompt performs both the host review and finalization. This workflow-bundled edit must follow `skill://skill-creator`. Update README wording to describe handoff-driven deterministic reviews.
 
+Use the existing shared `isCliEntry(import.meta.url)` helper for every supported script CLI guard. The helper returns false when `process.argv[1]` is absent, resolves both paths through `realpathSync` when available, and retains lexical equality only as a fallback for paths that cannot be canonicalized. Imported-module behavior and each CLI's existing `main()` body remain unchanged.
+
 ### Interface Contracts
 
 | Interface | Contract |
@@ -57,6 +62,7 @@ Update `workflows/review-main/WORKFLOW.md` so one prompt performs both the host 
 | `reviewProtocolPrompt(baseRef, finalizationPrompt)` | Produces one sibling-worker prompt containing exact-base host review and artifact/handoff finalization |
 | `submitReviewProtocol(...)` | Preserves one-Enter pasted recovery, then waits for a valid review handoff or exact worker disappearance without state/detection guesses |
 | `review-main` | Runs the host review and persists its artifact and controller-owned handoff before stopping |
+| `isCliEntry(import.meta.url)` | Returns true only when canonical real paths identify the invoked script; returns false for absent argv or unrelated imports |
 
 ### Changes
 
@@ -67,6 +73,8 @@ Update `workflows/review-main/WORKFLOW.md` so one prompt performs both the host 
 | `workflows/review-main/WORKFLOW.md` | Run host review and finalization in one sibling prompt | Makes artifact/handoff creation independent of a second prompt |
 | `scripts/__tests__/sdlc-prompt-snippets.test.mjs` | Keep workflow prompt synchronization assertions current | Protects bundled prompt provenance |
 | `README.md` | Document one-prompt, handoff-driven GitHub-default reviews | Keeps public behavior accurate |
+| Supported guarded `scripts/*.mjs` CLIs | Replace direct URL/lexical equality with shared canonical-real-path entry detection | Prevents silent no-op execution from locally linked OMP installs |
+| `scripts/__tests__/sdlc-verification-runtime.test.mjs` | Execute both steering CLIs through a temporary package symlink and import both without execution | Reproduces the installed-path mismatch and proves output/artifact plus import invariants |
 
 ### Blast Radius
 
@@ -90,6 +98,8 @@ Update `workflows/review-main/WORKFLOW.md` so one prompt performs both the host 
 | Passed handoff omits durable review output | Med | Require the canonical non-empty review artifact named by the passed handoff |
 | Worker exits before finalization | Med | Treat exact worker disappearance without a valid handoff as `process_lost` |
 | Deleted parser removal affects non-review prompt recovery | Low | Delete only review-picker helpers; preserve generic prompt-stall detection |
+| Linked install silently skips another supported CLI | Med | Audit all script entry guards and route every equivalent raw comparison through the shared helper |
+| Imported steering module runs unexpectedly | Low | Treat absent argv as non-entry and import both affected modules in a child process before CLI execution |
 
 ---
 

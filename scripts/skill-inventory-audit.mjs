@@ -28,6 +28,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const DEFAULT_BASELINE = 'scripts/skill-inventory.baseline.json';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -504,8 +505,7 @@ Options:
   }
 }
 
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isMainModule) {
+if (isCliEntry(import.meta.url)) {
   const code = main(process.argv.slice(2));
   process.exit(code);
 }

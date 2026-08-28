@@ -17,6 +17,7 @@
 | T003 | Verify review lifecycle and prompt contracts | [ ] |
 | T004 | Wait for handoff after direct review submission | [ ] |
 | T005 | Make review completion handoff-driven in one sibling prompt | [ ] |
+| T006 | Make supported CLI entry guards symlink-safe | [ ] |
 
 ---
 
@@ -82,6 +83,18 @@
 - [ ] Exact pasted-prompt recovery sends one Enter; cancellation, controller lease, exact base, and pane ownership remain unchanged
 - [ ] Passed review handoffs name an existing non-empty canonical review artifact
 - [ ] Regressions reproduce the approximately 13-second stalled/no-handoff state and prove no-findings, findings, direct failure, invalid evidence, and process-loss outcomes
+
+### T006: Make Linked Plugin CLI Entry Detection Reliable
+
+**File(s)**: `scripts/*.mjs`, `scripts/__tests__/sdlc-verification-runtime.test.mjs`
+**Type**: Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] Audit every supported script CLI entry guard and replace raw URL or lexical path equality with shared canonical-real-path detection
+- [ ] Missing `process.argv[1]` keeps imported modules inert
+- [ ] Execute `sdlc-steering.mjs` through an actual temporary plugin symlink and assert normal JSON output
+- [ ] Execute `sdlc-verify-steering.mjs` through the same link and assert stdout plus `.omp/sdlc/verification/<issue>.json`
+- [ ] Import both affected modules through the link and assert no stdout or artifact
 
 ---
 

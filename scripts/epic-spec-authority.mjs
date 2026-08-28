@@ -15,8 +15,8 @@ import {
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
 
+import { isCliEntry } from './plugin-controller-path.mjs';
 import { classifyIssueSpecScope } from './issue-spec-scope.mjs';
 
 const AGGREGATE_PATH = /^specs\/epic-[a-z0-9][a-z0-9-]*$/;
@@ -932,4 +932,4 @@ function main() {
   process.stdout.write(`${JSON.stringify(inspectEpicSpecAuthority(options), null, 2)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isCliEntry(import.meta.url)) main();

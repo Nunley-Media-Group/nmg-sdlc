@@ -10,7 +10,8 @@
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const SPEC_PATH = /^specs\/[a-z0-9][a-z0-9-]*$/;
 export const ISSUE_SPEC_MARKDOWN_LIMIT_BYTES = 256 * 1024;
@@ -622,4 +623,4 @@ function main() {
   process.stdout.write(`${JSON.stringify(inspectIssueSpecScope(options), null, 2)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isCliEntry(import.meta.url)) main();

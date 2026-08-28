@@ -11,7 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
+
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const FULL_OID = /^[0-9a-f]{40}$/i;
 const SPEC_PATH = /^specs\/[a-z0-9][a-z0-9-]*$/;
@@ -627,4 +628,4 @@ function main() {
   process.stdout.write(`${JSON.stringify(inspectUmbrellaPublication(options), null, 2)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isCliEntry(import.meta.url)) main();
