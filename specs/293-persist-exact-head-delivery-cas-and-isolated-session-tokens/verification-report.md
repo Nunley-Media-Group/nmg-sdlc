@@ -40,6 +40,31 @@ node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-verify-stee
 
 The current steering execution exited 0 with `ok: true`, `ceiling: null`, issue 293, and complete coverage: 2 declared, 2 recorded, no missing, duplicate, or unknown results. Artifact `.omp/sdlc/verification/293.json` binds the pass to clean head `7825b85b383c2a69c3c71d4cecc7ad1a458e0935`; both required providers passed.
 
+## Managed Steering Runtime Alignment
+
+Issue #293 aligns with the registered managed steering runtime in `steering/manifest.json`. The manifest registers the managed product, technical, structure, and verification modules; supplies `project.tech` to `worker:deliver`; and requires both `repository.tests` and `repository.nmg-sdlc-smoke`. This change preserves those managed files and follows their contracts rather than creating a parallel convention.
+
+The delivery implementation specifically follows `steering/snippets/project-tech.md`: open-pr owns exact-head delivery through merge and closure; `VERSION` is the version source; `package.json` is the OMP manifest mirror; delivery synchronizes both release artifacts; Git and GitHub commands use explicit argument arrays; and namespace boundaries fail closed on symlinks. The deterministic steering run recorded above executed both registered required providers successfully, so no managed steering runtime change is required.
+
+### Release Metadata Behavior and Executed Evidence
+
+| Changed path | Path-specific behavior | Executed verification |
+|--------------|------------------------|-----------------------|
+| `VERSION` | Remains the steering-defined version source and publishes patch release `3.18.7` for issue #293 | `node --input-type=module --eval "..."` read the file and reported `VERSION=3.18.7`; exit 0 |
+| `package.json` | Preserves the OMP plugin manifest and mirrors `VERSION` through `"version": "3.18.7"` | The same Node command parsed the JSON, compared `manifest.version` with `VERSION`, and reported `package.json.version=3.18.7 synchronized`; exit 0 |
+
+The executed comparison command was:
+
+```text
+node --input-type=module --eval "import fs from 'node:fs'; const version=fs.readFileSync('VERSION','utf8').trim(); const manifest=JSON.parse(fs.readFileSync('package.json','utf8')); if (version !== manifest.version) { console.error('version mismatch'); process.exit(1); } console.log('VERSION=' + version + ' package.json.version=' + manifest.version + ' synchronized');"
+```
+
+Observed output:
+
+```text
+VERSION=3.18.7 package.json.version=3.18.7 synchronized
+```
+
 ## Issue Scope
 
 - Active issue: #293
@@ -90,6 +115,7 @@ The current steering execution exited 0 with `ok: true`, `ceiling: null`, issue 
 | T005 | Rebind an existing PR after the controller-owned version push | Complete | Persisted PR is re-read after push; stale H1 is never merged; foreign drift reconciles |
 | T006 | Restore the next issue branch before retained-worker matching | Complete | Clean restoration occurs before collision/ownership checks; dirty restoration failures retain the worker and fail closed |
 | T007 | Harden isolated session leaf artifact boundaries | Complete | Both unsafe leaf types fail before state use, command invocation, CAS writes, or redirected handoffs |
+| T008 | Record managed steering alignment and synchronize release metadata | Complete | Registered steering consumers and validation providers are identified; `VERSION` and `package.json` both publish `3.18.7`; executed parsing and equality verification exited 0 |
 
 ---
 
@@ -177,6 +203,8 @@ A verified controller lease or isolated token selects one namespace before deliv
 - Full repository execution through the deterministic steering runner: exit 0
 - Current-spec validation: 54 genuine issue specs, 16 required archive entries, 16 rewrite capabilities, 16 active workflow mappings, and 1 deprecated stub passed
 
+- Release metadata synchronization: `VERSION=3.18.7 package.json.version=3.18.7 synchronized`; exit 0
+
 ---
 
 ## Exercise Test Results
@@ -212,12 +240,13 @@ The harness loaded the changed open-pr surface, initialized isolated session `1b
 | `repository.nmg-sdlc-smoke` | Pass | Current steering artifact records `effectiveStatus: passed`; summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
 | Focused delivery, execute, and open-pr suites | Pass | 3/3 suites and 221/221 tests passed |
 | Current specs | Pass | `node scripts/verify-current-specs.mjs` passed 54 genuine issue specs and all reported mappings |
+| Release metadata synchronization | Pass | Node parsed `package.json`, read `VERSION`, compared both values, reported `3.18.7` for each, and exited 0 |
 | Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | Diff hygiene | Pass | `git diff --check` exited 0 with no output |
 | Workflow bundle validator | Not applicable | `skill://skill-creator` was resolved and read; its validator requires `SKILL.md`, while `workflows/open-pr` is an OMP `WORKFLOW.md` bundle |
 
-**Gate Summary**: 8 passed, 0 failed, 0 incomplete, 1 not applicable
+**Gate Summary**: 9 passed, 0 failed, 0 incomplete, 1 not applicable
 
 ---
 
@@ -265,6 +294,8 @@ No unresolved implementation, architecture, security, performance, testability, 
 | `commands/sdlc-open-pr.md` | 0 | Packaged command synchronized with workflow behavior |
 | `README.md` | 0 | Public isolated-session and exact-head completion behavior |
 | `CHANGELOG.md` | 0 | Unreleased issue behavior documented |
+| `VERSION` | 0 | Steering-defined version source publishes `3.18.7`; executed synchronization check passed |
+| `package.json` | 0 | OMP plugin manifest preserves its extension surface and mirrors version `3.18.7`; executed JSON parse and synchronization check passed |
 
 ## Recommendation
 

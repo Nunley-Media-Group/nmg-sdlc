@@ -19,6 +19,7 @@
 | T005 | Rebind an existing PR after the controller-owned version push | [ ] |
 | T006 | Restore the next issue branch before retained-worker matching | [ ] |
 | T007 | Harden isolated session leaf artifact boundaries | [ ] |
+| T008 | Record managed steering alignment and synchronize release metadata | [ ] |
 
 ---
 
@@ -80,6 +81,17 @@
 - [ ] Resumed isolated delivery requires a real non-symlink `handoffs` directory
 - [ ] Unsafe leaf artifacts fail with `unsafe_session_path` before run-state reads, Git/GitHub commands, CAS writes, or handoff writes
 - [ ] Regression coverage replaces each leaf with an external symlink and proves no command or redirected handoff occurs
+
+### T008: Record Steering Alignment and Synchronize Release Metadata
+
+**File(s)**: `VERSION`, `package.json`, `specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens/verification-report.md`
+**Type**: Modify, Verify
+**Depends**: T003, T004
+**Acceptance**:
+- [ ] The implementation explicitly aligns with the registered managed steering runtime in `steering/manifest.json`, including the `project.tech` delivery consumer and required repository verification providers
+- [ ] `VERSION` remains the steering-defined version source and records release `3.18.7`
+- [ ] `package.json` preserves the OMP plugin manifest and mirrors `VERSION` exactly as version `3.18.7`
+- [ ] An executed Node verification parses `package.json`, reads `VERSION`, compares the two values, and exits 0 with both values reported
 
 ### T003: Propagate Scope Through Open-PR
 
