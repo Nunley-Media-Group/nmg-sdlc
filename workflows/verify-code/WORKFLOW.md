@@ -28,7 +28,7 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 Before prose review, run:
 
 ```bash
-node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
+node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
@@ -52,7 +52,7 @@ Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interacti
   Score 1-5, note findings. Average reported.
 
 - Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from disposable project run `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
+  Use updated exercise instructions (see exercise-testing.md): from disposable project run `node <plugin-root>/scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
 
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
@@ -80,7 +80,7 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+node <plugin-root>/scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.

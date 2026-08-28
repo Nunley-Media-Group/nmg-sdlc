@@ -85,16 +85,30 @@ function materializeControllerPathsWithPolicy(text, pluginRoot, preserveUnresolv
       throw error;
     }
   };
-  const source = String(text).replace(
+  const canonicalQuoted = String(text).replace(
     /(["'])<plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)\1/g,
     (match, _quote, scriptName) => {
       const controller = controllerPath(scriptName);
       return controller === null ? match : JSON.stringify(controller);
     },
   );
-  return source.replace(
+  const foreignQuoted = canonicalQuoted.replace(
+    /(["'])((?:\/|[A-Za-z]:[\\/])(?:[^"'\r\n]*[\\/])?nmg-sdlc[\\/]scripts[\\/]([A-Za-z0-9._-]+\.mjs))\1/g,
+    (match, _path, _quote, scriptName) => {
+      const controller = controllerPath(scriptName);
+      return controller === null ? match : JSON.stringify(controller);
+    },
+  );
+  const canonicalShell = foreignQuoted.replace(
     /node <plugin-root>\/scripts\/([A-Za-z0-9._-]+\.mjs)/g,
     (match, scriptName) => {
+      const controller = controllerPath(scriptName);
+      return controller === null ? match : `node ${JSON.stringify(controller)}`;
+    },
+  );
+  return canonicalShell.replace(
+    /node ((?:\/|[A-Za-z]:[\\/])(?:[^\s"'`]*[\\/])?nmg-sdlc[\\/]scripts[\\/]([A-Za-z0-9._-]+\.mjs))(?=\s|$)/g,
+    (match, _path, scriptName) => {
       const controller = controllerPath(scriptName);
       return controller === null ? match : `node ${JSON.stringify(controller)}`;
     },

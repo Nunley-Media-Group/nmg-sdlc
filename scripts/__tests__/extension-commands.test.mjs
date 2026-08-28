@@ -88,6 +88,9 @@ describe('extension sdlc- commands', () => {
     }
     for (const file of markdown) {
       expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
+      expect(read(file)).not.toMatch(
+        /(?:\/|[A-Za-z]:[\\/])(?:[^"'\r\n`]*[\\/])?nmg-sdlc[\\/]scripts[\\/][A-Za-z0-9._-]+\.mjs/,
+      );
     }
   });
 
