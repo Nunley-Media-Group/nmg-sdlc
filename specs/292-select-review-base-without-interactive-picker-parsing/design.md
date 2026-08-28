@@ -15,6 +15,8 @@ For accepted local branches, `completeInteractiveReview()` submits `/review`, ob
 
 The installed OMP `/review` branch mode itself uses UI selectors and has no explicit base-ref argument. Therefore execute cannot make branch selection deterministic by changing slash-command arguments; it must resolve the ref from Git/GitHub evidence and submit the existing repository review request directly with that base.
 
+The remediation exposed a second lifecycle defect in `startReviewAgainstBase()`. `defaultHerdr.agentPrompt()` already invokes `herdr agent prompt ... --wait`, so status 0 means the host review settled. The helper nevertheless called `waitForWorkerSettlement()`, which required a new future `working` transition after completion. A correctly settled review could therefore become `review_failed` and have its owned pane closed before the workflow handoff prompt ran.
+
 ### Affected Code
 
 | File | Lines / Symbols | Role |
@@ -39,7 +41,7 @@ The installed OMP `/review` branch mode itself uses UI selectors and has no expl
 
 Replace `reviewBranchSelection()` with `resolveReviewBase(cwd, run)`. Read the default branch through the existing GitHub helper. Check `refs/heads/<name>` using `git show-ref --verify --quiet`; if present return `<name>`. Otherwise check `refs/remotes/origin/<name>` and return `origin/<name>`. If neither exact ref exists, return null. Every subprocess call uses an explicit argument array. Do not list all branches or select a fallback.
 
-Replace `completeInteractiveReview()` and its rendered-screen parser/key-navigation helpers with `startReviewAgainstBase(herdr, agentName, baseRef)`. It submits the repository's existing review request contract directly, adding only the resolved base ref and PR-style merge-base comparison instruction. It waits for the worker to enter working state and settle using the existing unbounded Herdr waits. It never submits `/review`, reads picker presentation, or sends picker keys. New, remediation, and retained review call sites use the same helper. Review findings, three-reviewer file assignment, scoring, persistence through `review-main`, and handoff validation remain unchanged.
+Replace `completeInteractiveReview()` and its rendered-screen parser/key-navigation helpers with `startReviewAgainstBase(herdr, agentName, baseRef)`. It submits the repository's existing review request contract directly, adding only the resolved base ref and PR-style merge-base comparison instruction. Because `agentPrompt` uses `--wait`, a successful result is the completed host review and is accepted exactly once. Only an `agent_prompt_stalled` result may inspect the existing prompt: an exact visibly pasted request uses the existing single-Enter recovery, while a visibly working worker uses the existing settlement observation. Neither path resends the review request or accepts unknown completion. It never submits `/review`, reads picker presentation, or sends picker navigation keys. New, remediation, and retained review call sites use the same helper. Review findings, three-reviewer file assignment, scoring, persistence through `review-main`, and handoff validation remain unchanged.
 
 Update `workflows/review-main/WORKFLOW.md` so its precondition refers to the immediately preceding controller-started review against the resolved base rather than an interactive `/review`. This workflow-bundled edit must follow `skill://skill-creator`. Update README wording to describe deterministic reviews against the GitHub default ref.
 
@@ -48,7 +50,7 @@ Update `workflows/review-main/WORKFLOW.md` so its precondition refers to the imm
 | Interface | Contract |
 |-----------|----------|
 | `resolveReviewBase(cwd, run)` | Returns exact local default name, exact `origin/<default>`, or null; never another branch |
-| `startReviewAgainstBase(herdr, agentName, baseRef)` | Starts the existing review request directly and waits; no picker interaction |
+| `startReviewAgainstBase(herdr, agentName, baseRef)` | Starts the existing waited review request directly; success is settled exactly once, while only `agent_prompt_stalled` may use pasted-prompt or visible-working recovery |
 | `review-main` precondition | Persists the immediately preceding controller-started review response |
 
 ### Changes
@@ -77,6 +79,8 @@ Update `workflows/review-main/WORKFLOW.md` so its precondition refers to the imm
 | Remote name differs from `origin` | Low | Requirement is specifically `origin/<default>`; do not guess other remotes |
 | Review prompt settles without a handoff | Med | Preserve existing settlement observation and review-main prompt/handoff validation |
 | Retained or remediation reviews still use old UI path | Med | Route every review start call site through one helper and assert no `/review` prompt/send-keys |
+| Successful `agentPrompt --wait` is observed a second time | Med | Return immediately on status 0; regression makes any review settlement wait fail |
+| Non-stall failure enters prompt recovery | Med | Guard all recovery behind `isPromptStalled`; assert true failure performs no wait or send-keys |
 | Deleted parser removal affects non-review prompt recovery | Low | Delete only review-picker helpers; preserve generic prompt-stall detection |
 
 ---

@@ -875,6 +875,7 @@ describe('runExecute controller', () => {
     localDefaultRef = true,
     remoteDefaultRef = true,
     reviewRequestFailure = false,
+    reviewRequestStalled = false,
     paneWidth = 120,
     writeHandoffs = true,
     handoffContent = null,
@@ -1045,10 +1046,11 @@ describe('runExecute controller', () => {
         activePrompt = prompt;
         prompts.push({ name, prompt });
         if (prompt.startsWith('Review the current branch against ')) {
-          reviewInProgress = true;
-          return reviewRequestFailure
-            ? { status: 1, reasonCode: 'worker_failed' }
-            : { status: 1, reasonCode: 'agent_prompt_stalled' };
+          reviewInProgress = reviewRequestStalled;
+          if (reviewRequestFailure) return { status: 1, reasonCode: 'worker_failed' };
+          return reviewRequestStalled
+            ? { status: 1, reasonCode: 'agent_prompt_stalled' }
+            : { status: 0 };
         }
         const step = name.slice(name.lastIndexOf('-') + 1);
         const isRem = name.startsWith('r');
@@ -2335,6 +2337,57 @@ describe('runExecute controller', () => {
     ]);
   });
 
+  it('SCN004 accepts a successful waited review exactly once without a second settlement wait', () => {
+    const fixture = makeControllerFixture();
+    const agentWait = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => (
+      input.name === 's42-review1'
+        ? { status: 1, reasonCode: 'no_future_working_transition' }
+        : agentWait(input)
+    );
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
+    expect(fixture.closed).toContain('pane-3');
+  });
+
+  it('SCN005 observes a visibly working review only after agent_prompt_stalled', () => {
+    const fixture = makeControllerFixture({ reviewRequestStalled: true });
+    const agentRead = fixture.herdr.agentRead;
+    fixture.herdr.agentRead = (input) => (
+      input.name === 's42-review1' || input.name === 's42-review2'
+        ? 'Working'
+        : agentRead(input)
+    );
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([
+      { name: 's42-review1', until: 'working' },
+      { name: 's42-review1' },
+    ]);
+    expect(fixture.waits.filter(({ name }) => name === 's42-review2')).toEqual([
+      { name: 's42-review2', until: 'working' },
+      { name: 's42-review2' },
+    ]);
+    expect(fixture.sentKeys).toEqual([]);
+  });
+
   it('SCN003 fails review before submission when both exact default refs are missing', () => {
     const fixture = makeControllerFixture({
       localDefaultRef: false,
@@ -2356,7 +2409,7 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('fails closed when the direct review request cannot start', () => {
+  it('SCN006 fails closed when the direct review request cannot start', () => {
     const fixture = makeControllerFixture({ reviewRequestFailure: true });
     const result = runExecute({
       args: '#42',
@@ -2370,6 +2423,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts.map(({ name }) => name)).toEqual([
       's42-start', 's42-implement', 's42-review1',
     ]);
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.sentKeys).toEqual([]);
   });
   it.each([
@@ -2714,7 +2768,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual(['kept-implement-pane']);
   });
-  it('restarts an idle retained review against the deterministic base and waits for handoff', () => {
+  it('accepts a settled deterministic review for an idle retained worker', () => {
     const fixture = makeControllerFixture({ localDefaultRef: false });
     seedRun(fixture.cwd, {
       schemaVersion: 1,
@@ -2745,8 +2799,7 @@ describe('runExecute controller', () => {
       name === 's42-review1'
       && prompt.includes('against origin/main using PR-style merge-base comparison')
     ))).toBe(true);
-    expect(fixture.waits).toContainEqual({ name: 's42-review1', until: 'working' });
-    expect(fixture.waits).toContainEqual({ name: 's42-review1' });
+    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
     expect(fixture.sentKeys).toEqual([]);
   });

@@ -926,7 +926,12 @@ function startReviewAgainstBase(herdr, agentName, baseRef) {
     'Consolidate the findings into the final review response.',
   ].join(' ');
   const prompted = herdr.agentPrompt({ name: agentName, prompt });
-  return (commandSucceeded(prompted) || isPromptStalled(prompted))
+  if (commandSucceeded(prompted)) return true;
+  if (!isPromptStalled(prompted)) return false;
+  if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
+    return retryPromptSubmission(herdr, agentName);
+  }
+  return appearsWorking(herdr, agentName)
     && waitForWorkerSettlement(herdr, agentName);
 }
 function agentDetectionText(herdr, name) {

@@ -15,6 +15,7 @@
 | T001 | Resolve and start reviews without picker parsing | [ ] |
 | T002 | Replace picker tests with deterministic ref coverage | [ ] |
 | T003 | Verify review lifecycle and prompt contracts | [ ] |
+| T004 | Accept waited review completion exactly once | [ ] |
 
 ---
 
@@ -53,6 +54,20 @@
 - [ ] Focused execute and prompt-snippet suites exit 0
 - [ ] Review1, fix1, review2, fix2, retained-review, and remediation fixtures still pass
 - [ ] `node scripts/verify-current-specs.mjs` and `git diff --check` exit 0
+
+### T004: Correct Direct Review Settlement
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T002
+**Acceptance**:
+- [ ] A successful direct `agentPrompt --wait` result returns success without `waitForWorkerSettlement`
+- [ ] Only `agent_prompt_stalled` may inspect the pasted request or visible-working state
+- [ ] Exact pasted-request recovery submits one Enter and never resends the review
+- [ ] Visibly working stall recovery observes `working` and settlement with existing bounded Herdr waits
+- [ ] A non-stall prompt failure returns `review_failed` without recovery waits or send-keys
+- [ ] New, retained, and remediation paths retain deterministic base resolution, controller ownership, handoff validation, and pane cleanup
+- [ ] Jest regressions cover settled success, stalled-but-visibly-working recovery, and true failure
 
 ---
 

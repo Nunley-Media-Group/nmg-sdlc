@@ -46,6 +46,27 @@
 **Then** it stops with `review_failed` before submitting a review prompt
 **And** it does not guess another branch
 
+### AC4: Successful Waited Review Settles Exactly Once
+
+**Given** `herdr agent prompt <review-worker> <review-request> --wait` exits successfully
+**When** execute starts review1 or review2
+**Then** execute accepts that result as the completed host review
+**And** it does not wait for a new future `working` transition before submitting the controller-owned workflow prompt
+
+### AC5: Stalled Review Recovery Observes Existing Work
+
+**Given** the direct review request returns `agent_prompt_stalled`
+**When** the exact request is visibly pasted or the worker is visibly working
+**Then** execute uses the existing bounded pasted-prompt recovery or settlement observation
+**And** it does not resend the review request or accept an unknown completion
+
+### AC6: Direct Review Failure Fails Closed
+
+**Given** the direct review request returns a failure other than `agent_prompt_stalled`
+**When** execute starts review
+**Then** it stops with `review_failed`
+**And** it does not attempt prompt recovery or a second settlement wait
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -53,6 +74,7 @@
 | FR1 | Resolve the GitHub default name to `refs/heads/<name>` first, then `refs/remotes/origin/<name>`, using exact git ref checks. | Must |
 | FR2 | Submit the existing review contract with the resolved base ref directly; do not invoke or parse the interactive `/review` picker. | Must |
 | FR3 | Preserve review settlement, artifact, handoff, and fail-closed behavior. | Must |
+| FR4 | Treat a successful waited direct-review prompt as settled exactly once; only `agent_prompt_stalled` may enter existing pasted-prompt recovery or visible-working observation. | Must |
 
 ## Out of Scope
 
@@ -61,9 +83,11 @@
 - Delivery merge/CAS behavior owned by issue #293
 - Changing review findings, scoring, file assignment, or remediation contracts except to supply the resolved base ref
 - Guessing a non-default branch when GitHub/default-ref evidence is missing
+- Changing controller ownership, deterministic base selection, or pane cleanup
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #292 | 2026-08-27 | Initial defect report |
+| #292 | 2026-08-28 | Accept successful waited reviews exactly once and confine recovery to actual prompt stalls |

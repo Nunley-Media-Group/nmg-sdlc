@@ -37,3 +37,32 @@ Feature: Select review base without interactive picker parsing
     Given GitHub reports a default branch with no matching local or origin ref
     When execute reaches review
     Then execute stops with review_failed before submitting a review prompt
+
+  # --- Waited Review Settlement ---
+
+  @SCN004 @regression
+  Scenario: Successful waited review is accepted exactly once
+    Given the direct review request uses agent prompt with wait
+    And the request exits successfully after the host review settles
+    When execute starts the controller-owned review workflow
+    Then execute does not wait for a new future working transition
+    And the owned review pane advances through the handoff contract
+
+  # --- Stalled Review Recovery ---
+
+  @SCN005 @regression
+  Scenario: Stalled but visibly working review is observed without resending
+    Given the direct review request returns agent_prompt_stalled
+    And the review worker is visibly working
+    When execute recovers the review
+    Then execute waits for working and settlement using the existing observation path
+    And execute does not resend the review or send picker keys
+
+  # --- Direct Review Failure ---
+
+  @SCN006 @regression
+  Scenario: True direct review failure stops without recovery
+    Given the direct review request fails without agent_prompt_stalled
+    When execute starts review
+    Then execute stops with review_failed
+    And execute does not wait for recovery or send keys
