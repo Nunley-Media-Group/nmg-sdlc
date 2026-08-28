@@ -1,0 +1,60 @@
+**Issue**: #299
+**Date**: 2026-08-27
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/290-bind-sdlc-run-checkpoints-to-project-identity-with-cas-writes/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/299-remove-completed-execute-runtime-checkpoints/requirements.md
+Feature: Remove completed execute runtime checkpoints
+  A successful queue must release only its runtime ownership so a new queue can start.
+  Nonterminal queues retain resumable state, and unsafe cleanup fails closed.
+
+  @SCN001 @regression
+  Scenario: Fully completed queue removes exact run-owned runtime
+    Given a bound execute queue whose issues completed every delivery step
+    And exact issue-step handoffs, worker-step provenance, and unrelated runtime files exist
+    When the controller finalizes the queue
+    Then its checkpoint, exact handoffs, and worker provenance are absent
+    And unrelated runtime files remain
+
+  @SCN002 @regression
+  Scenario: Different issue starts after completed cleanup
+    Given a prior differently identified queue completed and cleanup succeeded
+    When the controller starts an eligible new issue
+    Then no stale checkpoint identity mismatch is returned
+    And the new run establishes its own checkpoint identity
+
+  @SCN003 @regression
+  Scenario Outline: Nonterminal queue retains resumable runtime
+    Given a bound queue is <state>
+    When the controller stops before full successful delivery
+    Then its checkpoint and supporting runtime files remain
+
+    Examples:
+      | state       |
+      | interrupted |
+      | failed      |
+      | blocked     |
+
+  @SCN004 @regression
+  Scenario Outline: Unsafe completed cleanup fails closed
+    Given a fully completed queue whose cleanup has <hazard>
+    When final cleanup is attempted
+    Then the controller fails with completed_cleanup_failed
+    And it does not report successful finalization
+
+    Examples:
+      | hazard             |
+      | a held lock         |
+      | an identity mismatch|
+      | a symlink boundary  |
+      | a deletion failure  |
+
+  @SCN005 @regression
+  Scenario: Runtime tracking stays ignored and untracked
+    Given execute runtime files exist under .omp/sdlc/
+    When Git ignore and index state are inspected
+    Then the runtime files are ignored
+    And no runtime file is tracked
