@@ -127,6 +127,7 @@ Nonterminal state and cleanup exceptions converge on the exact required `Run che
 | `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` | Passed: 185 tests, 1 suite |
 | `cd scripts && npm test -- --runInBand` | Passed: 702 tests, 2 skipped; 48 suites passed, 1 skipped |
 | `node scripts/sdlc-verify-steering.mjs --project . --issue 303 --spec specs/303-release-leftover-completed-execute-checkpoints-on-startup --base main` | Passed: 2/2 required validations, complete coverage, no ceiling |
+| `VERSION` and `package.json` delivery synchronization | Passed: both declare patch release `3.18.4`; `package.json` remained parseable |
 
 ---
 
@@ -168,3 +169,5 @@ Ready for pull request and exact-head delivery.
 - `specs/303-release-leftover-completed-execute-checkpoints-on-startup/design.md`
 - `specs/303-release-leftover-completed-execute-checkpoints-on-startup/tasks.md`
 - `specs/303-release-leftover-completed-execute-checkpoints-on-startup/feature.gherkin`
+- `VERSION`
+- `package.json`
