@@ -5,8 +5,9 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { inspectVerificationReadiness } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 
-const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG';
+const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id ID]';
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -42,7 +43,7 @@ function handoff(issue, status, summary, reportPath, reasonCode = null) {
   };
 }
 
-export function finalizeVerification({
+function finalizeVerificationUnlocked({
   issue,
   spec,
   cwd = process.cwd(),
@@ -124,16 +125,42 @@ export function finalizeVerification({
   ));
 }
 
+export function finalizeVerification(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  let leaseContext;
+  try {
+    leaseContext = enterControllerLease({
+      projectRoot: cwd,
+      runId: options.controllerRunId,
+    });
+  } catch (error) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: `${error?.reasonCode || 'controller_lease_held'}\n`,
+      handoff: null,
+      handoffPath: `.omp/sdlc/handoffs/${options.issue}-verify.json`,
+    };
+  }
+  try {
+    return finalizeVerificationUnlocked(options);
+  } finally {
+    if (leaseContext.owned) releaseControllerLease(leaseContext.lease);
+  }
+}
+
 function parseCli(argv) {
   let issue;
   let spec;
+  let controllerRunId;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--issue' && issue === undefined && argv[index + 1] !== undefined) issue = argv[index += 1];
     else if (argv[index] === '--spec' && spec === undefined && argv[index + 1] !== undefined) spec = argv[index += 1];
+    else if (argv[index] === '--controller-run-id' && controllerRunId === undefined && argv[index + 1] !== undefined) controllerRunId = argv[index += 1];
     else return null;
   }
-  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec) return null;
-  return { issue: Number(String(issue).replace(/^#/, '')), spec };
+  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec || controllerRunId === '') return null;
+  return { issue: Number(String(issue).replace(/^#/, '')), spec, controllerRunId };
 }
 
 function runCli(argv = process.argv.slice(2)) {

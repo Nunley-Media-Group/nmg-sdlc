@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { finalizeVerification } from '../sdlc-finalize-verification.mjs';
 import { validateHandoff } from '../sdlc-execute.mjs';
+import { acquireControllerLease, releaseControllerLease } from '../sdlc-controller-lease.mjs';
 
 function report(issue = 42, specPath = 'specs/42-feature') {
   const scope = { issueNumber: issue, specPath, status: 'scoped', delivery: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] }, regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
@@ -45,6 +46,37 @@ describe('verification finalization controller', () => {
     expect(calls).toContainEqual(['git', 'add', '--', 'specs/42-feature/verification-report.md']);
     expect(calls).toContainEqual(['git', 'commit', '-m', 'docs: record verification for #42']);
     expect(calls).toContainEqual(['git', 'push']);
+  });
+  it('requires the execute lease identity before publishing protected state', () => {
+    const root = fixture();
+    const lease = acquireControllerLease({
+      projectRoot: root,
+      runId: 'execute-run',
+      controllerPaneId: 'execute-pane',
+    });
+    const { run, calls } = successfulRun(false);
+    const rejected = finalizeVerification({
+      issue: 42,
+      spec: 'specs/42-feature',
+      cwd: root,
+      run,
+    });
+    expect(rejected).toMatchObject({
+      status: 1,
+      stderr: 'controller_lease_held\n',
+      handoff: null,
+    });
+    expect(calls).toHaveLength(0);
+
+    const scoped = finalizeVerification({
+      issue: 42,
+      spec: 'specs/42-feature',
+      controllerRunId: 'execute-run',
+      cwd: root,
+      run,
+    });
+    expect(scoped.status).toBe(0);
+    expect(releaseControllerLease(lease)).toBe(true);
   });
   it('does not create an empty commit for an already published report', () => {
     const root = fixture();

@@ -113,6 +113,21 @@ describe('prompt snippet registry', () => {
     ].join('\n'));
   });
 
+  it('renders the worker header for a production UUID and multi-digit issue', () => {
+    const issue = '10000';
+    const handoffPath = `.omp/sdlc/handoffs/${issue}-implement.json`;
+    const rendered = renderPrompt(defaultPromptRegistry(repoRoot), {
+      consumer: 'worker:implement',
+      vars: {
+        step: 'implement',
+        issue,
+        controllerRunId: '123e4567-e89b-12d3-a456-426614174000',
+        handoffPath,
+      },
+    });
+    expect(rendered.text).toContain(`Handoff path: ${handoffPath}`);
+  });
+
   it('renders and materializes the steering command controller paths', () => {
     const rendered = rewriteInteractiveInput('/sdlc-steering', {
       source: 'interactive',

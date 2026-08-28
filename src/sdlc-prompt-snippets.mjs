@@ -239,7 +239,7 @@ CATALOG.push(Object.freeze({
   consumers: WORKER_CONSUMERS,
   slot: "header",
   order: 0,
-  byteBound: 512,
+  byteBound: 640,
   body: WORKER_HEADER,
 }));
 Object.freeze(CATALOG);

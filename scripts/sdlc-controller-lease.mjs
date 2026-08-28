@@ -1,6 +1,5 @@
 import {
   closeSync,
-  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -39,12 +38,12 @@ export function controllerLeasePath(projectRoot) {
 export function readControllerLease(projectRoot) {
   const canonicalRoot = realpathSync(projectRoot);
   const path = controllerLeasePath(canonicalRoot);
-  if (!existsSync(path)) return null;
   try {
     const record = JSON.parse(readFileSync(path, 'utf8'));
     if (!validLease(record, canonicalRoot)) throw leaseError();
     return record;
   } catch (error) {
+    if (error?.code === 'ENOENT') return null;
     if (error?.reasonCode === 'controller_lease_held') throw error;
     throw leaseError();
   }
@@ -84,7 +83,14 @@ export function acquireControllerLease({
     writeFileSync(fd, serialized);
     return { fd, path, record, serialized };
   } catch (error) {
-    if (fd !== undefined) closeSync(fd);
+    if (fd !== undefined) {
+      closeSync(fd);
+      try {
+        unlinkSync(path);
+      } catch {
+        // Preserve the original acquisition failure.
+      }
+    }
     if (error?.code === 'EEXIST') throw leaseError();
     throw error;
   }

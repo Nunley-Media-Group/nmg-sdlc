@@ -1736,9 +1736,18 @@ export function runExecute({
           runState, issue, step, agentName, paneId, cwd, run,
         });
         if (!ownership) {
+          const closed = closePane(herdrApi, paneId);
+          if (closed) createdPanes.delete(paneId);
           return stop({
-            issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
-            runState, cwd, herdr: herdrApi, output,
+            issue,
+            step,
+            paneId,
+            agentName,
+            reasonCode: closed ? 'retained_worker_mismatch' : 'pane_close_failed',
+            runState,
+            cwd,
+            herdr: herdrApi,
+            output,
           });
         }
         runState.workers[agentName] = ownership;
@@ -2385,9 +2394,18 @@ export function runExecute({
         runState, issue, step, agentName, paneId, cwd, run,
       });
       if (!ownership) {
+        const closed = closePane(herdrApi, paneId);
+        if (closed) createdPanes.delete(paneId);
         return stop({
-          issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
-          runState, cwd, herdr: herdrApi, output,
+          issue,
+          step,
+          paneId,
+          agentName,
+          reasonCode: closed ? 'retained_worker_mismatch' : 'pane_close_failed',
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
         });
       }
       runState.workers[agentName] = ownership;
@@ -2504,6 +2522,35 @@ export function runExecute({
   cleanupCompletedRun(runState, cwd);
   return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
   } catch (error) {
+    if (runState?.workers && validRunIdentity(runState)) {
+      let changed = false;
+      for (const [name, worker] of Object.entries(runState.workers)) {
+        if (
+          worker?.name !== name
+          || worker.projectRoot !== runState.projectRoot
+          || worker.runId !== runState.runId
+        ) {
+          continue;
+        }
+        if (parsedArgs.retainWorker) {
+          const checkout = currentCheckout(cwd, run);
+          if (checkout) {
+            Object.assign(worker, checkout);
+            changed = true;
+          }
+        } else if (closePane(herdrApi, worker.paneId)) {
+          delete runState.workers[name];
+          changed = true;
+        }
+      }
+      if (changed) {
+        try {
+          persistRunState(runState, cwd);
+        } catch {
+          // Error cleanup remains fail-closed with any unclosed records intact.
+        }
+      }
+    }
     return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${error.message}\n` };
   }
   } finally {

@@ -13,12 +13,17 @@ const AUTOMATED_BODY_CEILINGS = {
 const WORKER_PROMPT_CEILINGS = {
   start: 1475,
   implement: 6530,
-  review1: 1418,
-  fix1: 988,
-  review2: 1418,
-  fix2: 988,
+  review1: 1460,
+  fix1: 1030,
+  review2: 1460,
+  fix2: 1030,
   verify: 5700,
   deliver: 5150,
+};
+
+const PRODUCTION_WORKER_INPUT = {
+  issue: 10000,
+  controllerRunId: '123e4567-e89b-12d3-a456-426614174000',
 };
 
 describe('rendered prompt byte ceilings', () => {
@@ -29,7 +34,7 @@ describe('rendered prompt byte ceilings', () => {
   });
 
   test.each(Object.entries(WORKER_PROMPT_CEILINGS))('%s worker prompt stays within its UTF-8 ceiling', (step, ceiling) => {
-    const prompt = workerPrompt({ step, issue: 42 });
+    const prompt = workerPrompt({ step, ...PRODUCTION_WORKER_INPUT });
     expect(renderedPromptBytes(prompt)).toBeLessThanOrEqual(ceiling);
     expect(prompt).not.toContain('## Integration with SDLC Workflow');
   });
