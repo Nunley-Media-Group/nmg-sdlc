@@ -1318,7 +1318,7 @@ export function runExecute({
     return { status: 1, stdout: '', stderr: 'gh auth status failed\n' };
   }
 
-  const existingRun = readRun(cwd);
+  let existingRun = readRun(cwd);
   let issues = parsedArgs.issues;
   if (parsedArgs.defaultBacklog) {
     const resumable = Array.isArray(existingRun?.issues)
@@ -1380,7 +1380,15 @@ export function runExecute({
   const runFileExists = existsSync(join(cwd, RUN_FILE));
   const matchingRun = existingRun && JSON.stringify(existingRun.issues) === JSON.stringify(issues);
   if (runFileExists && !matchingRun) {
-    return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+    if (!completedRunState(existingRun, { requireReleasedCurrentIssue: true })) {
+      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+    }
+    try {
+      cleanupCompletedRun(existingRun, cwd);
+      existingRun = null;
+    } catch {
+      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+    }
   }
   const dirtyIssue = matchingRun
     ? issues.find((issue) => nextStep(existingRun.completed?.[String(issue)] ?? []) !== null) ?? issues[0]

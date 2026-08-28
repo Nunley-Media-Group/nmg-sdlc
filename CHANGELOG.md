@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.4] - 2026-08-28
+
+### Changed
+
+- Release leftover completed execute checkpoints on startup (#303)
+
 ## [3.18.3] - 2026-08-27
 
 ### Fixed
