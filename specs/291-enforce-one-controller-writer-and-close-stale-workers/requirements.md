@@ -47,6 +47,15 @@
 **And** `--retain-worker` is the only option that keeps the owned pane open
 **And** a successful passed-handoff lifecycle still closes the owned pane and advances normally
 
+### AC4: Prompt Composition Has No Size Ceiling
+
+**Given** an automated command body, worker prompt, plugin fragment, builtin fragment, or project fragment is structurally valid
+**When** the prompt registry loads and renders it
+**Then** prompt construction does not reject it because of its UTF-8 byte length
+**And** automated-body and worker-prompt ceiling constants and tests do not exist
+**And** fragment schemas contain no `byteBound` compatibility or enforcement path
+**And** provenance, placeholder, provider, consumer, slot, ordering, source-path, and non-empty-body validation remains unchanged
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -55,6 +64,7 @@
 | FR2 | Guard standalone verify and deliver controllers against a foreign active lease; execute-scoped workers must present the matching run id. | Must |
 | FR3 | Persist worker ownership and require exact name, pane, project root, run id, issue, step, branch, and head before retained reuse. | Must |
 | FR4 | Close only controller-owned panes on cancellation or terminal stop by default; honor explicit `--retain-worker`. | Must |
+| FR5 | Remove every automated-body, worker-prompt, plugin-fragment, builtin-fragment, and worker-header prompt-size ceiling. Reject `byteBound` as an unknown fragment or manifest key instead of accepting, stripping, or enforcing it. | Must |
 
 ## Out of Scope
 
@@ -62,10 +72,15 @@
 - Review-base selection owned by issue #292
 - Delivery exact-head CAS and isolated session tokens owned by issue #293
 - Stealing or automatically deleting a controller lease owned by another live or unknown process
+- Removing prompt provenance byte counts or unrelated structural prompt validation
 - Closing unrelated Herdr panes
+
+## Historical Quota Supersession
+
+Issue #291 explicitly supersedes only the prompt-quota rules from issues #193, #259, #265, and #271. Their prompt-size ceilings, measured-plus-margin constants, plugin/builtin `byteBound` declarations, worker-header bound, exceeded-bound failure paths, and legacy project-`byteBound` compatibility no longer constrain current behavior. Their unrelated workflow, controller, rendering, provenance, and project-snippet capabilities remain required.
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #291 | 2026-08-27 | Initial defect report |
+| #291 | 2026-08-28 | Extended to remove all prompt-size ceilings and supersede historical quota rules from #193, #259, #265, and #271 |

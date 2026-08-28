@@ -16,13 +16,13 @@ Managed modules (do not rewrite): `steering/modules/{product,tech,structure,veri
 
 Registered snippets:
 
-| id | path | consumers | slot | order | live bytes | bound |
-|----|------|-----------|------|-------|------------|-------|
-| `project.product` | `steering/snippets/project-product.md` | `sdlc-draft-issue`, `sdlc-write-spec` | `body` | 500 | 9934 | 9900 |
-| `project.tech` | `steering/snippets/project-tech.md` | `sdlc-write-spec`, `worker:implement`, `worker:verify`, `worker:deliver` | `body` | 500 | 16648 | 16614 |
-| `project.structure` | `steering/snippets/project-structure.md` | `sdlc-write-spec`, `worker:implement`, `worker:verify` | `body` | 500 | 8691 | 8657 |
+| id | path | consumers | slot | order |
+|----|------|-----------|------|-------|
+| `project.product` | `steering/snippets/project-product.md` | `sdlc-draft-issue`, `sdlc-write-spec` | `body` | 500 |
+| `project.tech` | `steering/snippets/project-tech.md` | `sdlc-write-spec`, `worker:implement`, `worker:verify`, `worker:deliver` | `body` | 500 |
+| `project.structure` | `steering/snippets/project-structure.md` | `sdlc-write-spec`, `worker:implement`, `worker:verify` | `body` | 500 |
 
-All three snippets currently exceed their `byteBound`. `renderPrompt` throws `byte_bound_exceeded` if those consumers render.
+Project snippets and plugin fragments are unbounded. Prompt provenance may record observed byte counts, but prompt length never rejects a structurally valid render.
 
 Extensions: none.
 
@@ -44,9 +44,9 @@ Cwd: `/Volumes/Fast Brick/source/repos/nmg-sdlc`.
 
 That plan is `schemaVersion` 1, `mode` `update`, `sourceDigest` as above, five writes, no deletes:
 
-- `steering/snippets/project-product.md` — drop empty future Should Have; promote shipped items (`/sdlc-run-retro`, digest-bound upgrade, contribution gate/issue form, historical spec reconciliation) into Must Have; add Must Have + success metric for live smoke against `Nunley-Media-Group/nmg-sdlc-smoke`. Consumers stay `sdlc-draft-issue`, `sdlc-write-spec`. `byteBound` `10527`.
-- `steering/snippets/project-tech.md` — delete the stale `3.1.0` pin; replace it with “Never pin a live version number in this snippet.” Remove the v3-landing skill-creator exemption. Add testing-layer + verification-gate + evidence-boundary rows for `repository.nmg-sdlc-smoke`. State that the smoke clone is read-only (no issues/branches/PRs/comments). Clone/`omp`/network failure is `Incomplete`; completed exercise without `/sdlc-` `nextAction.command` is `Fail`. Consumers stay `sdlc-write-spec`, `worker:implement`, `worker:verify`, `worker:deliver`. `byteBound` `17841`.
-- `steering/snippets/project-structure.md` — layout lists `src/sdlc-*.mjs`, `CONTRIBUTING.md`, and `steering/{manifest.json,modules,snippets,extensions}`. Note retro files are unregistered. Remove the v3-landing hand-edit exemption. Add runtime-library and `steering/extensions/*.mjs` rows. Consumers stay `sdlc-write-spec`, `worker:implement`, `worker:verify`. `byteBound` `9959`.
+- `steering/snippets/project-product.md` — drop empty future Should Have; promote shipped items (`/sdlc-run-retro`, digest-bound upgrade, contribution gate/issue form, historical spec reconciliation) into Must Have; add Must Have + success metric for live smoke against `Nunley-Media-Group/nmg-sdlc-smoke`. Consumers stay `sdlc-draft-issue`, `sdlc-write-spec`.
+- `steering/snippets/project-tech.md` — delete the stale `3.1.0` pin; replace it with “Never pin a live version number in this snippet.” Remove the v3-landing skill-creator exemption. Add testing-layer + verification-gate + evidence-boundary rows for `repository.nmg-sdlc-smoke`. State that the smoke clone is read-only (no issues/branches/PRs/comments). Clone/`omp`/network failure is `Incomplete`; completed exercise without `/sdlc-` `nextAction.command` is `Fail`. Consumers stay `sdlc-write-spec`, `worker:implement`, `worker:verify`, `worker:deliver`.
+- `steering/snippets/project-structure.md` — layout lists `src/sdlc-*.mjs`, `CONTRIBUTING.md`, and `steering/{manifest.json,modules,snippets,extensions}`. Note retro files are unregistered. Remove the v3-landing hand-edit exemption. Add runtime-library and `steering/extensions/*.mjs` rows. Consumers stay `sdlc-write-spec`, `worker:implement`, `worker:verify`.
 - `steering/extensions/nmg-sdlc-smoke.mjs` — frozen export `extension` with `schemaVersion` 1, `id` `"project.nmg-sdlc-smoke"`, provider `project.nmg-sdlc-smoke`. Provider `runSmoke(request)`:
   - `git clone --depth 1 --single-branch https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` into `mkdtempSync(join(tmpdir(), "nmg-sdlc-smoke-"))`.
   - On clone error/nonzero: `incomplete`, evidence kind `command`.

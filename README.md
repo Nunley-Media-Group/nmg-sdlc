@@ -75,7 +75,7 @@ The command is interactive and TUI-only. It enters native `/plan`, inspects the 
 `steering/manifest.json` is the only registration authority:
 
 - `steering/modules/{product,tech,structure,verification}.mjs` are the four plugin-managed runtime descriptors.
-- `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, order, and byte bounds.
+- `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, and order. Prompt composition has no byte ceiling; unknown snippet keys, including obsolete `byteBound`, fail closed while provenance and structural validation remain enforced.
 - `steering/extensions/*.mjs` are explicitly trusted project providers.
 - `validations[]` registers deterministic required or optional gates and their closed applicability conditions. Canonical descriptors omit `timeoutMs`; missing means no deadline.
 

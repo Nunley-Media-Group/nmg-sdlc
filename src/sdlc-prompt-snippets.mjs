@@ -53,7 +53,6 @@ const FRAGMENT_KEYS = new Set([
   "consumers",
   "slot",
   "order",
-  "byteBound",
   "body",
 ]);
 const REQUIRED_FRAGMENT_KEYS = [
@@ -83,7 +82,6 @@ function validateFragmentShape(fragment) {
   if (!Array.isArray(fragment.consumers) || fragment.consumers.length === 0) fail("unknown_key");
   if (Object.hasOwn(fragment, "body") && typeof fragment.body !== "string") fail("unknown_key");
   if (!Number.isFinite(fragment.order)) fail("unknown_key");
-  if (Object.hasOwn(fragment, "byteBound") && (!Number.isInteger(fragment.byteBound) || fragment.byteBound <= 0)) fail("unknown_key");
 }
 
 function loadFileBody(source, packageRoot) {
@@ -129,7 +127,6 @@ export function registerPromptSnippet(
     ? String(fragment.body ?? "")
     : loadFileBody(fragment.source, packageRoot);
   if (body.length === 0) fail("empty_body");
-  if (Number.isInteger(fragment.byteBound) && renderedPromptBytes(body) > fragment.byteBound) fail("byte_bound_exceeded");
 
   registry.byId.set(fragment.id, Object.freeze({ ...fragment, body }));
   return registry;
@@ -157,7 +154,6 @@ export function renderPrompt(registry, { consumer, vars = {} } = {}) {
     if (PLACEHOLDER_RE.test(text)) fail("unknown_placeholder");
     PLACEHOLDER_RE.lastIndex = 0;
     const byteCount = renderedPromptBytes(text);
-    if (Number.isInteger(fragment.byteBound) && byteCount > fragment.byteBound) fail("byte_bound_exceeded");
     provenanceFragments.push({
       id: fragment.id,
       provider: fragment.provider,
@@ -206,30 +202,29 @@ const WORKER_HEADER = [
 ].join("\n");
 
 const CATALOG = [
-  ["plugin.workflow.draft-issue", "workflows/draft-issue/WORKFLOW.md", ["sdlc-draft-issue"], "body", 100, 5257],
-  ["plugin.workflow.write-spec", "workflows/write-spec/WORKFLOW.md", ["sdlc-write-spec"], "body", 100, 9190],
-  ["plugin.workflow.onboard-project", "workflows/onboard-project/WORKFLOW.md", ["sdlc-onboard-project"], "body", 100, 4096],
-  ["plugin.workflow.upgrade-project", "workflows/upgrade-project/WORKFLOW.md", ["sdlc-upgrade-project"], "body", 100, 6144],
-  ["plugin.workflow.steering", "workflows/steering/WORKFLOW.md", ["sdlc-steering"], "body", 100, 4096],
-  ["plugin.workflow.run-retro", "workflows/run-retro/WORKFLOW.md", ["sdlc-run-retro"], "body", 100, 1192],
-  ["plugin.workflow.execute", "workflows/execute/WORKFLOW.md", ["sdlc-execute"], "body", 100, 1527],
-  ["plugin.workflow.status", "workflows/status/WORKFLOW.md", ["sdlc-status"], "body", 100, 713],
-  ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100, 5190],
-  ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100, 4573],
-  ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100, 1163],
-  ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100, 5282],
-  ["plugin.workflow.review-main", "workflows/review-main/WORKFLOW.md", ["worker:review1", "worker:review2"], "body", 100, 1114],
-  ["plugin.workflow.apply-review", "workflows/apply-review/WORKFLOW.md", ["worker:fix1", "worker:fix2"], "body", 100, 693],
-  ["plugin.workflow.simplify", "workflows/simplify/WORKFLOW.md", ["worker:implement"], "extra", 200, 1000],
-  ["plugin.execute.selection", "workflows/execute/references/selection.md", ["sdlc-execute"], "extra", 200, 1706],
-].map(([id, source, consumers, slot, order, byteBound]) => Object.freeze({
+  ["plugin.workflow.draft-issue", "workflows/draft-issue/WORKFLOW.md", ["sdlc-draft-issue"], "body", 100],
+  ["plugin.workflow.write-spec", "workflows/write-spec/WORKFLOW.md", ["sdlc-write-spec"], "body", 100],
+  ["plugin.workflow.onboard-project", "workflows/onboard-project/WORKFLOW.md", ["sdlc-onboard-project"], "body", 100],
+  ["plugin.workflow.upgrade-project", "workflows/upgrade-project/WORKFLOW.md", ["sdlc-upgrade-project"], "body", 100],
+  ["plugin.workflow.steering", "workflows/steering/WORKFLOW.md", ["sdlc-steering"], "body", 100],
+  ["plugin.workflow.run-retro", "workflows/run-retro/WORKFLOW.md", ["sdlc-run-retro"], "body", 100],
+  ["plugin.workflow.execute", "workflows/execute/WORKFLOW.md", ["sdlc-execute"], "body", 100],
+  ["plugin.workflow.status", "workflows/status/WORKFLOW.md", ["sdlc-status"], "body", 100],
+  ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100],
+  ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100],
+  ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100],
+  ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100],
+  ["plugin.workflow.review-main", "workflows/review-main/WORKFLOW.md", ["worker:review1", "worker:review2"], "body", 100],
+  ["plugin.workflow.apply-review", "workflows/apply-review/WORKFLOW.md", ["worker:fix1", "worker:fix2"], "body", 100],
+  ["plugin.workflow.simplify", "workflows/simplify/WORKFLOW.md", ["worker:implement"], "extra", 200],
+  ["plugin.execute.selection", "workflows/execute/references/selection.md", ["sdlc-execute"], "extra", 200],
+].map(([id, source, consumers, slot, order]) => Object.freeze({
   id,
   provider: "plugin",
   source,
   consumers: Object.freeze(consumers),
   slot,
   order,
-  byteBound,
 }));
 
 CATALOG.push(Object.freeze({
@@ -239,7 +234,6 @@ CATALOG.push(Object.freeze({
   consumers: WORKER_CONSUMERS,
   slot: "header",
   order: 0,
-  byteBound: 640,
   body: WORKER_HEADER,
 }));
 Object.freeze(CATALOG);

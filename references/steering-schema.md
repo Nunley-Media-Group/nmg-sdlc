@@ -22,7 +22,7 @@ The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `mod
 
 - `managedFiles[]`: `{ path, template, sha256 }` for exactly the four module copies.
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
-- `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, and hashes use the shared renderer. A leftover project-manifest `byteBound` is accepted and ignored for compatibility; project fragments are not size-capped. Plugin catalog fragments still declare and enforce registry `byteBound` values.
+- `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, hashes, provider identity, source confinement, and non-empty bodies use the shared renderer. Prompt composition has no byte ceiling. `byteBound` is not part of the manifest or fragment schema and fails as an unknown key; there is no legacy compatibility or enforcement path.
 - `extensions[]`: `{ id, path, providers }`. The module exports one frozen `extension` descriptor whose id and provider keys exactly match.
 - `validations[]`: `{ id, provider, required, when, config }`. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
 

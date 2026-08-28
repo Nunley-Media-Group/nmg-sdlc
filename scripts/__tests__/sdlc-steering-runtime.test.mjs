@@ -44,7 +44,7 @@ describe('managed steering runtime', () => {
     }));
   });
 
-  it('writes and renders project snippets without byteBound', async () => {
+  it('writes and renders the canonical project snippet schema', async () => {
     const root = fixture();
     await applySteeringPlan(root, plan(root));
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'steering', 'manifest.json'), 'utf8'));
@@ -52,14 +52,14 @@ describe('managed steering runtime', () => {
 
     const runtime = await loadSteeringRuntime(root);
     const [fragment] = projectPromptFragments(runtime);
-    expect(Object.hasOwn(fragment, 'byteBound')).toBe(false);
+    expect(Object.keys(fragment).sort()).toEqual(['body', 'consumers', 'id', 'order', 'provider', 'slot', 'source']);
     expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
       consumer: 'worker:implement',
       vars: { step: 'implement', issue: '42', controllerRunId: 'run-42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
     }).text).toContain('Use focused tests.');
   });
 
-  it('ignores leftover project byteBound values', async () => {
+  it('rejects leftover project byteBound values as unknown keys', async () => {
     const root = fixture();
     await applySteeringPlan(root, plan(root));
     const manifestPath = path.join(root, 'steering', 'manifest.json');
@@ -67,13 +67,9 @@ describe('managed steering runtime', () => {
     manifest.snippets[0].byteBound = 1;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const runtime = await loadSteeringRuntime(root);
-    expect(runtime.snippets[0]).not.toHaveProperty('byteBound');
-    expect(projectPromptFragments(runtime)[0]).not.toHaveProperty('byteBound');
-    expect(renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root }), {
-      consumer: 'worker:implement',
-      vars: { step: 'implement', issue: '42', controllerRunId: 'run-42', handoffPath: '.omp/sdlc/handoffs/42-implement.json' },
-    }).text).toContain('Use focused tests.');
+    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({
+      reasonCode: 'steering_manifest_unknown_key',
+    });
   });
 
   it('rejects stale plans before mutating live steering', async () => {

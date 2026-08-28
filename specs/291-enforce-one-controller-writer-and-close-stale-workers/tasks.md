@@ -16,6 +16,7 @@
 | T002 | Bind worker ownership and close owned panes | [ ] |
 | T003 | Add coordination and cleanup regressions | [ ] |
 | T004 | Verify controller suites and public contracts | [ ] |
+| T005 | Remove all prompt-size ceiling contracts | [ ] |
 
 ---
 
@@ -59,13 +60,26 @@
 
 ### T004: Verify No Regressions
 
-**File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, workflow contract suites
+**File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, workflow and prompt contract suites
 **Type**: Verify (no file changes)
-**Depends**: T003
+**Depends**: T003, T005
 **Acceptance**:
-- [ ] Focused execute, delivery, verification, prompt/workflow contract suites exit 0
+- [ ] Focused execute, delivery, verification, prompt registry/rendering, and workflow contract suites exit 0
 - [ ] Multi-issue, remediation, retained-worker resume, passed-handoff close, and standalone verify/deliver fixtures still pass
-- [ ] `node scripts/verify-current-specs.mjs` and `git diff --check` exit 0
+- [ ] `node scripts/verify-current-specs.mjs`, the full repository test command, and `git diff --check` exit 0
+
+### T005: Remove All Prompt-Size Ceiling Contracts
+
+**File(s)**: `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs`, `scripts/__tests__/rendered-prompt-contract.test.mjs`, `scripts/__tests__/sdlc-prompt-snippets.test.mjs`, `scripts/__tests__/sdlc-steering-runtime.test.mjs`, `references/steering-schema.md`, `README.md`, `CHANGELOG.md`
+**Type**: Modify
+**Depends**: None
+**Acceptance**:
+- [ ] Delete automated-body and worker-prompt ceiling constants and every UTF-8 size assertion
+- [ ] Delete plugin and builtin fragment `byteBound` declarations, the worker-header bound, and registration/render exceeded-bound checks
+- [ ] Reject `byteBound` as an unknown fragment or project-manifest key; do not accept, ignore, strip, alias, or enforce it
+- [ ] Preserve non-size structural validation, prompt provenance byte counts, placeholder expansion, deterministic ordering, hashes, provider/consumer/slot rules, source-path confinement, and non-empty bodies
+- [ ] Preserve every #291 controller lease, worker ownership, and cleanup path
+- [ ] Record explicit supersession of prompt-quota rules from #193, #259, #265, and #271
 
 ---
 

@@ -34,7 +34,6 @@ function builtin(overrides = {}) {
     consumers: ['sdlc-write-spec'],
     slot: 'body',
     order: 100,
-    byteBound: 1024,
     body: 'body',
     ...overrides,
   };
@@ -83,6 +82,7 @@ describe('prompt snippet registry', () => {
     expect(fragments.filter(({ source }) => !source.startsWith('builtin:'))
       .every(({ source }) => source.startsWith('workflows/'))).toBe(true);
     expect(defaultPromptRegistry(repoRoot).byId.size).toBe(17);
+    expect(fragments.every((fragment) => !Object.hasOwn(fragment, 'byteBound'))).toBe(true);
   });
 
   it('renders existing workflow text and the exact worker header', () => {
@@ -176,6 +176,18 @@ describe('prompt snippet registry', () => {
     expect(renderPrompt(registry, { consumer: 'worker:implement' }).text).toBe(body);
   });
 
+  it('registers and renders plugin fragments without a size ceiling', () => {
+    const registry = createPromptSnippetRegistry();
+    const body = `prefix ${'x'.repeat(100_000)} {{value}}`;
+    registerPromptSnippet(registry, builtin({ body }));
+    const rendered = renderPrompt(registry, {
+      consumer: 'sdlc-write-spec',
+      vars: { value: 'expanded' },
+    });
+    expect(rendered.text).toBe(body.replace('{{value}}', 'expanded'));
+    expect(rendered.provenance.byteCount).toBe(Buffer.byteLength(rendered.text));
+  });
+
   it('renders repair commands from plugin prompts when project steering is invalid', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-invalid-steering-'));
     fs.mkdirSync(path.join(projectRoot, 'steering'), { recursive: true });
@@ -249,7 +261,7 @@ describe('prompt snippet registry', () => {
       createPromptSnippetRegistry(), { ...builtin(), extra: true },
     ));
     expectReason('unknown_key', () => registerPromptSnippet(
-      createPromptSnippetRegistry(), { ...builtin(), byteBound: 0 },
+      createPromptSnippetRegistry(), { ...builtin(), byteBound: 1 },
     ));
     expectReason('empty_body', () => registerPromptSnippet(
       createPromptSnippetRegistry(), builtin({ body: '' }),
@@ -257,9 +269,6 @@ describe('prompt snippet registry', () => {
     expectReason('empty_body', () => renderPrompt(createPromptSnippetRegistry(), {
       consumer: 'sdlc-write-spec',
     }));
-    expectReason('byte_bound_exceeded', () => registerPromptSnippet(
-      createPromptSnippetRegistry(), builtin({ byteBound: 1 }),
-    ));
 
     const placeholderRegistry = createPromptSnippetRegistry();
     registerPromptSnippet(placeholderRegistry, builtin({ body: '{{unknown}}' }));
