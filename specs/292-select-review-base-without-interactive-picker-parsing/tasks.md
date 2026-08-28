@@ -15,7 +15,7 @@
 | T001 | Resolve and start reviews without picker parsing | [ ] |
 | T002 | Replace picker tests with deterministic ref coverage | [ ] |
 | T003 | Verify review lifecycle and prompt contracts | [ ] |
-| T004 | Accept waited review completion exactly once | [ ] |
+| T004 | Wait for handoff after direct review submission | [ ] |
 | T005 | Make review completion handoff-driven in one sibling prompt | [ ] |
 
 ---
@@ -28,9 +28,9 @@
 **Acceptance**:
 - [ ] Exact `refs/heads/<default>` is preferred; exact `refs/remotes/origin/<default>` is accepted when local is absent
 - [ ] Missing both refs returns `review_failed` without guessing or submitting a review
-- [ ] New, retained, and remediation review paths submit the existing review request directly against the resolved ref
+- [ ] New, retained, and remediation review paths submit one resolved-base prompt that performs host review plus artifact and handoff finalization
 - [ ] Production code no longer submits `/review`, parses review picker text, lists picker candidates, or sends picker navigation keys
-- [ ] Review settlement, review-main persistence, and handoff validation remain unchanged
+- [ ] Review completion is handoff-driven without idle or working-state detection
 - [ ] Resolve and follow `skill://skill-creator` before editing `workflows/review-main/WORKFLOW.md`; update README wording
 
 ### T002: Add Regression Coverage
@@ -44,7 +44,7 @@
 - [ ] Narrow-width/long-name presentation cannot affect selection because no rendered picker is read
 - [ ] Missing local and remote default refs fails `review_failed` before review submission
 - [ ] Retained and remediation reviews use the same deterministic helper and still wait for handoff
-- [ ] Every `@regression` scenario maps to a Jest case
+- [ ] Every `@regression` scenario for behavior implemented by T001 and T002 maps to a Jest case; lifecycle scenarios introduced by T004 and T005 are covered by those tasks
 
 ### T003: Verify No Regressions
 
@@ -56,19 +56,19 @@
 - [ ] Review1, fix1, review2, fix2, retained-review, and remediation fixtures still pass
 - [ ] `node scripts/verify-current-specs.mjs` and `git diff --check` exit 0
 
-### T004: Correct Direct Review Settlement
+### T004: Wait for Handoff After Direct Review Submission
 
 **File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify
 **Depends**: T002
 **Acceptance**:
-- [ ] A successful direct `agentPrompt --wait` result returns success without `waitForWorkerSettlement`
-- [ ] Only `agent_prompt_stalled` may inspect the pasted request or visible-working state
-- [ ] Exact pasted-request recovery submits one Enter and never resends the review
-- [ ] Visibly working stall recovery observes `working` and settlement with existing bounded Herdr waits
+- [ ] A successful direct `agentPrompt --wait` result confirms prompt submission, but review completion still requires a validated artifact-backed handoff
+- [ ] Only `agent_prompt_stalled` may inspect the pasted request; no path inspects visible idle or working state
+- [ ] Exact pasted-request recovery submits one Enter, never resends the review, and then waits for the handoff
+- [ ] A stalled prompt without a handoff remains open while the exact owned worker exists and uses bounded observation for handoff creation or confirmed worker disappearance
 - [ ] A non-stall prompt failure returns `review_failed` without recovery waits or send-keys
 - [ ] New, retained, and remediation paths retain deterministic base resolution, controller ownership, handoff validation, and pane cleanup
-- [ ] Jest regressions cover settled success, stalled-but-visibly-working recovery, and true failure
+- [ ] Jest regressions cover accepted submission awaiting handoff, exact pasted-request recovery, and true failure
 
 ### T005: Remove State-Detection Review Completion
 

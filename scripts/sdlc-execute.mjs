@@ -1477,7 +1477,7 @@ export function runExecute({
     const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
     while (true) {
       const agentName = remAgentName(issue, step);
-      let paneId;
+      let paneId = remLive?.pane_id ?? remLive?.paneId;
       let state;
       let prompt;
       const reviewStep = step === 'review1' || step === 'review2';
@@ -1485,7 +1485,7 @@ export function runExecute({
       let reviewHandoffResult = null;
       if (reviewStep && !reviewBase) {
         return stop({
-          issue, step, paneId: 'none', agentName, reasonCode: 'review_failed',
+          issue, step, paneId: paneId ?? 'none', agentName, reasonCode: 'review_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
@@ -1506,7 +1506,7 @@ export function runExecute({
       }
 
       if (remLive) {
-        paneId = remLive.pane_id ?? remLive.paneId ?? 'unknown';
+        paneId ??= 'unknown';
         if (paneId === 'unknown') {
           return stop({
             issue, step, paneId, agentName, reasonCode: 'unknown_pane',
@@ -2478,10 +2478,13 @@ function runCli(argv = process.argv.slice(2)) {
         process.exit(2);
       }
       try {
+        const reviewStep = failedStep === 'review1' || failedStep === 'review2';
+        const reviewBase = reviewStep ? resolveReviewBase(process.cwd(), defaultRun) : null;
         process.stdout.write(`${remediationPrompt({
           issue,
           failedStep,
           cwd: process.cwd(),
+          reviewBase,
         })}\n`);
         process.exit(0);
       } catch (error) {

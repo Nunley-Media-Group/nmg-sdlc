@@ -707,6 +707,42 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(rejected.stderr.trim()).toBe('Usage: node sdlc-execute.mjs worker-prompt --step rem --issue N --failed-step <implement|review1|fix1|review2|fix2|verify|deliver>');
   });
 
+  it('worker-prompt CLI resolves the review base for review remediation', () => {
+    const root = makeSpecDir();
+    seedRun(root, {
+      remediation: {
+        issue: 42,
+        step: 'review1',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'review_failed',
+        summary: 'review failed',
+        artifacts: [],
+        closedWorker: { name: 's42-review1', paneId: 'pane-3' },
+      },
+    });
+    execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+    execFileSync('git', ['commit', '--allow-empty', '-m', 'test'], { cwd: root, stdio: 'ignore' });
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/usr/bin/env node\nprocess.stdout.write("main\\n");\n');
+    fs.chmodSync(path.join(bin, 'gh'), 0o755);
+
+    const result = spawnSync(process.execPath, [
+      SCRIPT, 'worker-prompt', '--step', 'rem', '--issue', '42', '--failed-step', 'review1',
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('exact base `main`');
+    expect(result.stdout).toContain('You are remediating issue #42 step review1');
+  });
+
 
   it('write-run CLI persists run state with an expected revision', () => {
     const root = makeSpecDir();
@@ -1849,6 +1885,63 @@ describe('runExecute controller', () => {
     expect(fixture.starts.some(({ name }) => name === 's42-verify' || name === 'r42-verify')).toBe(false);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-deliver']);
     expect(fixture.closed).toContain('live-rem');
+  });
+
+  it('closes a live review remediation worker when the review base is missing', () => {
+    const fixture = makeControllerFixture({
+      localDefaultRef: false,
+      remoteDefaultRef: false,
+    });
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
+      remediation: {
+        issue: 42,
+        step: 'review1',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'review_failed',
+        summary: 'review failed',
+        artifacts: [],
+        closedWorker: { name: 's42-review1', paneId: 'closed-review' },
+        remWorker: { name: 'r42-review1', paneId: 'live-rem' },
+        history: [],
+      },
+      workers: {
+        'r42-review1': {
+          name: 'r42-review1',
+          paneId: 'live-rem',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'review1',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 'r42-review1',
+      pane_id: 'live-rem',
+      state: 'working',
+    }];
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toContain('live-rem');
+    expect(fixture.starts).toEqual([]);
   });
 
   it('submits a pasted prompt when resuming an idle remediation worker', () => {
