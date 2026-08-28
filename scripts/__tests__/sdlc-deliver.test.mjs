@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 import { enrichMissingCheckEvents, parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
 import { validateHandoff } from '../sdlc-execute.mjs';
+import {
+  acquireControllerLease,
+  releaseControllerLease,
+} from '../sdlc-controller-lease.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-deliver.mjs');
 const H1 = '1'.repeat(40);
@@ -334,12 +338,60 @@ afterEach(() => { while (roots.length) fs.rmSync(roots.pop(), { recursive: true,
 describe('sdlc delivery controller', () => {
   test('parses only supported CLI forms and invalid CLI has no handoff', () => {
     expect(parseDeliverCli(['--issue', '#42'])).toEqual({ issue: 42, remediationResult: null });
-    expect(parseDeliverCli(['--issue', '42', '--remediation-result', 'human_review'])).toEqual({ issue: 42, remediationResult: 'human_review' });
+    expect(parseDeliverCli([
+      '--issue', '42', '--controller-run-id', 'run-42', '--remediation-result', 'human_review',
+    ])).toEqual({
+      issue: 42,
+      controllerRunId: 'run-42',
+      remediationResult: 'human_review',
+    });
     const root = makeRoot(); roots.push(root);
     const result = spawnSync(process.execPath, [SCRIPT, '--issue', 'nope'], { cwd: root, encoding: 'utf8' });
     expect(result.status).toBe(2);
-    expect(result.stderr.trim()).toBe('Usage: node scripts/sdlc-deliver.mjs --issue N [--remediation-result human_review]');
+    expect(result.stderr.trim()).toBe('Usage: node scripts/sdlc-deliver.mjs --issue N [--controller-run-id R] [--remediation-result human_review]');
     expect(fs.existsSync(path.join(root, '.omp/sdlc/handoffs'))).toBe(false);
+  });
+
+  test('rejects an unscoped delivery helper without changing protected artifacts', () => {
+    const f = fixture();
+    roots.push(f.root);
+    const lease = acquireControllerLease({
+      projectRoot: f.root,
+      runId: 'execute-run',
+      controllerPaneId: 'execute-pane',
+    });
+    const version = fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8');
+    const changelog = fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
+    const callCount = f.calls.length;
+
+    const rejected = runDeliver({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(rejected).toMatchObject({
+      status: 1,
+      stderr: 'controller_lease_held\n',
+      handoff: null,
+    });
+    expect(f.calls).toHaveLength(callCount);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe(version);
+    expect(fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8')).toBe(changelog);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
+
+    const scoped = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(scoped.status).toBe(0);
+    expect(releaseControllerLease(lease)).toBe(true);
   });
 
   test('does not treat the exact self-referential issue body as a breaking declaration', () => {

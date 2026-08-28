@@ -15,7 +15,7 @@
 
 Finally, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` can start independently in the same checkout. Their controllers have no shared exclusive project lease, so they may write run state, handoffs, verification evidence, branches, commits, or pull requests concurrently.
 
-### Affected Code
+### Pre-Remediation Affected Code
 
 | File | Lines / Symbols | Role |
 |------|-----------------|------|
@@ -25,6 +25,9 @@ Finally, `/sdlc-execute`, `/sdlc-verify-code`, and `/sdlc-open-pr` can start ind
 | `workflows/execute/WORKFLOW.md` | Execution argument contract | Documents issue tokens only |
 | `workflows/open-pr/WORKFLOW.md`, `workflows/verify-code/WORKFLOW.md` | Controller command invocation | Must pass execute-scoped run identity when present |
 | `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Controller fixtures | Cover current prefix reuse and left-open behavior |
+| `src/sdlc-prompt-snippets.mjs`, `src/sdlc-steering-runtime.mjs` | Fragment schema, catalog, registration, and rendering | Before AC4, enforced plugin/builtin `byteBound` values and accepted legacy project bounds; the current schema is unbounded and rejects that key as unknown |
+| `scripts/__tests__/rendered-prompt-bytes.test.mjs` | Historical automated-body and worker-prompt quota suite | Removed and replaced by quota-free `rendered-prompt-contract.test.mjs` structural coverage |
+| `references/steering-schema.md` | Current prompt-fragment contract | Declares unbounded prompt composition, rejects obsolete `byteBound` keys, and retains structural validation and provenance |
 
 ### Triggering Conditions
 
@@ -47,6 +50,10 @@ Extend the issue #290 checkpoint with mutable `workers`, keyed by exact worker n
 
 `stopResult` receives the worker ownership registry and `retainWorker` option. Default terminal stops close a matching controller-owned pane before persisting the final failure. `--retain-worker` keeps it open and refreshes its branch/head record before persisting. The CLI installs cancellation cleanup that closes every still-recorded owned pane unless retention was requested, leaves unrelated panes untouched, releases its lease, and preserves conventional signal exit status. Pane-close failure remains fail-closed and is reported without closing a different pane.
 
+Prompt composition becomes unbounded. Delete automated-body and worker-prompt ceiling constants and their size assertions while retaining the same structural prompt tests. Remove `byteBound` from the fragment schema, plugin catalog tuples, builtin worker header, registration checks, and post-substitution rendering checks. Project manifests use the existing canonical schema `{ id, path, consumers, slot, order }`; a leftover `byteBound` is now an unknown key and fails closed rather than being accepted and stripped. Provenance byte counts remain observational metadata, not quotas.
+
+This is a clean cutover. No compatibility alias, optional bound, ignored-bound normalization, quota error, or alternate bounded renderer remains. It explicitly supersedes the prompt-quota portions of issues #193, #259, #265, and #271 while preserving all unrelated controller lifecycle, snippet ordering, placeholder, provider, consumer, slot, source-path, hash, provenance, and non-empty-body contracts.
+
 ### Interface Contracts
 
 | Interface | Contract |
@@ -67,12 +74,17 @@ Extend the issue #290 checkpoint with mutable `workers`, keyed by exact worker n
 | `workflows/execute/WORKFLOW.md`, `workflows/open-pr/WORKFLOW.md`, `workflows/verify-code/WORKFLOW.md` | Carry the new retain and scoped-run contracts | Keeps executable workflow prompts aligned |
 | `README.md` | Document `--retain-worker`, default cleanup, and exclusive writer behavior | User-visible command behavior changed |
 | `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, applicable verification tests | Add lease, exact ownership, cleanup, and helper-guard regressions | Proves AC1–AC3 |
+| `src/sdlc-prompt-snippets.mjs` | Remove fragment `byteBound` schema, catalog/header declarations, and registration/render enforcement | Makes plugin, builtin, worker, and command prompt composition unbounded |
+| `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs` | Remove legacy bound stripping; require the canonical project snippet key set | Eliminates the compatibility quota path while preserving fail-closed unknown-key validation |
+| `scripts/__tests__/rendered-prompt-contract.test.mjs`, prompt registry/runtime tests | Delete quota constants and size assertions; retain structural contracts and prove `byteBound` is unknown | Covers the clean cutover without weakening prompt validation |
+| `references/steering-schema.md`, `README.md`, `CHANGELOG.md`, active #291 spec | Document unbounded prompt composition and historical supersession | Keeps public and executable contracts aligned |
 
 ### Blast Radius
 
 - **Direct impact**: execute startup/teardown, retained worker reuse, verify and deliver preflight, controller signal handling.
 - **Indirect impact**: remediation panes, multi-issue queues, public phase commands, and tests that seed run checkpoints or Herdr agent lists.
 - **Risk level**: High — cleanup must never close an unrelated pane, and scoped workers must remain able to verify and deliver under the active lease.
+- **Prompt impact**: automated command bodies, worker prompts, plugin fragments, builtin fragments, and project fragments no longer have byte ceilings; malformed structure still fails closed.
 
 ---
 
@@ -85,6 +97,8 @@ Extend the issue #290 checkpoint with mutable `workers`, keyed by exact worker n
 | Lease remains after an ordinary return or handled signal | Low | Single owner `finally` plus idempotent owner-only release and subprocess signal tests |
 | `--retain-worker` leaves metadata too stale to resume | Med | Refresh branch/head before retaining; a later mismatch fails closed instead of guessing |
 | Multi-issue queues reuse an earlier issue worker | Low | Key ownership by exact name and validate issue/step on every lookup |
+| Accidental loss of structural prompt validation | Low | Keep and run registry/rendering tests for providers, consumers, slots, ordering, placeholders, source paths, empty bodies, hashes, provenance, and owned workflow composition |
+| Legacy `byteBound` silently retains quota semantics | Low | Remove it from every accepted schema and assert it fails as an unknown key |
 
 ---
 
@@ -107,4 +121,5 @@ Before moving to TASKS phase:
 - [x] Fix is minimal to controller coordination and owned cleanup
 - [x] Blast radius is assessed
 - [x] Regression risks are documented with mitigations
+- [x] Prompt quota supersession is limited to size ceilings; structural validation and controller lifecycle behavior remain required
 - [x] Fix follows existing project patterns (per `structure.md`)

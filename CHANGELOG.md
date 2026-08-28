@@ -10,6 +10,20 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.5] - 2026-08-28
+
+### Changed
+
+- Remove all automated-body, worker-prompt, plugin-fragment, builtin-fragment, and worker-header prompt-size ceilings; obsolete `byteBound` keys now fail as unknown while structural validation and provenance remain intact (#291).
+
+### Fixed
+
+- Enforce one canonical-project controller lease, exact retained-worker ownership, and default cleanup of controller-owned panes; `--retain-worker` remains the explicit debugging escape (#291).
+
+### Changed
+
+- Enforce one controller writer and close stale workers (#291)
+
 ## [3.18.4] - 2026-08-28
 
 ### Changed

@@ -75,7 +75,7 @@ The command is interactive and TUI-only. It enters native `/plan`, inspects the 
 `steering/manifest.json` is the only registration authority:
 
 - `steering/modules/{product,tech,structure,verification}.mjs` are the four plugin-managed runtime descriptors.
-- `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, order, and byte bounds.
+- `steering/snippets/*.md` are project-owned context files loaded only by their declared consumers, slots, and order. Prompt composition has no byte ceiling; unknown snippet keys, including obsolete `byteBound`, fail closed while provenance and structural validation remain enforced.
 - `steering/extensions/*.mjs` are explicitly trusted project providers.
 - `validations[]` registers deterministic required or optional gates and their closed applicability conditions. Canonical descriptors omit `timeoutMs`; missing means no deadline.
 
@@ -137,7 +137,9 @@ With an issue number, creates or updates its executable spec package under `spec
 /sdlc-execute          # choose from open spec-created issues
 ```
 
-After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code` plus behavior-preserving `simplify`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. Herdr/controller waits remain unbounded while the worker is observable; they end only on success, genuine failure, explicit cancellation, or confirmed process loss. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively—including when OMP wraps long prompts—and never starts `--kind pi` workers or stops Herdr.
+After an approved spec, `/sdlc-execute` drives automated SDLC delivery using Herdr `omp` worker panes for implementation (`write-code` plus behavior-preserving `simplify`), two host `/review` passes against literal `main` with dedicated finding-fix panes, verification, and delivery (`open-pr`). Implementation is conventionally committed and pushed before the first review. One exclusive `.omp/sdlc/controller.lock` lease protects the canonical project; competing execute, verification, or delivery controllers fail before mutation. Herdr/controller waits remain unbounded while the worker is observable; they end only on success, genuine failure, explicit cancellation, or confirmed process loss. Execute submits `/review` directly to each host worker, selects PR-style mode and `main` interactively—including when OMP wraps long prompts—and never starts `--kind pi` workers or stops Herdr.
+
+Owned worker panes close by default on successful completion, cancellation, and terminal non-debug stops. `/sdlc-execute --retain-worker [#N …]` is the explicit debugging escape; retained reuse requires the exact worker name, pane, project, run, issue, step, branch, and head recorded in the checkpoint. Prefix-colliding or identity-mismatched panes remain open and fail closed.
 
 Publishing an approved spec applies the `spec-created` label. Execute accepts comma- or whitespace-separated lists, preserves listed order after deduplication, normalizes OMP-expanded `issue://N` and `pr://N` arguments, and starts only labeled issues. Empty invocation presents the packaged multi-select over open labeled issues; Continue starts selected chips followed by valid Other tokens, while an empty Continue reopens the picker. A failed handoff may route a later resume back to a validated earlier lifecycle gate; execute keeps the current issue and reruns every downstream gate before delivery or later issues.
 
@@ -189,7 +191,7 @@ Manifest validations declare deterministic providers and closed applicability co
 | sdlc-draft-issue             | /sdlc-draft-issue [need]            | Create a groomed GitHub issue with BDD acceptance criteria |
 | sdlc-write-spec              | /sdlc-write-spec [#N]               | Choose an issue missing `spec-created`, or publish the specified `specs/{N}-{slug}/` package |
 | sdlc-steering                | /sdlc-steering [prompt]              | Plan and apply managed steering, snippets, extensions, and validations |
-| sdlc-execute                 | /sdlc-execute [#N …]                | Drive automated delivery through Herdr omp workers to merge + close |
+| sdlc-execute                 | /sdlc-execute [--retain-worker] [#N …] | Drive automated delivery through Herdr omp workers to merge + close |
 | sdlc-status                  | /sdlc-status [--json]               | Report current manual lifecycle state |
 | sdlc-verify-code             | /sdlc-verify-code #N                | Verify an already-implemented branch against the approved spec |
 | sdlc-open-pr                 | /sdlc-open-pr #N                    | Deliver a verified branch through exact-head merge |

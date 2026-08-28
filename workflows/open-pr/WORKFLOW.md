@@ -11,7 +11,7 @@ Run deterministic delivery for issue N. No user questions and no nested worker.
 
 1. Resolve N from `$ARGUMENTS` or the current `N-*` branch.
 2. Keep the immediately preceding remediation packet fingerprint in worker context.
-3. Run `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N`.
+3. Run `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N`. When the worker header provides a non-empty controller run id, append `--controller-run-id R` with that exact value. Omit the option only for standalone delivery.
 4. Route every invocation, including every post-remediation rerun:
    - `0`: validate the controller-written deliver handoff, print its marker, and stop.
    - `1`: preserve the controller-written failed handoff and stop.
@@ -81,7 +81,7 @@ If a request is ambiguous, design-affecting, human-authored, unsafe, outside
 scope, pathless, unchanged after the attempted fix, or repeated unchanged, run:
 
 ```bash
-node <plugin-root>/scripts/sdlc-deliver.mjs --issue N --remediation-result human_review
+node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-deliver.mjs" --issue N [--controller-run-id R] --remediation-result human_review
 ```
 
 Preserve that controller-owned intervention handoff and stop.

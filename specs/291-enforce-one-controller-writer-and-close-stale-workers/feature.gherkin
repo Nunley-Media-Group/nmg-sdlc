@@ -38,3 +38,14 @@ Feature: Enforce one controller writer and close stale workers
     Then it closes that owned pane and releases its lease
     And it keeps the pane open only when retain-worker was explicitly requested
     And unrelated panes remain open
+
+  # --- Prompt Composition Is Unbounded ---
+
+  @SCN004 @regression
+  Scenario: Structurally valid prompts have no byte ceiling
+    Given automated bodies, worker prompts, plugin fragments, builtin fragments, and project fragments are structurally valid
+    When the prompt registry loads and renders them at any UTF-8 byte length
+    Then no automated-body, worker-prompt, fragment, or worker-header size ceiling is enforced
+    And byteBound is rejected as an unknown fragment or manifest key
+    And prompt provenance, placeholders, ordering, hashes, providers, consumers, slots, source paths, and non-empty bodies remain validated
+    And the controller lease, exact worker ownership, and owned-pane cleanup behavior from SCN001 through SCN003 remains unchanged

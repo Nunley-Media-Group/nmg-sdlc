@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +24,10 @@ import {
   runExecute,
   listSpecifiedIssues,
 } from '../sdlc-execute.mjs';
+import {
+  acquireControllerLease,
+  releaseControllerLease,
+} from '../sdlc-controller-lease.mjs';
 import { startIssue } from '../start-issue.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -254,6 +259,16 @@ function makeSpecDir() {
 
 function boundRunData(root, fields = {}) {
   const currentIssue = fields.currentIssue ?? 42;
+  const currentStep = fields.currentStep ?? 'start';
+  const workerName = `s${currentIssue}-${currentStep}`;
+  const defaultPane = {
+    start: 'kept-pane',
+    implement: 'kept-implement-pane',
+    review1: 'kept-review-pane',
+    review2: 'kept-review-pane',
+    verify: 'kept-verify-pane',
+    deliver: 'kept-deliver-pane',
+  }[currentStep] ?? `kept-${currentStep}-pane`;
   return {
     schemaVersion: 1,
     projectRoot: fields.projectRoot ?? fs.realpathSync(root),
@@ -264,9 +279,21 @@ function boundRunData(root, fields = {}) {
     issues: fields.issues ?? [currentIssue],
     revision: fields.revision ?? 1,
     currentIssue,
-    currentStep: 'start',
+    currentStep,
     completed: { [currentIssue]: [] },
     failed: null,
+    workers: currentStep ? {
+      [workerName]: {
+        name: workerName,
+        paneId: fields.workerPaneId ?? defaultPane,
+        projectRoot: fields.projectRoot ?? fs.realpathSync(root),
+        runId: fields.runId ?? 'test-run-id',
+        issue: currentIssue,
+        step: currentStep,
+        branch: fields.workerBranch ?? '42-ship-it',
+        head: fields.workerHead ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    } : {},
     startedAt: '2026-08-27T00:00:00.000Z',
     ...fields,
   };
@@ -299,8 +326,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects comma-only input', () => {
-    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
-    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
+    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
   });
 
   it('parseArgs collects unique numbers in given order', () => {
@@ -308,6 +335,15 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(parseArgs('#12 #12')).toEqual({ issues: [12], defaultBacklog: false });
     expect(parseArgs('#12,#10')).toEqual({ issues: [12, 10], defaultBacklog: false });
     expect(parseArgs('#12, #10')).toEqual({ issues: [12, 10], defaultBacklog: false });
+  });
+
+  it('parseArgs accepts one retain-worker flag among issue tokens', () => {
+    expect(parseArgs('#12 --retain-worker #10')).toEqual({
+      issues: [12, 10],
+      defaultBacklog: false,
+      retainWorker: true,
+    });
+    expect(() => parseArgs('--retain-worker --retain-worker #12')).toThrow(/Usage:/);
   });
 
   it('parseArgs accepts OMP-expanded issue and pull-request tokens', () => {
@@ -406,7 +442,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
-    expect(() => parseArgs('foo')).toThrow(/Usage: \/sdlc-execute \[#N \.\.\.\]/);
+    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
     const twentyOne = Array.from({ length: 21 }, (_, index) => `#${index + 1}`).join(' ');
     expect(() => parseArgs(twentyOne)).toThrow();
   });
@@ -804,6 +840,16 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('sdlc-apply-review.mjs');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
     expect(workerPrompt({ step: 'deliver', issue: 42 })).not.toContain('# Address PR Comments');
+  });
+
+  it('workerPrompt carries the active controller run identity', () => {
+    const prompt = workerPrompt({
+      step: 'verify',
+      issue: 42,
+      controllerRunId: 'run-42',
+    });
+    expect(prompt).toContain('Controller run id: run-42');
+    expect(prompt).toContain('--controller-run-id R');
   });
 
   it('defines remediable steps, names, and failed-handoff predicate exactly', () => {
@@ -1470,14 +1516,42 @@ describe('runExecute controller', () => {
   it('rejects invalid arguments with the stable usage line', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it('rejects a competing execute before changing protected artifacts', () => {
+    const fixture = makeControllerFixture();
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json');
+    fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+    fs.writeFileSync(runPath, 'protected run bytes\n');
+    fs.writeFileSync(handoffPath, 'protected handoff bytes\n');
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'active-run',
+      controllerPaneId: 'active-controller',
+    });
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(runPath, 'utf8')).toBe('protected run bytes\n');
+    expect(fs.readFileSync(handoffPath, 'utf8')).toBe('protected handoff bytes\n');
+    expect(fixture.starts).toEqual([]);
+    expect(releaseControllerLease(lease)).toBe(true);
   });
 
   it('rejects comma-only arguments before controller side effects', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: ', ,', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
     expect(fixture.starts).toHaveLength(0);
   });
@@ -1492,7 +1566,7 @@ describe('runExecute controller', () => {
   it('requires an explicit selection when empty args find specified issues', () => {
     const fixture = makeControllerFixture({ specifiedIssues: [{ number: 42, title: 'Ship It' }] });
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
     expect(fixture.starts).toEqual([]);
   });
 
@@ -1951,7 +2025,7 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
-  it('stops rem on a genuine blocker and leaves the rem pane open', () => {
+  it('closes a blocked remediation pane on terminal stop', () => {
     const fixture = makeControllerFixture({
       remediableFailedStep: 'verify',
       remBlocked: true,
@@ -1962,7 +2036,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
-    expect(fixture.closed).not.toContain('pane-8');
+    expect(fixture.closed).toContain('pane-8');
     expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'stopped' });
     expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify', reasonCode: 'verify_failed' });
   });
@@ -2108,7 +2182,7 @@ describe('runExecute controller', () => {
       const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
       expect(result.status).toBe(1);
       expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
-      expect(fixture.closed).not.toContain(`pane-${VALID_STEPS.indexOf(failedStep) + 1}`);
+      expect(fixture.closed).toContain(`pane-${VALID_STEPS.indexOf(failedStep) + 1}`);
     }
   });
 
@@ -2169,7 +2243,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
-    expect(fixture.closed).not.toContain('pane-8');
+    expect(fixture.closed).toContain('pane-8');
     expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'invalid_handoff' });
     expect(persisted.remediation).toMatchObject({
       issue: 42,
@@ -2284,7 +2358,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).failed).toEqual({
       issue: 42,
       step: 'start',
@@ -2309,11 +2383,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'missing_handoff' });
     expect(fixture.notifications).toEqual([{
       title: 'nmg-sdlc stopped',
-      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.',
+      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.',
       sound: 'request',
     }]);
   });
@@ -2325,11 +2399,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'passed' });
     expect(fixture.notifications).toEqual([{
       title: 'nmg-sdlc stopped',
-      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.',
+      body: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.',
       sound: 'request',
     }]);
   });
@@ -2371,7 +2445,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_prompt_stalled' });
   });
 
@@ -2428,10 +2502,10 @@ describe('runExecute controller', () => {
     const fixture = makeControllerFixture({ failedStep: 'implement' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(1);
-    expect(fixture.closed).toEqual(['pane-1']);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
     expect(fixture.notifications).toEqual([{
       title: 'nmg-sdlc stopped',
-      body: 'Stopped on #42 implement. Worker pane pane-2 agent s42-implement left open.',
+      body: 'Stopped on #42 implement. Worker pane pane-2 agent s42-implement closed.',
       sound: 'request',
     }]);
   });
@@ -2442,9 +2516,67 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
-
     expect(fixture.starts.some(({ name }) => /s42-(fix1|review2|fix2|verify|deliver)/.test(name))).toBe(false);
-    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2', 'pane-3']);
+  });
+
+  it('retains an owned failed worker only when explicitly requested', () => {
+    const fixture = makeControllerFixture({ failedStep: 'start' });
+    const result = runExecute({
+      args: '--retain-worker #42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('retained by request');
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.workers['s42-start']).toMatchObject({
+      name: 's42-start',
+      paneId: 'pane-1',
+      runId: persisted.runId,
+      issue: 42,
+      step: 'start',
+      branch: '42-ship-it',
+      head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    });
+  });
+
+  it('closes owned panes and releases the lease on handled cancellation', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const processApi = new EventEmitter();
+    processApi.exit = (code) => {
+      const error = new Error(`signal_exit_${code}`);
+      throw error;
+    };
+    fixture.herdr.agentPrompt = () => {
+      processApi.emit('SIGINT');
+      return { status: 1 };
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      installSignalHandlers: true,
+      processApi,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('signal_exit_130\n');
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.workers).toEqual({});
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
   });
 
   it('selects visible review mode when prompt wait settles idle', () => {
@@ -2832,9 +2964,9 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
-    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
+    expect(fixture.closed).toEqual(['pane-1', 'pane-2', 'pane-3']);
     expect(fs.existsSync(reviewHandoff)).toBe(false);
-    expect(fixture.notifications.at(-1)?.body).toContain('s42-review1 left open');
+    expect(fixture.notifications.at(-1)?.body).toContain('s42-review1 closed');
   });
 
   it('stops when the branch menu transition is not observed', () => {
@@ -2863,13 +2995,13 @@ describe('runExecute controller', () => {
 
     expect(result).toEqual({
       status: 1,
-      stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start left open.\n',
+      stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.\n',
       stderr: '',
     });
     expect(observations).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
     expect(persisted.remediation).toBeUndefined();
   });
@@ -2979,7 +3111,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(observations).toBe(1);
     expect(fixture.starts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-pane']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
     expect(persisted.remediation).toBeUndefined();
   });
@@ -2994,7 +3126,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
-    expect(fixture.closed).toHaveLength(0);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.completed['42']).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'invalid_handoff' });
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
@@ -3027,7 +3159,7 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_start_failed' });
   });
 
-  it('keeps a new worker pane open when prompt provenance cannot be written', () => {
+  it('closes a new worker pane when prompt provenance cannot be written', () => {
     const fixture = makeControllerFixture();
     const provenancePath = path.join(fixture.cwd, '.omp/sdlc/prompt-provenance');
     fs.mkdirSync(path.dirname(provenancePath), { recursive: true });
@@ -3039,7 +3171,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.prompts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
   });
 
@@ -3067,6 +3199,38 @@ describe('runExecute controller', () => {
     expect(result.stdout).toContain(
       'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
     );
+  });
+
+  it.each([
+    ['missing ownership', (runState) => { runState.workers = {}; }],
+    ['wrong pane', (runState) => { runState.workers['s42-start'].paneId = 'other-pane'; }],
+    ['wrong project', (runState) => { runState.workers['s42-start'].projectRoot = '/other'; }],
+    ['wrong run', (runState) => { runState.workers['s42-start'].runId = 'other-run'; }],
+    ['wrong issue', (runState) => { runState.workers['s42-start'].issue = 99; }],
+    ['wrong step', (runState) => { runState.workers['s42-start'].step = 'verify'; }],
+    ['wrong branch', (runState) => { runState.workers['s42-start'].branch = 'other-branch'; }],
+    ['wrong head', (runState) => { runState.workers['s42-start'].head = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }],
+  ])('rejects a retained worker with %s and leaves its pane open', (_label, mutate) => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'idle' } });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    mutate(runState);
+    fs.writeFileSync(runPath, `${JSON.stringify(runState, null, 2)}\n`);
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
+    expect(fixture.closed).not.toContain('kept-pane');
+    expect(fixture.starts).toEqual([]);
   });
   it('waits for a matching retained working worker and continues the queue', () => {
     const fixture = makeControllerFixture();
@@ -3157,7 +3321,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(persisted.failed).toEqual({ issue: 42, step: 'implement', reasonCode: 'worker_failed' });
     expect(fixture.starts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-implement-pane']);
   });
   it('resamples a stale retained review state before waiting on its complete picker', () => {
     const fixture = makeControllerFixture();
@@ -3273,7 +3437,7 @@ describe('runExecute controller', () => {
     expect(fixture.waits.filter((wait) => wait.name === 's42-review1')).toEqual([]);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.starts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-review-pane']);
   });
 
   it('keeps the unbounded settlement wait for a genuinely working retained review', () => {
@@ -3428,7 +3592,7 @@ describe('runExecute controller', () => {
       expect(fixture.closed[0]).toBe('kept-review-pane');
     } else {
       expect(fixture.sentKeys).not.toContainEqual(['down', 'enter']);
-      expect(fixture.closed).not.toContain('kept-review-pane');
+      expect(fixture.closed).toContain('kept-review-pane');
     }
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review2');
   });
@@ -3612,7 +3776,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.sentKeys).not.toContainEqual(['down', 'enter']);
-    expect(fixture.closed).not.toContain('kept-review-pane');
+    expect(fixture.closed).toContain('kept-review-pane');
     expect(fixture.starts).toEqual([]);
   });
 
@@ -3671,7 +3835,7 @@ describe('runExecute controller', () => {
       { name: 's42-start' },
     ]);
     expect(fixture.starts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-pane']);
   });
   it('fails closed without waiting when a matching retained worker has no pane id', () => {
     const fixture = makeControllerFixture();
@@ -3680,7 +3844,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
     expect(result.status).toBe(1);
-    expect(persisted.failed.reasonCode).toBe('unknown_pane');
+    expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
     expect(fixture.waits).toEqual([]);
     expect(fixture.starts).toEqual([]);
   });
@@ -3734,12 +3898,6 @@ describe('runExecute controller', () => {
     ]);
     expect(stopped.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'implementation_failed' });
 
-    fixture.herdr.listAgents = () => [{
-      name: 's42-verify',
-      pane_id: 'pane-7',
-      state: 'done',
-    }];
-    fixture.herdr.agentGet = () => ({ result: { state: 'done' } });
     const prompt = fixture.herdr.agentPrompt;
     fixture.herdr.agentPrompt = (input) => {
       const result = prompt(input);
@@ -3798,7 +3956,7 @@ describe('runExecute controller', () => {
     ['unknown', 'repair'],
     ['forward', 'deliver'],
     ['missing', null],
-  ])('keeps retained verification open for an %s remediation target', (_label, next) => {
+  ])('closes retained verification for an %s remediation target', (_label, next) => {
     const fixture = makeControllerFixture();
     configureFailedRetainedVerifyWorker(fixture, { next });
 
@@ -3806,7 +3964,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-verify-pane']);
     expect(fixture.starts).toEqual([]);
     expect(persisted.currentStep).toBe('verify');
     expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'verification_failed' });
@@ -3996,7 +4154,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('keeps an active failed verification worker open', () => {
+  it('closes an active failed verification worker', () => {
     const fixture = makeControllerFixture();
     configureFailedRetainedVerifyWorker(fixture, { state: 'working' });
     const runState = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
@@ -4019,11 +4177,11 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(result.stdout).not.toContain('no second worker started');
     expect(result.stdout).toContain(
-      'Stopped on #42 verify. Worker pane kept-verify-pane agent s42-verify left open.',
+      'Stopped on #42 verify. Worker pane kept-verify-pane agent s42-verify closed.',
     );
     expect(persisted.failed.reasonCode).toBe('verification_failed');
     expect(fixture.waits).toContainEqual({ name: 's42-verify' });
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-verify-pane']);
     expect(fixture.starts).toEqual([]);
   });
 
@@ -4074,7 +4232,7 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('kept-pane');
   });
 
-  it('keeps a retained worker pane open when prompt provenance cannot be written', () => {
+  it('closes a retained worker when prompt provenance cannot be written', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
@@ -4086,11 +4244,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-pane']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });
   });
 
-  it('keeps a retained pane open when recovered prompt settlement fails', () => {
+  it('closes a retained pane when recovered prompt settlement fails', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
@@ -4108,7 +4266,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-pane']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'worker_failed' });
   });
 
@@ -4131,7 +4289,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(observations).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['kept-pane']);
     expect(fixture.waits).toEqual([
       { name: 's42-start', until: 'working' },
       { name: 's42-start' },
