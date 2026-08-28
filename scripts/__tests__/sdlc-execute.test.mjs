@@ -627,6 +627,34 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(workerPrompt({ step: 'deliver', issue: 42 })).not.toContain('# Address PR Comments');
   });
 
+  it('workerPrompt materializes every controller from the active package root', () => {
+    const root = makeSpecDir();
+    for (const step of VALID_STEPS) {
+      const prompt = workerPrompt({
+        step,
+        issue: 42,
+        cwd: root,
+        controllerRunId: 'run-42',
+      });
+      const operands = [...prompt.matchAll(
+        /node "([^"\r\n]+[\\/]scripts[\\/][A-Za-z0-9._-]+\.mjs)"/g,
+      )].map((match) => match[1]);
+      expect(operands.length).toBeGreaterThan(0);
+      expect(operands.every((operand) => operand.startsWith(path.join(REPOSITORY_ROOT, 'scripts'))))
+        .toBe(true);
+      expect(prompt).toContain(`nmg-sdlc ${step} worker for #42.`);
+      expect(prompt).toContain(`.omp/sdlc/handoffs/42-${step}.json`);
+      expect(prompt).toContain('Controller run id: run-42');
+      expect(prompt).not.toContain('<plugin-root>');
+      expect(prompt).not.toContain('/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc');
+      const provenance = JSON.parse(fs.readFileSync(
+        path.join(root, '.omp/sdlc/prompt-provenance', `worker-${step}.json`),
+        'utf8',
+      ));
+      expect(provenance.consumer).toBe(`worker:${step}`);
+    }
+  });
+
   it('workerPrompt carries the active controller run identity', () => {
     const prompt = workerPrompt({
       step: 'verify',

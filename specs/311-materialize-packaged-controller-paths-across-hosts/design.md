@@ -1,112 +1,160 @@
-# Root Cause Analysis: Materialize packaged controller paths across hosts
+# Design: Materialize packaged controller paths across hosts
 
 **Issue**: #311
 **Date**: 2026-08-28
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/266-fix-controller-path-rewriting-of-project-commands/
-
 ---
 
-## Root Cause
+## Overview
 
-#252 introduced `materializeControllerPaths` so installed commands resolve plugin controllers independently of consumer cwd. #266 narrowed that helper to explicit ownership: only `<plugin-root>/scripts/<name>.mjs` (shell and quoted-argv) is rewritten; unqualified `node scripts/*.mjs` stays project-local.
+Keep the resolver and its two public materialization APIs. Extend the shared private materialization policy in `scripts/plugin-controller-path.mjs` so explicit controller operands can be recognized in three forms: canonical `<plugin-root>/scripts/<name>.mjs`, a foreign POSIX absolute path whose final segments are `nmg-sdlc/scripts/<name>.mjs`, or a foreign Windows/UNC absolute path with the same final segments. Add `posix` and `win32` to the existing named `node:path` import for foreign-syntax detection; retain the current host `isAbsolute` import for active package-root validation.
 
-Packaged workflow sources later accumulated contributor-host absolute paths of the form `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/<name>.mjs`. `renderAutomatedCommandMarkdown` copies workflow bodies without materializing, so `commands/sdlc-execute.md`, `commands/sdlc-open-pr.md`, `commands/sdlc-verify-code.md`, and `commands/sdlc-status.md` stay byte-identical to those host-specific sources. On a different OS, Node receives the foreign literal path and fails with `MODULE_NOT_FOUND` before the controller starts.
+Every recognized operand is reduced to its controller basename and passed through the existing `resolvePluginController(scriptName, { env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot } })`. The emitted operand remains `JSON.stringify` of the controller under the active package root. This preserves spaces and current-host separators, validates that the shipped controller exists, and keeps `controller_unresolved` behavior in one place.
 
-`materializeControllerPathsWithPolicy` in `scripts/plugin-controller-path.mjs` only matches the two `<plugin-root>` regexes. A foreign absolute source path is not recognized, so it passes through even when `rewriteInteractiveInput` or `workerPrompt` later call `materializeControllerPaths`. The public-surface audit `ships no cwd-relative controller dispatch in public prompt surfaces` only rejects `node scripts/[A-Za-z0-9._-]+\.mjs`, so synchronized host-absolute controller paths are allowed.
+Canonicalize the active workflow sources and regenerate their automated `commands/*.md` artifacts. Do not alter historical specs, verification evidence, repository-local CLI examples, or project-owned paths. The strict and best-effort policies keep their #269 distinction: strict materialization throws for a recognized missing controller; arbitrary extension context preserves an unresolved owned reference.
 
-**Version bump**: patch
+## Steering Alignment
 
-### Affected Code
+- Product steering requires installed `/sdlc-*` commands and Herdr workers to work from consumer projects while preserving worker isolation and exact-head delivery.
+- Technical steering requires Node 20 ESM, `node:path` for cross-platform paths, exact controller ownership, and fail-closed errors.
+- Structure steering keeps deterministic path logic in `scripts/`, workflow sources in `workflows/`, and generated automated commands in `commands/`. Resolve and read `skill://skill-creator` before editing any workflow bundle.
 
-| File | Role |
-|------|------|
-| `scripts/plugin-controller-path.mjs` | `materializeControllerPathsWithPolicy` — canonical-token matcher only |
-| `src/sdlc-commands.mjs` | `rewriteInteractiveInput` / `materializeRuntimeMessages` / `renderAutomatedCommandMarkdown` |
-| `scripts/sdlc-execute.mjs` `workerPrompt` | Materializes worker text against `packageRoot` after `renderPrompt` |
-| `workflows/**/*.md` and `commands/sdlc-*.md` | Packaged sources currently containing `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/` |
-| `scripts/__tests__/extension-commands.test.mjs` | Cwd-relative audit; command/workflow byte-identity |
-| `scripts/__tests__/plugin-controller-path.test.mjs` | Materialization unit coverage |
-| `scripts/__tests__/start-issue-selection-contract.test.mjs` | Currently requires the contributor-host `start-issue.mjs` invocation |
+## Architecture
 
-### Triggering Conditions
+```text
+Active workflow source / generated file command
+  node <plugin-root>/scripts/<name>.mjs <existing argv>
+                |
+                v
+Strict interactive or worker materialization
+  materializeControllerPaths(text, activePackageRoot)
 
-- Packaged prompt text contains an absolute path whose normalized form ends in `/nmg-sdlc/scripts/<name>.mjs`.
-- Runtime materialization does not treat that path as a plugin-owned controller.
-- The current host cannot open the foreign filesystem location.
+Best-effort extension-context materialization
+  materializeAvailableControllerPaths(text, activePackageRoot)
+                |
+                v
+Recognize controller operand
+  canonical token
+  OR POSIX absolute .../nmg-sdlc/scripts/<name>.mjs
+  OR Windows/UNC absolute ...\nmg-sdlc\scripts\<name>.mjs
+                |
+                v
+resolvePluginController(<name>, activePackageRoot)
+  -> JSON-quoted active-root path using current-host separators
 
----
+Anything else
+  -> preserve byte-for-byte
+```
 
-## Fix Strategy
+## Materialization Contract
 
-### Approach
+### Public Interfaces
 
-Keep one resolver (`resolvePluginController`) and one canonical stored token (`<plugin-root>/scripts/<name>.mjs`). Expand `materializeControllerPathsWithPolicy` so recognized foreign absolute plugin-controller paths rewrite to `JSON.stringify(controller)` on the active host, using the same `controllerPath` / `preserveUnresolved` policy as today. Restore host-neutral tokens in packaged `workflows/` and regenerated `commands/`. Extend the existing public-surface audit so host-absolute plugin-controller invocations fail the contract the same way cwd-relative dispatch already does.
+Keep these signatures and every existing caller unchanged:
 
-Do not add a second resolver, env fallback, or cwd `scripts/` lookup.
+```js
+export function materializeControllerPaths(text, pluginRoot)
+export function materializeAvailableControllerPaths(text, pluginRoot)
+```
 
-### Recognition rule (locked)
+Both continue to delegate to `materializeControllerPathsWithPolicy(text, pluginRoot, preserveUnresolved)`. The change is confined to operand recognition and replacement inside that shared policy.
 
-A path identifies a packaged nmg-sdlc controller when all of these hold:
+### Recognized Controller Operands
 
-1. It is absolute POSIX (`/...`) or absolute Windows (`X:\...` or `X:/...`).
-2. After replacing `\` with `/`, it matches `(?:^|/)nmg-sdlc/scripts/([A-Za-z0-9._-]+\.mjs)$`.
-3. The captured basename is passed to existing `controllerPath` → `resolvePluginController`.
+Recognize the following existing lexical forms without consuming the `node` token, trailing arguments, surrounding array punctuation, or adjacent text:
 
-Do not match `node scripts/<name>.mjs`, `node ./scripts/<name>.mjs`, or any absolute path whose normalized form does not contain `/nmg-sdlc/scripts/`.
+```text
+node <plugin-root>/scripts/<name>.mjs
+node "<plugin-root>/scripts/<name>.mjs"
+["node","<plugin-root>/scripts/<name>.mjs",...]
+node "/Users/author/.../nmg-sdlc/scripts/<name>.mjs"
+node "C:\Users\author\...\nmg-sdlc\scripts\<name>.mjs"
+node /opt/author/.../nmg-sdlc/scripts/<name>.mjs
+```
 
-Replacement order stays quoted-first, then unquoted `node <path>`:
+Add one private helper; no equivalent exists:
 
-- Quoted (single, double, JSON argv): replace the entire quoted path with `JSON.stringify(controller)` when `controllerPath` returns a path; if `preserveUnresolved` and the controller is missing, leave the original match.
-- Unquoted `node <absolute-or-placeholder>`: replace with `node ${JSON.stringify(controller)}` under the same policy.
-- Keep the two existing `<plugin-root>` regexes; they remain the canonical stored form.
+```js
+function controllerNameFromOperand(operand)
+```
 
-### Changes
+It returns the safe controller basename for an exact canonical token or recognized owned absolute path, otherwise `null`. In `materializeControllerPathsWithPolicy`, run the current quoted-operand pass first (matching a complete single- or double-quoted candidate, which covers shell and array forms), then an unquoted pass limited to the word immediately after `node`. Each pass calls `controllerNameFromOperand`; a `null` result returns the original match unchanged. A basename result follows the existing `controllerPath` strict/best-effort callback and replaces only the operand. Do not add a global absolute-path replacement.
 
-| File | Change | Rationale |
-|------|--------|-----------|
-| `scripts/plugin-controller-path.mjs` | Recognize foreign absolute `nmg-sdlc/scripts/<name>.mjs` paths in `materializeControllerPathsWithPolicy` | AC1, AC2, AC5 — already-shipped and in-flight prompts rewrite on the active host |
-| `workflows/**/*.md` | Replace `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/` with `<plugin-root>/scripts/` (keep surrounding quotes when present) | AC3 — host-neutral sources. Read `skill://skill-creator` before editing these bundled files |
-| `commands/sdlc-execute.md`, `commands/sdlc-status.md`, `commands/sdlc-verify-code.md`, `commands/sdlc-open-pr.md` | Overwrite with `renderAutomatedCommandMarkdown(name, skill, description, packageRoot)` from `src/sdlc-commands.mjs` after workflow edits | AC3 — keep byte-identity with `AUTOMATED_COMMANDS` |
-| `scripts/__tests__/plugin-controller-path.test.mjs` | Cover POSIX foreign, Windows-separator foreign, checkout-style `/nmg-sdlc/scripts/`, project-local relative, non-plugin absolute, and missing-controller fail-closed | AC1–AC5 |
-| `scripts/__tests__/extension-commands.test.mjs` | Extend the public-surface audit to reject absolute `nmg-sdlc/scripts/<name>.mjs` controller invocations under `commands/` and `workflows/` | AC3 |
-| `scripts/__tests__/start-issue-selection-contract.test.mjs` | Require `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/start-issue.mjs" --issue N` (or the unquoted canonical token) instead of the contributor-host path | AC3 |
+For an absolute-path operand:
 
-Regenerate only the four `AUTOMATED_COMMANDS` files. Do not rewrite `specs/`, historical verification reports, or test inputs that intentionally supply a foreign packaged path to `materializeControllerPaths`.
+1. Treat it as absolute when `path.posix.isAbsolute` or `path.win32.isAbsolute` accepts it, so recognition does not depend on `process.platform`.
+2. Build a temporary ownership view with `operand.split(/[\\/]+/).filter(Boolean)`, so single, doubled Markdown-escaped, and mixed separators are recognized without changing source bytes. The final three segments must be exactly `nmg-sdlc`, `scripts`, and a basename matching the existing `SCRIPT_NAME_PATTERN` (`^[A-Za-z0-9._-]+\.mjs$`).
+3. Resolve only that basename through `resolvePluginController`; never reuse, join from, or probe the foreign prefix.
+4. Replace only the operand with `JSON.stringify` of the active package controller. Preserve all argv bytes outside that operand.
 
-If `WORKER_PROMPT_CEILINGS` / `AUTOMATED_BODY_CEILINGS` fail because bodies shrank, leave ceilings unchanged (they are maxima). If a ceiling fails because a body grew, set that one ceiling to measured UTF-8 bytes + 256 and leave the others untouched.
+Do not recognize unqualified `node scripts/<name>.mjs`, an absolute `.../scripts/<name>.mjs` without the `nmg-sdlc` ownership segment, or a path-shaped string outside the supported shell/quoted-argv controller operand forms. Those remain byte-for-byte unchanged.
 
-### Blast Radius
+### Failure Policy
 
-- **Direct impact**: materialization helper; packaged workflow/command text; two contract tests plus start-issue source assertion.
-- **Indirect impact**: `rewriteInteractiveInput`, `materializeRuntimeMessages`, `workerPrompt` — they already call the helper; argument lists, handoffs, and Herdr flow stay unchanged.
-- **Risk level**: Medium — every public prompt that currently embeds the contributor path will start resolving on the active host; project-local commands must stay untouched.
+- `materializeControllerPaths` stays strict. A canonical or recognized foreign owned reference whose basename is absent from the active package throws the existing error with `reasonCode: "controller_unresolved"` and `exitCode: 2`.
+- `materializeAvailableControllerPaths` keeps `preserveUnresolved: true`; an owned reference that cannot resolve remains unchanged in arbitrary extension context.
+- Neither policy consults `process.cwd()`, a consumer `scripts/` directory, or the foreign path prefix.
+- Invalid text, arbitrary absolute paths, and project-local relative commands are not errors and are not changed.
 
----
+## Canonical Packaged Surfaces
 
-## Regression Risk
+After resolving and reading `skill://skill-creator`, replace every contributor-host nmg-sdlc controller prefix with `<plugin-root>` while preserving controller basename, quoting style, arguments, examples, and surrounding workflow text in this complete active-workflow inventory:
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Project absolute path rewritten | Low | Require `/nmg-sdlc/scripts/<name>.mjs` after separator normalize |
-| Missing controller silently ignored | Low | Strict `materializeControllerPaths` still throws `controller_unresolved`; `materializeAvailableControllerPaths` still preserves the original match |
-| Command/workflow drift | Med | Keep byte-identity with `renderAutomatedCommandMarkdown` |
-| Cwd-relative plugin dispatch returns | Low | Keep the existing `node scripts/*.mjs` ban and add the absolute-path ban beside it |
+| Workflow source | Canonical controllers |
+|-----------------|-----------------------|
+| `workflows/apply-review/WORKFLOW.md` | `sdlc-apply-review.mjs` |
+| `workflows/execute/WORKFLOW.md`, `workflows/execute/references/selection.md` | `sdlc-execute.mjs` |
+| `workflows/onboard-project/WORKFLOW.md`, `workflows/onboard-project/references/brownfield.md` | `sdlc-steering.mjs`, `omp-sdlc-ignore.mjs`, `spec-created-label.mjs` |
+| `workflows/open-pr/WORKFLOW.md` | `sdlc-deliver.mjs`, `verification-readiness.mjs` |
+| `workflows/review-main/WORKFLOW.md` | `sdlc-review-main.mjs` |
+| `workflows/start-issue/WORKFLOW.md` | `start-issue.mjs` |
+| `workflows/status/WORKFLOW.md` | `sdlc-status.mjs` |
+| `workflows/steering/WORKFLOW.md` | `sdlc-steering.mjs` |
+| `workflows/upgrade-project/WORKFLOW.md`, `workflows/upgrade-project/references/v3-detectors.md` | `sdlc-upgrade.mjs` |
+| `workflows/verify-code/WORKFLOW.md`, `workflows/verify-code/checklists/report-template.md`, `workflows/verify-code/references/exercise-testing.md` | `sdlc-verify-steering.mjs`, `verification-readiness.mjs`, `exercise-omp.mjs`, `sdlc-finalize-verification.mjs` |
+| `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/references/publish.md` | `publish-approved-spec.mjs`, `spec-created-label.mjs` |
+| `references/pr-dependent-verification.md` | `verification-readiness.mjs` |
 
----
+Regenerate, rather than hand-diverge, all four synchronized automated artifacts through `renderAutomatedCommandMarkdown`:
 
-## Alternatives Considered
+- `commands/sdlc-execute.md`
+- `commands/sdlc-open-pr.md`
+- `commands/sdlc-status.md`
+- `commands/sdlc-verify-code.md`
 
-| Option | Description | Why Not Selected |
-|--------|-------------|------------------|
-| Only restore `<plugin-root>` in artifacts | Leaves already-materialized session text and previously packaged prompts broken on foreign hosts | AC1/AC2 require runtime recognition of foreign source paths |
-| Rewrite every absolute `scripts/*.mjs` path | Would steal project-owned absolute script paths | Violates AC4 / FR3 |
+## Contract Audit
 
----
+Extend `scripts/__tests__/extension-commands.test.mjs` with two bounded active-surface audits:
+
+1. Keep the existing recursive `commands/` and `workflows/` check that rejects cwd-relative `node scripts/<name>.mjs`.
+2. Scan `commands/`, `workflows/`, and active shared `references/` Markdown for a POSIX absolute operand ending in `/nmg-sdlc/scripts/<name>.mjs` or a Windows/UNC absolute operand ending in `\nmg-sdlc\scripts\<name>.mjs`, including backslashes represented inside quoted command text.
+
+Keep the existing byte-for-byte comparison between every generated command and `renderAutomatedCommandMarkdown`. Do not scan `specs/`, verification reports, root session plans, or generic project-owned absolute paths; those are evidence/data rather than active packaged dispatch.
+
+## Testing Strategy
+
+| Layer | Location | Coverage |
+|-------|----------|----------|
+| Shared helper | `scripts/__tests__/plugin-controller-path.test.mjs` | On every host, materialize canonical, foreign POSIX, and foreign Windows operands to a disposable active package root; preserve quotes/argv boundaries and trailing arguments. |
+| Ownership boundary | `scripts/__tests__/plugin-controller-path.test.mjs` | Preserve `node scripts/check-gate.mjs`, POSIX project-owned absolute scripts, and Windows project-owned absolute scripts byte-for-byte. |
+| Failure boundary | `scripts/__tests__/plugin-controller-path.test.mjs` | A recognized foreign owned path for an unshipped basename throws `controller_unresolved`; no consumer cwd fallback is read. |
+| Extension context | `scripts/__tests__/extension-commands.test.mjs` | `materializeRuntimeMessages` rewrites a foreign controller path that exists, preserves project commands, and preserves an unresolved owned example under the best-effort policy. |
+| Worker prompts | `scripts/__tests__/sdlc-execute.test.mjs` | `workerPrompt` materializes execute/start/review/verify/deliver fragments to the active root with no foreign path while preserving worker names, handoff validation, and argv. |
+| Packaged surfaces | `scripts/__tests__/extension-commands.test.mjs` | Active workflow/command markdown is host-neutral and generated artifacts remain byte-synchronized. |
+| Installed topology | disposable packaged OMP exercise on Windows | A packaged execute prompt authored with a POSIX controller path resolves to the installed Windows package and reaches controller startup without `MODULE_NOT_FOUND`. |
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #311 | 2026-08-28 | Initial defect report |
+| #311 | 2026-08-28 | Initial feature spec |
+
+## Validation Checklist
+
+- [x] Existing public signatures and callsites are preserved.
+- [x] Foreign-path ownership and project-path preservation are exact.
+- [x] Strict and best-effort error policies remain distinct.
+- [x] Active workflow sources and generated command artifacts are both covered.
+- [x] Cross-host, missing-controller, and project-command regressions have observable tests.

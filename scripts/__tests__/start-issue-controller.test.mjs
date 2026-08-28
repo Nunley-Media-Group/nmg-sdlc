@@ -33,6 +33,9 @@ function fixture({
   defaultStatus = 0,
   defaultBranch = 'main',
   developStatus = 0,
+  localBranch = false,
+  remoteBranch = false,
+  checkoutStatus = 0,
   checkedOutBranch = '42-ship-it',
   projectThrows = false,
 } = {}) {
@@ -101,6 +104,15 @@ function fixture({
     }
     if (command === 'git' && args[0] === 'rm') {
       return { status: rmStatus, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'show-ref') {
+      return { status: localBranch ? 0 : 1, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'fetch') {
+      return { status: remoteBranch ? 0 : 1, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'checkout') {
+      return { status: checkoutStatus, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'branch') {
       branchReads += 1;
@@ -241,6 +253,32 @@ describe('startIssue controller', () => {
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
+  it('checks out an existing local canonical issue branch without developing it', () => {
+    const f = fixture({ localBranch: true });
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls).toContainEqual([
+      'git', 'show-ref', '--verify', '--quiet', 'refs/heads/42-ship-it',
+    ]);
+    expect(f.calls).toContainEqual(['git', 'checkout', '42-ship-it']);
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'fetch')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('tracks an existing origin canonical issue branch without developing it', () => {
+    const f = fixture({ remoteBranch: true });
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      '+refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
+    ]);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
 
   it('develops the issue branch from a clean detached HEAD', () => {
     const f = fixture({ branch: '', dirty: '' });
@@ -255,6 +293,15 @@ describe('startIssue controller', () => {
     const f = fixture({ defaultStatus: 1 });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('default_branch_unreadable');
+  });
+
+  it('fails closed when an existing local branch cannot be checked out', () => {
+    const f = fixture({ localBranch: true, checkoutStatus: 1, checkedOutBranch: 'main' });
+
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(handoff(f.cwd).reasonCode).toBe('branch_checkout_failed');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
   it('writes branch_checkout_failed', () => {

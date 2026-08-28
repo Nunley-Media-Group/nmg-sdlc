@@ -4,59 +4,64 @@
 **Author**: NMG
 **Related Spec**: specs/266-fix-controller-path-rewriting-of-project-commands/
 
-# File: scripts/__tests__/plugin-controller-path.test.mjs
+# File: specs/311-materialize-packaged-controller-paths-across-hosts/feature.gherkin
 #
 # Generated from: specs/311-materialize-packaged-controller-paths-across-hosts/requirements.md
+@issue-311 @packaging @cross-platform
 Feature: Materialize packaged controller paths across hosts
-  Packaged execute, verify, and delivery prompts previously kept contributor-host
-  absolute controller paths. Foreign hosts failed with MODULE_NOT_FOUND before
-  the nmg-sdlc controller started. This was fixed by storing canonical
-  <plugin-root> tokens and materializing both those tokens and recognized
-  foreign nmg-sdlc/scripts paths onto the active installed package root.
+  As a developer running a packaged nmg-sdlc command on a different host
+  I want plugin-owned controller paths resolved from the active installation
+  So that every packaged workflow starts the current host's controller
 
-  # --- Bug Is Fixed ---
+  @SCN001
+  Scenario: Execute uses the installed Windows controller
+    Given nmg-sdlc is installed on Windows
+    And the packaged execute prompt contains a foreign POSIX path to "scripts/sdlc-execute.mjs"
+    When the user runs "/sdlc-execute 19"
+    Then Node invokes "scripts/sdlc-execute.mjs" beneath the active installed package root
+    And the emitted invocation contains no foreign contributor-host path
+    And controller startup does not fail with "MODULE_NOT_FOUND"
 
-  @SCN001 @regression
-  Scenario: Foreign POSIX execute controller resolves on the active host
-    Given a packaged execute prompt contains "node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs""
-    And the active installed plugin ships "scripts/sdlc-execute.mjs"
-    When controller paths are materialized for that installed package
-    Then the invocation is node plus the JSON-quoted active-host controller path
-    And the emitted text does not contain "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc"
-    And controller resolution does not fail with MODULE_NOT_FOUND
+  @SCN002
+  Scenario Outline: Every packaged controller uses the active package root
+    Given a packaged "<surface>" prompt invokes an nmg-sdlc-owned controller
+    When the prompt is materialized using "<source path style>" on "<host>"
+    Then the invocation uses the corresponding controller beneath the active installed package root
+    And its existing arguments and workflow behavior are preserved
 
-  @SCN002 @regression
-  Scenario: Canonical and foreign packaged controllers resolve on every host
-    Given packaged execute, verify, deliver, interactive, or worker text contains "<plugin-root>/scripts/<name>.mjs" or a foreign absolute nmg-sdlc/scripts/<name>.mjs path
-    And the named controller is shipped by the active package
-    When the prompt is materialized on Windows, macOS, or Linux path semantics
-    Then each invocation uses the corresponding controller beneath the active installed package root
-    And existing arguments after the controller path are preserved
+    Examples:
+      | surface     | source path style | host    |
+      | execute     | foreign POSIX     | Windows |
+      | verify      | foreign Windows   | macOS   |
+      | delivery    | canonical token   | Linux   |
+      | interactive | canonical token   | Windows |
+      | worker      | foreign POSIX     | Linux   |
 
-  # --- Related Behavior Still Works ---
-
-  @SCN003 @regression
+  @SCN003
   Scenario: Packaged artifacts stay host-neutral
     Given packaged workflow and file-command artifacts are generated or validated
-    When the repository public-surface contract checks run
-    Then every plugin-owned controller invocation is stored as "<plugin-root>/scripts/<name>.mjs"
-    And no absolute nmg-sdlc/scripts/<name>.mjs controller path is accepted under commands/ or workflows/
-    And generated command artifacts remain byte-identical to renderAutomatedCommandMarkdown
+    When repository contract checks inspect active commands, workflows, and shared references
+    Then every plugin-owned controller invocation uses the canonical "<plugin-root>/scripts/<name>.mjs" representation
+    And no contributor-host absolute nmg-sdlc controller path is accepted
+    And each generated command remains byte-identical to its workflow source
 
-  @SCN004 @regression
-  Scenario: Project-local commands remain unchanged
-    Given runtime text contains "node scripts/check-gate.mjs"
-    And runtime text also contains a project-owned absolute path that does not identify nmg-sdlc/scripts/<name>.mjs
-    When controller paths are materialized
-    Then both project-local commands remain byte-for-byte unchanged
-    And they are not redirected into the nmg-sdlc package
+  @SCN004
+  Scenario Outline: Project-local commands remain unchanged
+    Given prompt text contains the project-local command "<command>"
+    When plugin-controller path materialization runs
+    Then the command remains byte-for-byte unchanged
+    And the command is not redirected into the nmg-sdlc package
 
-  # --- Edge Case ---
+    Examples:
+      | command                                      |
+      | node scripts/check-gate.mjs                  |
+      | node /opt/consumer/scripts/check-gate.mjs    |
+      | node C:\consumer\scripts\check-gate.mjs      |
 
-  @SCN005 @regression
-  Scenario: Missing packaged controller still fails closed
-    Given a plugin-owned controller reference names "missing.mjs"
-    And the active package does not ship "scripts/missing.mjs"
+  @SCN005
+  Scenario: Missing packaged controllers still fail closed
+    Given an explicit plugin-owned reference names "scripts/missing.mjs"
+    And the active package does not ship that controller
     When strict packaged-prompt materialization runs
-    Then materialization fails with reason code "controller_unresolved"
-    And no consumer-cwd or project-local script fallback is used
+    Then resolution fails with reason code "controller_unresolved"
+    And no consumer-cwd or project-local fallback is consulted

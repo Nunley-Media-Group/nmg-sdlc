@@ -114,32 +114,38 @@ describe("plugin controller path resolution", () => {
       }
       const controller = JSON.stringify(path.join(root, "scripts", "sdlc-execute.mjs"));
       const canonicalArgv = JSON.stringify(path.join(root, "scripts", "c.mjs"));
-      const projectRelative = "node scripts/check-gate.mjs two";
-      const projectAbsolute = 'node "/opt/app/scripts/check-gate.mjs" three';
+      const projectCommands = [
+        "node scripts/check-gate.mjs two",
+        'node "/opt/app/scripts/check-gate.mjs" three',
+        String.raw`node "C:\consumer\scripts\check-gate.mjs" four`,
+      ];
       const output = materializeControllerPaths(
         [
           "node <plugin-root>/scripts/a.mjs one",
-          projectRelative,
-          projectAbsolute,
+          ...projectCommands,
           'node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs" --issue 19',
-          String.raw`node "C:\Users\other\.omp\plugins\node_modules\nmg-sdlc\scripts\sdlc-execute.mjs" --issue 20`,
-          "node /checkout/nmg-sdlc/scripts/sdlc-execute.mjs --issue 21",
+          String.raw`node "C:\\Users\\other\\.omp\\plugins\\node_modules\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 20`,
+          String.raw`node "\\\\server\\plugins\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 21`,
+          String.raw`node "C:\Users/other\plugins/nmg-sdlc\scripts/sdlc-execute.mjs" --issue 22`,
+          "run(node /checkout/nmg-sdlc/scripts/sdlc-execute.mjs); next",
           '["node","<plugin-root>/scripts/c.mjs","apply"]',
           '["node","/opt/plugins/nmg-sdlc/scripts/c.mjs","verify"]',
         ].join("\n"),
         root,
       );
       expect(output).toContain(`node ${JSON.stringify(path.join(root, "scripts", "a.mjs"))} one`);
-      expect(output).toContain(projectRelative);
-      expect(output).toContain(projectAbsolute);
+      for (const command of projectCommands) expect(output).toContain(command);
       expect(output).toContain(`node ${controller} --issue 19`);
       expect(output).toContain(`node ${controller} --issue 20`);
       expect(output).toContain(`node ${controller} --issue 21`);
+      expect(output).toContain(`node ${controller} --issue 22`);
+      expect(output).toContain(`run(node ${controller}); next`);
       expect(output).toContain(`["node",${canonicalArgv},"apply"]`);
       expect(output).toContain(`["node",${canonicalArgv},"verify"]`);
       expect(output).not.toContain("<plugin-root>");
       expect(output).not.toContain("/Users/rnunley/");
-      expect(output).not.toContain(String.raw`C:\Users\other`);
+      expect(output).not.toContain(String.raw`C:\\Users\\other`);
+      expect(output).not.toContain(String.raw`\\\\server`);
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }
@@ -152,6 +158,7 @@ describe("plugin controller path resolution", () => {
       const inputs = [
         "node <plugin-root>/scripts/missing.mjs",
         'node "/foreign/nmg-sdlc/scripts/missing.mjs"',
+        String.raw`node "\\server\plugins\nmg-sdlc\scripts\missing.mjs"`,
       ];
       for (const input of inputs) {
         try {

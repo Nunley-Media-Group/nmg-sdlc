@@ -5,66 +5,81 @@
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/266-fix-controller-path-rewriting-of-project-commands/
-
 ---
 
 ## Summary
 
-| Task | Description | Status |
-|------|-------------|--------|
-| T001 | Recognize foreign absolute plugin-controller paths during materialization | [ ] |
-| T002 | Restore host-neutral packaged artifacts and reject host-absolute controller paths | [ ] |
-| T003 | Add regression coverage for AC1–AC5 | [ ] |
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| Materialization | 1 | [ ] |
+| Packaged surfaces | 1 | [ ] |
+| Regression coverage | 1 | [ ] |
+| Verification | 1 | [ ] |
+| **Total** | 4 | |
 
 ---
 
-### T001: Recognize foreign plugin-controller paths
+### T001: Recognize foreign plugin-controller operands
 
 **File(s)**: `scripts/plugin-controller-path.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] `materializeControllerPathsWithPolicy` still rewrites shell and quoted `<plugin-root>/scripts/<name>.mjs`
-- [ ] It also rewrites quoted and unquoted absolute paths that match the locked recognition rule in design.md
-- [ ] Successful rewrites use existing `resolvePluginController` and emit `node ${JSON.stringify(controller)}` or `JSON.stringify(controller)` as today
-- [ ] Missing packaged controllers still throw `controller unresolved: <name>` with `reasonCode: controller_unresolved` and `exitCode: 2` in strict mode
-- [ ] `materializeAvailableControllerPaths` still leaves unresolved matches unchanged
-- [ ] `node scripts/check-gate.mjs` and absolute paths that do not contain `/nmg-sdlc/scripts/` remain byte-for-byte unchanged
-- [ ] No new public export is added
+- [ ] `materializeControllerPaths` and `materializeAvailableControllerPaths` keep their current signatures and callsites
+- [ ] The shared private policy recognizes canonical tokens plus POSIX and Windows/UNC absolute operands whose final segments are exactly `nmg-sdlc/scripts/<valid-name>.mjs`
+- [ ] Both foreign path syntaxes are recognized independently of the current host OS
+- [ ] Recognized basenames resolve only through `resolvePluginController` under the supplied active package root and emit via `JSON.stringify`
+- [ ] Existing arguments, punctuation, quoting boundaries, and surrounding text are preserved
+- [ ] Project-local relative and absolute paths remain byte-for-byte unchanged
+- [ ] Strict missing-controller resolution still throws `controller_unresolved` with exit code 2; best-effort context still preserves unresolved owned references
 
-**Notes**: Read `skill://skill-creator` is not required for this scripts file.
+### T002: Restore canonical packaged workflow sources
 
-### T002: Restore host-neutral packaged artifacts
-
-**File(s)**: `workflows/**/*.md`, `commands/sdlc-execute.md`, `commands/sdlc-status.md`, `commands/sdlc-verify-code.md`, `commands/sdlc-open-pr.md`, `scripts/__tests__/extension-commands.test.mjs`, `scripts/__tests__/start-issue-selection-contract.test.mjs`
+**File(s)**: `workflows/apply-review/WORKFLOW.md`, `workflows/execute/WORKFLOW.md`, `workflows/execute/references/selection.md`, `workflows/onboard-project/WORKFLOW.md`, `workflows/onboard-project/references/brownfield.md`, `workflows/open-pr/WORKFLOW.md`, `workflows/review-main/WORKFLOW.md`, `workflows/start-issue/WORKFLOW.md`, `workflows/status/WORKFLOW.md`, `workflows/steering/WORKFLOW.md`, `workflows/upgrade-project/WORKFLOW.md`, `workflows/upgrade-project/references/v3-detectors.md`, `workflows/verify-code/WORKFLOW.md`, `workflows/verify-code/checklists/report-template.md`, `workflows/verify-code/references/exercise-testing.md`, `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/references/publish.md`, `references/pr-dependent-verification.md`, `commands/sdlc-execute.md`, `commands/sdlc-open-pr.md`, `commands/sdlc-status.md`, `commands/sdlc-verify-code.md`
 **Type**: Modify
-**Depends**: T001
+**Depends**: None
 **Acceptance**:
-- [ ] Resolve and read `skill://skill-creator` before editing workflow-bundled files
-- [ ] Every plugin-owned controller invocation under `workflows/` uses `<plugin-root>/scripts/<name>.mjs` (quoted or unquoted to match surrounding prose)
-- [ ] Contributor prefix `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/` is absent from `workflows/` and `commands/`
-- [ ] Each `AUTOMATED_COMMANDS` file equals `renderAutomatedCommandMarkdown(name, skill, description, packageRoot)`
-- [ ] The public-surface audit still rejects `node scripts/[A-Za-z0-9._-]+\.mjs` and also rejects absolute `nmg-sdlc/scripts/<name>.mjs` controller invocations in `commands/` and `workflows/`
-- [ ] `start-issue-selection-contract.test.mjs` asserts the canonical token, not the contributor-host path
-- [ ] Do not rewrite `specs/` or historical reports
+- [ ] Resolve and read `skill://skill-creator` before editing each of the 11 affected workflow bundles and the shared root reference, then follow its validation procedure
+- [ ] Every contributor-host nmg-sdlc controller path in the listed workflow sources becomes the exact `<plugin-root>/scripts/<name>.mjs` form
+- [ ] Controller basenames, arguments, option ordering, code-fence examples, and workflow behavior remain unchanged
+- [ ] All four automated command files are regenerated with `renderAutomatedCommandMarkdown` and are byte-identical to their sources
+- [ ] No historical spec, verification evidence, project-owned command, Herdr contract, handoff schema, or delivery behavior is changed
 
-### T003: Add materialization regression coverage
+### T003: Cover cross-host materialization and artifact neutrality
 
-**File(s)**: `scripts/__tests__/plugin-controller-path.test.mjs`, `scripts/__tests__/extension-commands.test.mjs`
+**File(s)**: `scripts/__tests__/plugin-controller-path.test.mjs`, `scripts/__tests__/extension-commands.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
-- [ ] POSIX foreign `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs"` materializes to `node ${JSON.stringify(path.join(activeRoot, "scripts", "sdlc-execute.mjs"))}`
-- [ ] Windows-separator foreign `node "C:\\Users\\other\\.omp\\plugins\\node_modules\\nmg-sdlc\\scripts\\sdlc-execute.mjs"` materializes the same way on any host (string rewrite; do not require win32)
-- [ ] Quoted argv `"<plugin-root>/scripts/c.mjs"` and foreign quoted argv still become `JSON.stringify(controller)`
-- [ ] `node scripts/check-gate.mjs` and `node "/opt/app/scripts/check-gate.mjs"` are unchanged
-- [ ] Missing `node <plugin-root>/scripts/missing.mjs` and missing foreign `.../nmg-sdlc/scripts/missing.mjs` throw `controller_unresolved` in strict mode
-- [ ] Keep the existing extension-commands assertion that runtime text `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-status.mjs" --project .` becomes `node ${statusController} --project .`
+- [ ] Disposable-package tests materialize foreign POSIX and Windows controller operands to the current host's active package root on every platform
+- [ ] Tests prove trailing argv and surrounding command text are unchanged
+- [ ] Tests preserve `node scripts/check-gate.mjs` plus project-owned POSIX and Windows absolute script paths byte-for-byte
+- [ ] A recognized missing foreign controller fails strict materialization with `controller_unresolved` and no cwd fallback
+- [ ] Extension runtime-message coverage rewrites an available foreign controller and preserves both project-local commands and unresolved examples
+- [ ] The active `commands/` and `workflows/` audit rejects cwd-relative dispatch, and the active `commands/`, `workflows/`, and shared `references/` audit rejects host-absolute nmg-sdlc controller dispatch
+- [ ] Automated command synchronization remains byte-for-byte
+- [ ] Worker-prompt coverage emits only active-root controller paths and preserves worker names, handoff validation, prompt provenance, and controller arguments
+
+### T004: Verify focused, repository, and installed behavior
+
+**File(s)**: implementation and verification evidence
+**Type**: Verify
+**Depends**: T003
+**Acceptance**:
+- [ ] `cd scripts && npm test -- --runInBand __tests__/plugin-controller-path.test.mjs __tests__/extension-commands.test.mjs __tests__/sdlc-execute.test.mjs` exits 0
+- [ ] `cd scripts && npm test -- --runInBand` exits 0
+- [ ] `node scripts/skill-inventory-audit.mjs --check` exits 0
+- [ ] `node scripts/verify-plugin-surface.mjs --root . --label repository` exits 0
+- [ ] The mandatory live smoke `node scripts/exercise-omp.mjs --cwd <fresh nmg-sdlc-smoke clone> -- /sdlc-status --json` exits 0 and returns JSON whose `nextAction.command` starts with `/sdlc-`
+- [ ] On Windows, a candidate package installed through OMP into a disposable plugin home materializes a packaged POSIX execute-controller operand to that installed root; invoking the materialized execute controller from a consumer project reaches controller startup without `MODULE_NOT_FOUND` and emits no contributor-host path
+- [ ] Verification records one-to-one evidence for all five Gherkin scenarios
 
 ---
 
-## Change History
+## Validation Checklist
 
-| Issue | Date | Summary |
-|-------|------|---------|
-| #311 | 2026-08-28 | Initial defect report |
+- [x] Each task has one responsibility.
+- [x] Dependencies form an acyclic implementation order.
+- [x] File paths match the current repository structure.
+- [x] Every acceptance criterion has deterministic or installed-surface evidence.
+- [x] No task changes project command resolution or delivery semantics.

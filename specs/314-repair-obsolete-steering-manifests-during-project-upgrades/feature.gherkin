@@ -1,0 +1,56 @@
+**Issue**: #314
+**Date**: 2026-08-28
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
+
+# File: scripts/__tests__/sdlc-upgrade.test.mjs
+#
+# Generated from: specs/314-repair-obsolete-steering-manifests-during-project-upgrades/requirements.md
+Feature: Repair obsolete steering manifests during project upgrades
+  Current-layout projects with obsolete byteBound snippet fields were rejected by
+  strict runtime loading, while upgrade detection incorrectly reported no repair.
+  The explicit upgrade boundary now proposes a digest-bound manifest-only repair
+  without weakening ordinary runtime validation.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Upgrade detects an obsolete current-layout manifest without mutation
+    Given a project has a current-layout steering manifest with a byteBound snippet field and no legacy steering Markdown
+    When project-upgrade detection runs
+    Then one actionable managed steering-runtime repair is reported
+    And every project file remains byte-for-byte unchanged
+
+  @SCN002 @regression
+  Scenario: Approved repair removes only byteBound
+    Given an unchanged approved repair for a current-layout manifest with registered snippets, extensions, and validations
+    When project upgrade applies the repair
+    Then byteBound is absent from every snippet record
+    And every other registration and project-owned file is preserved
+    And repeating detection reports no steering-runtime repair
+
+  # --- Related Behavior Still Works ---
+
+  @SCN003 @regression
+  Scenario: Prompt fragments load after the approved repair
+    Given the obsolete current-layout manifest has been repaired through project upgrade
+    When project prompt fragments are loaded for sdlc-write-spec
+    Then loading succeeds without project_runtime_invalid or steering_manifest_unknown_key
+
+  @SCN004 @regression
+  Scenario: README requires project upgrade after installation changes
+    Given a user installs or updates nmg-sdlc
+    When the user reads the installation guidance
+    Then the user is directed to run sdlc-upgrade-project after every install or update
+    And applicable approved migrations must be completed before other SDLC workflows
+
+  # --- Edge Cases ---
+
+  @SCN005 @regression
+  Scenario: Unknown fields and stale evidence remain fail closed
+    Given a repair input contains byteBound plus another unknown snippet field or its approved source digest has changed
+    When upgrade detection or apply validates the input
+    Then no partial live mutation occurs
+    And validation fails with steering_manifest_unknown_key or steering_plan_stale as applicable
+    And ordinary runtime loading remains strict
