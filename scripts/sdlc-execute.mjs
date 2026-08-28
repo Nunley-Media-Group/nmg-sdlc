@@ -1851,6 +1851,22 @@ export function runExecute({
         continue;
       }
     }
+    if (step && step !== 'start') {
+      const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
+      if (reasonCode) {
+        return stop({
+          issue,
+          step,
+          paneId: live?.pane_id ?? live?.paneId ?? 'none',
+          agentName: live ? String(live.name) : `s${issue}-${step}`,
+          reasonCode,
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+    }
     if (step && !live && issueAgents.length > 0) {
       const collision = issueAgents[0];
       return stop({
@@ -1877,22 +1893,7 @@ export function runExecute({
         });
       }
     }
-    if (step && step !== 'start' && !live) {
-      const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
-      if (reasonCode) {
-        return stop({
-          issue,
-          step,
-          paneId: 'none',
-          agentName: `s${issue}-${step}`,
-          reasonCode,
-          runState,
-          cwd,
-          herdr: herdrApi,
-          output,
-        });
-      }
-    }
+
     const liveRem = step
       ? existingAgents.find((agent) => String(agent?.name || '') === remAgentName(issue, step))
       : null;

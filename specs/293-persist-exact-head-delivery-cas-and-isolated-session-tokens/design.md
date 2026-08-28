@@ -15,14 +15,19 @@ Delivery discovers an exact-branch PR on each invocation and carries its number/
 
 Because no durable reconciliation state exists, a rerun can rediscover live PRs and proceed as a fresh attempt. Process exit and a handoff file are also separable: only the handoff contract proves terminal delivery, but callers can over-trust a successful helper command unless the controller makes exact MERGED+CLOSED proof the sole passed path.
 
+The initial CAS implementation persists an existing PR's H1 before `publishVersionChanges` creates and pushes the version commit. Its next snapshot still expects H1, so a correctly advanced remote H2 is indistinguishable from foreign drift and triggers reconciliation. Existing-PR mocks hid this ordering defect by leaving the mocked remote PR at H1 after `git push`.
+
+Execute also matches a live retained worker's recorded branch/head against the current checkout before calling `restoreActiveIssueBranch`. After an earlier issue's delivered branch is synchronized and removed, the checkout is on the default branch. A live next-issue non-start worker is therefore rejected even though its recorded ownership is exact.
+
 ### Affected Code
 
 | File | Lines / Symbols | Role |
 |------|-----------------|------|
-| `scripts/sdlc-deliver.mjs` | `parseDeliverCli`, `writeHandoff`, `existingPullRequest`, `runDeliver` | Has no scope token, canonical-only handoff, and in-memory PR/head identity |
-| `scripts/sdlc-execute.mjs` | deliver worker prompt/run identity | Must pass execute controller scope and consume session-aware handoff path |
+| `scripts/sdlc-deliver.mjs` | `publishVersionChanges`, `scopedSnapshot`, `runDeliver` | Must re-read and authorize the controller-owned existing-PR head advance immediately after version push |
+| `scripts/sdlc-execute.mjs` | `restoreActiveIssueBranch`, retained-worker ownership matching | Must restore a safe active issue checkout before matching a live non-start worker |
 | `workflows/open-pr/WORKFLOW.md` | controller invocation and remediation loop | Invokes delivery with issue only and treats one canonical handoff path as fixed |
-| `scripts/__tests__/sdlc-deliver.test.mjs` | delivery controller fixture | Proves live exact-head merge but not durable CAS identity or isolated state |
+| `scripts/__tests__/sdlc-deliver.test.mjs` | delivery controller fixture | Must model remote PR head movement after push and forbid pre-bump merge |
+| `scripts/__tests__/sdlc-execute.test.mjs` | multi-issue resume fixture | Must cover default-branch checkout plus an exact live next-issue worker |
 | `scripts/__tests__/open-pr-delivery-contract.test.mjs` | workflow contract | Encodes current invocation and handoff path |
 
 ### Triggering Conditions
@@ -31,6 +36,8 @@ Because no durable reconciliation state exists, a rerun can rediscover live PRs 
 - PR number/head is selected but not persisted before later GitHub mutations.
 - Controlled verification publication or an external actor changes or merges the PR head.
 - A rerun has no durable reconciliation state preventing a second PR attempt.
+- An existing PR is selected at H1 before delivery publishes its version commit at H2.
+- A completed earlier issue leaves a clean multi-issue checkout on the default branch while the next issue's exact non-start worker remains live.
 
 ---
 
@@ -62,6 +69,10 @@ On each entry and each fetched snapshot, if PR number or head differs from persi
 
 After `gh pr merge --squash --match-head-commit <expectedHead>`, re-fetch the persisted PR number. CAS-persist `complete` and write a passed handoff only when the PR is `MERGED` at exactly `expectedHead` and the issue is `CLOSED`. Command exit without that handoff remains incomplete.
 
+Immediately after `publishVersionChanges`, an existing-PR path fetches the persisted PR number again through the scoped snapshot boundary. It authorizes and CAS-persists a new expected head only when the PR remains open on the exact issue branch, its head is a valid SHA equal to current local `HEAD`, and the checkout is clean apart from controller runtime state. Any different PR/head remains foreign drift and enters stable reconciliation before ready or merge mutation.
+
+For every non-start execute step, call `restoreActiveIssueBranch` before collision and live-worker ownership matching. The existing restoration contract reads the expected issue branch, refuses to switch away from dirty foreign work, checks out only from a clean different branch, and verifies the resulting branch. Ownership matching then compares the retained worker against the restored branch/head.
+
 `workflows/open-pr/WORKFLOW.md` carries the execute run id supplied by the worker prompt. For standalone `/sdlc-open-pr`, it calls `session-init` once and retains the token through controlled-draft and remediation reruns. It validates only the marker path for the selected namespace. Resolve and follow `skill://skill-creator` before editing this workflow; update README for the public isolated-session behavior.
 
 ### Interface Contracts
@@ -78,11 +89,12 @@ After `gh pr merge --squash --match-head-commit <expectedHead>`, re-fetch the pe
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `scripts/sdlc-execute.mjs` | Expose/factor explicit-path CAS internally; pass controller run id to deliver worker; accept namespace-aware marker | Connects #290/#291 identity to delivery |
-| `scripts/sdlc-deliver.mjs` | Scope parsing, session init/namespace, delivery CAS, authorized head transitions, idempotent reconciliation, exact terminal proof | Fixes all delivery root causes |
+| `scripts/sdlc-execute.mjs` | Expose/factor explicit-path CAS internally; pass controller run id to deliver worker; restore non-start issue checkout before retained-worker ownership matching | Connects #290/#291 identity to delivery and prevents false multi-issue ownership mismatch |
+| `scripts/sdlc-deliver.mjs` | Scope parsing, session init/namespace, delivery CAS, post-version-push existing-PR rebinding, idempotent reconciliation, exact terminal proof | Fixes all delivery root causes without accepting foreign drift |
 | `workflows/open-pr/WORKFLOW.md` | Reuse execute scope or initialize/retain isolated token across every controller rerun | Keeps standalone contribution/open-PR supported safely |
 | `README.md` | Document scoped delivery, session tokens, and handoff-only completion | User-visible behavior changed |
-| `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Add CAS, reconciliation, namespace isolation, and scope propagation regressions | Proves AC1–AC4 |
+| `commands/sdlc-open-pr.md` | Regenerate the packaged file command from its workflow body | Keeps the installed automated command synchronized with the scoped delivery controller |
+| `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Add CAS, reconciliation, namespace isolation, version-push remote-head, and live multi-issue resume regressions | Proves AC1–AC6 |
 
 ### Blast Radius
 
@@ -102,6 +114,9 @@ After `gh pr merge --squash --match-head-commit <expectedHead>`, re-fetch the pe
 | Session path escapes or aliases canonical state | Low | UUID-only token, realpath containment, no symlink following, exclusive directory creation |
 | Rerun opens a follow-up PR after unexpected merge | Low | Check persisted reconciliation before all PR discovery/create and GitHub mutation |
 | Passed handoff precedes closure | Low | Single terminal writer after exact persisted MERGED head and CLOSED issue proof |
+| Existing-PR version push is mistaken for foreign drift | High | Re-read the persisted PR after push and rebind only to the same branch's clean current local head |
+| Earlier delivery leaves live next-issue worker mismatched on default branch | High | Restore the clean expected non-start issue branch before comparing worker ownership |
+| Branch restoration overwrites user work | Low | Refuse checkout when a different current branch has dirty work and verify the restored branch |
 
 ---
 

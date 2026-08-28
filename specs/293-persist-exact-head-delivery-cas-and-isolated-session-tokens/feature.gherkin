@@ -4,7 +4,7 @@
 **Author**: NMG
 **Related Spec**: specs/291-enforce-one-controller-writer-and-close-stale-workers/
 
-# File: scripts/__tests__/sdlc-deliver.test.mjs
+# Files: scripts/__tests__/sdlc-deliver.test.mjs, scripts/__tests__/sdlc-execute.test.mjs
 #
 # Generated from: specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens/requirements.md
 Feature: Persist exact-head delivery CAS and isolated session tokens
@@ -47,3 +47,25 @@ Feature: Persist exact-head delivery CAS and isolated session tokens
     When required checks and review evidence pass
     Then exact-head squash merge and issue closure complete
     And the controller writes a passed deliver handoff
+
+  # --- Existing PR Version Publication ---
+
+  @SCN005 @regression
+  Scenario: Existing PR rebinds only to the controller-owned version head
+    Given delivery has persisted an existing exact-branch PR at H1
+    When clean version publication pushes current local head H2
+    Then delivery re-reads the persisted PR after the push
+    And expected head advances to H2 only when the same PR and branch equal clean local HEAD
+    And merge never uses pre-bump H1
+    And a foreign remote head records delivery_reconciliation_required
+
+  # --- Multi-Issue Live Worker Resume ---
+
+  @SCN006 @regression
+  Scenario: Execute restores the next issue branch before matching a live retained worker
+    Given an earlier delivered issue left a clean multi-issue checkout on the default branch
+    And the next non-start worker is live with exact issue-branch and head ownership
+    When execute resumes the next issue
+    Then execute restores the expected active issue branch before ownership matching
+    And the exact live worker resumes without retained_worker_mismatch
+    And dirty or foreign work is never overwritten

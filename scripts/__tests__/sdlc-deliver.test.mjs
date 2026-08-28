@@ -246,6 +246,7 @@ function fixture(options = {}) {
   const issue = { number: 42, title: options.title ?? 'Ship deterministic delivery', body: options.body ?? '', labels: (options.labels ?? ['enhancement']).map((name) => ({ name })), state: 'OPEN', url: 'https://github.test/issues/42' };
   const views = [...(options.views ?? [openPr(), openPr(), openPr({ state: 'MERGED', issueState: 'CLOSED' })])];
   let lastView = views[views.length - 1] ?? openPr();
+  const existingPr = options.existingPr === true ? openPr() : options.existingPr;
   const checksSequence = [...(options.checksSequence ?? [])];
   let editedBody = null;
   let gitHead = options.gitHead ?? H1;
@@ -293,7 +294,18 @@ function fixture(options = {}) {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { status: 0, stdout: `${gitHead}\n`, stderr: '' };
       if (args[0] === 'commit') {
         gitHead = H2;
-        dirtyPaths = [];
+        const message = args[args.indexOf('-m') + 1] ?? '';
+        dirtyPaths = message.startsWith('docs: record PR evidence')
+          ? []
+          : dirtyPaths.filter((entry) => entry.endsWith('/verification-report.md'));
+      }
+      if (args[0] === 'push' && dirtyPaths.length === 0
+        && existingPr?.state === 'OPEN' && options.advanceExistingPrOnPush !== false) {
+        for (const view of views) {
+          if (view.headRefName === existingPr.headRefName && view.headRefOid === existingPr.headRefOid) {
+            view.headRefOid = gitHead;
+          }
+        }
       }
       const failure = options.gitFailures?.find(({ match }) => args.join(' ').includes(match));
       if (failure) return { status: 1, stdout: '', stderr: failure.message ?? 'failed' };
@@ -306,8 +318,7 @@ function fixture(options = {}) {
     if (args[0] === 'issue' && args[1] === 'view' && args[4]?.includes('title')) return { status: 0, stdout: JSON.stringify(issue), stderr: '' };
     if (args[0] === 'issue' && args[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 42, state: lastView.issueState, url: issue.url }), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'list') {
-      const existing = options.existingPr === true ? openPr() : options.existingPr;
-      return { status: 0, stdout: JSON.stringify(existing ? [existing] : []), stderr: '' };
+      return { status: 0, stdout: JSON.stringify(existingPr ? [existingPr] : []), stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
     if (args[0] === 'pr' && args[1] === 'view') {
@@ -526,12 +537,44 @@ describe('sdlc delivery controller', () => {
     expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: preVersionPr.root, run: preVersionPr.run, fs, sleep: preVersionPr.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(preVersionPr.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(preVersionPr.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(true);
+    expect(preVersionPr.calls).toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2,
+    ]);
+    expect(preVersionPr.calls).not.toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H1,
+    ]);
 
     const resume = fixture({ existingPr: true, version: '3.5.0', deliveryCommit: true }); roots.push(resume.root);
     fs.writeFileSync(path.join(resume.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
     expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: resume.root, run: resume.run, fs, sleep: resume.sleep }).status).toBe(0);
     expect(fs.readFileSync(path.join(resume.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
     expect(resume.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
+  });
+
+  test('never merges a stale existing PR at its pre-version head', () => {
+    const f = fixture({
+      existingPr: openPr({ head: H1 }),
+      advanceExistingPrOnPush: false,
+      views: [openPr({ head: H1 })],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(f.calls).toContainEqual(['git', 'push']);
+    expect(f.calls.some((call) => (
+      call[0] === 'gh' && call[1] === 'pr' && ['ready', 'merge'].includes(call[2])
+    ))).toBe(false);
   });
 
   test('synchronizes steering-declared Python mirrors without package.json', () => {
@@ -874,6 +917,7 @@ describe('sdlc delivery controller', () => {
       requiredChecks: [],
       views: [
         openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H2 }),
         openPr({ isDraft: true, head: H2 }),
         openPr({ head: H2 }),
@@ -917,6 +961,7 @@ describe('sdlc delivery controller', () => {
       requiredChecks: [],
       views: [
         openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H2 }),
       ],
       mergeView: openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
@@ -955,6 +1000,7 @@ describe('sdlc delivery controller', () => {
       deliveryCommit: true,
       gitHead: H2,
       emptyStagedDiff: true,
+      advanceExistingPrOnPush: false,
       views: [
         openPr({ isDraft: true, head: H1 }),
         openPr({ isDraft: true, head: H1 }),

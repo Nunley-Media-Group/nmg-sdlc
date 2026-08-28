@@ -3360,6 +3360,92 @@ describe('runExecute controller', () => {
     expect(reviewStart).toBeGreaterThan(checkoutLater);
     expect(reviewPromptBranches).not.toContain('main');
   });
+  it('restores a later issue branch before matching its live retained worker', () => {
+    const fixture = makeControllerFixture({ branch: 'main', labelIssues: [42, 43] });
+    const laterSpec = path.join(fixture.cwd, 'specs', '43-later');
+    fs.mkdirSync(laterSpec, { recursive: true });
+    writeApproved(laterSpec, 43);
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42, 43],
+      currentIssue: 43,
+      currentStep: 'review1',
+      completed: {
+        42: VALID_STEPS,
+        43: ['start', 'implement'],
+      },
+      failed: null,
+      workers: {
+        's43-review1': {
+          name: 's43-review1',
+          paneId: 'kept-review-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 43,
+          step: 'review1',
+          branch: '43-later',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 's43-review1',
+      pane_id: 'kept-review-pane',
+      state: 'working',
+    }];
+    const baseRun = fixture.run;
+    let currentBranch = 'main';
+    const events = [];
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      if (paneId === 'kept-review-pane') events.push(`retained:${paneId}:${currentBranch}`);
+      return paneClose(paneId);
+    };
+    fixture.herdr.agentGet = (name) => ({
+      result: { state: name === 's43-review1' ? 'working' : 'done' },
+    });
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        fixture.calls.push([command, ...args]);
+        events.push(`branch:${currentBranch}`);
+        return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        currentBranch = args[1];
+        events.push(`checkout:${args[1]}`);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('title')) {
+        fixture.calls.push([command, ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ title: Number(args[2]) === 43 ? 'Later' : 'Ship It' }),
+          stderr: '',
+        };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('retained_worker_mismatch');
+    const checkout = events.indexOf('checkout:43-later');
+    const retained = events.indexOf('retained:kept-review-pane:43-later');
+    expect(checkout).toBeGreaterThanOrEqual(0);
+    expect(retained).toBeGreaterThan(checkout);
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s43-review1');
+    expect(fixture.closed).toContain('kept-review-pane');
+  });
+
 
   it('consumes a passed retained deliver handoff after the delivered branch was deleted', () => {
     const fixture = makeControllerFixture({ branch: 'main' });

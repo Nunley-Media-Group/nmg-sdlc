@@ -312,12 +312,18 @@ function scopedSnapshot({
   readiness,
   branch,
   allowHeadAdvance = false,
+  requireCurrentHead = false,
 }) {
   const observed = fetchSnapshot({ run, cwd, issue, prNumber, readiness });
   const expected = namespace.runState.delivery;
-  if (observed.pr.number === expected.pullRequest && observed.pr.headRefOid === expected.expectedHead) {
-    return observed;
-  }
+  const exactExpected = observed.pr.number === expected.pullRequest
+    && observed.pr.headRefOid === expected.expectedHead;
+  const currentHeadMismatch = requireCurrentHead && (
+    command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== observed.pr.headRefOid
+    || !parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+      .every((entry) => entry.startsWith('.omp/'))
+  );
+  if (exactExpected && !currentHeadMismatch) return observed;
   const cleanHeadAdvance = allowHeadAdvance
     && observed.pr.number === expected.pullRequest
     && observed.pr.state === 'OPEN'
@@ -1213,6 +1219,20 @@ function runDeliverUnlocked({
       throw error;
     }
     publishVersionChanges({ run, cwd, issue: issueNumber, issueData, changed });
+    if (pr) {
+      pr = scopedSnapshot({
+        context,
+        namespace,
+        run,
+        cwd,
+        issue: issueNumber,
+        prNumber: pr.number,
+        readiness,
+        branch,
+        allowHeadAdvance: true,
+        requireCurrentHead: !controlledReportOnly,
+      }).pr;
+    }
     if (!pr) {
       const created = createPullRequest({
         run, fs, cwd, issue: issueNumber, issueData, branch, base, spec,

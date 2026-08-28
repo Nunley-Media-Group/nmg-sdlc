@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Rebind existing delivery PRs to controller-owned version commits without accepting foreign head drift, and restore later issue branches before matching live retained workers during multi-issue resume (#293).
+
 ## [3.18.6] - 2026-08-28
 
 ### Fixed

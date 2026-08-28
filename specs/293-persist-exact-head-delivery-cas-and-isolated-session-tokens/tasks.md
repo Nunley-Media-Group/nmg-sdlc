@@ -16,6 +16,8 @@
 | T002 | Persist expected PR/head and reconciliation through CAS | [ ] |
 | T003 | Update open-pr scope propagation and public docs | [ ] |
 | T004 | Add exact-head, isolation, and terminal-proof regressions | [ ] |
+| T005 | Rebind an existing PR after the controller-owned version push | [ ] |
+| T006 | Restore the next issue branch before retained-worker matching | [ ] |
 
 ---
 
@@ -44,9 +46,32 @@
 - [ ] Reconciliation reruns perform no PR discovery/create, push, ready, or merge and return the same failed handoff
 - [ ] Passed handoff is written only after the persisted PR is MERGED at the persisted head and the issue is CLOSED
 
+### T005: Rebind the Existing PR After Version Publication
+
+**File(s)**: `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`
+**Type**: Modify, Verify
+**Depends**: T002
+**Acceptance**:
+- [ ] Immediately after version push, an existing PR is re-read by its persisted PR number
+- [ ] Expected head advances only for the same open PR and issue branch when its head equals this run's clean current local `HEAD`
+- [ ] Foreign remote drift still persists `delivery_reconciliation_required`
+- [ ] Existing-PR mocks move the remote PR head when a clean push succeeds
+- [ ] Regression coverage proves merge never uses the pre-version-bump head
+
+### T006: Restore Active Branch Before Live Ownership Matching
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify, Verify
+**Depends**: Issue #291 worker ownership
+**Acceptance**:
+- [ ] Every non-start step restores the expected active issue branch before collision or live-worker ownership matching
+- [ ] A clean default-branch checkout left by an earlier delivered issue may switch to the exact next-issue branch
+- [ ] Dirty work on a foreign branch blocks checkout and is never overwritten
+- [ ] A two-issue resume with an exact live next-issue worker does not report `retained_worker_mismatch`
+
 ### T003: Propagate Scope Through Open-PR
 
-**File(s)**: `workflows/open-pr/WORKFLOW.md`, `README.md`
+**File(s)**: `workflows/open-pr/WORKFLOW.md`, `commands/sdlc-open-pr.md`, `README.md`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
@@ -54,18 +79,21 @@
 - [ ] Standalone open-pr initializes one session token and reuses it through every rerun
 - [ ] Workflow validates the exact namespace-specific handoff marker and never invents completion from exit 0
 - [ ] Resolve and follow `skill://skill-creator` before editing the workflow bundle
+- [ ] Packaged `commands/sdlc-open-pr.md` is regenerated exactly from the workflow body
 - [ ] README documents isolated standalone delivery and exact handoff completion
 
 ### T004: Add Regression Coverage and Verify
 
 **File(s)**: `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify, Verify
-**Depends**: T003
+**Depends**: T003, T005, T006
 **Acceptance**:
 - [ ] AC1 covers persisted PR/head, authorized head transition, match-head merge, and exact MERGED+CLOSED pass
 - [ ] AC2 covers unexpected open/merged head changes, byte-stable idempotent reconciliation, and absence of follow-up PR mutations
 - [ ] AC3 covers canonical A plus isolated B and proves A's checkpoint/handoff bytes unchanged; unscoped delivery is rejected
 - [ ] AC4 covers normal execute and standalone session delivery through passed handoff
+- [ ] AC5 covers clean post-version-push rebinding, foreign drift rejection, remote-head mock movement, and no pre-bump merge
+- [ ] AC6 covers multi-issue default-branch resume with an exact live retained worker plus dirty-work refusal
 - [ ] Every `@regression` scenario maps to a Jest case
 - [ ] Focused execute, delivery, open-pr/prompt contract suites, `node scripts/verify-current-specs.mjs`, and `git diff --check` exit 0
 
