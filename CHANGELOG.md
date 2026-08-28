@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.8] - 2026-08-28
+
+### Changed
+
+- Persist exact-head delivery CAS and isolated session tokens (#293)
+
 ## [3.18.7] - 2026-08-28
 
 ### Fixed
