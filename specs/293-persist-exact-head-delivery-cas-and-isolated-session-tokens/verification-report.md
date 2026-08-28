@@ -25,7 +25,7 @@ Verification identified a real session-namespace symlink-boundary defect, but it
 
 ### Implementation Status: Pass
 
-**Total implementation findings**: 1 resolved  
+**Total implementation findings**: 1 resolved
 **Verification blockers**: 0
 
 ---
@@ -38,7 +38,7 @@ Command:
 node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-verify-steering.mjs" --project . --issue 293 --spec specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens --base main --controller-run-id d379f511-611c-4962-84a9-4cccb2ff8ee5
 ```
 
-The pre-remediation steering execution exited 0 with `ok: true`, `ceiling: null`, issue 293, and complete coverage: 2 declared, 2 recorded, no missing, duplicate, or unknown results. Its dirty-diff binding is superseded by this implementation remediation and is retained only as prior verification evidence; the focused delivery suite, current-spec validator, full repository suite, and diff hygiene were rerun against the committed implementation remediation.
+The current steering execution exited 0 with `ok: true`, `ceiling: null`, issue 293, and complete coverage: 2 declared, 2 recorded, no missing, duplicate, or unknown results. Artifact `.omp/sdlc/verification/293.json` binds the pass to clean head `7825b85b383c2a69c3c71d4cecc7ad1a458e0935`; both required providers passed.
 
 ## Issue Scope
 
@@ -173,8 +173,8 @@ A verified controller lease or isolated token selects one namespace before deliv
 
 - Feature files: 1 active feature with 7 regression scenarios
 - Step definitions: Jest behavior cases mapped to each scenario contract
-- Focused delivery execution: 1 suite and 48 tests passed, including both isolated-session symlink boundary cases
-- Full repository execution: 49 suites and 696 tests passed; 1 suite and 2 tests skipped
+- Focused delivery, execute, and open-pr contract execution: 3 suites and 221 tests passed
+- Full repository execution through the deterministic steering runner: exit 0
 - Current-spec validation: 54 genuine issue specs, 16 required archive entries, 16 rewrite capabilities, 16 active workflow mappings, and 1 deprecated stub passed
 
 ---
@@ -184,14 +184,14 @@ A verified controller lease or isolated token selects one namespace before deliv
 | Field | Value |
 |-------|-------|
 | **Skill Exercised** | Standalone `/sdlc-open-pr 293` |
-| **Test Project** | `/tmp/nmg-sdlc-293-exercise.Dhrgvd` (removed after capture) |
-| **Exercise Method** | `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/exercise-omp.mjs" --cwd /tmp/nmg-sdlc-293-exercise.Dhrgvd -- /sdlc-open-pr 293` |
+| **Test Project** | `/var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-293-exercise-y7IJ4A` (removed after capture) |
+| **Exercise Method** | `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/exercise-omp.mjs" --cwd /var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-293-exercise-y7IJ4A -- /sdlc-open-pr 293` |
 | **Interactive gate handling** | N/A (automated worker) |
 | **Termination** | Normal controller-owned failed handoff; no wall-clock deadline |
 
 ### Captured Output Summary
 
-The harness loaded the changed open-pr surface, initialized isolated session `dd4af34b-d95b-4f78-8df5-61362c7e8b16`, and returned the exact session handoff marker `.omp/sdlc/sessions/dd4af34b-d95b-4f78-8df5-61362c7e8b16/handoffs/293-deliver.json`. Delivery then failed closed with `reasonCode: delivery_failed` because the deliberately minimal disposable repository omitted `specs/`. The failed handoff was preserved, no PR was opened, canonical `.omp/sdlc/run.json` was not created, and the disposable project was removed.
+The harness loaded the changed open-pr surface, initialized isolated session `1b471090-56c6-4c36-8f94-9935f8b47b0a`, and returned the exact session handoff marker `.omp/sdlc/sessions/1b471090-56c6-4c36-8f94-9935f8b47b0a/handoffs/293-deliver.json`. Delivery then failed closed with `reasonCode: delivery_failed` because the deliberately minimal disposable repository omitted `specs/`. The failed handoff was preserved, no PR was opened, canonical `.omp/sdlc/run.json` was not created, and the disposable project was removed.
 
 ### AC Evaluation
 
@@ -207,13 +207,13 @@ The harness loaded the changed open-pr surface, initialized isolated session `dd
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Mandatory steering runner | Prior pass | Pre-remediation execution exited 0 with `ok: true`, `ceiling: null`, and complete 2/2 provider coverage; its dirty-diff binding is superseded |
-| `repository.tests` | Pass | Remediation rerun: 49 suites and 696 tests passed; 1 suite and 2 tests skipped |
-| `repository.nmg-sdlc-smoke` | Prior pass | Pre-remediation artifact records `effectiveStatus: passed`; summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
-| Focused delivery suite | Pass | `npm test -- --runInBand __tests__/sdlc-deliver.test.mjs`: 48/48 tests passed |
+| Mandatory steering runner | Pass | Current execution exited 0 with `ok: true`, `ceiling: null`, and complete 2/2 provider coverage |
+| `repository.tests` | Pass | Current steering artifact records `effectiveStatus: passed` and command exit 0 |
+| `repository.nmg-sdlc-smoke` | Pass | Current steering artifact records `effectiveStatus: passed`; summary `nmg-sdlc-smoke status next /sdlc-draft-issue` |
+| Focused delivery, execute, and open-pr suites | Pass | 3/3 suites and 221/221 tests passed |
 | Current specs | Pass | `node scripts/verify-current-specs.mjs` passed 54 genuine issue specs and all reported mappings |
-| Plugin surface | Prior pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
-| Skill inventory | Prior pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
+| Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exited 0 |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: 43 items mapped |
 | Diff hygiene | Pass | `git diff --check` exited 0 with no output |
 | Workflow bundle validator | Not applicable | `skill://skill-creator` was resolved and read; its validator requires `SKILL.md`, while `workflows/open-pr` is an OMP `WORKFLOW.md` bundle |
 
