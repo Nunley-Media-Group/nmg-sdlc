@@ -10,9 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.7] - 2026-08-28
+
 ### Fixed
 
 - Rebind existing delivery PRs to controller-owned version commits without accepting foreign head drift, restore later issue branches before matching live retained workers during multi-issue resume, and reject symlinked isolated-session state or handoff targets before state reads or command execution (#293).
+
+### Changed
+
+- Persist exact-head delivery CAS and isolated session tokens (#293)
 
 ## [3.18.6] - 2026-08-28
 
