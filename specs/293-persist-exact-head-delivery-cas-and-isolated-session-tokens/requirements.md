@@ -69,7 +69,7 @@
 **Given** delivery has persisted an existing exact-branch PR at H1
 **When** its version publication creates and pushes clean local head H2
 **Then** delivery re-reads that exact PR after the push
-**And** it CAS-rebinds the expected head to H2 only when the PR head equals the clean current local head on the same PR and branch
+**And** it CAS-rebinds the expected head to H2 only when the PR remains open on that exact issue branch, the PR number and branch identity still match independently, and its head equals the clean current local head
 **And** it never readies or merges the PR at pre-bump H1
 **And** a different remote head remains a reconciliation failure
 
@@ -91,7 +91,7 @@
 | FR3 | Namespace isolated run state and handoffs under `.omp/sdlc/sessions/<token>/` and bind them to canonical project, issue, branch, and initial head. | Must |
 | FR4 | Stop idempotently on unexpected PR/head identity and never open a follow-up PR from that state. | Must |
 | FR5 | Pass delivery only after the persisted PR is MERGED at the persisted expected head and the issue is CLOSED. | Must |
-| FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when the same PR/branch head equals this run's clean current HEAD; otherwise reconcile. | Must |
+| FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when it remains open on the exact issue branch, its PR number and branch identity match independently, and its head equals this run's clean current HEAD; otherwise reconcile. | Must |
 | FR7 | For non-start steps, restore a clean expected active issue branch before retained-worker ownership matching and fail closed on dirty or foreign work. | Must |
 
 ## Out of Scope

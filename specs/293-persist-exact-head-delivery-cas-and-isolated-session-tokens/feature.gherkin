@@ -55,7 +55,7 @@ Feature: Persist exact-head delivery CAS and isolated session tokens
     Given delivery has persisted an existing exact-branch PR at H1
     When clean version publication pushes current local head H2
     Then delivery re-reads the persisted PR after the push
-    And expected head advances to H2 only when the same PR and branch equal clean local HEAD
+    And expected head advances to H2 only when that PR remains open, its PR number and exact issue branch match independently, and its head equals clean local HEAD
     And merge never uses pre-bump H1
     And a foreign remote head records delivery_reconciliation_required
 

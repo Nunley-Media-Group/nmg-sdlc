@@ -898,6 +898,61 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
   });
 
+  test('refuses merged-PR cleanup when local HEAD has diverged', () => {
+    const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
+    const f = fixture({ existingPr: merged, views: [merged], gitHead: H2 }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'checkout')).toBe(false);
+    expect(f.calls.some((call) => call.join(' ') === 'git branch -D 42-delivery')).toBe(false);
+  });
+
+  test('reconciles a persisted PR closed before version mutation', () => {
+    const closed = openPr({ state: 'CLOSED' });
+    const f = fixture({ existingPr: closed, views: [closed] }); roots.push(f.root);
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    const expectedRevision = runState.revision;
+    runState.revision += 1;
+    runState.delivery = {
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: H1,
+      status: 'expected',
+      reconciliation: null,
+    };
+    writeRun(runState, f.root, expectedRevision);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.4.5');
+    expect(f.calls.some((call) => call[0] === 'git' && ['commit', 'push'].includes(call[1]))).toBe(false);
+  });
+
   test('binds controlled-draft H1 evidence to H2 before readiness and merge', () => {
     const pending = fixture({ views: [openPr({ isDraft: true, head: H1 })] }); roots.push(pending.root);
     fs.writeFileSync(path.join(pending.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));

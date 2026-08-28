@@ -3446,6 +3446,58 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('kept-review-pane');
   });
 
+  it('keeps a live retained worker open when issue branch restoration fails', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: null,
+      workers: {
+        's42-review1': {
+          name: 's42-review1',
+          paneId: 'kept-review-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'review1',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 's42-review1',
+      pane_id: 'kept-review-pane',
+      state: 'working',
+    }];
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'checkout') {
+        fixture.calls.push([command, ...args]);
+        return { status: 1, stdout: '', stderr: 'checkout failed' };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed.reasonCode).toBe('branch_checkout_failed');
+    expect(fixture.closed).not.toContain('kept-review-pane');
+    expect(fixture.starts).toEqual([]);
+  });
+
 
   it('consumes a passed retained deliver handoff after the delivered branch was deleted', () => {
     const fixture = makeControllerFixture({ branch: 'main' });

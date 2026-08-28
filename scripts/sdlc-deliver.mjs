@@ -1145,6 +1145,7 @@ function runDeliverUnlocked({
     if (persisted && (
       pr.number !== persisted.pullRequest
       || pr.headRefOid !== persisted.expectedHead
+      || pr.state === 'CLOSED'
     )) {
       const authorizedAdvance = pr.number === persisted.pullRequest
         && pr.state === 'OPEN'
@@ -1162,6 +1163,9 @@ function runDeliverUnlocked({
     }
 
     let version = fs.readFileSync(path.join(cwd, 'VERSION'), 'utf8').trim();
+    if (pr?.state === 'MERGED' && pr.headRefOid !== localHead) {
+      return reconciliationFailure(context, namespace, pr);
+    }
     if (pr?.state === 'MERGED') {
       const terminalReadiness = { ...readiness, status: 'pass' };
       const proof = scopedSnapshot({

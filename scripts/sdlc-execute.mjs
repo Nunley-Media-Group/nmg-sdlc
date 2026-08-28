@@ -1857,7 +1857,7 @@ export function runExecute({
         return stop({
           issue,
           step,
-          paneId: live?.pane_id ?? live?.paneId ?? 'none',
+          paneId: 'none',
           agentName: live ? String(live.name) : `s${issue}-${step}`,
           reasonCode,
           runState,
