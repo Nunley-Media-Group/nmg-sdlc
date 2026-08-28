@@ -79,6 +79,8 @@ No separate regression slice is declared. Existing strict/best-effort resolution
 | P1 | Contract reconciliation | `specs/311-materialize-packaged-controller-paths-across-hosts/` | Branch carried the superseded three-task spec | Merged current `main` and preserved its approved four-task package | direct |
 | P1 | Cross-host parsing | `scripts/plugin-controller-path.mjs` | Host-specific regexes did not cover the complete approved operand contract | Added platform-independent canonical/POSIX/Windows/UNC operand recognition and operand-only replacement | direct |
 | P1 | Coverage | `scripts/__tests__/plugin-controller-path.test.mjs` | No copied-install startup from a foreign packaged operand | Added materialization plus real controller startup from consumer cwd | direct |
+| P1 | Release metadata | `VERSION` | Release metadata did not identify the shipped controller-path correction | Bumped the release version containing issue #311 | direct |
+| P1 | Release metadata | `package.json` | Package metadata had to remain synchronized with the release version | Bumped `version` with `VERSION` for the same issue #311 release | direct |
 
 ## Remaining Issues
 
