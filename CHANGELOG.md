@@ -10,11 +10,17 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.18.6] - 2026-08-28
+
 ### Fixed
 
 - Reject unknown steering snippet fields, including obsolete `byteBound`, at initialize and migration input boundaries before producing plan actions or manifest output (#291).
 - Run each controller-owned review and artifact/handoff finalization in one resolved-base sibling OMP prompt, waiting on validated evidence instead of unreliable worker-state detection (#292).
 - Execute supported script CLIs through locally linked OMP plugin paths by comparing canonical real entry paths while keeping module imports inert (#292).
+
+### Changed
+
+- Select review base without interactive picker parsing (#292)
 
 ## [3.18.5] - 2026-08-28
 
