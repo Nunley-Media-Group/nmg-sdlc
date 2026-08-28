@@ -69,3 +69,17 @@ Feature: Persist exact-head delivery CAS and isolated session tokens
     Then execute restores the expected active issue branch before ownership matching
     And the exact live worker resumes without retained_worker_mismatch
     And dirty or foreign work is never overwritten
+
+  # --- Isolated Session Symlink Boundary ---
+
+  @SCN007 @regression
+  Scenario Outline: Resumed isolated delivery rejects unsafe leaf artifacts
+    Given an initialized isolated delivery session
+    When its <artifact> is replaced by a symlink outside the session namespace
+    Then delivery fails with unsafe_session_path before reading run state or invoking commands
+    And no terminal handoff is written through the unsafe path
+
+    Examples:
+      | artifact           |
+      | run.json           |
+      | handoffs directory |

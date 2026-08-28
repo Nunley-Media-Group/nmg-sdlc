@@ -24,6 +24,8 @@
 4. Resume a two-issue execute run after the first issue delivered and left the checkout on the default branch.
 5. Keep the exact retained non-start worker for the second issue live with ownership bound to its issue branch and head.
 6. Observe ownership matching run against the default-branch checkout and falsely stop with `retained_worker_mismatch`.
+7. Replace an initialized isolated session's `run.json` or `handoffs` directory with a symlink outside `.omp/sdlc/sessions/<token>/`.
+8. Observe resumed delivery follow the symlink to read foreign state or redirect its terminal handoff outside the session namespace.
 
 ## Expected vs Actual
 
@@ -82,6 +84,13 @@
 **And** it resumes the exact worker without `retained_worker_mismatch`
 **And** dirty or foreign checkout work is never overwritten
 
+### AC7: Isolated Session Artifacts Cannot Cross Symlink Boundaries
+
+**Given** an initialized isolated delivery session
+**When** its `run.json` is not a regular non-symlink file or its `handoffs` path is not a real non-symlink directory
+**Then** resumed delivery fails with `unsafe_session_path` before reading run state or invoking Git or GitHub commands
+**And** it does not write a terminal handoff through the unsafe path
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -93,6 +102,7 @@
 | FR5 | Pass delivery only after the persisted PR is MERGED at the persisted expected head and the issue is CLOSED. | Must |
 | FR6 | After an existing-PR version push, re-read the persisted PR and authorize its head advance only when it remains open on the exact issue branch, its PR number and branch identity match independently, and its head equals this run's clean current HEAD; otherwise reconcile. | Must |
 | FR7 | For non-start steps, restore a clean expected active issue branch before retained-worker ownership matching and fail closed on dirty or foreign work. | Must |
+| FR8 | Before resuming an isolated session, require `run.json` to be a regular non-symlink file and `handoffs` to be a real non-symlink directory; reject unsafe artifacts before state reads or command invocation. | Must |
 
 ## Out of Scope
 
@@ -108,3 +118,4 @@
 |-------|------|---------|
 | #293 | 2026-08-27 | Initial defect report |
 | #293 | 2026-08-28 | Added version-push head rebinding and multi-issue retained-worker resume remediation |
+| #293 | 2026-08-28 | Added isolated-session run-state and handoff symlink boundary remediation |

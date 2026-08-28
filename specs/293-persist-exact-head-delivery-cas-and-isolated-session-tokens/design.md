@@ -19,6 +19,8 @@ The initial CAS implementation persists an existing PR's H1 before `publishVersi
 
 Execute also matches a live retained worker's recorded branch/head against the current checkout before calling `restoreActiveIssueBranch`. After an earlier issue's delivered branch is synchronized and removed, the checkout is on the default branch. A live next-issue non-start worker is therefore rejected even though its recorded ownership is exact.
 
+Resumed isolated sessions validate each namespace directory segment, but then `readRunAt` follows a symlinked `run.json` and terminal handoff writes can follow a symlinked `handoffs` directory. A valid token therefore does not by itself preserve the namespace boundary after initialization.
+
 ### Affected Code
 
 | File | Lines / Symbols | Role |
@@ -29,6 +31,7 @@ Execute also matches a live retained worker's recorded branch/head against the c
 | `scripts/__tests__/sdlc-deliver.test.mjs` | delivery controller fixture | Must model remote PR head movement after push and forbid pre-bump merge |
 | `scripts/__tests__/sdlc-execute.test.mjs` | multi-issue resume fixture | Must cover default-branch checkout plus an exact live next-issue worker |
 | `scripts/__tests__/open-pr-delivery-contract.test.mjs` | workflow contract | Encodes current invocation and handoff path |
+| `scripts/sdlc-deliver.mjs` | `resolveDeliveryNamespace`, `assertSafeSessionArtifacts` | Must reject unsafe isolated-session leaf artifacts before state reads or command invocation |
 
 ### Triggering Conditions
 
@@ -38,6 +41,7 @@ Execute also matches a live retained worker's recorded branch/head against the c
 - A rerun has no durable reconciliation state preventing a second PR attempt.
 - An existing PR is selected at H1 before delivery publishes its version commit at H2.
 - A completed earlier issue leaves a clean multi-issue checkout on the default branch while the next issue's exact non-start worker remains live.
+- An initialized isolated session's `run.json` file or `handoffs` directory is replaced by a symlink outside its token namespace before resume.
 
 ---
 
@@ -48,6 +52,8 @@ Execute also matches a live retained worker's recorded branch/head against the c
 Introduce a delivery state namespace abstraction backed by issue #290 CAS. Execute mode requires `--controller-run-id R`, verifies the issue #291 active lease and canonical checkpoint run id, and uses canonical `.omp/sdlc/run.json` plus `.omp/sdlc/handoffs/`. Standalone mode requires `--session-token T` and uses `.omp/sdlc/sessions/T/run.json` plus `.omp/sdlc/sessions/T/handoffs/`. The two options are mutually exclusive and exactly one is required for every mutating delivery invocation.
 
 Add `session-init --issue N`. It generates a UUID token, creates the session directory with exclusive semantics, and writes revision-1 schemaVersion-1 run state bound to `realpathSync(cwd)`, token run id, issue/issues, current branch, and current head. It prints exactly one `NMG_SDLC_SESSION: <token>` line. Tokens must match lowercase UUID syntax and resolve only beneath the canonical sessions directory; symlinked or pre-existing ambiguous targets fail closed. Session creation does not touch canonical run.json or handoffs.
+
+On isolated-session resume, validate the leaf artifacts after validating every directory segment and before calling `readRunAt`: `run.json` must exist as a regular non-symlink file, and `handoffs` must exist as a real non-symlink directory. Any mismatch fails as `unsafe_session_path`; no run state is read and no Git, GitHub, CAS, or handoff mutation begins.
 
 Factor issue #290's run-file CAS core so canonical `writeRun()` retains its exact public signature while an internal/session wrapper can apply the same validation, lock, expected-revision compare, atomic temp rename, and immutable identity checks to an explicit session run path. Handoffs are written beneath the selected namespace. Execute mode continues to emit the canonical marker expected by its controller; session mode emits the session-relative marker and the open-pr workflow validates that exact returned path.
 
@@ -81,7 +87,7 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 |-----------|----------|
 | `sdlc-deliver.mjs session-init --issue N` | Create one isolated UUID session and print its token; no canonical runtime writes |
 | `sdlc-deliver.mjs --issue N --controller-run-id R` | Canonical execute mode; R must match active lease/checkpoint |
-| `sdlc-deliver.mjs --issue N --session-token T` | Isolated mode; T must identify a bound session for N/project |
+| `sdlc-deliver.mjs --issue N --session-token T` | Isolated mode; T must identify a bound session for N/project whose `run.json` is a regular non-symlink file and `handoffs` is a real non-symlink directory |
 | `runState.delivery` | CAS-protected expected PR/head and terminal reconciliation/complete state |
 | Passed deliver handoff | Exists only after persisted PR/head MERGED identity plus issue CLOSED proof |
 
@@ -95,6 +101,7 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 | `README.md` | Document scoped delivery, session tokens, and handoff-only completion | User-visible behavior changed |
 | `commands/sdlc-open-pr.md` | Regenerate the packaged file command from its workflow body | Keeps the installed automated command synchronized with the scoped delivery controller |
 | `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/open-pr-delivery-contract.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Add CAS, reconciliation, namespace isolation, version-push remote-head, and live multi-issue resume regressions | Proves AC1–AC6 |
+| `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs` | Validate isolated-session leaf artifact types and reject symlinked state/handoff targets before resume | Prevents foreign state reads and redirected terminal handoffs |
 
 ### Blast Radius
 
@@ -113,6 +120,7 @@ For every non-start execute step, call `restoreActiveIssueBranch` before collisi
 | Remediation push cannot advance expected head | Med | Use the same authorized-transition helper after clean scoped push |
 | Session path escapes or aliases canonical state | Low | UUID-only token, realpath containment, no symlink following, exclusive directory creation |
 | Rerun opens a follow-up PR after unexpected merge | Low | Check persisted reconciliation before all PR discovery/create and GitHub mutation |
+| Session leaf artifact is replaced by a symlink after initialization | Low | `lstat` the run file and handoff directory immediately before the first state read; reject non-regular or symlinked artifacts before commands |
 | Passed handoff precedes closure | Low | Single terminal writer after exact persisted MERGED head and CLOSED issue proof |
 | Existing-PR version push is mistaken for foreign drift | High | Re-read the persisted PR after push and rebind only to the same branch's clean current local head |
 | Earlier delivery leaves live next-issue worker mismatched on default branch | High | Restore the clean expected non-start issue branch before comparing worker ownership |

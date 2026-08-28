@@ -18,6 +18,7 @@
 | T004 | Add exact-head, isolation, and terminal-proof regressions | [ ] |
 | T005 | Rebind an existing PR after the controller-owned version push | [ ] |
 | T006 | Restore the next issue branch before retained-worker matching | [ ] |
+| T007 | Harden isolated session leaf artifact boundaries | [ ] |
 
 ---
 
@@ -69,6 +70,17 @@
 - [ ] Dirty work on a foreign branch blocks checkout and is never overwritten
 - [ ] A two-issue resume with an exact live next-issue worker does not report `retained_worker_mismatch`
 
+### T007: Harden Isolated Session Leaf Artifacts
+
+**File(s)**: `scripts/sdlc-deliver.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`
+**Type**: Modify, Verify
+**Depends**: T001
+**Acceptance**:
+- [ ] Resumed isolated delivery requires a regular non-symlink `run.json`
+- [ ] Resumed isolated delivery requires a real non-symlink `handoffs` directory
+- [ ] Unsafe leaf artifacts fail with `unsafe_session_path` before run-state reads, Git/GitHub commands, CAS writes, or handoff writes
+- [ ] Regression coverage replaces each leaf with an external symlink and proves no command or redirected handoff occurs
+
 ### T003: Propagate Scope Through Open-PR
 
 **File(s)**: `workflows/open-pr/WORKFLOW.md`, `commands/sdlc-open-pr.md`, `README.md`
@@ -94,6 +106,7 @@
 - [ ] AC4 covers normal execute and standalone session delivery through passed handoff
 - [ ] AC5 covers clean post-version-push rebinding, foreign drift rejection, remote-head mock movement, and no pre-bump merge
 - [ ] AC6 covers multi-issue default-branch resume with an exact live retained worker plus dirty-work refusal
+- [ ] AC7 covers symlinked isolated-session `run.json` and `handoffs` paths and proves rejection before commands or redirected writes
 - [ ] Every `@regression` scenario maps to a Jest case
 - [ ] Focused execute, delivery, open-pr/prompt contract suites, `node scripts/verify-current-specs.mjs`, and `git diff --check` exit 0
 

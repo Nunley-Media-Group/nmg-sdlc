@@ -201,6 +201,19 @@ export function initializeDeliverySession({
   };
 }
 
+function assertSafeSessionArtifacts(fs, cwd, paths) {
+  const runStat = fs.lstatSync(path.join(cwd, paths.runFile));
+  const handoffStat = fs.lstatSync(path.join(cwd, paths.handoffDir));
+  if (
+    runStat.isSymbolicLink()
+    || !runStat.isFile()
+    || handoffStat.isSymbolicLink()
+    || !handoffStat.isDirectory()
+  ) {
+    throw new Error('unsafe_session_path');
+  }
+}
+
 function resolveDeliveryNamespace({
   cwd,
   fs,
@@ -209,6 +222,7 @@ function resolveDeliveryNamespace({
   sessionToken = null,
 }) {
   if ((controllerRunId === null) === (sessionToken === null)) throw new Error('delivery_scope_required');
+  const paths = deliveryPaths(sessionToken);
   if (controllerRunId !== null) {
     const lease = assertControllerLease({ projectRoot: cwd, runId: controllerRunId });
     if (!lease) throw new Error('delivery_scope_mismatch');
@@ -220,8 +234,8 @@ function resolveDeliveryNamespace({
       const stat = fs.lstatSync(current);
       if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('unsafe_session_path');
     }
+    assertSafeSessionArtifacts(fs, cwd, paths);
   }
-  const paths = deliveryPaths(sessionToken);
   const runState = readRunAt(paths.runFile, cwd);
   const expectedRunId = sessionToken ?? controllerRunId;
   if (

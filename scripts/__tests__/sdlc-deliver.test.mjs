@@ -510,6 +510,50 @@ describe('sdlc delivery controller', () => {
     expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
   });
 
+  test.each([
+    ['run.json', '33333333-3333-4333-8333-333333333333'],
+    ['handoffs', '44444444-4444-4444-8444-444444444444'],
+  ])('rejects a symlinked isolated-session %s before reading state or invoking commands', (entry, token) => {
+    const f = fixture(); roots.push(f.root);
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-session-boundary-')); roots.push(external);
+    initializeDeliverySession({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      token,
+      now: () => '2026-08-25T00:00:00.000Z',
+    });
+    const sessionRoot = path.join(f.root, '.omp/sdlc/sessions', token);
+    const sessionEntry = path.join(sessionRoot, entry);
+    if (entry === 'run.json') {
+      fs.copyFileSync(sessionEntry, path.join(external, 'run.json'));
+      fs.rmSync(sessionEntry);
+      fs.symlinkSync(path.join(external, 'run.json'), sessionEntry);
+    } else {
+      fs.rmSync(sessionEntry, { recursive: true });
+      fs.symlinkSync(external, sessionEntry);
+    }
+    const callCount = f.calls.length;
+
+    const result = runDeliver({
+      issue: 42,
+      sessionToken: token,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      stderr: 'unsafe_session_path\n',
+      handoff: null,
+    });
+    expect(f.calls).toHaveLength(callCount);
+    expect(fs.readdirSync(external)).toEqual(entry === 'run.json' ? ['run.json'] : []);
+  });
+
   test('does not treat the exact self-referential issue body as a breaking declaration', () => {
     const f = fixture({ body: SELF_REFERENTIAL_BREAKING_BODY }); roots.push(f.root);
     expect(runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep }).status).toBe(0);
