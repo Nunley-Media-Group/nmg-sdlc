@@ -16,6 +16,7 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  lstatSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -51,6 +52,7 @@ import {
 const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
 const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
+const PROMPT_PROVENANCE_DIR = join(RUN_DIR, 'prompt-provenance');
 
 export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
@@ -496,6 +498,87 @@ function persistRunState(runState, root) {
     throw error;
   }
 }
+function completedRunState(runData, { requireReleasedCurrentIssue = false } = {}) {
+  return validRunIdentity(runData)
+    && Array.isArray(runData.issues)
+    && runData.issues.length > 0
+    && (!requireReleasedCurrentIssue || runData.currentIssue === null)
+    && runData.currentStep === null
+    && runData.failed === null
+    && runData.remediation == null
+    && runData.issues.every((issue) => VALID_STEPS.every(
+      (step) => runData.completed?.[String(issue)]?.includes(step),
+    ));
+}
+
+function assertSafeRuntimeDirectory(path) {
+  if (!existsSync(path)) return;
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error('unsafe runtime path');
+  }
+}
+
+export function cleanupCompletedRun(runData, root = process.cwd()) {
+  let failed = false;
+  let lock;
+  let lockPath;
+  try {
+    if (!completedRunState(runData, { requireReleasedCurrentIssue: true })) {
+      throw new Error('incomplete run');
+    }
+    if (realpathSync(root) !== runData.projectRoot) throw new Error('checkpoint mismatch');
+
+    const runtimePath = join(root, RUN_DIR);
+    const runPath = join(root, RUN_FILE);
+    const handoffPath = join(root, HANDOFF_DIR);
+    const provenancePath = join(root, PROMPT_PROVENANCE_DIR);
+    assertSafeRuntimeDirectory(join(root, '.omp'));
+    assertSafeRuntimeDirectory(runtimePath);
+    assertSafeRuntimeDirectory(handoffPath);
+    assertSafeRuntimeDirectory(provenancePath);
+
+    lockPath = `${runPath}.lock`;
+    lock = openSync(lockPath, 'wx');
+
+    const existing = JSON.parse(readFileSync(runPath, 'utf8'));
+    if (
+      !completedRunState(existing)
+      || existing.revision !== runData.revision
+      || !sameRunIdentity(existing, runData)
+    ) {
+      throw new Error('checkpoint mismatch');
+    }
+
+    for (const issue of runData.issues) {
+      for (const step of VALID_STEPS) {
+        rmSync(join(handoffPath, `${issue}-${step}.json`), { force: true });
+      }
+    }
+    for (const step of VALID_STEPS) {
+      rmSync(join(provenancePath, `worker-${step}.json`), { force: true });
+    }
+    rmSync(`${runPath}.tmp`, { force: true });
+    rmSync(runPath, { force: true });
+  } catch {
+    failed = true;
+  } finally {
+    if (lock !== undefined) {
+      try {
+        closeSync(lock);
+      } catch {
+        failed = true;
+      }
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        failed = true;
+      }
+    }
+  }
+  if (failed) throw new Error('completed_cleanup_failed');
+}
+
 
 export function resolveSpecDirForIssue(root, issueN) {
   return resolveSpecDir(root, issueN);
@@ -2163,7 +2246,8 @@ export function runExecute({
   runState.currentIssue = null;
   runState.currentStep = null;
   runState.failed = null;
-  persistRunState(runState, cwd);
+  runState.remediation = null;
+  cleanupCompletedRun(runState, cwd);
   return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
   } catch (error) {
     return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${error.message}\n` };
