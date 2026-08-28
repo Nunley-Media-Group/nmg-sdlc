@@ -17,6 +17,7 @@
 | T003 | Add coordination and cleanup regressions | [ ] |
 | T004 | Verify controller suites and public contracts | [ ] |
 | T005 | Remove all prompt-size ceiling contracts | [ ] |
+| T006 | Document delivery-generated and public-contract path coverage | [ ] |
 
 ---
 
@@ -80,6 +81,20 @@
 - [ ] Preserve non-size structural validation, prompt provenance byte counts, placeholder expansion, deterministic ordering, hashes, provider/consumer/slot rules, source-path confinement, and non-empty bodies
 - [ ] Preserve every #291 controller lease, worker ownership, and cleanup path
 - [ ] Record explicit supersession of prompt-quota rules from #193, #259, #265, and #271
+
+### T006: Cover Delivery and Public-Contract Artifacts
+
+**File(s)**: `NMG_SDLC_STEERING_PLAN.md`, `VERSION`, `commands/sdlc-execute.md`, `commands/sdlc-open-pr.md`, `commands/sdlc-verify-code.md`, `package.json`, `workflows/execute/references/selection.md`
+**Type**: Verify delivery-generated and public-contract changes
+**Depends**: T001, T002, T004, T005
+**Acceptance**:
+- [ ] `NMG_SDLC_STEERING_PLAN.md` exposes steering fragment identity, path, consumer, slot, and order without restoring removed live-byte or bound contracts; steering-runtime and full-suite evidence cover this generated plan behavior
+- [ ] `VERSION` and `package.json` remain synchronized at the delivery-selected patch release; delivery-controller tests prove both Node version artifacts are updated together
+- [ ] `commands/sdlc-execute.md` accepts `--retain-worker` at most once, removes it before empty-selection handling, forwards it to `run`, and documents default owned-pane cleanup; execute parser, prompt, retention, and cleanup regressions cover the rendered command contract
+- [ ] `commands/sdlc-open-pr.md` forwards the exact non-empty controller run id to initial, remediation, and repeated delivery-controller invocations while preserving standalone omission; delivery CLI and execute prompt regressions cover scoped and standalone behavior
+- [ ] `commands/sdlc-verify-code.md` forwards the exact non-empty controller run id to steering verification and verification finalization while preserving standalone omission; verification-runtime and finalization lease regressions cover both calls
+- [ ] `package.json` preserves the OMP extension manifest while matching `VERSION`; delivery and extension-command tests cover version synchronization and the packaged extension declaration
+- [ ] `workflows/execute/references/selection.md` treats an optional `--retain-worker` as a flag rather than an issue token and forwards it exactly once after selected issue numbers; execute parsing and default-backlog regressions cover selection behavior
 
 ---
 

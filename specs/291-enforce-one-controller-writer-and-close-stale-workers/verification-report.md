@@ -146,6 +146,18 @@ Controllers depend on the lease module; the lease module does not depend on cont
 | Automated bodies and worker prompts | Historical ceiling constants and size assertions are absent; `rendered-prompt-contract.test.mjs` retains owned-workflow and controller-result behavior | Pass |
 | Provenance | Rendered total and per-fragment byte counts remain observational metadata and match actual UTF-8 output | Pass |
 
+## Path-Specific Delivery Evidence
+
+| Path | Required behavior | Verification evidence |
+|------|-------------------|-----------------------|
+| `NMG_SDLC_STEERING_PLAN.md` | The generated steering plan lists each prompt fragment's identity, path, consumers, slot, and order without the removed live-byte and bound columns or quota instructions. | The focused steering-runtime and prompt suites passed as part of the 35-test quota-free run; the full 713-test suite passed; `.omp/sdlc/verification/291.json` records complete `repository.tests` and `repository.nmg-sdlc-smoke` steering coverage at the verified head. |
+| `VERSION` | Delivery advances the single version source to the selected patch release and keeps it synchronized with the Node package mirror. | `scripts/__tests__/sdlc-deliver.test.mjs` passed in the full suite, including fresh delivery and resume cases that assert the updated `VERSION` value and synchronized package version. |
+| `commands/sdlc-execute.md` | The public command accepts `--retain-worker` at most once, removes it before deciding whether issue selection is empty, forwards it once to `run`, and otherwise documents default controller-owned pane cleanup. | `scripts/__tests__/sdlc-execute.test.mjs` passed in the full suite, including parser acceptance/rejection, default-backlog, explicit retention, default stop cleanup, and worker-prompt propagation cases. |
+| `commands/sdlc-open-pr.md` | The deliver worker forwards the exact non-empty controller run id to initial, remediation, and repeated controller invocations, while standalone delivery omits the option. | `scripts/__tests__/sdlc-deliver.test.mjs` and `scripts/__tests__/sdlc-execute.test.mjs` passed, covering delivery CLI parsing, scoped authority, standalone delivery, and the worker prompt's `--controller-run-id R` contract. |
+| `commands/sdlc-verify-code.md` | Verification forwards the exact non-empty controller run id to both steering verification and report finalization, while standalone verification omits the option. | `scripts/__tests__/sdlc-verification-runtime.test.mjs` and the verification finalization/lease coverage passed in the full suite, including exact scoped-run acceptance and unscoped rejection under an active lease. |
+| `package.json` | The package version matches `VERSION` and the manifest remains an OMP extension rooted at `./src/extension.ts`. | Delivery tests passed their synchronized Node-version assertions; `scripts/__tests__/extension-commands.test.mjs` and plugin-surface coverage passed the unchanged extension-manifest contract. |
+| `workflows/execute/references/selection.md` | Empty-selection handling occurs only after removing optional `--retain-worker`, and selected issue numbers plus the flag are forwarded exactly once to `run`. | Execute parser and default-backlog regressions passed in `scripts/__tests__/sdlc-execute.test.mjs`, covering flag placement among issue tokens, duplicate rejection, empty issue selection, resolved ordering, and one controller invocation. |
+
 ## Exercise Test Results
 
 | Field | Value |
