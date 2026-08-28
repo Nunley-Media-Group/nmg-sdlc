@@ -11,7 +11,7 @@
 |------|-------------------|
 | `scripts/sdlc-execute.mjs` | A fully completed queue removes its bound checkpoint and exact run-owned handoff and worker-provenance files. Nonterminal queues retain state. Unsafe cleanup returns `completed_cleanup_failed`. |
 | `scripts/__tests__/sdlc-execute.test.mjs` | AC1–AC5 cover exact cleanup, unrelated-file preservation, next-identity startup, resumable-state retention, lock/identity/symlink/deletion failures, controller failure output, and ignored/untracked runtime. |
-| `CHANGELOG.md` | `[Unreleased]` records the issue #299 defect fix. |
+| `CHANGELOG.md`, `VERSION`, `package.json` | Release 3.18.3 records the issue #299 patch and keeps the declared version mirror synchronized. |
 | `specs/299-remove-completed-execute-runtime-checkpoints/` | Approved requirements, design, tasks, Gherkin scenarios, and this evidence identify only issue #299. |
 
 ## Results
