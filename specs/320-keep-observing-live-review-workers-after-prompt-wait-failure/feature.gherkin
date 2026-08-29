@@ -1,0 +1,33 @@
+**Issue**: #320
+**Date**: 2026-08-29
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/292-select-review-base-without-interactive-picker-parsing/
+
+# File: specs/320-keep-observing-live-review-workers-after-prompt-wait-failure/feature.gherkin
+#
+# Generated from: specs/320-keep-observing-live-review-workers-after-prompt-wait-failure/requirements.md
+Feature: Keep observing live review workers after prompt-wait failure
+  The execute controller previously treated a non-stall prompt-wait failure as
+  immediate review failure even while the exact owned review worker remained live.
+  Review completion now follows validated handoff or confirmed worker disappearance.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Live review worker completes after prompt-wait failure
+    Given an exact owned review worker remains listed without a handoff
+    And its controller-owned prompt wait returns a non-stall failure
+    When that worker later writes a valid artifact-backed review handoff
+    Then execute accepts the review and continues the queue
+    And it does not stop with review_failed or send stalled-prompt recovery keys
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Missing review worker still fails closed
+    Given a non-stall review prompt wait failed without a valid handoff
+    When the exact owned review worker is absent or disappears during observation
+    Then execute fails the review as review_failed or process_lost
+    And it does not recreate the review worker
+    And missing review-base and agent_prompt_stalled recovery behavior remain unchanged
