@@ -1,0 +1,52 @@
+**Issue**: #321
+**Date**: 2026-08-29
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/303-release-leftover-completed-execute-checkpoints-on-startup/
+
+# File: specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement/feature.gherkin
+#
+# Generated from: specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement/requirements.md
+Feature: Migrate completed legacy execute checkpoints before identity enforcement
+  As a developer upgrading a consumer repository
+  I want fully completed and fully unbound legacy execute runtime released safely
+  So that a different eligible queue can start with fresh identity on every supported OS
+
+  @SCN001 @regression
+  Scenario: Fully unbound terminal checkpoint starts a fresh queue
+    Given issue 6 has a schema-version-1 checkpoint with every valid step complete
+    And current, failure, remediation, and all six identity fields are absent or cleared as required
+    When execute starts approved eligible issue 19
+    Then only issue 6 run-owned runtime is released
+    And issue 19 starts with a new complete native identity and revision
+    And no checkpoint identity mismatch is emitted
+
+  @SCN002 @regression
+  Scenario: Partial identity and nonterminal legacy state remain blocked
+    Given a checkpoint is incomplete, active, failed, remediating, malformed, or contains any identity-field subset
+    When execute requests a different issue list
+    Then it exits with exactly Run checkpoint identity mismatch
+    And checkpoint bytes and supporting runtime are unchanged
+    And no requested worker starts
+
+  @SCN003 @regression
+  Scenario: Legacy cleanup races and unsafe boundaries fail closed
+    Given an otherwise eligible legacy checkpoint has a held lock, changed bytes, unsafe link boundary, deletion failure, or foreign controller ownership
+    When execute attempts legacy cleanup
+    Then no fresh run is created or advanced
+    And cleanup does not escape the canonical runtime boundary or release foreign state
+
+  @SCN004 @regression
+  Scenario: Classification is invariant across serialized path forms
+    Given deterministic fixtures combine LF and CRLF bytes with POSIX and Windows path-form identity values
+    When eligible and partially identity-bearing shapes are classified
+    Then every logical shape has the same migrate-or-reject result
+    And fixtures use Node filesystem, path, process, and executable primitives only
+
+  @SCN005 @regression
+  Scenario: Native hosts preserve cleanup and identity safety
+    Given the checkpoint-portability scenario runs natively on Ubuntu, macOS, and Windows
+    When legacy cleanup encounters each host's safe and unsafe filesystem boundaries
+    Then exact owned runtime is removed only for eligible state
+    And fresh project identity uses the native canonical root
+    And locks, symlinks or junctions, stale revisions, branch or head drift, and foreign leases remain fail-closed
