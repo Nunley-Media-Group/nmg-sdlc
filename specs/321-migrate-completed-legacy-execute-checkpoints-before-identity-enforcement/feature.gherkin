@@ -15,7 +15,9 @@ Feature: Migrate completed legacy execute checkpoints before identity enforcemen
   @SCN001 @regression
   Scenario: Fully unbound terminal checkpoint starts a fresh queue
     Given issue 6 has a schema-version-1 checkpoint with every valid step complete
-    And current, failure, remediation, and all six identity fields are absent or cleared as required
+    And current issue, current step, and failure are present as null
+    And remediation is missing or null
+    And all six identity fields are absent as own properties
     When execute starts approved eligible issue 19
     Then only issue 6 run-owned runtime is released
     And issue 19 starts with a new complete native identity and revision
@@ -23,7 +25,7 @@ Feature: Migrate completed legacy execute checkpoints before identity enforcemen
 
   @SCN002 @regression
   Scenario: Partial identity and nonterminal legacy state remain blocked
-    Given a checkpoint is incomplete, active, failed, remediating, malformed, or contains any identity-field subset
+    Given a checkpoint is incomplete, active, failed, remediating, malformed, missing terminal completion evidence, or contains any non-empty proper subset of the six identity fields
     When execute requests a different issue list
     Then it exits with exactly Run checkpoint identity mismatch
     And checkpoint bytes and supporting runtime are unchanged
@@ -33,7 +35,9 @@ Feature: Migrate completed legacy execute checkpoints before identity enforcemen
   Scenario: Legacy cleanup races and unsafe boundaries fail closed
     Given an otherwise eligible legacy checkpoint has a held lock, changed bytes, unsafe link boundary, deletion failure, or foreign controller ownership
     When execute attempts legacy cleanup
-    Then no fresh run is created or advanced
+    Then it exits with completed_cleanup_failed rather than Run checkpoint identity mismatch
+    And run.json is retained when bounded cleanup has not already safely removed it
+    And no fresh run is created or advanced
     And cleanup does not escape the canonical runtime boundary or release foreign state
 
   @SCN004 @regression

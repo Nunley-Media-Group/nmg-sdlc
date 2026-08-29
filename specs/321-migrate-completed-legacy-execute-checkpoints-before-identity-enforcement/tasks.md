@@ -42,7 +42,7 @@
 - [ ] Legacy cleanup receives exact checkpoint bytes captured with the parsed state, acquires the existing exclusive lock, re-reads and buffer-compares bytes under lock, reparses/revalidates, and rejects any change.
 - [ ] Canonical root and safe-directory checks reject symlink and junction boundaries before owned deletion.
 - [ ] Cleanup removes only exact `<issue>-<step>.json` handoffs, `worker-<step>.json` provenance, `run.json.tmp`, and `run.json`; unrelated runtime remains.
-- [ ] Held locks, byte changes, deletion failures, and ownership/lease failures stop startup without a new worker.
+- [ ] Held locks, byte changes, deletion failures, and ownership/lease failures return `completed_cleanup_failed`, retain `run.json` when bounded cleanup has not already safely removed it, and stop startup without a new worker.
 - [ ] Successful cleanup sets no legacy identity; normal fresh-run initialization creates canonical projectRoot, new runId, requested issue/branch/head, frozen issues, and revision 1.
 - [ ] Identity-bound CAS, revision, branch/head, project-root, and controller-lease behavior remains fail-closed.
 
@@ -56,7 +56,7 @@
 - [ ] Generate LF/CRLF × `path.posix`/`path.win32` path-form combinations and all 62 non-empty proper identity subsets; decisions are invariant across combinations.
 - [ ] Incomplete, active, failed, remediating, malformed, and missing-completion shapes retain exact bytes/runtime and start no issue-19 worker.
 - [ ] Use Node `fs`, `path`, `os`, `process.execPath`, and argument arrays only; no shell fixture commands, chmod, executable-bit, separator, or newline assumptions.
-- [ ] Cover held lock, changed checkpoint bytes, owned deletion failure, stale revision, branch/head drift, and foreign/changed controller lease.
+- [ ] Cover held lock, changed checkpoint bytes, owned deletion failure, stale revision, branch/head drift, and foreign/changed controller lease; cleanup failures assert `completed_cleanup_failed` rather than identity mismatch and retain `run.json` when bounded cleanup has not already safely removed it.
 - [ ] POSIX hosts cover symbolic links. Windows covers a directory junction and covers symbolic links unless `fs.symlinkSync` returns an explicit privilege-denied error.
 - [ ] Existing completed bound cleanup, different-list mismatch, same-list legacy binding, and exact artifact ownership tests remain passing.
 - [ ] Scenarios `@SCN001` through `@SCN005` are represented by Jest evidence.
