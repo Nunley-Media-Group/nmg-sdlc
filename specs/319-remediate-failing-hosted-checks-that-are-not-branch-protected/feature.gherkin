@@ -1,0 +1,35 @@
+**Issue**: #319
+**Date**: 2026-08-29
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/195-move-exact-head-delivery-into-a-controller-with-on-demand-remediation/
+
+# File: specs/319-remediate-failing-hosted-checks-that-are-not-branch-protected/feature.gherkin
+#
+# Generated from: specs/319-remediate-failing-hosted-checks-that-are-not-branch-protected/requirements.md
+Feature: Remediate failing hosted checks that are not branch-protected
+  Delivery previously polled forever when required checks passed and a
+  non-required hosted check failed. The snapshot now includes every
+  gh pr checks result so failing non-required checks emit remediation.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Failing non-required hosted check emits remediation
+    Given an open delivery PR whose required checks passed
+    And a non-required hosted check named "Validate nmg-sdlc contribution evidence" failed
+    And GitHub reports mergeStateStatus UNSTABLE
+    When the delivery controller observes that PR
+    Then it exits 3 with NMG_SDLC_REMEDIATION
+    And failingChecks includes "Validate nmg-sdlc contribution evidence"
+    And it does not sleep in the mergeability_pending poll loop
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Pending and merge-ready classification is preserved
+    Given a delivery PR whose hosted checks are all pending or all successful
+    When the delivery controller observes that PR
+    Then pending checks still classify as pending
+    And successful exact-head CLEAN PRs still classify as merge_ready
+    And human-review threads, CHANGES_REQUESTED, and required-check failures keep their current statuses
