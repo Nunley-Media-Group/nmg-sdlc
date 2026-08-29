@@ -1,95 +1,95 @@
 # Tasks: Migrate completed legacy execute checkpoints before identity enforcement
 
 **Issue**: #321
-**Date**: 2026-08-28
+**Date**: 2026-08-29
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/303-release-leftover-completed-execute-checkpoints-on-startup/
+
 ---
 
 ## Summary
 
-| Phase | Tasks | Status |
-|-------|-------|--------|
-| Classification | 1 | [ ] |
-| Cleanup and startup | 1 | [ ] |
-| Regression coverage | 1 | [ ] |
-| Native CI | 1 | [ ] |
-| **Total** | 4 | |
+| Task | Description | Status |
+|------|-------------|--------|
+| T001 | Classify fully unbound terminal checkpoints | [ ] |
+| T002 | Release legacy runtime and create fresh identity | [ ] |
+| T003 | Add deterministic portability and safety regressions | [ ] |
+| T004 | Add native checkpoint-portability CI matrix | [ ] |
+| T005 | Verify focused and repository contracts | [ ] |
 
 ---
 
-### T001: Separate terminal workflow state from identity presence
+### T001: Classify fully unbound terminal checkpoints
 
 **File(s)**: `scripts/sdlc-execute.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] Add the six-field `RUN_IDENTITY_FIELDS` inventory and replace `hasRunIdentity` with `hasAnyRunIdentity`
-- [ ] Update `writeRunAt` bind-in-place and `runExecute` unbound-resume checks so every partial identity tuple is rejected instead of rebound
-- [ ] Extract `completedWorkflowState` with schema-v1, issue-list, cleared-state, and all-`VALID_STEPS` requirements
-- [ ] Keep `completedRunState` for complete valid identity and add `legacyCompletedRunState` only for zero identity fields; both reuse `completedWorkflowState`
-- [ ] Preserve `validRunIdentity`, `sameRunIdentity`, schema version 1, the public command, and handoff formats
+- [ ] Define the identity field set once and distinguish any identity own property from a valid complete identity.
+- [ ] A legacy terminal predicate requires schema version 1, non-empty positive-safe-integer issues, null current issue/current step/failure, missing-or-null remediation, and every `VALID_STEPS` value for every issue.
+- [ ] The predicate requires all six identity fields to be absent as own properties.
+- [ ] Any of the 62 non-empty proper identity subsets is ineligible and cannot enter legacy binding or cleanup.
+- [ ] Existing valid identity-bound terminal classification remains unchanged.
 
-### T002: Release exact-byte legacy terminal state through guarded cleanup
+### T002: Release legacy runtime and create fresh identity
 
-**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/sdlc-controller-lease.mjs`
+**File(s)**: `scripts/sdlc-execute.mjs`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] Add private `readRunSnapshotAt(runFile, root)` returning parsed state plus exact UTF-8 bytes from one read while preserving `readRunAt` and `readRun` signatures
-- [ ] Add `ownsControllerLease(lease)` in `scripts/sdlc-controller-lease.mjs`, reuse it from `releaseControllerLease`, and preserve a missing, foreign, or changed serialized lease
-- [ ] Extend `cleanupCompletedRun(runData, root, { expectedLegacyBytes, controllerLease } = {})`; existing two-argument direct test callers remain bound mode
-- [ ] Legacy mode requires a fully unbound terminal checkpoint, the acquired controller lease, exact unchanged snapshot bytes under `run.json.lock`, canonical-root directory checks, and safe link boundaries before deletion
-- [ ] Bound mode retains exact identity, issue list, branch/head, revision, and same-run checks
-- [ ] Cleanup removes only exact issue-step handoffs, worker-step provenance, `run.json.tmp`, and `run.json` last; unrelated runtime and `controller.lock` remain
-- [ ] Different-list startup accepts only bound-terminal or legacy-terminal state, maps cleanup failure to exact `Run checkpoint identity mismatch
-`, and falls through to the unchanged fresh-run initializer only after successful cleanup
-- [ ] Fresh issue 19 identity comes from canonical current root, one new controller run id, the requested issue list, current branch/head snapshots, and normal monotonic persistence
+- [ ] Different-issue startup accepts either the existing bound terminal predicate or the strict legacy terminal predicate; all other shapes return exact mismatch stderr.
+- [ ] Legacy cleanup receives exact checkpoint bytes captured with the parsed state, acquires the existing exclusive lock, re-reads and buffer-compares bytes under lock, reparses/revalidates, and rejects any change.
+- [ ] Canonical root and safe-directory checks reject symlink and junction boundaries before owned deletion.
+- [ ] Cleanup removes only exact `<issue>-<step>.json` handoffs, `worker-<step>.json` provenance, `run.json.tmp`, and `run.json`; unrelated runtime remains.
+- [ ] Held locks, byte changes, deletion failures, and ownership/lease failures return `completed_cleanup_failed`, retain `run.json` when bounded cleanup has not already safely removed it, and stop startup without a new worker.
+- [ ] Successful cleanup sets no legacy identity; normal fresh-run initialization creates canonical projectRoot, new runId, requested issue/branch/head, frozen issues, and revision 1.
+- [ ] Identity-bound CAS, revision, branch/head, project-root, and controller-lease behavior remains fail-closed.
 
-### T003: Cover migration, rejection, and ownership boundaries
+### T003: Add deterministic portability and safety regressions
 
 **File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
-- [ ] Use an exact issue-6 legacy payload to start issue 19; assert exact owned cleanup, unrelated-runtime preservation, no identity-mismatch stderr, worker start, and complete fresh native identity
-- [ ] Generate the Cartesian LF/CRLF and POSIX/Windows path-form matrix with Node APIs and reject all 62 non-empty proper identity-field subsets with exact unchanged bytes and no worker
-- [ ] Cover incomplete, active, failed, remediating, malformed, missing-completion, invalid-full-identity, and changed-byte candidates
-- [ ] Prove held checkpoint lock, exact-artifact deletion failure, POSIX symlink, Windows mandatory junction, and privilege-conditional Windows symbolic-link cases fail closed
-- [ ] Prove foreign and changed controller leases block cleanup/fresh persistence and are not removed, and prove stale revision plus branch/head drift preserve identity-bound checkpoint bytes
-- [ ] Use only `node:fs`, `node:path`, `node:child_process`, `node:os`, `process.execPath`, and argument arrays for fixture setup, invocation, and assertions
-- [ ] Map `@SCN001` through `@SCN005` one-to-one to named Jest cases or outlines
+- [ ] Seed the exact released issue-6 legacy payload, request approved issue 19, and assert no mismatch, exact old artifact cleanup, unrelated runtime retention, new worker start, and fresh complete native identity.
+- [ ] Generate LF/CRLF × `path.posix`/`path.win32` path-form combinations and all 62 non-empty proper identity subsets; decisions are invariant across combinations.
+- [ ] Incomplete, active, failed, remediating, malformed, and missing-completion shapes retain exact bytes/runtime and start no issue-19 worker.
+- [ ] Use Node `fs`, `path`, `os`, `process.execPath`, and argument arrays only; no shell fixture commands, chmod, executable-bit, separator, or newline assumptions.
+- [ ] Cover held lock, changed checkpoint bytes, owned deletion failure, stale revision, branch/head drift, and foreign/changed controller lease; cleanup failures assert `completed_cleanup_failed` rather than identity mismatch and retain `run.json` when bounded cleanup has not already safely removed it.
+- [ ] POSIX hosts cover symbolic links. Windows covers a directory junction and covers symbolic links unless `fs.symlinkSync` returns an explicit privilege-denied error.
+- [ ] Existing completed bound cleanup, different-list mismatch, same-list legacy binding, and exact artifact ownership tests remain passing.
+- [ ] Scenarios `@SCN001` through `@SCN005` are represented by Jest evidence.
 
-### T004: Run checkpoint portability on every supported host
+### T004: Add native checkpoint-portability CI matrix
 
 **File(s)**: `.github/workflows/nmg-sdlc-verify.yml`
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] Preserve the existing Ubuntu `verify` job unchanged
-- [ ] Add `checkpoint-portability` with `fail-fast: false` and matrix `ubuntu-latest`, `macos-latest`, `windows-latest`
-- [ ] Each runner uses Node 20, `npm ci --no-audit --no-fund` in `scripts`, and `npm test -- --runInBand __tests__/sdlc-execute.test.mjs`
-- [ ] Native results prove identical classification, exact owned cleanup, unrelated-runtime preservation, fresh `projectRoot === fs.realpathSync(tempRoot)`, lock/lease/CAS failures, and the applicable link boundary
-- [ ] Simulated path-form tests are not reported as substitutes for a missing native OS result; unavailable runner evidence is recorded as an incomplete verification gap
+- [ ] Preserve the existing Ubuntu `verify` job unchanged in purpose and add a dedicated matrix job for `ubuntu-latest`, `macos-latest`, and `windows-latest`.
+- [ ] Each runner checks out, sets up Node 20 with the `scripts/package-lock.json` cache, and runs `npm ci --no-audit --no-fund` in `scripts/`.
+- [ ] Each runner invokes `node_modules/jest/bin/jest.js` through explicit Node with `--experimental-vm-modules`, `--runInBand`, the execute test file, and a stable checkpoint-portability test-name filter.
+- [ ] The matrix proves native canonical root/separators and platform-specific link/junction safety; simulated path data is not reported as native evidence.
+- [ ] No shell-created fixture, POSIX-only command, shebang, or executable-bit dependency is introduced.
+
+### T005: Verify focused and repository contracts
+
+**File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`, `.github/workflows/nmg-sdlc-verify.yml`
+**Type**: Verify (no file changes)
+**Depends**: T003, T004
+**Acceptance**:
+- [ ] `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` exits 0 locally.
+- [ ] The full repository Jest suite and `node scripts/verify-plugin-surface.mjs --root . --label repository` exit 0.
+- [ ] Hosted checkpoint-portability jobs pass on Ubuntu, macOS, and Windows, or any unavailable runner is replaced by attached focused smoke evidence from an actual host of that OS.
+- [ ] Evidence records identical classification, exact owned cleanup, unrelated-runtime retention, native fresh identity, and fail-closed unsafe boundaries per runner.
 
 ---
 
-## Dependency Graph
-
-```text
-T001 -> T002 -> T003 -> T004
-```
-
-## Change History
-
-| Issue | Date | Summary |
-|-------|------|---------|
-| #321 | 2026-08-28 | Initial feature spec |
-
 ## Validation Checklist
 
-- [x] Tasks form one acyclic implementation order.
-- [x] Every production edit and exported cleanup call site is named.
-- [x] Every acceptance criterion maps to deterministic and native-host evidence.
-- [x] No task adds a schema version, manual repair command, shell fixture, or broader cleanup boundary.
+- [x] Tasks cover classification, cleanup, regression evidence, native CI, and verification
+- [x] Dependencies are explicit and topologically ordered
+- [x] Every acceptance criterion maps to observable tests or hosted evidence
+- [x] No resumable checkpoint migration or safety relaxation is in scope
+- [x] File paths match project structure and existing verification ownership

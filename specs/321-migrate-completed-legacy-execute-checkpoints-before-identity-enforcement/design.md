@@ -1,198 +1,207 @@
 # Design: Migrate completed legacy execute checkpoints before identity enforcement
 
 **Issue**: #321
-**Date**: 2026-08-28
+**Date**: 2026-08-29
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/303-release-leftover-completed-execute-checkpoints-on-startup/
+
 ---
 
 ## Overview
 
-Keep schema version 1 and the existing `/sdlc-execute` startup order. Split terminal workflow validation from identity classification so both current identity-bound cleanup and the released pre-identity shape share one strict completion predicate. A checkpoint is legacy-migratable only when all terminal workflow evidence is present and none of `projectRoot`, `runId`, `issue`, `branch`, `head`, or `revision` exists. Any partial identity tuple is mismatch evidence and cannot use either bind-in-place or legacy cleanup.
+`runExecute` reads `.omp/sdlc/run.json`, resolves the requested issue list, and handles a different persisted list before fresh-run initialization. The different-list branch currently calls `completedRunState`, which begins with `validRunIdentity`. A terminal checkpoint released before issue #290 therefore cannot reach issue #303's startup cleanup even when every issue records all eight valid steps and all active state is cleared.
 
-Capture the parsed checkpoint and its exact UTF-8 bytes from one read before controller lease acquisition. For a different requested issue list, pass those bytes into the existing `cleanupCompletedRun` boundary only for a fully unbound terminal checkpoint. Cleanup acquires the existing `run.json.lock`, rereads the checkpoint, requires byte equality and the same legacy terminal classification, performs the existing canonical-directory and link checks, deletes only exact run-owned artifacts, and deletes `run.json` last. Successful cleanup then falls through to the unchanged fresh-run initializer, which creates a new project/run/issue/branch/head identity and revision.
+Add one narrow legacy-terminal predicate: schema version 1, valid non-empty issue list, complete step evidence for every issue, null current step/current issue/failure, missing-or-null remediation, and zero identity-field own properties. Do not weaken the identity-bound completed predicate. Startup may release a different-list checkpoint when either the existing bound predicate or the new fully unbound legacy predicate succeeds. Any partial identity uses the mismatch path.
 
-Identity-bound completion continues through the current `validRunIdentity`, `sameRunIdentity`, and revision checks. The controller lease is acquired before classification/cleanup and is never part of completed-run deletion. Extract its exact serialized-byte ownership check for use before and after cleanup and before fresh checkpoint persistence, then reuse the same predicate in `releaseControllerLease`. A foreign, missing, or changed lease therefore cannot authorize cleanup, fresh identity creation, or successful finalization. No command, schema version, handoff format, or public extension interface changes.
+Generalize the existing completed cleanup boundary to accept the legacy shape only with an exact byte snapshot captured before cleanup, an exclusive lock, canonical-root confinement, safe runtime directories, and a second byte comparison under the lock. The legacy branch has no project root, run id, or revision to trust; caller-supplied canonical root plus unchanged bytes replaces identity/CAS only for deletion of this terminal state. After successful deletion, the existing fresh-run path creates all identity fields and revision normally.
 
-## Steering Alignment
-
-- Product steering requires OS-agnostic behavior, evidence-backed delivery, and fail-closed execute sequencing.
-- Technical steering requires Node 20 ESM, `node:` built-ins, `node:path`, argument arrays, deterministic Jest coverage, and no symlink traversal at deletion boundaries.
-- Structure steering keeps execute state and cleanup logic in `scripts/sdlc-execute.mjs`, contract coverage in `scripts/__tests__/`, and native CI in `.github/workflows/`.
+---
 
 ## Architecture
 
+### Startup Classification
+
 ```text
-readRunSnapshotAt(RUN_FILE, cwd)
-  -> { runData, bytes }
-          |
-          v
-acquireControllerLease(canonical cwd, existing runId or fresh UUID)
-          |
-          v
-different requested issue list and run.json observed?
-  | no                              | yes
-  v                                 v
-existing resume/fresh path     completed workflow state?
-                                  | no -> exact identity mismatch
-                                  v
-                         identity classification
-                         | complete valid identity
-                         | no identity fields
-                         | any partial/invalid identity -> mismatch
-                                  |
-                 +----------------+----------------+
-                 |                                 |
-                 v                                 v
-       bound cleanup contract           legacy cleanup contract
-       exact identity + revision         exact snapshot bytes + no identity
-                 +----------------+----------------+
-                                  |
-                                  v
-                         exact owned deletion
-                         run.json deleted last
-                                  |
-                                  v
-                     unchanged fresh-run initializer
+read checkpoint object + exact bytes
+        |
+requested issues differ?
+        | no
+        v
+existing resume/bind rules (partial identity rejected)
+
+        yes
+        |
+        +--> bound terminal predicate --> bounded bound cleanup
+        |
+        +--> fully unbound legacy terminal predicate --> byte-guarded bounded cleanup
+        |
+        +--> neither --> exact identity-mismatch failure
+                              |
+cleanup succeeds ----------------------> normal fresh-run initialization
 ```
 
-## Checkpoint Classification Contract
+### State Classification
 
-Use one identity field inventory in `scripts/sdlc-execute.mjs`:
+| Shape | Different requested list | Matching requested list |
+|-------|--------------------------|-------------------------|
+| Valid identity-bound terminal | Existing completed cleanup | Existing behavior |
+| Fully unbound legacy terminal | Legacy cleanup, then fresh run | Existing legacy binding remains only for fully unbound state |
+| Any identity-field subset that is not a valid complete identity | `Run checkpoint identity mismatch` | `Run checkpoint identity mismatch`; never bind partial identity |
+| Incomplete, active, failed, remediating, malformed | `Run checkpoint identity mismatch` | Existing fail-closed validation/resume behavior |
 
-```js
-const RUN_IDENTITY_FIELDS = ['projectRoot', 'runId', 'issue', 'branch', 'head', 'revision'];
+The identity-field set is exactly `projectRoot`, `runId`, `issue`, `branch`, `head`, and `revision`. Keep separate predicates for any identity field, complete valid identity, bound terminal state, and fully unbound legacy terminal state; do not overload an `every` check so a partial tuple looks absent.
+
+---
+
+## Interfaces and Data Contracts
+
+No public CLI or checkpoint schema version changes. `/sdlc-execute` changes only the classification of a fully unbound terminal checkpoint during safe startup release.
+
+### Legacy Terminal Predicate
+
+A checkpoint is eligible only when all conditions hold:
+
+| Field | Required value |
+|-------|----------------|
+| `schemaVersion` | `1` |
+| `issues` | Non-empty array of positive safe integers |
+| `currentIssue` | `null` |
+| `currentStep` | `null` |
+| `failed` | `null` |
+| `remediation` | Missing or `null` |
+| `completed[String(issue)]` | Contains every value in `VALID_STEPS` for every listed issue |
+| Six identity fields | No own property for any field |
+
+Unknown unrelated fields do not grant eligibility and do not replace any required evidence. Malformed JSON remains unreadable and fails closed through the existing mismatch surface.
+
+### Cleanup Inputs
+
+The legacy cleanup call receives the parsed checkpoint and the exact bytes captured for that same read. It must:
+
+1. Resolve and realpath the caller project root using Node path/filesystem APIs.
+2. Validate the legacy terminal predicate before mutation.
+3. Validate `.omp`, `.omp/sdlc`, handoffs, and prompt-provenance as real directories rather than links/reparse boundaries.
+4. Acquire the existing exclusive `run.json.lock` with `openSync(..., 'wx')`.
+5. Re-read `run.json` under the lock and require exact byte equality with the captured snapshot, then parse and revalidate the same legacy terminal shape.
+6. Delete only `<issue>-<step>.json` handoffs, `worker-<step>.json` provenance, `run.json.tmp`, and `run.json` using Node `rmSync` beneath the canonical runtime root.
+7. Release only the acquired lock. Any failure returns the existing `completed_cleanup_failed` boundary and blocks fresh-run creation.
+
+Identity-bound cleanup keeps its current project-root, run identity, and revision comparisons. Controller-lease acquisition/release remains outside cleanup and must not release a foreign or changed lease.
+
+---
+
+## Cross-Platform Design
+
+- Construct native filesystem paths with `node:path` `join`, `resolve`, `relative`, and `isAbsolute`; use `path.posix` and `path.win32` only to generate deterministic path-form data.
+- Compare checkpoint bytes as buffers so LF vs CRLF is explicit and host-independent.
+- Create fixtures with `node:fs`; never call `rm`, `mkdir`, `ln`, `chmod`, shell scripts, or depend on shebangs/executable bits.
+- Treat a Windows directory junction as an unsafe link boundary through `lstatSync`/reparse-point behavior. Junction coverage is mandatory; symbolic-link coverage may skip only on an explicit privilege-denied error.
+- Invoke the focused Jest entry with an explicit Node executable and JavaScript entrypoint in the CI matrix so Windows does not depend on POSIX `.bin` shims.
+- Assert fresh `projectRoot` against `fs.realpathSync(tempRoot)` on the running host rather than a simulated separator string.
+
+---
+
+## Changes
+
+| File | Change | Rationale |
+|------|--------|-----------|
+| `scripts/sdlc-execute.mjs` | Distinguish any/complete identity presence; add fully unbound terminal classification; capture checkpoint bytes for legacy cleanup; reuse bounded artifact deletion under lock with byte equality; route successful cleanup into existing fresh-run initialization. | Makes released terminal state migratable without weakening bound identity or cleanup safety. |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Add exact issue-6 → issue-19 startup regression, 62-subset rejection matrix, LF/CRLF × POSIX/Windows data matrix, byte-race/lock/link/junction/lease/CAS safety cases, and native fresh-identity assertions using Node APIs. | Covers every acceptance criterion deterministically and on native runners. |
+| `.github/workflows/nmg-sdlc-verify.yml` | Add a dedicated checkpoint-portability matrix for Ubuntu, macOS, and Windows that installs `scripts/` dependencies and invokes only the focused Jest scenario through Node. | Supplies native platform evidence without tripling the existing full repository verification job. |
+
+No workflow prose, handoff schema, public command, controller lease schema, or versioned checkpoint schema changes.
+
+---
+
+## State Transitions
+
+```text
+LegacyTerminalUnbound + DifferentIssues
+  -> AcquireLease
+  -> AcquireCheckpointLock
+  -> BytesUnchanged + RuntimeSafe
+  -> DeleteExactOwnedRuntime
+  -> FreshIdentity(revision 1)
+  -> Normal execute queue
+
+Classification mismatch: invalid predicate / partial identity
+  -> Run checkpoint identity mismatch
+  -> Old checkpoint retained byte-for-byte
+  -> No new worker
+
+Failure after eligible cleanup begins: unsafe boundary / stale bytes / held lock / deletion or lease failure
+  -> completed_cleanup_failed
+  -> run.json retained when bounded cleanup has not already safely removed it
+  -> No new worker
 ```
 
-Replace the current all-fields `hasRunIdentity` helper with:
-
-```js
-function hasAnyRunIdentity(runData)
-```
-
-It returns true only when `runData` is an object and at least one listed field is an own property. Update both existing call sites: `writeRunAt` bind-in-place eligibility and `runExecute` unbound-resume eligibility. This clean cutover makes every partial tuple fail `identity_mismatch` / `Run checkpoint identity mismatch` instead of being rebound. `validRunIdentity` remains the complete typed identity predicate.
-
-Extract the workflow-only terminal rules into:
-
-```js
-function completedWorkflowState(runData, { requireReleasedCurrentIssue = false } = {})
-```
-
-It requires schema version 1; a non-empty array of positive safe-integer issues; `currentStep === null`; `failed === null`; `remediation == null`; every `VALID_STEPS` member in every issue's completed list; and, when requested, `currentIssue === null`. Keep the two identity-specific wrappers:
-
-```js
-function completedRunState(runData, options)
-function legacyCompletedRunState(runData, options)
-```
-
-`completedRunState` requires `validRunIdentity(runData)` plus `completedWorkflowState`. `legacyCompletedRunState` requires `!hasAnyRunIdentity(runData)` plus `completedWorkflowState`. Do not accept missing completion arrays, empty/invalid issue lists, current/failure/remediation state, partial identity fields, or schema versions other than 1.
-
-| Checkpoint | Different requested list |
-|------------|--------------------------|
-| Complete valid identity and terminal workflow state | Existing identity-bound guarded cleanup, then fresh run |
-| No identity fields and terminal workflow state | Exact-byte legacy guarded cleanup, then fresh run |
-| Any non-empty proper identity subset | Status 1, exact identity-mismatch stderr, no mutation |
-| Invalid complete identity | Status 1, exact identity-mismatch stderr, no mutation |
-| Incomplete, active, failed, remediating, malformed, or non-v1 | Status 1, exact identity-mismatch stderr, no mutation |
-
-## Snapshot and Cleanup Contract
-
-Add one private snapshot reader; no equivalent currently returns parsed state and the exact bytes from one filesystem read:
-
-```js
-function readRunSnapshotAt(runFile, root = process.cwd())
-// -> { runData: object | null, bytes: string | null }
-```
-
-It retains `readRunAt`'s canonical-root confinement. Missing or unreadable input yields `runData: null`; a successfully read file retains its UTF-8 `bytes` even when parsing or schema validation returns `runData: null`. `readRunAt` delegates and returns only `runData`, preserving its exported signature. `runExecute` uses the snapshot directly and treats a checkpoint observed in the snapshot, or present on the later existence check, as existing so removal or replacement during startup cannot silently become a fresh create.
-
-Extend the exported cleanup signature without changing existing two-argument callers:
-
-```js
-export function cleanupCompletedRun(
-  runData,
-  root = process.cwd(),
-  { expectedLegacyBytes, controllerLease } = {},
-)
-```
-
-Behavior:
-
-1. Resolve `canonicalRoot = realpathSync(root)` once. Bound mode requires `completedRunState(..., { requireReleasedCurrentIssue: true })` and `runData.projectRoot === canonicalRoot`. Legacy mode is selected only by a string `expectedLegacyBytes`, requires `legacyCompletedRunState(..., { requireReleasedCurrentIssue: true })`, and requires the current controller lease option.
-2. Construct `.omp`, `.omp/sdlc`, handoff, provenance, checkpoint, lock, and temporary paths from `canonicalRoot` with host-native `node:path` functions. Run the existing `lstatSync` directory checks before deletion; symbolic links, Windows junctions reported as links, or non-directories fail.
-3. When `controllerLease` is supplied, require the exact serialized lease bytes before acquiring `${runPath}.lock` and again after exact deletion. Acquire only `${runPath}.lock` with `openSync(..., 'wx')`; never steal an existing lock and never delete `controller.lock`. Legacy mode fails when the lease option is absent.
-4. Reread `run.json` as UTF-8 while holding the lock. Bound mode retains the exact `completedRunState(existing)`, revision equality, and `sameRunIdentity(existing, runData)` checks. Legacy mode requires exact byte equality with `expectedLegacyBytes`, reparses those bytes, requires `legacyCompletedRunState(existing)`, and requires the parsed state to equal the classified `runData`; any changed bytes or classification fail before deletion.
-5. Delete only `<issue>-<step>.json` handoffs for each listed issue and `VALID_STEPS`, `worker-<step>.json` prompt-provenance files, `run.json.tmp`, and finally `run.json`. Missing exact files are tolerated; directories are never recursively removed; unrelated runtime and `controller.lock` remain.
-6. Close the acquired descriptor and unlink only the lock created by this attempt. Normalize validation, locking, path, parse, comparison, deletion, close, or owned-lock unlink failure to `Error('completed_cleanup_failed')`.
-
-At the different-list startup branch, compute bound-terminal and legacy-terminal classification separately. Reject if neither is true. Call bound cleanup with the existing two arguments; call legacy cleanup with `{ expectedLegacyBytes: existingSnapshot.bytes }`. On success set the in-memory checkpoint and snapshot bytes to null and continue through the current dirty-tree check and fresh-run initialization. Cleanup exceptions keep exact stderr `Run checkpoint identity mismatch
-`. The final successful-queue call at the current `cleanupCompletedRun(runState, cwd)` remains bound mode.
-
-## Controller and Identity Invariants
-
-Add one exported predicate in `scripts/sdlc-controller-lease.mjs`; no equivalent currently exposes the exact serialized ownership check:
-
-```js
-export function ownsControllerLease(lease)
-```
-
-It returns true only when the lease handle has a path and serialized value and the current file bytes equal `lease.serialized`; missing, unreadable, foreign, or changed bytes return false. Refactor `releaseControllerLease` to close its descriptor, call this predicate, and unlink only on true. `runExecute` passes the acquired lease through cleanup and checks it again immediately before fresh `persistRunState`.
-
-- `acquireControllerLease` remains before runtime cleanup. A pre-existing foreign lease returns `controller_lease_held` before checkpoint or handoff mutation.
-- The prospective fresh `controllerRunId` is generated once when the legacy checkpoint has no valid identity; successful cleanup and fresh checkpoint creation use that same id.
-- `releaseControllerLease` continues comparing exact serialized lease bytes before unlink. A changed or foreign lease is preserved.
-- `writeRunAt` still requires complete typed identity, `revision === expectedRevision + 1`, canonical project root, frozen issue list, same run/issue/branch/head, and atomic temporary-file rename.
-- Partial identity tuples fail bind-in-place because `hasAnyRunIdentity` is true. Stale revision and branch/head drift leave checkpoint bytes unchanged.
-- Cleanup never derives a project root, branch, head, or revision from legacy state. Fresh identity comes only from `realpathSync(cwd)`, `randomUUID()`, requested issues, and the existing argument-array git snapshots.
-
-## Cross-Platform Verification Design
-
-Extend `scripts/__tests__/sdlc-execute.test.mjs` with Node-only fixtures:
-
-1. Add `legacyCompletedRunData(fields = {})` for the exact released issue-6 payload and a serializer that emits either LF or CRLF without shell utilities.
-2. Generate all 62 non-empty proper subsets of `RUN_IDENTITY_FIELDS` in test code. Cross LF/CRLF with `path.posix` root `/consumer/project` and `path.win32` root `C:\consumer\project`; assign path-form values when `projectRoot` is present. Every partial subset returns exact mismatch stderr, preserves bytes, and starts no issue-19 worker. Repeat the fully unbound candidate in the same matrix and assert identical eligibility independent of newline or foreign path syntax labels.
-3. Add an issue-6 to issue-19 controller regression that creates every exact owned handoff/provenance/temp file plus unrelated runtime with `fs`, starts with the unbound payload, and asserts owned removal, unrelated preservation, no mismatch stderr, worker start, and a complete fresh identity whose `projectRoot === fs.realpathSync(tempRoot)`.
-4. Add changed-byte and changed-lease coverage by mutating the checkpoint or serialized controller lease through the controller fixture's mocked command seam after the initial snapshot/acquisition and before locked cleanup. Assert exact mismatch, preserved changed bytes, and no worker. Direct cleanup coverage also passes captured `expectedLegacyBytes`, changes only whitespace/newlines or workflow bytes, and expects `completed_cleanup_failed`.
-5. Keep the existing held `run.json.lock`, deletion failure, and identity-bound cleanup cases. Add native unsafe-directory coverage: POSIX uses `fs.symlinkSync(..., 'dir')`; Windows always tests `fs.symlinkSync(..., 'junction')` and separately tests a directory symbolic link, marking only that symbolic-link case skipped when creation fails with an explicit privilege-denied code.
-6. Expand CAS coverage so stale revision plus branch and head drift each throw the existing error and preserve exact bytes. Keep the existing foreign controller-lease test; add exact ownership checks proving a changed serialized lease blocks cleanup/fresh persistence, `ownsControllerLease` returns false, `releaseControllerLease` returns false, and the foreign/changed lease file remains.
-7. Use `fs.mkdtempSync(path.join(os.tmpdir(), ...))`, `path.join` / `resolve` / `relative`, `path.posix`, `path.win32`, `process.execPath`, and child-process argument arrays. Do not add `rm`, `mkdir`, `ln`, `chmod`, shell scripts, shebang/executable-bit fixtures, slash concatenation, or newline assumptions.
-
-Add a separate `checkpoint-portability` job to `.github/workflows/nmg-sdlc-verify.yml` without changing the existing `verify` job:
-
-```yaml
-checkpoint-portability:
-  name: Checkpoint portability (${{ matrix.os }})
-  strategy:
-    fail-fast: false
-    matrix:
-      os: [ubuntu-latest, macos-latest, windows-latest]
-  runs-on: ${{ matrix.os }}
-```
-
-Its steps use `actions/checkout@v4`, `actions/setup-node@v4` with Node 20 and `scripts/package-lock.json` caching, `npm ci --no-audit --no-fund` in `scripts`, and `npm test -- --runInBand __tests__/sdlc-execute.test.mjs` in `scripts`. This native matrix is the required host evidence; simulated `path.posix` / `path.win32` fixtures do not substitute for it.
+---
 
 ## Testing Strategy
 
-| Layer | Location | Coverage |
-|-------|----------|----------|
-| Classification and byte boundary | `scripts/__tests__/sdlc-execute.test.mjs` | Exact released payload, LF/CRLF, POSIX/Windows path-form values, all 62 partial identity subsets, malformed/nonterminal states, and changed bytes. |
-| Cleanup ownership | `scripts/__tests__/sdlc-execute.test.mjs` | Exact issue-step and worker-step deletion, temporary/checkpoint-last behavior, unrelated runtime preservation, lock and deletion failures. |
-| Identity regression | `scripts/__tests__/sdlc-execute.test.mjs` | Bound cleanup, stale revision, branch/head drift, fresh complete identity, foreign/changed controller lease preservation. |
-| Link boundary | `scripts/__tests__/sdlc-execute.test.mjs` | POSIX symbolic links; Windows mandatory junction and privilege-conditional symbolic link. |
-| Native hosts | `.github/workflows/nmg-sdlc-verify.yml` | Focused execute suite on Ubuntu, macOS, and Windows with identical observable decisions. |
-| Repository gates | steering manifest and existing workflow | Full Jest suite and mandatory `repository.nmg-sdlc-smoke` remain required during implementation verification. |
+| Layer | Type | Coverage |
+|-------|------|----------|
+| Legacy predicate | Deterministic Jest matrix | Eligible exact shape; missing terminal evidence; all 62 non-empty proper identity subsets; LF/CRLF and POSIX/Windows path-form values |
+| Startup controller | Jest integration fixture | Exact released issue-6 payload starts issue 19 with fresh native identity; unsupported states keep bytes and start no worker |
+| Cleanup | Jest filesystem fixture | Exact artifact set, unrelated runtime retained, held lock, changed bytes, deletion failure, symlink and Windows junction boundaries |
+| Identity/lease | Jest regression | Partial identity never binds; stale revision and branch/head drift reject; foreign/changed lease is not removed |
+| Native portability | GitHub Actions matrix | Focused checkpoint scenario on `ubuntu-latest`, `macos-latest`, and `windows-latest` |
+
+Focused local command:
+
+```text
+cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs
+```
+
+The dedicated CI step uses an explicit cross-platform Node invocation of `node_modules/jest/bin/jest.js` with a stable test-name filter. Simulated `path.win32` fixtures supplement but never replace the Windows runner.
+
+---
+
+## Alternatives Considered
+
+| Option | Description | Pros | Cons | Decision |
+|--------|-------------|------|------|----------|
+| Bind legacy state before cleanup | Add fresh identity to the old completed issue list, then use bound cleanup | Reuses current cleanup unchanged | Mutates obsolete state, requires branch/head guesses, and can rebind partial identity | Rejected |
+| Delete legacy `run.json` directly | Remove the one blocking file | Small change | Bypasses lock, byte-race, symlink, artifact ownership, and provenance cleanup | Rejected |
+| Treat every terminal-looking unbound object as completed | Ignore identity-field subsets and strict evidence | More migrations | Can discard resumable or tampered state | Rejected |
+| Add a strict fully unbound terminal branch | Byte-guarded cleanup using existing bounded artifact set, then normal fresh initialization | Preserves safety and solves the released shape | Requires explicit legacy cleanup proof | **Selected** |
+
+---
+
+## Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Partial identity is mistaken for legacy absence | Low | High | Use an `any` own-property predicate and exhaust all 62 non-empty proper subsets. |
+| Legacy checkpoint changes between classification and cleanup | Low | High | Capture exact bytes and compare buffers again under the exclusive lock before deletion. |
+| Link/reparse boundary escapes runtime root | Low | High | Preserve lstat-based directory checks and require POSIX symlink plus Windows junction native tests. |
+| CI matrix depends on POSIX npm shims | Med | Med | Invoke Jest's JavaScript entrypoint with explicit Node on every runner. |
+| Cleanup partially removes owned artifacts before a later error | Low | Med | Keep checkpoint deletion last; fail closed and retain unrelated runtime for diagnosis. |
+| Fresh run inherits legacy identity | Low | High | Set `existingRun = null` only after cleanup and use the existing fresh-run constructor; assert all identity fields and revision. |
+
+---
+
+## Open Questions
+
+None. The issue supplies the released checkpoint shape, eligibility boundary, artifact set, supported hosts, and verification obligations.
+
+---
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #321 | 2026-08-28 | Initial feature spec |
+| #321 | 2026-08-29 | Initial feature spec |
+
+---
 
 ## Validation Checklist
 
-- [x] Legacy eligibility is narrower than current identity-bound eligibility and shares one terminal workflow predicate.
-- [x] Partial identity can neither bind nor migrate.
-- [x] Exact bytes, lock ownership, canonical path confinement, link rejection, CAS, exact head, and controller lease ownership remain fail-closed.
-- [x] Existing two-argument cleanup callers remain valid and every changed call site is enumerated.
-- [x] Every acceptance criterion has deterministic Jest coverage and native cross-platform evidence.
+- [x] Architecture follows existing project patterns (per `structure.md`)
+- [x] CLI and checkpoint interface behavior is documented
+- [x] No database or UI changes apply
+- [x] State transitions and identity boundaries are explicit
+- [x] Cross-platform filesystem and process behavior is defined
+- [x] Testing strategy covers deterministic and native-host evidence
+- [x] Alternatives and risks are documented

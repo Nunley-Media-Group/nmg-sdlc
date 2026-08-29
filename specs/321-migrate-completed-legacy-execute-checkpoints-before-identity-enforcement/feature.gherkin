@@ -1,93 +1,56 @@
 **Issue**: #321
-**Date**: 2026-08-28
+**Date**: 2026-08-29
 **Status**: Approved
 **Author**: NMG
 **Related Spec**: specs/303-release-leftover-completed-execute-checkpoints-on-startup/
 
-# File: scripts/__tests__/sdlc-execute.test.mjs
+# File: specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement/feature.gherkin
 #
 # Generated from: specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement/requirements.md
-@issue-321 @execute @checkpoint @cross-platform
 Feature: Migrate completed legacy execute checkpoints before identity enforcement
-  As a maintainer executing an approved issue after upgrading nmg-sdlc
-  I want fully completed pre-identity checkpoints released through guarded cleanup
-  So that obsolete terminal runtime cannot block a fresh queue or weaken identity safety
+  As a developer upgrading a consumer repository
+  I want fully completed and fully unbound legacy execute runtime released safely
+  So that a different eligible queue can start with fresh identity on every supported OS
 
   @SCN001 @regression
-  Scenario: Completed released legacy checkpoint is migrated before identity enforcement
-    Given schema-version-1 run.json contains the exact fully completed issue-6 legacy payload with no identity fields
-    And exact issue-6 handoffs, worker provenance, a checkpoint temporary file, and unrelated runtime exist
-    When the execute controller starts approved eligible issue 19
-    Then only the issue-6 owned handoffs, worker provenance, temporary file, and checkpoint are released
-    And unrelated runtime remains
-    And issue 19 starts without "Run checkpoint identity mismatch"
-    And its checkpoint has a new complete identity, native canonical project root, and positive revision
+  Scenario: Fully unbound terminal checkpoint starts a fresh queue
+    Given issue 6 has a schema-version-1 checkpoint with every valid step complete
+    And current issue, current step, and failure are present as null
+    And remediation is missing or null
+    And all six identity fields are absent as own properties
+    When execute starts approved eligible issue 19
+    Then only issue 6 run-owned runtime is released
+    And issue 19 starts with a new complete native identity and revision
+    And no checkpoint identity mismatch is emitted
 
   @SCN002 @regression
-  Scenario Outline: Unsafe legacy candidates remain identity mismatches
-    Given the issue-6 checkpoint is <state>
-    When the execute controller requests issue 19
-    Then it exits status 1 with stderr exactly "Run checkpoint identity mismatch"
-    And the checkpoint bytes and supporting runtime are unchanged
-    And no issue-19 worker starts
+  Scenario: Partial identity and nonterminal legacy state remain blocked
+    Given a checkpoint is incomplete, active, failed, remediating, malformed, missing terminal completion evidence, or contains any non-empty proper subset of the six identity fields
+    When execute requests a different issue list
+    Then it exits with exactly Run checkpoint identity mismatch
+    And checkpoint bytes and supporting runtime are unchanged
+    And no requested worker starts
 
-    Examples:
-      | state |
-      | incomplete |
-      | active |
-      | failed |
-      | remediating |
-      | malformed |
-      | missing terminal completion evidence |
-      | one of all 62 non-empty proper identity-field subsets |
-      | a complete but invalid identity |
+  @SCN003 @regression
+  Scenario: Legacy cleanup races and unsafe boundaries fail closed
+    Given an otherwise eligible legacy checkpoint has a held lock, changed bytes, unsafe link boundary, deletion failure, or foreign controller ownership
+    When execute attempts legacy cleanup
+    Then it exits with completed_cleanup_failed rather than Run checkpoint identity mismatch
+    And run.json is retained when bounded cleanup has not already safely removed it
+    And no fresh run is created or advanced
+    And cleanup does not escape the canonical runtime boundary or release foreign state
 
-  @SCN003 @regression @safety
-  Scenario Outline: Cleanup and identity hazards fail before fresh-run creation
-    Given a fully completed legacy checkpoint encounters <hazard>
-    When the execute controller requests issue 19
-    Then migration fails closed without starting or advancing issue 19
-    And runtime outside exact owned artifacts is not removed
-    And identity-bound CAS and exact-head checks remain enforced
+  @SCN004 @regression
+  Scenario: Classification is invariant across serialized path forms
+    Given deterministic fixtures combine LF and CRLF bytes with POSIX and Windows path-form identity values
+    When eligible and partially identity-bearing shapes are classified
+    Then every logical shape has the same migrate-or-reject result
+    And fixtures use Node filesystem, path, process, and executable primitives only
 
-    Examples:
-      | hazard |
-      | a held checkpoint lock |
-      | an exact owned artifact deletion failure |
-      | checkpoint bytes changed after classification |
-      | a foreign or changed controller lease |
-      | a stale identity-bound revision |
-      | identity-bound branch or head drift |
-
-  @SCN004 @regression @cross-platform
-  Scenario Outline: Logical checkpoint classification is host-independent
-    Given deterministic checkpoint bytes use <newline> serialization
-    And identity path values, when present, use <path-form> syntax
-    When the fully unbound payload and every partial-identity payload are classified
-    Then the fully unbound terminal payload is migratable on every host
-    And every partial-identity payload is rejected on every host
-    And native cleanup creates issue 19 with projectRoot equal to the temporary root realpath
-
-    Examples:
-      | newline | path-form |
-      | LF | POSIX |
-      | LF | Windows |
-      | CRLF | POSIX |
-      | CRLF | Windows |
-
-  @SCN005 @regression @safety @cross-platform
-  Scenario Outline: Native link and ownership boundaries remain fail-closed
-    Given legacy cleanup reaches <native-boundary>
-    When cleanup runs on the applicable native CI host
-    Then it does not escape the canonical project runtime
-    And it does not delete foreign runtime or another controller's lease
-    And the prior checkpoint remains diagnosable unless an exact owned artifact was already removed
-
-    Examples:
-      | native-boundary |
-      | a POSIX directory symbolic link |
-      | a Windows directory junction |
-      | a permitted Windows directory symbolic link |
-      | a held checkpoint lock |
-      | changed checkpoint bytes |
-      | a foreign or changed controller lease |
+  @SCN005 @regression
+  Scenario: Native hosts preserve cleanup and identity safety
+    Given the checkpoint-portability scenario runs natively on Ubuntu, macOS, and Windows
+    When legacy cleanup encounters each host's safe and unsafe filesystem boundaries
+    Then exact owned runtime is removed only for eligible state
+    And fresh project identity uses the native canonical root
+    And locks, symlinks or junctions, stale revisions, branch or head drift, and foreign leases remain fail-closed

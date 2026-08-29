@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.19.0] - 2026-08-29
+
+### Changed
+
+- Migrate completed legacy execute checkpoints before identity enforcement (#321)
+
 ## [3.18.11] - 2026-08-28
 
 ### Changed

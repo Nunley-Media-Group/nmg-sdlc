@@ -90,6 +90,29 @@ function seedRun(root, fields = {}) {
   return runData;
 }
 
+function legacyRunData(fields = {}) {
+  return {
+    schemaVersion: 1,
+    issues: [6],
+    currentIssue: null,
+    currentStep: null,
+    completed: { 6: VALID_STEPS },
+    failed: null,
+    startedAt: '<legacy timestamp>',
+    ...fields,
+  };
+}
+
+function writeLegacyRun(root, fields = {}, newline = '\n') {
+  const data = legacyRunData(fields);
+  const runPath = path.join(root, '.omp', 'sdlc', 'run.json');
+  fs.mkdirSync(path.dirname(runPath), { recursive: true });
+  const serialized = `${JSON.stringify(data, null, 2)}\n`.replaceAll('\n', newline);
+  const bytes = Buffer.from(serialized);
+  fs.writeFileSync(runPath, bytes);
+  return { data, runPath, bytes };
+}
+
 function writeApproved(dir, issueN, extra = {}) {
   const body = [
     extra.issue === undefined ? `**Issue**: #${issueN}` : extra.issue,
@@ -1487,6 +1510,309 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(provenanceDir, 'worker-verify.json'))).toBe(false);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s43-start', 's43-implement']);
   });
+
+  it('checkpoint portability migrates the exact issue-6 payload with native fresh identity', () => {
+    for (const newline of ['\n', '\r\n']) {
+      for (const pathApi of [path.posix, path.win32]) {
+        const fixture = makeControllerFixture({
+          labelIssues: [19],
+          blockedStep: 'implement',
+          branch: '19-portable-checkpoint',
+        });
+        const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+        fs.mkdirSync(specDir, { recursive: true });
+        writeApproved(specDir, 19);
+        const { runPath } = writeLegacyRun(fixture.cwd, {
+          fixturePath: pathApi.join('consumer', 'project', '.omp', 'sdlc'),
+        }, newline);
+        const handoffDir = path.join(fixture.cwd, '.omp', 'sdlc', 'handoffs');
+        const provenanceDir = path.join(fixture.cwd, '.omp', 'sdlc', 'prompt-provenance');
+        fs.mkdirSync(handoffDir, { recursive: true });
+        fs.mkdirSync(provenanceDir, { recursive: true });
+        for (const step of VALID_STEPS) {
+          fs.writeFileSync(path.join(handoffDir, `6-${step}.json`), '{}\n');
+          fs.writeFileSync(path.join(provenanceDir, `worker-${step}.json`), '{}\n');
+        }
+        fs.writeFileSync(path.join(handoffDir, 'unrelated.json'), '{}\n');
+        fs.writeFileSync(path.join(provenanceDir, 'unrelated.json'), '{}\n');
+        fs.writeFileSync(`${runPath}.tmp`, 'temporary\n');
+
+        const result = runExecute({
+          args: '#19',
+          cwd: fixture.cwd,
+          env,
+          run: fixture.run,
+          herdr: fixture.herdr,
+        });
+        const nextRun = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+
+        expect(result.stderr).not.toBe('Run checkpoint identity mismatch\n');
+        expect(fixture.starts.map(({ name }) => name)).toEqual(['s19-start', 's19-implement']);
+        expect(nextRun).toEqual(expect.objectContaining({
+          schemaVersion: 1,
+          projectRoot: fs.realpathSync(fixture.cwd),
+          issue: 19,
+          branch: '19-portable-checkpoint',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          issues: [19],
+        }));
+        expect(nextRun.runId).toEqual(expect.any(String));
+        expect(nextRun.runId.length).toBeGreaterThan(0);
+        expect(nextRun.revision).toBeGreaterThan(0);
+        for (const step of VALID_STEPS) {
+          expect(fs.existsSync(path.join(handoffDir, `6-${step}.json`))).toBe(false);
+          const provenancePath = path.join(provenanceDir, `worker-${step}.json`);
+          if (['start', 'implement'].includes(step)) {
+            expect(fs.readFileSync(provenancePath, 'utf8')).not.toBe('{}\n');
+          } else {
+            expect(fs.existsSync(provenancePath)).toBe(false);
+          }
+        }
+        expect(fs.existsSync(`${runPath}.tmp`)).toBe(false);
+        expect(fs.existsSync(path.join(handoffDir, 'unrelated.json'))).toBe(true);
+        expect(fs.existsSync(path.join(provenanceDir, 'unrelated.json'))).toBe(true);
+      }
+    }
+  });
+
+  it('checkpoint portability rejects every partial identity subset for LF and CRLF path forms', () => {
+    const identityFields = ['projectRoot', 'runId', 'issue', 'branch', 'head', 'revision'];
+    for (const newline of ['\n', '\r\n']) {
+      for (const pathApi of [path.posix, path.win32]) {
+        const rootValue = pathApi.join('consumer', 'project');
+        const identity = {
+          projectRoot: rootValue,
+          runId: `${pathApi.basename(rootValue)}-run`,
+          issue: 6,
+          branch: '6-completed',
+          head: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          revision: 1,
+        };
+        for (let mask = 1; mask < (2 ** identityFields.length) - 1; mask += 1) {
+          const fixture = makeControllerFixture({ labelIssues: [19] });
+          const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+          fs.mkdirSync(specDir, { recursive: true });
+          writeApproved(specDir, 19);
+          const subset = Object.fromEntries(identityFields
+            .filter((_field, index) => mask & (1 << index))
+            .map((field) => [field, identity[field]]));
+          const { runPath, bytes } = writeLegacyRun(fixture.cwd, subset, newline);
+          const supportingPath = path.join(fixture.cwd, '.omp', 'sdlc', 'supporting.json');
+          fs.writeFileSync(supportingPath, '{}\n');
+
+          const result = runExecute({
+            args: '#19',
+            cwd: fixture.cwd,
+            env,
+            run: fixture.run,
+            herdr: fixture.herdr,
+          });
+
+          expect(result).toEqual({
+            status: 1,
+            stdout: '',
+            stderr: 'Run checkpoint identity mismatch\n',
+          });
+          expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+          expect(fs.existsSync(supportingPath)).toBe(true);
+          expect(fixture.starts).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it.each([
+    ['incomplete', { completed: { 6: VALID_STEPS.slice(0, -1) } }],
+    ['active', { currentIssue: 6, currentStep: 'deliver' }],
+    ['failed', { failed: { issue: 6, step: 'deliver', reasonCode: 'delivery_failed' } }],
+    ['remediating', { remediation: { issue: 6, step: 'deliver' } }],
+    ['missing completion', { completed: {} }],
+    ['malformed issues', { issues: [0], completed: { 0: VALID_STEPS } }],
+  ])('checkpoint portability retains %s legacy runtime', (_label, fields) => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const { runPath, bytes } = writeLegacyRun(fixture.cwd, fields);
+    const supportingPath = path.join(fixture.cwd, '.omp', 'sdlc', 'supporting.json');
+    fs.writeFileSync(supportingPath, '{}\n');
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'Run checkpoint identity mismatch\n',
+    });
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fs.existsSync(supportingPath)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('checkpoint portability rejects malformed checkpoint bytes', () => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const runPath = path.join(fixture.cwd, '.omp', 'sdlc', 'run.json');
+    fs.mkdirSync(path.dirname(runPath), { recursive: true });
+    const bytes = Buffer.from('{"schemaVersion":1,\r\n');
+    fs.writeFileSync(runPath, bytes);
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'Run checkpoint identity mismatch\n',
+    });
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('checkpoint portability keeps legacy cleanup locks bytes and owned deletion fail-closed', () => {
+    for (const failure of ['held lock', 'changed bytes', 'deletion failure']) {
+      const root = makeSpecDir();
+      const { data, runPath, bytes } = writeLegacyRun(root);
+      let lock;
+      if (failure === 'held lock') lock = fs.openSync(`${runPath}.lock`, 'wx');
+      if (failure === 'changed bytes') fs.appendFileSync(runPath, ' ');
+      if (failure === 'deletion failure') {
+        fs.mkdirSync(path.join(root, '.omp', 'sdlc', 'handoffs', '6-start.json'), {
+          recursive: true,
+        });
+      }
+
+      expect(() => cleanupCompletedRun(data, root, { legacyCheckpointBytes: bytes }))
+        .toThrow('completed_cleanup_failed');
+      expect(fs.existsSync(runPath)).toBe(true);
+      if (lock !== undefined) {
+        fs.closeSync(lock);
+        fs.unlinkSync(`${runPath}.lock`);
+      }
+    }
+  });
+
+  it('checkpoint portability reports legacy startup cleanup failures', () => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const { runPath, bytes } = writeLegacyRun(fixture.cwd);
+    const lockPath = `${runPath}.lock`;
+    const lock = fs.openSync(lockPath, 'wx');
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'completed_cleanup_failed\n',
+    });
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+    fs.closeSync(lock);
+    fs.unlinkSync(lockPath);
+  });
+
+  it('checkpoint portability rejects native symbolic-link and junction boundaries', () => {
+    const linkTypes = process.platform === 'win32' ? ['junction', 'dir'] : ['dir'];
+    for (const linkType of linkTypes) {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-link-root-'));
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-link-outside-'));
+      roots.push(root, outside);
+      const { data, runPath, bytes } = writeLegacyRun(root);
+      const handoffDir = path.join(root, '.omp', 'sdlc', 'handoffs');
+      fs.writeFileSync(path.join(outside, 'foreign.json'), '{}\n');
+      try {
+        fs.symlinkSync(outside, handoffDir, linkType);
+      } catch (error) {
+        if (process.platform === 'win32' && linkType === 'dir') {
+          expect(['EACCES', 'EPERM']).toContain(error.code);
+          continue;
+        }
+        throw error;
+      }
+
+      expect(() => cleanupCompletedRun(data, root, { legacyCheckpointBytes: bytes }))
+        .toThrow('completed_cleanup_failed');
+      expect(fs.existsSync(runPath)).toBe(true);
+      expect(fs.existsSync(path.join(outside, 'foreign.json'))).toBe(true);
+    }
+  });
+
+  it('checkpoint portability preserves foreign and changed controller leases', () => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const { runPath, bytes } = writeLegacyRun(fixture.cwd);
+    const foreignLease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'foreign-run',
+      controllerPaneId: 'foreign-pane',
+    });
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'controller_lease_held\n',
+    });
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+    expect(releaseControllerLease(foreignLease)).toBe(true);
+
+    const changedLease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'owned-run',
+      controllerPaneId: 'owned-pane',
+    });
+    fs.writeFileSync(changedLease.path, changedLease.serialized.replace('owned-pane', 'changed-pane'));
+    expect(releaseControllerLease(changedLease)).toBe(false);
+    expect(fs.existsSync(changedLease.path)).toBe(true);
+    fs.unlinkSync(changedLease.path);
+  });
+
+  it('checkpoint portability preserves bound revision branch and head checks', () => {
+    const root = makeSpecDir();
+    const initial = seedRun(root);
+    const runPath = path.join(root, '.omp', 'sdlc', 'run.json');
+    const bytes = fs.readFileSync(runPath);
+    for (const candidate of [
+      { ...initial, revision: 1 },
+      { ...initial, branch: 'other-branch', revision: 2 },
+      { ...initial, head: 'cccccccccccccccccccccccccccccccccccccccc', revision: 2 },
+    ]) {
+      expect(() => writeRun(candidate, root, 1)).toThrow();
+      expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    }
+  });
   it('fails closed when startup cannot release a completed checkpoint', () => {
     const fixture = makeControllerFixture({ labelIssues: [42, 43] });
     const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
@@ -1510,7 +1836,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'completed_cleanup_failed\n' });
     expect(fs.existsSync(runPath)).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
