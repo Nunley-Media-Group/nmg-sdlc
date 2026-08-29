@@ -125,9 +125,14 @@ LegacyTerminalUnbound + DifferentIssues
   -> FreshIdentity(revision 1)
   -> Normal execute queue
 
-Any invalid predicate / partial identity / unsafe boundary / stale bytes / held lock
+Classification mismatch: invalid predicate / partial identity
   -> Run checkpoint identity mismatch
-  -> Old checkpoint retained when not already partially deleted
+  -> Old checkpoint retained byte-for-byte
+  -> No new worker
+
+Failure after eligible cleanup begins: unsafe boundary / stale bytes / held lock / deletion or lease failure
+  -> completed_cleanup_failed
+  -> run.json retained when bounded cleanup has not already safely removed it
   -> No new worker
 ```
 

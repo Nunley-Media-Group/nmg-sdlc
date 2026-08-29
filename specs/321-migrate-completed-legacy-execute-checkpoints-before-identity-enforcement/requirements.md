@@ -38,7 +38,7 @@ The migration must preserve the bounded cleanup contract from issue #299 and the
 
 ### AC2: Unsafe Legacy Candidates Stay Fail-Closed
 
-**Given** an existing checkpoint is incomplete, active, failed, remediating, malformed, missing any terminal completion evidence, or contains any non-empty subset of the six identity fields
+**Given** an existing checkpoint is incomplete, active, failed, remediating, malformed, missing any terminal completion evidence, or contains any non-empty proper subset of the six identity fields
 **When** `/sdlc-execute` requests a different issue list
 **Then** it exits status 1 with stderr exactly `Run checkpoint identity mismatch`
 **And** checkpoint bytes and supporting runtime remain unchanged
@@ -51,6 +51,7 @@ The migration must preserve the bounded cleanup contract from issue #299 and the
 **Then** startup fails closed without creating or advancing the new run
 **And** identity-bound checkpoints still require exact project/run/issue/branch/head identity and monotonic compare-and-swap revisions
 **And** a partially identity-bearing checkpoint is never rebound as legacy state
+**And** any failure after eligible cleanup begins returns the existing `completed_cleanup_failed` boundary rather than `Run checkpoint identity mismatch`
 
 ### AC4: Cross-Platform Behavior Is Identical
 
@@ -77,7 +78,7 @@ The migration must preserve the bounded cleanup contract from issue #299 and the
 | FR1 | Recognize as migratable only schema-version-1 state with a non-empty valid issue list, all eight completed steps for every issue, cleared current/failure/remediation state, and none of the six identity fields. | Must | Full absence means no own property for any identity field. |
 | FR2 | Release an eligible legacy checkpoint with the completed-run lock, canonical runtime boundary, symlink/junction rejection, exact owned-artifact deletion, and cleanup-failure behavior. | Must | Legacy state cannot bypass issue #299 safety checks. |
 | FR3 | After successful release, initialize the requested issues through normal fresh-run creation with new complete identity and revision. | Must | No legacy identity is copied forward. |
-| FR4 | Preserve bytes and start no new worker for incomplete, active, failed, remediating, malformed, partially identity-bearing, cleanup-failing, or genuinely mismatched state. | Must | Exact mismatch stderr remains stable. |
+| FR4 | Preserve bytes and start no new worker for ineligible classification state: incomplete, active, failed, remediating, malformed, partially identity-bearing, or genuinely mismatched. For failures after eligible cleanup begins, start no new worker and retain `run.json` whenever bounded cleanup has not already safely removed it. | Must | Exact mismatch stderr is reserved for classification mismatch; cleanup failures retain the existing `completed_cleanup_failed` boundary. |
 | FR5 | Preserve CAS revision and exact project/run/issue/branch/head checks for every bound checkpoint and fresh run. | Must | Partial identity is never bindable. |
 | FR6 | Make classification, bounded cleanup, and fresh identity creation behave identically on macOS, Linux, and Windows using Node primitives only. | Must | No shell-created fixtures or hardcoded separators. |
 | FR7 | Keep symlink/junction rejection, exclusive lock and byte-change checks, canonical-root confinement, and controller-lease ownership fail-closed on each OS. | Must | Windows junction coverage is mandatory. |
@@ -91,7 +92,7 @@ The migration must preserve the bounded cleanup contract from issue #299 and the
 2. Generate all 62 non-empty proper subsets of `projectRoot`, `runId`, `issue`, `branch`, `head`, and `revision`; every subset remains ineligible. Combine LF/CRLF bytes with `path.posix` and `path.win32` values without assuming host separators.
 3. Add a dedicated job matrix in `.github/workflows/nmg-sdlc-verify.yml` for `ubuntu-latest`, `macos-latest`, and `windows-latest`. Invoke Jest through `process.execPath`-compatible Node entrypoints or an explicit Node command, not a shebang/executable-bit shim.
 4. On POSIX runners use `fs.symlinkSync`; on Windows require directory-junction coverage and run symbolic-link coverage when the runner grants privilege. Skip only the denied Windows symbolic-link variant with an explicit privilege reason.
-5. On every runner prove held lock, stale bytes, foreign/changed lease, cleanup failure, stale revision, and branch/head drift keep the old checkpoint and start no issue-19 worker.
+5. On every runner prove ineligible classification, stale revision, and branch/head drift keep the old checkpoint and start no issue-19 worker. Prove held lock, stale bytes, foreign/changed lease, and cleanup failures return `completed_cleanup_failed`, start no issue-19 worker, and retain `run.json` whenever bounded cleanup has not already safely removed it.
 
 ---
 
