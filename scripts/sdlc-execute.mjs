@@ -415,24 +415,38 @@ function observeReviewHandoff(herdr, handoffPath, issue, step, agentName, paneId
   }
 }
 
-export function readRunAt(runFile, root = process.cwd()) {
+function readRunCheckpointAt(runFile, root = process.cwd()) {
   const canonicalRoot = realpathSync(root);
   const p = resolve(canonicalRoot, runFile);
   const rel = relative(canonicalRoot, p);
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('unsafe run path');
-  if (!existsSync(p)) return null;
+  if (!existsSync(p)) return { data: null, bytes: null };
+  const bytes = readFileSync(p);
   try {
-    const data = JSON.parse(readFileSync(p, 'utf8'));
-    if (data && data.schemaVersion === 1) return data;
+    const data = JSON.parse(bytes.toString('utf8'));
+    if (data && data.schemaVersion === 1) return { data, bytes };
   } catch {
     // fallthrough
   }
-  return null;
+  return { data: null, bytes };
+}
+
+export function readRunAt(runFile, root = process.cwd()) {
+  return readRunCheckpointAt(runFile, root).data;
 }
 
 export function readRun(root = process.cwd()) {
   return readRunAt(RUN_FILE, root);
 }
+
+const RUN_IDENTITY_FIELDS = Object.freeze([
+  'projectRoot',
+  'runId',
+  'issue',
+  'branch',
+  'head',
+  'revision',
+]);
 
 function validRunIdentity(runData) {
   return runData !== null
@@ -454,8 +468,9 @@ function validRunIdentity(runData) {
 }
 
 function hasRunIdentity(runData) {
-  return ['projectRoot', 'runId', 'issue', 'branch', 'head', 'revision']
-    .every((field) => Object.hasOwn(runData, field));
+  return runData !== null
+    && typeof runData === 'object'
+    && RUN_IDENTITY_FIELDS.some((field) => Object.hasOwn(runData, field));
 }
 
 function sameRunIdentity(left, right) {
@@ -563,10 +578,13 @@ function persistRunState(runState, root) {
     throw error;
   }
 }
-function completedRunState(runData, { requireReleasedCurrentIssue = false } = {}) {
-  return validRunIdentity(runData)
+function terminalRunState(runData, { requireReleasedCurrentIssue = false } = {}) {
+  return runData !== null
+    && typeof runData === 'object'
+    && runData.schemaVersion === 1
     && Array.isArray(runData.issues)
     && runData.issues.length > 0
+    && runData.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
     && (!requireReleasedCurrentIssue || runData.currentIssue === null)
     && runData.currentStep === null
     && runData.failed === null
@@ -574,6 +592,15 @@ function completedRunState(runData, { requireReleasedCurrentIssue = false } = {}
     && runData.issues.every((issue) => VALID_STEPS.every(
       (step) => runData.completed?.[String(issue)]?.includes(step),
     ));
+}
+
+function completedRunState(runData, options = {}) {
+  return validRunIdentity(runData) && terminalRunState(runData, options);
+}
+
+function legacyCompletedRunState(runData) {
+  return terminalRunState(runData, { requireReleasedCurrentIssue: true })
+    && !hasRunIdentity(runData);
 }
 
 function assertSafeRuntimeDirectory(path) {
@@ -584,21 +611,32 @@ function assertSafeRuntimeDirectory(path) {
   }
 }
 
-export function cleanupCompletedRun(runData, root = process.cwd()) {
+export function cleanupCompletedRun(
+  runData,
+  root = process.cwd(),
+  { legacyCheckpointBytes = null } = {},
+) {
   let failed = false;
   let lock;
   let lockPath;
   try {
-    if (!completedRunState(runData, { requireReleasedCurrentIssue: true })) {
+    const legacy = legacyCheckpointBytes !== null;
+    if (
+      legacy
+        ? !Buffer.isBuffer(legacyCheckpointBytes) || !legacyCompletedRunState(runData)
+        : !completedRunState(runData, { requireReleasedCurrentIssue: true })
+    ) {
       throw new Error('incomplete run');
     }
-    if (realpathSync(root) !== runData.projectRoot) throw new Error('checkpoint mismatch');
 
-    const runtimePath = join(root, RUN_DIR);
-    const runPath = join(root, RUN_FILE);
-    const handoffPath = join(root, HANDOFF_DIR);
-    const provenancePath = join(root, PROMPT_PROVENANCE_DIR);
-    assertSafeRuntimeDirectory(join(root, '.omp'));
+    const canonicalRoot = realpathSync(root);
+    if (!legacy && canonicalRoot !== runData.projectRoot) throw new Error('checkpoint mismatch');
+
+    const runtimePath = join(canonicalRoot, RUN_DIR);
+    const runPath = join(canonicalRoot, RUN_FILE);
+    const handoffPath = join(canonicalRoot, HANDOFF_DIR);
+    const provenancePath = join(canonicalRoot, PROMPT_PROVENANCE_DIR);
+    assertSafeRuntimeDirectory(join(canonicalRoot, '.omp'));
     assertSafeRuntimeDirectory(runtimePath);
     assertSafeRuntimeDirectory(handoffPath);
     assertSafeRuntimeDirectory(provenancePath);
@@ -606,11 +644,17 @@ export function cleanupCompletedRun(runData, root = process.cwd()) {
     lockPath = `${runPath}.lock`;
     lock = openSync(lockPath, 'wx');
 
-    const existing = JSON.parse(readFileSync(runPath, 'utf8'));
+    const existingBytes = readFileSync(runPath);
+    if (legacy && !existingBytes.equals(legacyCheckpointBytes)) {
+      throw new Error('checkpoint mismatch');
+    }
+    const existing = JSON.parse(existingBytes.toString('utf8'));
     if (
-      !completedRunState(existing)
-      || existing.revision !== runData.revision
-      || !sameRunIdentity(existing, runData)
+      legacy
+        ? !legacyCompletedRunState(existing)
+        : !completedRunState(existing)
+          || existing.revision !== runData.revision
+          || !sameRunIdentity(existing, runData)
     ) {
       throw new Error('checkpoint mismatch');
     }
@@ -1304,7 +1348,8 @@ export function runExecute({
     return { status: 1, stdout: '', stderr: 'gh auth status failed\n' };
   }
 
-  let existingRun = readRun(cwd);
+  const existingCheckpoint = readRunCheckpointAt(RUN_FILE, cwd);
+  let existingRun = existingCheckpoint.data;
   let issues = parsedArgs.issues;
   if (parsedArgs.defaultBacklog) {
     const resumable = Array.isArray(existingRun?.issues)
@@ -1424,11 +1469,20 @@ export function runExecute({
   const runFileExists = existsSync(join(cwd, RUN_FILE));
   const matchingRun = existingRun && JSON.stringify(existingRun.issues) === JSON.stringify(issues);
   if (runFileExists && !matchingRun) {
-    if (!completedRunState(existingRun, { requireReleasedCurrentIssue: true })) {
+    const boundTerminal = completedRunState(
+      existingRun,
+      { requireReleasedCurrentIssue: true },
+    );
+    const legacyTerminal = legacyCompletedRunState(existingRun);
+    if (!boundTerminal && !legacyTerminal) {
       return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
     }
     try {
-      cleanupCompletedRun(existingRun, cwd);
+      cleanupCompletedRun(
+        existingRun,
+        cwd,
+        legacyTerminal ? { legacyCheckpointBytes: existingCheckpoint.bytes } : undefined,
+      );
       existingRun = null;
     } catch {
       return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
