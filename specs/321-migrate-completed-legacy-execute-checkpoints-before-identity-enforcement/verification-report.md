@@ -5,13 +5,13 @@
 **Reviewer**: Codex
 **Scope**: Implementation verification against the approved issue specification
 
-## Implementation Status: **PR Evidence Pending**
+## Implementation Status: **Pass**
 
 ## Executive Summary
 
 The implementation satisfies every local acceptance criterion after one verification fix. Fully unbound terminal legacy checkpoints are classified separately from bound checkpoints, cleaned through the existing bounded runtime path with an exact byte guard, and followed by normal fresh identity creation. Partial identity, nonterminal state, stale bytes, locks, unsafe links, ownership conflicts, and bound identity drift remain fail-closed.
 
-Local focused and repository suites pass. Deterministic steering coverage is complete with both required validations passing and no ceiling. The remaining bounded evidence is the pull-request-only checkpoint-portability matrix on native Ubuntu, macOS, and Windows runners; therefore the overall status is `PR Evidence Pending`, not `Pass`.
+Local focused and repository suites pass. Deterministic steering coverage is complete with both required validations passing and no ceiling. Pull request #325 remains an open draft at head `83d8cf46fa608cffcaab8a204d3c9f7ee69ade30`, where the exact checkpoint-portability checks for Ubuntu, macOS, and Windows completed successfully with `pull_request` provenance.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -44,21 +44,20 @@ Local focused and repository suites pass. Deterministic steering coverage is com
 - Regression: AC []; FR []; scenarios []
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":321,"specPath":"specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004","T005"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
-<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":321,"specPath":"specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement","local":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004","T005"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"check_run","name":"Checkpoint portability (ubuntu-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"]},{"kind":"check_run","name":"Checkpoint portability (macos-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"]},{"kind":"check_run","name":"Checkpoint portability (windows-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"]}]} -->
+<!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_satisfied","issueNumber":321,"specPath":"specs/321-migrate-completed-legacy-execute-checkpoints-before-identity-enforcement","local":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004","T005"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005"],"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]},"tests":"pass","steeringGates":"pass"},"evidence":[{"kind":"check_run","name":"Checkpoint portability (ubuntu-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"],"headSha":"83d8cf46fa608cffcaab8a204d3c9f7ee69ade30","conclusion":"SUCCESS","url":"https://github.com/Nunley-Media-Group/nmg-sdlc/actions/runs/33241736427/job/99072133900"},{"kind":"check_run","name":"Checkpoint portability (macos-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"],"headSha":"83d8cf46fa608cffcaab8a204d3c9f7ee69ade30","conclusion":"SUCCESS","url":"https://github.com/Nunley-Media-Group/nmg-sdlc/actions/runs/33241736427/job/99072133866"},{"kind":"check_run","name":"Checkpoint portability (windows-latest)","event":"pull_request","acceptanceCriteria":["AC4","AC5"],"headSha":"83d8cf46fa608cffcaab8a204d3c9f7ee69ade30","conclusion":"SUCCESS","url":"https://github.com/Nunley-Media-Group/nmg-sdlc/actions/runs/33241736427/job/99072133906"}]} -->
 
 ## Delivery Validation
 
 - Local verification: Pass
-- PR evidence: Pending — exact `pull_request` check runs `Checkpoint portability (ubuntu-latest)`, `Checkpoint portability (macos-latest)`, and `Checkpoint portability (windows-latest)`
-- No implementation PR exists yet; PR #322 is the merged specification-approval PR and is not implementation evidence.
+- PR evidence: Satisfied for `83d8cf46fa608cffcaab8a204d3c9f7ee69ade30` — exact `pull_request` check runs `Checkpoint portability (ubuntu-latest)`, `Checkpoint portability (macos-latest)`, and `Checkpoint portability (windows-latest)` concluded `SUCCESS`.
 
 ## Acceptance Criteria
 
 - [x] **AC1 — Pass**: `legacyCompletedRunState` requires terminal schema-version-1 state and zero identity properties; different-list startup performs byte-guarded cleanup and normal fresh-run initialization. The issue-6 → issue-19 test verifies exact owned artifact cleanup, unrelated-runtime retention, fresh canonical identity, worker start, and no identity-mismatch output (`scripts/sdlc-execute.mjs:581-688`, `scripts/sdlc-execute.mjs:1469-1494`, `scripts/__tests__/sdlc-execute.test.mjs:1514-1576`).
 - [x] **AC2 — Pass**: all 62 non-empty proper identity subsets across LF/CRLF and POSIX/Windows path-form data return exact mismatch, preserve checkpoint bytes/supporting runtime, and start no worker. Incomplete, active, failed, remediating, malformed, and missing-completion fixtures cover the remaining rejected shapes (`scripts/__tests__/sdlc-execute.test.mjs:1578-1683`).
 - [x] **AC3 — Pass**: cleanup validates canonical runtime directories, acquires an exclusive lock, compares exact checkpoint bytes under lock, revalidates state, deletes only owned paths, and preserves bound identity/CAS checks. Verification fixed the startup catch boundary so eligible cleanup failures surface `completed_cleanup_failed`; an integration assertion now covers the held-lock path (`scripts/sdlc-execute.mjs:606-688`, `scripts/sdlc-execute.mjs:1480-1493`, `scripts/__tests__/sdlc-execute.test.mjs:1685-1734`).
-- [x] **AC4 — Local Pass / PR evidence pending**: deterministic LF/CRLF × POSIX/Windows path-form classification passes locally, native canonical identity is asserted, and the workflow declares an explicit Node/Jest matrix for Ubuntu, macOS, and Windows (`scripts/__tests__/sdlc-execute.test.mjs:1514-1622`, `.github/workflows/nmg-sdlc-verify.yml:46-73`). Native runner conclusions await the implementation PR.
-- [x] **AC5 — Local Pass / PR evidence pending**: local macOS coverage proves link, lock, stale-byte, deletion, lease, revision, branch, and head boundaries. The native matrix includes mandatory Windows junction behavior and privilege-qualified Windows symlink behavior. Ubuntu and Windows runner conclusions await the implementation PR.
+- [x] **AC4 — Pass**: deterministic LF/CRLF × POSIX/Windows path-form classification passes locally, native canonical identity is asserted, and the exact Ubuntu, macOS, and Windows pull-request check runs concluded `SUCCESS` at `83d8cf46fa608cffcaab8a204d3c9f7ee69ade30`.
+- [x] **AC5 — Pass**: local macOS coverage proves link, lock, stale-byte, deletion, lease, revision, branch, and head boundaries; the native three-OS pull-request matrix, including mandatory Windows junction behavior and privilege-qualified Windows symlink behavior, concluded `SUCCESS` at the same head.
 
 ## Regression Obligations
 
@@ -70,7 +69,7 @@ The normalized active scope contains no separately adopted regression identifier
 - [x] **T002**: different-list migration, exact-byte cleanup, canonical path safety, exclusive locking, exact owned deletion, fresh identity creation, and cleanup-failure signaling are implemented.
 - [x] **T003**: deterministic issue-6 migration, 62-subset, newline/path-form, unsafe-state, link/junction, lease, CAS, and cleanup-failure regressions exist and pass locally.
 - [x] **T004**: `.github/workflows/nmg-sdlc-verify.yml` adds the dedicated three-OS Node 20 matrix and explicit JavaScript Jest entrypoint without changing the existing verify job's purpose.
-- [x] **T005 local obligations**: focused suite, full suite, plugin-surface verification, steering tests, and consumer smoke pass. Hosted matrix evidence remains the declared PR-only obligation.
+- [x] **T005**: focused suite, full suite, plugin-surface verification, steering tests, consumer smoke, and the exact native three-OS pull-request matrix pass.
 
 ## Architecture Review
 
@@ -94,14 +93,14 @@ The normalized active scope contains no separately adopted regression identifier
 | `git diff --check` | Pass | No whitespace errors |
 | Deterministic steering `repository.tests` | Pass | `npm test -- --runInBand` exited 0 against dirty diff hash `sha256:3d5e…74c1` |
 | Deterministic steering `repository.nmg-sdlc-smoke` | Pass | Disposable consumer smoke returned JSON with `nextAction.command` `/sdlc-draft-issue` |
-| Native checkpoint-portability matrix | Pending | PR-only Ubuntu, macOS, and Windows check runs do not exist before implementation PR creation |
+| Native checkpoint-portability matrix | Pass | Exact Ubuntu, macOS, and Windows `pull_request` check runs concluded `SUCCESS` for `83d8cf46fa608cffcaab8a204d3c9f7ee69ade30` |
 
 ### BDD Coverage
 
 - Scenarios: 5/5 represented by Jest evidence (`SCN001`–`SCN005`).
 - Step definitions: exercised through deterministic Jest controller/filesystem fixtures rather than a separate Gherkin runner.
 - Local execution: Pass.
-- Native-host completion: macOS local evidence is present; exact Ubuntu and Windows hosted evidence is pending.
+- Native-host completion: exact Ubuntu, macOS, and Windows hosted check runs pass for the same draft head.
 
 ### Real Smoke Lifecycle Evidence
 
@@ -125,16 +124,12 @@ No workflow or agent bundle changed, so the changed-skill disposable exercise br
 
 ## Remaining Issues
 
-| Severity | Category | Location | Issue | Reason Not Fixed |
-|----------|----------|----------|-------|------------------|
-| External evidence | Native portability | GitHub Actions implementation PR | Ubuntu, macOS, and Windows checkpoint-portability check conclusions are not yet available. | These `pull_request` check runs cannot exist before the controlled implementation PR is created. |
-
+None.
 ## Overall Status
 
-**PR Evidence Pending**
+**Pass**
 
-All local implementation, architecture, test, smoke, and deterministic steering obligations pass. The only remaining evidence is the exact three-OS pull-request checkpoint-portability matrix declared above.
-
+All local implementation, architecture, test, smoke, deterministic steering, and exact-head pull-request evidence obligations pass.
 ## Recommendation
 
-Ready for controlled draft PR evidence collection. Do not mark verification `Pass` until all three exact native checkpoint-portability check runs succeed for the same implementation head.
+Ready for controlled delivery from draft PR #325 at `83d8cf46fa608cffcaab8a204d3c9f7ee69ade30`.
