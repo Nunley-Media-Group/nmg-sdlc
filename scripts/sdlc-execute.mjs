@@ -1485,7 +1485,11 @@ export function runExecute({
       );
       existingRun = null;
     } catch {
-      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+      return {
+        status: 1,
+        stdout: '',
+        stderr: 'completed_cleanup_failed\n',
+      };
     }
   }
   const dirtyIssue = matchingRun

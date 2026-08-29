@@ -1705,6 +1705,34 @@ describe('runExecute controller', () => {
     }
   });
 
+  it('checkpoint portability reports legacy startup cleanup failures', () => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const { runPath, bytes } = writeLegacyRun(fixture.cwd);
+    const lockPath = `${runPath}.lock`;
+    const lock = fs.openSync(lockPath, 'wx');
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'completed_cleanup_failed\n',
+    });
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+    fs.closeSync(lock);
+    fs.unlinkSync(lockPath);
+  });
+
   it('checkpoint portability rejects native symbolic-link and junction boundaries', () => {
     const linkTypes = process.platform === 'win32' ? ['junction', 'dir'] : ['dir'];
     for (const linkType of linkTypes) {
@@ -1808,7 +1836,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'completed_cleanup_failed\n' });
     expect(fs.existsSync(runPath)).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
