@@ -993,17 +993,14 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     parseChecksResult(checksResult, 'gh pr checks --required'),
     { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
   );
-  let evidenceChecks = checks;
   const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
-  if (declaredEvidence.some((item) => item.kind === 'check_run')) {
-    const allChecksResult = command(run, cwd, 'gh', [
-      'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
-    ], { allowFailure: true });
-    evidenceChecks = enrichMissingCheckEvents(
-      parseChecksResult(allChecksResult, 'gh pr checks'),
-      { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
-    );
-  }
+  const allChecksResult = command(run, cwd, 'gh', [
+    'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
+  ], { allowFailure: true });
+  const evidenceChecks = enrichMissingCheckEvents(
+    parseChecksResult(allChecksResult, 'gh pr checks'),
+    { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
+  );
   const { value: issueData } = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']);
   const reviews = (pr.reviews ?? []).map((review, index) => ({
     id: review.id ?? `review-${index}`,
@@ -1023,15 +1020,12 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
     .map((item) => item.name);
-  const declaredCheckRuns = new Set(evidence
-    .filter((item) => item.kind === 'check_run')
-    .map((item) => item.name));
   const checkKeys = new Set(checks.map((check) => `${check.name}\0${check.event}`));
   const snapshotChecks = [
     ...checks,
     ...evidenceChecks.filter((check) => {
       const key = `${check.name}\0${check.event}`;
-      if (!declaredCheckRuns.has(check.name) || checkKeys.has(key)) return false;
+      if (checkKeys.has(key)) return false;
       checkKeys.add(key);
       return true;
     }),

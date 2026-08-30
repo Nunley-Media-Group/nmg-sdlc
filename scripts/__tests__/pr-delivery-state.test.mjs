@@ -63,6 +63,35 @@ describe('exact-head PR delivery state', () => {
     expect(classifyPrDeliveryState(snapshot({ threads: [{ id: 'T2', isResolved: false, isOutdated: false }] }), { issueNumber: 177 }).reasonCode).toBe('review_threads_unresolved');
     expect(classifyPrDeliveryState(snapshot({ pullRequest: { mergeStateStatus: 'BEHIND' } }), { issueNumber: 177 }).reasonCode).toBe('mergeability_defect');
   });
+  test('lets failing checks override UNSTABLE without changing clean-check mergeability', () => {
+    const failedUnstable = classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'UNSTABLE' },
+      checks: [
+        { name: 'contract-tests', event: 'pull_request', state: 'SUCCESS' },
+        {
+          name: 'Validate nmg-sdlc contribution evidence',
+          event: 'pull_request',
+          state: 'FAILURE',
+        },
+      ],
+    }), { issueNumber: 177 });
+
+    expect(failedUnstable).toMatchObject({
+      status: 'remediate',
+      reasonCode: 'checks_failed',
+    });
+    expect(classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'UNSTABLE' },
+    }), { issueNumber: 177 })).toMatchObject({
+      status: 'pending',
+      reasonCode: 'mergeability_pending',
+    });
+    expect(classifyPrDeliveryState(snapshot(), { issueNumber: 177 })).toMatchObject({
+      status: 'merge_ready',
+      reasonCode: 'exact_head_clean',
+    });
+  });
+
 
   test.each([
     ['missing', undefined],

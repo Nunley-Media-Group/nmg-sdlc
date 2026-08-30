@@ -710,6 +710,97 @@ describe('sdlc delivery controller', () => {
     expect(result.remediation).toMatchObject({ schemaVersion: 1, kind: 'remediation_required', issue: 42, pullRequest: 77, headSha: H1, failingChecks: [{ name: 'test', url: 'https://github.test/check/1' }], threads: [{ path: 'src/a.mjs', line: 9, body: 'Fix this', url: 'https://github.test/thread/1' }], handoffPath: '.omp/sdlc/handoffs/42-deliver.json' });
     expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
   });
+  test('remediates a failing non-required check instead of polling UNSTABLE', () => {
+    const contributionGate = {
+      name: 'Validate nmg-sdlc contribution evidence',
+      state: 'FAILURE',
+      link: 'https://github.test/check/gate',
+      event: 'pull_request',
+    };
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const f = fixture({
+      requiredChecks: [requiredCheck],
+      checks: [requiredCheck, contributionGate],
+      views: [openPr({ mergeStateStatus: 'UNSTABLE' })],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(3);
+    expect(result.stdout.match(/NMG_SDLC_REMEDIATION:/g)).toHaveLength(1);
+    expect(result.remediation.failingChecks).toContainEqual({
+      name: contributionGate.name,
+      url: contributionGate.link,
+    });
+    expect(result.handoff).toBeNull();
+    expect(f.sleeps).toEqual([]);
+  });
+
+  test('polls a pending non-required check before merging after it succeeds', () => {
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const pendingCheck = {
+      name: 'Validate nmg-sdlc contribution evidence',
+      state: 'PENDING',
+      link: 'https://github.test/check/gate',
+      event: 'pull_request',
+    };
+    const options = {
+      requiredChecks: [requiredCheck],
+      checks: [requiredCheck, pendingCheck],
+      views: [
+        openPr({ mergeStateStatus: 'UNSTABLE' }),
+        openPr(),
+        openPr({ state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    };
+    const f = fixture(options); roots.push(f.root);
+    let mergeAttemptedWhilePending = false;
+    const sleep = (milliseconds) => {
+      f.sleeps.push(milliseconds);
+      mergeAttemptedWhilePending = f.calls.some(
+        (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+      );
+      options.checks = [
+        requiredCheck,
+        { ...pendingCheck, state: 'SUCCESS' },
+      ];
+    };
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(f.sleeps).toEqual([30_000]);
+    expect(mergeAttemptedWhilePending).toBe(false);
+    expect(result.stdout).not.toContain('NMG_SDLC_REMEDIATION');
+    expect(f.calls.some(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+    )).toBe(true);
+  });
+
   test('keeps the originating inline location when a bot later replies pathlessly', () => {
     const thread = {
       id: 'T1',
@@ -742,6 +833,9 @@ describe('sdlc delivery controller', () => {
     expect(graphql[10]).not.toMatch(/isOutdated\s+path/);
     expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toEqual([
       'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
+    ]);
+    expect(f.calls).toContainEqual([
+      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event',
     ]);
   });
 
