@@ -1024,7 +1024,6 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const snapshotChecks = [
     ...checks,
     ...evidenceChecks.filter((check) => {
-      if (check.event !== 'pull_request') return false;
       const key = `${check.name}\0${check.event}`;
       if (checkKeys.has(key)) return false;
       checkKeys.add(key);

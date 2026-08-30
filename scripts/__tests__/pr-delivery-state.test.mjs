@@ -96,13 +96,17 @@ describe('exact-head PR delivery state', () => {
   test.each([
     ['missing', undefined],
     ['non-PR', 'push'],
-  ])('rejects %s check-event provenance', (_name, event) => {
-    const result = classifyPrDeliveryState(snapshot({
-      checks: [{ name: 'test', event, state: 'SUCCESS' }],
-    }), { issueNumber: 177 });
+  ])('rejects %s check-event provenance without dropping snapshot evidence', (_name, event) => {
+    const checks = [
+      { name: 'test', event: 'pull_request', state: 'SUCCESS' },
+      { name: 'extra', event, state: 'SUCCESS' },
+    ];
+    const result = classifyPrDeliveryState(snapshot({ checks }), { issueNumber: 177 });
 
     expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
     expect(result.gaps.join('\n')).toContain('exact pull_request event provenance');
+    expect(result.evidence.checks).toHaveLength(2);
+    expect(result.evidence.checks.map((check) => check.name)).toEqual(['extra', 'test']);
   });
 
   test('rejects an absent declared check even when an unrelated check was returned', () => {

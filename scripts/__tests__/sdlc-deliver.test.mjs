@@ -839,10 +839,10 @@ describe('sdlc delivery controller', () => {
     ]);
   });
 
-  test.each(['push', 'merge_group'])('excludes non-PR extra check event %s from delivery snapshots', (event) => {
+  test.each(['push', 'merge_group'])('preserves distinct unfiltered %s checks and fails closed', (event) => {
     const f = fixture({
-      requiredChecks: [{ name: 'required', state: 'SUCCESS', link: 'https://github.test/check/required', event: 'pull_request' }],
-      checks: [{ name: 'extra', state: 'FAILURE', link: 'https://github.test/check/extra', event }],
+      requiredChecks: [{ name: 'shared', state: 'SUCCESS', link: 'https://github.test/check/required', event: 'pull_request' }],
+      checks: [{ name: 'shared', state: 'FAILURE', link: 'https://github.test/check/extra', event }],
     }); roots.push(f.root);
 
     const result = runDeliver({
@@ -854,8 +854,9 @@ describe('sdlc delivery controller', () => {
       sleep: f.sleep,
     });
 
-    expect(result.status).toBe(0);
-    expect(result.handoff.status).toBe('passed');
+    expect(result.status).toBe(1);
+    expect(result.handoff.summary).toContain('evidence_incomplete_or_invalid');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
   });
 
   test('fails closed when GraphQL returns response errors', () => {
