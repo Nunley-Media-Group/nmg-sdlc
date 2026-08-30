@@ -170,6 +170,16 @@ No workflow or agent path changed, so a changed-skill exercise was not applicabl
 **Gate Summary**: 2/2 passed, 0 failed, 0 incomplete
 
 ---
+## Contribution Evidence
+
+- Steering alignment: the fix preserves the managed runtime registered by `steering/manifest.json` and its structure, technology, product, and verification modules. It reuses the existing controller-owned worker identity, validated handoff, and observation boundaries without introducing a second orchestration convention.
+- `scripts/sdlc-execute.mjs`: implements AC1, AC2, FR1-FR4, and T001.
+- `scripts/__tests__/sdlc-execute.test.mjs`: proves SCN001, SCN002, T002, and T003.
+- `CHANGELOG.md`: records the user-visible #320 fix under `[Unreleased]`.
+- `VERSION`: carries the patch release version selected by the approved `**Version bump**: patch` contract for #320.
+- `package.json`: keeps the package manifest version synchronized with `VERSION` for the same #320 patch release.
+- `specs/320-keep-observing-live-review-workers-after-prompt-wait-failure/verification-report.md`: publishes exact-head acceptance, regression, steering, test, and changed-path evidence for #320.
+
 
 ## Fixes Applied
 
