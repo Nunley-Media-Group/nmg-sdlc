@@ -1063,9 +1063,7 @@ function submitReviewProtocol({
   cwd,
 }) {
   const prompted = herdr.agentPrompt({ name: agentName, prompt });
-  if (!commandSucceeded(prompted) && !isPromptStalled(prompted)) {
-    return { handoff: null, reasonCode: 'review_failed' };
-  }
+  const promptStalled = isPromptStalled(prompted);
   const existing = readExpectedHandoff(handoffPath, issue, step);
   if (existing.handoff) {
     return validReviewArtifact(cwd, issue, step, existing.handoff)
@@ -1073,7 +1071,14 @@ function submitReviewProtocol({
       : { handoff: null, reasonCode: 'invalid_handoff' };
   }
   if (
-    isPromptStalled(prompted)
+    !commandSucceeded(prompted)
+    && !promptStalled
+    && !workerStillPresent(herdr, agentName, paneId)
+  ) {
+    return { handoff: null, reasonCode: 'review_failed' };
+  }
+  if (
+    promptStalled
     && !existsSync(handoffPath)
     && hasPastedWorkerPrompt(herdr, agentName, prompt)
     && !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))

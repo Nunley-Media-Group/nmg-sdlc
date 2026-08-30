@@ -3065,8 +3065,28 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('SCN006 fails closed when the single review prompt cannot start', () => {
-    const fixture = makeControllerFixture({ reviewRequestFailure: true });
+  it('SCN006 observes a live review worker after a non-stall prompt failure', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let pendingStep = null;
+    let observations = 0;
+    fixture.herdr.agentPrompt = (input) => {
+      if (
+        input.name === 's42-review1'
+        && input.prompt.startsWith('# Controller-Owned Host Review')
+      ) {
+        fixture.prompts.push(input);
+        pendingStep = 'review1';
+        return { status: 1, reasonCode: 'worker_failed' };
+      }
+      return agentPrompt(input);
+    };
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+      writeReviewEvidence(fixture, pendingStep);
+      pendingStep = null;
+    };
+
     const result = runExecute({
       args: '#42',
       cwd: fixture.cwd,
@@ -3075,16 +3095,40 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result.status).toBe(1);
-    expect(fixture.starts.map(({ name }) => name)).toEqual([
-      's42-start', 's42-implement', 's42-review1',
-    ]);
+    expect(result.status).toBe(0);
+    expect(observations).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1');
+    expect(fixture.sentKeys).toEqual([]);
+  });
+
+  it('SCN006 accepts passed evidence written during a non-stall prompt failure', () => {
+    const fixture = makeControllerFixture({ reviewPromptStatus: 1 });
+    const paneClose = fixture.herdr.paneClose;
+    let acceptedEvidence = false;
+    fixture.herdr.paneClose = (paneId) => {
+      acceptedEvidence ||= fs.existsSync(
+        path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'),
+      );
+      return paneClose(paneId);
+    };
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(acceptedEvidence).toBe(true);
     expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('SCN006 rejects a non-stall prompt failure even when that call wrote passed evidence', () => {
-    const fixture = makeControllerFixture({ reviewPromptStatus: 1 });
+  it('SCN006 fails review_failed when the worker is absent after a non-stall failure', () => {
+    const fixture = makeControllerFixture({ reviewRequestFailure: true });
+    fixture.herdr.listAgents = () => [];
+
     const result = runExecute({
       args: '#42',
       cwd: fixture.cwd,
@@ -3102,10 +3146,42 @@ describe('runExecute controller', () => {
       step: 'review1',
       reasonCode: 'review_failed',
     });
-    expect(fs.existsSync(
-      path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'),
-    )).toBe(true);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1',
+    ]);
+    expect(fixture.sentKeys).toEqual([]);
+  });
+
+  it('SCN006 fails process_lost when a live worker disappears during observation', () => {
+    const fixture = makeControllerFixture({ reviewRequestFailure: true });
+    const listAgents = fixture.herdr.listAgents;
+    let workerLost = false;
+    let observations = 0;
+    fixture.herdr.listAgents = () => workerLost ? [] : listAgents();
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+      workerLost = true;
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'review1',
+      reasonCode: 'process_lost',
+    });
+    expect(observations).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 's42-review1')).toHaveLength(1);
     expect(fixture.sentKeys).toEqual([]);
   });
 
@@ -3574,7 +3650,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual(['kept-implement-pane']);
   });
-  it('accepts a settled deterministic review for an idle retained worker', () => {
+  it('observes a retained review worker after a non-stall prompt failure', () => {
     const fixture = makeControllerFixture({ localDefaultRef: false });
     seedRun(fixture.cwd, {
       schemaVersion: 1,
@@ -3591,6 +3667,22 @@ describe('runExecute controller', () => {
       state: 'idle',
     }];
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let observations = 0;
+    fixture.herdr.agentPrompt = (input) => {
+      if (
+        input.name === 's42-review1'
+        && input.prompt.startsWith('# Controller-Owned Host Review')
+      ) {
+        fixture.prompts.push(input);
+        return { status: 1, reasonCode: 'worker_failed' };
+      }
+      return agentPrompt(input);
+    };
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+      writeReviewEvidence(fixture, 'review1');
+    };
 
     const result = runExecute({
       args: '#42',
@@ -3601,12 +3693,14 @@ describe('runExecute controller', () => {
     });
 
     expect(result.status).toBe(0);
+    expect(observations).toBe(1);
     expect(fixture.prompts.some(({ name, prompt }) => (
       name === 's42-review1'
       && prompt.includes('exact base `origin/main`')
     ))).toBe(true);
     expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
+    expect(fixture.closed[0]).toBe('kept-review-pane');
     expect(fixture.sentKeys).toEqual([]);
   });
 
