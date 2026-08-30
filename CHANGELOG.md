@@ -10,7 +10,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
-## [3.19.0] - 2026-08-29
+## [3.18.12] - 2026-08-29
 
 ### Changed
 

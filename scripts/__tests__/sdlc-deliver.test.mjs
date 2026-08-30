@@ -839,6 +839,25 @@ describe('sdlc delivery controller', () => {
     ]);
   });
 
+  test.each(['push', 'merge_group'])('excludes non-PR extra check event %s from delivery snapshots', (event) => {
+    const f = fixture({
+      requiredChecks: [{ name: 'required', state: 'SUCCESS', link: 'https://github.test/check/required', event: 'pull_request' }],
+      checks: [{ name: 'extra', state: 'FAILURE', link: 'https://github.test/check/extra', event }],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.handoff.status).toBe('passed');
+  });
+
   test('fails closed when GraphQL returns response errors', () => {
     const f = fixture({ graphqlErrors: [{ message: 'Review thread query rejected' }], views: [openPr()] }); roots.push(f.root);
     const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });

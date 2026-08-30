@@ -421,14 +421,14 @@ function readRunCheckpointAt(runFile, root = process.cwd()) {
   const rel = relative(canonicalRoot, p);
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('unsafe run path');
   if (!existsSync(p)) return { data: null, bytes: null };
-  const bytes = readFileSync(p);
   try {
+    const bytes = readFileSync(p);
     const data = JSON.parse(bytes.toString('utf8'));
     if (data && data.schemaVersion === 1) return { data, bytes };
+    return { data: null, bytes };
   } catch {
-    // fallthrough
+    return { data: null, bytes: null };
   }
-  return { data: null, bytes };
 }
 
 export function readRunAt(runFile, root = process.cwd()) {
