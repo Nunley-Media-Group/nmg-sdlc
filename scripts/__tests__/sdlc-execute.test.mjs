@@ -1682,6 +1682,31 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('checkpoint portability rejects an unreadable checkpoint path', () => {
+    const fixture = makeControllerFixture({ labelIssues: [19] });
+    const specDir = path.join(fixture.cwd, 'specs', '19-portable-checkpoint');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 19);
+    const runPath = path.join(fixture.cwd, '.omp', 'sdlc', 'run.json');
+    fs.mkdirSync(runPath, { recursive: true });
+
+    const result = runExecute({
+      args: '#19',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: 'Run checkpoint identity mismatch\n',
+    });
+    expect(fs.statSync(runPath).isDirectory()).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('checkpoint portability keeps legacy cleanup locks bytes and owned deletion fail-closed', () => {
     for (const failure of ['held lock', 'changed bytes', 'deletion failure']) {
       const root = makeSpecDir();

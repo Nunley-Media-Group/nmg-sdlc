@@ -10,6 +10,18 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.19.2] - 2026-08-30
+
+### Changed
+
+- Remediate failing hosted checks that are not branch-protected (#319)
+
+## [3.19.1] - 2026-08-30
+
+### Fixed
+
+- Include every distinct unfiltered pull-request check in delivery snapshots so failing non-required hosted checks enter remediation instead of polling indefinitely (#319).
+
 ## [3.19.0] - 2026-08-29
 
 ### Changed

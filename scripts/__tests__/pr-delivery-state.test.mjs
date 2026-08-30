@@ -63,17 +63,50 @@ describe('exact-head PR delivery state', () => {
     expect(classifyPrDeliveryState(snapshot({ threads: [{ id: 'T2', isResolved: false, isOutdated: false }] }), { issueNumber: 177 }).reasonCode).toBe('review_threads_unresolved');
     expect(classifyPrDeliveryState(snapshot({ pullRequest: { mergeStateStatus: 'BEHIND' } }), { issueNumber: 177 }).reasonCode).toBe('mergeability_defect');
   });
+  test('lets failing checks override UNSTABLE without changing clean-check mergeability', () => {
+    const failedUnstable = classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'UNSTABLE' },
+      checks: [
+        { name: 'contract-tests', event: 'pull_request', state: 'SUCCESS' },
+        {
+          name: 'Validate nmg-sdlc contribution evidence',
+          event: 'pull_request',
+          state: 'FAILURE',
+        },
+      ],
+    }), { issueNumber: 177 });
+
+    expect(failedUnstable).toMatchObject({
+      status: 'remediate',
+      reasonCode: 'checks_failed',
+    });
+    expect(classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'UNSTABLE' },
+    }), { issueNumber: 177 })).toMatchObject({
+      status: 'pending',
+      reasonCode: 'mergeability_pending',
+    });
+    expect(classifyPrDeliveryState(snapshot(), { issueNumber: 177 })).toMatchObject({
+      status: 'merge_ready',
+      reasonCode: 'exact_head_clean',
+    });
+  });
+
 
   test.each([
     ['missing', undefined],
     ['non-PR', 'push'],
-  ])('rejects %s check-event provenance', (_name, event) => {
-    const result = classifyPrDeliveryState(snapshot({
-      checks: [{ name: 'test', event, state: 'SUCCESS' }],
-    }), { issueNumber: 177 });
+  ])('rejects %s check-event provenance without dropping snapshot evidence', (_name, event) => {
+    const checks = [
+      { name: 'test', event: 'pull_request', state: 'SUCCESS' },
+      { name: 'extra', event, state: 'SUCCESS' },
+    ];
+    const result = classifyPrDeliveryState(snapshot({ checks }), { issueNumber: 177 });
 
     expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
     expect(result.gaps.join('\n')).toContain('exact pull_request event provenance');
+    expect(result.evidence.checks).toHaveLength(2);
+    expect(result.evidence.checks.map((check) => check.name)).toEqual(['extra', 'test']);
   });
 
   test('rejects an absent declared check even when an unrelated check was returned', () => {
