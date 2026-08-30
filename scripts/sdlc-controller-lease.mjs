@@ -1,9 +1,12 @@
 import {
   closeSync,
+  existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -109,6 +112,75 @@ export function releaseControllerLease(lease) {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function reclaimControllerLease({
+  projectRoot,
+  runId,
+  ownerIsAlive,
+  expectedSerialized,
+  expectedRecord,
+} = {}) {
+  if (typeof ownerIsAlive !== 'function') {
+    throw new Error('invalid_controller_lease_recovery');
+  }
+  const canonicalRoot = realpathSync(projectRoot);
+  const path = controllerLeasePath(canonicalRoot);
+  let snapshot;
+  try {
+    snapshot = readFileSync(path, 'utf8');
+  } catch {
+    throw leaseError();
+  }
+  if (expectedSerialized !== undefined && snapshot !== expectedSerialized) {
+    throw leaseError();
+  }
+  const active = readControllerLease(canonicalRoot);
+  if (
+    !active
+    || !runId
+    || active.runId !== runId
+    || (expectedRecord !== undefined && JSON.stringify(active) !== JSON.stringify(expectedRecord))
+    || ownerIsAlive(active) !== false
+  ) {
+    throw leaseError();
+  }
+  const stalePath = `${path}.${randomUUID()}.stale`;
+  let moved = false;
+  try {
+    renameSync(path, stalePath);
+    moved = true;
+    if (readFileSync(stalePath, 'utf8') !== snapshot) {
+      throw leaseError();
+    }
+    if (existsSync(path)) {
+      throw leaseError();
+    }
+    unlinkSync(stalePath);
+    return active;
+  } catch (error) {
+    if (moved) {
+      try {
+        // A hard link is an atomic, no-clobber restore. If another lease
+        // appeared, EEXIST leaves it untouched and the stale snapshot can
+        // be discarded safely.
+        linkSync(stalePath, path);
+        unlinkSync(stalePath);
+      } catch (restoreError) {
+        if (restoreError?.code === 'EEXIST') {
+          try {
+            unlinkSync(stalePath);
+          } catch {
+            // Preserve the original recovery failure.
+          }
+        }
+        // If restoration failed for any other reason, retain stalePath so
+        // the exact lease snapshot is not silently discarded.
+      }
+    }
+    if (error?.reasonCode === 'controller_lease_held') throw error;
+    throw leaseError();
   }
 }
 

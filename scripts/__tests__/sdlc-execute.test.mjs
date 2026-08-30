@@ -26,6 +26,7 @@ import {
 } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
+  controllerLeasePath,
   releaseControllerLease,
 } from '../sdlc-controller-lease.mjs';
 import { startIssue } from '../start-issue.mjs';
@@ -134,8 +135,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects comma-only input', () => {
-    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
-    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
   });
 
   it('parseArgs collects unique numbers in given order', () => {
@@ -152,6 +153,15 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       retainWorker: true,
     });
     expect(() => parseArgs('--retain-worker --retain-worker #12')).toThrow(/Usage:/);
+  });
+
+  it('parseArgs accepts one recover-stale flag among issue tokens', () => {
+    expect(parseArgs('#12 --recover-stale')).toEqual({
+      issues: [12],
+      defaultBacklog: false,
+      recoverStale: true,
+    });
+    expect(() => parseArgs('--recover-stale --recover-stale #12')).toThrow(/Usage:/);
   });
 
   it('parseArgs accepts OMP-expanded issue and pull-request tokens', () => {
@@ -250,7 +260,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
-    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
+    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
     const twentyOne = Array.from({ length: 21 }, (_, index) => `#${index + 1}`).join(' ');
     expect(() => parseArgs(twentyOne)).toThrow();
   });
@@ -1237,6 +1247,14 @@ describe('runExecute controller', () => {
   }
 
   const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock', HERDR_PANE_ID: 'main-pane' };
+  const absentProcessApi = {
+    pid: 0,
+    kill: () => {
+      const error = new Error('no such process');
+      error.code = 'ESRCH';
+      throw error;
+    },
+  };
 
   function configurePassedRetainedStartWorker(fixture, agentPayload) {
     seedRun(fixture.cwd, {
@@ -1328,8 +1346,419 @@ describe('runExecute controller', () => {
   it('rejects invalid arguments with the stable usage line', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it('reclaims an explicitly confirmed stale controller lease before execution', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Recovered stale controller lease.');
+    expect(fs.existsSync(controllerLeasePath(fixture.cwd))).toBe(false);
+  });
+
+  it('rejects stale recovery when the recorded controller PID is live', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: 4242,
+    });
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: { pid: 4242, kill: () => undefined },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+  it('rejects stale recovery when the recorded controller PID is unknown', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: 4242,
+    });
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: {
+        pid: 9999,
+        kill: () => {
+          const error = new Error('permission denied');
+          error.code = 'EPERM';
+          throw error;
+        },
+      },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+
+  it('rejects stale recovery when the recorded controller pane is live', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => [{ name: 'stale-controller', pane_id: 'stale-controller' }];
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('preserves a changed same-run lease acquired between ownership checks and reclaim', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    const replacement = {
+      ...lease.record,
+      controllerPaneId: 'replacement-controller',
+      pid: Number.MAX_SAFE_INTEGER - 1,
+    };
+    const replacementBytes = `${JSON.stringify(replacement, null, 2)}\n`;
+    fixture.herdr.listAgents = () => {
+      fs.writeFileSync(lease.path, replacementBytes);
+      return [];
+    };
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(replacementBytes);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rechecks pane evidence immediately before reclaiming an absent lease owner', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    let listings = 0;
+    fixture.herdr.listAgents = () => {
+      listings += 1;
+      return listings === 1 ? [] : [{ name: 'stale-controller', pane_id: 'stale-controller' }];
+    };
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(listings).toBe(2);
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rechecks PID evidence immediately before reclaiming an absent lease owner', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: 4242,
+    });
+    let checks = 0;
+    const processApi = {
+      pid: 9999,
+      kill: () => {
+        checks += 1;
+        if (checks === 1) {
+          const error = new Error('no such process');
+          error.code = 'ESRCH';
+          throw error;
+        }
+      },
+    };
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(checks).toBe(2);
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects stale recovery when the Herdr pane listing is unknown', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => ({ status: 0, stdout: '{}' });
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects stale recovery when any listed Herdr agent lacks a pane identity', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => [{ name: 'unidentified-agent' }];
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: absentProcessApi,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects stale recovery for a foreign run without inspecting or changing its lease', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'current-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'foreign-run',
+      controllerPaneId: 'foreign-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => {
+      throw new Error('foreign lease must be rejected before pane inspection');
+    };
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects stale recovery before pane inspection when the checkpoint root mismatches', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const mismatched = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    mismatched.projectRoot = path.join(fixture.cwd, 'different-root');
+    fs.writeFileSync(runPath, `${JSON.stringify(mismatched, null, 2)}\n`);
+    const checkpointBytes = fs.readFileSync(runPath, 'utf8');
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => {
+      throw new Error('root mismatch must be rejected before pane inspection');
+    };
+
+    const result = runExecute({
+      args: '#42 --recover-stale',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(checkpointBytes);
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('keeps default lease behavior unchanged without stale recovery', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'stale-run',
+      revision: 1,
+      currentStep: 'start',
+      completed: { 42: [] },
+      workers: {},
+    });
+    const lease = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'stale-run',
+      controllerPaneId: 'stale-controller',
+      pid: Number.MAX_SAFE_INTEGER,
+    });
+    fixture.herdr.listAgents = () => {
+      throw new Error('default execution must not inspect stale ownership');
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
+    expect(fixture.starts).toEqual([]);
   });
 
   it('rejects a competing execute before changing protected artifacts', () => {
@@ -1363,7 +1792,7 @@ describe('runExecute controller', () => {
   it('rejects comma-only arguments before controller side effects', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: ', ,', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
     expect(fixture.starts).toHaveLength(0);
   });
@@ -1378,7 +1807,7 @@ describe('runExecute controller', () => {
   it('requires an explicit selection when empty args find specified issues', () => {
     const fixture = makeControllerFixture({ specifiedIssues: [{ number: 42, title: 'Ship It' }] });
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.starts).toEqual([]);
   });
 

@@ -48,6 +48,9 @@ import {
 } from './omp-sdlc-ignore.mjs';
 import {
   acquireControllerLease,
+  controllerLeasePath,
+  readControllerLease,
+  reclaimControllerLease,
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 
@@ -78,7 +81,7 @@ const STEP_EXTRA_WORKFLOWS = {
 
 
 function usageError() {
-  return 'Usage: /sdlc-execute [--retain-worker] [#N ...]';
+  return 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]';
 }
 
 
@@ -92,10 +95,16 @@ export function parseArgs(input = '') {
   const issues = [];
   const seen = new Set();
   let retainWorker = false;
+  let recoverStale = false;
   for (const tok of tokens) {
     if (tok === '--retain-worker') {
       if (retainWorker) throw new Error(usageError());
       retainWorker = true;
+      continue;
+    }
+    if (tok === '--recover-stale') {
+      if (recoverStale) throw new Error(usageError());
+      recoverStale = true;
       continue;
     }
     const m = tok.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
@@ -114,6 +123,7 @@ export function parseArgs(input = '') {
   }
   const parsed = { issues, defaultBacklog: issues.length === 0 };
   if (retainWorker) parsed.retainWorker = true;
+  if (recoverStale) parsed.recoverStale = true;
   return parsed;
 }
 
@@ -924,6 +934,90 @@ function firstAgentList(value) {
   return parsed?.result?.agents || parsed?.agents || [];
 }
 
+function processIsAlive(pid, processApi = process) {
+  if (pid === processApi.pid) return true;
+  if (typeof processApi.kill !== 'function') return null;
+  try {
+    processApi.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'ESRCH' ? false : null;
+  }
+}
+
+function controllerPaneIsPresent(herdr, paneId) {
+  let listed;
+  try {
+    listed = herdr.listAgents();
+  } catch {
+    return null;
+  }
+  if (!commandSucceeded(listed)) return null;
+  const agents = (() => {
+    const parsed = parseCommandOutput(listed);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.result?.agents)) return parsed.result.agents;
+    if (Array.isArray(parsed?.agents)) return parsed.agents;
+    return null;
+  })();
+  if (
+    !agents
+    || agents.some((agent) => {
+      if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return true;
+      const identity = agent.pane_id ?? agent.paneId;
+      return (
+        (typeof identity !== 'string' && typeof identity !== 'number')
+        || String(identity).trim() === ''
+      );
+    })
+  ) {
+    return null;
+  }
+  return agents.some((agent) => (
+    String(agent.pane_id ?? agent.paneId) === String(paneId)
+  ));
+}
+
+function recoverStaleControllerLeaseIfRequested({
+  projectRoot,
+  runId,
+  herdr,
+  processApi = process,
+}) {
+  const active = readControllerLease(projectRoot);
+  if (!active) return false;
+  if (!runId || active.runId !== runId) {
+    const error = new Error('controller_lease_held');
+    error.reasonCode = 'controller_lease_held';
+    throw error;
+  }
+  let serialized;
+  try {
+    serialized = readFileSync(controllerLeasePath(projectRoot), 'utf8');
+  } catch {
+    const error = new Error('controller_lease_held');
+    error.reasonCode = 'controller_lease_held';
+    throw error;
+  }
+  const ownerIsAlive = (record) => (
+    processIsAlive(record.pid, processApi) !== false
+    || controllerPaneIsPresent(herdr, record.controllerPaneId) !== false
+  );
+  if (ownerIsAlive(active)) {
+    const error = new Error('controller_lease_held');
+    error.reasonCode = 'controller_lease_held';
+    throw error;
+  }
+  reclaimControllerLease({
+    projectRoot,
+    runId,
+    ownerIsAlive,
+    expectedSerialized: serialized,
+    expectedRecord: active,
+  });
+  return true;
+}
+
 function agentState(value) {
   const parsed = parseCommandOutput(value);
   return String(
@@ -1405,7 +1499,35 @@ export function runExecute({
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
+  if (
+    parsedArgs.recoverStale
+    && validRunIdentity(existingRun)
+    && (
+      existingRun.projectRoot !== realpathSync(cwd)
+      || JSON.stringify(existingRun.issues) !== JSON.stringify(issues)
+    )
+  ) {
+    return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+  }
   const controllerRunId = validRunIdentity(existingRun) ? existingRun.runId : randomUUID();
+  if (parsedArgs.recoverStale) {
+    try {
+      if (recoverStaleControllerLeaseIfRequested({
+        projectRoot: cwd,
+        runId: controllerRunId,
+        herdr: herdrApi,
+        processApi,
+      })) {
+        output.push('Recovered stale controller lease.');
+      }
+    } catch (error) {
+      return {
+        status: 1,
+        stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
+        stderr: `${error?.reasonCode || error?.message || 'controller_lease_held'}\n`,
+      };
+    }
+  }
   let runState = existingRun;
   let controllerLease;
   let releaseLeaseInFinally = true;
