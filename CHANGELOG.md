@@ -10,9 +10,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.19.3] - 2026-08-30
+
 ### Fixed
 
 - Keep observing live review workers after non-stall prompt-wait failures until valid review evidence appears or the worker disappears (#320).
+
+### Changed
+
+- Keep observing live review workers after prompt-wait failure (#320)
 
 ## [3.19.2] - 2026-08-30
 
