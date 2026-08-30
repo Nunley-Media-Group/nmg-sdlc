@@ -48,6 +48,10 @@ Build `snapshot.checks` as the required set plus every unfiltered check whose `n
 
 Do not change `classifyPrDeliveryState` status precedence: failing checks already win over `UNSTABLE` pending. Do not treat `UNSTABLE` itself as remediable when no snapshot check is failing. Do not change human-review, `CHANGES_REQUESTED`, required-check failure, pending-check, or `CLEAN` → `merge_ready` behavior.
 
+### Steering Alignment
+
+This fix aligns with the registered managed steering runtime: `scripts/sdlc-deliver.mjs` remains the delivery supervisor, GitHub evidence remains fail-closed and exact-head scoped, and remediation remains limited to hosted-check failures inside the approved issue scope.
+
 ### Changes
 
 | File | Change | Rationale |
