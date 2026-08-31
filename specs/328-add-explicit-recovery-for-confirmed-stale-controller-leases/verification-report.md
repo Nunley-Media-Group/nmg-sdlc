@@ -41,6 +41,9 @@ The deterministic steering artifact is complete with both required validations p
 - Local verification: Pass
 - PR evidence: Not required
 
+- Delivery version artifacts: `VERSION` and `package.json` synchronization verified by the delivery controller; these generated release artifacts do not alter the issue's stale-lease recovery contract.
+- Steering alignment: the change preserves the registered managed steering runtime and its `steering/manifest.json` verification gates; recovery remains inside the existing execute-controller boundary.
+
 ## Deterministic Steering Artifact and Ceiling
 
 - Artifact: `.omp/sdlc/verification/328.json`
