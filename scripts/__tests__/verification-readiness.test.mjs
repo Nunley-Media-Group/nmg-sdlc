@@ -115,6 +115,12 @@ describe('check identity resolution', () => {
     ])).toMatchObject({ status: 'matched', check: { name: 'verify', workflow: 'Python CI' } });
   });
 
+  it('rejects a qualified declaration when authoritative workflow identity differs', () => {
+    expect(resolveDeclaredCheck('Python CI / verify', [
+      check('Python CI / verify', 'Other CI'),
+    ])).toEqual({ status: 'mismatch', check: null });
+  });
+
   it('fails closed on bare-name collisions across workflows', () => {
     expect(resolveDeclaredCheck('verify', [
       check('verify', 'Python CI'),

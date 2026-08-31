@@ -21,13 +21,17 @@ export function resolveDeclaredCheck(declaredName, checks) {
   const candidates = Array.isArray(checks) ? checks : [];
   if (!identity) return { status: 'mismatch', check: null };
 
-  const bareMatches = candidates.filter((check) => canonicalCheckName(check?.name) === identity);
-  if (bareMatches.length > 1) return { status: 'mismatch', check: null };
-  if (bareMatches.length === 1) return { status: 'matched', check: bareMatches[0] };
+  const qualifiedDeclaration = identity.includes(CHECK_IDENTITY_SEPARATOR);
+  if (!qualifiedDeclaration) {
+    const bareMatches = candidates.filter((check) => canonicalCheckName(check?.name) === identity);
+    if (bareMatches.length > 1) return { status: 'mismatch', check: null };
+    if (bareMatches.length === 1) return { status: 'matched', check: bareMatches[0] };
+  }
 
-  const canonicalMatches = candidates.filter(
-    (check) => canonicalCheckName(check?.name, check?.workflow) === identity,
-  );
+  const canonicalMatches = candidates.filter((check) => (
+    (!qualifiedDeclaration || (typeof check?.workflow === 'string' && check.workflow.trim()))
+    && canonicalCheckName(check?.name, check?.workflow) === identity
+  ));
   if (canonicalMatches.length > 1) return { status: 'mismatch', check: null };
   if (canonicalMatches.length === 1) return { status: 'matched', check: canonicalMatches[0] };
 
