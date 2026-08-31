@@ -36,7 +36,7 @@ herdr integration install omp
 
 Private repositories may require a `GITHUB_TOKEN` with appropriate read access.
 
-After installing or updating the nmg-sdlc plugin in an already-initialized project, run `/sdlc-upgrade-project`. Review and apply all relevant approved migrations before running any other SDLC workflow. For a new greenfield or brownfield project, run `/sdlc-onboard-project` first instead.
+After every install or update, run /sdlc-upgrade-project in each project. Review and apply all relevant approved migrations before running any other SDLC workflow. For a new greenfield or brownfield project, run `/sdlc-onboard-project` first instead.
 
 ## First-Time Setup
 
