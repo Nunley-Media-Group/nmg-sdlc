@@ -40,6 +40,7 @@ The implementation satisfies AC1–AC5. Current-layout manifests containing the 
 
 - Local verification: Pass
 - PR evidence: Not required
+- Delivery version artifacts: Pass; `VERSION` and `package.json` are synchronized at `3.20.4` by the deterministic delivery controller.
 
 ## Deterministic Steering Artifact and Ceiling
 
