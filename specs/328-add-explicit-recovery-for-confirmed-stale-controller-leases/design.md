@@ -49,7 +49,7 @@ The recovery path runs after the existing read-only execute preflight and before
         |                   |
         v                   v
  normal acquire       controller_lease_held
-                              
+
        same-run lease
               |
               v
