@@ -961,6 +961,48 @@ function parseChecksResult(result, description) {
   return checks.map(normalizeCheck);
 }
 
+function authorizeReconciliationResume({ run, cwd, issue, namespace }) {
+  const persisted = namespace.runState.delivery;
+  try {
+    const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
+    const localHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+    const clean = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+      .every((entry) => entry.startsWith('.omp/'));
+    const pr = pullRequestByNumber({ run, cwd, prNumber: persisted.pullRequest });
+    if (
+      !branch.startsWith(`${issue}-`)
+      || !clean
+      || pr.number !== persisted.pullRequest
+      || pr.state !== 'OPEN'
+      || pr.headRefName !== branch
+      || pr.headRefOid !== localHead
+    ) {
+      return false;
+    }
+    const checksResult = command(run, cwd, 'gh', [
+      'pr', 'checks', String(persisted.pullRequest), '--required', '--json', 'name,state,bucket,link,event',
+    ], { allowFailure: true });
+    const noRequiredChecks = checksResult.status === 1
+      && !String(checksResult.stdout || '').trim()
+      && /^no (?:required )?checks reported on the .+ branch$/i.test(String(checksResult.stderr || '').trim());
+    const checks = parseChecksResult(checksResult, 'gh pr checks --required');
+    if (
+      checks.some((check) => !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.state))
+      || checks.length === 0 && !noRequiredChecks
+    ) return false;
+    persistDelivery(namespace, cwd, {
+      issue,
+      pullRequest: persisted.pullRequest,
+      expectedHead: localHead,
+      status: 'expected',
+      reconciliation: null,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const { value: pr } = jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
@@ -1105,7 +1147,10 @@ function runDeliverUnlocked({
   const issueNumber = positiveIssue(issue);
   if (!issueNumber) throw new Error('issue must be a positive integer');
   const context = { cwd, fs, issue: issueNumber, namespace };
-  if (namespace.runState.delivery?.status === 'reconciliation_required') {
+  if (
+    namespace.runState.delivery?.status === 'reconciliation_required'
+    && !authorizeReconciliationResume({ run, cwd, issue: issueNumber, namespace })
+  ) {
     return reconciliationFailure(context, namespace, null);
   }
   if (remediationResult === 'human_review') return fail(context, 'human_review', `Delivery for #${issueNumber} requires human review`);
