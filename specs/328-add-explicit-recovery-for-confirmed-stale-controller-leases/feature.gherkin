@@ -1,0 +1,55 @@
+**Issue**: #328
+**Date**: 2026-08-30
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: Existing controller lease and worker ownership contract
+
+# File: specs/328-add-explicit-recovery-for-confirmed-stale-controller-leases/feature.gherkin
+#
+# Generated from: specs/328-add-explicit-recovery-for-confirmed-stale-controller-leases/requirements.md
+@issue-328 @execute @controller-lease
+Feature: Recover only confirmed stale controller leases
+  As a developer operating an Oh My Pi / Herdr delivery controller
+  I want an explicit recovery option for a confirmed-dead controller lease
+  So that a run can resume without weakening live ownership protection
+
+  @SCN001
+  Scenario: Reclaim a confirmed-dead lease for the same run
+    Given the current checkpoint and controller lease identify the same run
+    And the lease's recorded PID is demonstrably absent
+    And a successful Herdr agent listing proves the exact recorded controller pane is absent
+    When the developer runs "/sdlc-execute --recover-stale" for the current issue selection
+    Then the stale lease is reclaimed
+    And execute continues through normal controller startup
+    And recovery reports "Recovered stale controller lease."
+
+  @SCN002
+  Scenario Outline: Preserve live, unknown, malformed, and foreign leases
+    Given a controller lease has "<condition>"
+    When the developer runs "/sdlc-execute --recover-stale"
+    Then execute fails with "controller_lease_held"
+    And the lease bytes remain unchanged
+    And no worker pane, checkpoint, handoff, branch, verification, or delivery mutation is started
+
+    Examples:
+      | condition |
+      | a live PID |
+      | an unknown PID or pane result |
+      | a malformed or unreadable record |
+      | a foreign run identity |
+
+  @SCN003
+  Scenario: Protect a changed or newly-created lease atomically
+    Given a same-run lease was confirmed to have an absent owner from an earlier observation
+    When the lease changes or a new lease appears before stale recovery completes
+    Then recovery fails with "controller_lease_held"
+    And it does not delete, overwrite, or restore over the changed or newly-created lease
+    And the latest lease bytes remain intact
+
+  @SCN004
+  Scenario: Preserve default and retained-worker behavior
+    Given an existing lease or an execute lifecycle that uses owned workers
+    When execute runs without "--recover-stale", or with the existing "--retain-worker" option
+    Then ordinary existing-lease rejection and controller/worker ownership behavior remain unchanged
+    And stale-owner inspection and reclamation occur only when "--recover-stale" is explicitly supplied
+    And "--retain-worker" continues to control intentional worker retention independently
