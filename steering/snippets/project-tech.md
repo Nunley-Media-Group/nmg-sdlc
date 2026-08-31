@@ -230,7 +230,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 | Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
 | Live skill proof | Disposable project via `omp --print --no-session` | Verification evidence |
 | Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
-| Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke` and exercise `/sdlc-status --json` with this checkout loaded | Steering validation `repository.nmg-sdlc-smoke` |
+| Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke` and run this checkout's execute controller for the configured explicit issue queue | Steering validation `repository.nmg-sdlc-smoke` |
 
 ### Disposable Exercise Pattern
 
@@ -243,7 +243,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 
 Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
-The live smoke clone of `nmg-sdlc-smoke` is read-only for this gate: do not create issues, branches, PRs, or comments in that repository from verify.
+The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through `scripts/sdlc-execute.mjs run` and its normal workflow-owned workers; the provider never performs ad-hoc GitHub writes. Before each verification, provision one or more fresh issues with approved specs through the smoke repository's normal `/sdlc-draft-issue` and `/sdlc-write-spec` workflows, then set their explicit numbers in `NMG_SDLC_SMOKE_ISSUES`. Delivered issues are terminal and must not be reused.
 
 ### Verification Evidence Boundaries
 
@@ -251,7 +251,7 @@ The live smoke clone of `nmg-sdlc-smoke` is read-only for this gate: do not crea
 - A staged-release fixture proves the packaged candidate only.
 - A clean installed root plus fresh session proves discovery behavior.
 - An actual consumer-project upgrade proves cleanup and preservation behavior.
-- A passed `repository.nmg-sdlc-smoke` result proves this checkout still answers `/sdlc-status --json` against the live smoke project.
+- A passed `repository.nmg-sdlc-smoke` result proves that this invocation recorded each configured issue's linked-PR baseline, observed the delivery head SHA before merge, and then observed a linked PR outside that baseline whose `headRefOid` exactly matches that SHA in GitHub `MERGED` state with the issue `CLOSED`.
 - GitHub checks and mergeability are separate from local test success.
 
 Never infer a stronger layer from a weaker one.
@@ -265,7 +265,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
-| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` and run `node scripts/exercise-omp.mjs --cwd <clone> -- /sdlc-status --json` with this checkout as `--plugin-dir`; wait while the child remains alive and terminate only on completion, genuine failure, explicit cancellation, or confirmed process loss | Exit 0; stdout JSON includes `nextAction.command` starting with `/sdlc-` |
+| Live smoke project | Always | Provision fresh smoke issues and approved specs through normal workflow ownership; set the explicit queue in `NMG_SDLC_SMOKE_ISSUES`; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `node &lt;plugin-root&gt;/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order, with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | Execute exits zero; for every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
@@ -281,7 +281,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 - A missing applicable fixture is a named verification gap, not an implicit pass.
 - A command pass must include exit status and relevant output summary.
 - Published-install acceptance criteria remain incomplete until the published artifact exists.
-- Clone, `omp`, or network failure on the live smoke gate is `Incomplete`, not an implicit pass. A completed exercise that lacks `/sdlc-` `nextAction.command` is `Fail`.
+- Clone, cancellation, process-loss, launch, or cleanup failure on the live smoke gate is `Incomplete`; policy failures or missing delivery proof are `Fail`, and `/sdlc-status --json` output is never pass evidence.
 
 ### Contract Framework
 
@@ -339,6 +339,8 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 | `HERDR_ENV` | Must be `1` for `/sdlc-execute` |
 | `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
 | `HERDR_PANE_ID` | Calling pane id for execute splits |
+| `NMG_SDLC_SMOKE_OWNED` | Must be `1` only while the verification-owned controller mutates `Nunley-Media-Group/nmg-sdlc-smoke`; it authorizes no other repository or mutation path |
+| `NMG_SDLC_SMOKE_ISSUES` | Fresh, explicit comma- or whitespace-separated smoke issue numbers with approved specs; required by the always-on mutable smoke gate and never reused after delivery |
 
 No optional environment variable may change interactive `/plan` behavior or broaden mutation scope.
 

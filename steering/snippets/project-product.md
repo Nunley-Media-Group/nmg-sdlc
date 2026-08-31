@@ -71,7 +71,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Dependency integrity | Open official blockers, unreadable evidence, dangling targets, and open cycles keep an issue out of execute | Keeps sequencing fail-closed and consistent |
 | Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` | Preserves user authority without blocking Herdr |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
-| Live smoke integrity | Every verify exercises `/sdlc-status --json` against `Nunley-Media-Group/nmg-sdlc-smoke` with this checkout loaded | Proves the plugin still works on a real consumer project |
+| Live smoke integrity | Every verify executes the configured explicit issue queue against `Nunley-Media-Group/nmg-sdlc-smoke` and passes only with exact-head merged-PR and closed-issue evidence | Proves real consumer delivery, not status-only discovery |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
 | Cleanup idempotence | Repeated upgrade produces no additional diff | Makes migration predictable |
 

@@ -397,6 +397,18 @@ function writeHandoff({
   };
 }
 
+function writeSmokeDeliveryProof({ cwd, env, fs, issue, pullRequest, headSha }) {
+  if (env.NMG_SDLC_SMOKE_OWNED !== '1') return;
+  const directory = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'smoke-deliveries']);
+  fs.writeFileSync(path.join(directory, `${issue}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    issue,
+    pullRequest,
+    headSha,
+    recordedBeforeMerge: true,
+  }, null, 2)}\n`);
+}
+
 function fail(context, reasonCode, summary) {
   return writeHandoff({ ...context, status: 'failed', reasonCode, summary });
 }
@@ -1153,6 +1165,7 @@ function runDeliverUnlocked({
   cwd = process.cwd(),
   run = defaultRun,
   fs = fsDefault,
+  env = process.env,
   now = Date.now,
   sleep = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
   remediationResult = null,
@@ -1444,6 +1457,14 @@ function runDeliverUnlocked({
       const head = namespace.runState.delivery.expectedHead;
       const refreshed = observe(deliveryReadiness);
       if (refreshed.pr.headRefOid !== head) continue;
+      writeSmokeDeliveryProof({
+        cwd,
+        env,
+        fs,
+        issue: issueNumber,
+        pullRequest: namespace.runState.delivery.pullRequest,
+        headSha: head,
+      });
       command(run, cwd, 'gh', [
         'pr', 'merge', String(namespace.runState.delivery.pullRequest),
         '--squash', '--match-head-commit', head,

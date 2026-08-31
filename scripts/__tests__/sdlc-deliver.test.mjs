@@ -587,6 +587,34 @@ describe('sdlc delivery controller', () => {
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8').trim()).toBe('3.5.0');
   });
 
+  test('records the smoke delivery head before exact-head merge', () => {
+    const f = fixture(); roots.push(f.root);
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      env: { NMG_SDLC_SMOKE_OWNED: '1' },
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(
+      path.join(f.root, '.omp/sdlc/smoke-deliveries/42.json'),
+      'utf8',
+    ))).toEqual({
+      schemaVersion: 1,
+      issue: 42,
+      pullRequest: 77,
+      headSha: H1,
+      recordedBeforeMerge: true,
+    });
+    expect(f.calls).toContainEqual([
+      'gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H1,
+    ]);
+  });
+
   test.each([
     { title: 'breaking: Remove the legacy API' },
     { body: 'Compatibility impact follows.\nBrEaKiNg: Remove the legacy API' },

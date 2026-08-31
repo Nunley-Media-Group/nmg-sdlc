@@ -117,7 +117,9 @@
       "when": {
         "kind": "always"
       },
-      "config": {}
+      "config": {
+        "issuesEnv": "NMG_SDLC_SMOKE_ISSUES"
+      }
     }
   ]
 }
