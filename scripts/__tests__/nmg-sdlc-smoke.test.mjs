@@ -17,9 +17,20 @@ function harness(options = {}) {
   const calls = [];
   const rmSync = jest.fn();
   const mkdtempSync = jest.fn(() => '/tmp/nmg-sdlc-smoke-fixture');
-  const runCommand = jest.fn(async (program, args, options = {}) => {
-    calls.push({ program, args, options });
-    const overridden = await override?.(program, args, options, calls);
+  const deliveryHead = (issue) => `${issue}`.repeat(40).slice(0, 40);
+  const readFileSync = jest.fn((file) => {
+    const issue = Number(String(file).match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
+    return JSON.stringify({
+      schemaVersion: 1,
+      issue,
+      pullRequest: issue,
+      headSha: deliveryHead(issue),
+      recordedBeforeMerge: true,
+    });
+  });
+  const runCommand = jest.fn(async (program, args, commandOptions = {}) => {
+    calls.push({ program, args, options: commandOptions });
+    const overridden = await override?.(program, args, commandOptions, calls);
     if (overridden) return overridden;
     if (program === 'gh' && args[0] === 'auth') return result();
     if (program === 'git' && args[0] === 'clone') return result();
@@ -28,27 +39,45 @@ function harness(options = {}) {
     }
     if (program === 'git' && args[0] === 'status') return result();
     if (program === process.execPath) return result();
-    if (program === 'gh' && args[0] === 'issue') {
-      const issue = args[2];
-      return result(0, JSON.stringify({ state: 'CLOSED', url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${issue}` }));
-    }
-    if (program === 'gh' && args[0] === 'pr') {
-      const issue = args[args.indexOf('--search') + 1].replace('linked:issue-', '');
-      return result(0, JSON.stringify([{
+    if (program === 'gh' && args[0] === 'api') {
+      const issue = Number(args.find((arg) => arg.startsWith('number='))?.slice('number='.length));
+      const delivered = calls.some((call) => call.program === process.execPath);
+      const pullRequests = delivered ? [{
+        number: issue,
         state: 'MERGED',
         url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/${issue}`,
-        headRefOid: `${issue}`.repeat(40).slice(0, 40),
-      }]));
+        headRefOid: deliveryHead(issue),
+      }] : [];
+      return result(0, JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              state: delivered ? 'CLOSED' : 'OPEN',
+              url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${issue}`,
+              closedByPullRequestsReferences: {
+                nodes: pullRequests,
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        },
+      }));
     }
     throw new Error(`unexpected command: ${program} ${args.join(' ')}`);
   });
-  const provider = createSmokeProvider({ runCommand, mkdtempSync, rmSync, env });
+  const provider = createSmokeProvider({
+    runCommand,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    env,
+  });
   const request = {
     identity: { headSha: 'abc123' },
     projectRoot: '/plugin',
     config,
   };
-  return { calls, mkdtempSync, provider, request, rmSync, runCommand };
+  return { calls, mkdtempSync, provider, readFileSync, request, rmSync, runCommand };
 }
 
 function retained(resultEnvelope) {
@@ -70,6 +99,31 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke issues config invalid' });
     expect(fixture.mkdtempSync).not.toHaveBeenCalled();
     expect(fixture.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('resolves a fresh explicit queue from the configured environment variable', async () => {
+    const fixture = harness({
+      config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
+      env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' },
+    });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    const execute = fixture.calls.find((call) => call.program === process.execPath);
+    expect(execute.args).toEqual(['/plugin/scripts/sdlc-execute.mjs', 'run', '#11', '#12']);
+  });
+
+  it('fails when the reusable queue environment variable is absent or invalid', async () => {
+    for (const value of [undefined, '', '#7 nope', '#7,7']) {
+      const env = { ...VALID_ENV };
+      if (value !== undefined) env.NMG_SDLC_SMOKE_ISSUES = value;
+      const fixture = harness({ config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' }, env });
+      await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+        status: 'failed',
+        summary: 'nmg-sdlc-smoke issues config invalid',
+      });
+      expect(fixture.runCommand).not.toHaveBeenCalled();
+    }
   });
 
   it('blocks nested smoke ownership before cloning or executing', async () => {
@@ -148,14 +202,16 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   });
 
   it('does not accept status-only output as delivery proof', async () => {
-    const fixture = harness({ override: (program, args) => {
-      if (program === process.execPath) return result(0, JSON.stringify({ nextAction: { command: '/sdlc-draft-issue' } }));
-      if (program === 'gh' && args[0] === 'issue') return result(0, JSON.stringify({ state: 'OPEN', url: 'https://example.test/issue' }));
-      return null;
-    } });
+    const fixture = harness({ override: (program) => (
+      program === process.execPath
+        ? result(0, JSON.stringify({ nextAction: { command: '/sdlc-draft-issue' } }))
+        : null
+    ) });
+    fixture.readFileSync.mockReturnValue('{}');
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toContain('missing invocation delivery proof');
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
   });
@@ -174,16 +230,67 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
   });
 
-  it('accepts already-delivered GitHub proof after execute exits nonzero', async () => {
+  it('fails when execute exits nonzero instead of accepting historical delivery proof', async () => {
     const fixture = harness({ override: (program) => program === process.execPath ? result(1, '', { stderr: 'already complete' }) : null });
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome.status).toBe('passed');
-    expect(fixture.rmSync).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke execute exited 1' });
+    expect(retained(outcome)).toBe(true);
+    expect(fixture.rmSync).not.toHaveBeenCalled();
+    expect(fixture.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pre-existing closing PR and requires a new exact-head reference', async () => {
+    const fixture = harness({ config: { issues: [7] }, override: (program, args) => {
+      if (program !== 'gh' || args[0] !== 'api') return null;
+      const historical = {
+        number: 7,
+        state: 'MERGED',
+        url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/7',
+        headRefOid: '7'.repeat(40),
+      };
+      return result(0, JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              state: 'CLOSED',
+              url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
+              closedByPullRequestsReferences: {
+                nodes: [historical],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        },
+      }));
+    } });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toContain('missing new exact-head merged PR proof');
+    expect(retained(outcome)).toBe(true);
+    expect(fixture.rmSync).not.toHaveBeenCalled();
+    expect(fixture.calls.some((call) => call.args.includes('linked:issue-7'))).toBe(false);
   });
 
   it('retains failed proof and never invokes a smoke-project toolchain', async () => {
-    const fixture = harness({ override: (program, args) => program === 'gh' && args[0] === 'pr' ? result(0, '[]') : null });
+    const fixture = harness({ override: (program, args, _options, calls) => {
+      if (program !== 'gh' || args[0] !== 'api' || !calls.some((call) => call.program === process.execPath)) return null;
+      return result(0, JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              state: 'CLOSED',
+              url: 'https://example.test/issue',
+              closedByPullRequestsReferences: {
+                nodes: [],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        },
+      }));
+    } });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('failed');

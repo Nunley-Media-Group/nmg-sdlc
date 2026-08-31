@@ -1,9 +1,24 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
+const SMOKE_OWNER = "Nunley-Media-Group";
+const SMOKE_NAME = "nmg-sdlc-smoke";
+const SHA = /^[0-9a-f]{40}$/i;
+const CLOSING_PRS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
+  repository(owner:$owner,name:$name){
+    issue(number:$number){
+      state
+      url
+      closedByPullRequestsReferences(first:100){
+        nodes{number url state headRefOid}
+        pageInfo{hasNextPage}
+      }
+    }
+  }
+}`;
 function waitForClose(child) {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => child.once("close", resolve));
@@ -122,12 +137,66 @@ function environmentalFailure(result) {
   return ["cancelled", "process_lost", "launch_failed", "cleanup_failed"].includes(result?.reasonCode);
 }
 
-function validIssues(config) {
-  return Object.hasOwn(config ?? {}, "issues")
-    && Array.isArray(config.issues)
-    && config.issues.length > 0
-    && config.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
-    && new Set(config.issues).size === config.issues.length;
+function configuredIssues(config, env) {
+  let issues = config?.issues;
+  if (!Object.hasOwn(config ?? {}, "issues")) {
+    if (typeof config?.issuesEnv !== "string" || !config.issuesEnv) return null;
+    const source = String(env[config.issuesEnv] ?? "").trim();
+    if (!source) return null;
+    const tokens = source.split(/[\s,]+/);
+    if (!tokens.every((token) => /^#?[1-9]\d*$/.test(token))) return null;
+    issues = tokens.map((token) => Number(token.replace(/^#/, "")));
+  }
+  return Array.isArray(issues)
+    && issues.length > 0
+    && issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
+    && new Set(issues).size === issues.length
+    ? issues
+    : null;
+}
+
+function closingIssue(result) {
+  if (result?.status !== 0) return null;
+  const issue = parseJson(result)?.data?.repository?.issue;
+  const references = issue?.closedByPullRequestsReferences;
+  if (!issue || !Array.isArray(references?.nodes) || references?.pageInfo?.hasNextPage !== false) return null;
+  return {
+    state: issue.state,
+    url: issue.url,
+    pullRequests: references.nodes,
+  };
+}
+
+function closingPrArgs(issue) {
+  return [
+    "api", "graphql",
+    "-f", `query=${CLOSING_PRS_QUERY}`,
+    "-F", `owner=${SMOKE_OWNER}`,
+    "-F", `name=${SMOKE_NAME}`,
+    "-F", `number=${issue}`,
+  ];
+}
+
+function pullRequestIdentity(pr) {
+  return `${pr?.number ?? ""}:${pr?.url ?? ""}`;
+}
+function recordedDelivery(readFile, work, issue) {
+  try {
+    const proof = JSON.parse(readFile(join(work, ".omp", "sdlc", "smoke-deliveries", `${issue}.json`), "utf8"));
+    return proof?.schemaVersion === 1
+      && proof?.issue === issue
+      && Number.isSafeInteger(proof?.pullRequest)
+      && proof.pullRequest > 0
+      && SHA.test(proof?.headSha ?? "")
+      && proof?.recordedBeforeMerge === true
+      ? {
+        pullRequest: proof.pullRequest,
+        headSha: proof.headSha.toLowerCase(),
+      }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function validHerdrEnvironment(env) {
@@ -156,12 +225,14 @@ function parseJson(result) {
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
   mkdtempSync: createTemp = mkdtempSync,
+  readFileSync: readFile = readFileSync,
   rmSync: remove = rmSync,
   env = process.env,
 } = {}) {
   return async function smokeProvider(request) {
     const identity = request.identity;
-    if (!validIssues(request.config)) {
+    const issues = configuredIssues(request.config, env);
+    if (!issues) {
       return envelope("failed", "nmg-sdlc-smoke issues config invalid", identity);
     }
     if (env.NMG_SDLC_SMOKE_OWNED === "1") {
@@ -223,7 +294,26 @@ export function createSmokeProvider({
         return retain("failed", "nmg-sdlc-smoke clone dirty", [cloneEvidence, commandEvidence("git status --porcelain", dirty, work)]);
       }
 
-      const issues = request.config.issues;
+      const baselines = new Map();
+      const baselineEvidence = [];
+      for (const issue of issues) {
+        const baselineResult = await executeCommand("gh", closingPrArgs(issue), {
+          cwd: work,
+          env,
+          signal: request.signal,
+        });
+        const summary = `gh issue closing PR baseline ${issue}`;
+        baselineEvidence.push(commandEvidence(summary, baselineResult));
+        if (environmentalFailure(baselineResult)) {
+          return retain("incomplete", `nmg-sdlc-smoke baseline ${baselineResult.reasonCode}`, [cloneEvidence, ...baselineEvidence]);
+        }
+        const baseline = closingIssue(baselineResult);
+        if (!baseline) {
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} baseline unavailable`, [cloneEvidence, ...baselineEvidence]);
+        }
+        baselines.set(issue, new Set(baseline.pullRequests.map(pullRequestIdentity)));
+      }
+
       const controller = join(request.projectRoot, "scripts", "sdlc-execute.mjs");
       const execute = await executeCommand(process.execPath, [
         controller,
@@ -236,44 +326,50 @@ export function createSmokeProvider({
       });
       const evidence = [
         cloneEvidence,
+        ...baselineEvidence,
         commandEvidence(`sdlc-execute run ${issues.map((issue) => `#${issue}`).join(" ")}`, execute, work),
       ];
       if (environmentalFailure(execute)) {
         return retain("incomplete", `nmg-sdlc-smoke execute ${execute.reasonCode}`, evidence);
       }
+      if (execute.status !== 0) {
+        return retain("failed", `nmg-sdlc-smoke execute exited ${execute.status}`, evidence);
+      }
 
       for (const issue of issues) {
-        const issueResult = await executeCommand("gh", [
-          "issue", "view", String(issue),
-          "--repo", "Nunley-Media-Group/nmg-sdlc-smoke",
-          "--json", "state,url",
-        ], { cwd: work, env, signal: request.signal });
+        const delivery = recordedDelivery(readFile, work, issue);
+        if (!delivery) {
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} missing invocation delivery proof`, evidence);
+        }
+        const issueResult = await executeCommand("gh", closingPrArgs(issue), {
+          cwd: work,
+          env,
+          signal: request.signal,
+        });
+        const issueCommandEvidence = commandEvidence(`gh issue closing PR proof ${issue}`, issueResult);
         if (environmentalFailure(issueResult)) {
-          return retain("incomplete", `nmg-sdlc-smoke issue proof ${issueResult.reasonCode}`, [...evidence, commandEvidence(`gh issue view ${issue}`, issueResult)]);
+          return retain("incomplete", `nmg-sdlc-smoke issue proof ${issueResult.reasonCode}`, [...evidence, issueCommandEvidence]);
         }
-        const issueProof = issueResult.status === 0 ? parseJson(issueResult) : null;
+        const issueProof = closingIssue(issueResult);
         if (issueProof?.state !== "CLOSED" || typeof issueProof.url !== "string" || issueProof.url.length === 0) {
-          return retain("failed", `nmg-sdlc-smoke issue #${issue} is not CLOSED`, [...evidence, commandEvidence(`gh issue view ${issue}`, issueResult)]);
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} is not CLOSED`, [...evidence, issueCommandEvidence]);
         }
-
-        const prResult = await executeCommand("gh", [
-          "pr", "list",
-          "--repo", "Nunley-Media-Group/nmg-sdlc-smoke",
-          "--search", `linked:issue-${issue}`,
-          "--state", "merged",
-          "--json", "state,url,headRefOid",
-        ], { cwd: work, env, signal: request.signal });
-        if (environmentalFailure(prResult)) {
-          return retain("incomplete", `nmg-sdlc-smoke PR proof ${prResult.reasonCode}`, [...evidence, commandEvidence(`gh pr list linked:issue-${issue}`, prResult)]);
+        const baseline = baselines.get(issue);
+        const candidates = issueProof.pullRequests.filter((pr) => !baseline.has(pullRequestIdentity(pr)));
+        const matches = candidates.filter((pr) => (
+          pr?.number === delivery.pullRequest
+          && pr?.state === "MERGED"
+          && typeof pr.url === "string"
+          && pr.url.length > 0
+          && String(pr.headRefOid ?? "").toLowerCase() === delivery.headSha
+        ));
+        if (matches.length !== 1) {
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} missing new exact-head merged PR proof`, [...evidence, issueCommandEvidence]);
         }
-        const prs = prResult.status === 0 ? parseJson(prResult) : null;
-        const pr = Array.isArray(prs) && prs.length === 1 ? prs[0] : null;
-        if (pr?.state !== "MERGED" || typeof pr.url !== "string" || pr.url.length === 0 || typeof pr.headRefOid !== "string" || pr.headRefOid.length === 0) {
-          return retain("failed", `nmg-sdlc-smoke issue #${issue} missing exact merged PR proof`, [...evidence, commandEvidence(`gh pr list linked:issue-${issue}`, prResult)]);
-        }
-        evidence.push({
+        const pr = matches[0];
+        evidence.push(issueCommandEvidence, {
           kind: "github",
-          summary: `issue #${issue} ${issueProof.url} CLOSED; PR ${pr.url} MERGED at ${pr.headRefOid}`,
+          summary: `issue #${issue} ${issueProof.url} CLOSED; PR ${pr.url} MERGED at ${delivery.headSha}`,
           artifact: pr.url,
         });
       }
