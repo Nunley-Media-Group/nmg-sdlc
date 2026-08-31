@@ -1113,19 +1113,44 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['list', 'create'].includes(call[2]))).toBe(false);
   });
 
+  const successfulRequiredCheck = {
+    name: 'ci',
+    state: 'SUCCESS',
+    link: 'https://github.test/check/ci',
+    event: 'pull_request',
+  };
+
   test.each([
     ['pending checks', { requiredChecks: [{ name: 'ci', state: 'PENDING' }] }],
     ['failed checks', { requiredChecks: [{ name: 'ci', state: 'FAILURE' }] }],
     ['unknown checks', { requiredChecks: [{ name: 'ci', state: 'UNKNOWN' }] }],
     ['missing check state', { requiredChecks: [{ name: 'ci' }] }],
     ['empty check JSON without none-required evidence', { requiredChecks: [] }],
-    ['unreadable checks', { requiredChecksStatus: 2 }],
-    ['a different PR number', { views: [{ ...openPr({ head: H2 }), number: 78 }] }],
-    ['a closed PR', { views: [openPr({ head: H2, state: 'CLOSED' })] }],
-    ['a merged PR', { views: [openPr({ head: H2, state: 'MERGED' })] }],
-    ['a dirty non-runtime path', { dirtyPaths: ['src/changed.mjs'] }],
-    ['a PR head different from local HEAD', { views: [openPr({ head: H1 })] }],
-    ['a foreign PR head branch', { views: [{ ...openPr({ head: H2 }), headRefName: 'other-branch' }] }],
+    ['unreadable checks', { requiredChecks: [successfulRequiredCheck], requiredChecksStatus: 2 }],
+    ['a different PR number', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [{ ...openPr({ head: H2 }), number: 78 }],
+    }],
+    ['a closed PR', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H2, state: 'CLOSED' })],
+    }],
+    ['a merged PR', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H2, state: 'MERGED' })],
+    }],
+    ['a dirty non-runtime path', {
+      requiredChecks: [successfulRequiredCheck],
+      dirtyPaths: ['src/changed.mjs'],
+    }],
+    ['a PR head different from local HEAD', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H1 })],
+    }],
+    ['a foreign PR head branch', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [{ ...openPr({ head: H2 }), headRefName: 'other-branch' }],
+    }],
   ])('@SCN002 keeps reconciliation sticky for %s', (_description, options) => {
     const f = fixture({
       gitHead: H2,
