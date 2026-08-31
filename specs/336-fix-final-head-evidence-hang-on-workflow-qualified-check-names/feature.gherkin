@@ -1,0 +1,64 @@
+**Issue**: #336
+**Date**: 2026-08-31
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/319-remediate-failing-hosted-checks-that-are-not-branch-protected/
+
+# File: specs/336-fix-final-head-evidence-hang-on-workflow-qualified-check-names/feature.gherkin
+#
+# Generated from: specs/336-fix-final-head-evidence-hang-on-workflow-qualified-check-names/requirements.md
+Feature: Fix final-head evidence hang on workflow-qualified check names
+  Final-head collection previously polled forever when verification
+  recorded workflow-qualified check names and GitHub returned bare job
+  names. Matching now uses one canonical workflow-plus-job identity.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Qualified declarations complete H1-to-H2 collection
+    Given verification declared "Python CI / verify" and "nmg-sdlc contribution gate / Validate nmg-sdlc contribution evidence"
+    And H2 GitHub checks report job names "verify" and "Validate nmg-sdlc contribution evidence" with those workflows, SUCCESS, pull_request, and URLs
+    When final-head evidence collection runs
+    Then collection completes with one satisfied evidence item per declaration
+    And it does not keep polling after those successful checks are visible
+
+  @SCN002 @regression
+  Scenario: Same job name from different workflows fails closed
+    Given two successful pull_request checks named "verify" from different workflows
+    When collection matches a declaration that does not uniquely select one workflow
+    Then collection fails closed immediately
+    And it does not treat either check as the other by suffix or trailing-name matching
+
+  # --- Related Behavior Still Works ---
+
+  @SCN003 @regression
+  Scenario: Unique bare names still match
+    Given a declaration named "contract-tests"
+    And GitHub reports one pull_request check named "contract-tests" with empty workflow metadata, SUCCESS, and a URL on the exact head
+    When evidence collection runs
+    Then that declaration is satisfied
+    And unique bare-name delivery still reaches final-head validation
+
+  @SCN004 @regression
+  Scenario: Pending stays pending and terminal mismatch does not hang
+    Given a declared check identity that has not appeared or is still pending
+    When collection observes that state
+    Then it keeps waiting
+    Given pull_request checks for that head are already successful, skipped, or failed and the declared identity cannot be uniquely resolved
+    When collection observes that state
+    Then it fails closed immediately rather than polling forever
+    And missing URL, wrong event, or wrong head is a failure, not a wait
+
+  @SCN005 @regression
+  Scenario: Canonical identity is shared and fail-closed
+    Given verifier production, readiness parsing, snapshot collection, final-head matching, delivery-validation markers, and hosted evidence
+    When they record or match a required check or check run
+    Then they use the same canonical identity
+    And that identity is workflow plus job when workflow metadata is present, or the unique bare job name when workflow is empty
+    And collisions, wrong workflow, wrong event, wrong head, missing URL, and matched pending or failing checks are rejected
+
+  @SCN006 @regression
+  Scenario: Exact-name fixtures still deliver
+    Given controlled-draft delivery where declaration names already equal GitHub check names
+    When H1-to-H2 collection and merge proof run
+    Then delivery still succeeds without requiring workflow metadata
