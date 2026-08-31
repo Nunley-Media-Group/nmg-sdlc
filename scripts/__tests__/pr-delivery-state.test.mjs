@@ -119,6 +119,38 @@ describe('exact-head PR delivery state', () => {
     expect(result.gaps).toContain('declared PR-only check was not returned: test');
   });
 
+  test('observes workflow-qualified declarations through canonical check identity', () => {
+    const result = classifyPrDeliveryState(snapshot({
+      checks: [{
+        name: 'verify',
+        workflow: 'Python CI',
+        event: 'pull_request',
+        state: 'SUCCESS',
+        url: 'https://example.test/check',
+      }],
+      declaredPrOnlyChecks: ['Python CI / verify'],
+    }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'merge_ready', reasonCode: 'exact_head_clean' });
+    expect(result.evidence.checks[0]).toMatchObject({
+      name: 'verify',
+      workflow: 'Python CI',
+    });
+  });
+
+  test('rejects a colliding bare declaration across workflows', () => {
+    const result = classifyPrDeliveryState(snapshot({
+      checks: [
+        { name: 'verify', workflow: 'Python CI', event: 'pull_request', state: 'SUCCESS' },
+        { name: 'verify', workflow: 'Node CI', event: 'pull_request', state: 'SUCCESS' },
+      ],
+      declaredPrOnlyChecks: ['verify'],
+    }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
+    expect(result.gaps).toContain('declared PR-only check was not returned: verify');
+  });
+
   test('requires merged PR proof and child closure before completion', () => {
     const merged = snapshot({
       issue: { state: 'CLOSED' },

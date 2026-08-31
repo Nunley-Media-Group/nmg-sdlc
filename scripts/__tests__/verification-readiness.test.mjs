@@ -4,8 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  canonicalCheckName,
   inspectDeliveryValidation,
   inspectVerificationReadiness,
+  resolveDeclaredCheck,
   runCli,
 } from '../verification-readiness.mjs';
 
@@ -102,6 +104,56 @@ function satisfiedReadiness(overrides = {}) {
     ...overrides,
   };
 }
+
+describe('check identity resolution', () => {
+  const check = (name, workflow, state = 'SUCCESS') => ({ name, workflow, state });
+
+  it('reconstructs workflow-qualified identities from authoritative fields', () => {
+    expect(canonicalCheckName(' verify ', ' Python CI ')).toBe('Python CI / verify');
+    expect(resolveDeclaredCheck('Python CI / verify', [
+      check('verify', 'Python CI'),
+    ])).toMatchObject({ status: 'matched', check: { name: 'verify', workflow: 'Python CI' } });
+  });
+
+  it('rejects a qualified declaration when authoritative workflow identity differs', () => {
+    expect(resolveDeclaredCheck('Python CI / verify', [
+      check('Python CI / verify', 'Other CI'),
+    ])).toEqual({ status: 'mismatch', check: null });
+  });
+
+  it('fails closed on bare-name collisions across workflows', () => {
+    expect(resolveDeclaredCheck('verify', [
+      check('verify', 'Python CI'),
+      check('verify', 'Node CI'),
+    ])).toEqual({ status: 'mismatch', check: null });
+  });
+
+  it('matches one bare name with empty workflow metadata', () => {
+    expect(canonicalCheckName(' contract-tests ', '  ')).toBe('contract-tests');
+    expect(resolveDeclaredCheck('contract-tests', [
+      check('contract-tests', ''),
+    ])).toMatchObject({ status: 'matched' });
+  });
+
+  it('distinguishes pending absence from terminal identity mismatch', () => {
+    expect(resolveDeclaredCheck('Python CI / verify', [])).toEqual({
+      status: 'pending',
+      check: null,
+    });
+    expect(resolveDeclaredCheck('Python CI / verify', [
+      check('lint', 'Python CI', 'PENDING'),
+    ])).toEqual({ status: 'pending', check: null });
+    expect(resolveDeclaredCheck('Python CI / verify', [
+      check('lint', 'Python CI', 'SUCCESS'),
+    ])).toEqual({ status: 'mismatch', check: null });
+  });
+
+  it('never suffix-matches a differently qualified declaration', () => {
+    expect(resolveDeclaredCheck('Other CI / verify', [
+      check('verify', 'Python CI'),
+    ])).toEqual({ status: 'mismatch', check: null });
+  });
+});
 
 describe('verification readiness contract', () => {
   it('preserves ordinary Pass delivery without a readiness marker', () => {

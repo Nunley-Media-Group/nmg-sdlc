@@ -6,6 +6,40 @@ import { parseArgs } from 'node:util';
 import { isCliEntry } from './plugin-controller-path.mjs';
 
 export const MAX_VERIFICATION_REPORT_BYTES = 256 * 1024;
+export const CHECK_IDENTITY_SEPARATOR = ' / ';
+const PENDING_CHECK_CONCLUSIONS = new Set(['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED']);
+
+export function canonicalCheckName(name, workflow = null) {
+  const jobName = typeof name === 'string' ? name.trim() : '';
+  const workflowName = typeof workflow === 'string' ? workflow.trim() : '';
+  if (!jobName) return null;
+  return workflowName ? `${workflowName}${CHECK_IDENTITY_SEPARATOR}${jobName}` : jobName;
+}
+
+export function resolveDeclaredCheck(declaredName, checks) {
+  const identity = canonicalCheckName(declaredName);
+  const candidates = Array.isArray(checks) ? checks : [];
+  if (!identity) return { status: 'mismatch', check: null };
+
+  const qualifiedDeclaration = identity.includes(CHECK_IDENTITY_SEPARATOR);
+  if (!qualifiedDeclaration) {
+    const bareMatches = candidates.filter((check) => canonicalCheckName(check?.name) === identity);
+    if (bareMatches.length > 1) return { status: 'mismatch', check: null };
+    if (bareMatches.length === 1) return { status: 'matched', check: bareMatches[0] };
+  }
+
+  const canonicalMatches = candidates.filter((check) => (
+    (!qualifiedDeclaration || (typeof check?.workflow === 'string' && check.workflow.trim()))
+    && canonicalCheckName(check?.name, check?.workflow) === identity
+  ));
+  if (canonicalMatches.length > 1) return { status: 'mismatch', check: null };
+  if (canonicalMatches.length === 1) return { status: 'matched', check: canonicalMatches[0] };
+
+  const pending = candidates.length === 0 || candidates.some(
+    (check) => PENDING_CHECK_CONCLUSIONS.has(String(check?.state ?? check?.conclusion ?? '').toUpperCase()),
+  );
+  return { status: pending ? 'pending' : 'mismatch', check: null };
+}
 
 const ALLOWED_EVIDENCE_KINDS = new Set(['required_check', 'check_run', 'merge_blocking']);
 const SUCCESS_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);

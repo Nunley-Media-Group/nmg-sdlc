@@ -162,7 +162,12 @@ function verification(issue = 42, specPath = 'specs/42-delivery') {
   return `# Verification\n\n## Implementation Status: **Pass**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
 
-function controlledVerification(state, headSha = H1, evidenceKind = 'required_check') {
+function controlledVerification(
+  state,
+  headSha = H1,
+  evidenceKind = 'required_check',
+  names = ['contract-tests'],
+) {
   const specPath = 'specs/42-delivery';
   const scope = {
     issueNumber: 42,
@@ -177,21 +182,26 @@ function controlledVerification(state, headSha = H1, evidenceKind = 'required_ch
     tests: 'pass',
     steeringGates: 'pass',
   };
-  const identity = {
+  const identities = names.map((name) => ({
     kind: evidenceKind,
-    name: 'contract-tests',
+    name,
     event: 'pull_request',
     acceptanceCriteria: ['AC1'],
-  };
+  }));
   const readiness = state === 'pr_evidence_pending'
-    ? { schemaVersion: 1, state, issueNumber: 42, specPath, local, pendingEvidence: [identity] }
+    ? { schemaVersion: 1, state, issueNumber: 42, specPath, local, pendingEvidence: identities }
     : {
       schemaVersion: 1,
       state,
       issueNumber: 42,
       specPath,
       local,
-      evidence: [{ ...identity, headSha, conclusion: 'SUCCESS', url: 'https://github.test/checks/h1' }],
+      evidence: identities.map((identity) => ({
+        ...identity,
+        headSha,
+        conclusion: 'SUCCESS',
+        url: 'https://github.test/checks/h1',
+      })),
     };
   const status = state === 'pr_evidence_pending' ? 'PR Evidence Pending' : 'Pass';
   return `# Verification\n\n## Implementation Status: **${status}**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(readiness)} -->\n`;
@@ -849,10 +859,10 @@ describe('sdlc delivery controller', () => {
     expect(graphql[10]).toContain('reviewThreads(first: 100)');
     expect(graphql[10]).not.toMatch(/isOutdated\s+path/);
     expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toEqual([
-      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event,workflow',
     ]);
     expect(f.calls).toContainEqual([
-      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event',
+      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event,workflow',
     ]);
   });
 
@@ -1061,6 +1071,11 @@ describe('sdlc delivery controller', () => {
     });
     expect(f.calls).toContainEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['list', 'create'].includes(call[2]))).toBe(false);
+    expect(f.calls.find(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks',
+    )).toEqual([
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event,workflow',
+    ]);
   });
 
   test('@SCN001 resumes isolated-session reconciliation before ordinary delivery', () => {
@@ -1210,7 +1225,7 @@ describe('sdlc delivery controller', () => {
       reconciliation: null,
     });
     expect(f.calls).toContainEqual([
-      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event,workflow',
     ]);
   });
 
@@ -1369,8 +1384,111 @@ describe('sdlc delivery controller', () => {
     expect(merge).toBeGreaterThan(ready);
     expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
     expect(satisfied.calls).toContainEqual([
-      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event',
+      'gh', 'pr', 'checks', '77', '--json', 'name,state,bucket,link,event,workflow',
     ]);
+  });
+  test('completes H2 evidence for workflow-qualified declarations without extra polling', () => {
+    const names = [
+      'Python CI / verify',
+      'nmg-sdlc contribution gate / Validate nmg-sdlc contribution evidence',
+    ];
+    const f = fixture({
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [
+        {
+          name: 'verify',
+          workflow: ' Python CI ',
+          state: 'SUCCESS',
+          link: 'https://github.test/checks/verify',
+          event: 'pull_request',
+        },
+        {
+          name: 'Validate nmg-sdlc contribution evidence',
+          workflow: 'nmg-sdlc contribution gate',
+          state: 'SUCCESS',
+          link: 'https://github.test/checks/contribution',
+          event: 'pull_request',
+        },
+      ],
+      requiredChecks: [],
+      views: [
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+    fs.writeFileSync(
+      path.join(f.root, 'specs/42-delivery/verification-report.md'),
+      controlledVerification('pr_evidence_satisfied', H1, 'check_run', names),
+    );
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(f.sleeps).toHaveLength(0);
+    expect(f.calls.some((call) => call.join(' ') === 'gh pr ready 77')).toBe(true);
+    expect(f.calls.some((call) => call[1] === 'pr' && call[2] === 'merge')).toBe(true);
+  });
+
+  test('fails closed on a terminal bare-name collision without polling', () => {
+    const f = fixture({
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [
+        {
+          name: 'verify',
+          workflow: 'Python CI',
+          state: 'SUCCESS',
+          link: 'https://github.test/checks/python',
+          event: 'pull_request',
+        },
+        {
+          name: 'verify',
+          workflow: 'Node CI',
+          state: 'SUCCESS',
+          link: 'https://github.test/checks/node',
+          event: 'pull_request',
+        },
+      ],
+      requiredChecks: [],
+      views: [
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H2 }),
+      ],
+    }); roots.push(f.root);
+    fs.writeFileSync(
+      path.join(f.root, 'specs/42-delivery/verification-report.md'),
+      controlledVerification('pr_evidence_satisfied', H1, 'check_run', ['verify']),
+    );
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'verification_not_ready' },
+    });
+    expect(f.sleeps).toHaveLength(0);
+    expect(f.calls.some((call) => call.join(' ') === 'gh pr ready 77')).toBe(false);
   });
   test('waits for final-head evidence beyond the former one-hour ceiling', () => {
     const successCheck = {

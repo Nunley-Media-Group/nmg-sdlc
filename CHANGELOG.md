@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.2] - 2026-08-31
+
+### Changed
+
+- Fix final-head evidence hang on workflow-qualified check names (#336)
+
 ## [3.20.1] - 2026-08-31
 
 ### Changed

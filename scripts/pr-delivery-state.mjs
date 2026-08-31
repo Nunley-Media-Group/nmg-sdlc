@@ -6,6 +6,10 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { isCliEntry } from './plugin-controller-path.mjs';
+import {
+  canonicalCheckName,
+  resolveDeclaredCheck,
+} from './verification-readiness.mjs';
 
 const OID = /^[0-9a-f]{40}$/i;
 const MAX_EVIDENCE_BYTES = 2 * 1024 * 1024;
@@ -76,11 +80,15 @@ function normalizeSnapshot(snapshot, options, gaps) {
   };
   const checks = Array.isArray(snapshot?.checks) ? snapshot.checks.map((check) => ({
     name: text(check?.name),
+    workflow: text(check?.workflow),
     event: text(check?.event),
     state: String(check?.state ?? check?.conclusion ?? '').toUpperCase(),
     required: check?.required === true,
     url: text(check?.url ?? check?.link),
-  })).sort((left, right) => `${left.name}\0${left.event}`.localeCompare(`${right.name}\0${right.event}`)) : [];
+  })).sort((left, right) => (
+    `${canonicalCheckName(left.name, left.workflow)}\0${left.event}`
+      .localeCompare(`${canonicalCheckName(right.name, right.workflow)}\0${right.event}`)
+  )) : [];
   const reviews = Array.isArray(snapshot?.reviews) ? snapshot.reviews.map((review, index) => ({
     id: text(review?.id) ?? `index-${index}`,
     author: text(review?.author ?? review?.authorLogin),
@@ -139,15 +147,14 @@ function normalizeSnapshot(snapshot, options, gaps) {
     if (check.event !== 'pull_request') {
       gaps.push(`check ${check.name} must have exact pull_request event provenance`);
     }
-    const key = `${check.name}\0${check.event}`;
-    if (checkKeys.has(key)) gaps.push(`duplicate check identity: ${check.name} (${check.event})`);
+    const identity = canonicalCheckName(check.name, check.workflow);
+    const key = `${identity}\0${check.event}`;
+    if (checkKeys.has(key)) gaps.push(`duplicate check identity: ${identity} (${check.event})`);
     checkKeys.add(key);
   }
-  const observedPrCheckNames = new Set(checks
-    .filter((check) => check.event === 'pull_request')
-    .map((check) => check.name));
+  const observedPrChecks = checks.filter((check) => check.event === 'pull_request');
   for (const declaredName of declaredPrOnlyChecks) {
-    if (!observedPrCheckNames.has(declaredName)) {
+    if (resolveDeclaredCheck(declaredName, observedPrChecks).status !== 'matched') {
       gaps.push(`declared PR-only check was not returned: ${declaredName}`);
     }
   }
