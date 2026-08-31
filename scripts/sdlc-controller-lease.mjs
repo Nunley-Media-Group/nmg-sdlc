@@ -49,6 +49,86 @@ export function readControllerLease(projectRoot) {
   }
 }
 
+function parseAgentList(value) {
+  let parsed = value;
+  if (!Array.isArray(parsed) && typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  } else if (!Array.isArray(parsed) && typeof parsed?.stdout === 'string') {
+    if (parsed.status !== undefined && parsed.status !== 0) return null;
+    try {
+      parsed = JSON.parse(parsed.stdout);
+    } catch {
+      return null;
+    }
+  } else if (parsed?.status !== undefined && parsed.status !== 0) {
+    return null;
+  }
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.result?.agents)) return parsed.result.agents;
+  if (Array.isArray(parsed?.agents)) return parsed.agents;
+  return null;
+}
+
+export function reclaimStaleControllerLease({
+  projectRoot,
+  runId,
+  processApi = process,
+  listAgents,
+} = {}) {
+  const canonicalRoot = realpathSync(projectRoot);
+  const path = controllerLeasePath(canonicalRoot);
+  let snapshot;
+  try {
+    snapshot = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { reclaimed: false };
+    throw leaseError();
+  }
+
+  let record;
+  try {
+    record = JSON.parse(snapshot);
+  } catch {
+    throw leaseError();
+  }
+  if (!validLease(record, canonicalRoot) || !runId || record.runId !== runId) {
+    throw leaseError();
+  }
+
+  try {
+    processApi.kill(record.pid, 0);
+    throw leaseError();
+  } catch (error) {
+    if (error?.reasonCode === 'controller_lease_held') throw error;
+    if (error?.code !== 'ESRCH') throw leaseError();
+  }
+
+  let agents;
+  try {
+    agents = parseAgentList(listAgents());
+  } catch {
+    throw leaseError();
+  }
+  if (!agents || agents.some((agent) => (
+    String(agent?.pane_id ?? agent?.paneId) === String(record.controllerPaneId)
+  ))) {
+    throw leaseError();
+  }
+
+  try {
+    if (readFileSync(path, 'utf8') !== snapshot) throw leaseError();
+    unlinkSync(path);
+  } catch (error) {
+    if (error?.reasonCode === 'controller_lease_held') throw error;
+    throw leaseError();
+  }
+  return { reclaimed: true, record };
+}
+
 export function assertControllerLease({ projectRoot, runId }) {
   const lease = readControllerLease(projectRoot);
   if (!lease) return null;

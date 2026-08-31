@@ -134,8 +134,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects comma-only input', () => {
-    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
-    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
   });
 
   it('parseArgs collects unique numbers in given order', () => {
@@ -152,6 +152,21 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       retainWorker: true,
     });
     expect(() => parseArgs('--retain-worker --retain-worker #12')).toThrow(/Usage:/);
+  });
+
+  it('parseArgs accepts one recover-stale flag among issue tokens', () => {
+    expect(parseArgs('#12 --recover-stale #10')).toEqual({
+      issues: [12, 10],
+      defaultBacklog: false,
+      recoverStale: true,
+    });
+    expect(parseArgs('#12 --retain-worker --recover-stale')).toEqual({
+      issues: [12],
+      defaultBacklog: false,
+      retainWorker: true,
+      recoverStale: true,
+    });
+    expect(() => parseArgs('--recover-stale --recover-stale #12')).toThrow(/Usage:/);
   });
 
   it('parseArgs accepts OMP-expanded issue and pull-request tokens', () => {
@@ -250,7 +265,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
-    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[#N \.\.\.\]/);
+    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
     const twentyOne = Array.from({ length: 21 }, (_, index) => `#${index + 1}`).join(' ');
     expect(() => parseArgs(twentyOne)).toThrow();
   });
@@ -1328,7 +1343,7 @@ describe('runExecute controller', () => {
   it('rejects invalid arguments with the stable usage line', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
   });
 
@@ -1360,10 +1375,163 @@ describe('runExecute controller', () => {
     expect(releaseControllerLease(lease)).toBe(true);
   });
 
+  it('reclaims a confirmed stale same-run lease before normal startup', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'dead-controller',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    const paneSplit = fixture.herdr.paneSplit;
+    let replacement;
+    fixture.herdr.paneSplit = (input) => {
+      replacement = JSON.parse(fs.readFileSync(stale.path, 'utf8'));
+      return paneSplit(input);
+    };
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: {
+        kill: (_pid, signal) => {
+          expect(signal).toBe(0);
+          throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+        },
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Reclaimed stale controller lease.\n');
+    expect(replacement).toMatchObject({
+      runId: 'recover-run',
+      controllerPaneId: 'main-pane',
+      pid: process.pid,
+    });
+    expect(fixture.starts.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['live pid', 'recover-run', 'valid', () => undefined, () => []],
+    ['failed listing', 'recover-run', 'valid', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 1, stdout: '[]' })],
+    ['malformed lease', 'recover-run', 'malformed', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => []],
+    ['foreign run', 'foreign-run', 'valid', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => []],
+  ])('fails closed during stale recovery for %s', (_name, leaseRunId, leaseKind, kill, listAgents) => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const runBytes = fs.readFileSync(runPath);
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json');
+    fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+    fs.writeFileSync(handoffPath, 'protected handoff bytes\n');
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: leaseRunId,
+      controllerPaneId: 'dead-controller',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    if (leaseKind === 'malformed') fs.writeFileSync(stale.path, '{');
+    const leaseBytes = fs.readFileSync(stale.path);
+    fixture.herdr.listAgents = listAgents;
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: { kill },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(stale.path).equals(leaseBytes)).toBe(true);
+    expect(fs.readFileSync(runPath).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(handoffPath, 'utf8')).toBe('protected handoff bytes\n');
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('preserves a lease changed after stale-owner observations', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'dead-controller',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    const replacement = stale.serialized.replace('dead-controller', 'new-controller');
+    fixture.herdr.listAgents = () => {
+      fs.writeFileSync(stale.path, replacement);
+      return [];
+    };
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: {
+        kill: () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); },
+      },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(stale.path, 'utf8')).toBe(replacement);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('does not inspect a dead-looking lease without explicit recovery', () => {
+    const fixture = makeControllerFixture();
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'dead-controller',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    let probes = 0;
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: { ...fixture.herdr, listAgents: () => { probes += 1; return []; } },
+      processApi: { kill: () => { probes += 1; } },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(probes).toBe(0);
+    expect(fs.readFileSync(stale.path, 'utf8')).toBe(stale.serialized);
+  });
+
   it('rejects comma-only arguments before controller side effects', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: ', ,', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
     expect(fixture.starts).toHaveLength(0);
   });
@@ -1378,7 +1546,7 @@ describe('runExecute controller', () => {
   it('requires an explicit selection when empty args find specified issues', () => {
     const fixture = makeControllerFixture({ specifiedIssues: [{ number: 42, title: 'Ship It' }] });
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
     expect(fixture.starts).toEqual([]);
   });
 
