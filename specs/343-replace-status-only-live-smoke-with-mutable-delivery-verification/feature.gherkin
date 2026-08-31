@@ -19,18 +19,18 @@ Feature: Replace status-only live smoke with mutable delivery verification
     Given authenticated GitHub access, valid Herdr OMP context, a clean smoke checkout, and an explicit queue of at least one allowlisted-repo issue with an approved spec
     When nmg-sdlc verification runs the required repository.nmg-sdlc-smoke gate
     Then the provider invokes or observes exactly one execute controller whose cwd is the local smoke clone and whose issue list is exactly that configured queue
-    And a passed result includes nonempty evidence that every queued issue reached exact-head merge and GitHub CLOSED, including issue URL, PR URL, observed head SHA, MERGED, and CLOSED
-    And /sdlc-status --json output alone is not sufficient to pass
+    And a passed result includes nonempty evidence that every queued issue reached exact-head merge and GitHub CLOSED on this invocation, including issue URL, a new PR URL outside the pre-run closing-PR baseline, observed pre-merge head SHA, MERGED, and CLOSED
+    And /sdlc-status --json output and pre-existing merged PRs are not sufficient to pass
 
   # --- Alternative Paths ---
 
   @SCN002
   Scenario: Explicit multi-issue queue is executed without inventing identities
-    Given the smoke validation is configured with two or more explicit issue identities on Nunley-Media-Group/nmg-sdlc-smoke
+    Given NMG_SDLC_SMOKE_ISSUES holds two or more unique positive issue numbers for Nunley-Media-Group/nmg-sdlc-smoke
     When the gate runs
     Then execute processes that entire queue in the configured order in one controller-owned run
-    And the gate does not draft issues, guess lowest-numbered issues, use the empty-execute picker, or substitute any identity that was not configured
-    And missing, empty, or non-explicit queue configuration yields a required failed result
+    And the gate does not draft issues, guess lowest-numbered issues, use the empty-execute picker, hard-code a reusable delivered issue, or substitute any identity that was not in the env queue
+    And missing, empty, or non-explicit NMG_SDLC_SMOKE_ISSUES yields a required failed result
 
   # --- Error Handling ---
 
