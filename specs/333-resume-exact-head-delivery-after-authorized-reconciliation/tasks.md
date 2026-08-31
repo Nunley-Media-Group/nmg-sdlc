@@ -69,3 +69,4 @@ Before moving to IMPLEMENT phase:
 - [x] Each task has verifiable acceptance criteria
 - [x] No scope creep beyond the defect
 - [x] File paths reference actual project structure (per `structure.md`)
+- [x] The change remains aligned with the registered managed steering runtime in `steering/manifest.json`; it modifies only the existing delivery controller and its contract tests
