@@ -3847,6 +3847,65 @@ describe('runExecute controller', () => {
     expect(dispatched.indexOf('list')).toBeGreaterThan(thirdPrompt);
   });
 
+  it('retains exhausted prompt readiness and recovers it once on the next invocation', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let readinessFailures = 11;
+    let deliveredCalls = 0;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-start' && readinessFailures > 0) {
+        readinessFailures -= 1;
+        fixture.prompts.push(input);
+        fixture.events.push(`prompt:${input.name}`);
+        return { status: 1, reasonCode: 'agent_not_ready' };
+      }
+      if (input.name === 's42-start') deliveredCalls += 1;
+      return agentPrompt(input);
+    };
+
+    const first = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const pending = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(first.status).toBe(1);
+    expect(fixture.closed).toEqual([]);
+    expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(11);
+    expect(pending.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(pending.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'prompt_pending',
+      intervention: true,
+    });
+    expect(first.stdout).toContain('retained with prompt pending');
+
+    const secondInvocationEvent = fixture.events.length;
+    const second = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const recoveryEvents = fixture.events.slice(secondInvocationEvent);
+
+    expect(second.status).toBe(0);
+    expect(deliveredCalls).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(12);
+    expect(recoveryEvents[0]).toBe('prompt:s42-start');
+    expect(recoveryEvents.indexOf('get')).toBeGreaterThan(0);
+    expect(recoveryEvents.indexOf('list')).toBeGreaterThan(0);
+  });
+
   it('does not retry a generated prompt that stalls after delivery', () => {
     const fixture = makeControllerFixture();
     const agentPrompt = fixture.herdr.agentPrompt;
@@ -4838,7 +4897,39 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'worker_failed' });
   });
 
+  it.each([
+    ['legacy unknown', null],
+    ['delivered', 'delivered'],
+  ])('does not generate another prompt for a retained worker with %s state', (_label, delivery) => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(
+      fixture,
+      { result: { agent: { agent_status: 'idle' } } },
+    );
+    fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));
+    if (delivery) {
+      const checkpoint = JSON.parse(
+        fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+      );
+      const expectedRevision = checkpoint.revision;
+      checkpoint.revision += 1;
+      checkpoint.workers['s42-start'].promptDelivery = delivery;
+      writeRun(checkpoint, fixture.cwd, expectedRevision);
+    }
+    fixture.herdr.agentRead = () => 'Unrelated settled worker output';
+
+    runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(0);
+  });
   it('does not wait on a settled retained worker without prompt-race evidence', () => {
+
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
     fs.rmSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json'));

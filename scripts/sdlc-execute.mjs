@@ -1084,7 +1084,7 @@ function deliverGeneratedPromptOnce({
     }
   }
   if (isPromptReadinessError(prompted)) {
-    return { delivered: false, reasonCode: 'agent_prompt_failed' };
+    return { delivered: false, reasonCode: 'prompt_pending' };
   }
 
   const promptStalled = isPromptStalled(prompted);
@@ -1310,10 +1310,12 @@ function stopResult({
     && recorded.issue === issue
     && recorded.step === step;
   let disposition = 'left open';
-  if (owned && retainWorker) {
+  if (owned && (retainWorker || reasonCode === 'prompt_pending')) {
     const checkout = currentCheckout(cwd, run);
     if (checkout) Object.assign(recorded, checkout);
-    disposition = 'retained by request';
+    disposition = reasonCode === 'prompt_pending'
+      ? 'retained with prompt pending'
+      : 'retained by request';
   } else if (
     owned
     && reasonCode !== 'pane_close_failed'
@@ -1332,7 +1334,12 @@ function stopResult({
   } catch {
     // The orchestrator sentence remains authoritative when notifications are unavailable.
   }
-  runState.failed = { issue, step, reasonCode };
+  runState.failed = {
+    issue,
+    step,
+    reasonCode,
+    ...(reasonCode === 'prompt_pending' ? { intervention: true } : {}),
+  };
   persistRunState(runState, cwd);
   output.push(sentence);
   return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
@@ -1674,6 +1681,115 @@ export function runExecute({
     retainWorker: parsedArgs.retainWorker,
   });
 
+  function promptForPendingWorker(worker) {
+    if (worker.name === `s${worker.issue}-${worker.step}`) {
+      return workerPrompt({
+        step: worker.step,
+        issue: worker.issue,
+        cwd,
+        controllerRunId: runState.runId,
+      });
+    }
+    if (worker.name !== remAgentName(worker.issue, worker.step)) return null;
+    const remediation = runState.remediation;
+    if (
+      remediation?.issue !== worker.issue
+      || remediation.step !== worker.step
+      || !remediation.closedWorker
+    ) {
+      return null;
+    }
+    return remediationPrompt({
+      issue: worker.issue,
+      failedStep: worker.step,
+      evidence: {
+        attempt: remediation.attempt,
+        reasonCode: remediation.reasonCode,
+        summary: remediation.summary,
+        artifacts: remediation.artifacts,
+        closedName: remediation.closedWorker.name,
+        closedPaneId: remediation.closedWorker.paneId,
+      },
+      cwd,
+      controllerRunId: runState.runId,
+      reviewBase: null,
+    });
+  }
+
+  function recoverPendingWorkerPrompts() {
+    for (const worker of Object.values(runState.workers)) {
+      if (
+        worker?.promptDelivery !== 'pending'
+        || !issues.includes(worker.issue)
+        || worker.issue !== runState.currentIssue
+        || worker.step !== runState.currentStep
+        || worker.step === 'review1'
+        || worker.step === 'review2'
+        || !matchingWorkerOwnership({
+          runState,
+          issue: worker.issue,
+          step: worker.step,
+          agentName: worker.name,
+          paneId: worker.paneId,
+          cwd,
+          run,
+        })
+      ) {
+        continue;
+      }
+      let prompt;
+      try {
+        prompt = promptForPendingWorker(worker);
+      } catch (error) {
+        return stop({
+          issue: worker.issue,
+          step: worker.step,
+          paneId: worker.paneId,
+          agentName: worker.name,
+          reasonCode: workerPromptFailureReason(error),
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+      if (!prompt) continue;
+      const delivered = deliverGeneratedPromptOnce({
+        herdr: herdrApi,
+        agentName: worker.name,
+        paneId: worker.paneId,
+        prompt,
+        handoffPath: join(cwd, HANDOFF_DIR, `${worker.issue}-${worker.step}.json`),
+        start: () => herdrApi.agentStart({
+          name: worker.name,
+          paneId: worker.paneId,
+          kind: 'omp',
+        }),
+      });
+      if (!delivered.delivered) {
+        return stop({
+          issue: worker.issue,
+          step: worker.step,
+          paneId: worker.paneId,
+          agentName: worker.name,
+          reasonCode: delivered.reasonCode,
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+      worker.promptDelivery = 'delivered';
+      runState.failed = null;
+      persistRunState(runState, cwd);
+    }
+    return null;
+  }
+
+  const pendingPromptResult = recoverPendingWorkerPrompts();
+  if (pendingPromptResult) return pendingPromptResult;
+
+
   try {
     const existingAgents = firstAgentList(herdrApi.listAgents());
     const createdPanes = new Set();
@@ -1811,6 +1927,7 @@ export function runExecute({
             output,
           });
         }
+        if (!reviewStep) ownership.promptDelivery = 'pending';
 
         runState.workers[agentName] = ownership;
         runState.remediation.remWorker = { name: agentName, paneId };
@@ -1856,6 +1973,8 @@ export function runExecute({
               runState, cwd, herdr: herdrApi, output,
             });
           }
+          runState.workers[agentName].promptDelivery = 'delivered';
+          persistRunState(runState, cwd);
           state = delivered.state;
         }
       }
@@ -2451,6 +2570,7 @@ export function runExecute({
           output,
         });
       }
+      if (!reviewStep) ownership.promptDelivery = 'pending';
 
       runState.workers[agentName] = ownership;
       persistRunState(runState, cwd);
@@ -2497,6 +2617,8 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
+        runState.workers[agentName].promptDelivery = 'delivered';
+        persistRunState(runState, cwd);
         state = delivered.state;
         if (!fs.existsSync(handoffPath) && state === 'working') {
           herdrApi.agentWait({ name: agentName });
