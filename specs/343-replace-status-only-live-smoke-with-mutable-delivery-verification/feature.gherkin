@@ -1,0 +1,72 @@
+**Issue**: #343
+**Date**: 2026-08-31
+**Status**: Approved
+**Author**: rnunley-nmg
+**Related Spec**: specs/269-fix-project-runtime-loading-under-compiled-omp-host/
+
+# File: specs/343-replace-status-only-live-smoke-with-mutable-delivery-verification/feature.gherkin
+#
+# Generated from: specs/343-replace-status-only-live-smoke-with-mutable-delivery-verification/requirements.md
+Feature: Replace status-only live smoke with mutable delivery verification
+  As a developer verifying nmg-sdlc in Oh My Pi / Herdr
+  I want every verify to run a controlled mutable delivery smoke against the allowlisted consumer repository
+  So that a passing result proves queued smoke issues were delivered, merged at exact head, and closed
+
+  # --- Happy Path ---
+
+  @SCN001
+  Scenario: Passing smoke proves delivered, merged, and closed outcomes
+    Given authenticated GitHub access, valid Herdr OMP context, a clean smoke checkout, and an explicit queue of at least one allowlisted-repo issue with an approved spec
+    When nmg-sdlc verification runs the required repository.nmg-sdlc-smoke gate
+    Then the provider invokes or observes exactly one execute controller whose cwd is the local smoke clone and whose issue list is exactly that configured queue
+    And a passed result includes nonempty evidence that every queued issue reached exact-head merge and GitHub CLOSED, including issue URL, PR URL, observed head SHA, MERGED, and CLOSED
+    And /sdlc-status --json output alone is not sufficient to pass
+
+  # --- Alternative Paths ---
+
+  @SCN002
+  Scenario: Explicit multi-issue queue is executed without inventing identities
+    Given the smoke validation is configured with two or more explicit issue identities on Nunley-Media-Group/nmg-sdlc-smoke
+    When the gate runs
+    Then execute processes that entire queue in the configured order in one controller-owned run
+    And the gate does not draft issues, guess lowest-numbered issues, use the empty-execute picker, or substitute any identity that was not configured
+    And missing, empty, or non-explicit queue configuration yields a required failed result
+
+  # --- Error Handling ---
+
+  @SCN003
+  Scenario: Preflight and allowlist fail closed
+    Given GitHub auth is missing, Herdr OMP context is missing, the smoke checkout is dirty, a queued issue lacks an approved spec, the configured remote is not Nunley-Media-Group/nmg-sdlc-smoke, or explicit issue identities are absent
+    When the gate runs
+    Then the result is not passed and is not skipped
+    And policy misses are failed
+    And the gate does not invent issues, mutate a non-allowlisted repository, or weaken exact-head delivery to pass
+
+  @SCN004
+  Scenario: Controller ownership does not nest
+    Given nmg-sdlc verify-code is already running repository.nmg-sdlc-smoke
+    When the provider starts or observes smoke delivery
+    Then the nmg-sdlc verify worker is not the smoke clone's execute controller
+    And smoke-issue verification does not re-enter repository.nmg-sdlc-smoke
+    And the plugin checkout is not subjected to a nested /sdlc-execute
+    And only processes the gate spawned are eligible for cancellation cleanup
+
+  # --- Edge Cases ---
+
+  @SCN005
+  Scenario: Local cleanup retains failure evidence and never deletes GitHub artifacts
+    Given a smoke run has finished
+    When the result is passed
+    Then the local disposable clone is removed
+    And GitHub lifecycle artifacts remain
+    When the result is failed or incomplete
+    Then local evidence needed to diagnose the failure is retained
+    And remote GitHub lifecycle artifacts are still not deleted
+
+  @SCN006
+  Scenario: Mutations stay inside workflow ownership and remain stack-neutral
+    Given the gate is allowed to mutate the allowlisted smoke repository
+    When it creates or updates issues, specs, branches, PRs, comments, checks, merges, or closures
+    Then those mutations occur only through nmg-sdlc execute and its workers
+    And the gate does not invoke a smoke-project language toolchain
+    And exact-head merge and issue-closure rules are unchanged
