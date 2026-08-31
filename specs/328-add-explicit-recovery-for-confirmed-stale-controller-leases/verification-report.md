@@ -7,9 +7,9 @@
 
 ## Executive Summary
 
-Issue #328 implements explicit, fail-closed stale controller lease recovery. The lease helper requires same-run identity, a demonstrably absent PID, a successful Herdr listing with the exact pane absent, and unchanged lease bytes before unlink. Execute invokes recovery only for `--recover-stale`, immediately before ordinary exclusive acquisition. Default and `--retain-worker` behavior remain independent.
+Issue #328 implements explicit, fail-closed stale controller lease recovery. Recovery is opt-in through `--recover-stale`; it requires the checkpoint and lease to identify the same run, an `ESRCH` PID probe, a successful Herdr agent listing with the exact controller pane absent, and unchanged lease bytes immediately before unlink. Ordinary exclusive acquisition, default rejection, worker ownership, and `--retain-worker` behavior remain unchanged.
 
-Remediation synchronized the generated `commands/sdlc-execute.md` from the execute workflow and replaced host-absolute controller operands across the active execute prompt surfaces with the canonical portable plugin-root form. Focused recovery and command synchronization tests, the full repository suite, required audits, the changed-command exercise, and the live consumer smoke all pass.
+The deterministic steering artifact is complete with both required validations passed. The full repository suite, focused recovery suites, inventory audit, plugin-surface validation, checkout-loaded command exercise, live consumer smoke, and diff hygiene all passed. No implementation findings required a code fix during this verification.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -38,62 +38,64 @@ Remediation synchronized the generated `commands/sdlc-execute.md` from the execu
 
 ## Delivery Validation
 
-- Local verification: Complete
+- Local verification: Pass
 - PR evidence: Not required
 
-## Prior Deterministic Steering Artifact
+## Deterministic Steering Artifact and Ceiling
 
 - Artifact: `.omp/sdlc/verification/328.json`
-- Identity: head `8a84acf15f97f78c5b43613dbb9b4bff5c8c5916`; spec hash `sha256:b3a93e738cc534f3033123ba3d5d34a5d6aec158cca3b79713a853172d2e589e`
-- Prior result: `repository.tests` failed and `repository.nmg-sdlc-smoke` passed before remediation.
-- Current status: superseded by the passing remediation evidence below. The execute controller owns regeneration of the deterministic verification artifact and handoff.
+- Identity: head `04145b58e0b85d29ef6e124161a51038d59fc5fa`
+- Spec hash: `sha256:b3a93e738cc534f3033123ba3d5d34a5d6aec158cca3b79713a853172d2e589e`
+- Coverage: 2 declared, 2 recorded, complete; no missing, duplicate, or unknown results
+- Ceiling: none
+- Required results: `repository.tests` passed; `repository.nmg-sdlc-smoke` passed
 
 ## Acceptance Criteria Verification
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Reclaim a confirmed-dead same-run lease and continue normal startup with the exact stdout line. | Pass | Runtime implementation and focused tests pass at `scripts/sdlc-controller-lease.mjs:76-130` and `scripts/sdlc-execute.mjs:1416-1445`; the generated `/sdlc-execute` command is synchronized and the repository gate passes. |
-| AC2 | Preserve live, unknown, malformed, unreadable, and foreign leases without protected mutations. | Pass | `scripts/sdlc-controller-lease.mjs:84-128`; table-driven module tests at `scripts/__tests__/sdlc-controller-lease.test.mjs:117-165`; execute controller held-path tests passed. |
-| AC3 | Fail closed when observed lease bytes change before unlink. | Pass | Exact byte re-read at `scripts/sdlc-controller-lease.mjs:122-128`; replacement preservation test at `scripts/__tests__/sdlc-controller-lease.test.mjs:167-188`. |
-| AC4 | Preserve default lease rejection and independent `--retain-worker` semantics. | Pass | Recovery call is guarded by `parsedArgs.recoverStale` at `scripts/sdlc-execute.mjs:1420-1432`; existing cleanup continues to consume only `parsedArgs.retainWorker`; focused controller tests passed. |
+| AC1 | Reclaim a confirmed-dead same-run lease and continue normal startup with the exact stdout line. | Pass | `scripts/sdlc-controller-lease.mjs:76-130` requires same-run identity and both absence proofs; `scripts/sdlc-execute.mjs:1420-1445` reclaims immediately before acquisition and appends `Reclaimed stale controller lease.`; focused integration test passed. |
+| AC2 | Preserve live, unknown, malformed, unreadable, and foreign leases without protected mutations. | Pass | Fail-closed branches at `scripts/sdlc-controller-lease.mjs:84-128`; table-driven helper tests at `scripts/__tests__/sdlc-controller-lease.test.mjs:117-165`; execute tests preserve lease, run, and handoff bytes and start no workers. |
+| AC3 | Protect a changed lease before unlink and preserve the latest bytes. | Pass | Exact snapshot comparison at `scripts/sdlc-controller-lease.mjs:122-128`; helper and execute replacement-byte tests at `scripts/__tests__/sdlc-controller-lease.test.mjs:167-188` and `scripts/__tests__/sdlc-execute.test.mjs:1469-1504`. |
+| AC4 | Preserve default lease rejection and independent `--retain-worker` semantics. | Pass | Recovery is guarded solely by `parsedArgs.recoverStale` at `scripts/sdlc-execute.mjs:1420-1432`; cleanup still consumes only `parsedArgs.retainWorker`; default no-probe and existing retention tests passed. |
 
 ## Regression Obligations
 
 | Contract | Status | Evidence |
 |----------|--------|----------|
-| #291 AC1 / FR1-FR2: competing writers and standalone helpers fail closed. | Pass | Existing exclusive `wx` acquisition remains unchanged and follows optional recovery; full repository suite passed. |
-| #291 AC2 / FR3: retained workers require exact durable ownership. | Pass | Worker ownership and retained-worker discovery code were unchanged; full repository suite passed. |
-| #291 AC3 / FR4: controller-owned panes close by default and only `--retain-worker` retains them. | Pass | Cleanup still receives only `parsedArgs.retainWorker`; focused and full suites passed. |
+| #291 competing-controller exclusivity | Pass | Existing `wx` acquisition remains unchanged and runs after optional recovery; full suite passed. |
+| #291 durable worker ownership | Pass | Worker ownership and retained-worker discovery were unchanged; full suite passed. |
+| #291 default cleanup and explicit retention | Pass | Cleanup still receives only `parsedArgs.retainWorker`; focused and full suites passed. |
 
 ## Task Completion
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Parse `--recover-stale` beside existing issue tokens. | Complete | Flag is accepted once, omitted when absent, and usage text is synchronized. |
-| T002 | Reclaim only a confirmed-stale same-run lease. | Complete | PID and pane observations are both required; foreign, malformed, unknown, and changed leases remain held. |
-| T003 | Wire reclaim immediately before acquire. | Complete | Recovery follows preflight and run-id resolution, then ordinary acquisition. |
-| T004 | Carry the flag through execute workflow text. | Complete | `WORKFLOW.md`, selection reference, and generated command carry the flag and canonical controller operand. |
-| T005 | Cover AC1-AC4 in controller tests. | Complete | Relevant focused suites passed 212/212 tests. |
+| T001 | Parse `--recover-stale` beside existing issue tokens. | Complete | Accepted once, combined with `--retain-worker`, omitted when absent, and reflected in the exact usage string. |
+| T002 | Reclaim only a confirmed-stale same-run lease. | Complete | PID and pane absence are both required; malformed, foreign, unknown, live, and changed leases remain held. |
+| T003 | Wire reclaim immediately before acquire. | Complete | Recovery follows preflight and controller run-id resolution, then ordinary acquisition. |
+| T004 | Carry the flag through execute workflow text. | Complete | `WORKFLOW.md`, `selection.md`, and generated `commands/sdlc-execute.md` accept and forward the flag. |
+| T005 | Cover AC1-AC4 in controller tests. | Complete | Focused helper/controller suites passed 212/212 tests. |
 
 ## Architecture Assessment
 
 | Area | Score (1-5) | Findings |
 |------|-------------|----------|
-| SOLID Principles | 4 | Recovery remains in the focused lease module; process and Herdr listing dependencies are injected. No new abstraction or schema was added. |
-| Security | 5 | Explicit opt-in, same-run binding, two independent absence proofs, exact-pane comparison, fail-closed parsing, and unchanged-byte check prevent silent or uncertain lease theft. |
-| Performance | 4 | Recovery is bounded to one PID probe, one Herdr listing, and two small lease reads. Synchronous filesystem operations are acceptable on this one-shot controller startup path. |
-| Testability | 5 | Injectable `processApi` and `listAgents` allow deterministic live, absent, unknown, malformed, and race-path coverage. |
-| Error Handling | 5 | Every uncertain observation maps to stable `controller_lease_held`; no snapshot restoration, pane closure, or recovery retry occurs. |
+| SOLID Principles | 4 | Recovery stays in the focused lease module; process and Herdr observations are injected. No schema or general-purpose abstraction was added. |
+| Security | 5 | Explicit opt-in, same-run binding, two independent absence proofs, fail-closed parsing, exact-pane matching, and unchanged-byte comparison prevent silent recovery from uncertain ownership. |
+| Performance | 4 | The optional startup path performs one PID probe, one bounded agent listing, and two small file reads. Synchronous file operations are acceptable in this one-shot controller path. |
+| Testability | 5 | Injectable `processApi` and `listAgents` provide deterministic coverage for live, absent, unknown, malformed, foreign, and changed-byte cases. |
+| Error Handling | 5 | Every uncertain recovery observation maps to stable `controller_lease_held`; recovery never restores bytes, closes panes, kills processes, or retries. |
 
 ### SOLID Detail
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 5 | Lease parsing, observation, comparison, and release stay in the controller lease module. |
+| Single Responsibility | 5 | Lease validation, recovery observation, acquisition, and release remain within the lease module. |
 | Open/Closed | 4 | Optional recovery extends startup without changing the lease schema or ordinary acquisition contract. |
 | Liskov Substitution | 4 | Injected process and agent-list collaborators use small structural contracts suitable for test doubles. |
 | Interface Segregation | 5 | Recovery depends only on `kill(pid, 0)` and `listAgents()`. |
-| Dependency Inversion | 4 | External observations are injected; bounded filesystem primitives remain module-local. |
+| Dependency Inversion | 4 | External runtime observations are injected; bounded filesystem primitives remain module-local. |
 
 ## Test Coverage
 
@@ -104,40 +106,41 @@ Remediation synchronized the generated `commands/sdlc-execute.md` from the execu
 | AC3 | Yes, SCN003 | Yes | Yes |
 | AC4 | Yes, SCN004 | Yes | Yes |
 
-- Focused command and recovery suites: 3 suites passed; 217 tests passed.
+- Focused recovery suites: 2 suites passed; 212 tests passed.
 - Full repository suite: 49 suites passed, 1 skipped; 744 tests passed, 2 skipped.
 - Skill inventory audit: clean, 43 items mapped.
 - Plugin surface validation: passed.
-- Git whitespace check: passed.
-- Skill-creator contract was read. Its generic validator expects a `SKILL.md`; `workflows/execute` is a project `WORKFLOW.md` bundle, so repository command synchronization, inventory, plugin-surface, focused, full-suite, and exercise checks are authoritative.
+- Git diff hygiene: passed.
 
 ## Exercise Test Results
 
 | Field | Value |
 |-------|-------|
 | Skill Exercised | `/sdlc-execute --recover-stale #328` |
-| Test Project | Disposable `/tmp/nmg-sdlc-exercise-328.*` repository, removed after capture |
+| Test Project | Disposable `/tmp/nmg-sdlc-exercise-328.*` repository; removed after capture |
+| Required installed-helper method | `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-execute --recover-stale #328` |
+| Installed-helper result | Exit 2 with the old usage `Usage: /sdlc-execute [--retain-worker] [#N ...]`; inspection shows that helper resolves `REPO_ROOT` to its installed package, so it did not load this checkout. This is stale installed-package evidence, not evidence against the candidate tree. |
 | Checkout-loaded method | `node scripts/exercise-omp.mjs --cwd <project> -- /sdlc-execute --recover-stale #328` |
-| Checkout-loaded result | The command accepted `--recover-stale`, advanced through command dispatch, and stopped at read-only issue-label lookup with `Unable to read labels for #328`; no delivery mutation occurred. |
+| Checkout-loaded result | Exit 0 from the harness with assistant output `{"ok":false,"reasonCode":"issues_unreadable"}`. The changed command accepted and forwarded `--recover-stale`, passed argument parsing, and stopped at read-only issue discovery in the disposable repository. |
 
-The disposable exercise proves the changed checkout's command expansion, portable controller-path materialization, and argument forwarding. Herdr lease reclamation itself requires a live Herdr controller context and is covered deterministically by the focused controller tests; the exercise intentionally did not create workers, branches, handoffs, verification, or delivery artifacts.
+The checkout-loaded exercise proves command expansion and argument forwarding for the candidate extension. Live Herdr lease reclamation requires a controller session and is covered by deterministic helper/controller tests. Neither exercise created a worker, checkpoint, handoff, branch, verification artifact, or delivery mutation in the disposable repository.
 
 ## Steering Doc Verification Gates
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `cd scripts && npm test -- --runInBand` — 49 suites passed, 1 skipped; 744 tests passed, 2 skipped. |
+| `repository.tests` | Pass | Deterministic artifact: `npm test -- --runInBand` exited 0; 49 suites passed, 1 skipped; 744 tests passed, 2 skipped. |
 | `repository.nmg-sdlc-smoke` | Pass | Live checkout-loaded `/sdlc-status --json` against `Nunley-Media-Group/nmg-sdlc-smoke` returned `nextAction.command` `/sdlc-draft-issue`. |
-| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check` — clean, 43 items mapped. |
-| Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed. |
-| Git hygiene | Pass | `git diff --check` produced no output. |
+| Focused recovery tests | Pass | `npm test -- --runInBand __tests__/sdlc-controller-lease.test.mjs __tests__/sdlc-execute.test.mjs`; 2 suites and 212 tests passed. |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`; clean, 43 items mapped. |
+| Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`; passed. |
+| Git hygiene | Pass | `git diff --check main...HEAD`; no output. |
 
-**Gate Summary**: 5/5 passed, 0 failed, 0 incomplete.
+**Gate Summary**: 6/6 passed, 0 failed, 0 incomplete.
 
 ## Fixes Applied
 
-- Regenerated `commands/sdlc-execute.md` through `renderAutomatedCommandMarkdown(...)`, synchronizing `--recover-stale` from `workflows/execute/WORKFLOW.md` and `workflows/execute/references/selection.md`.
-- Replaced host-absolute execute-controller operands in `workflows/execute/WORKFLOW.md` and `workflows/execute/references/selection.md` with the canonical portable plugin-root operand; regeneration carried the same form into `commands/sdlc-execute.md`.
+None during this verification.
 
 ## Remaining Issues
 
@@ -145,11 +148,11 @@ None.
 
 ## Positive Observations
 
-- Recovery is explicit and cannot silently weaken the existing exclusive lease.
-- PID and pane evidence are independently required; unknown evidence is held.
-- The observed lease is never restored over a concurrent replacement.
-- Existing acquisition, lease schema, worker ownership, and retained-worker cleanup remain unchanged.
-- Tests cover both the helper boundary and execute integration.
+- Recovery cannot occur silently or for a foreign run.
+- PID and exact-pane absence evidence are independently required; unknown evidence is held.
+- Concurrent replacement bytes are not restored over.
+- Existing lease acquisition, schema, worker ownership, and retained-worker cleanup remain unchanged.
+- Tests cover both the focused lease helper and full execute-controller behavior.
 
 ## Files Reviewed
 
@@ -161,10 +164,10 @@ None.
 | `scripts/__tests__/sdlc-execute.test.mjs` | 0 | AC1-AC4 integration and regression coverage. |
 | `workflows/execute/WORKFLOW.md` | 0 | Updated argument and forwarding contract. |
 | `workflows/execute/references/selection.md` | 0 | Optional flag stripping and selected-run forwarding. |
-| `commands/sdlc-execute.md` | 0 | Generated command synchronized from the workflow and portable controller operand. |
+| `commands/sdlc-execute.md` | 0 | Generated command synchronized from workflow content. |
 
 ## Recommendation
 
-**Ready for controller reverification**
+**Ready for delivery**
 
-The repository-gate defects are repaired and every required local check passes. Resume the execute controller's verification step so it can regenerate the deterministic verification artifact and handoff before delivery.
+Every approved delivery criterion and required local gate passes for the candidate checkout. The deterministic steering artifact has complete passing coverage and no ceiling.
