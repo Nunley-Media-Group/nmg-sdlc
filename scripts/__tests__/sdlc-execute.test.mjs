@@ -3054,8 +3054,14 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
-    expect(fixture.closed).toEqual(['pane-1']);
-    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'agent_prompt_stalled' });
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'prompt_pending',
+      intervention: true,
+    });
   });
 
   it('submits a pasted prompt when prompt wait settles idle too early', () => {
@@ -3198,7 +3204,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toBe('signal_exit_130\n');
-    expect(fixture.closed).toEqual(['pane-1']);
+    expect(fixture.closed).toEqual([]);
     expect(persisted.revision).toBe(subordinateRevision + 1);
     expect(persisted.delivery).toEqual({
       issue: 42,
@@ -3212,7 +3218,7 @@ describe('runExecute controller', () => {
       step: 'start',
       reasonCode: 'controller_cancelled',
     });
-    expect(persisted.workers).toEqual({});
+    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
   });
 
@@ -3244,7 +3250,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toBe('signal_exit_130\n');
-    expect(fixture.closed).toEqual(['pane-1']);
+    expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toBeNull();
     expect(persisted.workers['s42-start']).toBeDefined();
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
@@ -3814,9 +3820,15 @@ describe('runExecute controller', () => {
         readinessFailures += 1;
         fixture.prompts.push(input);
         fixture.events.push(`prompt:${input.name}`);
-        return readinessFailures === 1
-          ? { status: 1, stderr: '{"error":{"code":"agent_not_found"}}\n' }
-          : { status: 1, reasonCode: 'agent_not_ready' };
+        throw readinessFailures === 1
+          ? {
+            error: { code: 'agent_not_found', message: 'agent not registered' },
+            id: 'cli:agent:prompt',
+          }
+          : {
+            error: { code: 'agent_not_ready', message: 'agent is not prompt-ready' },
+            id: 'cli:agent:prompt',
+          };
       }
       return agentPrompt(input);
     };
@@ -3906,7 +3918,7 @@ describe('runExecute controller', () => {
     expect(recoveryEvents.indexOf('list')).toBeGreaterThan(0);
   });
 
-  it('does not retry a generated prompt that stalls after delivery', () => {
+  it('does not retry a generated prompt when a thrown stall follows proven delivery', () => {
     const fixture = makeControllerFixture();
     const agentPrompt = fixture.herdr.agentPrompt;
     let stalledAfterDelivery = false;
@@ -3914,7 +3926,13 @@ describe('runExecute controller', () => {
       const prompted = agentPrompt(input);
       if (input.name === 's42-start' && !stalledAfterDelivery) {
         stalledAfterDelivery = true;
-        return { status: 1, stderr: '{"error":{"code":"agent_prompt_stalled"}}\n' };
+        throw {
+          error: {
+            code: 'agent_prompt_stalled',
+            message: 'agent prompt produced no observed state change',
+          },
+          id: 'cli:agent:prompt',
+        };
       }
       return prompted;
     };
@@ -3930,6 +3948,44 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.events).not.toContain('prompt-retry-pause');
+  });
+
+  it('retains a thrown stalled prompt when delivery cannot be proven', () => {
+    const fixture = makeControllerFixture();
+    fixture.herdr.agentPrompt = (input) => {
+      fixture.prompts.push(input);
+      fixture.events.push(`prompt:${input.name}`);
+      throw {
+        error: {
+          code: 'agent_prompt_stalled',
+          message: 'agent prompt produced no observed state change',
+        },
+        id: 'cli:agent:prompt',
+      };
+    };
+    fixture.herdr.agentRead = () => 'No generated prompt is visible';
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.closed).toEqual([]);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'prompt_pending',
+      intervention: true,
+    });
   });
 
   it('prompts immediately, then retries once when the first session vanished before dispatch', () => {

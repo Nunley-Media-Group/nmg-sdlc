@@ -988,6 +988,9 @@ function splitPaneId(value) {
 function commandIncludesCode(value, code) {
   const candidates = [
     value,
+    value?.message,
+    value?.cause,
+    value?.details,
     parseCommandOutput(value),
     parseCommandOutput(value?.stdout),
     parseCommandOutput(value?.stderr),
@@ -1011,11 +1014,24 @@ function isPromptReadinessError(value) {
     .some((code) => commandIncludesCode(value, code));
 }
 
+function promptDeliveryGuaranteed(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (value.delivered === true || value.deliveryGuaranteed === true) return true;
+  return Object.values(value).some((child) => promptDeliveryGuaranteed(child, seen));
+}
+
 function promptGeneratedWhenReady(herdr, agentName, prompt) {
   const readinessRetries = 10;
   let prompted;
   for (let attempt = 0; attempt <= readinessRetries; attempt += 1) {
-    prompted = herdr.agentPrompt({ name: agentName, prompt });
+    try {
+      prompted = herdr.agentPrompt({ name: agentName, prompt });
+    } catch (error) {
+      const outcome = { status: 1, thrown: true, error };
+      if (!isPromptStalled(outcome) && !isPromptReadinessError(outcome)) throw error;
+      prompted = outcome;
+    }
     if (
       commandSucceeded(prompted)
       || isPromptStalled(prompted)
@@ -1097,8 +1113,8 @@ function deliverGeneratedPromptOnce({
       if (!waitForWorkerSettlement(herdr, agentName)) {
         return { delivered: false, reasonCode: 'worker_failed' };
       }
-    } else if (promptStalled) {
-      return { delivered: false, reasonCode: 'agent_prompt_stalled' };
+    } else if (promptStalled && !promptDeliveryGuaranteed(prompted)) {
+      return { delivered: false, reasonCode: 'prompt_pending' };
     }
   }
 
@@ -1236,7 +1252,7 @@ function cleanupControllerWorkers({
   retainWorker,
 }) {
   const actions = [];
-  const checkout = retainWorker ? currentCheckout(cwd, run) : null;
+  let checkout = null;
   for (const [name, worker] of Object.entries(runState.workers || {})) {
     if (
       worker?.name !== name
@@ -1245,7 +1261,8 @@ function cleanupControllerWorkers({
     ) {
       continue;
     }
-    if (retainWorker) {
+    if (retainWorker || worker.promptDelivery === 'pending') {
+      checkout ??= currentCheckout(cwd, run);
       if (checkout) actions.push({ name, worker, checkout });
     } else if (closePane(herdr, worker.paneId)) {
       actions.push({ name, worker, closed: true });
@@ -2687,10 +2704,22 @@ export function runExecute({
         ) {
           continue;
         }
-        if (parsedArgs.retainWorker) {
+        if (parsedArgs.retainWorker || worker.promptDelivery === 'pending') {
           const checkout = currentCheckout(cwd, run);
-          if (checkout) {
+          if (
+            checkout
+            && (worker.branch !== checkout.branch || worker.head !== checkout.head)
+          ) {
             Object.assign(worker, checkout);
+            changed = true;
+          }
+          if (worker.promptDelivery === 'pending' && !runState.failed) {
+            runState.failed = {
+              issue: worker.issue,
+              step: worker.step,
+              reasonCode: 'prompt_pending',
+              intervention: true,
+            };
             changed = true;
           }
         } else if (closePane(herdrApi, worker.paneId)) {
@@ -2706,7 +2735,11 @@ export function runExecute({
         }
       }
     }
-    return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${error.message}\n` };
+    return {
+      status: 1,
+      stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
+      stderr: `${error?.message || error?.error?.code || 'controller_failed'}\n`,
+    };
   }
   } finally {
     for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
