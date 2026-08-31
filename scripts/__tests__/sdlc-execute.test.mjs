@@ -2430,7 +2430,8 @@ describe('runExecute controller', () => {
     expect(new Set(generatedPromptNames).size).toBe(generatedPromptNames.length);
     for (const name of generatedPromptNames) {
       const started = fixture.events.indexOf(`start:${name}`);
-      expect(fixture.events[started + 1]).toBe(`prompt:${name}`);
+      const prompted = fixture.events.indexOf(`prompt:${name}`, started);
+      expect(fixture.events.slice(started + 1, prompted)).toEqual(['list']);
     }
   });
 
@@ -2448,7 +2449,8 @@ describe('runExecute controller', () => {
     expect(fixture.notifications).toEqual([]);
     expect(fixture.prompts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     const remStarted = fixture.events.indexOf('start:r42-verify');
-    expect(fixture.events[remStarted + 1]).toBe('prompt:r42-verify');
+    const remPrompted = fixture.events.indexOf('prompt:r42-verify', remStarted);
+    expect(fixture.events.slice(remStarted + 1, remPrompted)).toEqual(['list']);
   });
 
   it('retries remediable rem failure with a fresh rem session', () => {
@@ -3846,8 +3848,9 @@ describe('runExecute controller', () => {
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(3);
     const started = fixture.events.indexOf('start:s42-start');
     const dispatched = fixture.events.slice(started);
-    expect(dispatched.slice(0, 6)).toEqual([
+    expect(dispatched.slice(0, 7)).toEqual([
       'start:s42-start',
+      'list',
       'prompt:s42-start',
       'prompt-retry-pause',
       'prompt:s42-start',
@@ -3856,8 +3859,6 @@ describe('runExecute controller', () => {
     ]);
     const thirdPrompt = dispatched.lastIndexOf('prompt:s42-start');
     expect(dispatched.indexOf('get')).toBeGreaterThan(thirdPrompt);
-    const listed = dispatched.indexOf('list');
-    expect(listed === -1 || listed > thirdPrompt).toBe(true);
   });
 
   it('retains exhausted prompt readiness and recovers it once on the next invocation', () => {
@@ -3914,9 +3915,8 @@ describe('runExecute controller', () => {
     expect(deliveredCalls).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(12);
-    expect(recoveryEvents[0]).toBe('prompt:s42-start');
-    expect(recoveryEvents.indexOf('get')).toBeGreaterThan(0);
-    expect(recoveryEvents.indexOf('list')).toBeGreaterThan(0);
+    expect(recoveryEvents.slice(0, 2)).toEqual(['list', 'prompt:s42-start']);
+    expect(recoveryEvents.indexOf('get')).toBeGreaterThan(1);
   });
 
   it('does not retry a generated prompt when a thrown stall follows proven delivery', () => {
@@ -3989,21 +3989,9 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('prompts immediately, then retries once when the first session vanished before dispatch', () => {
+  it('restarts a worker that vanished before dispatch and prompts only the replacement', () => {
     const fixture = makeControllerFixture();
-    const agentPrompt = fixture.herdr.agentPrompt;
-    let firstPrompt = true;
-    fixture.herdr.agentPrompt = (input) => {
-      if (firstPrompt && input.name === 's42-start') {
-        firstPrompt = false;
-        fixture.prompts.push(input);
-        fixture.events.push(`prompt:${input.name}`);
-        return { status: 1, reasonCode: 'process_lost' };
-      }
-      return agentPrompt(input);
-    };
-    fixture.herdr.agentRead = () => '';
-    fixture.herdr.listAgents = () => firstPrompt || fixture.starts.length > 1
+    fixture.herdr.listAgents = () => fixture.starts.length > 1
       ? activeStartedAgents(fixture)
       : [];
 
@@ -4020,14 +4008,52 @@ describe('runExecute controller', () => {
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    const secondStart = fixture.events.lastIndexOf('start:s42-start');
+    const firstPrompt = fixture.events.indexOf('prompt:s42-start');
+    expect(secondStart).toBeGreaterThan(fixture.events.indexOf('start:s42-start'));
+    expect(firstPrompt).toBeGreaterThan(secondStart);
+  });
+
+  it('restarts once when a successful prompt is followed by an absent worker', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let firstPrompt = true;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-start' && firstPrompt) {
+        firstPrompt = false;
+        fixture.prompts.push(input);
+        fixture.events.push(`prompt:${input.name}`);
+        return { status: 0 };
+      }
+      return agentPrompt(input);
+    };
+    fixture.herdr.listAgents = () => (
+      !firstPrompt && fixture.starts.length === 1
+        ? []
+        : activeStartedAgents(fixture)
+    );
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.slice(0, 2)).toEqual([
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+    ]);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(2);
-    expect(fixture.events.slice(0, 2)).toEqual([
+    expect(fixture.events.slice(0, 4)).toEqual([
+      'start:s42-start',
+      'prompt:s42-start',
       'start:s42-start',
       'prompt:s42-start',
     ]);
-    expect(fixture.events.indexOf('prompt:s42-start')).toBeLessThan(
-      fixture.events.indexOf('get'),
-    );
   });
 
   it.each([
@@ -4062,9 +4088,8 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('does not restart after successful dispatch even when presence observation is absent', () => {
+  it('fails with process_lost when a restarted worker is still absent before dispatch', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
-    fixture.herdr.agentRead = () => '';
     fixture.herdr.listAgents = () => [];
 
     const result = runExecute({
@@ -4081,16 +4106,14 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
+      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
-    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(fixture.events.slice(0, 2)).toEqual([
-      'start:s42-start',
-      'prompt:s42-start',
-    ]);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(0);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'missing_handoff',
+      reasonCode: 'process_lost',
     });
   });
 
