@@ -1465,6 +1465,42 @@ describe('runExecute controller', () => {
     expect(fixture.starts.length).toBeGreaterThan(0);
   });
 
+  it.each([
+    ['live pid', () => undefined, () => [{ pane_id: 'w14:p1' }]],
+    ['failed listing', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 1, stdout: '[]' })],
+    ['extra listed owner', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'w14:p1' }, { pane_id: 'w14:p2' }]],
+  ])('fails closed for same-pane stale recovery with %s', (_name, kill, listAgents) => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'w14:p1',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    const leaseBytes = fs.readFileSync(stale.path);
+    fixture.herdr.listAgents = listAgents;
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env: { ...env, HERDR_PANE_ID: 'w14:p1' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: { kill },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(stale.path).equals(leaseBytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('preserves protected state when the recorded pane belongs to a foreign controller', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
