@@ -1071,6 +1071,11 @@ describe('sdlc delivery controller', () => {
     });
     expect(f.calls).toContainEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['list', 'create'].includes(call[2]))).toBe(false);
+    expect(f.calls.find(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks',
+    )).toEqual([
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event,workflow',
+    ]);
   });
 
   test('@SCN001 resumes isolated-session reconciliation before ordinary delivery', () => {

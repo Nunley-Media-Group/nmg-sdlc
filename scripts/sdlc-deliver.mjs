@@ -992,7 +992,7 @@ function authorizeReconciliationResume({ run, cwd, issue, namespace }) {
       return false;
     }
     const checksResult = command(run, cwd, 'gh', [
-      'pr', 'checks', String(persisted.pullRequest), '--required', '--json', 'name,state,bucket,link,event',
+      'pr', 'checks', String(persisted.pullRequest), '--required', '--json', 'name,state,bucket,link,event,workflow',
     ], { allowFailure: true });
     const noRequiredChecks = checksResult.status === 1
       && !String(checksResult.stdout || '').trim()
