@@ -17,6 +17,8 @@
 | Testing | 1 | [ ] |
 | **Total** | 5 | |
 
+The implementation preserves the registered managed steering runtime and its `steering/manifest.json` verification gates; stale-lease recovery remains within the existing execute-controller boundary.
+
 ---
 
 ### T001: Parse `--recover-stale` beside existing issue tokens
