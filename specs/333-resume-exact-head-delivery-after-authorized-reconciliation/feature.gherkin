@@ -1,0 +1,39 @@
+**Issue**: #333
+**Date**: 2026-08-31
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/293-persist-exact-head-delivery-cas-and-isolated-session-tokens/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+#
+# Generated from: specs/333-resume-exact-head-delivery-after-authorized-reconciliation/requirements.md
+Feature: Resume exact-head delivery after authorized reconciliation
+  The delivery controller previously returned immediately on reconciliation_required
+  and never re-observed GitHub. This was fixed by fail-closed re-observation of the
+  persisted PR and a one-write CAS resume to expected when identity and required
+  checks authorize it.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Authorized reconciliation resumes ordinary delivery at H2
+    Given a delivery namespace whose delivery.status is reconciliation_required for issue I, PR P, and expectedHead H1
+    And the current branch belongs to I, the worktree is clean except .omp/ paths, and git rev-parse HEAD is H2
+    And gh pr view P shows PR P still OPEN, headRefName equal to that issue branch, and headRefOid equal to H2
+    And required checks for P at H2 are complete under gh pr checks --required
+    When runDeliver runs again in that same execute-owned or isolated-session namespace
+    Then it re-observes GitHub by persisted PR number P only and does not call exact-branch PR list or create
+    And it CAS-persists one delivery object with status expected, expectedHead H2, pullRequest P, and reconciliation null
+    And the same invocation resumes ordinary delivery through exact-head merge at H2 and issue-closure proof
+    And pending required checks do not take this path and remain reconciliation_required until a later rerun sees complete checks
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Unauthorized reconciliation stays sticky
+    Given a delivery namespace whose delivery.status is already reconciliation_required
+    When re-observation shows a different PR number, CLOSED or MERGED PR state, a dirty tree outside .omp/, local HEAD not equal to the open PR head, a foreign PR head, missing or unknown required-check state, pending required checks, or failed required checks
+    Then delivery.status remains reconciliation_required and expectedHead is unchanged
+    And stored reconciliation evidence is not rewritten
+    And the invocation writes failed reasonCode delivery_reconciliation_required
+    And it does not create, list-select, ready, push, or merge a pull request
