@@ -3856,7 +3856,8 @@ describe('runExecute controller', () => {
     ]);
     const thirdPrompt = dispatched.lastIndexOf('prompt:s42-start');
     expect(dispatched.indexOf('get')).toBeGreaterThan(thirdPrompt);
-    expect(dispatched.indexOf('list')).toBeGreaterThan(thirdPrompt);
+    const listed = dispatched.indexOf('list');
+    expect(listed === -1 || listed > thirdPrompt).toBe(true);
   });
 
   it('retains exhausted prompt readiness and recovers it once on the next invocation', () => {
@@ -4061,7 +4062,7 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('reports process_lost after one immediate-prompt retry cannot reach either session', () => {
+  it('does not restart after successful dispatch even when presence observation is absent', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
     fixture.herdr.agentRead = () => '';
     fixture.herdr.listAgents = () => [];
@@ -4080,9 +4081,8 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
-      { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
-    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(2);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.events.slice(0, 2)).toEqual([
       'start:s42-start',
       'prompt:s42-start',
@@ -4090,7 +4090,7 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'process_lost',
+      reasonCode: 'missing_handoff',
     });
   });
 
