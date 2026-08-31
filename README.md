@@ -36,6 +36,8 @@ herdr integration install omp
 
 Private repositories may require a `GITHUB_TOKEN` with appropriate read access.
 
+After every install or update, run `/sdlc-upgrade-project` in each project. Review and apply all relevant approved migrations before running any other SDLC workflow.
+
 ## First-Time Setup
 
 Interactive flows use native OMP `/plan`. Run onboarding from the project root:
