@@ -1,0 +1,49 @@
+**Issue**: #339
+**Date**: 2026-08-31
+**Status**: Approved
+**Author**: rnunley-nmg
+**Related Spec**: specs/328-add-explicit-recovery-for-confirmed-stale-controller-leases/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/339-permit-same-pane-restarted-controller-lease-recovery/requirements.md
+Feature: Permit same-pane restarted controller lease recovery
+  Explicit --recover-stale previously treated a restarted controller listed on the recorded pane as a live foreign owner.
+  Recovery now distinguishes that current recoverer from a foreign live owner without revoking pane-absent reclaim.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Same-pane restarted recovery succeeds
+    Given a valid controller lease whose runId and canonical project root match the current checkpoint
+    And the recorded PID is conclusively absent (ESRCH on a zero-signal existence probe)
+    And the current HERDR_PANE_ID exactly equals the recorded controllerPaneId
+    And a successful agent listing shows that pane as the current recovering controller with no separate conflicting controller identity
+    When the developer runs /sdlc-execute --recover-stale from that restarted controller
+    Then the stale lease is reclaimed and execute continues through normal controller startup
+    And stdout contains exactly the line "Reclaimed stale controller lease."
+    And no process is killed and no arbitrary runtime state is deleted
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario Outline: Fail-closed recovery preserves lease bytes
+    Given a controller lease whose recovery proof fails because of <case>
+    When the developer runs /sdlc-execute --recover-stale
+    Then execute fails with controller_lease_held
+    And the latest lease bytes remain unchanged
+    And no worker pane, checkpoint, handoff, branch, verification, or delivery mutation is started
+    And no process is killed and no arbitrary runtime state is deleted
+
+    Examples:
+      | case |
+      | live PID |
+      | unknown PID |
+      | foreign pane |
+      | failed agent list |
+      | unparseable agent list |
+      | foreign runId |
+      | malformed lease |
+      | changed lease bytes |
+      | ambiguous controller identity |
+      | missing recover-stale flag |
