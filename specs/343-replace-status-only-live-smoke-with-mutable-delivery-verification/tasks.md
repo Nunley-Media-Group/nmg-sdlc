@@ -5,7 +5,6 @@
 **Status**: Approved
 **Author**: rnunley-nmg
 **Related Spec**: specs/269-fix-project-runtime-loading-under-compiled-omp-host/
-
 ---
 
 ## Summary
@@ -83,3 +82,16 @@
 
 ## Dependency Graph
 
+```
+T001 ──┬──▶ T002
+       └──▶ T003
+```
+
+---
+
+## Change History
+
+| Issue | Date | Summary |
+|-------|------|---------|
+| #343 | 2026-08-31 | Initial feature spec |
+| #343 | 2026-08-31 | Spec revised before delivery |
