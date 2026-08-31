@@ -1,0 +1,33 @@
+**Issue**: #347
+**Date**: 2026-08-31
+**Status**: Approved
+**Author**: rnunley-nmg
+**Related Spec**: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/
+
+# File: specs/347-deliver-generated-worker-prompts-exactly-once-before-settlement/feature.gherkin
+#
+# Generated from: specs/347-deliver-generated-worker-prompts-exactly-once-before-settlement/requirements.md
+Feature: Deliver generated worker prompts exactly once before settlement
+  Fresh execute sibling workers could settle after only com.nmg-sdlc.run
+  and be recorded as missing_handoff before the generated prompt arrived.
+  This was fixed by delivering that prompt exactly once to a live session
+  before observation.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Bug is fixed
+    Given execute starts a fresh start, implement, fix1, fix2, verify, deliver, or rem --kind omp worker
+    When session_start writes com.nmg-sdlc.run and the session would otherwise become idle or done before the generated prompt
+    Then execute retries start at most once if the session is already gone, delivers that invocation's generated prompt exactly once to a live session, and only then observes settlement or handoff
+    And it does not record missing_handoff or close the pane solely because the empty session settled before the prompt arrived
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: No regression
+    Given a matching retained live worker that already received its generated prompt, or a worker whose prompt was delivered and that still has no handoff
+    When execute resumes or finishes observing that worker
+    Then it does not send a second generated prompt
+    And a still-missing handoff after proven delivery remains missing_handoff and still closes the owned pane unless --retain-worker was requested
+    And review workers keep their existing interactive protocol
