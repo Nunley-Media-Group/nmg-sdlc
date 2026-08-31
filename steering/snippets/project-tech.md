@@ -251,7 +251,7 @@ The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and onl
 - A staged-release fixture proves the packaged candidate only.
 - A clean installed root plus fresh session proves discovery behavior.
 - An actual consumer-project upgrade proves cleanup and preservation behavior.
-- A passed `repository.nmg-sdlc-smoke` result proves every configured issue has one observed exact-head merged PR and is GitHub `CLOSED`.
+- A passed `repository.nmg-sdlc-smoke` result proves that this invocation recorded each configured issue's linked-PR baseline, observed the delivery head SHA before merge, and then observed a linked PR outside that baseline whose `headRefOid` exactly matches that SHA in GitHub `MERGED` state with the issue `CLOSED`.
 - GitHub checks and mergeability are separate from local test success.
 
 Never infer a stronger layer from a weaker one.
@@ -265,7 +265,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
-| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history and run `node PLUGIN_ROOT/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order, with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1` | Every configured issue is GitHub `CLOSED` and has exactly one merged linked PR with a nonempty observed `headRefOid`; status JSON cannot pass |
+| Live smoke project | Always | Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's linked-PR baseline; then run `node PLUGIN_ROOT/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order, with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; record each delivery head SHA before merge | For every configured issue, a linked PR outside the pre-run baseline is GitHub `MERGED`, its `headRefOid` exactly equals the independently recorded delivery head SHA for this invocation, and the issue is GitHub `CLOSED`; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
@@ -339,6 +339,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 | `HERDR_ENV` | Must be `1` for `/sdlc-execute` |
 | `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
 | `HERDR_PANE_ID` | Calling pane id for execute splits |
+| `NMG_SDLC_SMOKE_OWNED` | Must be `1` only while the verification-owned controller mutates `Nunley-Media-Group/nmg-sdlc-smoke`; it authorizes no other repository or mutation path |
 
 No optional environment variable may change interactive `/plan` behavior or broaden mutation scope.
 
