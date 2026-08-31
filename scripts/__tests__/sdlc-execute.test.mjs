@@ -1241,10 +1241,16 @@ describe('runExecute controller', () => {
         }
         return { status: 0 };
       },
-      agentGet: () => agentLost ? { status: 1 } : ({ result: { state: agentState } }),
-      listAgents: () => starts
-        .filter((started) => !closed.includes(started.paneId))
-        .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState })),
+      agentGet: () => {
+        events.push('get');
+        return agentLost ? { status: 1 } : ({ result: { state: agentState } });
+      },
+      listAgents: () => {
+        events.push('list');
+        return starts
+          .filter((started) => !closed.includes(started.paneId))
+          .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState }));
+      },
       notificationShow: (notice) => notifications.push(notice),
     };
     return {
@@ -2419,6 +2425,10 @@ describe('runExecute controller', () => {
       's42-deliver',
     ]);
     expect(new Set(generatedPromptNames).size).toBe(generatedPromptNames.length);
+    for (const name of generatedPromptNames) {
+      const started = fixture.events.indexOf(`start:${name}`);
+      expect(fixture.events[started + 1]).toBe(`prompt:${name}`);
+    }
   });
 
   it('closes a remediable failed verify pane then starts one rem session', () => {
@@ -2434,6 +2444,8 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.notifications).toEqual([]);
     expect(fixture.prompts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    const remStarted = fixture.events.indexOf('start:r42-verify');
+    expect(fixture.events[remStarted + 1]).toBe('prompt:r42-verify');
   });
 
   it('retries remediable rem failure with a fresh rem session', () => {
@@ -3790,18 +3802,23 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
-  it('restarts a worker lost before its first prompt and dispatches once', () => {
+  it('prompts immediately, then retries once when the first session vanished before dispatch', () => {
     const fixture = makeControllerFixture();
-    let firstPresenceCheck = true;
-    fixture.herdr.listAgents = () => {
-      if (firstPresenceCheck && fixture.starts.length === 1) {
-        firstPresenceCheck = false;
-        return [];
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let firstPrompt = true;
+    fixture.herdr.agentPrompt = (input) => {
+      if (firstPrompt && input.name === 's42-start') {
+        firstPrompt = false;
+        fixture.prompts.push(input);
+        fixture.events.push(`prompt:${input.name}`);
+        return { status: 1, reasonCode: 'process_lost' };
       }
-      return fixture.starts
-        .filter(({ paneId }) => !fixture.closed.includes(paneId))
-        .map(({ name, paneId }) => ({ name, pane_id: paneId, state: 'done' }));
+      return agentPrompt(input);
     };
+    fixture.herdr.agentRead = () => '';
+    fixture.herdr.listAgents = () => firstPrompt || fixture.starts.length > 1
+      ? activeStartedAgents(fixture)
+      : [];
 
     const result = runExecute({
       args: '#42',
@@ -3816,12 +3833,14 @@ describe('runExecute controller', () => {
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
-    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(fixture.events.slice(0, 3)).toEqual([
-      'start:s42-start',
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(2);
+    expect(fixture.events.slice(0, 2)).toEqual([
       'start:s42-start',
       'prompt:s42-start',
     ]);
+    expect(fixture.events.indexOf('prompt:s42-start')).toBeLessThan(
+      fixture.events.indexOf('get'),
+    );
   });
 
   it.each([
@@ -3856,8 +3875,9 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('reports process_lost without prompting when the retry also has no live worker', () => {
+  it('reports process_lost after one immediate-prompt retry cannot reach either session', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
+    fixture.herdr.agentRead = () => '';
     fixture.herdr.listAgents = () => [];
 
     const result = runExecute({
@@ -3876,7 +3896,11 @@ describe('runExecute controller', () => {
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
-    expect(fixture.prompts).toEqual([]);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(2);
+    expect(fixture.events.slice(0, 2)).toEqual([
+      'start:s42-start',
+      'prompt:s42-start',
+    ]);
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
@@ -3908,7 +3932,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
+    expect(fixture.starts).toEqual([]);
     expect(fixture.prompts).toEqual([]);
     expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'provenance_write_failed' });

@@ -1030,37 +1030,28 @@ function deliverGeneratedPromptOnce({
   start,
   handoffPath,
 }) {
-  let retriedStart = false;
+  const promptReachedWorker = () => {
+    if (existsSync(handoffPath)) return true;
+    try {
+      return hasPastedWorkerPrompt(herdr, agentName, prompt)
+        || appearsWorking(herdr, agentName);
+    } catch {
+      return false;
+    }
+  };
 
-  const retryGoneWorker = () => {
-    if (retriedStart) return { delivered: false, reasonCode: 'process_lost' };
-    retriedStart = true;
+  let prompted = herdr.agentPrompt({ name: agentName, prompt });
+  let state = agentState(herdr.agentGet(agentName));
+  if (!workerStillPresent(herdr, agentName, paneId) && !promptReachedWorker()) {
     waitForAgentStartRetry();
     if (!commandSucceeded(start())) {
       return { delivered: false, reasonCode: 'agent_start_failed' };
     }
-    if (!workerStillPresent(herdr, agentName, paneId)) {
-      return { delivered: false, reasonCode: 'process_lost' };
-    }
-    return null;
-  };
-
-  if (!workerStillPresent(herdr, agentName, paneId)) {
-    const failed = retryGoneWorker();
-    if (failed) return failed;
-  }
-
-  let prompted = herdr.agentPrompt({ name: agentName, prompt });
-  let state = agentState(herdr.agentGet(agentName));
-  if (
-    !workerStillPresent(herdr, agentName, paneId)
-    && !hasPastedWorkerPrompt(herdr, agentName, prompt)
-    && !appearsWorking(herdr, agentName)
-  ) {
-    const failed = retryGoneWorker();
-    if (failed) return failed;
     prompted = herdr.agentPrompt({ name: agentName, prompt });
     state = agentState(herdr.agentGet(agentName));
+    if (!workerStillPresent(herdr, agentName, paneId) && !promptReachedWorker()) {
+      return { delivered: false, reasonCode: 'process_lost' };
+    }
   }
 
   const promptStalled = isPromptStalled(prompted);
@@ -1769,17 +1760,6 @@ export function runExecute({
         }
         createdPanes.add(paneId);
         rmSync(handoffPath, { force: true });
-        let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
-        if (!commandSucceeded(started)) {
-          waitForAgentStartRetry();
-          started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
-        }
-        if (!commandSucceeded(started)) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
         const ownership = workerOwnership({
           runState, issue, step, agentName, paneId, cwd, run,
         });
@@ -1798,9 +1778,23 @@ export function runExecute({
             output,
           });
         }
+
         runState.workers[agentName] = ownership;
         runState.remediation.remWorker = { name: agentName, paneId };
         persistRunState(runState, cwd);
+        let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+        if (!commandSucceeded(started)) {
+          waitForAgentStartRetry();
+          started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+        }
+        if (!commandSucceeded(started)) {
+          delete runState.workers[agentName];
+          runState.remediation.remWorker = null;
+          return stop({
+            issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
 
         if (reviewStep) {
           reviewHandoffResult = submitReviewProtocol({
@@ -2382,17 +2376,6 @@ export function runExecute({
       createdPanes.add(paneId);
       rmSync(handoffPath, { force: true });
 
-      let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
-      if (!commandSucceeded(started)) {
-        waitForAgentStartRetry();
-        started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
-      }
-      if (!commandSucceeded(started)) {
-        return stop({
-          issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
       const ownership = workerOwnership({
         runState, issue, step, agentName, paneId, cwd, run,
       });
@@ -2411,8 +2394,6 @@ export function runExecute({
           output,
         });
       }
-      runState.workers[agentName] = ownership;
-      persistRunState(runState, cwd);
 
       const reviewStep = step === 'review1' || step === 'review2';
       let prompt;
@@ -2422,15 +2403,41 @@ export function runExecute({
         });
         prompt = reviewStep ? reviewProtocolPrompt(reviewBase, stepPrompt) : stepPrompt;
       } catch (error) {
+        const reasonCode = workerPromptFailureReason(error);
+        const closed = closePane(herdrApi, paneId);
+        if (closed) createdPanes.delete(paneId);
         return stop({
-          issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+          issue,
+          step,
+          paneId,
+          agentName,
+          reasonCode: closed ? reasonCode : 'pane_close_failed',
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+        });
+      }
+
+      runState.workers[agentName] = ownership;
+      persistRunState(runState, cwd);
+      let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+      if (!commandSucceeded(started)) {
+        waitForAgentStartRetry();
+        started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
+      }
+      if (!commandSucceeded(started)) {
+        delete runState.workers[agentName];
+        return stop({
+          issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
 
-      let state = reviewStep ? agentState(herdrApi.agentGet(agentName)) : null;
+      let state = null;
       let handoffResult;
       if (reviewStep) {
+        state = agentState(herdrApi.agentGet(agentName));
         handoffResult = submitReviewProtocol({
           herdr: herdrApi,
           agentName,
