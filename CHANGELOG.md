@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.1] - 2026-08-31
+
+### Changed
+
+- Resume exact-head delivery after authorized reconciliation (#333)
+
 ## [3.20.0] - 2026-08-31
 
 ### Changed

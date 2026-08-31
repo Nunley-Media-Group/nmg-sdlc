@@ -377,6 +377,23 @@ function fixture(options = {}) {
 }
 
 function handoff(root) { return JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/handoffs/42-deliver.json'), 'utf8')); }
+function seedReconciliation(root, relativeRunPath = '.omp/sdlc/run.json') {
+  const runPath = path.join(root, relativeRunPath);
+  const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+  runState.revision += 1;
+  runState.delivery = {
+    issue: 42,
+    pullRequest: 77,
+    expectedHead: H1,
+    status: 'reconciliation_required',
+    reconciliation: {
+      expected: { pullRequest: 77, head: H1 },
+      observed: { pullRequest: 77, head: H2, state: 'OPEN' },
+    },
+  };
+  fs.writeFileSync(runPath, `${JSON.stringify(runState, null, 2)}\n`);
+  return runPath;
+}
 const roots = [];
 afterEach(() => {
   while (leases.length) releaseControllerLease(leases.pop());
@@ -990,16 +1007,211 @@ describe('sdlc delivery controller', () => {
     const handoffPath = path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json');
     const runBytes = fs.readFileSync(runPath, 'utf8');
     const handoffBytes = fs.readFileSync(handoffPath, 'utf8');
-    const calls = f.calls.length;
+    const callsBeforeRerun = f.calls.length;
     expect(runDeliver(options)).toMatchObject({
       status: 1,
       handoff: { reasonCode: 'delivery_reconciliation_required' },
     });
     expect(fs.readFileSync(runPath, 'utf8')).toBe(runBytes);
     expect(fs.readFileSync(handoffPath, 'utf8')).toBe(handoffBytes);
-    expect(f.calls).toHaveLength(calls);
+    const rerunCalls = f.calls.slice(callsBeforeRerun);
+    expect(rerunCalls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'view')).toBe(true);
     expect(f.calls.filter((call) => call[0] === 'gh' && call[2] === 'create')).toHaveLength(1);
-    expect(f.calls.some((call) => call[0] === 'gh' && ['ready', 'merge'].includes(call[2]))).toBe(false);
+    expect(rerunCalls.some((call) => (
+      call[0] === 'gh' && ['list', 'create', 'ready', 'merge'].includes(call[2])
+    ) || call[0] === 'git' && call[1] === 'push')).toBe(false);
+  });
+
+  test('@SCN001 resumes controller reconciliation at H2 and completes ordinary delivery', () => {
+    const successfulCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const f = fixture({
+      gitHead: H2,
+      requiredChecks: [successfulCheck],
+      checks: [successfulCheck],
+      views: [
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+    seedReconciliation(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).delivery).toEqual({
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: H2,
+      status: 'complete',
+      reconciliation: null,
+    });
+    expect(f.calls).toContainEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['list', 'create'].includes(call[2]))).toBe(false);
+  });
+
+  test('@SCN001 resumes isolated-session reconciliation before ordinary delivery', () => {
+    const token = '55555555-5555-4555-8555-555555555555';
+    const successfulCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const f = fixture({
+      gitHead: H2,
+      requiredChecks: [successfulCheck],
+      checks: [successfulCheck],
+      views: [
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+    initializeDeliverySession({
+      issue: 42,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      token,
+      now: () => '2026-08-31T00:00:00.000Z',
+    });
+    const relativeRunPath = `.omp/sdlc/sessions/${token}/run.json`;
+    seedReconciliation(f.root, relativeRunPath);
+
+    const result = runDeliver({
+      issue: 42,
+      sessionToken: token,
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, relativeRunPath), 'utf8')).delivery).toMatchObject({
+      pullRequest: 77,
+      expectedHead: H2,
+      status: 'complete',
+      reconciliation: null,
+    });
+    expect(f.calls).toContainEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['list', 'create'].includes(call[2]))).toBe(false);
+  });
+
+  const successfulRequiredCheck = {
+    name: 'ci',
+    state: 'SUCCESS',
+    link: 'https://github.test/check/ci',
+    event: 'pull_request',
+  };
+
+  test.each([
+    ['pending checks', { requiredChecks: [{ name: 'ci', state: 'PENDING' }] }],
+    ['failed checks', { requiredChecks: [{ name: 'ci', state: 'FAILURE' }] }],
+    ['unknown checks', { requiredChecks: [{ name: 'ci', state: 'UNKNOWN' }] }],
+    ['missing check state', { requiredChecks: [{ name: 'ci' }] }],
+    ['empty check JSON without none-required evidence', { requiredChecks: [] }],
+    ['unreadable checks', { requiredChecks: [successfulRequiredCheck], requiredChecksStatus: 2 }],
+    ['a different PR number', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [{ ...openPr({ head: H2 }), number: 78 }],
+    }],
+    ['a closed PR', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H2, state: 'CLOSED' })],
+    }],
+    ['a merged PR', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H2, state: 'MERGED' })],
+    }],
+    ['a dirty non-runtime path', {
+      requiredChecks: [successfulRequiredCheck],
+      dirtyPaths: ['src/changed.mjs'],
+    }],
+    ['a PR head different from local HEAD', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [openPr({ head: H1 })],
+    }],
+    ['a foreign PR head branch', {
+      requiredChecks: [successfulRequiredCheck],
+      views: [{ ...openPr({ head: H2 }), headRefName: 'other-branch' }],
+    }],
+  ])('@SCN002 keeps reconciliation sticky for %s', (_description, options) => {
+    const f = fixture({
+      gitHead: H2,
+      views: [openPr({ head: H2 })],
+      ...options,
+    }); roots.push(f.root);
+    const runPath = seedReconciliation(f.root);
+    const runBytes = fs.readFileSync(runPath, 'utf8');
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_reconciliation_required' },
+    });
+    expect(fs.readFileSync(runPath, 'utf8')).toBe(runBytes);
+    expect(f.sleeps).toEqual([]);
+    expect(f.calls.some((call) => (
+      call[0] === 'gh' && ['list', 'create', 'ready', 'merge'].includes(call[2])
+    ) || call[0] === 'git' && ['push', 'commit'].includes(call[1]))).toBe(false);
+  });
+
+  test('@SCN002 keeps expected-status H1 to H2 rebind independent of pending required checks', () => {
+    const f = fixture({
+      existingPr: openPr({ head: H1 }),
+      requiredChecks: [{ name: 'ci', state: 'PENDING', event: 'pull_request' }],
+      checks: [{ name: 'ci', state: 'PENDING', event: 'pull_request' }],
+      views: [
+        openPr({ head: H1 }),
+        openPr({ head: H1 }),
+        openPr({ head: H1 }),
+      ],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: () => { throw new Error('stop after observing pending checks'); },
+    });
+
+    expect(result).toMatchObject({ status: 1, handoff: { reasonCode: 'delivery_failed' } });
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).delivery).toEqual({
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: H2,
+      status: 'expected',
+      reconciliation: null,
+    });
+    expect(f.calls).toContainEqual([
+      'gh', 'pr', 'checks', '77', '--required', '--json', 'name,state,bucket,link,event',
+    ]);
   });
 
   test('requires merge and closure proof before local branch deletion', () => {
