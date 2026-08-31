@@ -78,6 +78,7 @@ export function reclaimStaleControllerLease({
   runId,
   processApi = process,
   listAgents,
+  controllerPaneId,
 } = {}) {
   const canonicalRoot = realpathSync(projectRoot);
   const path = controllerLeasePath(canonicalRoot);
@@ -113,9 +114,38 @@ export function reclaimStaleControllerLease({
   } catch {
     throw leaseError();
   }
-  if (!agents || agents.some((agent) => (
-    String(agent?.pane_id ?? agent?.paneId) === String(record.controllerPaneId)
-  ))) {
+  if (!agents) throw leaseError();
+  const recordedPaneId = String(record.controllerPaneId);
+  let occupants = 0;
+  for (const agent of agents) {
+    const snakePaneId = agent?.pane_id;
+    const camelPaneId = agent?.paneId;
+    if (
+      snakePaneId != null
+      && camelPaneId != null
+      && String(snakePaneId) !== String(camelPaneId)
+    ) {
+      if (
+        String(snakePaneId) === recordedPaneId
+        || String(camelPaneId) === recordedPaneId
+      ) {
+        throw leaseError();
+      }
+      continue;
+    }
+    const paneId = snakePaneId ?? camelPaneId;
+    if (paneId != null && String(paneId).length > 0 && String(paneId) === recordedPaneId) {
+      occupants += 1;
+    }
+  }
+  if (
+    occupants > 1
+    || (occupants === 1 && (
+      typeof controllerPaneId !== 'string'
+      || controllerPaneId.length === 0
+      || String(controllerPaneId) !== recordedPaneId
+    ))
+  ) {
     throw leaseError();
   }
 

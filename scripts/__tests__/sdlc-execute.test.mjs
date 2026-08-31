@@ -1421,6 +1421,91 @@ describe('runExecute controller', () => {
     expect(fixture.starts.length).toBeGreaterThan(0);
   });
 
+  it('reclaims a stale lease occupied only by the restarted controller pane', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'w14:p1',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    const listAgents = fixture.herdr.listAgents;
+    let recoveryListing = true;
+    fixture.herdr.listAgents = () => {
+      if (recoveryListing) {
+        recoveryListing = false;
+        return [{ pane_id: 'w14:p1' }];
+      }
+      return listAgents();
+    };
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env: { ...env, HERDR_PANE_ID: 'w14:p1' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: {
+        kill: (_pid, signal) => {
+          expect(signal).toBe(0);
+          throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+        },
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Reclaimed stale controller lease.\n');
+    expect(fixture.starts.length).toBeGreaterThan(0);
+  });
+
+  it('preserves protected state when the recorded pane belongs to a foreign controller', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'recover-run',
+      currentStep: null,
+      workers: {},
+      completed: { 42: [] },
+    });
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const runBytes = fs.readFileSync(runPath);
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json');
+    fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+    fs.writeFileSync(handoffPath, 'protected handoff bytes\n');
+    const stale = acquireControllerLease({
+      projectRoot: fixture.cwd,
+      runId: 'recover-run',
+      controllerPaneId: 'w14:p1',
+      pid: 4242,
+    });
+    fs.closeSync(stale.fd);
+    const leaseBytes = fs.readFileSync(stale.path);
+    fixture.herdr.listAgents = () => [{ pane_id: 'w14:p1' }];
+
+    const result = runExecute({
+      args: '--recover-stale #42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      processApi: {
+        kill: () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); },
+      },
+    });
+
+    expect(result).toEqual({ status: 1, stdout: '', stderr: 'controller_lease_held\n' });
+    expect(fs.readFileSync(stale.path).equals(leaseBytes)).toBe(true);
+    expect(fs.readFileSync(runPath).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(handoffPath, 'utf8')).toBe('protected handoff bytes\n');
+    expect(fixture.starts).toEqual([]);
+  });
+
   it.each([
     ['live pid', 'recover-run', 'valid', () => undefined, () => []],
     ['failed listing', 'recover-run', 'valid', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 1, stdout: '[]' })],
