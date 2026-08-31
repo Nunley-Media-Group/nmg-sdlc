@@ -1216,6 +1216,9 @@ describe('runExecute controller', () => {
       observationPause: () => {
         if (loseAgentAfterObservation) agentLost = true;
       },
+      promptRetryPause: () => {
+        events.push('prompt-retry-pause');
+      },
       agentWait: (input) => {
         waits.push(input);
         if (!input.until && reviewInProgress) {
@@ -3800,6 +3803,74 @@ describe('runExecute controller', () => {
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
     ]);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
+  });
+
+  it('retries delayed prompt readiness before any agent observation', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let readinessFailures = 0;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-start' && readinessFailures < 2) {
+        readinessFailures += 1;
+        fixture.prompts.push(input);
+        fixture.events.push(`prompt:${input.name}`);
+        return readinessFailures === 1
+          ? { status: 1, stderr: '{"error":{"code":"agent_not_found"}}\n' }
+          : { status: 1, reasonCode: 'agent_not_ready' };
+      }
+      return agentPrompt(input);
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(3);
+    const started = fixture.events.indexOf('start:s42-start');
+    const dispatched = fixture.events.slice(started);
+    expect(dispatched.slice(0, 6)).toEqual([
+      'start:s42-start',
+      'prompt:s42-start',
+      'prompt-retry-pause',
+      'prompt:s42-start',
+      'prompt-retry-pause',
+      'prompt:s42-start',
+    ]);
+    const thirdPrompt = dispatched.lastIndexOf('prompt:s42-start');
+    expect(dispatched.indexOf('get')).toBeGreaterThan(thirdPrompt);
+    expect(dispatched.indexOf('list')).toBeGreaterThan(thirdPrompt);
+  });
+
+  it('does not retry a generated prompt that stalls after delivery', () => {
+    const fixture = makeControllerFixture();
+    const agentPrompt = fixture.herdr.agentPrompt;
+    let stalledAfterDelivery = false;
+    fixture.herdr.agentPrompt = (input) => {
+      const prompted = agentPrompt(input);
+      if (input.name === 's42-start' && !stalledAfterDelivery) {
+        stalledAfterDelivery = true;
+        return { status: 1, stderr: '{"error":{"code":"agent_prompt_stalled"}}\n' };
+      }
+      return prompted;
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.events).not.toContain('prompt-retry-pause');
   });
 
   it('prompts immediately, then retries once when the first session vanished before dispatch', () => {

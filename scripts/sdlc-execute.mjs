@@ -905,6 +905,7 @@ function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
     observationPause: waitForAgentObservationRetry,
+    promptRetryPause: waitForAgentObservationRetry,
     integrationStatus: () => invoke(['integration', 'status']),
     paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
     paneSplit: ({ direction, cwd: splitCwd }) => invoke([
@@ -984,19 +985,48 @@ function splitPaneId(value) {
   return parsed?.result?.pane?.pane_id ?? parsed?.result?.pane_id ?? parsed?.pane?.pane_id ?? parsed?.pane_id ?? null;
 }
 
-function isPromptStalled(value) {
-  const outputs = [
+function commandIncludesCode(value, code) {
+  const candidates = [
+    value,
     parseCommandOutput(value),
+    parseCommandOutput(value?.stdout),
     parseCommandOutput(value?.stderr),
   ];
-  return outputs.some((output) => [
-    output?.reasonCode,
-    output?.code,
-    output?.error,
-    output?.result?.reasonCode,
-    output?.result?.code,
-    output,
-  ].some((candidate) => String(candidate || '').includes('agent_prompt_stalled')));
+  return candidates.some((candidate) => {
+    if (typeof candidate === 'string') return candidate.includes(code);
+    try {
+      return JSON.stringify(candidate).includes(code);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isPromptStalled(value) {
+  return commandIncludesCode(value, 'agent_prompt_stalled');
+}
+
+function isPromptReadinessError(value) {
+  return ['agent_not_ready', 'agent_not_found']
+    .some((code) => commandIncludesCode(value, code));
+}
+
+function promptGeneratedWhenReady(herdr, agentName, prompt) {
+  const readinessRetries = 10;
+  let prompted;
+  for (let attempt = 0; attempt <= readinessRetries; attempt += 1) {
+    prompted = herdr.agentPrompt({ name: agentName, prompt });
+    if (
+      commandSucceeded(prompted)
+      || isPromptStalled(prompted)
+      || !isPromptReadinessError(prompted)
+      || attempt === readinessRetries
+    ) {
+      return prompted;
+    }
+    (herdr.promptRetryPause || waitForAgentObservationRetry)();
+  }
+  return prompted;
 }
 
 function retryPromptSubmission(herdr, agentName) {
@@ -1040,18 +1070,21 @@ function deliverGeneratedPromptOnce({
     }
   };
 
-  let prompted = herdr.agentPrompt({ name: agentName, prompt });
+  let prompted = promptGeneratedWhenReady(herdr, agentName, prompt);
   let state = agentState(herdr.agentGet(agentName));
   if (!workerStillPresent(herdr, agentName, paneId) && !promptReachedWorker()) {
     waitForAgentStartRetry();
     if (!commandSucceeded(start())) {
       return { delivered: false, reasonCode: 'agent_start_failed' };
     }
-    prompted = herdr.agentPrompt({ name: agentName, prompt });
+    prompted = promptGeneratedWhenReady(herdr, agentName, prompt);
     state = agentState(herdr.agentGet(agentName));
     if (!workerStillPresent(herdr, agentName, paneId) && !promptReachedWorker()) {
       return { delivered: false, reasonCode: 'process_lost' };
     }
+  }
+  if (isPromptReadinessError(prompted)) {
+    return { delivered: false, reasonCode: 'agent_prompt_failed' };
   }
 
   const promptStalled = isPromptStalled(prompted);
