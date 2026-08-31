@@ -62,7 +62,7 @@ function exercise(options = {}) {
   } else {
     commands.push('gh pr create --draft --title <title> --body-file <file>');
     commands.push('gh pr view 200 --json headRefOid,isDraft');
-    commands.push('gh pr checks 200 --required --json name,state,bucket,link,event');
+    commands.push('gh pr checks 200 --required --json name,state,bucket,link,event,workflow');
     if (!isSuccessEquivalent(options.h1State ?? 'SUCCESS')) {
       return { status: 'draft-preserved', commands, gap: `H1 ${options.h1State}` };
     }
@@ -85,7 +85,7 @@ function exercise(options = {}) {
     expectedEvidenceIdentities = initial.readiness.pendingEvidence.map(evidenceIdentity);
   }
 
-  commands.push('gh pr checks 200 --required --json name,state,bucket,link,event');
+  commands.push('gh pr checks 200 --required --json name,state,bucket,link,event,workflow');
   if (!isSuccessEquivalent(options.h2State ?? 'SUCCESS')) {
     return { status: 'draft-preserved', commands, gap: `H2 ${options.h2State}` };
   }
@@ -153,12 +153,12 @@ describe('PR-dependent delivery exercise', () => {
     expect(result.commands).toEqual([
       'gh pr create --draft --title <title> --body-file <file>',
       'gh pr view 200 --json headRefOid,isDraft',
-      'gh pr checks 200 --required --json name,state,bucket,link,event',
+      'gh pr checks 200 --required --json name,state,bucket,link,event,workflow',
       '$nmg-sdlc:verify-code #122',
       'git commit -m docs:record-pr-verification-evidence',
       'git push --force-with-lease=HEAD:<expected>',
       'gh pr view 200 --json headRefOid,isDraft',
-      'gh pr checks 200 --required --json name,state,bucket,link,event',
+      'gh pr checks 200 --required --json name,state,bucket,link,event,workflow',
       'gh pr edit 200 --body-file <file>',
       'gh pr view 200 --json body,headRefOid,isDraft --jq .body > <refetched-body-file>',
       'node <plugin-root>/scripts/verification-readiness.mjs --project <project-root> --spec specs/feature-pathcast-guardrail --issue 122 --pr 200 --head <H2> --delivery-body-file <refetched-body-file> --json',

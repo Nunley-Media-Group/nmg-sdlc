@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url';
 
 import { classifyPrDeliveryState } from './pr-delivery-state.mjs';
 import {
+  canonicalCheckName,
   evidenceIdentity,
   inspectDeliveryValidation,
   inspectVerificationReadiness,
+  resolveDeclaredCheck,
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
@@ -789,7 +791,10 @@ function evidenceForHead(readiness, observed, headSha) {
   for (const item of evidence) {
     if (item.kind === 'merge_blocking') {
       const state = String(observed.pr.mergeStateStatus ?? '').toUpperCase();
-      if (!['BLOCKED', 'UNSTABLE', 'DIRTY', 'BEHIND'].includes(state)) return null;
+      if (!state || state === 'UNKNOWN') return null;
+      if (!['BLOCKED', 'UNSTABLE', 'DIRTY', 'BEHIND'].includes(state)) {
+        throw new Error('verification_not_ready');
+      }
       result.push({
         ...evidenceIdentity(item),
         headSha,
@@ -799,12 +804,15 @@ function evidenceForHead(readiness, observed, headSha) {
       });
       continue;
     }
-    const check = observed.evidenceChecks.find((candidate) => (
-      candidate.name === item.name
-      && candidate.event === item.event
-      && ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(candidate.state)
-    ));
-    if (!check?.url) return null;
+    const resolved = resolveDeclaredCheck(item.name, observed.evidenceChecks);
+    if (resolved.status === 'pending') return null;
+    if (resolved.status !== 'matched') throw new Error('verification_not_ready');
+    const check = resolved.check;
+    if (check.event !== item.event) throw new Error('verification_not_ready');
+    if (['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'].includes(check.state)) return null;
+    if (!['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.state) || !check.url) {
+      throw new Error('verification_not_ready');
+    }
     result.push({
       ...evidenceIdentity(item),
       headSha,
@@ -880,8 +888,12 @@ function normalizeCheck(check) {
   if (!state && bucket === 'pass') state = 'SUCCESS';
   if (!state && bucket === 'fail') state = 'FAILURE';
   if (!state && bucket === 'pending') state = 'PENDING';
+  const workflow = typeof check.workflow === 'string' && check.workflow.trim()
+    ? check.workflow.trim()
+    : null;
   return {
     name: check.name,
+    workflow,
     event: check.event ?? null,
     state,
     required: check.required === true,
@@ -1025,7 +1037,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     throw new Error('GraphQL review thread query returned no pull request');
   }
   const checksResult = command(run, cwd, 'gh', [
-    'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event',
+    'pr', 'checks', String(prNumber), '--required', '--json', 'name,state,bucket,link,event,workflow',
   ], { allowFailure: true });
   const runEvidenceCache = new Map();
   const resolveRun = (runId) => jsonCommand(run, cwd, 'gh', [
@@ -1037,7 +1049,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   );
   const declaredEvidence = readiness.readiness?.evidence ?? readiness.readiness?.pendingEvidence ?? [];
   const allChecksResult = command(run, cwd, 'gh', [
-    'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event',
+    'pr', 'checks', String(prNumber), '--json', 'name,state,bucket,link,event,workflow',
   ], { allowFailure: true });
   const evidenceChecks = enrichMissingCheckEvents(
     parseChecksResult(allChecksResult, 'gh pr checks'),
@@ -1062,11 +1074,13 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
     .map((item) => item.name);
-  const checkKeys = new Set(checks.map((check) => `${check.name}\0${check.event}`));
+  const checkKeys = new Set(checks.map(
+    (check) => `${canonicalCheckName(check.name, check.workflow)}\0${check.event}`,
+  ));
   const snapshotChecks = [
     ...checks,
     ...evidenceChecks.filter((check) => {
-      const key = `${check.name}\0${check.event}`;
+      const key = `${canonicalCheckName(check.name, check.workflow)}\0${check.event}`;
       if (checkKeys.has(key)) return false;
       checkKeys.add(key);
       return true;

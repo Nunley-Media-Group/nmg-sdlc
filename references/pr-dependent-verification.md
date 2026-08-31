@@ -51,6 +51,8 @@ An omitted local identifier, extra identifier, reordered array, failed/incomplet
 
 Evidence arrays contain 1-20 unique items. Names are non-empty and at most 256 characters. Every item maps one or more identifiers from the active delivery `acceptanceCriteria` array.
 
+Canonicalize every `required_check` and `check_run` name from GitHub's authoritative fields: trim the job and workflow names; use `<workflow> / <job>` when workflow is non-empty, otherwise use the bare job name only when it is unique among the observed checks. The marker keeps `schemaVersion: 1` and stores this canonical string in `name`; it does not add a `workflow` field. Match canonical identities by equality. Never use suffix or trailing-name matching, and fail closed when one bare job name identifies checks from more than one workflow.
+
 | Kind | Pending fields | Satisfied fields |
 |------|----------------|------------------|
 | `required_check` | `kind`, `name`, `event: pull_request`, `acceptanceCriteria` | Pending fields plus `headSha`, success-equivalent `conclusion`, and `url`. |
