@@ -1468,7 +1468,7 @@ describe('runExecute controller', () => {
   it.each([
     ['live pid', () => undefined, () => [{ pane_id: 'w14:p1' }]],
     ['failed listing', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 1, stdout: '[]' })],
-    ['extra listed owner', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'w14:p1' }, { pane_id: 'w14:p2' }]],
+    ['duplicate recorded-pane agents', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'w14:p1' }, { pane_id: 'w14:p1' }]],
   ])('fails closed for same-pane stale recovery with %s', (_name, kill, listAgents) => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
