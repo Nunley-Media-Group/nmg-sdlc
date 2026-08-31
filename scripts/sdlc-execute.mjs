@@ -48,6 +48,7 @@ import {
 } from './omp-sdlc-ignore.mjs';
 import {
   acquireControllerLease,
+  reclaimStaleControllerLease,
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 
@@ -78,7 +79,7 @@ const STEP_EXTRA_WORKFLOWS = {
 
 
 function usageError() {
-  return 'Usage: /sdlc-execute [--retain-worker] [#N ...]';
+  return 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]';
 }
 
 
@@ -92,10 +93,16 @@ export function parseArgs(input = '') {
   const issues = [];
   const seen = new Set();
   let retainWorker = false;
+  let recoverStale = false;
   for (const tok of tokens) {
     if (tok === '--retain-worker') {
       if (retainWorker) throw new Error(usageError());
       retainWorker = true;
+      continue;
+    }
+    if (tok === '--recover-stale') {
+      if (recoverStale) throw new Error(usageError());
+      recoverStale = true;
       continue;
     }
     const m = tok.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
@@ -114,6 +121,7 @@ export function parseArgs(input = '') {
   }
   const parsed = { issues, defaultBacklog: issues.length === 0 };
   if (retainWorker) parsed.retainWorker = true;
+  if (recoverStale) parsed.recoverStale = true;
   return parsed;
 }
 
@@ -1409,6 +1417,19 @@ export function runExecute({
   let runState = existingRun;
   let controllerLease;
   let releaseLeaseInFinally = true;
+  if (parsedArgs.recoverStale) {
+    try {
+      const recovery = reclaimStaleControllerLease({
+        projectRoot: cwd,
+        runId: controllerRunId,
+        processApi,
+        listAgents: () => herdrApi.listAgents(),
+      });
+      if (recovery.reclaimed) output.push('Reclaimed stale controller lease.');
+    } catch {
+      return { status: 1, stdout: '', stderr: 'controller_lease_held\n' };
+    }
+  }
   try {
     controllerLease = acquireControllerLease({
       projectRoot: cwd,
