@@ -95,7 +95,7 @@ Each criterion becomes a Gherkin scenario.
 | FR6 | Never invent arbitrary issues, never kill foreign processes, never delete remote GitHub evidence, and never weaken exact-head delivery. | Must | |
 | FR7 | Remove the local clone after pass; retain local failure evidence; leave GitHub artifacts auditable. | Must | |
 | FR8 | Add deterministic regressions covering preflight, explicit queue, mutation allowlist, multi-issue execution, cleanup, failure retention, and stack independence. | Must | Jest fakes GitHub/Herdr/execute. |
-| FR9 | Update product and tech steering so the gate is no longer described as read-only status smoke. | Must | |
+| FR9 | Update product and tech steering so the gate is no longer described as read-only status smoke. | Must | Exact strings in design.md. |
 | FR10 | Keep clone/network/cancel/process-loss as `incomplete` environmental outcomes with evidence when available. | Should | |
 
 ---
@@ -108,6 +108,7 @@ Each criterion becomes a Gherkin scenario.
 - Deleting or rewriting remote GitHub history as cleanup
 - Multi-repository smoke, epic/spike types, or a plugin-owned background execution service
 - Killing or stopping Herdr sessions the gate did not start
+- Editing README (no current smoke wording); steering snippets are the project docs for FR9
 
 ---
 
@@ -116,3 +117,4 @@ Each criterion becomes a Gherkin scenario.
 | Issue | Date | Summary |
 |-------|------|---------|
 | #343 | 2026-08-31 | Initial feature spec |
+| #343 | 2026-08-31 | Spec revised before delivery |
