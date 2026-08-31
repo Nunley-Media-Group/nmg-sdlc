@@ -58,7 +58,13 @@
 - [ ] Issue #328 pane-absent reclaim assertions still pass
 - [ ] No acquire, `--retain-worker`, or no-flag recover-stale behavior change
 
+## Delivery Evidence
+
+- The controller-lease and execute changes remain aligned with the registered managed steering runtime: orchestration stays in the main Herdr pane, worker isolation and validated handoffs remain unchanged, and no steering artifact changes are required.
+- Deterministic `open-pr` version synchronization updates `VERSION` and `package.json`; these are release artifacts for issue #339, not additional product behavior.
+
 ---
+
 
 ## Change History
 

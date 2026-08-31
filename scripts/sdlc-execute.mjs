@@ -1424,6 +1424,7 @@ export function runExecute({
         runId: controllerRunId,
         processApi,
         listAgents: () => herdrApi.listAgents(),
+        controllerPaneId: env.HERDR_PANE_ID,
       });
       if (recovery.reclaimed) output.push('Reclaimed stale controller lease.');
     } catch {
