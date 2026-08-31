@@ -100,73 +100,203 @@ function runCommand(program, args, { cwd, env, signal } = {}) {
   });
 }
 
-async function runSmoke(request) {
-  const identity = request.identity;
-  const pluginRoot = request.projectRoot;
-  const work = mkdtempSync(join(tmpdir(), "nmg-sdlc-smoke-"));
+function retainedCloneEvidence(work) {
+  return {
+    kind: "artifact",
+    summary: "retained smoke clone",
+    artifact: work,
+  };
+}
+
+function commandEvidence(summary, result, artifact = null) {
+  return {
+    kind: "command",
+    summary,
+    artifact,
+    stdout: bounded(result?.stdout),
+    stderr: bounded(result?.error?.message ?? result?.stderr, 4000),
+  };
+}
+
+function environmentalFailure(result) {
+  return ["cancelled", "process_lost", "launch_failed", "cleanup_failed"].includes(result?.reasonCode);
+}
+
+function validIssues(config) {
+  return Object.hasOwn(config ?? {}, "issues")
+    && Array.isArray(config.issues)
+    && config.issues.length > 0
+    && config.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
+    && new Set(config.issues).size === config.issues.length;
+}
+
+function validHerdrEnvironment(env) {
+  return env.HERDR_ENV === "1"
+    && typeof env.HERDR_SOCKET_PATH === "string"
+    && env.HERDR_SOCKET_PATH.length > 0
+    && typeof env.HERDR_PANE_ID === "string"
+    && env.HERDR_PANE_ID.length > 0;
+}
+
+function allowedOrigin(value) {
+  const origin = String(value ?? "").trim();
+  return origin === SMOKE_REPO
+    || origin === "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke"
+    || origin === "git@github.com:Nunley-Media-Group/nmg-sdlc-smoke.git";
+}
+
+function parseJson(result) {
   try {
-    const clone = await runCommand("git", ["clone", "--depth", "1", "--single-branch", SMOKE_REPO, work], { signal: request.signal });
-    if (clone.reasonCode || clone.status !== 0) {
-      return envelope("incomplete", `nmg-sdlc-smoke clone ${clone.reasonCode ?? `exited ${clone.status}`}`, identity, [{
-        kind: "command",
-        summary: "git clone https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git",
-        artifact: null,
-        stdout: bounded(clone.stdout, 4000),
-        stderr: bounded(clone.error?.message ?? clone.stderr, 4000),
-      }]);
-    }
-
-    const exercise = join(pluginRoot, "scripts", "exercise-omp.mjs");
-    const run = await runCommand(process.execPath, [
-      exercise,
-      "--cwd",
-      work,
-      "--",
-      "/sdlc-status",
-      "--json",
-    ], {
-      env: process.env,
-      signal: request.signal,
-    });
-    const evidence = [{
-      kind: "command",
-      summary: "exercise-omp /sdlc-status --json against nmg-sdlc-smoke",
-      artifact: "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke",
-      stdout: bounded(run.stdout),
-      stderr: bounded(run.error?.message ?? run.stderr, 4000),
-    }];
-    if (run.reasonCode === "cancelled" || run.reasonCode === "process_lost" || run.reasonCode === "cleanup_failed" || run.reasonCode === "launch_failed") {
-      return envelope("incomplete", `nmg-sdlc-smoke status exercise ${run.reasonCode}`, identity, evidence);
-    }
-    if (run.status !== 0) {
-      return envelope("failed", `nmg-sdlc-smoke status exercise exited ${run.status}${run.signal ? ` (${run.signal})` : ""}`, identity, evidence);
-    }
-
-    const stdout = String(run.stdout ?? "");
-    const jsonStart = stdout.indexOf("{");
-    const jsonEnd = stdout.lastIndexOf("}");
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonStart >= 0 && jsonEnd > jsonStart ? stdout.slice(jsonStart, jsonEnd + 1) : stdout);
-    } catch {
-      return envelope("failed", "nmg-sdlc-smoke status exercise did not emit JSON", identity, evidence);
-    }
-    const command = parsed?.nextAction?.command;
-    if (typeof command !== "string" || !command.startsWith("/sdlc-")) {
-      return envelope("failed", "nmg-sdlc-smoke status JSON missing nextAction.command", identity, evidence);
-    }
-    return envelope("passed", `nmg-sdlc-smoke status next ${command}`, identity, evidence);
-  } catch (error) {
-    return envelope("incomplete", error instanceof Error ? error.message : String(error), identity);
-  } finally {
-    rmSync(work, { recursive: true, force: true });
+    return JSON.parse(String(result.stdout ?? ""));
+  } catch {
+    return null;
   }
+}
+
+export function createSmokeProvider({
+  runCommand: executeCommand = runCommand,
+  mkdtempSync: createTemp = mkdtempSync,
+  rmSync: remove = rmSync,
+  env = process.env,
+} = {}) {
+  return async function smokeProvider(request) {
+    const identity = request.identity;
+    if (!validIssues(request.config)) {
+      return envelope("failed", "nmg-sdlc-smoke issues config invalid", identity);
+    }
+    if (env.NMG_SDLC_SMOKE_OWNED === "1") {
+      return envelope("failed", "nmg-sdlc-smoke nested execution blocked", identity);
+    }
+    if (!validHerdrEnvironment(env)) {
+      return envelope("failed", "nmg-sdlc-smoke Herdr environment missing", identity);
+    }
+
+    const auth = await executeCommand("gh", ["auth", "status"], { env, signal: request.signal });
+    if (environmentalFailure(auth)) {
+      return envelope("incomplete", `nmg-sdlc-smoke GitHub auth ${auth.reasonCode}`, identity, [
+        commandEvidence("gh auth status", auth),
+      ]);
+    }
+    if (auth.status !== 0) {
+      return envelope("failed", "nmg-sdlc-smoke GitHub auth unavailable", identity, [
+        commandEvidence("gh auth status", auth),
+      ]);
+    }
+
+    const work = createTemp(join(tmpdir(), "nmg-sdlc-smoke-"));
+    const retain = (status, summary, evidence = []) => envelope(status, summary, identity, [
+      ...evidence,
+      retainedCloneEvidence(work),
+    ]);
+
+    try {
+      const clone = await executeCommand("git", ["clone", "--single-branch", SMOKE_REPO, work], {
+        env,
+        signal: request.signal,
+      });
+      const cloneEvidence = commandEvidence(`git clone --single-branch ${SMOKE_REPO}`, clone, work);
+      if (environmentalFailure(clone) || clone.status !== 0) {
+        return retain("incomplete", `nmg-sdlc-smoke clone ${clone.reasonCode ?? `exited ${clone.status}`}`, [cloneEvidence]);
+      }
+
+      const origin = await executeCommand("git", ["remote", "get-url", "origin"], {
+        cwd: work,
+        env,
+        signal: request.signal,
+      });
+      if (environmentalFailure(origin)) {
+        return retain("incomplete", `nmg-sdlc-smoke origin ${origin.reasonCode}`, [cloneEvidence, commandEvidence("git remote get-url origin", origin, work)]);
+      }
+      if (origin.status !== 0 || !allowedOrigin(origin.stdout)) {
+        return retain("failed", "nmg-sdlc-smoke origin not allowlisted", [cloneEvidence, commandEvidence("git remote get-url origin", origin, work)]);
+      }
+
+      const dirty = await executeCommand("git", ["status", "--porcelain"], {
+        cwd: work,
+        env,
+        signal: request.signal,
+      });
+      if (environmentalFailure(dirty)) {
+        return retain("incomplete", `nmg-sdlc-smoke clean-check ${dirty.reasonCode}`, [cloneEvidence, commandEvidence("git status --porcelain", dirty, work)]);
+      }
+      if (dirty.status !== 0 || String(dirty.stdout ?? "").trim() !== "") {
+        return retain("failed", "nmg-sdlc-smoke clone dirty", [cloneEvidence, commandEvidence("git status --porcelain", dirty, work)]);
+      }
+
+      const issues = request.config.issues;
+      const controller = join(request.projectRoot, "scripts", "sdlc-execute.mjs");
+      const execute = await executeCommand(process.execPath, [
+        controller,
+        "run",
+        ...issues.map((issue) => `#${issue}`),
+      ], {
+        cwd: work,
+        env: { ...env, NMG_SDLC_SMOKE_OWNED: "1" },
+        signal: request.signal,
+      });
+      const evidence = [
+        cloneEvidence,
+        commandEvidence(`sdlc-execute run ${issues.map((issue) => `#${issue}`).join(" ")}`, execute, work),
+      ];
+      if (environmentalFailure(execute)) {
+        return retain("incomplete", `nmg-sdlc-smoke execute ${execute.reasonCode}`, evidence);
+      }
+
+      for (const issue of issues) {
+        const issueResult = await executeCommand("gh", [
+          "issue", "view", String(issue),
+          "--repo", "Nunley-Media-Group/nmg-sdlc-smoke",
+          "--json", "state,url",
+        ], { cwd: work, env, signal: request.signal });
+        if (environmentalFailure(issueResult)) {
+          return retain("incomplete", `nmg-sdlc-smoke issue proof ${issueResult.reasonCode}`, [...evidence, commandEvidence(`gh issue view ${issue}`, issueResult)]);
+        }
+        const issueProof = issueResult.status === 0 ? parseJson(issueResult) : null;
+        if (issueProof?.state !== "CLOSED" || typeof issueProof.url !== "string" || issueProof.url.length === 0) {
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} is not CLOSED`, [...evidence, commandEvidence(`gh issue view ${issue}`, issueResult)]);
+        }
+
+        const prResult = await executeCommand("gh", [
+          "pr", "list",
+          "--repo", "Nunley-Media-Group/nmg-sdlc-smoke",
+          "--search", `linked:issue-${issue}`,
+          "--state", "merged",
+          "--json", "state,url,headRefOid",
+        ], { cwd: work, env, signal: request.signal });
+        if (environmentalFailure(prResult)) {
+          return retain("incomplete", `nmg-sdlc-smoke PR proof ${prResult.reasonCode}`, [...evidence, commandEvidence(`gh pr list linked:issue-${issue}`, prResult)]);
+        }
+        const prs = prResult.status === 0 ? parseJson(prResult) : null;
+        const pr = Array.isArray(prs) && prs.length === 1 ? prs[0] : null;
+        if (pr?.state !== "MERGED" || typeof pr.url !== "string" || pr.url.length === 0 || typeof pr.headRefOid !== "string" || pr.headRefOid.length === 0) {
+          return retain("failed", `nmg-sdlc-smoke issue #${issue} missing exact merged PR proof`, [...evidence, commandEvidence(`gh pr list linked:issue-${issue}`, prResult)]);
+        }
+        evidence.push({
+          kind: "github",
+          summary: `issue #${issue} ${issueProof.url} CLOSED; PR ${pr.url} MERGED at ${pr.headRefOid}`,
+          artifact: pr.url,
+        });
+      }
+
+      try {
+        remove(work, { recursive: true, force: true });
+      } catch (error) {
+        return retain("incomplete", "nmg-sdlc-smoke cleanup_failed", [
+          ...evidence,
+          commandEvidence("remove smoke clone", { error }),
+        ]);
+      }
+      return envelope("passed", `nmg-sdlc-smoke delivered ${issues.map((issue) => `#${issue}`).join(", ")}`, identity, evidence);
+    } catch (error) {
+      return retain("incomplete", error instanceof Error ? error.message : String(error));
+    }
+  };
 }
 
 export const extension = Object.freeze({
   schemaVersion: 1,
   id: "project.nmg-sdlc-smoke",
   providers: Object.freeze({
-    "project.nmg-sdlc-smoke": runSmoke,
+    "project.nmg-sdlc-smoke": createSmokeProvider(),
   }),
 });
