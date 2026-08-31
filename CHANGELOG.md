@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.0] - 2026-08-31
+
+### Changed
+
+- Add explicit recovery for confirmed stale controller leases (#328)
+
 ## [3.19.3] - 2026-08-30
 
 ### Fixed
