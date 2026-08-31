@@ -332,9 +332,6 @@ export function createSmokeProvider({
       if (environmentalFailure(execute)) {
         return retain("incomplete", `nmg-sdlc-smoke execute ${execute.reasonCode}`, evidence);
       }
-      if (execute.status !== 0) {
-        return retain("failed", `nmg-sdlc-smoke execute exited ${execute.status}`, evidence);
-      }
 
       for (const issue of issues) {
         const delivery = recordedDelivery(readFile, work, issue);

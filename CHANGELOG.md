@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Changed
+
+- Replace status-only live smoke verification with an invocation-scoped fresh issue queue and exact current-run merged/closed GitHub proof (#343).
+
 ## [3.20.4] - 2026-08-31
 
 ### Changed
