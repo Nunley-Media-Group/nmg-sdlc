@@ -142,6 +142,58 @@ describe('controller lease', () => {
   });
 
   test.each([
+    [
+      'disagreeing identities on another pane',
+      'dead-pane',
+      undefined,
+      [{ pane_id: 'other-pane', paneId: 'different-other-pane' }],
+    ],
+    [
+      'empty identities',
+      'dead-pane',
+      undefined,
+      [{ pane_id: '' }, { paneId: null }, {}],
+    ],
+    [
+      'a non-string identity on another pane',
+      'dead-pane',
+      undefined,
+      [{ pane_id: 42 }],
+    ],
+    [
+      'a non-string identity matching the current pane by string value',
+      '42',
+      '42',
+      [{ pane_id: 42 }],
+    ],
+  ])('reclaims when the agent list contains %s', (
+    _name,
+    recordedPaneId,
+    controllerPaneId,
+    agents,
+  ) => {
+    const root = makeRoot();
+    const lease = acquireControllerLease({
+      projectRoot: root,
+      runId: 'run-42',
+      controllerPaneId: recordedPaneId,
+      pid: 42,
+    });
+    fs.closeSync(lease.fd);
+
+    expect(reclaimStaleControllerLease({
+      projectRoot: root,
+      runId: 'run-42',
+      controllerPaneId,
+      processApi: {
+        kill: () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); },
+      },
+      listAgents: () => agents,
+    })).toEqual({ reclaimed: true, record: lease.record });
+    expect(fs.existsSync(controllerLeasePath(root))).toBe(false);
+  });
+
+  test.each([
     ['live pid', () => undefined, () => [], undefined],
     ['unknown pid', () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }); }, () => [], undefined],
     ['foreign pane', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ paneId: 'dead-pane' }], 'main-pane'],
@@ -149,6 +201,7 @@ describe('controller lease', () => {
     ['empty current pane', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ paneId: 'dead-pane' }], ''],
     ['duplicate recorded-pane agents', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'dead-pane' }, { paneId: 'dead-pane' }], 'dead-pane'],
     ['unreadable recorded-pane identity', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'dead-pane', paneId: 'other-pane' }], 'dead-pane'],
+    ['unreadable recorded-pane identity from paneId', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => [{ pane_id: 'other-pane', paneId: 'dead-pane' }], 'dead-pane'],
     ['failed agent list', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 1, stdout: '[]' }), undefined],
     ['unparseable agent list', () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }, () => ({ status: 0, stdout: 'not json' }), undefined],
   ])('preserves a lease when %s prevents confirmed recovery', (_name, kill, listAgents, controllerPaneId) => {
