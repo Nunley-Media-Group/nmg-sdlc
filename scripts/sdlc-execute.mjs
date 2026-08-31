@@ -1022,6 +1022,66 @@ function waitForWorkerSettlement(herdr, agentName) {
     && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
 
+function deliverGeneratedPromptOnce({
+  herdr,
+  agentName,
+  paneId,
+  prompt,
+  start,
+  handoffPath,
+}) {
+  let retriedStart = false;
+
+  const retryGoneWorker = () => {
+    if (retriedStart) return { delivered: false, reasonCode: 'process_lost' };
+    retriedStart = true;
+    waitForAgentStartRetry();
+    if (!commandSucceeded(start())) {
+      return { delivered: false, reasonCode: 'agent_start_failed' };
+    }
+    if (!workerStillPresent(herdr, agentName, paneId)) {
+      return { delivered: false, reasonCode: 'process_lost' };
+    }
+    return null;
+  };
+
+  if (!workerStillPresent(herdr, agentName, paneId)) {
+    const failed = retryGoneWorker();
+    if (failed) return failed;
+  }
+
+  let prompted = herdr.agentPrompt({ name: agentName, prompt });
+  let state = agentState(herdr.agentGet(agentName));
+  if (
+    !workerStillPresent(herdr, agentName, paneId)
+    && !hasPastedWorkerPrompt(herdr, agentName, prompt)
+    && !appearsWorking(herdr, agentName)
+  ) {
+    const failed = retryGoneWorker();
+    if (failed) return failed;
+    prompted = herdr.agentPrompt({ name: agentName, prompt });
+    state = agentState(herdr.agentGet(agentName));
+  }
+
+  const promptStalled = isPromptStalled(prompted);
+  if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
+    if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
+      if (!retryPromptSubmission(herdr, agentName)) {
+        return { delivered: false, reasonCode: 'worker_failed' };
+      }
+    } else if (appearsWorking(herdr, agentName)) {
+      if (!waitForWorkerSettlement(herdr, agentName)) {
+        return { delivered: false, reasonCode: 'worker_failed' };
+      }
+    } else if (promptStalled) {
+      return { delivered: false, reasonCode: 'agent_prompt_stalled' };
+    }
+  }
+
+  state = agentState(herdr.agentGet(agentName));
+  return { delivered: true, state };
+}
+
 function repositoryDefaultBranch(cwd, run) {
   const result = run('gh', [
     'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
@@ -1755,65 +1815,46 @@ export function runExecute({
           });
           if (reviewHandoffResult.handoff) state = 'done';
         } else {
-          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
-          state = agentState(herdrApi.agentGet(agentName));
-          const promptStalled = isPromptStalled(prompted);
-          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
-            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-              if (!retryPromptSubmission(herdrApi, agentName)) {
-                return stop({
-                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                  runState, cwd, herdr: herdrApi, output,
-                });
-              }
-              state = agentState(herdrApi.agentGet(agentName));
-            } else if (appearsWorking(herdrApi, agentName)) {
-              if (!waitForWorkerSettlement(herdrApi, agentName)) {
-                return stop({
-                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                  runState, cwd, herdr: herdrApi, output,
-                });
-              }
-              state = agentState(herdrApi.agentGet(agentName));
-            } else if (promptStalled) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
+          const delivered = deliverGeneratedPromptOnce({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+          });
+          if (!delivered.delivered) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
+              runState, cwd, herdr: herdrApi, output,
+            });
           }
+          state = delivered.state;
         }
       }
 
-      if (!reviewStep && !existsSync(handoffPath) && ['idle', 'done'].includes(state)) {
-        if (remLive) {
-          const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
-          state = agentState(herdrApi.agentGet(agentName));
-          const promptStalled = isPromptStalled(prompted);
-          if (!existsSync(handoffPath) && (promptStalled || ['idle', 'done'].includes(state))) {
-            if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-              if (!retryPromptSubmission(herdrApi, agentName)) {
-                return stop({
-                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                  runState, cwd, herdr: herdrApi, output,
-                });
-              }
-              state = agentState(herdrApi.agentGet(agentName));
-            } else if (appearsWorking(herdrApi, agentName)) {
-              if (!waitForWorkerSettlement(herdrApi, agentName)) {
-                return stop({
-                  issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                  runState, cwd, herdr: herdrApi, output,
-                });
-              }
-              state = agentState(herdrApi.agentGet(agentName));
-            } else if (promptStalled) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
+      if (
+        remLive
+        && !reviewStep
+        && !existsSync(handoffPath)
+        && ['idle', 'done'].includes(state)
+      ) {
+        if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+          if (!retryPromptSubmission(herdrApi, agentName)) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
           }
+          state = agentState(herdrApi.agentGet(agentName));
+        } else if (appearsWorking(herdrApi, agentName)) {
+          if (!waitForWorkerSettlement(herdrApi, agentName)) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
         }
       }
       if (!reviewStep && !existsSync(handoffPath) && state === 'working') {
@@ -2387,7 +2428,7 @@ export function runExecute({
         });
       }
 
-      let state = agentState(herdrApi.agentGet(agentName));
+      let state = reviewStep ? agentState(herdrApi.agentGet(agentName)) : null;
       let handoffResult;
       if (reviewStep) {
         handoffResult = submitReviewProtocol({
@@ -2402,41 +2443,26 @@ export function runExecute({
         });
         if (handoffResult.handoff) state = 'done';
       } else {
-        const prompted = herdrApi.agentPrompt({ name: agentName, prompt });
-        const promptStalled = isPromptStalled(prompted);
-        if (
-          !fs.existsSync(handoffPath)
-          && (promptStalled || ['idle', 'done'].includes(state))
-        ) {
-          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
-            if (!retryPromptSubmission(herdrApi, agentName)) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (appearsWorking(herdrApi, agentName)) {
-            if (!waitForWorkerSettlement(herdrApi, agentName)) {
-              return stop({
-                issue, step, paneId, agentName, reasonCode: 'worker_failed',
-                runState, cwd, herdr: herdrApi, output,
-              });
-            }
-            state = agentState(herdrApi.agentGet(agentName));
-          } else if (promptStalled) {
-            return stop({
-              issue, step, paneId, agentName, reasonCode: 'agent_prompt_stalled',
-              runState, cwd, herdr: herdrApi, output,
-            });
-          }
+        const delivered = deliverGeneratedPromptOnce({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+        });
+        if (!delivered.delivered) {
+          return stop({
+            issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
+            runState, cwd, herdr: herdrApi, output,
+          });
         }
+        state = delivered.state;
         if (!fs.existsSync(handoffPath) && state === 'working') {
           herdrApi.agentWait({ name: agentName });
           state = agentState(herdrApi.agentGet(agentName));
         }
         runState = latestMatchingRunState(runState, cwd);
-
         handoffResult = observeExpectedHandoff(
           herdrApi, handoffPath, issue, step, agentName,
         );
