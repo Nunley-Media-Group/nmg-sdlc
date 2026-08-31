@@ -13,7 +13,7 @@ Automated orchestrator. Runs only in the main Herdr pane. Never edits product co
 
 ## Execution
 
-Trim `$ARGUMENTS`. Accept `--retain-worker` and `--recover-stale` at most once each among issue tokens; absent `--retain-worker` means the controller closes its owned worker panes on every terminal stop or cancellation. Decide whether issue tokens remain after removing both flags. With issue tokens, invoke `node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs" run` with every trimmed token. With no issue tokens, follow the packaged `# Select specified issues` section, then invoke `run` with the selected tokens plus each flag when present.
+Trim `$ARGUMENTS`. Accept `--retain-worker` and `--recover-stale` at most once each among issue tokens; absent `--retain-worker` means the controller closes its owned worker panes on every terminal stop or cancellation. Decide whether issue tokens remain after removing both flags. With issue tokens, invoke `node <plugin-root>/scripts/sdlc-execute.mjs run` with every trimmed token. With no issue tokens, follow the packaged `# Select specified issues` section, then invoke `run` with the selected tokens plus each flag when present.
 
 Pass stdout and stderr through unchanged. Exit with the controller exit code.
 
