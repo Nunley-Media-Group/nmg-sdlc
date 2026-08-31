@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.4] - 2026-08-31
+
+### Changed
+
+- Repair obsolete steering manifests during project upgrades (#314)
+
 ## [3.20.3] - 2026-08-31
 
 ### Changed

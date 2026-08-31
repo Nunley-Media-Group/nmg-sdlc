@@ -8,7 +8,8 @@ import {
   detectIssueDependencyUpgrade,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
-import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
+import { applySteeringPlan, createInitializePlan, steeringSourceDigest } from '../sdlc-steering.mjs';
+import { loadSteeringRuntime, projectPromptFragments } from '../../src/sdlc-steering-runtime.mjs';
 const temporaryRoots = [];
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
 
@@ -22,6 +23,56 @@ function write(root, relativePath, source) {
   const target = path.join(root, ...relativePath.split('/'));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, source);
+}
+
+async function makeObsoleteCurrentSteering(root, { unknownKey = false } = {}) {
+  await applySteeringPlan(root, createInitializePlan(root, {
+    snippets: [
+      {
+        id: 'project.product',
+        path: 'steering/snippets/project-product.md',
+        consumers: ['sdlc-write-spec'],
+        slot: 'body',
+        order: 500,
+        content: 'Keep product guidance.\n',
+      },
+      {
+        id: 'project.custom',
+        path: 'steering/snippets/project-custom.md',
+        consumers: ['worker:implement'],
+        slot: 'body',
+        order: 600,
+        content: 'Keep custom guidance.\n',
+      },
+    ],
+  }));
+  write(root, 'steering/extensions/custom.mjs', [
+    'export const extension = Object.freeze({',
+    '  schemaVersion: 1,',
+    '  id: "project.custom",',
+    '  providers: Object.freeze({ "project.custom-check": async (request) => ({ schemaVersion: 1, status: "passed", summary: "ok", identity: request.identity, evidence: [{ kind: "custom", summary: "ok", artifact: null }] }) }),',
+    '});',
+    '',
+  ].join('\n'));
+  const manifestPath = path.join(root, 'steering', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.extensions.push({
+    id: 'project.custom',
+    path: 'steering/extensions/custom.mjs',
+    providers: ['project.custom-check'],
+  });
+  manifest.validations.push({
+    id: 'custom.check',
+    provider: 'project.custom-check',
+    required: true,
+    when: { kind: 'always' },
+    config: {},
+  });
+  manifest.snippets[0].byteBound = 12000;
+  manifest.snippets[1].byteBound = 8000;
+  if (unknownKey) manifest.snippets[1].unexpected = true;
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { manifest, manifestPath };
 }
 
 afterEach(() => {
@@ -521,6 +572,88 @@ describe('official dependency upgrade reconciliation', () => {
       actionable: true,
     }));
     expect(report.items.some((item) => item.kind === 'already-current')).toBe(false);
+  });
+});
+
+describe('managed current steering repair', () => {
+  it('detects a manifest-only byteBound repair without mutating project files', async () => {
+    const root = makeRoot();
+    const { manifest, manifestPath } = await makeObsoleteCurrentSteering(root);
+    const before = {
+      manifest: fs.readFileSync(manifestPath, 'utf8'),
+      product: fs.readFileSync(path.join(root, 'steering/snippets/project-product.md'), 'utf8'),
+      custom: fs.readFileSync(path.join(root, 'steering/snippets/project-custom.md'), 'utf8'),
+      extension: fs.readFileSync(path.join(root, 'steering/extensions/custom.mjs'), 'utf8'),
+    };
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+
+    expect(item).toEqual(expect.objectContaining({
+      actionable: true,
+      plan: expect.objectContaining({
+        mode: 'update',
+        sourceDigest: steeringSourceDigest(root),
+        actions: [expect.objectContaining({ op: 'write', path: 'steering/manifest.json' })],
+      }),
+    }));
+    expect(item.plan.actions).toHaveLength(1);
+    const candidate = JSON.parse(item.plan.actions[0].content);
+    const expected = structuredClone(manifest);
+    for (const snippet of expected.snippets) delete snippet.byteBound;
+    expect(candidate).toEqual(expected);
+    expect({
+      manifest: fs.readFileSync(manifestPath, 'utf8'),
+      product: fs.readFileSync(path.join(root, 'steering/snippets/project-product.md'), 'utf8'),
+      custom: fs.readFileSync(path.join(root, 'steering/snippets/project-custom.md'), 'utf8'),
+      extension: fs.readFileSync(path.join(root, 'steering/extensions/custom.mjs'), 'utf8'),
+    }).toEqual(before);
+  });
+
+  it('applies the approved repair, preserves registrations and bodies, and restores runtime loading', async () => {
+    const root = makeRoot();
+    const { manifest, manifestPath } = await makeObsoleteCurrentSteering(root);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+    const repaired = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const expected = structuredClone(manifest);
+    for (const snippet of expected.snippets) delete snippet.byteBound;
+    expect(repaired).toEqual(expected);
+    expect(fs.readFileSync(path.join(root, 'steering/snippets/project-product.md'), 'utf8')).toBe('Keep product guidance.\n');
+    expect(fs.readFileSync(path.join(root, 'steering/snippets/project-custom.md'), 'utf8')).toBe('Keep custom guidance.\n');
+    const runtime = await loadSteeringRuntime(root);
+    expect(projectPromptFragments(runtime).map(({ id }) => id)).toEqual(['project.product', 'project.custom']);
+    const repeat = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false });
+    expect(repeat.items.some((candidate) => candidate.kind === 'steering-runtime')).toBe(false);
+  });
+
+  it('rejects additional unknown snippet fields without mutation', async () => {
+    const root = makeRoot();
+    const { manifestPath } = await makeObsoleteCurrentSteering(root, { unknownKey: true });
+    const before = fs.readFileSync(manifestPath, 'utf8');
+
+    expect(() => detectUpgrade(root, {
+      run: noNetworkRun,
+      includeIssueDependencies: false,
+    })).toThrow('steering_manifest_unknown_key');
+    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_unknown_key' });
+    expect(fs.readFileSync(manifestPath, 'utf8')).toBe(before);
+  });
+
+  it('rejects an approved repair when its complete steering digest becomes stale', async () => {
+    const root = makeRoot();
+    const { manifestPath } = await makeObsoleteCurrentSteering(root);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find((candidate) => candidate.kind === 'steering-runtime');
+    const approvedManifest = fs.readFileSync(manifestPath, 'utf8');
+    write(root, 'steering/snippets/project-custom.md', 'Changed after approval.\n');
+
+    await expect(applySteeringPlan(root, item.plan)).rejects.toMatchObject({ reasonCode: 'steering_plan_stale' });
+    expect(fs.readFileSync(manifestPath, 'utf8')).toBe(approvedManifest);
   });
 });
 

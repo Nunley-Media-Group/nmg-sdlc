@@ -27,7 +27,7 @@ import {
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
-import { canonicalSnippetRecord, createInitializePlan } from './sdlc-steering.mjs';
+import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -663,12 +663,49 @@ export function applyIssueDependencyUpgrade(item, { cwd = process.cwd(), run = d
   return { id: item.id, status: 'applied', applied };
 }
 
+function detectCurrentSteeringManifestRepair(root, manifestPath) {
+  const manifest = JSON.parse(safeRead(manifestPath));
+  if (!Array.isArray(manifest?.snippets)
+    || !manifest.snippets.some((snippet) => snippet && typeof snippet === 'object' && Object.hasOwn(snippet, 'byteBound'))) {
+    return null;
+  }
+  const snippets = manifest.snippets.map((snippet) => {
+    if (!snippet || typeof snippet !== 'object' || Array.isArray(snippet)) {
+      return canonicalSnippetRecord(snippet);
+    }
+    const candidate = { ...snippet };
+    delete candidate.byteBound;
+    return canonicalSnippetRecord(candidate);
+  });
+  const sourceDigest = steeringSourceDigest(root);
+  const repairedManifest = { ...manifest, snippets };
+  const plan = {
+    schemaVersion: 1,
+    mode: 'update',
+    sourceDigest,
+    actions: [{
+      op: 'write',
+      path: 'steering/manifest.json',
+      content: `${JSON.stringify(repairedManifest, null, 2)}\n`,
+    }],
+  };
+  return {
+    id: `steering-runtime:${sourceDigest}`,
+    kind: 'steering-runtime',
+    description: 'Remove obsolete byteBound fields from the current steering manifest.',
+    actionable: true,
+    plan,
+  };
+}
+
 function detectSteeringRuntime(root) {
   const legacy = ['product', 'tech', 'structure']
     .map((role) => ({ role, path: path.join(root, 'steering', `${role}.md`) }))
     .filter(({ path: target }) => isFile(target));
   const manifest = path.join(root, 'steering', 'manifest.json');
-  if (legacy.length === 0 && isFile(manifest)) return null;
+  if (legacy.length === 0 && isFile(manifest)) {
+    return detectCurrentSteeringManifestRepair(root, manifest);
+  }
   if (legacy.length === 0) return null;
   const consumersByRole = {
     product: ['sdlc-draft-issue', 'sdlc-write-spec'],
