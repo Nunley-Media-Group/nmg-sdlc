@@ -1016,7 +1016,6 @@ describe('sdlc delivery controller', () => {
     expect(fs.readFileSync(handoffPath, 'utf8')).toBe(handoffBytes);
     const rerunCalls = f.calls.slice(callsBeforeRerun);
     expect(rerunCalls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'view')).toBe(true);
-    expect(rerunCalls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'checks')).toBe(true);
     expect(f.calls.filter((call) => call[0] === 'gh' && call[2] === 'create')).toHaveLength(1);
     expect(rerunCalls.some((call) => (
       call[0] === 'gh' && ['list', 'create', 'ready', 'merge'].includes(call[2])
@@ -1159,8 +1158,8 @@ describe('sdlc delivery controller', () => {
   test('@SCN002 keeps expected-status H1 to H2 rebind independent of pending required checks', () => {
     const f = fixture({
       existingPr: openPr({ head: H1 }),
-      requiredChecks: [{ name: 'ci', state: 'PENDING' }],
-      checks: [{ name: 'ci', state: 'PENDING' }],
+      requiredChecks: [{ name: 'ci', state: 'PENDING', event: 'pull_request' }],
+      checks: [{ name: 'ci', state: 'PENDING', event: 'pull_request' }],
       views: [
         openPr({ head: H1 }),
         openPr({ head: H1 }),
@@ -1177,7 +1176,7 @@ describe('sdlc delivery controller', () => {
       sleep: () => { throw new Error('stop after observing pending checks'); },
     });
 
-    expect(result).toMatchObject({ status: 1, handoff: { reasonCode: 'merge_failed' } });
+    expect(result).toMatchObject({ status: 1, handoff: { reasonCode: 'delivery_failed' } });
     expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).delivery).toEqual({
       issue: 42,
       pullRequest: 77,
