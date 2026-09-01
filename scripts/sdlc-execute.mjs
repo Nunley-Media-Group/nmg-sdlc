@@ -2536,6 +2536,7 @@ export function runExecute({
         runState.currentStep = null;
         runState.failed = null;
         runState.remediation = null;
+        runState.delivery = null;
         persistRunState(runState, cwd);
         continue;
       }
@@ -3080,6 +3081,8 @@ export function runExecute({
       persistRunState(runState, cwd);
       return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };
     }
+    runState.delivery = null;
+    persistRunState(runState, cwd);
   }
 
   runState.currentIssue = null;

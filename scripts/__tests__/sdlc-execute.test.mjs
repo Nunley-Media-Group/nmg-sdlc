@@ -5058,6 +5058,16 @@ describe('runExecute controller', () => {
     fs.mkdirSync(laterSpec, { recursive: true });
     writeApproved(laterSpec, 43);
     configureFailedRetainedVerifyWorker(fixture, { issues: [42, 43] });
+    const seededRunPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const seededRun = JSON.parse(fs.readFileSync(seededRunPath, 'utf8'));
+    seededRun.delivery = {
+      issue: 42,
+      pullRequest: 77,
+      expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'complete',
+      reconciliation: null,
+    };
+    fs.writeFileSync(seededRunPath, `${JSON.stringify(seededRun, null, 2)}\n`);
 
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
@@ -5080,6 +5090,7 @@ describe('runExecute controller', () => {
     ]);
     expect(persisted.currentIssue).toBe(43);
     expect(persisted.completed['43']).toEqual(['start', 'implement']);
+    expect(persisted.delivery).toBeNull();
   });
   it('restores a later issue branch after finalizing an earlier delivered issue', () => {
     const fixture = makeControllerFixture({ labelIssues: [42, 43] });
