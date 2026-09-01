@@ -1362,12 +1362,49 @@ function workerOwnership({ runState, issue, step, agentName, paneId, cwd, run })
   };
 }
 
-function matchingWorkerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
+function matchingWorkerOwnership({
+  runState,
+  issue,
+  step,
+  agentName,
+  paneId,
+  cwd,
+  run,
+  allowCompletedHeadAdvance = false,
+}) {
   const expected = workerOwnership({ runState, issue, step, agentName, paneId, cwd, run });
   const recorded = runState.workers?.[agentName];
-  return expected
-    && recorded
-    && Object.keys(expected).every((key) => recorded[key] === expected[key]);
+  if (!expected || !recorded) return null;
+  if (!Object.keys(expected).every((key) => (
+    key === 'head' || recorded[key] === expected[key]
+  ))) {
+    return null;
+  }
+  if (recorded.head === expected.head) return expected;
+  if (!allowCompletedHeadAdvance) return null;
+  try {
+    return commandSucceeded(run('git', [
+      'merge-base', '--is-ancestor', recorded.head, expected.head,
+    ], { cwd })) ? expected : null;
+  } catch {
+    return null;
+  }
+}
+
+function validatedPassedWorkerHandoff(cwd, issue, step) {
+  const handoff = readExpectedHandoff(
+    join(cwd, HANDOFF_DIR, `${issue}-${step}.json`),
+    issue,
+    step,
+  ).handoff;
+  if (!handoff || handoff.status !== 'passed' || handoff.intervention) return null;
+  if (
+    (step === 'review1' || step === 'review2')
+    && !validReviewArtifact(cwd, issue, step, handoff)
+  ) {
+    return null;
+  }
+  return handoff;
 }
 
 function stopResult({
@@ -1806,16 +1843,27 @@ export function runExecute({
         || worker.step !== runState.currentStep
         || worker.step === 'review1'
         || worker.step === 'review2'
-        || !matchingWorkerOwnership({
-          runState,
-          issue: worker.issue,
-          step: worker.step,
-          agentName: worker.name,
-          paneId: worker.paneId,
-          cwd,
-          run,
-        })
       ) {
+        continue;
+      }
+      const passedHandoff = validatedPassedWorkerHandoff(
+        cwd, worker.issue, worker.step,
+      );
+      const checkout = matchingWorkerOwnership({
+        runState,
+        issue: worker.issue,
+        step: worker.step,
+        agentName: worker.name,
+        paneId: worker.paneId,
+        cwd,
+        run,
+        allowCompletedHeadAdvance: Boolean(passedHandoff),
+      });
+      if (!checkout) continue;
+      if (passedHandoff) {
+        Object.assign(worker, checkout, { promptDelivery: 'delivered' });
+        runState.failed = null;
+        persistRunState(runState, cwd);
         continue;
       }
       let prompt;
@@ -2303,14 +2351,24 @@ export function runExecute({
     if (live) {
       const agentName = String(live.name);
       const paneId = live.pane_id ?? live.paneId ?? 'unknown';
-      if (!matchingWorkerOwnership({
-        runState, issue, step, agentName, paneId, cwd, run,
-      })) {
+      const passedHandoff = validatedPassedWorkerHandoff(cwd, issue, step);
+      const checkout = matchingWorkerOwnership({
+        runState,
+        issue,
+        step,
+        agentName,
+        paneId,
+        cwd,
+        run,
+        allowCompletedHeadAdvance: Boolean(passedHandoff),
+      });
+      if (!checkout) {
         return stop({
           issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      if (passedHandoff) Object.assign(runState.workers[agentName], checkout);
     }
 
     const liveRem = step

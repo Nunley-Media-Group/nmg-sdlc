@@ -4921,6 +4921,107 @@ describe('runExecute controller', () => {
     expect(persisted.currentStep).toBe('implement');
   });
 
+  it.each([
+    ['accepts an ancestor', true],
+    ['rejects a divergent head', false],
+  ])('%s for a retained completed implementation', (_label, isAncestor) => {
+    const fixture = makeControllerFixture({ labelIssues: [] });
+    const recordedHead = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const currentHead = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    seedRun(fixture.cwd, {
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: {
+        issue: 42,
+        step: 'implement',
+        reasonCode: 'prompt_pending',
+        intervention: true,
+      },
+      workers: {
+        's42-implement': {
+          name: 's42-implement',
+          paneId: 'kept-implement-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'implement',
+          branch: '42-ship-it',
+          head: recordedHead,
+          promptDelivery: 'pending',
+        },
+      },
+    });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(handoffDir, '42-implement.json'),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 42,
+        step: 'implement',
+        status: 'passed',
+        intervention: false,
+        summary: 'Implementation committed at the advanced head',
+        artifacts: ['scripts/sdlc-execute.mjs'],
+        next: 'review1',
+        reasonCode: null,
+      })}\n`,
+    );
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'kept-implement-pane',
+      state: 'idle',
+    }];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const ancestryChecks = [];
+    const run = (command, args, options) => {
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${currentHead}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base') {
+        ancestryChecks.push(args);
+        return { status: isAncestor ? 0 : 1, stdout: '', stderr: '' };
+      }
+      return fixture.run(command, args, options);
+    };
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(ancestryChecks).toContainEqual([
+      'merge-base', '--is-ancestor', recordedHead, currentHead,
+    ]);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-implement')).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    if (isAncestor) {
+      expect(result).toEqual({
+        status: 2,
+        stdout: '#42 has no spec-created label\n',
+        stderr: '',
+      });
+      expect(fixture.closed).toEqual(['kept-implement-pane']);
+      expect(persisted.completed['42']).toEqual(['start', 'implement']);
+      expect(persisted.currentStep).toBe('review1');
+      expect(persisted.failed).toBeNull();
+    } else {
+      expect(result.status).toBe(1);
+      expect(fixture.closed).toEqual([]);
+      expect(persisted.completed['42']).toEqual(['start']);
+      expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
+      expect(persisted.workers['s42-implement'].promptDelivery).toBe('pending');
+    }
+  });
+
   it('submits a pasted prompt retained from an earlier run', () => {
     const fixture = makeControllerFixture();
     configurePassedRetainedStartWorker(fixture, { result: { agent: { agent_status: 'idle' } } });
