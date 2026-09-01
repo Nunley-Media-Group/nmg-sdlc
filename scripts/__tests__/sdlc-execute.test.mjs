@@ -23,6 +23,7 @@ import {
   cleanupCompletedRun,
   runExecute,
   listSpecifiedIssues,
+  defaultHerdr,
 } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
@@ -1022,6 +1023,7 @@ describe('runExecute controller', () => {
     }
     const calls = [];
     const starts = [];
+    const splits = [];
     const closed = [];
     const notifications = [];
     const sentKeys = [];
@@ -1131,8 +1133,9 @@ describe('runExecute controller', () => {
     const herdr = {
       integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
       paneLayout: () => ({ result: { width: paneWidth, height: 40 } }),
-      paneSplit: ({ direction }) => {
-        expect(direction).toBe(paneWidth >= 40 ? 'right' : 'down');
+      paneSplit: (input) => {
+        expect(input.direction).toBe(paneWidth >= 40 ? 'right' : 'down');
+        splits.push(input);
         paneSequence += 1;
         return { result: { pane: { pane_id: `pane-${paneSequence}` } } };
       },
@@ -1257,7 +1260,7 @@ describe('runExecute controller', () => {
       notificationShow: (notice) => notifications.push(notice),
     };
     return {
-      cwd, calls, starts, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
+      cwd, calls, starts, splits, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
     };
   }
 
@@ -2435,9 +2438,94 @@ describe('runExecute controller', () => {
     }
   });
 
+  it('passes only the exact smoke queue to a newly split verify pane', () => {
+    const fixture = makeControllerFixture();
+    const queue = '#39, 40';
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: queue, UNRELATED_SECRET: 'do-not-copy' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits).toHaveLength(VALID_STEPS.length);
+    expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
+      direction: 'right',
+      cwd: fixture.cwd,
+      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+    });
+    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
+  });
+
+  it('omits pane environment when the smoke queue is missing', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits.every((split) => !Object.hasOwn(split, 'environment'))).toBe(true);
+  });
+
+  it('passes pane environment through Herdr argv without shell composition', () => {
+    const calls = [];
+    const herdr = defaultHerdr((command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    }, '/controller');
+    const queue = '39,40; $(touch /tmp/never)';
+
+    herdr.paneSplit({
+      direction: 'down',
+      cwd: '/consumer',
+      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+    });
+
+    expect(calls).toEqual([{
+      command: 'herdr',
+      args: [
+        'pane', 'split', '--current', '--direction', 'down', '--cwd', '/consumer', '--no-focus',
+        '--env', `NMG_SDLC_SMOKE_ISSUES=${queue}`,
+      ],
+      options: { cwd: '/controller' },
+    }]);
+  });
+
+  it('does not replace the environment of a retained verify worker', () => {
+    const fixture = makeControllerFixture();
+    configureFailedRetainedVerifyWorker(fixture, { state: 'working' });
+    fixture.herdr.paneSplit = () => {
+      throw new Error('retained verify worker must not be split again');
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: '99,100' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('closes a remediable failed verify pane then starts one rem session', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const queue = '#39, 40';
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: queue },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
     const verifyStarts = fixture.starts.filter(({ name }) => name === 's42-verify');
     const remStarts = fixture.starts.filter(({ name }) => name === 'r42-verify');
 
@@ -2445,6 +2533,18 @@ describe('runExecute controller', () => {
     expect(verifyStarts).toHaveLength(1);
     expect(remStarts).toHaveLength(1);
     expect(fixture.events.indexOf('close:pane-7')).toBeLessThan(fixture.events.indexOf('start:r42-verify'));
+    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toEqual([
+      {
+        direction: 'right',
+        cwd: fixture.cwd,
+        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      },
+      {
+        direction: 'right',
+        cwd: fixture.cwd,
+        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      },
+    ]);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.notifications).toEqual([]);
     expect(fixture.prompts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);

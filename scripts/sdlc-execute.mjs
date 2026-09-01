@@ -76,6 +76,17 @@ const STEP_SKILL = {
 const STEP_EXTRA_WORKFLOWS = {
   implement: ['simplify'],
 };
+const VERIFY_PANE_ENV_KEYS = Object.freeze(['NMG_SDLC_SMOKE_ISSUES']);
+
+function verifyPaneEnvironment(step, env) {
+  if (step !== 'verify') return null;
+  const environment = {};
+  for (const key of VERIFY_PANE_ENV_KEYS) {
+    if (typeof env?.[key] === 'string') environment[key] = env[key];
+  }
+  return Object.keys(environment).length > 0 ? environment : null;
+}
+
 
 
 function usageError() {
@@ -909,15 +920,18 @@ function waitForAgentObservationRetry() {
   Atomics.wait(signal, 0, 0, 1_000);
 }
 
-function defaultHerdr(run, cwd) {
+export function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
     observationPause: waitForAgentObservationRetry,
     promptRetryPause: waitForAgentObservationRetry,
     integrationStatus: () => invoke(['integration', 'status']),
     paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
-    paneSplit: ({ direction, cwd: splitCwd }) => invoke([
+    paneSplit: ({ direction, cwd: splitCwd, environment }) => invoke([
       'pane', 'split', '--current', '--direction', direction, '--cwd', splitCwd, '--no-focus',
+      ...Object.entries(environment ?? {}).flatMap(([key, value]) => [
+        '--env', `${key}=${value}`,
+      ]),
     ]),
     paneClose: (paneId) => invoke(['pane', 'close', paneId]),
     agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId]),
@@ -2048,7 +2062,12 @@ export function runExecute({
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
         const { width, height } = paneDimensions(layout);
         const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-        const split = herdrApi.paneSplit({ direction, cwd });
+        const environment = verifyPaneEnvironment(step, env);
+        const split = herdrApi.paneSplit({
+          direction,
+          cwd,
+          ...(environment ? { environment } : {}),
+        });
         paneId = splitPaneId(split);
         if (!paneId || !commandSucceeded(split)) {
           return stop({
@@ -2689,7 +2708,12 @@ export function runExecute({
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);
       const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-      const split = herdrApi.paneSplit({ direction, cwd });
+      const environment = verifyPaneEnvironment(step, env);
+      const split = herdrApi.paneSplit({
+        direction,
+        cwd,
+        ...(environment ? { environment } : {}),
+      });
       const paneId = splitPaneId(split);
       const agentName = `s${issue}-${step}`;
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);

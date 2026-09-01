@@ -11,7 +11,7 @@
 
 Keep `repository.nmg-sdlc-smoke` registered as an always-required provider. Replace `steering/extensions/nmg-sdlc-smoke.mjs` so it fail-closes on policy misses, clones the allowlisted consumer repo without `--depth`, records each queued issue's closing-PR baseline, and spawns exactly one child running this checkout's `scripts/sdlc-execute.mjs run` with the invocation queue. Pass only when this invocation's `.omp/sdlc/smoke-deliveries/<issue>.json` matches a new GitHub `MERGED` closing PR (not in the pre-run baseline) whose `headRefOid` equals the recorded pre-merge SHA, and the issue is `CLOSED`. Status JSON and historical merged PRs are ignored as pass predicates.
 
-The nmg-sdlc verify worker remains observer/invoker: it is not `runExecute` in-process. Re-entry is blocked with `NMG_SDLC_SMOKE_OWNED=1`. Local clones are deleted only on `passed`. Do not change exact-head merge semantics. When `NMG_SDLC_SMOKE_OWNED=1`, `scripts/sdlc-deliver.mjs` writes the smoke-delivery JSON immediately before `gh pr merge`. Add `createSmokeProvider` for injectable `runCommand` / `mkdtempSync` / `readFileSync` / `rmSync` / `env`.
+The nmg-sdlc verify worker remains observer/invoker: it is not `runExecute` in-process. The execute controller passes `NMG_SDLC_SMOKE_ISSUES` to each newly split verify worker with Herdr's explicit pane environment option; no other controller environment key is copied, non-verify workers receive no queue, and retained verify workers keep the environment from their original pane creation. Re-entry is blocked with `NMG_SDLC_SMOKE_OWNED=1`. Local clones are deleted only on `passed`. Do not change exact-head merge semantics. When `NMG_SDLC_SMOKE_OWNED=1`, `scripts/sdlc-deliver.mjs` writes the smoke-delivery JSON immediately before `gh pr merge`. Add `createSmokeProvider` for injectable `runCommand` / `mkdtempSync` / `readFileSync` / `rmSync` / `env`.
 
 ---
 
@@ -20,9 +20,12 @@ The nmg-sdlc verify worker remains observer/invoker: it is not `runExecute` in-p
 ### Component Diagram
 
 ```
+execute controller
+        │ newly split verify pane only: herdr pane split --env
+        │ NMG_SDLC_SMOKE_ISSUES=<exact controller value>
+        ▼
 verify-code → runSteeringValidations
         │ request { config.issuesEnv, identity, projectRoot, signal }
-        │ env NMG_SDLC_SMOKE_ISSUES
         ▼
 steering/extensions/nmg-sdlc-smoke.mjs   (invoker / observer)
         │ preflight: issues config/env, nested env, Herdr, gh auth
@@ -44,6 +47,7 @@ read delivery JSON + gh graphql closing PRs
 ### Data Flow
 
 ```
+0. When execute creates a new verify worker pane, copy only an existing `NMG_SDLC_SMOKE_ISSUES` value through Herdr's `pane split --env KEY=VALUE` argument pair. Preserve the value byte-for-byte, including issue order. Omit the option when the controller lacks the key; do not add it to non-verify panes or recreate retained verify panes.
 1. Core calls project.nmg-sdlc-smoke with immutable request (spec 214 envelope).
 2. Resolve issues from config.issues, or if that key is absent, from env[config.issuesEnv].
 3. Invalid/missing queue → failed, no clone.
@@ -302,7 +306,7 @@ None. Temp dirs under `os.tmpdir()`. Smoke-delivery JSON is local clone evidence
 
 ## State Management
 
-No app state. Process env `NMG_SDLC_SMOKE_OWNED=1` on the execute child only. Provider reads that key from injected `env` to refuse re-entry. Queue comes from `NMG_SDLC_SMOKE_ISSUES` in production.
+No app state. The controller transports only invocation-scoped `NMG_SDLC_SMOKE_ISSUES` to newly split verify panes through Herdr's explicit pane environment support. It does not store the queue in `.omp/sdlc/run.json`, tracked files, or controller output. Retained verify workers keep their original pane environment. Process env `NMG_SDLC_SMOKE_OWNED=1` remains on the smoke execute child only; the provider reads that key from injected `env` to refuse re-entry.
 
 ---
 
@@ -346,6 +350,7 @@ None.
 
 | Layer | Type | Coverage |
 |-------|------|----------|
+| Execute controller | Jest with injected Herdr adapter | Exact queue reaches only new verify pane creation; missing queue omitted; retained pane unchanged; argv stays shell-free |
 | Provider | Jest unit with injected `runCommand`/`mkdtempSync`/`readFileSync`/`rmSync`/`env` | scripts/__tests__/nmg-sdlc-smoke.test.mjs |
 | Feature | Gherkin @SCN001–@SCN006 | this package; Jest is executable evidence |
 | Execute merge flags | unchanged except smoke-delivery JSON write | |
