@@ -414,9 +414,6 @@ function workerPresence(herdr, agentName, paneId) {
   }
 }
 
-function workerStillPresent(herdr, agentName, paneId) {
-  return workerPresence(herdr, agentName, paneId) === 'present';
-}
 
 function observeReviewHandoff(herdr, handoffPath, issue, step, agentName, paneId, cwd) {
   for (;;) {
@@ -1143,7 +1140,7 @@ function deliverGeneratedPromptOnce({
 
   const deliveryIsProven = (delivery) => {
     if (!delivery.delivered) return false;
-    if (delivery.proven || workerStillPresent(herdr, agentName, paneId)) return true;
+    if (delivery.proven || workerPresence(herdr, agentName, paneId) === 'present') return true;
     if (existsSync(handoffPath) || promptDeliveryGuaranteed(delivery.prompted)) return true;
     try {
       return hasPastedWorkerPrompt(herdr, agentName, prompt)
@@ -1155,16 +1152,23 @@ function deliverGeneratedPromptOnce({
 
   let restarted = false;
   const restartGoneWorker = () => {
-    if (workerStillPresent(herdr, agentName, paneId)) return null;
+    const presence = workerPresence(herdr, agentName, paneId);
+    if (presence === 'present') return null;
+    if (presence === 'unknown') {
+      return { delivered: false, reasonCode: 'prompt_pending' };
+    }
     if (restarted) return { delivered: false, reasonCode: 'process_lost' };
     restarted = true;
     waitForAgentStartRetry();
     if (!commandSucceeded(start())) {
       return { delivered: false, reasonCode: 'agent_start_failed' };
     }
-    return workerStillPresent(herdr, agentName, paneId)
-      ? null
-      : { delivered: false, reasonCode: 'process_lost' };
+    const restartedPresence = workerPresence(herdr, agentName, paneId);
+    if (restartedPresence === 'present') return null;
+    return {
+      delivered: false,
+      reasonCode: restartedPresence === 'unknown' ? 'prompt_pending' : 'process_lost',
+    };
   };
 
   const prePromptFailure = restartGoneWorker();
@@ -1172,7 +1176,10 @@ function deliverGeneratedPromptOnce({
 
   let delivery = dispatch();
   if (delivery.reasonCode || deliveryIsProven(delivery)) return delivery;
-  if (!delivery.delivered && workerStillPresent(herdr, agentName, paneId)) {
+  if (
+    !delivery.delivered
+    && workerPresence(herdr, agentName, paneId) !== 'absent'
+  ) {
     return { delivered: false, reasonCode: 'prompt_pending' };
   }
 
@@ -1181,9 +1188,9 @@ function deliverGeneratedPromptOnce({
   delivery = dispatch();
   if (delivery.reasonCode || deliveryIsProven(delivery)) return delivery;
   if (delivery.delivered) return { delivered: false, reasonCode: 'process_lost' };
-  return workerStillPresent(herdr, agentName, paneId)
-    ? { delivered: false, reasonCode: 'prompt_pending' }
-    : { delivered: false, reasonCode: 'process_lost' };
+  return workerPresence(herdr, agentName, paneId) === 'absent'
+    ? { delivered: false, reasonCode: 'process_lost' }
+    : { delivered: false, reasonCode: 'prompt_pending' };
 }
 
 function repositoryDefaultBranch(cwd, run) {

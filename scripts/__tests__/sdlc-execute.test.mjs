@@ -3989,6 +3989,37 @@ describe('runExecute controller', () => {
     });
   });
 
+  it.each([
+    ['failed listing', { status: 1, stderr: 'temporary Herdr failure' }],
+    ['unparseable listing', { status: 0, stdout: 'not-json' }],
+  ])('retains an unproven worker when presence has a %s', (_name, listing) => {
+    const fixture = makeControllerFixture();
+    fixture.herdr.listAgents = () => listing;
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(0);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'prompt_pending',
+      intervention: true,
+    });
+  });
+
   it('restarts a worker that vanished before dispatch and prompts only the replacement', () => {
     const fixture = makeControllerFixture();
     fixture.herdr.listAgents = () => fixture.starts.length > 1
