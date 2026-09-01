@@ -73,40 +73,33 @@ Algorithm:
 
 1. If the worker is gone before the first prompt: `waitForAgentStartRetry()` then `start()` once. If that start command fails, return `{ delivered: false, reasonCode: 'agent_start_failed' }`. If the worker is still gone after a successful retry start, return `{ delivered: false, reasonCode: 'process_lost' }`. Do not call `agentPrompt` on a gone session. Do not use `missing_handoff`.
 2. If the worker is live, call `herdr.agentPrompt({ name: agentName, prompt })` exactly once. This is the only generated prompt for this invocation on this live session.
-3. If the worker is gone after that first prompt and `hasPastedWorkerPrompt` is false and `appearsWorking` is false: treat as pre-prompt death. Reuse the same one-shot start retry from step 1 if it has not already been used in this call; then call `agentPrompt` exactly once on the new live session. If the retry start is unavailable or fails, return `{ delivered: false, reasonCode: 'agent_start_failed' }` or `'process_lost'` as in step 1. Never send a second generated prompt to a session that already received this invocation's prompt.
-4. After a prompt call on a live session, keep the existing stall recovery only: if the handoff file is still missing and (`isPromptStalled(prompted)` or current state is idle/done): `hasPastedWorkerPrompt` → `retryPromptSubmission`; else `appearsWorking` → `waitForWorkerSettlement`; else stalled → `{ delivered: false, reasonCode: 'agent_prompt_stalled' }`. `retryPromptSubmission` and `waitForWorkerSettlement` are not generated prompts.
-5. Re-read state with `agentState(herdr.agentGet(agentName))` after the prompt and any recovery. Return `{ delivered: true, state }`.
+3. Once that submission is accepted, persist the worker as `promptDelivery: "activating"` with `promptDeliveryVersion: 2` before entering `awaitInitialPromptActivation`.
+4. Bounded activation treats only working, blocked, or a valid expected handoff as proof. Proof persists `delivered`. Exhaustion persists `pending` and stops as retained `prompt_pending`; idle/done alone never reaches settlement or close.
+5. On startup, `pending` may re-enter one-shot dispatch, `activating` re-enters only bounded activation, and versioned `delivered` proceeds to normal settlement. Unversioned legacy `delivered` migrates to `activating` because the old checkpoint cannot prove whether activation completed.
 
-Callers: if `delivered === false`, `stopResult` with the returned `reasonCode` (never `missing_handoff` for pre-prompt death). If `delivered === true`, then `observeExpectedHandoff` as today. After proven delivery, missing handoff is still `missing_handoff` and `stopResult` still closes the owned pane unless `parsedArgs.retainWorker`.
+The same persisted state machine wraps standard, review, and remediation submission. Review prompt content, review artifact validation, and positive-visibility-only Enter recovery remain unchanged.
+
+Callers may invoke `observeExpectedHandoff` or `observeReviewHandoff` only after the activation helper has persisted `delivered`. A missing handoff after that proof remains `missing_handoff`; before proof it remains retained `prompt_pending`.
 
 The existing command-failure start retry (`!commandSucceeded(started)` → `waitForAgentStartRetry` → start again → `agent_start_failed`) stays immediately after the first `agentStart` and before ownership persist. `deliverGeneratedPromptOnce` covers the distinct case where start already succeeded and the session is gone before the first prompt.
 
 ### Fresh main worker (`s<N>-<step>`)
 
-Replace the non-review block that currently samples state then calls `agentPrompt` (~2390, 2404–2437) with:
-
-- keep review branch on `submitReviewProtocol`
-- non-review: `const delivered = deliverGeneratedPromptOnce({ herdr: herdrApi, agentName, paneId, prompt, start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }) })`
-- failed delivery → `stop` with `delivered.reasonCode`
-- success → set `state = delivered.state`, then existing `latestMatchingRunState` + `observeExpectedHandoff`
-
-Do not sample idle/done before the prompt and use that pre-prompt state as the stall predicate.
+Create ownership with versioned `pending`. After the one accepted standard or review prompt, `awaitPersistedPromptActivation` atomically advances `pending → activating`, persists, and runs the bounded activation guard. It advances `activating → delivered` only on proof.
 
 ### Fresh rem worker (`r<N>-<step>`)
 
-Same replacement in the `else` (no `remLive`) non-review branch after successful rem `agentStart`.
+Use the same versioned state transitions for standard and review remediation workers. Activation exhaustion persists `pending` before returning `prompt_pending`.
 
-### Live rem resume
+### Activating resume
 
-Delete the `if (remLive) { herdrApi.agentPrompt(...) ... }` block under `if (!reviewStep && !existsSync(handoffPath) && ['idle', 'done'].includes(state))`. After that condition, use the same recovery as retained `s<N>-<step>` resume (~2176–2202): if handoff missing, `hasPastedWorkerPrompt` → `retryPromptSubmission`; else `appearsWorking` → `waitForWorkerSettlement`; never `agentPrompt`. Then observe as today.
+Before retained-worker settlement, scan the current owned worker. For `activating`, validate ownership and re-enter `awaitInitialPromptActivation` without generating or submitting a prompt. If activation succeeds, persist `delivered` and continue the existing standard/review/remediation observation path. If it exhausts, persist `pending`, retain the pane, and stop with `prompt_pending`.
 
-### Retained `s<N>-<step>` resume
+Track review workers resumed through this guard for the invocation so the retained review path observes evidence without invoking `submitReviewProtocol` again.
 
-Leave the non-review missing-handoff recovery at ~2176–2202 unchanged: no generated `agentPrompt`. That already satisfies FR3 for matching retained live workers.
+### State validation and migration
 
-### Review
-
-Do not edit `submitReviewProtocol`, review resume, or review rem protocol prompts.
+Checkpoint writes accept only `pending`, `activating`, and `delivered`. Version 2 identifies checkpoints written by the activation-safe state machine. On startup, unversioned `pending` is versioned in place and unversioned `delivered` migrates to versioned `activating`; missing delivery state remains legacy unknown and is never interpreted as permission to re-prompt.
 
 ---
 

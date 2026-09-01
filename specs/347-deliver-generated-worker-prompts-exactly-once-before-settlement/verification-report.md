@@ -11,9 +11,9 @@ The reproduced failure was OMP's interactive large-paste menu, not Herdr command
 
 The controller now writes an OMP overlay at `.omp/sdlc/omp-controller.yml` with `paste.largeMenuThreshold: 0` and starts every newly owned OMP worker with native arguments `-- --config <overlay>`. This disables only the interactive choice menu for controller-owned workers; large prompts still use OMP's paste attachment path. Prompt delivery remains one nonblocking `herdr agent prompt <name> <exact-canonical-prompt>` invocation. No pane text or routine Enter delivery was added.
 
-Canonical worker prompts are trimmed at their source boundary so OMP's submission normalization preserves the exact generated content in the user record. The controller still preserves the approved one-shot restart for proven pre-prompt process loss, boundedly ignores stale `idle` or `done` observations after successful submission, and retains unproven delivery as `prompt_pending` without observing, settling, or closing the worker.
+Canonical worker prompts remain trimmed at their source boundary so OMP's submission normalization preserves exact generated content. After one accepted standard, review, or remediation submission, the controller now persists versioned `activating` before bounded activation. Only working, blocked, or a valid expected handoff advances the worker to `delivered`. Activation exhaustion writes `pending` and retains the pane as `prompt_pending`.
 
-Enter remains recovery-only. The controller sends Enter only after `agentPrompt` reports a stall and the exact prompt is positively visible in agent detection output. Successful `agentPrompt` delivery never triggers Enter, and no recovery path retypes the prompt. The controller-owned review protocol remains intact and uses the same transport; matching retained delivered workers remain unprompted.
+On restart, `activating` re-enters the same bounded activation guard without invoking `agentPrompt`. Unversioned legacy `delivered` migrates to versioned `activating` because the old checkpoint cannot prove whether activation completed. Checkpoint writes reject unsupported delivery states. Enter remains positive-visibility-only recovery; the exact-prompt large-paste overlay and one-shot pre-prompt process-loss retry remain unchanged.
 
 ## Deterministic Evidence
 
@@ -23,9 +23,9 @@ Command:
 cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs
 ```
 
-Result: exit 0; 1 suite passed; 229/229 tests passed.
+Result: exit 0; 1 suite passed; 231/231 tests passed.
 
-The realistic regression generates the repository's issue #347 verify prompt, proves it exceeds OMP's 100-line interactive-menu threshold, proves it has no trailing submission whitespace, and asserts that the adapter first starts OMP with the controller overlay before passing that exact prompt as one `agentPrompt` argument without `--wait`. Existing delayed `idle → working` activation cases cover fresh standard, review, and remediation workers; each asserts exactly one prompt call, no Enter, valid completion, and no premature pane close. Additional cases assert one failed readiness dispatch, bounded `prompt_pending` retention, retained recovery, positive-visibility-only Enter recovery, and no duplicate prompt delivery.
+The standard, review, and remediation delayed `idle → working` regressions now inspect the persisted checkpoint and prove `activating` exists before activation, with exactly one prompt, no Enter, valid completion, and no premature close. A crash-boundary regression throws immediately after accepted submission, proves versioned `activating` and pane retention, then invokes the controller again and proves the interrupted step completes without a second prompt. Migration coverage proves unversioned `delivered` re-enters activation without re-prompting; validation rejects unsupported states; exhaustion remains versioned `pending` with `prompt_pending`.
 
 ## Bounded Real Herdr Harness
 
