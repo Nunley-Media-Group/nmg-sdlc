@@ -415,6 +415,124 @@ describe('startIssue controller', () => {
     expect(calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
+  it('recovers when issue development creates the remote branch but cannot check it out', () => {
+    const f = fixture({
+      developStatus: 1,
+      remoteBranchAfterDevelop: true,
+    });
+
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(2);
+    expect(f.calls).toContainEqual([
+      'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
+    ]);
+  });
+
+  it('fails closed when exact remote branch registration fails', () => {
+    const f = fixture({
+      remoteBranch: true,
+      remoteConfigStatus: 1,
+      checkedOutBranch: 'main',
+    });
+
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(handoff(f.cwd).reasonCode).toBe('branch_checkout_failed');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'checkout')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('reuses a remote issue branch from a single-branch clone', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-single-branch-'));
+    roots.push(root);
+    const remote = path.join(root, 'remote.git');
+    const seed = path.join(root, 'seed');
+    const cwd = path.join(root, 'clone');
+    fs.mkdirSync(seed);
+    runGit(root, ['init', '--bare', remote]);
+    runGit(seed, ['init', '-b', 'main']);
+    runGit(seed, ['config', 'user.name', 'Test']);
+    runGit(seed, ['config', 'user.email', 'test@example.com']);
+    fs.writeFileSync(path.join(seed, 'README.md'), 'main\n');
+    runGit(seed, ['add', 'README.md']);
+    runGit(seed, ['commit', '-m', 'main']);
+    runGit(seed, ['remote', 'add', 'origin', remote]);
+    runGit(seed, ['push', '-u', 'origin', 'main']);
+    runGit(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    runGit(seed, ['checkout', '-b', '42-ship-it']);
+    fs.writeFileSync(path.join(seed, 'spec.txt'), 'approved\n');
+    runGit(seed, ['add', 'spec.txt']);
+    runGit(seed, ['commit', '-m', 'spec']);
+    runGit(seed, ['push', '-u', 'origin', '42-ship-it']);
+    runGit(root, ['clone', '--single-branch', remote, cwd]);
+
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      if (command === 'git') return runGit(cwd, args);
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: 42,
+            title: 'Ship It!',
+            body: '',
+            labels: [],
+            state: args.includes('number,title,body,labels,state') ? 'OPEN' : 'open',
+          }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+        return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo') {
+        return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+        return { status: 0, stdout: '[[]]', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && /^repos\/nmg\/repo\/issues\/42$/.test(args[1] || '')) {
+        return {
+          status: 0,
+          stdout: '{"id":4200,"number":42,"state":"open","title":"Ship It!","repository_url":"https://api.github.com/repos/nmg/repo"}',
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'api') {
+        return {
+          status: 0,
+          stdout: '{"data":{"repository":{"issue":{"projectItems":{"nodes":[]}}}}}',
+          stderr: '',
+        };
+      }
+      throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const result = startIssue({ issue: 42, cwd, run });
+
+    expect(result.handoff.status).toBe('passed');
+    expect(runGit(cwd, ['branch', '--show-current']).stdout.trim()).toBe('42-ship-it');
+    expect(runGit(cwd, [
+      'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}',
+    ]).stdout.trim()).toBe('origin/42-ship-it');
+    expect(runGit(cwd, ['config', '--get-all', 'remote.origin.fetch']).stdout.trim().split('\n')).toEqual([
+      '+refs/heads/main:refs/remotes/origin/main',
+      'refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+    ]);
+    expect(calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+    ]);
+    expect(calls.some((call) => call.includes('--force') || call.includes('--reset'))).toBe(false);
+    expect(calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
 
   it('develops the issue branch from a clean detached HEAD', () => {
     const f = fixture({ branch: '', dirty: '' });
