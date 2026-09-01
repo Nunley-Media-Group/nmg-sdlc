@@ -1,7 +1,7 @@
 ---
 name: architecture-reviewer
 description: Verify implementation and write the report.
-model: "@slow"
+model: "@review"
 ---
 
 # Architecture Reviewer

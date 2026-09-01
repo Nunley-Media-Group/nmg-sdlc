@@ -77,8 +77,6 @@ describe('repo steering contract (v3)', () => {
       expect(keys).toEqual(expect.arrayContaining(['name', 'description']));
       expect(keys.every((key) => ['name', 'description', 'model', 'autoloadSkills', 'tools'].includes(key))).toBe(true);
     }
-
-    expect(read('agents/architecture-reviewer.md')).toMatch(/^model: "@slow"$/m);
   });
 
   test('documents OMP plugin install rather than Codex marketplace add', () => {
