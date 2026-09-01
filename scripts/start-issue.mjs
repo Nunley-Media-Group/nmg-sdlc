@@ -74,6 +74,28 @@ function projectStatusInProgress(issue, cwd, run) {
     return;
   }
 }
+function checkoutTrackedRemoteBranch({ run, cwd, expectedBranch }) {
+  const remoteRef = `refs/remotes/origin/${expectedBranch}`;
+  const exactRemoteRefspec = `refs/heads/${expectedBranch}:${remoteRef}`;
+  const fetched = run('git', [
+    'fetch', '--quiet', '--no-tags', 'origin', exactRemoteRefspec,
+  ], { cwd });
+  if (fetched?.status !== 0) return { checkout: fetched, remoteFound: false };
+  const configured = run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd });
+  const fetchRefspecs = configured?.status === 0
+    ? String(configured.stdout || '').split('\n').filter(Boolean)
+    : [];
+  const registered = fetchRefspecs.some((refspec) => (
+    refspec === exactRemoteRefspec || refspec === `+${exactRemoteRefspec}`
+  ))
+    ? { status: 0 }
+    : run('git', ['config', '--add', 'remote.origin.fetch', exactRemoteRefspec], { cwd });
+  const checkout = registered?.status === 0
+    ? run('git', ['checkout', '--track', '-b', expectedBranch, `origin/${expectedBranch}`], { cwd })
+    : registered;
+  return { checkout, remoteFound: true };
+}
+
 
 export function startIssue({
   issue,
@@ -133,35 +155,22 @@ export function startIssue({
 
   if (currentBranch !== expectedBranch) {
     let checkout;
-    const localRef = `refs/heads/${expectedBranch}`;
-    const remoteRef = `refs/remotes/origin/${expectedBranch}`;
-    if (run('git', ['show-ref', '--verify', '--quiet', localRef], { cwd })?.status === 0) {
+    if (run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${expectedBranch}`], { cwd })?.status === 0) {
       checkout = run('git', ['checkout', expectedBranch], { cwd });
     } else {
-      const exactRemoteRefspec = `refs/heads/${expectedBranch}:${remoteRef}`;
-      const fetched = run('git', [
-        'fetch', '--quiet', '--no-tags', 'origin', exactRemoteRefspec,
-      ], { cwd });
-      if (fetched?.status === 0) {
-        const configured = run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd });
-        const fetchRefspecs = configured?.status === 0
-          ? String(configured.stdout || '').split('\n').filter(Boolean)
-          : [];
-        const registered = fetchRefspecs.some((refspec) => (
-          refspec === exactRemoteRefspec || refspec === `+${exactRemoteRefspec}`
-        ))
-          ? { status: 0 }
-          : run('git', ['config', '--add', 'remote.origin.fetch', exactRemoteRefspec], { cwd });
-        checkout = registered?.status === 0
-          ? run('git', ['checkout', '--track', '-b', expectedBranch, `origin/${expectedBranch}`], { cwd })
-          : registered;
-      } else {
+      const tracked = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
+      checkout = tracked.checkout;
+      if (!tracked.remoteFound) {
         const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
         const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
         if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
         checkout = run('gh', [
           'issue', 'develop', String(issueNumber), '--checkout', '--name', expectedBranch, '--base', defaultBranch,
         ], { cwd });
+        const developedBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
+        if (checkout?.status !== 0 || developedBranch !== expectedBranch) {
+          checkout = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch }).checkout;
+        }
       }
     }
     const checkedOut = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();

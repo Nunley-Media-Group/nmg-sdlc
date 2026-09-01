@@ -249,27 +249,19 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
   });
 
-  it('accepts exact current-run GitHub proof after execute exits nonzero', async () => {
-    const fixture = harness({ override: (program) => program === process.execPath ? result(1, '', { stderr: 'already complete' }) : null });
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(outcome.evidence.filter((item) => item.kind === 'github')).toHaveLength(2);
-    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
-    expect(fixture.readFileSync).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects a nonzero execute exit without exact current-run proof', async () => {
-    const fixture = harness({ override: (program) => program === process.execPath ? result(1) : null });
-    fixture.readFileSync.mockReturnValue('{}');
+  it('rejects a nonzero execute exit before reading delivery proof', async () => {
+    const fixture = harness({ override: (program) => (
+      program === process.execPath ? result(1, '', { stderr: 'controller failed' }) : null
+    ) });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({
       status: 'failed',
-      summary: expect.stringContaining('missing invocation delivery proof'),
+      summary: 'nmg-sdlc-smoke execute exited 1',
     });
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
+    expect(fixture.readFileSync).not.toHaveBeenCalled();
   });
 
   it('rejects a pre-existing closing PR and requires a new exact-head reference', async () => {
