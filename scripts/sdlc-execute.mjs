@@ -1645,7 +1645,13 @@ function syncAndDeleteIssueBranch(
   if (currentBranch !== defaultBranch && !commandSucceeded(run('git', ['checkout', defaultBranch], { cwd }))) {
     return false;
   }
-  if (!commandSucceeded(run('git', ['pull', '--ff-only'], { cwd }))) return false;
+  if (!commandSucceeded(run('git', [
+    'fetch', 'origin',
+    `+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
+  ], { cwd }))) return false;
+  if (!commandSucceeded(run('git', ['merge', '--ff-only', `origin/${defaultBranch}`], { cwd }))) {
+    return false;
+  }
   if (issueBranch) run('git', ['branch', '-d', issueBranch], { cwd });
   return true;
 }

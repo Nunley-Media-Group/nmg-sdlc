@@ -1174,7 +1174,9 @@ describe('runExecute controller', () => {
         return { status: 0, stdout: JSON.stringify([{ state: 'MERGED' }]), stderr: '' };
       }
       if (command === 'gh' && args[0] === 'repo') return { status: 0, stdout: `${defaultBranch}\n`, stderr: '' };
-      if (command === 'git' && ['checkout', 'pull'].includes(args[0])) return { status: 0, stdout: '', stderr: '' };
+      if (command === 'git' && ['checkout', 'fetch', 'merge'].includes(args[0])) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
       if (command === 'git' && args[0] === 'branch' && args[1] === '-d') return { status: 0, stdout: '', stderr: '' };
       throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
     };
@@ -5314,7 +5316,10 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(0);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
-    expect(fixture.calls).toContainEqual(['git', 'pull', '--ff-only']);
+    expect(fixture.calls).toContainEqual([
+      'git', 'fetch', 'origin', '+refs/heads/main:refs/remotes/origin/main',
+    ]);
+    expect(fixture.calls).toContainEqual(['git', 'merge', '--ff-only', 'origin/main']);
     expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
   });
 
