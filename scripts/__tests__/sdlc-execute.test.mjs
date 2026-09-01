@@ -2557,21 +2557,38 @@ describe('runExecute controller', () => {
     }]);
   });
 
-  it('submits agentPrompt without a blocking wait argument', () => {
+  it('disables the interactive large-paste menu before submitting a canonical verify prompt', () => {
+    const root = makeSpecDir();
+    const prompt = workerPrompt({ step: 'verify', issue: 347, cwd: REPOSITORY_ROOT });
+    expect(prompt.split('\n').length).toBeGreaterThan(100);
+    expect(prompt).not.toMatch(/\s$/);
+
     const calls = [];
     const herdr = defaultHerdr((command, args, options) => {
       calls.push({ command, args, options });
       return { status: 0 };
-    }, '/controller');
-    const prompt = 'canonical generated prompt';
+    }, root);
 
+    herdr.agentStart({ name: 's347-verify', paneId: 'w1:p2' });
     herdr.agentPrompt({ name: 's347-verify', prompt });
 
-    expect(calls).toEqual([{
-      command: 'herdr',
-      args: ['agent', 'prompt', 's347-verify', prompt],
-      options: { cwd: '/controller' },
-    }]);
+    const configPath = path.join(fs.realpathSync(root), '.omp/sdlc/omp-controller.yml');
+    expect(fs.readFileSync(configPath, 'utf8')).toBe('paste:\n  largeMenuThreshold: 0\n');
+    expect(calls).toEqual([
+      {
+        command: 'herdr',
+        args: [
+          'agent', 'start', 's347-verify', '--kind', 'omp', '--pane', 'w1:p2',
+          '--', '--config', configPath,
+        ],
+        options: { cwd: root },
+      },
+      {
+        command: 'herdr',
+        args: ['agent', 'prompt', 's347-verify', prompt],
+        options: { cwd: root },
+      },
+    ]);
   });
 
   it('does not replace the environment of a retained verify worker', () => {

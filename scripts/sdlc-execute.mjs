@@ -58,6 +58,8 @@ const RUN_DIR = '.omp/sdlc';
 const RUN_FILE = join(RUN_DIR, 'run.json');
 const HANDOFF_DIR = join(RUN_DIR, 'handoffs');
 const PROMPT_PROVENANCE_DIR = join(RUN_DIR, 'prompt-provenance');
+const OMP_CONTROLLER_CONFIG_FILE = join(RUN_DIR, 'omp-controller.yml');
+const OMP_CONTROLLER_CONFIG = 'paste:\n  largeMenuThreshold: 0\n';
 
 export const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
 const VALID_STATUSES = ['passed', 'failed', 'blocked'];
@@ -771,7 +773,7 @@ export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) 
     },
   });
   if (cwd) writePromptProvenance(cwd, provenance);
-  return materializeControllerPaths(text, packageRoot);
+  return materializeControllerPaths(text, packageRoot).trimEnd();
 }
 
 export function remAgentName(issue, step) {
@@ -919,6 +921,18 @@ function waitForAgentObservationRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
 }
+function ensureControllerOmpConfig(cwd) {
+  const root = realpathSync(cwd);
+  const configPath = resolve(root, OMP_CONTROLLER_CONFIG_FILE);
+  const configDirectory = dirname(configPath);
+  if (!existsSync(configDirectory)) mkdirSync(configDirectory, { recursive: true });
+  if (existsSync(configPath) && readFileSync(configPath, 'utf8') === OMP_CONTROLLER_CONFIG) {
+    return configPath;
+  }
+  writeFileSync(configPath, OMP_CONTROLLER_CONFIG, 'utf8');
+  return configPath;
+}
+
 
 export function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
@@ -934,7 +948,22 @@ export function defaultHerdr(run, cwd) {
       ]),
     ]),
     paneClose: (paneId) => invoke(['pane', 'close', paneId]),
-    agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId]),
+    agentStart: ({ name, paneId }) => {
+      let configPath;
+      try {
+        configPath = ensureControllerOmpConfig(cwd);
+      } catch (error) {
+        return {
+          status: 1,
+          stdout: '',
+          stderr: `unable to prepare OMP controller config: ${error instanceof Error ? error.message : String(error)}\n`,
+        };
+      }
+      return invoke([
+        'agent', 'start', name, '--kind', 'omp', '--pane', paneId,
+        '--', '--config', configPath,
+      ]);
+    },
     agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
     agentRead: ({ name, source }) => invoke(['agent', 'read', name, '--source', source]),
     agentSendKeys: ({ name, keys }) => invoke(['agent', 'send-keys', name, ...keys]),

@@ -13,7 +13,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Changed
 
 - Replace status-only live smoke verification with an invocation-scoped fresh issue queue, explicit verify-pane environment propagation, single-branch clone reuse of published issue branches, and exact current-run merged/closed GitHub proof (#343).
-- Deliver fresh generated worker prompts exactly once through nonblocking `herdr agent prompt` after proven-live readiness, and wait through initial stale idle before settlement (#347).
+- Deliver fresh generated worker prompts exactly once through nonblocking `herdr agent prompt` after proven-live readiness, disable OMP's interactive large-paste menu for controller-owned workers, and wait through initial stale idle before settlement (#347).
 
 ## [3.20.4] - 2026-08-31
 
