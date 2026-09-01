@@ -924,6 +924,7 @@ export function defaultHerdr(run, cwd) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
     observationPause: waitForAgentObservationRetry,
+    promptRetryPause: waitForAgentObservationRetry,
     integrationStatus: () => invoke(['integration', 'status']),
     paneLayout: (paneId) => invoke(['pane', 'layout', '--pane', paneId]),
     paneSplit: ({ direction, cwd: splitCwd, environment }) => invoke([
@@ -932,11 +933,11 @@ export function defaultHerdr(run, cwd) {
         '--env', `${key}=${value}`,
       ]),
     ]),
-    paneSendText: ({ paneId, text }) => invoke(['pane', 'send-text', paneId, text]),
-    paneSendKeys: ({ paneId, keys }) => invoke(['pane', 'send-keys', paneId, ...keys]),
     paneClose: (paneId) => invoke(['pane', 'close', paneId]),
     agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId]),
+    agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt, '--wait']),
     agentRead: ({ name, source }) => invoke(['agent', 'read', name, '--source', source]),
+    agentSendKeys: ({ name, keys }) => invoke(['agent', 'send-keys', name, ...keys]),
     agentWait: ({ name, until }) => invoke([
       'agent', 'wait', name, ...(until ? ['--until', until] : []),
     ]),
@@ -1026,74 +1027,182 @@ function commandIncludesCode(value, code) {
   });
 }
 
-function isProvenProcessLoss(value) {
-  return ['process_lost', 'agent_not_found']
+function isPromptStalled(value) {
+  return commandIncludesCode(value, 'agent_prompt_stalled');
+}
+
+function isPromptReadinessError(value) {
+  return ['agent_not_ready', 'agent_not_found']
     .some((code) => commandIncludesCode(value, code));
 }
 
-const INCOMPLETE_PROMPT_DELIVERY_STATES = new Set(['pending', 'text_inserted']);
+function promptDeliveryGuaranteed(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (value.delivered === true || value.deliveryGuaranteed === true) return true;
+  return Object.values(value).some((child) => promptDeliveryGuaranteed(child, seen));
+}
 
-function promptDeliveryIncomplete(worker) {
-  return INCOMPLETE_PROMPT_DELIVERY_STATES.has(worker?.promptDelivery);
+function promptGeneratedOnce(herdr, agentName, prompt) {
+  try {
+    return herdr.agentPrompt({ name: agentName, prompt });
+  } catch (error) {
+    const outcome = { status: 1, thrown: true, error };
+    if (!isPromptStalled(outcome) && !isPromptReadinessError(outcome)) throw error;
+    return outcome;
+  }
+}
+
+function retryPromptSubmission(herdr, agentName) {
+  return commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+    && commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
+    && commandSucceeded(herdr.agentWait({ name: agentName }));
+}
+
+function hasPastedWorkerPrompt(herdr, agentName, prompt) {
+  const detection = agentDetectionText(herdr, agentName);
+  if (detection.includes(prompt)) return true;
+  return prompt
+    .split('\n', 3)
+    .every((line) => detection.includes(line.slice(0, 11)));
+}
+
+function appearsWorking(herdr, agentName) {
+  return agentDetectionText(herdr, agentName).includes('Working');
 }
 
 function waitForWorkerSettlement(herdr, agentName) {
   return commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
     && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
-
-function settleDeliveredPrompt(herdr, agentName, handoffPath, state) {
-  if (existsSync(handoffPath) || !['idle', 'done'].includes(state)) {
-    return { settled: true, state };
+function awaitInitialPromptActivation(
+  herdr,
+  handoffPath,
+  issue,
+  step,
+  agentName,
+  paneId,
+) {
+  const retries = 10;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const result = readExpectedHandoff(handoffPath, issue, step);
+    if (result.handoff) return { result };
+    const state = observedAgentState(herdr, agentName);
+    if (['working', 'blocked'].includes(state)) return { state };
+    const presence = workerPresence(herdr, agentName, paneId);
+    if (presence === 'absent') {
+      return { result: { handoff: null, reasonCode: 'process_lost' } };
+    }
+    if (attempt === retries) {
+      return {
+        result: result.reasonCode === 'invalid_handoff'
+          ? result
+          : { handoff: null, reasonCode: 'prompt_pending' },
+      };
+    }
+    herdr.observationPause?.();
   }
-  if (appearsWorking(herdr, agentName)) {
-    if (!waitForWorkerSettlement(herdr, agentName)) return { settled: false, state };
-    return { settled: true, state: agentState(herdr.agentGet(agentName)) };
-  }
-  return { settled: true, state };
+  return { result: { handoff: null, reasonCode: 'prompt_pending' } };
 }
+
 
 function deliverGeneratedPromptOnce({
   herdr,
   agentName,
   paneId,
   prompt,
-  deliveryState,
-  checkpointTextInserted,
   start,
+  handoffPath,
 }) {
-  let state = deliveryState;
-  if (state === 'pending') {
-    let sent = herdr.paneSendText({ paneId, text: prompt });
-    if (!commandSucceeded(sent)) {
-      if (!isProvenProcessLoss(sent)) {
-        return { delivered: false, reasonCode: 'prompt_pending' };
-      }
-      waitForAgentStartRetry();
-      if (!commandSucceeded(start())) {
-        return { delivered: false, reasonCode: 'agent_start_failed' };
-      }
-      sent = herdr.paneSendText({ paneId, text: prompt });
-      if (!commandSucceeded(sent)) {
-        return {
-          delivered: false,
-          reasonCode: isProvenProcessLoss(sent) ? 'process_lost' : 'prompt_pending',
-        };
-      }
+  const finishStalledPrompt = (prompted) => {
+    if (existsSync(handoffPath) || promptDeliveryGuaranteed(prompted)) {
+      return { delivered: true, state: null };
     }
-    checkpointTextInserted();
-    state = 'text_inserted';
+    try {
+      if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
+        return retryPromptSubmission(herdr, agentName)
+          ? { delivered: true, state: null, promptSubmissionRetried: true }
+          : { delivered: false, reasonCode: 'worker_failed' };
+      }
+      if (appearsWorking(herdr, agentName)) {
+        return waitForWorkerSettlement(herdr, agentName)
+          ? { delivered: true, state: null }
+          : { delivered: false, reasonCode: 'worker_failed' };
+      }
+    } catch {
+      // A failed proof is not process-loss evidence.
+    }
+    return { delivered: false, reasonCode: 'prompt_pending' };
+  };
+
+  const dispatch = () => {
+    const prompted = promptGeneratedOnce(herdr, agentName, prompt);
+    if (isPromptStalled(prompted)) {
+      const finished = finishStalledPrompt(prompted);
+      return finished.delivered ? { ...finished, proven: true } : finished;
+    }
+    if (commandSucceeded(prompted) || promptDeliveryGuaranteed(prompted)) {
+      return { delivered: true, state: null, prompted };
+    }
+    return { delivered: false, prompted };
+  };
+
+  const deliveryIsProven = (delivery) => {
+    if (!delivery.delivered) return false;
+    if (delivery.proven || workerPresence(herdr, agentName, paneId) === 'present') return true;
+    if (existsSync(handoffPath) || promptDeliveryGuaranteed(delivery.prompted)) return true;
+    try {
+      return hasPastedWorkerPrompt(herdr, agentName, prompt)
+        || appearsWorking(herdr, agentName);
+    } catch {
+      return false;
+    }
+  };
+
+  let restarted = false;
+  const restartGoneWorker = () => {
+    const presence = workerPresence(herdr, agentName, paneId);
+    if (presence === 'present') return null;
+    if (presence === 'unknown') {
+      return { delivered: false, reasonCode: 'prompt_pending' };
+    }
+    if (restarted) return { delivered: false, reasonCode: 'process_lost' };
+    restarted = true;
+    waitForAgentStartRetry();
+    if (!commandSucceeded(start())) {
+      return { delivered: false, reasonCode: 'agent_start_failed' };
+    }
+    const restartedPresence = workerPresence(herdr, agentName, paneId);
+    if (restartedPresence === 'present') return null;
+    return {
+      delivered: false,
+      reasonCode: restartedPresence === 'unknown' ? 'prompt_pending' : 'process_lost',
+    };
+  };
+
+  const prePromptFailure = restartGoneWorker();
+  if (prePromptFailure) return prePromptFailure;
+
+  let delivery = dispatch();
+  if (existsSync(handoffPath)) {
+    return { delivered: true, state: null, proven: true };
   }
-  if (state !== 'text_inserted') {
+  if (delivery.reasonCode || deliveryIsProven(delivery)) return delivery;
+  if (
+    !delivery.delivered
+    && workerPresence(herdr, agentName, paneId) !== 'absent'
+  ) {
     return { delivered: false, reasonCode: 'prompt_pending' };
   }
-  const entered = herdr.paneSendKeys({ paneId, keys: ['enter'] });
-  return commandSucceeded(entered)
-    ? { delivered: true }
-    : {
-      delivered: false,
-      reasonCode: isProvenProcessLoss(entered) ? 'process_lost' : 'prompt_pending',
-    };
+
+  const retryFailure = restartGoneWorker();
+  if (retryFailure) return retryFailure;
+  delivery = dispatch();
+  if (delivery.reasonCode || deliveryIsProven(delivery)) return delivery;
+  if (delivery.delivered) return { delivered: false, reasonCode: 'process_lost' };
+  return workerPresence(herdr, agentName, paneId) === 'absent'
+    ? { delivered: false, reasonCode: 'process_lost' }
+    : { delivered: false, reasonCode: 'prompt_pending' };
 }
 
 function repositoryDefaultBranch(cwd, run) {
@@ -1134,13 +1243,68 @@ function reviewProtocolPrompt(baseRef, finalizationPrompt) {
   ].join('\n');
 }
 
+function submitReviewProtocol({
+  herdr,
+  agentName,
+  paneId,
+  prompt,
+  handoffPath,
+  issue,
+  step,
+  cwd,
+}) {
+  const presence = workerPresence(herdr, agentName, paneId);
+  if (presence !== 'present') {
+    return {
+      handoff: null,
+      reasonCode: presence === 'absent' ? 'process_lost' : 'prompt_pending',
+    };
+  }
+  const prompted = promptGeneratedOnce(herdr, agentName, prompt);
+  const promptStalled = isPromptStalled(prompted);
+  const existing = readExpectedHandoff(handoffPath, issue, step);
+  if (existing.handoff) {
+    return validReviewArtifact(cwd, issue, step, existing.handoff)
+      ? existing
+      : { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+  if (
+    !commandSucceeded(prompted)
+    && !promptStalled
+    && workerPresence(herdr, agentName, paneId) === 'absent'
+  ) {
+    return { handoff: null, reasonCode: 'review_failed' };
+  }
+  if (
+    promptStalled
+    && !existsSync(handoffPath)
+    && hasPastedWorkerPrompt(herdr, agentName, prompt)
+    && !commandSucceeded(herdr.agentSendKeys({ name: agentName, keys: ['enter'] }))
+  ) {
+    return { handoff: null, reasonCode: 'worker_failed' };
+  }
+  const activation = awaitInitialPromptActivation(
+    herdr, handoffPath, issue, step, agentName, paneId,
+  );
+  if (activation.result) {
+    if (!activation.result.handoff) return activation.result;
+    return validReviewArtifact(cwd, issue, step, activation.result.handoff)
+      ? activation.result
+      : { handoff: null, reasonCode: 'invalid_handoff' };
+  }
+  return observeReviewHandoff(
+    herdr,
+    handoffPath,
+    issue,
+    step,
+    agentName,
+    paneId,
+    cwd,
+  );
+}
 function agentDetectionText(herdr, name) {
   const detection = parseCommandOutput(herdr.agentRead({ name, source: 'detection' }));
   return typeof detection === 'string' ? detection : JSON.stringify(detection);
-}
-
-function appearsWorking(herdr, agentName) {
-  return agentDetectionText(herdr, agentName).includes('Working');
 }
 
 
@@ -1196,7 +1360,7 @@ function cleanupControllerWorkers({
     ) {
       continue;
     }
-    if (retainWorker || promptDeliveryIncomplete(worker)) {
+    if (retainWorker || worker.promptDelivery === 'pending') {
       checkout ??= currentCheckout(cwd, run);
       if (checkout) actions.push({ name, worker, checkout });
     } else if (closePane(herdr, worker.paneId)) {
@@ -1671,16 +1835,13 @@ export function runExecute({
   });
 
   function promptForPendingWorker(worker) {
-    const reviewStep = worker.step === 'review1' || worker.step === 'review2';
-    const reviewBase = reviewStep ? resolveReviewBase(cwd, run) : null;
     if (worker.name === `s${worker.issue}-${worker.step}`) {
-      const prompt = workerPrompt({
+      return workerPrompt({
         step: worker.step,
         issue: worker.issue,
         cwd,
         controllerRunId: runState.runId,
       });
-      return reviewStep ? reviewProtocolPrompt(reviewBase, prompt) : prompt;
     }
     if (worker.name !== remAgentName(worker.issue, worker.step)) return null;
     const remediation = runState.remediation;
@@ -1704,17 +1865,19 @@ export function runExecute({
       },
       cwd,
       controllerRunId: runState.runId,
-      reviewBase,
+      reviewBase: null,
     });
   }
 
   function recoverPendingWorkerPrompts() {
     for (const worker of Object.values(runState.workers)) {
       if (
-        !promptDeliveryIncomplete(worker)
+        worker?.promptDelivery !== 'pending'
         || !issues.includes(worker.issue)
         || worker.issue !== runState.currentIssue
         || worker.step !== runState.currentStep
+        || worker.step === 'review1'
+        || worker.step === 'review2'
       ) {
         continue;
       }
@@ -1765,11 +1928,7 @@ export function runExecute({
         agentName: worker.name,
         paneId: worker.paneId,
         prompt,
-        deliveryState: worker.promptDelivery,
-        checkpointTextInserted: () => {
-          worker.promptDelivery = 'text_inserted';
-          persistRunState(runState, cwd);
-        },
+        handoffPath: join(cwd, HANDOFF_DIR, `${worker.issue}-${worker.step}.json`),
         start: () => herdrApi.agentStart({
           name: worker.name,
           paneId: worker.paneId,
@@ -1862,6 +2021,7 @@ export function runExecute({
       const reviewStep = step === 'review1' || step === 'review2';
       const reviewBase = reviewStep ? resolveReviewBase(cwd, run) : null;
       let reviewHandoffResult = null;
+      let freshHandoffResult = null;
       if (reviewStep && !reviewBase) {
         return stop({
           issue, step, paneId: paneId ?? 'none', agentName, reasonCode: 'review_failed',
@@ -1942,7 +2102,7 @@ export function runExecute({
             output,
           });
         }
-        ownership.promptDelivery = 'pending';
+        if (!reviewStep) ownership.promptDelivery = 'pending';
 
         runState.workers[agentName] = ownership;
         runState.remediation.remWorker = { name: agentName, paneId };
@@ -1961,61 +2121,101 @@ export function runExecute({
           });
         }
 
-        const delivered = deliverGeneratedPromptOnce({
-          herdr: herdrApi,
-          agentName,
-          paneId,
-          prompt,
-          deliveryState: runState.workers[agentName].promptDelivery,
-          checkpointTextInserted: () => {
-            runState.workers[agentName].promptDelivery = 'text_inserted';
-            persistRunState(runState, cwd);
-          },
-          start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
-        });
-        if (!delivered.delivered) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
-        runState.workers[agentName].promptDelivery = 'delivered';
-        persistRunState(runState, cwd);
         if (reviewStep) {
-          reviewHandoffResult = observeReviewHandoff(
-            herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
-          );
+          reviewHandoffResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
           if (reviewHandoffResult.handoff) state = 'done';
         } else {
-          state = agentState(herdrApi.agentGet(agentName));
-          const settled = settleDeliveredPrompt(
-            herdrApi,
+          const delivered = deliverGeneratedPromptOnce({
+            herdr: herdrApi,
             agentName,
+            paneId,
+            prompt,
             handoffPath,
-            state,
+            start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+          });
+          if (!delivered.delivered) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          runState.workers[agentName].promptDelivery = 'delivered';
+          persistRunState(runState, cwd);
+          const activation = awaitInitialPromptActivation(
+            herdrApi, handoffPath, issue, step, agentName, paneId,
           );
-          if (!settled.settled) {
+          if (activation.result) {
+            if (!activation.result.handoff) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: activation.result.reasonCode,
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            freshHandoffResult = activation.result;
+            state = 'done';
+          } else {
+            state = activation.state;
+          }
+        }
+      }
+
+      if (
+        remLive
+        && !reviewStep
+        && !existsSync(handoffPath)
+        && ['idle', 'done'].includes(state)
+      ) {
+        if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+          if (!retryPromptSubmission(herdrApi, agentName)) {
             return stop({
               issue, step, paneId, agentName, reasonCode: 'worker_failed',
               runState, cwd, herdr: herdrApi, output,
             });
           }
-          state = settled.state;
+          state = agentState(herdrApi.agentGet(agentName));
+        } else if (appearsWorking(herdrApi, agentName)) {
+          if (!waitForWorkerSettlement(herdrApi, agentName)) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: 'worker_failed',
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = agentState(herdrApi.agentGet(agentName));
         }
       }
-
-
       if (!reviewStep && !existsSync(handoffPath) && state === 'working') {
         herdrApi.agentWait({ name: agentName });
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-
+      if (reviewStep && remLive && !existsSync(handoffPath)) {
+        reviewHandoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
+        if (reviewHandoffResult.handoff) state = 'done';
+      }
       const handoffResult = reviewStep
         ? reviewHandoffResult || observeReviewHandoff(
           herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
         )
-        : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
+        : freshHandoffResult
+          || observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
       if (!handoffResult.handoff) {
         return stop({
           issue, step, paneId, agentName, reasonCode: handoffResult.reasonCode,
@@ -2325,9 +2525,71 @@ export function runExecute({
         && (reviewStep || ['idle', 'done'].includes(state))
         && paneId !== 'unknown'
       ) {
-
+        if (!fs.existsSync(handoffPath) && reviewStep) {
+          const retainedReviewBase = resolveReviewBase(cwd, run);
+          let prompt;
+          try {
+            prompt = reviewProtocolPrompt(
+              retainedReviewBase,
+              workerPrompt({ step, issue, cwd, controllerRunId: runState.runId }),
+            );
+          } catch (error) {
+            return stop({
+              issue,
+              step,
+              paneId,
+              agentName,
+              reasonCode: error.message === 'review_base_missing'
+                ? 'review_failed'
+                : workerPromptFailureReason(error),
+              runState,
+              cwd,
+              herdr: herdrApi,
+              output,
+            });
+          }
+          retainedReviewResult = submitReviewProtocol({
+            herdr: herdrApi,
+            agentName,
+            paneId,
+            prompt,
+            handoffPath,
+            issue,
+            step,
+            cwd,
+          });
+          if (retainedReviewResult.handoff) state = 'done';
+        }
+        if (!reviewStep && !fs.existsSync(handoffPath)) {
+          let prompt;
+          try {
+            prompt = workerPrompt({ step, issue, cwd, controllerRunId: runState.runId });
+          } catch (error) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: workerPromptFailureReason(error),
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          if (hasPastedWorkerPrompt(herdrApi, agentName, prompt)) {
+            if (!retryPromptSubmission(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          } else if (appearsWorking(herdrApi, agentName)) {
+            if (!waitForWorkerSettlement(herdrApi, agentName)) {
+              return stop({
+                issue, step, paneId, agentName, reasonCode: 'worker_failed',
+                runState, cwd, herdr: herdrApi, output,
+              });
+            }
+            state = agentState(herdrApi.agentGet(agentName));
+          }
+        }
         const handoffResult = reviewStep
-          ? observeReviewHandoff(
+          ? retainedReviewResult || observeReviewHandoff(
             herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
           )
           : observeExpectedHandoff(herdrApi, handoffPath, issue, step, agentName);
@@ -2513,7 +2775,7 @@ export function runExecute({
           output,
         });
       }
-      ownership.promptDelivery = 'pending';
+      if (!reviewStep) ownership.promptDelivery = 'pending';
 
       runState.workers[agentName] = ownership;
       persistRunState(runState, cwd);
@@ -2531,56 +2793,60 @@ export function runExecute({
       }
 
       let state = null;
-      const delivered = deliverGeneratedPromptOnce({
-        herdr: herdrApi,
-        agentName,
-        paneId,
-        prompt,
-        deliveryState: runState.workers[agentName].promptDelivery,
-        checkpointTextInserted: () => {
-          runState.workers[agentName].promptDelivery = 'text_inserted';
-          persistRunState(runState, cwd);
-        },
-        start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
-      });
-      if (!delivered.delivered) {
-        return stop({
-          issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
-      runState.workers[agentName].promptDelivery = 'delivered';
-      persistRunState(runState, cwd);
-
       let handoffResult;
       if (reviewStep) {
-        handoffResult = observeReviewHandoff(
-          herdrApi, handoffPath, issue, step, agentName, paneId, cwd,
-        );
+        state = agentState(herdrApi.agentGet(agentName));
+        handoffResult = submitReviewProtocol({
+          herdr: herdrApi,
+          agentName,
+          paneId,
+          prompt,
+          handoffPath,
+          issue,
+          step,
+          cwd,
+        });
         if (handoffResult.handoff) state = 'done';
       } else {
-        state = agentState(herdrApi.agentGet(agentName));
-        const settled = settleDeliveredPrompt(
-          herdrApi,
+        const delivered = deliverGeneratedPromptOnce({
+          herdr: herdrApi,
           agentName,
+          paneId,
+          prompt,
           handoffPath,
-          state,
-        );
-        if (!settled.settled) {
+          start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+        });
+        if (!delivered.delivered) {
           return stop({
-            issue, step, paneId, agentName, reasonCode: 'worker_failed',
+            issue, step, paneId, agentName, reasonCode: delivered.reasonCode,
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        state = settled.state;
-        if (!existsSync(handoffPath) && state === 'working') {
-          herdrApi.agentWait({ name: agentName });
-          state = agentState(herdrApi.agentGet(agentName));
-        }
-        runState = latestMatchingRunState(runState, cwd);
-        handoffResult = observeExpectedHandoff(
-          herdrApi, handoffPath, issue, step, agentName,
+        runState.workers[agentName].promptDelivery = 'delivered';
+        persistRunState(runState, cwd);
+        const activation = awaitInitialPromptActivation(
+          herdrApi, handoffPath, issue, step, agentName, paneId,
         );
+        if (activation.result) {
+          if (!activation.result.handoff) {
+            return stop({
+              issue, step, paneId, agentName, reasonCode: activation.result.reasonCode,
+              runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          state = 'done';
+          handoffResult = activation.result;
+        } else {
+          state = activation.state;
+          if (state === 'working') {
+            herdrApi.agentWait({ name: agentName });
+            state = agentState(herdrApi.agentGet(agentName));
+          }
+          runState = latestMatchingRunState(runState, cwd);
+          handoffResult = observeExpectedHandoff(
+            herdrApi, handoffPath, issue, step, agentName,
+          );
+        }
       }
       if (!handoffResult.handoff) {
         return stop({
@@ -2640,7 +2906,7 @@ export function runExecute({
         ) {
           continue;
         }
-        if (parsedArgs.retainWorker || promptDeliveryIncomplete(worker)) {
+        if (parsedArgs.retainWorker || worker.promptDelivery === 'pending') {
           const checkout = currentCheckout(cwd, run);
           if (
             checkout
@@ -2649,7 +2915,7 @@ export function runExecute({
             Object.assign(worker, checkout);
             changed = true;
           }
-          if (promptDeliveryIncomplete(worker) && !runState.failed) {
+          if (worker.promptDelivery === 'pending' && !runState.failed) {
             runState.failed = {
               issue: worker.issue,
               step: worker.step,
@@ -2683,7 +2949,7 @@ export function runExecute({
   }
 }
 
-function runCli(argv) {
+function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
   if (!sub) {
     console.error('sdlc-execute: missing subcommand');

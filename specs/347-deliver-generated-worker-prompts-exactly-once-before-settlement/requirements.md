@@ -10,50 +10,47 @@
 
 ## Reproduction
 
-1. Start a fresh controller-owned `--kind omp` worker through `/sdlc-execute` (reproduced by retained smoke issue #39 `implement`).
-2. Observe `agentStart` return `interactive_ready=true` while the advertised session JSONL remains nonexistent.
-3. Observe `agentPrompt` exhaust ten readiness attempts without creating a canonical user record, leaving `promptDelivery: "pending"`.
-4. Send the same canonical prompt with `herdr pane send-text <pane> <prompt>` followed by `herdr pane send-keys <pane> enter`; observe the JSONL appear with exactly one exact canonical user record.
+1. From a Herdr OMP controller pane, run `/sdlc-execute` so it starts a fresh sibling `--kind omp` worker for an incomplete start-then-prompt step (reproduced on verify for issue #343).
+2. Observe the worker session: it emits `com.nmg-sdlc.run` during `session_start` and then goes idle/done or exits before the generated user prompt arrives.
+3. Observe that `.omp/sdlc/handoffs/<N>-<step>.json` is never written.
+4. Observe the controller persist `failed.reasonCode: missing_handoff` and close the owned worker pane.
 
 ## Expected vs Actual
 
 | | Description |
 |---|-------------|
-| **Expected** | After `agentStart` reports interactive readiness, execute sends the canonical generated prompt through `herdr pane send-text <pane> <prompt>` and submits it through `herdr pane send-keys <pane> enter` before any worker observation. It checkpoints `text_inserted` after successful text insertion, retries only Enter from that state, and marks delivery complete only after Enter succeeds. Proven pre-insertion process loss may restart once. |
-| **Actual** | The advertised OMP session JSONL can remain nonexistent even while Herdr reports `interactive_ready=true`; `agentPrompt` then cannot materialize a user record, exhausts readiness retries, persists `prompt_pending`, and terminates the provider child although direct pane input works. |
+| **Expected** | Execute proves the sibling session is live, delivers that invocation's generated worker prompt exactly once, and only then observes settlement or handoff. If the session is already gone before the first prompt, execute retries `herdr agent start` once in the same pane (existing one-shot start retry), delivers the prompt exactly once to the live session, then observes. A matching retained live worker does not receive a second generated prompt. After proven prompt delivery, a still-missing handoff remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested. |
+| **Actual** | `runExecute` samples worker state and observes handoff without proving this invocation's generated prompt was delivered to a live session. An empty session that settled after only `com.nmg-sdlc.run` becomes `missing_handoff`, and `stopResult` closes the owned pane. |
 
 ## Acceptance Criteria
 
 ### AC1: Bug Is Fixed
 
-**Given** execute starts a fresh start, implement, review1, fix1, review2, fix2, verify, deliver, or remediation `--kind omp` worker
-**When** `agentStart` reports interactive readiness
-**Then** execute inserts that invocation's canonical prompt with Herdr pane text input, checkpoints `text_inserted`, submits Enter exactly once, marks delivery complete only after Enter succeeds, and only then observes settlement or handoff
-**And** a text insertion or Enter failure retains the owned pane as `prompt_pending` without observation, settlement, or close
-**And** recovery from `text_inserted` sends only Enter and never retypes the prompt
-**And** proven process loss before insertion may restart the agent once in the same pane
+**Given** execute starts a fresh start, implement, fix1, fix2, verify, deliver, or rem `--kind omp` worker
+**When** `session_start` writes `com.nmg-sdlc.run` and the session would otherwise become idle or done before the generated prompt
+**Then** execute retries start at most once if the session is already gone, delivers that invocation's generated prompt exactly once to a live session, and only then observes settlement or handoff
+**And** it does not record `missing_handoff` or close the pane solely because the empty session settled before the prompt arrived
 
 ### AC2: No Regression
 
-**Given** a matching retained worker with `delivered` state or no prompt-delivery state
+**Given** a matching retained live worker that already received its generated prompt, or a worker whose prompt was delivered and that still has no handoff
 **When** execute resumes or finishes observing that worker
-**Then** it sends no prompt text and no Enter
+**Then** it does not send a second generated prompt
 **And** a still-missing handoff after proven delivery remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested
-**And** review workers retain the controller-owned host-review prompt contract while using the same pane-input transport
+**And** review workers keep their existing interactive protocol
 
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | After successful `agentStart` readiness, deliver every fresh standard and remediation prompt as separate `herdr pane send-text` and `herdr pane send-keys enter` argument-array operations before observation. | Must |
-| FR2 | Persist `promptDelivery: "text_inserted"` after text insertion; an Enter failure retains that state and recovery sends only Enter. Persist `"delivered"` only after Enter succeeds. | Must |
-| FR3 | Matching retained workers with delivered or legacy unknown state receive no pane input. | Must |
-| FR4 | A proven pre-insertion process loss may retry `agent start` once in the same pane; unproven failures remain `prompt_pending`. | Must |
-| FR5 | After proven delivery, missing handoff remains fail-closed `missing_handoff` with default owned-pane close-on-stop; `--retain-worker` stays the debug escape. | Must |
+| FR1 | Deliver the generated start-then-prompt worker prompt exactly once to a live session before terminal observation. | Must |
+| FR2 | If the sibling session is gone before the first prompt, retry `agent start` once, then prompt once; do not classify that pre-prompt death as `missing_handoff`. | Must |
+| FR3 | Matching retained live workers must resume without a second generated prompt. | Must |
+| FR4 | After proven prompt delivery, missing handoff remains fail-closed `missing_handoff` with default owned-pane close-on-stop; `--retain-worker` stays the debug escape. | Must |
 
 ## Out of Scope
 
-- Changing the canonical standard, remediation, or controller-owned host-review prompt contents
+- Changing the review1/review2 interactive `/review` protocol
 - Changing close-on-stop after a prompt was actually delivered
 - Auto-provisioning `NMG_SDLC_SMOKE_ISSUES` or weakening live-smoke proof
 - Inventing worker identities or skipping validated handoff checks
@@ -64,4 +61,3 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #347 | 2026-08-31 | Initial defect report |
-| #347 | 2026-08-31 | Reconciled delivery transport and crash recovery with retained live evidence |
