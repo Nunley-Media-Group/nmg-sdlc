@@ -2557,6 +2557,23 @@ describe('runExecute controller', () => {
     }]);
   });
 
+  it('submits agentPrompt without a blocking wait argument', () => {
+    const calls = [];
+    const herdr = defaultHerdr((command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    }, '/controller');
+    const prompt = 'canonical generated prompt';
+
+    herdr.agentPrompt({ name: 's347-verify', prompt });
+
+    expect(calls).toEqual([{
+      command: 'herdr',
+      args: ['agent', 'prompt', 's347-verify', prompt],
+      options: { cwd: '/controller' },
+    }]);
+  });
+
   it('does not replace the environment of a retained verify worker', () => {
     const fixture = makeControllerFixture();
     configureFailedRetainedVerifyWorker(fixture, { state: 'working' });

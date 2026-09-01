@@ -935,7 +935,7 @@ export function defaultHerdr(run, cwd) {
     ]),
     paneClose: (paneId) => invoke(['pane', 'close', paneId]),
     agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId]),
-    agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt, '--wait']),
+    agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
     agentRead: ({ name, source }) => invoke(['agent', 'read', name, '--source', source]),
     agentSendKeys: ({ name, keys }) => invoke(['agent', 'send-keys', name, ...keys]),
     agentWait: ({ name, until }) => invoke([
