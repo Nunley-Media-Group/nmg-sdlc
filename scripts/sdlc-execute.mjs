@@ -956,6 +956,10 @@ function waitForAgentObservationRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
 }
+function waitForDeliveryObservationRetry() {
+  const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(signal, 0, 0, 1_000);
+}
 function ensureControllerOmpConfig(cwd) {
   const root = realpathSync(cwd);
   const configPath = resolve(root, OMP_CONTROLLER_CONFIG_FILE);
@@ -1601,18 +1605,28 @@ function restoreActiveIssueBranch(issue, cwd, run) {
     : 'branch_checkout_failed';
 }
 
-function syncAndDeleteIssueBranch(issue, cwd, run) {
-  const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
+function syncAndDeleteIssueBranch(
+  issue,
+  cwd,
+  run,
+  waitForRetry = waitForDeliveryObservationRetry,
+) {
   const currentBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
   const issueBranch = currentBranch.startsWith(`${issue}-`) ? currentBranch : issueBranchName(issue, cwd, run);
   if (!issueBranch) return false;
-  const pullRequest = parseCommandOutput(run('gh', [
-    'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
-  ], { cwd }));
-  const merged = Array.isArray(pullRequest) && String(pullRequest[0]?.state).toUpperCase() === 'MERGED';
-  const closed = String(issueState?.state).toUpperCase() === 'CLOSED';
+  let merged = false;
+  let closed = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
+    const pullRequest = parseCommandOutput(run('gh', [
+      'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
+    ], { cwd }));
+    merged = Array.isArray(pullRequest) && String(pullRequest[0]?.state).toUpperCase() === 'MERGED';
+    closed = String(issueState?.state).toUpperCase() === 'CLOSED';
+    if (merged && closed) break;
+    if (attempt < 2) waitForRetry();
+  }
   if (!merged || !closed) return false;
-
   const defaultBranch = repositoryDefaultBranch(cwd, run);
   if (!defaultBranch) return false;
   if (currentBranch !== defaultBranch && !commandSucceeded(run('git', ['checkout', defaultBranch], { cwd }))) {
@@ -1632,6 +1646,7 @@ export function runExecute({
   herdr,
   installSignalHandlers = false,
   processApi = process,
+  waitForDeliveryRetry = waitForDeliveryObservationRetry,
 } = {}) {
   const output = [];
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
@@ -2523,7 +2538,7 @@ export function runExecute({
       const deliverHandoffPath = join(cwd, HANDOFF_DIR, `${issue}-deliver.json`);
       const deliverHandoff = readExpectedHandoff(deliverHandoffPath, issue, 'deliver').handoff;
       if (deliverHandoff?.status === 'passed' && !deliverHandoff.intervention) {
-        if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
+        if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry)) {
           runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
           persistRunState(runState, cwd);
           return {
@@ -3076,7 +3091,7 @@ export function runExecute({
       persistRunState(runState, cwd);
     }
 
-    if (!syncAndDeleteIssueBranch(issue, cwd, run)) {
+    if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry)) {
       runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
       persistRunState(runState, cwd);
       return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };

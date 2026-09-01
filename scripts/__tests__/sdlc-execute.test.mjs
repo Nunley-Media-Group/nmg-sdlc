@@ -5331,6 +5331,59 @@ describe('runExecute controller', () => {
     expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
   });
 
+  it('retries terminal delivery proof while GitHub state converges', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'deliver',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
+      failed: null,
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'deliver',
+      status: 'passed',
+      intervention: false,
+      summary: 'PR merged and issue closed',
+      artifacts: ['https://github.test/pull/77'],
+      next: null,
+      reasonCode: null,
+    })}\n`);
+    const baseRun = fixture.run;
+    let issueStateReads = 0;
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
+        issueStateReads += 1;
+        if (issueStateReads === 1) {
+          fixture.calls.push([command, ...args]);
+          return { status: 0, stdout: JSON.stringify({ state: 'OPEN' }), stderr: '' };
+        }
+      }
+      return baseRun(command, args);
+    };
+    const waits = [];
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      waitForDeliveryRetry: () => waits.push('wait'),
+    });
+
+    expect(result.status).toBe(0);
+    expect(issueStateReads).toBe(2);
+    expect(waits).toEqual(['wait']);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
+  });
+
   it('keeps branch restoration fail-closed when delivery is incomplete', () => {
     const fixture = makeControllerFixture({ branch: 'main' });
     seedRun(fixture.cwd, {
