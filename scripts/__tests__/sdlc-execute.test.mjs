@@ -23,6 +23,7 @@ import {
   cleanupCompletedRun,
   runExecute,
   listSpecifiedIssues,
+  defaultHerdr,
 } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
@@ -1022,6 +1023,7 @@ describe('runExecute controller', () => {
     }
     const calls = [];
     const starts = [];
+    const splits = [];
     const closed = [];
     const notifications = [];
     const sentKeys = [];
@@ -1131,8 +1133,9 @@ describe('runExecute controller', () => {
     const herdr = {
       integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
       paneLayout: () => ({ result: { width: paneWidth, height: 40 } }),
-      paneSplit: ({ direction }) => {
-        expect(direction).toBe(paneWidth >= 40 ? 'right' : 'down');
+      paneSplit: (input) => {
+        expect(input.direction).toBe(paneWidth >= 40 ? 'right' : 'down');
+        splits.push(input);
         paneSequence += 1;
         return { result: { pane: { pane_id: `pane-${paneSequence}` } } };
       },
@@ -1247,7 +1250,7 @@ describe('runExecute controller', () => {
       notificationShow: (notice) => notifications.push(notice),
     };
     return {
-      cwd, calls, starts, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
+      cwd, calls, starts, splits, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
     };
   }
 
@@ -2402,6 +2405,84 @@ describe('runExecute controller', () => {
     expect(fixture.sentKeys).toEqual([]);
   });
 
+  it('passes only the exact smoke queue to a newly split verify pane', () => {
+    const fixture = makeControllerFixture();
+    const queue = '#39, 40';
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: queue, UNRELATED_SECRET: 'do-not-copy' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits).toHaveLength(VALID_STEPS.length);
+    expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
+      direction: 'right',
+      cwd: fixture.cwd,
+      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+    });
+    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
+  });
+
+  it('omits pane environment when the smoke queue is missing', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits.every((split) => !Object.hasOwn(split, 'environment'))).toBe(true);
+  });
+
+  it('passes pane environment through Herdr argv without shell composition', () => {
+    const calls = [];
+    const herdr = defaultHerdr((command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    }, '/controller');
+    const queue = '39,40; $(touch /tmp/never)';
+
+    herdr.paneSplit({
+      direction: 'down',
+      cwd: '/consumer',
+      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+    });
+
+    expect(calls).toEqual([{
+      command: 'herdr',
+      args: [
+        'pane', 'split', '--current', '--direction', 'down', '--cwd', '/consumer', '--no-focus',
+        '--env', `NMG_SDLC_SMOKE_ISSUES=${queue}`,
+      ],
+      options: { cwd: '/controller' },
+    }]);
+  });
+
+  it('does not replace the environment of a retained verify worker', () => {
+    const fixture = makeControllerFixture();
+    configureFailedRetainedVerifyWorker(fixture, { state: 'working' });
+    fixture.herdr.paneSplit = () => {
+      throw new Error('retained verify worker must not be split again');
+    };
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: '99,100' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('closes a remediable failed verify pane then starts one rem session', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -2416,15 +2497,27 @@ describe('runExecute controller', () => {
     expect(fixture.notifications).toEqual([]);
   });
 
-  it('retries remediable rem failure with a fresh rem session', () => {
+  it('passes the exact smoke queue to every fresh verify remediation pane', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify', remFailures: 1 });
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const queue = '39,40';
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: queue },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
     const remStarts = fixture.starts.filter(({ name }) => name === 'r42-verify');
 
     expect(result.status).toBe(0);
     expect(remStarts).toEqual([
       { name: 'r42-verify', paneId: 'pane-8', kind: 'omp' },
       { name: 'r42-verify', paneId: 'pane-9', kind: 'omp' },
+    ]);
+    expect(fixture.splits.slice(6, 9).map(({ environment }) => environment)).toEqual([
+      { NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_SMOKE_ISSUES: queue },
     ]);
     expect(fixture.events.indexOf('close:pane-8')).toBeLessThan(
       fixture.events.lastIndexOf('start:r42-verify'),
@@ -2546,12 +2639,19 @@ describe('runExecute controller', () => {
     };
     fixture.herdr.agentGet = () => ({ result: { state: settled ? 'done' : 'working' } });
 
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_ISSUES: '99,100' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
 
     expect(result.status).toBe(0);
     expect(fixture.waits).toContainEqual({ name: 'r42-verify' });
     expect(fixture.starts.some(({ name }) => name === 's42-verify' || name === 'r42-verify')).toBe(false);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-deliver']);
+    expect(fixture.splits).toEqual([{ direction: 'right', cwd: fixture.cwd }]);
     expect(fixture.closed).toContain('live-rem');
   });
 
