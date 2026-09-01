@@ -1611,19 +1611,30 @@ function syncAndDeleteIssueBranch(
   cwd,
   run,
   waitForRetry = waitForDeliveryObservationRetry,
+  delivery = null,
 ) {
   const currentBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
-  const issueBranch = currentBranch.startsWith(`${issue}-`) ? currentBranch : issueBranchName(issue, cwd, run);
-  if (!issueBranch) return false;
+  const pullRequestNumber = Number(delivery?.pullRequest);
+  let issueBranch = currentBranch.startsWith(`${issue}-`) ? currentBranch : '';
+  if (!issueBranch && !Number.isInteger(pullRequestNumber)) {
+    issueBranch = issueBranchName(issue, cwd, run);
+  }
+  if (!issueBranch && !Number.isInteger(pullRequestNumber)) return false;
   let merged = false;
   let closed = false;
   const attempts = 10;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
-    const pullRequest = parseCommandOutput(run('gh', [
-      'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
-    ], { cwd }));
-    merged = Array.isArray(pullRequest) && String(pullRequest[0]?.state).toUpperCase() === 'MERGED';
+    const pullRequest = Number.isInteger(pullRequestNumber)
+      ? parseCommandOutput(run('gh', [
+        'pr', 'view', String(pullRequestNumber), '--json', 'state,headRefName',
+      ], { cwd }))
+      : parseCommandOutput(run('gh', [
+        'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
+      ], { cwd }));
+    const observedPullRequest = Array.isArray(pullRequest) ? pullRequest[0] : pullRequest;
+    merged = String(observedPullRequest?.state).toUpperCase() === 'MERGED';
+    issueBranch ||= String(observedPullRequest?.headRefName || '').trim();
     closed = String(issueState?.state).toUpperCase() === 'CLOSED';
     if (merged && closed) break;
     if (attempt < attempts - 1) waitForRetry();
@@ -1635,7 +1646,7 @@ function syncAndDeleteIssueBranch(
     return false;
   }
   if (!commandSucceeded(run('git', ['pull', '--ff-only'], { cwd }))) return false;
-  run('git', ['branch', '-d', issueBranch], { cwd });
+  if (issueBranch) run('git', ['branch', '-d', issueBranch], { cwd });
   return true;
 }
 
@@ -2544,7 +2555,7 @@ export function runExecute({
       const deliverHandoffPath = join(cwd, HANDOFF_DIR, `${issue}-deliver.json`);
       const deliverHandoff = readExpectedHandoff(deliverHandoffPath, issue, 'deliver').handoff;
       if (deliverHandoff?.status === 'passed' && !deliverHandoff.intervention) {
-        if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry)) {
+        if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry, runState.delivery)) {
           runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
           persistRunState(runState, cwd);
           return {
@@ -3098,7 +3109,7 @@ export function runExecute({
       persistRunState(runState, cwd);
     }
 
-    if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry)) {
+    if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry, runState.delivery)) {
       runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
       persistRunState(runState, cwd);
       return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };

@@ -1163,6 +1163,13 @@ describe('runExecute controller', () => {
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
         return { status: 0, stdout: JSON.stringify({ state: 'CLOSED' }), stderr: '' };
       }
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ state: 'MERGED', headRefName: '42-ship-it' }),
+          stderr: '',
+        };
+      }
       if (command === 'gh' && args[0] === 'pr') {
         return { status: 0, stdout: JSON.stringify([{ state: 'MERGED' }]), stderr: '' };
       }
@@ -5321,6 +5328,13 @@ describe('runExecute controller', () => {
       completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'] },
       failed: null,
       startedAt: '2026-08-24T00:00:00.000Z',
+      delivery: {
+        issue: 42,
+        pullRequest: 77,
+        expectedHead: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'complete',
+        reconciliation: null,
+      },
     });
     const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
     fs.mkdirSync(handoffDir, { recursive: true });
@@ -5359,6 +5373,9 @@ describe('runExecute controller', () => {
     });
 
     expect(result.status).toBe(0);
+    expect(fixture.calls).toContainEqual([
+      'gh', 'pr', 'view', '77', '--json', 'state,headRefName',
+    ]);
     expect(issueStateReads).toBe(6);
     expect(waits).toEqual(['wait', 'wait', 'wait', 'wait', 'wait']);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
