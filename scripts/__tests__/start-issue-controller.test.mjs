@@ -35,6 +35,7 @@ function fixture({
   developStatus = 0,
   localBranch = false,
   remoteBranch = false,
+  remoteBranchAfterDevelop = false,
   remoteConfigStatus = 0,
   checkoutStatus = 0,
   checkedOutBranch = '42-ship-it',
@@ -55,6 +56,7 @@ function fixture({
   }
   const calls = [];
   let branchReads = 0;
+  let developAttempted = false;
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (integratedRuntimeMigration && command === 'git'
@@ -110,7 +112,7 @@ function fixture({
       return { status: localBranch ? 0 : 1, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'fetch') {
-      return { status: remoteBranch ? 0 : 1, stdout: '', stderr: '' };
+      return { status: remoteBranch || (remoteBranchAfterDevelop && developAttempted) ? 0 : 1, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'config' && args[1] === '--get-all') {
       return {
@@ -134,6 +136,7 @@ function fixture({
       return { status: defaultStatus, stdout: defaultStatus === 0 ? `${defaultBranch}\n` : '', stderr: '' };
     }
     if (command === 'gh' && args[0] === 'issue' && args[1] === 'develop') {
+      developAttempted = true;
       if (integratedRuntimeMigration && developStatus === 0) {
         runGit(cwd, ['checkout', '-b', checkedOutBranch]);
       }
@@ -292,6 +295,24 @@ describe('startIssue controller', () => {
       'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
     ]);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('recovers when issue development creates the remote branch but cannot check it out', () => {
+    const f = fixture({
+      developStatus: 1,
+      remoteBranchAfterDevelop: true,
+    });
+
+    const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+
+    expect(result.handoff.status).toBe('passed');
+    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(2);
+    expect(f.calls).toContainEqual([
+      'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
+    ]);
   });
 
   it('fails closed when exact remote branch registration fails', () => {
