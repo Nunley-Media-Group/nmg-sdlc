@@ -3035,6 +3035,28 @@ describe('runExecute controller', () => {
     expect(fixture.waits.every((waitCall) => !Object.hasOwn(waitCall, 'timeout'))).toBe(true);
   });
 
+  it('does not submit Enter twice when stalled recovery produces no handoff', () => {
+    const fixture = makeControllerFixture({ stalled: true, writeHandoffs: false });
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.sentKeys).toEqual([['enter']]);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
+    });
+  });
+
   it('recovers a stalled prompt reported as JSON on stderr', () => {
     const fixture = makeControllerFixture({ stalledInStderr: true });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
@@ -5051,6 +5073,63 @@ describe('runExecute controller', () => {
       expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
       expect(persisted.workers['s42-implement'].promptDelivery).toBe('pending');
     }
+  });
+
+  it('consumes a passed handoff when its pending-prompt worker is absent', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'start',
+      completed: { 42: [] },
+      failed: {
+        issue: 42,
+        step: 'start',
+        reasonCode: 'prompt_pending',
+        intervention: true,
+      },
+      workers: {
+        's42-start': {
+          name: 's42-start',
+          paneId: 'missing-start-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'start',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          promptDelivery: 'pending',
+        },
+      },
+    });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(handoffDir, '42-start.json'),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 42,
+        step: 'start',
+        status: 'passed',
+        intervention: false,
+        summary: 'Issue branch already started',
+        artifacts: [],
+        next: 'implement',
+        reasonCode: null,
+      })}\n`,
+    );
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.prompts.some(({ name }) => name === 's42-start')).toBe(false);
+    expect(fixture.starts.some(({ name }) => name === 's42-start')).toBe(false);
   });
 
   it('submits a pasted prompt retained from an earlier run', () => {

@@ -1075,11 +1075,19 @@ function waitForWorkerSettlement(herdr, agentName) {
   return commandSucceeded(herdr.agentWait({ name: agentName, until: 'working' }))
     && commandSucceeded(herdr.agentWait({ name: agentName }));
 }
-function settleDeliveredPrompt(herdr, agentName, prompt, handoffPath, state) {
+function settleDeliveredPrompt(
+  herdr,
+  agentName,
+  prompt,
+  handoffPath,
+  state,
+  promptSubmissionRetried = false,
+) {
   if (existsSync(handoffPath) || !['idle', 'done'].includes(state)) {
     return { settled: true, state };
   }
   if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
+    if (promptSubmissionRetried) return { settled: true, state };
     if (!retryPromptSubmission(herdr, agentName)) return { settled: false, state };
     return { settled: true, state: agentState(herdr.agentGet(agentName)) };
   }
@@ -1106,7 +1114,7 @@ function deliverGeneratedPromptOnce({
     try {
       if (hasPastedWorkerPrompt(herdr, agentName, prompt)) {
         return retryPromptSubmission(herdr, agentName)
-          ? { delivered: true, state: null }
+          ? { delivered: true, state: null, promptSubmissionRetried: true }
           : { delivered: false, reasonCode: 'worker_failed' };
       }
       if (appearsWorking(herdr, agentName)) {
@@ -1869,6 +1877,11 @@ export function runExecute({
       if (!checkout) continue;
       if (passedHandoff) {
         Object.assign(worker, checkout, { promptDelivery: 'delivered' });
+        if (workerPresence(herdrApi, worker.name, worker.paneId) === 'absent') {
+          delete runState.workers[worker.name];
+          runState.completed[String(worker.issue)].push(worker.step);
+          runState.currentStep = nextStep(runState.completed[String(worker.issue)]);
+        }
         runState.failed = null;
         persistRunState(runState, cwd);
         continue;
@@ -2113,7 +2126,12 @@ export function runExecute({
           persistRunState(runState, cwd);
           state = agentState(herdrApi.agentGet(agentName));
           const settled = settleDeliveredPrompt(
-            herdrApi, agentName, prompt, handoffPath, state,
+            herdrApi,
+            agentName,
+            prompt,
+            handoffPath,
+            state,
+            delivered.promptSubmissionRetried,
           );
           if (!settled.settled) {
             return stop({
@@ -2777,7 +2795,12 @@ export function runExecute({
         persistRunState(runState, cwd);
         state = agentState(herdrApi.agentGet(agentName));
         const settled = settleDeliveredPrompt(
-          herdrApi, agentName, prompt, handoffPath, state,
+          herdrApi,
+          agentName,
+          prompt,
+          handoffPath,
+          state,
+          delivered.promptSubmissionRetried,
         );
         if (!settled.settled) {
           return stop({
