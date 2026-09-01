@@ -336,6 +336,7 @@ export function createSmokeProvider({
         return retain("failed", `nmg-sdlc-smoke execute exited ${execute.status}`, evidence);
       }
 
+
       for (const issue of issues) {
         const delivery = recordedDelivery(readFile, work, issue);
         if (!delivery) {

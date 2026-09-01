@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import fs from 'node:fs';
 import { createSmokeProvider } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const VALID_ENV = Object.freeze({
@@ -85,6 +86,23 @@ function retained(resultEnvelope) {
 }
 
 describe('nmg-sdlc mutable delivery smoke provider', () => {
+  it('registers the required production env-backed smoke queue', () => {
+    const manifest = JSON.parse(fs.readFileSync(
+      new URL('../../steering/manifest.json', import.meta.url),
+      'utf8',
+    ));
+    const validation = manifest.validations.find(({ id }) => id === 'repository.nmg-sdlc-smoke');
+
+    expect(validation).toEqual({
+      id: 'repository.nmg-sdlc-smoke',
+      provider: 'project.nmg-sdlc-smoke',
+      required: true,
+      when: { kind: 'always' },
+      config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
+    });
+    expect(validation.config).not.toHaveProperty('issues');
+  });
+
   it.each([
     undefined,
     {},
@@ -92,6 +110,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     { issues: ['7'] },
     { issues: [0] },
     { issues: [7, 7] },
+    { issues: [Number.MAX_SAFE_INTEGER + 1] },
   ])('fails invalid explicit issue config %# before cloning', async (config) => {
     const fixture = harness({ config });
     const outcome = await fixture.provider(fixture.request);
@@ -230,11 +249,16 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
   });
 
-  it('fails when execute exits nonzero instead of accepting historical delivery proof', async () => {
-    const fixture = harness({ override: (program) => program === process.execPath ? result(1, '', { stderr: 'already complete' }) : null });
+  it('rejects a nonzero execute exit before reading delivery proof', async () => {
+    const fixture = harness({ override: (program) => (
+      program === process.execPath ? result(1, '', { stderr: 'controller failed' }) : null
+    ) });
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke execute exited 1' });
+    expect(outcome).toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke execute exited 1',
+    });
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
     expect(fixture.readFileSync).not.toHaveBeenCalled();
