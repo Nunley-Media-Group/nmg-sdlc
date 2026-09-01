@@ -11,7 +11,7 @@ The reproduced failure was OMP's interactive large-paste menu, not Herdr command
 
 The controller now writes an OMP overlay at `.omp/sdlc/omp-controller.yml` with `paste.largeMenuThreshold: 0` and starts every newly owned OMP worker with native arguments `-- --config <overlay>`. This disables only the interactive choice menu for controller-owned workers; large prompts still use OMP's paste attachment path. Prompt delivery remains one nonblocking `herdr agent prompt <name> <exact-canonical-prompt>` invocation. No pane text or routine Enter delivery was added.
 
-Canonical worker prompts remain trimmed at their source boundary so OMP's submission normalization preserves exact generated content. After one accepted standard, review, or remediation submission, the controller now persists versioned `activating` before bounded activation. Only working, blocked, or a valid expected handoff advances the worker to `delivered`. Activation exhaustion writes `pending` and retains the pane as `prompt_pending`.
+Canonical worker prompts remain trimmed at their source boundary so OMP's submission normalization preserves exact generated content. After one accepted standard, review, or remediation submission, the controller persists versioned `activating` before bounded activation. Only working, blocked, or a valid expected handoff advances the worker to `delivered`. Activation exhaustion retains `activating` and the pane while stop reports `prompt_pending`.
 
 On restart, `activating` re-enters the same bounded activation guard without invoking `agentPrompt`. Unversioned legacy `delivered` migrates to versioned `activating` because the old checkpoint cannot prove whether activation completed. Checkpoint writes reject unsupported delivery states. Enter remains positive-visibility-only recovery; the exact-prompt large-paste overlay and one-shot pre-prompt process-loss retry remain unchanged.
 
@@ -23,9 +23,9 @@ Command:
 cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs
 ```
 
-Result: exit 0; 1 suite passed; 231/231 tests passed.
+Result: exit 0; 1 suite passed; 232/232 tests passed.
 
-The standard, review, and remediation delayed `idle → working` regressions now inspect the persisted checkpoint and prove `activating` exists before activation, with exactly one prompt, no Enter, valid completion, and no premature close. A crash-boundary regression throws immediately after accepted submission, proves versioned `activating` and pane retention, then invokes the controller again and proves the interrupted step completes without a second prompt. Migration coverage proves unversioned `delivered` re-enters activation without re-prompting; validation rejects unsupported states; exhaustion remains versioned `pending` with `prompt_pending`.
+The standard, review, and remediation delayed `idle → working` regressions inspect the persisted checkpoint and prove `activating` exists before activation, with exactly one prompt, no Enter, valid completion, and no premature close. Crash-boundary coverage proves both an immediate controller failure and bounded activation exhaustion retain versioned `activating`; subsequent invocations re-enter observation without another prompt. Migration coverage proves unversioned `delivered` re-enters activation without re-prompting, and validation rejects unsupported states.
 
 ## Bounded Real Herdr Harness
 

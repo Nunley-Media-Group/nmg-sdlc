@@ -3282,6 +3282,44 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
+  it('resumes exhausted activation without another generated prompt', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'idle' });
+    fixture.herdr.agentRead = () => '';
+
+    const first = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    const exhausted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(first.status).toBe(1);
+    expect(exhausted.workers['s42-start']).toMatchObject({
+      promptDelivery: 'activating',
+      promptDeliveryVersion: 2,
+    });
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(fixture.closed).toEqual([]);
+
+    const resumeEvent = fixture.events.length;
+    const second = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    const resumed = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(second.status).toBe(1);
+    expect(second.stdout).toContain('retained with prompt pending');
+    expect(fixture.events.slice(resumeEvent)).not.toContain('prompt:s42-start');
+    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
+    expect(resumed.workers['s42-start']).toMatchObject({
+      promptDelivery: 'activating',
+      promptDeliveryVersion: 2,
+    });
+    expect(fixture.closed).toEqual([]);
+  });
+
   it('ignores a stale handoff and retains an initially idle fresh worker', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
     const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
@@ -5579,7 +5617,7 @@ describe('runExecute controller', () => {
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(0);
     expect(fixture.closed).toEqual([]);
     expect(migrated.workers['s42-start']).toMatchObject({
-      promptDelivery: 'pending',
+      promptDelivery: 'activating',
       promptDeliveryVersion: 2,
     });
     expect(migrated.failed).toMatchObject({

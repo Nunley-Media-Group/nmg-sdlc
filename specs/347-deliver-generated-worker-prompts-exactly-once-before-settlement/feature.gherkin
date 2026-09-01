@@ -17,25 +17,17 @@ Feature: Deliver generated worker prompts exactly once before settlement
 
   @SCN001 @regression
   Scenario: Bug is fixed
-    Given execute submits one generated prompt to a fresh standard, review, or remediation --kind omp worker
-    When prompt submission returns before working, blocked, or a valid expected handoff proves activation
-    Then execute persists activating before bounded activation and persists delivered only after activation proof
-    And initial idle or done cannot settle or close the pane
+    Given execute starts a fresh start, implement, fix1, fix2, verify, deliver, or rem --kind omp worker
+    When session_start writes com.nmg-sdlc.run and the session would otherwise become idle or done before the generated prompt
+    Then execute retries start at most once if the session is already gone, delivers that invocation's generated prompt exactly once to a live session, and only then observes settlement or handoff
+    And it does not record missing_handoff or close the pane solely because the empty session settled before the prompt arrived
 
   # --- Related Behavior Still Works ---
 
   @SCN002 @regression
   Scenario: No regression
-    Given a matching retained worker is pending, activating, or proven delivered
+    Given a matching retained live worker that already received its generated prompt, or a worker whose prompt was delivered and that still has no handoff
     When execute resumes or finishes observing that worker
-    Then pending may dispatch once, activating resumes bounded activation without another prompt, and delivered receives no second prompt
-    And activation exhaustion becomes retained prompt_pending
-    And a still-missing handoff after proven activation remains missing_handoff and still closes the owned pane unless --retain-worker was requested
-    And review prompt content and review evidence validation remain unchanged
-
-  @SCN003 @regression
-  Scenario: Controller crash after accepted prompt resumes activation exactly once
-    Given a fresh worker accepted its generated prompt and the checkpoint persisted activating
-    When the controller exits before bounded activation completes and the next invocation resumes
-    Then the next invocation re-enters bounded activation without invoking agentPrompt
-    And working, blocked, or a valid expected handoff transitions the worker to delivered
+    Then it does not send a second generated prompt
+    And a still-missing handoff after proven delivery remains missing_handoff and still closes the owned pane unless --retain-worker was requested
+    And review workers keep their existing interactive protocol

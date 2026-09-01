@@ -19,39 +19,39 @@
 
 | | Description |
 |---|-------------|
-| **Expected** | Execute proves the sibling session is live, delivers that invocation's generated worker prompt exactly once, persists `activating`, and only marks delivery `delivered` after working/blocked or a valid expected handoff proves activation. A controller restart while `activating` re-enters bounded activation without another prompt. Activation exhaustion becomes retained `prompt_pending`; initial idle/done cannot settle or close the pane. After proven activation, a still-missing handoff remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested. |
-| **Actual** | The fresh flow persisted `promptDelivery: "delivered"` immediately after `agentPrompt` returned and before bounded activation. A controller exit in that window resumed as delivered, skipped activation recovery, and could settle or close an initially idle worker on `missing_handoff`. |
+| **Expected** | Execute proves the sibling session is live, delivers that invocation's generated worker prompt exactly once, and only then observes settlement or handoff. If the session is already gone before the first prompt, execute retries `herdr agent start` once in the same pane (existing one-shot start retry), delivers the prompt exactly once to the live session, then observes. A matching retained live worker does not receive a second generated prompt. After proven prompt delivery, a still-missing handoff remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested. |
+| **Actual** | `runExecute` samples worker state and observes handoff without proving this invocation's generated prompt was delivered to a live session. An empty session that settled after only `com.nmg-sdlc.run` becomes `missing_handoff`, and `stopResult` closes the owned pane. |
 
 ## Acceptance Criteria
 
 ### AC1: Bug Is Fixed
 
-**Given** execute submits one generated prompt to a fresh standard, review, or remediation `--kind omp` worker
-**When** submission is accepted but activation has not yet been proven
-**Then** execute persists `promptDelivery: "activating"` before bounded activation and transitions to `delivered` only after working/blocked or a valid expected handoff
-**And** a resumed `activating` worker re-enters bounded activation without another `agentPrompt`; exhaustion becomes retained `prompt_pending`, and initial idle/done cannot settle or close the pane
+**Given** execute starts a fresh start, implement, fix1, fix2, verify, deliver, or rem `--kind omp` worker
+**When** `session_start` writes `com.nmg-sdlc.run` and the session would otherwise become idle or done before the generated prompt
+**Then** execute retries start at most once if the session is already gone, delivers that invocation's generated prompt exactly once to a live session, and only then observes settlement or handoff
+**And** it does not record `missing_handoff` or close the pane solely because the empty session settled before the prompt arrived
 
 ### AC2: No Regression
 
-**Given** a matching retained worker is `pending`, `activating`, or proven `delivered`
+**Given** a matching retained live worker that already received its generated prompt, or a worker whose prompt was delivered and that still has no handoff
 **When** execute resumes or finishes observing that worker
-**Then** pending delivery may dispatch once, activating delivery resumes only the bounded activation guard, and delivered workers receive no second generated prompt
-**And** a still-missing handoff after proven activation remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested
-**And** review prompt content and review evidence validation remain unchanged
+**Then** it does not send a second generated prompt
+**And** a still-missing handoff after proven delivery remains `missing_handoff` and still closes the owned pane unless `--retain-worker` was requested
+**And** review workers keep their existing interactive protocol
 
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Persist `activating` immediately after one accepted generated prompt and before bounded activation. | Must |
-| FR2 | Resume `activating` standard, review, and remediation workers through bounded activation without another generated prompt. | Must |
-| FR3 | Transition to `delivered` only after working/blocked or a valid expected handoff proves activation; migrate unversioned legacy `delivered` state back through `activating`. | Must |
-| FR4 | Activation exhaustion becomes retained `prompt_pending`; only a missing handoff after proven activation may use fail-closed `missing_handoff` and default owned-pane close-on-stop. | Must |
+| FR1 | Deliver the generated start-then-prompt worker prompt exactly once to a live session before terminal observation. | Must |
+| FR2 | If the sibling session is gone before the first prompt, retry `agent start` once, then prompt once; do not classify that pre-prompt death as `missing_handoff`. | Must |
+| FR3 | Matching retained live workers must resume without a second generated prompt. | Must |
+| FR4 | After proven prompt delivery, missing handoff remains fail-closed `missing_handoff` with default owned-pane close-on-stop; `--retain-worker` stays the debug escape. | Must |
 
 ## Out of Scope
 
-- Changing review prompt content or review evidence validation
-- Changing close-on-stop after prompt activation was proven
+- Changing the review1/review2 interactive `/review` protocol
+- Changing close-on-stop after a prompt was actually delivered
 - Auto-provisioning `NMG_SDLC_SMOKE_ISSUES` or weakening live-smoke proof
 - Inventing worker identities or skipping validated handoff checks
 - Removing `src/extension.ts` `session_start` `appendEntry("com.nmg-sdlc.run", run)`
@@ -61,4 +61,3 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #347 | 2026-08-31 | Initial defect report |
-| #347 | 2026-09-01 | Persist activation-pending delivery and resume its bounded guard without re-prompting |

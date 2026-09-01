@@ -1921,8 +1921,6 @@ export function runExecute({
     );
     if (activation.result?.handoff || ['working', 'blocked'].includes(activation.state)) {
       persistPromptDelivery(worker, 'delivered');
-    } else if (activation.result?.reasonCode === 'prompt_pending') {
-      persistPromptDelivery(worker, 'pending');
     }
     return activation;
   }
