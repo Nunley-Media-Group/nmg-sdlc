@@ -3365,45 +3365,29 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
-  it('resumes exhausted activation without another generated prompt', () => {
+  it('closes an exhausted proven activation without another generated prompt', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'idle' });
     fixture.herdr.agentRead = () => '';
 
-    const first = runExecute({
+    const result = runExecute({
       args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
     });
     const exhausted = JSON.parse(
       fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
     );
 
-    expect(first.status).toBe(1);
-    expect(exhausted.workers['s42-start']).toMatchObject({
-      promptDelivery: 'activating',
-      promptDeliveryVersion: 2,
+    expect(result.status).toBe(1);
+    expect(exhausted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'missing_handoff',
     });
+    expect(exhausted.workers).toEqual({});
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(fixture.closed).toEqual([]);
-
-    const resumeEvent = fixture.events.length;
-    const second = runExecute({
-      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
-    });
-    const resumed = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
-
-    expect(second.status).toBe(1);
-    expect(second.stdout).toContain('retained with prompt pending');
-    expect(fixture.events.slice(resumeEvent)).not.toContain('prompt:s42-start');
-    expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(resumed.workers['s42-start']).toMatchObject({
-      promptDelivery: 'activating',
-      promptDeliveryVersion: 2,
-    });
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
   });
 
-  it('ignores a stale handoff and retains an initially idle fresh worker', () => {
+  it('ignores a stale handoff and closes an initially idle fresh worker', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false });
     const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
     fs.mkdirSync(handoffDir, { recursive: true });
@@ -3429,12 +3413,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'prompt_pending',
-      intervention: true,
+      reasonCode: 'missing_handoff',
     });
   });
 
@@ -3465,7 +3448,7 @@ describe('runExecute controller', () => {
     });
   });
 
-  it('retains initial idle instead of settling on missing handoff', () => {
+  it('settles initial idle as missing handoff after proven delivery', () => {
     const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'done' });
     fixture.herdr.agentRead = () => '';
 
@@ -3482,12 +3465,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.waits).toEqual([]);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'prompt_pending',
-      intervention: true,
+      reasonCode: 'missing_handoff',
     });
   });
 
@@ -3534,8 +3516,7 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'prompt_pending',
-      intervention: true,
+      reasonCode: 'missing_handoff',
     });
   });
 
@@ -3578,8 +3559,8 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.sentKeys).toEqual([]);
-    expect(fixture.closed).toEqual([]);
-    expect(persisted.failed).toMatchObject({ reasonCode: 'prompt_pending', intervention: true });
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toMatchObject({ reasonCode: 'missing_handoff' });
   });
 
   it('does not submit Enter after a successful prompt while state is stale idle', () => {
@@ -3598,8 +3579,8 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.waits).toEqual([]);
-    expect(fixture.closed).toEqual([]);
-    expect(persisted.failed).toMatchObject({ reasonCode: 'prompt_pending', intervention: true });
+    expect(fixture.closed).toEqual(['pane-1']);
+    expect(persisted.failed).toMatchObject({ reasonCode: 'missing_handoff' });
   });
 
   it('recovers a worker prompt from all three leading previews', () => {
@@ -4576,9 +4557,9 @@ describe('runExecute controller', () => {
   });
 
   it.each([
-    '',
-    '--retain-worker ',
-  ])('retains initial idle after one prompt for %sdefault close policy', (flag) => {
+    ['', ['pane-1']],
+    ['--retain-worker ', []],
+  ])('uses post-delivery missing-handoff policy for %sdefault close policy', (flag, closed) => {
     const fixture = makeControllerFixture({ writeHandoffs: false, agentState: 'idle' });
 
     const result = runExecute({
@@ -4594,12 +4575,11 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(fixture.closed).toEqual([]);
+    expect(fixture.closed).toEqual(closed);
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
-      reasonCode: 'prompt_pending',
-      intervention: true,
+      reasonCode: 'missing_handoff',
     });
   });
 
@@ -5360,7 +5340,7 @@ describe('runExecute controller', () => {
     fixture.run = (command, args) => {
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
         issueStateReads += 1;
-        if (issueStateReads === 1) {
+        if (issueStateReads <= 5) {
           fixture.calls.push([command, ...args]);
           return { status: 0, stdout: JSON.stringify({ state: 'OPEN' }), stderr: '' };
         }
@@ -5379,8 +5359,8 @@ describe('runExecute controller', () => {
     });
 
     expect(result.status).toBe(0);
-    expect(issueStateReads).toBe(2);
-    expect(waits).toEqual(['wait']);
+    expect(issueStateReads).toBe(6);
+    expect(waits).toEqual(['wait', 'wait', 'wait', 'wait', 'wait']);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 

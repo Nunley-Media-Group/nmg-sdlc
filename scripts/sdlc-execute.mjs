@@ -1150,6 +1150,7 @@ function awaitInitialPromptActivation(
   step,
   agentName,
   paneId,
+  exhaustedReason = 'prompt_pending',
 ) {
   const retries = 10;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -1165,12 +1166,12 @@ function awaitInitialPromptActivation(
       return {
         result: result.reasonCode === 'invalid_handoff'
           ? result
-          : { handoff: null, reasonCode: 'prompt_pending' },
+          : { handoff: null, reasonCode: exhaustedReason },
       };
     }
     herdr.observationPause?.();
   }
-  return { result: { handoff: null, reasonCode: 'prompt_pending' } };
+  return { result: { handoff: null, reasonCode: exhaustedReason } };
 }
 
 
@@ -1616,7 +1617,8 @@ function syncAndDeleteIssueBranch(
   if (!issueBranch) return false;
   let merged = false;
   let closed = false;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const attempts = 10;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const issueState = parseCommandOutput(run('gh', ['issue', 'view', String(issue), '--json', 'state'], { cwd }));
     const pullRequest = parseCommandOutput(run('gh', [
       'pr', 'list', '--head', issueBranch, '--state', 'merged', '--json', 'state', '--limit', '1',
@@ -1624,7 +1626,7 @@ function syncAndDeleteIssueBranch(
     merged = Array.isArray(pullRequest) && String(pullRequest[0]?.state).toUpperCase() === 'MERGED';
     closed = String(issueState?.state).toUpperCase() === 'CLOSED';
     if (merged && closed) break;
-    if (attempt < 2) waitForRetry();
+    if (attempt < attempts - 1) waitForRetry();
   }
   if (!merged || !closed) return false;
   const defaultBranch = repositoryDefaultBranch(cwd, run);
@@ -1927,12 +1929,14 @@ export function runExecute({
     step,
     agentName,
     paneId,
+    promptDelivered = false,
   }) {
     if (worker.promptDelivery !== 'activating') {
       persistPromptDelivery(worker, 'activating');
     }
     const activation = awaitInitialPromptActivation(
       herdrApi, handoffPath, issue, step, agentName, paneId,
+      promptDelivered ? 'missing_handoff' : 'prompt_pending',
     );
     if (activation.result?.handoff || ['working', 'blocked'].includes(activation.state)) {
       persistPromptDelivery(worker, 'delivered');
@@ -2094,6 +2098,7 @@ export function runExecute({
         step: worker.step,
         agentName: worker.name,
         paneId: worker.paneId,
+        promptDelivered: true,
       });
       if (activation.result && !activation.result.handoff) {
         return stop({
@@ -2325,6 +2330,7 @@ export function runExecute({
             step,
             agentName,
             paneId,
+            promptDelivered: true,
           });
           if (activation.result) {
             if (!activation.result.handoff) {
@@ -3035,6 +3041,7 @@ export function runExecute({
           step,
           agentName,
           paneId,
+          promptDelivered: true,
         });
         if (activation.result) {
           if (!activation.result.handoff) {
