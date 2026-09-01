@@ -24,7 +24,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -811,35 +811,8 @@ export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) 
   return materializeControllerPaths(text, packageRoot).trimEnd();
 }
 
-const HERDR_AGENT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
-const WORKER_NAMESPACE = /^[0-9a-f]{8}$/;
-
-export function workerNamespaceForRunId(runId) {
-  return createHash('sha256').update(String(runId), 'utf8').digest('hex').slice(0, 8);
-}
-
-export function stepAgentName(issue, step, workerNamespace = null) {
-  return workerNamespace
-    ? `s${workerNamespace}-${issue}-${step}`
-    : `s${issue}-${step}`;
-}
-
-export function remAgentName(issue, step, workerNamespace = null) {
-  return workerNamespace
-    ? `r${workerNamespace}-${issue}-${step}`
-    : `r${issue}-${step}`;
-}
-
-function resolveWorkerNamespace(runState) {
-  if (!Object.hasOwn(runState, 'workerNamespace')) return null;
-  if (!WORKER_NAMESPACE.test(runState.workerNamespace)) {
-    throw new Error('invalid_worker_namespace');
-  }
-  return runState.workerNamespace;
-}
-
-function validHerdrAgentName(name) {
-  return HERDR_AGENT_NAME.test(name);
+export function remAgentName(issue, step) {
+  return `r${issue}-${step}`;
 }
 
 export function isRemediableFailedHandoff({ step, state, handoff } = {}) {
@@ -1867,7 +1840,6 @@ export function runExecute({
       schemaVersion: 1,
       projectRoot: realpathSync(cwd),
       runId: controllerRunId,
-      workerNamespace: workerNamespaceForRunId(controllerRunId),
       issue: issues[0],
       branch,
       head,
@@ -1927,22 +1899,6 @@ export function runExecute({
     run,
     retainWorker: parsedArgs.retainWorker,
   });
-  let workerNs;
-  try {
-    workerNs = resolveWorkerNamespace(runState);
-  } catch {
-    return stop({
-      issue: runState.currentIssue ?? issues[0],
-      step: runState.currentStep ?? 'start',
-      paneId: 'none',
-      agentName: 'none',
-      reasonCode: 'invalid_worker_namespace',
-      runState,
-      cwd,
-      herdr: herdrApi,
-      output,
-    });
-  }
   function persistPromptDelivery(worker, promptDelivery) {
     worker.promptDelivery = promptDelivery;
     worker.promptDeliveryVersion = PROMPT_DELIVERY_VERSION;
@@ -1971,7 +1927,7 @@ export function runExecute({
 
 
   function promptForPendingWorker(worker) {
-    if (worker.name === stepAgentName(worker.issue, worker.step, workerNs)) {
+    if (worker.name === `s${worker.issue}-${worker.step}`) {
       return workerPrompt({
         step: worker.step,
         issue: worker.issue,
@@ -1979,7 +1935,7 @@ export function runExecute({
         controllerRunId: runState.runId,
       });
     }
-    if (worker.name !== remAgentName(worker.issue, worker.step, workerNs)) return null;
+    if (worker.name !== remAgentName(worker.issue, worker.step)) return null;
     const remediation = runState.remediation;
     if (
       remediation?.issue !== worker.issue
@@ -2202,22 +2158,7 @@ export function runExecute({
     let remLive = liveAgent;
     const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
     while (true) {
-      const agentName = remAgentName(issue, step, workerNs);
-      if (!validHerdrAgentName(agentName)) {
-        return {
-          result: stop({
-            issue,
-            step,
-            paneId: 'none',
-            agentName,
-            reasonCode: 'invalid_worker_name',
-            runState,
-            cwd,
-            herdr: herdrApi,
-            output,
-          }),
-        };
-      }
+      const agentName = remAgentName(issue, step);
       let paneId = remLive?.pane_id ?? remLive?.paneId;
       let state;
       let prompt;
@@ -2523,9 +2464,8 @@ export function runExecute({
 
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
-    const issueAgentPrefix = workerNs ? `s${workerNs}-${issue}-` : `s${issue}-`;
     const issueAgents = existingAgents.filter(
-      (agent) => String(agent?.name || '').startsWith(issueAgentPrefix),
+      (agent) => String(agent?.name || '').startsWith(`s${issue}-`),
     );
     if (issueAgents.length === 0) {
       const labeled = readIssueSpecCreatedLabel(issue, cwd, run);
@@ -2547,7 +2487,7 @@ export function runExecute({
     runState.completed[String(issue)] ||= [];
     let step = nextStep(runState.completed[String(issue)]);
     let live = step
-      ? issueAgents.find((agent) => String(agent?.name || '') === stepAgentName(issue, step, workerNs))
+      ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
       : null;
     if (
       step
@@ -2575,7 +2515,7 @@ export function runExecute({
         runState.failed = null;
         persistRunState(runState, cwd);
         live = step
-          ? issueAgents.find((agent) => String(agent?.name || '') === stepAgentName(issue, step, workerNs))
+          ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
           : null;
       }
     }
@@ -2607,7 +2547,7 @@ export function runExecute({
           issue,
           step,
           paneId: 'none',
-          agentName: live ? String(live.name) : stepAgentName(issue, step, workerNs),
+          agentName: live ? String(live.name) : `s${issue}-${step}`,
           reasonCode,
           runState,
           cwd,
@@ -2654,9 +2594,7 @@ export function runExecute({
     }
 
     const liveRem = step
-      ? existingAgents.find(
-        (agent) => String(agent?.name || '') === remAgentName(issue, step, workerNs),
-      )
+      ? existingAgents.find((agent) => String(agent?.name || '') === remAgentName(issue, step))
       : null;
     const activeRemediation = runState.remediation?.status === 'active'
       && runState.remediation.issue === issue
@@ -2669,7 +2607,7 @@ export function runExecute({
       const handoffResult = readExpectedHandoff(handoffPath, issue, step);
       if (!handoffResult.handoff) {
         return stop({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step, workerNs),
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step),
           reasonCode: handoffResult.reasonCode,
           runState, cwd, herdr: herdrApi, output,
         });
@@ -2686,7 +2624,7 @@ export function runExecute({
       });
       if (!completed) {
         return stop({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step, workerNs), reasonCode: 'invalid_handoff',
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'invalid_handoff',
           runState, cwd, herdr: herdrApi, output,
         });
       }
@@ -2704,7 +2642,7 @@ export function runExecute({
       if (Number.isInteger(remResult.status)) return remResult;
       if (!remResult.passed) {
         return stop({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step, workerNs), reasonCode: 'worker_failed',
+          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'worker_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
@@ -2718,7 +2656,7 @@ export function runExecute({
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       const reviewStep = step === 'review1' || step === 'review2';
       let retainedReviewResult = null;
-      if (!step || agentName !== stepAgentName(issue, step, workerNs)) {
+      if (!step || agentName !== `s${issue}-${step}`) {
         return stop({
           issue,
           step: step || runState.currentStep || 'start',
@@ -2754,7 +2692,7 @@ export function runExecute({
       }
       if (
         step
-        && agentName === stepAgentName(issue, step, workerNs)
+        && agentName === `s${issue}-${step}`
         && (reviewStep || ['idle', 'done'].includes(state))
         && paneId !== 'unknown'
       ) {
@@ -2926,28 +2864,13 @@ export function runExecute({
       runState.currentStep = step;
       runState.failed = null;
       persistRunState(runState, cwd);
-      const agentName = stepAgentName(issue, step, workerNs);
-      if (!validHerdrAgentName(agentName)) {
-        return stop({
-          issue,
-          step,
-          paneId: 'none',
-          agentName,
-          reasonCode: 'invalid_worker_name',
-          runState,
-          cwd,
-          herdr: herdrApi,
-          output,
-        });
-      }
-
 
       let reviewBase = null;
       if (step === 'review1' || step === 'review2') {
         reviewBase = resolveReviewBase(cwd, run);
         if (!reviewBase) {
           return stop({
-            issue, step, paneId: 'none', agentName, reasonCode: 'review_failed',
+            issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_failed',
             runState, cwd, herdr: herdrApi, output,
           });
         }
@@ -2962,7 +2885,7 @@ export function runExecute({
           || currentBranch === reviewBase
         ) {
           return stop({
-            issue, step, paneId: 'none', agentName, reasonCode: 'review_branch_mismatch',
+            issue, step, paneId: 'none', agentName: `s${issue}-${step}`, reasonCode: 'review_branch_mismatch',
             runState, cwd, herdr: herdrApi, output,
           });
         }
@@ -2978,6 +2901,7 @@ export function runExecute({
         ...(environment ? { environment } : {}),
       });
       const paneId = splitPaneId(split);
+      const agentName = `s${issue}-${step}`;
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
       if (!paneId || !commandSucceeded(split)) {
         return stop({
