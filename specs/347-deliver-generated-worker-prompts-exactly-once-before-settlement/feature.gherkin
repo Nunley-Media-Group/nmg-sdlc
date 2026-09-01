@@ -17,17 +17,30 @@ Feature: Deliver generated worker prompts exactly once before settlement
 
   @SCN001 @regression
   Scenario: Bug is fixed
-    Given execute starts a fresh start, implement, fix1, fix2, verify, deliver, or rem --kind omp worker
-    When session_start writes com.nmg-sdlc.run and the session would otherwise become idle or done before the generated prompt
-    Then execute retries start at most once if the session is already gone, delivers that invocation's generated prompt exactly once to a live session, and only then observes settlement or handoff
-    And it does not record missing_handoff or close the pane solely because the empty session settled before the prompt arrived
+    Given execute starts a fresh standard or remediation --kind omp worker
+    And agentStart reports the worker is interactively ready
+    When execute inserts the canonical prompt through pane send-text and submits pane send-keys Enter
+    Then it persists text_inserted before Enter and delivered only after Enter succeeds
+    And it does not observe, settle, or close the worker before delivery
 
   # --- Related Behavior Still Works ---
 
   @SCN002 @regression
   Scenario: No regression
-    Given a matching retained live worker that already received its generated prompt, or a worker whose prompt was delivered and that still has no handoff
+    Given a matching retained worker has delivered or legacy prompt state
     When execute resumes or finishes observing that worker
-    Then it does not send a second generated prompt
+    Then it sends no pane text and no Enter
     And a still-missing handoff after proven delivery remains missing_handoff and still closes the owned pane unless --retain-worker was requested
-    And review workers keep their existing interactive protocol
+
+  @SCN003 @regression
+  Scenario: Enter failure recovery does not duplicate prompt text
+    Given pane send-text succeeded and promptDelivery is text_inserted
+    When pane send-keys Enter fails and execute is invoked again
+    Then the retained pane remains prompt_pending
+    And recovery sends only Enter without another text insertion
+
+  @SCN004 @regression
+  Scenario: Proven pre-insertion process loss restarts once
+    Given pane send-text proves the ready worker process was lost before insertion
+    When execute retries agentStart successfully in the same pane
+    Then it inserts the canonical prompt once into the replacement and delivers before observation

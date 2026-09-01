@@ -13,6 +13,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Changed
 
 - Replace status-only live smoke verification with an invocation-scoped fresh issue queue, explicit verify-pane environment propagation, single-branch clone reuse of published issue branches, and exact current-run merged/closed GitHub proof (#343).
+- Deliver controller-owned worker prompts through crash-safe Herdr pane input before any worker observation (#347).
+
 ## [3.20.4] - 2026-08-31
 
 ### Changed
