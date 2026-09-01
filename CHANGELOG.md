@@ -14,6 +14,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 - Replace status-only live smoke verification with an invocation-scoped fresh issue queue, explicit verify-pane environment propagation, single-branch clone reuse of published issue branches, and exact current-run merged/closed GitHub proof (#343).
 - Deliver fresh generated worker prompts exactly once through nonblocking `herdr agent prompt`, disable OMP's interactive large-paste menu for controller-owned workers, and persist crash-safe activation before any worker may settle or close (#347).
+- Namespace fresh controller workers by a deterministic run identity so retained Herdr agents from other runs and project roots cannot collide or be reused (#349).
 
 ## [3.20.4] - 2026-08-31
 

@@ -17,6 +17,8 @@ import {
   workerPrompt,
   REMEDIABLE_STEPS,
   remAgentName,
+  stepAgentName,
+  workerNamespaceForRunId,
   isRemediableFailedHandoff,
   remediationPrompt,
   writeRun,
@@ -750,7 +752,13 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(REMEDIABLE_STEPS).toEqual([
       'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver',
     ]);
+    const workerNamespace = workerNamespaceForRunId('run-42');
+    expect(workerNamespace).toMatch(/^[0-9a-f]{8}$/);
+    expect(workerNamespaceForRunId('run-42')).toBe(workerNamespace);
+    expect(stepAgentName(42, 'verify')).toBe('s42-verify');
+    expect(stepAgentName(42, 'verify', workerNamespace)).toBe(`s${workerNamespace}-42-verify`);
     expect(remAgentName(42, 'verify')).toBe('r42-verify');
+    expect(remAgentName(42, 'verify', workerNamespace)).toBe(`r${workerNamespace}-42-verify`);
     const handoff = { step: 'verify', status: 'failed', intervention: false };
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff })).toBe(true);
     expect(isRemediableFailedHandoff({ step: 'start', state: 'idle', handoff: { ...handoff, step: 'start' } })).toBe(false);
@@ -991,6 +999,16 @@ function makeGitRepo() {
   git(root, ['push', '-u', 'origin', 'HEAD']);
   return { root, remote };
 }
+function legacyWorkerName(name) {
+  return String(name).replace(/\b([sr])[0-9a-f]{8}-/g, '$1');
+}
+function workerByLegacyName(runState, name) {
+  return Object.values(runState.workers || {}).find(
+    (worker) => legacyWorkerName(worker.name) === name,
+  );
+}
+
+
 
 describe('runExecute controller', () => {
   const roots = [];
@@ -1065,6 +1083,8 @@ describe('runExecute controller', () => {
     }
     const calls = [];
     const starts = [];
+    const rawStarts = [];
+    const rawPrompts = [];
     const splits = [];
     const closed = [];
     const notifications = [];
@@ -1187,21 +1207,23 @@ describe('runExecute controller', () => {
         return { status: paneId === paneCloseFailurePane ? 1 : paneCloseStatus };
       },
       agentStart: (input) => {
-        starts.push(input);
-        events.push(`start:${input.name}`);
+        rawStarts.push(input);
+        starts.push({ ...input, name: legacyWorkerName(input.name) });
+        events.push(`start:${legacyWorkerName(input.name)}`);
         return { status: pendingAgentStartStatuses.shift() ?? 0 };
       },
       agentPrompt: ({ name, prompt }) => {
         activePrompt = prompt;
-        prompts.push({ name, prompt });
-        events.push(`prompt:${name}`);
+        rawPrompts.push({ name, prompt });
+        prompts.push({ name: legacyWorkerName(name), prompt });
+        events.push(`prompt:${legacyWorkerName(name)}`);
         const reviewPrompt = prompt.includes('# Controller-Owned Host Review');
         if (reviewPrompt) {
           reviewInProgress = reviewRequestStalled;
           if (reviewRequestFailure) return { status: 1, reasonCode: 'worker_failed' };
         }
         const step = name.slice(name.lastIndexOf('-') + 1);
-        const workerIssue = Number(/^.[^0-9]*([1-9]\d*)-/.exec(name)?.[1] || 42);
+        const workerIssue = Number(/^[sr](?:[0-9a-f]{8}-)?([1-9]\d*)-/.exec(name)?.[1] || 42);
         const isRem = name.startsWith('r');
         if ((stalled || stalledInStderr) && !didStall) {
           didStall = true;
@@ -1265,7 +1287,7 @@ describe('runExecute controller', () => {
         events.push('prompt-retry-pause');
       },
       agentWait: (input) => {
-        waits.push(input);
+        waits.push({ ...input, name: legacyWorkerName(input.name) });
         if (!input.until && reviewInProgress) {
           reviewInProgress = false;
           return { status: 0 };
@@ -1295,19 +1317,23 @@ describe('runExecute controller', () => {
       },
       listAgents: () => {
         events.push('list');
-        return starts
+        return rawStarts
           .filter((started) => !closed.includes(started.paneId))
           .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState }));
       },
-      notificationShow: (notice) => notifications.push(notice),
+      notificationShow: (notice) => notifications.push({
+        ...notice,
+        body: legacyWorkerName(notice.body),
+      }),
     };
     return {
-      cwd, calls, starts, splits, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
+      cwd, calls, starts, rawStarts, splits, closed, events, notifications, sentKeys, waits,
+      prompts, rawPrompts, run, herdr,
     };
   }
 
   function activeStartedAgents(fixture) {
-    return fixture.starts
+    return fixture.rawStarts
       .filter(({ paneId }) => !fixture.closed.includes(paneId))
       .map(({ name, paneId }) => ({ name, pane_id: paneId, state: 'done' }));
   }
@@ -1319,13 +1345,14 @@ describe('runExecute controller', () => {
     const pause = fixture.herdr.observationPause;
     const waitAgent = fixture.herdr.agentWait;
     let state = 'idle';
+    const matchesAgent = (name) => legacyWorkerName(name) === agentName;
     let observations = 0;
     let submitted = false;
     const deliveryStates = [];
 
     fixture.herdr.agentPrompt = (input) => {
       const result = promptAgent(input);
-      if (input.name === agentName) {
+      if (matchesAgent(input.name)) {
         submitted = true;
         fs.rmSync(path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`), { force: true });
         fs.rmSync(path.join(fixture.cwd, `.omp/sdlc/reviews/42-${step}.md`), { force: true });
@@ -1333,14 +1360,14 @@ describe('runExecute controller', () => {
       return result;
     };
     fixture.herdr.agentGet = (name) => (
-      name === agentName ? { result: { state } } : getAgent(name)
+      matchesAgent(name) ? { result: { state } } : getAgent(name)
     );
     fixture.herdr.listAgents = () => listAgents().map((agent) => (
-      agent.name === agentName ? { ...agent, state } : agent
+      matchesAgent(agent.name) ? { ...agent, state } : agent
     ));
     fixture.herdr.agentWait = (input) => {
       const result = waitAgent(input);
-      if (input.name === agentName && !input.until) state = 'done';
+      if (matchesAgent(input.name) && !input.until) state = 'done';
       return result;
     };
     fixture.herdr.observationPause = () => {
@@ -1349,7 +1376,8 @@ describe('runExecute controller', () => {
       const checkpoint = JSON.parse(
         fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
       );
-      deliveryStates.push(checkpoint.workers[agentName]?.promptDelivery);
+      const workerName = Object.keys(checkpoint.workers).find(matchesAgent);
+      deliveryStates.push(checkpoint.workers[workerName]?.promptDelivery);
       observations += 1;
       if (observations === 2) state = 'working';
       if (observations !== 3) return;
@@ -2675,6 +2703,10 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(verifyStarts).toHaveLength(1);
     expect(remStarts).toHaveLength(1);
+    const rawVerify = fixture.rawStarts.find(({ name }) => /^s[0-9a-f]{8}-42-verify$/.test(name));
+    const rawRem = fixture.rawStarts.find(({ name }) => /^r[0-9a-f]{8}-42-verify$/.test(name));
+    expect(rawVerify.name).toMatch(/^s[0-9a-f]{8}-42-verify$/);
+    expect(rawRem.name.slice(1, 9)).toBe(rawVerify.name.slice(1, 9));
     expect(fixture.events.indexOf('close:pane-7')).toBeLessThan(fixture.events.indexOf('start:r42-verify'));
     expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toEqual([
       {
@@ -2955,7 +2987,7 @@ describe('runExecute controller', () => {
     );
 
     expect(first.status).toBe(1);
-    expect(crashed.workers['r42-review1']).toMatchObject({
+    expect(workerByLegacyName(crashed, 'r42-review1')).toMatchObject({
       promptDelivery: 'activating',
       promptDeliveryVersion: 2,
     });
@@ -3209,7 +3241,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(0);
     expect(observations).toBe(1);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
-    expect(agentGets).toContain('r42-verify');
+    expect(agentGets.map(legacyWorkerName)).toContain('r42-verify');
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
 
@@ -3229,7 +3261,10 @@ describe('runExecute controller', () => {
       attempt: 1,
       reasonCode: 'verify_failed',
       artifacts: ['artifacts/verify.txt'],
-      closedWorker: { name: 's42-verify', paneId: 'pane-7' },
+      closedWorker: {
+        name: expect.stringMatching(/^s[0-9a-f]{8}-42-verify$/),
+        paneId: 'pane-7',
+      },
       remWorker: null,
     });
     expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
@@ -3313,7 +3348,7 @@ describe('runExecute controller', () => {
     );
 
     expect(first.status).toBe(1);
-    expect(crashed.workers['s42-start']).toMatchObject({
+    expect(workerByLegacyName(crashed, 's42-start')).toMatchObject({
       promptDelivery: 'activating',
       promptDeliveryVersion: 2,
     });
@@ -3377,7 +3412,7 @@ describe('runExecute controller', () => {
     );
 
     expect(first.status).toBe(1);
-    expect(exhausted.workers['s42-start']).toMatchObject({
+    expect(workerByLegacyName(exhausted, 's42-start')).toMatchObject({
       promptDelivery: 'activating',
       promptDeliveryVersion: 2,
     });
@@ -3396,7 +3431,7 @@ describe('runExecute controller', () => {
     expect(second.stdout).toContain('retained with prompt pending');
     expect(fixture.events.slice(resumeEvent)).not.toContain('prompt:s42-start');
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(resumed.workers['s42-start']).toMatchObject({
+    expect(workerByLegacyName(resumed, 's42-start')).toMatchObject({
       promptDelivery: 'activating',
       promptDeliveryVersion: 2,
     });
@@ -3561,7 +3596,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual([]);
-    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(workerByLegacyName(persisted, 's42-start').promptDelivery).toBe('pending');
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
@@ -3656,8 +3691,8 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toContain('retained by request');
     expect(fixture.closed).toEqual([]);
-    expect(persisted.workers['s42-start']).toMatchObject({
-      name: 's42-start',
+    expect(workerByLegacyName(persisted, 's42-start')).toMatchObject({
+      name: expect.stringMatching(/^s[0-9a-f]{8}-42-start$/),
       paneId: 'pane-1',
       runId: persisted.runId,
       issue: 42,
@@ -3723,7 +3758,7 @@ describe('runExecute controller', () => {
       step: 'start',
       reasonCode: 'controller_cancelled',
     });
-    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(workerByLegacyName(persisted, 's42-start').promptDelivery).toBe('pending');
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
   });
 
@@ -3757,7 +3792,7 @@ describe('runExecute controller', () => {
     expect(result.stderr).toBe('signal_exit_130\n');
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed).toBeNull();
-    expect(persisted.workers['s42-start']).toBeDefined();
+    expect(workerByLegacyName(persisted, 's42-start')).toBeDefined();
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
@@ -3915,10 +3950,10 @@ describe('runExecute controller', () => {
     let observations = 0;
     fixture.herdr.agentPrompt = (input) => {
       if (
-        input.name === 's42-review1'
+        legacyWorkerName(input.name) === 's42-review1'
         && input.prompt.startsWith('# Controller-Owned Host Review')
       ) {
-        fixture.prompts.push(input);
+        fixture.prompts.push({ ...input, name: legacyWorkerName(input.name) });
         pendingStep = 'review1';
         return { status: 1, reasonCode: 'worker_failed' };
       }
@@ -3971,7 +4006,7 @@ describe('runExecute controller', () => {
   it('SCN006 fails review_failed when the worker is absent after a non-stall failure', () => {
     const fixture = makeControllerFixture({ reviewRequestFailure: true });
     fixture.herdr.listAgents = () => activeStartedAgents(fixture)
-      .filter(({ name }) => !name.startsWith('s42-review'));
+      .filter(({ name }) => !legacyWorkerName(name).startsWith('s42-review'));
 
     const result = runExecute({
       args: '#42',
@@ -4130,7 +4165,7 @@ describe('runExecute controller', () => {
       reviewLost = true;
     };
     fixture.herdr.listAgents = () => listAgents().filter((agent) => (
-      !reviewLost || !agent.name.startsWith('s42-review')
+      !reviewLost || !legacyWorkerName(agent.name).startsWith('s42-review')
     ));
 
     const result = runExecute({
@@ -4164,7 +4199,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
-    expect(result).toEqual({
+    expect({ ...result, stdout: legacyWorkerName(result.stdout) }).toEqual({
       status: 1,
       stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.\n',
       stderr: '',
@@ -4319,8 +4354,8 @@ describe('runExecute controller', () => {
   it('invokes agentPrompt exactly once when readiness dispatch fails', () => {
     const fixture = makeControllerFixture();
     fixture.herdr.agentPrompt = (input) => {
-      fixture.prompts.push(input);
-      fixture.events.push(`prompt:${input.name}`);
+      fixture.prompts.push({ ...input, name: legacyWorkerName(input.name) });
+      fixture.events.push(`prompt:${legacyWorkerName(input.name)}`);
       return { status: 1, reasonCode: 'agent_not_ready' };
     };
 
@@ -4355,13 +4390,13 @@ describe('runExecute controller', () => {
     let readinessFailures = 1;
     let deliveredCalls = 0;
     fixture.herdr.agentPrompt = (input) => {
-      if (input.name === 's42-start' && readinessFailures > 0) {
+      if (legacyWorkerName(input.name) === 's42-start' && readinessFailures > 0) {
         readinessFailures -= 1;
-        fixture.prompts.push(input);
-        fixture.events.push(`prompt:${input.name}`);
+        fixture.prompts.push({ ...input, name: legacyWorkerName(input.name) });
+        fixture.events.push(`prompt:${legacyWorkerName(input.name)}`);
         return { status: 1, reasonCode: 'agent_not_ready' };
       }
-      if (input.name === 's42-start') deliveredCalls += 1;
+      if (legacyWorkerName(input.name) === 's42-start') deliveredCalls += 1;
       return agentPrompt(input);
     };
 
@@ -4380,7 +4415,7 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toEqual([]);
     expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(pending.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(workerByLegacyName(pending, 's42-start').promptDelivery).toBe('pending');
     expect(pending.failed).toEqual({
       issue: 42,
       step: 'start',
@@ -4442,8 +4477,8 @@ describe('runExecute controller', () => {
   it('retains a thrown stalled prompt when delivery cannot be proven', () => {
     const fixture = makeControllerFixture();
     fixture.herdr.agentPrompt = (input) => {
-      fixture.prompts.push(input);
-      fixture.events.push(`prompt:${input.name}`);
+      fixture.prompts.push({ ...input, name: legacyWorkerName(input.name) });
+      fixture.events.push(`prompt:${legacyWorkerName(input.name)}`);
       throw {
         error: {
           code: 'agent_prompt_stalled',
@@ -4468,7 +4503,7 @@ describe('runExecute controller', () => {
     expect(result.status).toBe(1);
     expect(fixture.closed).toEqual([]);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(workerByLegacyName(persisted, 's42-start').promptDelivery).toBe('pending');
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
@@ -4499,7 +4534,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(0);
     expect(fixture.closed).toEqual([]);
-    expect(persisted.workers['s42-start'].promptDelivery).toBe('pending');
+    expect(workerByLegacyName(persisted, 's42-start').promptDelivery).toBe('pending');
     expect(persisted.failed).toEqual({
       issue: 42,
       step: 'start',
@@ -4539,10 +4574,10 @@ describe('runExecute controller', () => {
     const agentPrompt = fixture.herdr.agentPrompt;
     let firstPrompt = true;
     fixture.herdr.agentPrompt = (input) => {
-      if (input.name === 's42-start' && firstPrompt) {
+      if (legacyWorkerName(input.name) === 's42-start' && firstPrompt) {
         firstPrompt = false;
-        fixture.prompts.push(input);
-        fixture.events.push(`prompt:${input.name}`);
+        fixture.prompts.push({ ...input, name: legacyWorkerName(input.name) });
+        fixture.events.push(`prompt:${legacyWorkerName(input.name)}`);
         return { status: 0 };
       }
       return agentPrompt(input);
@@ -4674,18 +4709,187 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'pane_close_failed' });
   });
 
-  it('does not start a second worker when an issue worker is live', () => {
+  it('ignores a leftover legacy worker when starting a namespaced run', () => {
     const fixture = makeControllerFixture();
-    fixture.herdr.listAgents = () => [{ name: 's42-verify', pane_id: 'kept-pane', state: 'working' }];
+    fixture.herdr.listAgents = () => [
+      { name: 's42-verify', pane_id: 'kept-pane', state: 'working' },
+      ...activeStartedAgents(fixture),
+    ];
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    expect(result.status).toBe(1);
-    expect(fixture.starts).toHaveLength(0);
-    expect(fixture.closed).toEqual([]);
-    expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
-    expect(result.stdout).toContain(
-      'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
+    expect(result.status).toBe(0);
+    expect(fixture.rawStarts.map(({ name }) => name)).toHaveLength(8);
+    expect(fixture.rawStarts.every(({ name }) => /^s[0-9a-f]{8}-42-/.test(name))).toBe(true);
+    expect(fixture.closed).not.toContain('kept-pane');
+    expect(fixture.rawPrompts.some(({ name }) => name === 's42-verify')).toBe(false);
+  });
+
+  it('isolates two project roots sharing one global agent inventory and resumes exact names', () => {
+    const rootA = makeControllerFixture({ writeHandoffs: false, agentState: 'idle' });
+    const splitA = rootA.herdr.paneSplit;
+    rootA.herdr.paneSplit = (input) => {
+      const result = splitA(input);
+      return { result: { pane: { pane_id: `root-a-${result.result.pane.pane_id}` } } };
+    };
+
+    const firstA = runExecute({
+      args: '#42',
+      cwd: rootA.cwd,
+      env,
+      run: rootA.run,
+      herdr: rootA.herdr,
+    });
+    const checkpointA = JSON.parse(
+      fs.readFileSync(path.join(rootA.cwd, '.omp/sdlc/run.json'), 'utf8'),
     );
+    const workerA = rootA.rawStarts[0];
+
+    expect(firstA.status).toBe(1);
+    expect(checkpointA.workerNamespace).toMatch(/^[0-9a-f]{8}$/);
+    expect(workerA.name).toBe(`s${checkpointA.workerNamespace}-42-start`);
+
+    const startsBeforeResume = rootA.rawStarts.length;
+    const promptsBeforeResume = rootA.rawPrompts.length;
+    const secondA = runExecute({
+      args: '#42',
+      cwd: rootA.cwd,
+      env,
+      run: rootA.run,
+      herdr: rootA.herdr,
+    });
+    expect(secondA.status).toBe(1);
+    expect(rootA.rawStarts).toHaveLength(startsBeforeResume);
+    expect(rootA.rawPrompts).toHaveLength(promptsBeforeResume);
+
+    const rootB = makeControllerFixture();
+    const rootBInventory = rootB.herdr.listAgents;
+    rootB.herdr.listAgents = () => [
+      { name: workerA.name, pane_id: workerA.paneId, state: 'idle' },
+      ...rootBInventory(),
+    ];
+    const resultB = runExecute({
+      args: '#42',
+      cwd: rootB.cwd,
+      env,
+      run: rootB.run,
+      herdr: rootB.herdr,
+    });
+
+    expect(resultB.status).toBe(0);
+    expect(rootB.rawStarts).toHaveLength(8);
+    const namespacesB = new Set(rootB.rawStarts.map(
+      ({ name }) => /^s([0-9a-f]{8})-42-/.exec(name)?.[1],
+    ));
+    expect(namespacesB.size).toBe(1);
+    expect(namespacesB.has(checkpointA.workerNamespace)).toBe(false);
+    expect(rootB.rawPrompts.some(({ name }) => name === workerA.name)).toBe(false);
+    expect(rootB.closed).not.toContain(workerA.paneId);
+  });
+
+  it.each([
+    ['uppercase', 'ABCDEF12'],
+    ['short', 'abc1234'],
+    ['non-string', null],
+  ])('fails closed for a present malformed %s worker namespace', (_label, workerNamespace) => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, { workerNamespace });
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.rawStarts).toEqual([]);
+    expect(fixture.rawPrompts).toEqual([]);
+    expect(fixture.closed).toEqual([]);
+    expect(persisted.failed).toEqual({
+      issue: 42,
+      step: 'start',
+      reasonCode: 'invalid_worker_namespace',
+    });
+    expect(persisted.workerNamespace).toBe(workerNamespace);
+  });
+
+  it('keeps a checkpoint without workerNamespace on legacy exact names', () => {
+    const fixture = makeControllerFixture();
+    configurePassedRetainedStartWorker(fixture, { result: { state: 'done' } });
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.rawStarts.map(({ name }) => name)).toEqual([
+      's42-implement',
+      's42-review1',
+      's42-fix1',
+      's42-review2',
+      's42-fix2',
+      's42-verify',
+      's42-deliver',
+    ]);
+  });
+
+  it('fails before pane creation when a constructed worker name exceeds Herdr limits', () => {
+    const issue = Number.MAX_SAFE_INTEGER;
+    const branch = `${issue}-ship-it`;
+    const fixture = makeControllerFixture({ labelIssues: [issue], branch });
+    const specDir = path.join(fixture.cwd, 'specs', `${issue}-oversized-worker-name`);
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, issue);
+    seedRun(fixture.cwd, {
+      runId: 'oversized-name-run',
+      workerNamespace: workerNamespaceForRunId('oversized-name-run'),
+      issue,
+      issues: [issue],
+      currentIssue: issue,
+      currentStep: 'deliver',
+      completed: {
+        [issue]: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify'],
+      },
+      failed: null,
+      workers: {},
+      branch,
+    });
+    const baseRun = fixture.run;
+    const run = (command, args) => (
+      command === 'git'
+      && args[0] === 'show-ref'
+      && args.at(-1) === `refs/heads/${branch}`
+        ? { status: 0, stdout: '', stderr: '' }
+        : baseRun(command, args)
+    );
+
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run,
+      herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(result.status).toBe(1);
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.rawStarts).toEqual([]);
+    expect(persisted.failed).toEqual({
+      issue,
+      step: 'deliver',
+      reasonCode: 'invalid_worker_name',
+    });
   });
 
   it.each([
@@ -4983,7 +5187,7 @@ describe('runExecute controller', () => {
     const prompt = fixture.herdr.agentPrompt;
     fixture.herdr.agentPrompt = (input) => {
       const result = prompt(input);
-      if (input.name === 's42-verify') {
+      if (legacyWorkerName(input.name) === 's42-verify') {
         const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
         const handoff = JSON.parse(fs.readFileSync(handoffPath, 'utf8'));
         fs.writeFileSync(handoffPath, `${JSON.stringify({
