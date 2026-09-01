@@ -137,18 +137,32 @@ export function startIssue({
     const remoteRef = `refs/remotes/origin/${expectedBranch}`;
     if (run('git', ['show-ref', '--verify', '--quiet', localRef], { cwd })?.status === 0) {
       checkout = run('git', ['checkout', expectedBranch], { cwd });
-    } else if (run('git', [
-      'fetch', '--quiet', '--no-tags', 'origin',
-      `+refs/heads/${expectedBranch}:${remoteRef}`,
-    ], { cwd })?.status === 0) {
-      checkout = run('git', ['checkout', '--track', '-b', expectedBranch, `origin/${expectedBranch}`], { cwd });
     } else {
-      const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
-      const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
-      if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
-      checkout = run('gh', [
-        'issue', 'develop', String(issueNumber), '--checkout', '--name', expectedBranch, '--base', defaultBranch,
+      const exactRemoteRefspec = `refs/heads/${expectedBranch}:${remoteRef}`;
+      const fetched = run('git', [
+        'fetch', '--quiet', '--no-tags', 'origin', exactRemoteRefspec,
       ], { cwd });
+      if (fetched?.status === 0) {
+        const configured = run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd });
+        const fetchRefspecs = configured?.status === 0
+          ? String(configured.stdout || '').split('\n').filter(Boolean)
+          : [];
+        const registered = fetchRefspecs.some((refspec) => (
+          refspec === exactRemoteRefspec || refspec === `+${exactRemoteRefspec}`
+        ))
+          ? { status: 0 }
+          : run('git', ['config', '--add', 'remote.origin.fetch', exactRemoteRefspec], { cwd });
+        checkout = registered?.status === 0
+          ? run('git', ['checkout', '--track', '-b', expectedBranch, `origin/${expectedBranch}`], { cwd })
+          : registered;
+      } else {
+        const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+        const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
+        if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
+        checkout = run('gh', [
+          'issue', 'develop', String(issueNumber), '--checkout', '--name', expectedBranch, '--base', defaultBranch,
+        ], { cwd });
+      }
     }
     const checkedOut = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
     if (checkout?.status !== 0 || checkedOut !== expectedBranch) {

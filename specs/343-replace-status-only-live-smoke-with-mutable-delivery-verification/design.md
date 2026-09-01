@@ -59,6 +59,7 @@ read delivery JSON + gh graphql closing PRs
 9. git status --porcelain nonempty → failed; retain clone.
 10. For each issue, gh graphql closedByPullRequestsReferences baseline; store identity set.
 11. Spawn one execute child with #n tokens in queue order; cwd=clone; NMG_SDLC_SMOKE_OWNED=1.
+11a. In the single-branch smoke clone, start-issue reuses a published canonical issue branch by fetching only `refs/heads/<validated-branch>:refs/remotes/origin/<validated-branch>` without force, registering only that exact refspec when absent, and checking it out with tracking. It never widens `remote.origin.fetch`, resets, or force-checks out; an absent remote branch continues through normal new-branch creation.
 12. Execute cancelled/process_lost/launch_failed/cleanup_failed → incomplete; retain clone.
 13. Execute nonzero → failed; retain clone. Do not accept historical GitHub proof.
 14. For each issue: read smoke-deliveries JSON; re-query closing PRs; require CLOSED + exactly one new MERGED PR matching recorded pullRequest and headSha.
@@ -306,7 +307,7 @@ None. Temp dirs under `os.tmpdir()`. Smoke-delivery JSON is local clone evidence
 
 ## State Management
 
-No app state. The controller transports only invocation-scoped `NMG_SDLC_SMOKE_ISSUES` to newly split verify panes through Herdr's explicit pane environment support. It does not store the queue in `.omp/sdlc/run.json`, tracked files, or controller output. Retained verify workers keep their original pane environment. Process env `NMG_SDLC_SMOKE_OWNED=1` remains on the smoke execute child only; the provider reads that key from injected `env` to refuse re-entry.
+No app state beyond the execute controller's existing lifecycle checkpoint. The environment transport does not persist the raw `NMG_SDLC_SMOKE_ISSUES` string, add a smoke-specific queue field, or write the value to tracked files or controller output. As before, `.omp/sdlc/run.json` records normalized issue identities in its standard `issues` array so the controller can resume safely. Retained verify workers keep their original pane environment. Process env `NMG_SDLC_SMOKE_OWNED=1` remains on the smoke execute child only; the provider reads that key from injected `env` to refuse re-entry.
 
 ---
 
@@ -350,7 +351,7 @@ None.
 
 | Layer | Type | Coverage |
 |-------|------|----------|
-| Execute controller | Jest with injected Herdr adapter | Exact queue reaches only new verify pane creation; missing queue omitted; retained pane unchanged; argv stays shell-free |
+| Execute/start controllers | Jest with injected Herdr and command adapters plus a disposable Git single-branch clone | Exact queue reaches only new verify pane creation; missing queue omitted; retained pane unchanged; argv stays shell-free; exact remote issue branch is fetched and tracked without widening or force |
 | Provider | Jest unit with injected `runCommand`/`mkdtempSync`/`readFileSync`/`rmSync`/`env` | scripts/__tests__/nmg-sdlc-smoke.test.mjs |
 | Feature | Gherkin @SCN001–@SCN006 | this package; Jest is executable evidence |
 | Execute merge flags | unchanged except smoke-delivery JSON write | |

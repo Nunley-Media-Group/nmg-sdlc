@@ -22,7 +22,7 @@
 
 ### T001: Replace status-only smoke with owned execute + current-run GitHub proof
 
-**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `steering/manifest.json`, `scripts/sdlc-execute.mjs`, `scripts/sdlc-deliver.mjs`
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `steering/manifest.json`, `scripts/sdlc-execute.mjs`, `scripts/start-issue.mjs`, `scripts/sdlc-deliver.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
@@ -32,6 +32,7 @@
 - [ ] Queue from `config.issues` or `env[config.issuesEnv]` parsed as unique positive safe integers in configured order; tokens `/^#?[1-9]\d*$/`
 - [ ] Execute child is `process.execPath` + `scripts/sdlc-execute.mjs` + `run` + `#${n}` tokens in queue order, cwd=clone, `NMG_SDLC_SMOKE_OWNED=1`
 - [ ] Each newly split `verify` pane receives only `NMG_SDLC_SMOKE_ISSUES` through Herdr `pane split --env`, with its exact invocation value and order; missing values are omitted, non-verify panes receive none, and retained verify panes are not recreated or modified
+- [ ] In a provider-created single-branch clone, start-issue fetches an existing canonical remote issue branch through its exact validated non-force refspec, registers only that narrow refspec, and checks it out with tracking; absent remote branches retain normal `gh issue develop` creation
 - [ ] Before execute, graphql closing-PR baseline per issue; after execute 0, require `.omp/sdlc/smoke-deliveries/<n>.json` and exactly one new MERGED PR matching recorded `pullRequest` + `headSha`; status JSON and historical PRs cannot pass
 - [ ] `scripts/sdlc-deliver.mjs` writes that JSON immediately before `gh pr merge` only when `NMG_SDLC_SMOKE_OWNED=1`; merge flags unchanged
 - [ ] Nested env, invalid config/env, bad origin, dirty, missing auth, missing Herdr, execute nonzero, missing current-run proof are `failed`; clone/cancel/process_lost/launch_failed/cleanup_failed are `incomplete`
@@ -60,7 +61,7 @@
 
 ### T003: Add focused smoke provider regressions
 
-**File(s)**: `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**File(s)**: `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/start-issue-controller.test.mjs`
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
@@ -82,7 +83,8 @@
 - [ ] `runCommand` programs never include `npm`, `pytest`, or `go`
 - [ ] No assertion or fixture hard-codes a reusable production smoke issue identity or queue
 - [ ] Controller regressions prove exact verify-pane propagation, non-verify omission, missing-value omission, retained-worker preservation, and separate Herdr argv with no shell composition
-- [ ] `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs __tests__/nmg-sdlc-smoke.test.mjs` exits 0
+- [ ] A disposable Git regression reproduces `clone --single-branch` with an existing remote issue branch and proves exact fetch, narrow tracking refspec, no force/reset, and no new-branch substitution
+- [ ] `cd scripts && npm test -- --runInBand __tests__/start-issue-controller.test.mjs __tests__/sdlc-execute.test.mjs __tests__/nmg-sdlc-smoke.test.mjs` exits 0
 
 **Notes**: Import `createSmokeProvider`. Fake `runCommand`, `mkdtempSync`, `readFileSync`, `rmSync`, and `env`. Gherkin `@SCN001`–`@SCN006` are this package's scenarios; Jest is the executable evidence.
 
