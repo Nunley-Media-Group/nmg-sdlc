@@ -1152,7 +1152,7 @@ function awaitInitialPromptActivation(
   paneId,
   exhaustedReason = 'prompt_pending',
 ) {
-  const retries = 10;
+  const retries = 60;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const result = readExpectedHandoff(handoffPath, issue, step);
     if (result.handoff) return { result };

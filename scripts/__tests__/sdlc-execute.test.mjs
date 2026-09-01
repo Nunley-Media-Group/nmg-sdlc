@@ -3154,7 +3154,7 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
-    expect(observations).toBe(10);
+    expect(observations).toBe(60);
     expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
     expect(fixture.closed).toContain('pane-8');
     expect(persisted.failed).toEqual({ issue: 42, step: 'verify', reasonCode: 'invalid_handoff' });
@@ -4150,7 +4150,7 @@ describe('runExecute controller', () => {
       stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.\n',
       stderr: '',
     });
-    expect(observations).toBe(10);
+    expect(observations).toBe(60);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
     expect(fixture.closed).toEqual(['pane-1']);
