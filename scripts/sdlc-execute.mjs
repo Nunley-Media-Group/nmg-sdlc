@@ -2355,7 +2355,12 @@ export function runExecute({
         state = agentState(herdrApi.agentGet(agentName));
       }
 
-      if (reviewStep && remLive && !existsSync(handoffPath)) {
+      if (
+        reviewStep
+        && remLive
+        && !existsSync(handoffPath)
+        && !resumedPromptActivations.has(agentName)
+      ) {
         reviewHandoffResult = submitReviewProtocol({
           herdr: herdrApi,
           agentName,
@@ -2365,6 +2370,14 @@ export function runExecute({
           issue,
           step,
           cwd,
+          activatePrompt: () => awaitPersistedPromptActivation({
+            worker: runState.workers[agentName],
+            handoffPath,
+            issue,
+            step,
+            agentName,
+            paneId,
+          }),
         });
         if (reviewHandoffResult.handoff) state = 'done';
       }

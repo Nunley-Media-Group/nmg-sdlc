@@ -2895,6 +2895,89 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('resumes live review remediation activation without a second protocol prompt', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
+      remediation: {
+        issue: 42,
+        step: 'review1',
+        attempt: 1,
+        status: 'active',
+        reasonCode: 'review_failed',
+        summary: 'review failed',
+        artifacts: [],
+        closedWorker: { name: 's42-review1', paneId: 'closed-review' },
+        remWorker: { name: 'r42-review1', paneId: 'live-rem' },
+        history: [],
+      },
+      workers: {
+        'r42-review1': {
+          name: 'r42-review1',
+          paneId: 'live-rem',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'review1',
+          branch: '42-ship-it',
+          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      startedAt: '2026-08-25T00:00:00.000Z',
+    });
+    fixture.herdr.listAgents = () => [{
+      name: 'r42-review1',
+      pane_id: 'live-rem',
+      state: 'idle',
+    }, ...activeStartedAgents(fixture)];
+    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
+    const agentPrompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name !== 'r42-review1') return agentPrompt(input);
+      fixture.prompts.push(input);
+      fixture.events.push(`prompt:${input.name}`);
+      return { status: 0 };
+    };
+    fixture.herdr.observationPause = () => {
+      throw new Error('simulated controller crash during live review remediation activation');
+    };
+
+    const first = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    const crashed = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(first.status).toBe(1);
+    expect(crashed.workers['r42-review1']).toMatchObject({
+      promptDelivery: 'activating',
+      promptDeliveryVersion: 2,
+    });
+    expect(fixture.prompts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
+    expect(fixture.closed).toEqual([]);
+
+    let wroteEvidence = false;
+    fixture.herdr.observationPause = () => {
+      if (wroteEvidence) return;
+      wroteEvidence = true;
+      writeReviewEvidence(fixture, 'review1');
+    };
+    const second = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(second.status).toBe(0);
+    expect(wroteEvidence).toBe(true);
+    expect(fixture.prompts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
+    expect(fixture.closed).toContain('live-rem');
+  });
+
   it('submits a pasted prompt when resuming an idle remediation worker', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {

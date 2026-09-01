@@ -23,9 +23,9 @@ Command:
 cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs
 ```
 
-Result: exit 0; 1 suite passed; 232/232 tests passed.
+Result: exit 0; 1 suite passed; 233/233 tests passed.
 
-The standard, review, and remediation delayed `idle → working` regressions inspect the persisted checkpoint and prove `activating` exists before activation, with exactly one prompt, no Enter, valid completion, and no premature close. Crash-boundary coverage proves both an immediate controller failure and bounded activation exhaustion retain versioned `activating`; subsequent invocations re-enter observation without another prompt. Migration coverage proves unversioned `delivered` re-enters activation without re-prompting, and validation rejects unsupported states.
+The standard, review, and remediation delayed `idle → working` regressions inspect the persisted checkpoint and prove `activating` exists before activation, with exactly one prompt, no Enter, valid completion, and no premature close. Crash-boundary coverage proves both an immediate controller failure and bounded activation exhaustion retain versioned `activating`; subsequent invocations re-enter observation without another prompt. A live review-remediation regression proves its protocol submission receives the same activation guard and that resumed activation bypasses a second protocol prompt. Migration coverage proves unversioned `delivered` re-enters activation without re-prompting, and validation rejects unsupported states.
 
 ## Bounded Real Herdr Harness
 
