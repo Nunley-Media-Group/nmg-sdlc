@@ -920,7 +920,8 @@ function actionsRunId(url) {
 
 export function enrichMissingCheckEvents(checks, { headSha, resolveRun, cache = new Map() }) {
   return checks.map((check) => {
-    if (String(check.event ?? '').trim()) return check;
+    const observedEvent = String(check.event ?? '').trim();
+    if (observedEvent && observedEvent !== 'pull_request_target') return check;
     const runId = actionsRunId(check.url);
     if (!runId) return check;
     if (!cache.has(runId)) {
@@ -934,9 +935,12 @@ export function enrichMissingCheckEvents(checks, { headSha, resolveRun, cache = 
     if (!resolved || typeof resolved.event !== 'string' || !resolved.event.trim()
       || typeof resolved.headSha !== 'string'
       || resolved.headSha.toLowerCase() !== String(headSha ?? '').toLowerCase()) return check;
-    const event = ['pull_request', 'pull_request_target'].includes(resolved.event.trim())
+    const resolvedEvent = resolved.event.trim();
+    if (observedEvent === 'pull_request_target'
+      && !['pull_request', 'pull_request_target'].includes(resolvedEvent)) return check;
+    const event = ['pull_request', 'pull_request_target'].includes(resolvedEvent)
       ? 'pull_request'
-      : resolved.event.trim();
+      : resolvedEvent;
     return { ...check, event };
   });
 }

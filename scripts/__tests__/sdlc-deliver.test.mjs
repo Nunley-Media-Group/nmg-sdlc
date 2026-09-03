@@ -30,8 +30,15 @@ describe('required check event enrichment', () => {
     url: 'https://github.com/example/project/actions/runs/12345/job/67890',
   });
 
-  it.each(['pull_request', 'pull_request_target'])('canonicalizes exact-head %s Actions provenance', (event) => {
+  it.each(['pull_request', 'pull_request_target'])('canonicalizes missing exact-head %s Actions provenance', (event) => {
     expect(enrichMissingCheckEvents([linked()], {
+      headSha,
+      resolveRun: () => ({ event, headSha }),
+    })[0].event).toBe('pull_request');
+  });
+
+  it.each(['pull_request', 'pull_request_target'])('canonicalizes explicit exact-head pull_request_target with %s run provenance', (event) => {
+    expect(enrichMissingCheckEvents([linked('pull_request_target')], {
       headSha,
       resolveRun: () => ({ event, headSha }),
     })[0].event).toBe('pull_request');
@@ -54,14 +61,24 @@ describe('required check event enrichment', () => {
     })[0].event).toBe('');
   });
 
-  it('preserves explicit events without resolving a run', () => {
+  it.each(['pull_request', 'push', 'merge_group'])('preserves explicit %s without resolving a run', (event) => {
     let calls = 0;
-    const result = enrichMissingCheckEvents([linked('pull_request')], {
+    const result = enrichMissingCheckEvents([linked(event)], {
       headSha,
-      resolveRun: () => { calls += 1; return { event: 'push', headSha }; },
+      resolveRun: () => { calls += 1; return { event: 'pull_request', headSha }; },
     });
-    expect(result[0].event).toBe('pull_request');
+    expect(result[0].event).toBe(event);
     expect(calls).toBe(0);
+  });
+
+  it.each([
+    ['push', headSha],
+    ['pull_request', 'b'.repeat(40)],
+  ])('keeps explicit pull_request_target fail-closed for resolved %s at head %s', (event, observedHead) => {
+    expect(enrichMissingCheckEvents([linked('pull_request_target')], {
+      headSha,
+      resolveRun: () => ({ event, headSha: observedHead }),
+    })[0].event).toBe('pull_request_target');
   });
 
   it('rejects malformed links and caches shared run lookups', () => {
@@ -70,20 +87,29 @@ describe('required check event enrichment', () => {
       linked(),
       { ...linked(), name: 'second aggregate' },
       { ...linked(), name: 'malformed', url: 'https://example.test/actions/runs/12345' },
+      { ...linked('pull_request_target'), name: 'explicit malformed', url: 'not-a-run-link' },
     ];
     const result = enrichMissingCheckEvents(checks, {
       headSha,
       resolveRun: () => { calls += 1; return { event: 'pull_request', headSha }; },
     });
-    expect(result.map(({ event }) => event)).toEqual(['pull_request', 'pull_request', '']);
+    expect(result.map(({ event }) => event)).toEqual([
+      'pull_request',
+      'pull_request',
+      '',
+      'pull_request_target',
+    ]);
     expect(calls).toBe(1);
   });
 
-  it('keeps unreadable run evidence fail-closed', () => {
-    expect(enrichMissingCheckEvents([linked()], {
+  it.each([
+    ['', ''],
+    ['pull_request_target', 'pull_request_target'],
+  ])('keeps unreadable %s run evidence fail-closed', (event, expected) => {
+    expect(enrichMissingCheckEvents([linked(event)], {
       headSha,
       resolveRun: () => { throw new Error('unavailable'); },
-    })[0].event).toBe('');
+    })[0].event).toBe(expected);
   });
 });
 const SELF_REFERENTIAL_BREAKING_BODY = [
@@ -343,6 +369,12 @@ function fixture(options = {}) {
       return { status: 0, stdout: '', stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'ready') { lastView.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
+    if (args[0] === 'run' && args[1] === 'view' && options.runEvidence) {
+      if (options.runEvidenceStatus) {
+        return { status: options.runEvidenceStatus, stdout: '', stderr: 'run unavailable' };
+      }
+      return { status: 0, stdout: JSON.stringify(options.runEvidence), stderr: '' };
+    }
     if (args[0] === 'api' && args[1] === 'graphql') {
       const graphThreads = lastView.reviewThreads.map((thread) => ({
         ...thread,
