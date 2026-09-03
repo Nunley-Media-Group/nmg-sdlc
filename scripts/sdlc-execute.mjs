@@ -80,12 +80,14 @@ const STEP_SKILL = {
 const STEP_EXTRA_WORKFLOWS = {
   implement: ['simplify'],
 };
-const VERIFY_PANE_ENV_KEYS = Object.freeze(['NMG_SDLC_SMOKE_ISSUES']);
+const STEP_PANE_ENV_KEYS = Object.freeze({
+  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES']),
+  deliver: Object.freeze(['NMG_SDLC_SMOKE_OWNED']),
+});
 
-function verifyPaneEnvironment(step, env) {
-  if (step !== 'verify') return null;
+function stepPaneEnvironment(step, env) {
   const environment = {};
-  for (const key of VERIFY_PANE_ENV_KEYS) {
+  for (const key of STEP_PANE_ENV_KEYS[step] ?? []) {
     if (typeof env?.[key] === 'string') environment[key] = env[key];
   }
   return Object.keys(environment).length > 0 ? environment : null;
@@ -2250,7 +2252,7 @@ export function runExecute({
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
         const { width, height } = paneDimensions(layout);
         const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-        const environment = verifyPaneEnvironment(step, env);
+        const environment = stepPaneEnvironment(step, env);
         const split = herdrApi.paneSplit({
           direction,
           cwd,
@@ -2933,7 +2935,7 @@ export function runExecute({
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);
       const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-      const environment = verifyPaneEnvironment(step, env);
+      const environment = stepPaneEnvironment(step, env);
       const split = herdrApi.paneSplit({
         direction,
         cwd,

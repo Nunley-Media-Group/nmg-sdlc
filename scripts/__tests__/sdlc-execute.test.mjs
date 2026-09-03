@@ -2577,6 +2577,25 @@ describe('runExecute controller', () => {
     expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
   });
 
+  it('passes smoke ownership only to the delivery pane', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_OWNED: '1', UNRELATED_SECRET: 'do-not-copy' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
+      direction: 'right',
+      cwd: fixture.cwd,
+      environment: { NMG_SDLC_SMOKE_OWNED: '1' },
+    });
+    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
+  });
+
   it('omits pane environment when the smoke queue is missing', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({
