@@ -926,6 +926,45 @@ describe('sdlc delivery controller', () => {
     ]);
   });
 
+  test('canonicalizes and retains an explicit exact-head pull_request_target check', () => {
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/required',
+      event: 'pull_request',
+    };
+    const targetCheck = {
+      name: 'review-policy',
+      state: 'SUCCESS',
+      link: 'https://github.com/example/project/actions/runs/12345/job/67890',
+      event: 'pull_request_target',
+    };
+    const f = fixture({
+      requiredChecks: [requiredCheck],
+      checks: [requiredCheck, targetCheck],
+      runEvidence: { event: 'pull_request_target', headSha: H1 },
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(f.calls.filter(
+      (call) => call[0] === 'gh' && call[1] === 'run' && call[2] === 'view',
+    )).toContainEqual([
+      'gh', 'run', 'view', '12345', '--json', 'event,headSha',
+    ]);
+    expect(f.calls.some(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+    )).toBe(true);
+  });
+
   test.each(['push', 'merge_group'])('preserves distinct unfiltered %s checks and fails closed', (event) => {
     const f = fixture({
       requiredChecks: [{ name: 'shared', state: 'SUCCESS', link: 'https://github.test/check/required', event: 'pull_request' }],
