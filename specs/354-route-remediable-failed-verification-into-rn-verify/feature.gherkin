@@ -1,0 +1,50 @@
+**Issue**: #354
+**Date**: 2026-09-02
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/259-add-controller-owned-fresh-session-remediation-loops/
+
+# File: scripts/__tests__/sdlc-finalize-verification.test.mjs
+#
+# Generated from: specs/354-route-remediable-failed-verification-into-rn-verify/requirements.md
+Feature: Route remediable failed verification into rN-verify
+  The verification finalizer previously marked Fail and Partial reports as
+  intervention, so execute never started rN-verify. This was fixed by setting
+  intervention false only for blocked implementation_non_pass Fail and Partial.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Fail or Partial verification is remediable
+    Given an approved issue whose verify-code report has Implementation Status Fail or Partial because a required local steering gate failed
+    When verification finalization writes the verify handoff and execute evaluates that idle or done worker
+    Then the handoff is status failed and intervention false for step verify
+    And execute closes sN-verify after persisting the failure evidence
+    And execute starts exactly one fresh rem session named rN-verify
+    And that rem session reruns the verify contract and writes .omp/sdlc/handoffs/N-verify.json with step verify
+
+  # --- Related Behavior Still Works ---
+
+  @SCN002 @regression
+  Scenario: Incomplete and controller blockers stay intervention
+    Given verification is Incomplete, spec_not_approved, verification_publish_failed, lease-held, or otherwise unverifiable
+    When execute evaluates that verify outcome
+    Then the handoff is intervention true, or lease-held still writes no verify handoff
+    And execute does not start rN-verify
+    And it stops fail-closed with the relevant pane preserved
+
+  @SCN003 @regression
+  Scenario: Passed verification still advances
+    Given a passed or PR-evidence-pending/satisfied verify handoff with intervention false
+    When execute consumes it
+    Then it still closes the verify worker and continues to deliver
+    And it does not start a rem session
+
+  # --- Edge Case ---
+
+  @SCN004 @regression
+  Scenario: No rem identity leak
+    Given rN-verify later writes a valid passed non-intervention verify handoff
+    When execute consumes it
+    Then later steps use the original verify step identity, not a leftover rem identity
+    And no second sN-verify worker exists for that issue
