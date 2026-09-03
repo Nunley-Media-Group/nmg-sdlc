@@ -51,6 +51,7 @@ Issue #354 passes its approved delivery contract after three verification-remedi
 - Local verification: Pass
 - PR evidence: Not required for issue #354
 - Required mutable smoke gate: Pass with current-invocation proof
+- Delivery version bump: `VERSION` and `package.json` were synchronized from `3.20.4` to `3.20.5`.
 - Readiness marker: not required
 
 ## Acceptance Criteria Verification
