@@ -16,6 +16,7 @@
 | T002 | Add finalize regression coverage | [ ] |
 | T003 | Confirm existing rem and pass paths | [ ] |
 | T004 | Prevent nested mutable-smoke recursion | [ ] |
+| T005 | Scope execute worker discovery to the active project | [ ] |
 
 ---
 
@@ -73,6 +74,18 @@
 - [ ] Nested verification performs no mutable smoke recursion.
 - [ ] The delivery worker still writes the enclosing clone's pre-merge delivery proof.
 - [ ] Focused smoke-provider and execute tests exit 0.
+
+### T005: Scope execute worker discovery to the active project
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T004
+**Acceptance**:
+- [ ] Herdr agents with a different `cwd` are excluded before issue and remediation worker matching.
+- [ ] Existing same-project retained-worker mismatch and ownership checks remain unchanged.
+- [ ] A regression fixture proves a foreign `s<N>-*` worker does not block the active project.
+- [ ] The focused execute suite exits 0.
+
 ---
 
 ## Validation Checklist

@@ -4797,6 +4797,30 @@ describe('runExecute controller', () => {
       'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
     );
   });
+  it('ignores same-issue workers owned by another project', () => {
+    const fixture = makeControllerFixture();
+    const listAgents = fixture.herdr.listAgents;
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'foreign-pane',
+      cwd: '/another/project',
+      state: 'working',
+    }, ...listAgents()];
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-start');
+    expect(fixture.closed).not.toContain('foreign-pane');
+    expect(result.stdout).not.toContain('retained_worker_mismatch');
+  });
+
 
   it.each([
     ['missing ownership', (runState) => { runState.workers = {}; }],

@@ -1024,6 +1024,18 @@ function firstAgentList(value) {
   if (Array.isArray(parsed)) return parsed;
   return parsed?.result?.agents || parsed?.agents || [];
 }
+function agentsForProject(value, cwd) {
+  const projectRoot = realpathSync(cwd);
+  return firstAgentList(value).filter((agent) => {
+    if (typeof agent?.cwd !== 'string' || agent.cwd.length === 0) return true;
+    try {
+      return realpathSync(agent.cwd) === projectRoot;
+    } catch {
+      return resolve(agent.cwd) === projectRoot;
+    }
+  });
+}
+
 
 function agentState(value) {
   const parsed = parseCommandOutput(value);
@@ -2143,7 +2155,7 @@ export function runExecute({
 
 
   try {
-    const existingAgents = firstAgentList(herdrApi.listAgents());
+    const existingAgents = agentsForProject(herdrApi.listAgents(), cwd);
     const createdPanes = new Set();
 
   function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {

@@ -46,6 +46,10 @@ The required mutable smoke provider launches an execute controller with `NMG_SDL
 
 Treat the ownership marker as a scoped recursion guard, not as successful terminal evidence by itself. Forward it only to verify and deliver workers. A nested provider that receives the marker returns a complete Pass without cloning or executing because the enclosing provider still owns and validates the exact delivery proof, merged PR, and closed issue after its controller returns.
 
+The next smoke attempt exposed a separate global-agent discovery defect. `runExecute` took every Herdr agent whose name began with `s<N>-` as an issue worker without checking its project cwd. A live `s71-implement` from another checkout therefore stopped a fresh smoke clone at step `start` with `retained_worker_mismatch`, even though that pane could not belong to the clone's persisted run identity.
+
+Scope the initial Herdr agent snapshot to the active project's canonical cwd before starter or remediation matching. Preserve agents that omit cwd so unknown listings still fail closed through the existing ownership checks; exclude only agents with an explicit different cwd.
+
 ---
 
 ## Fix Strategy
@@ -130,6 +134,8 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | `steering/extensions/nmg-sdlc-smoke.mjs` | Return Pass immediately when `NMG_SDLC_SMOKE_OWNED=1` | Prevent recursive execution while leaving terminal proof with the enclosing provider |
 | `scripts/sdlc-execute.mjs` | Forward smoke ownership to verify and deliver workers only | Give nested verification the recursion guard and delivery the proof-write authority |
 | `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Cover pass-without-recursion and exact worker environment propagation | Lock the ownership boundary found during verification |
+| `scripts/sdlc-execute.mjs` | Scope Herdr agent discovery to the active project cwd | Prevent same-number workers in other repositories from causing false retained-worker collisions |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Cover a foreign same-number worker alongside a successful active-project run | Lock project-scoped discovery without weakening same-project ownership checks |
 
 ### Blast Radius
 
@@ -148,6 +154,7 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | Passed verify starts rem | Low | Passed path unchanged (`status: 'passed'`, `intervention: false`, `next: 'deliver'`) |
 | Nested smoke pass is mistaken for final delivery proof | Low | Only the nested provider passes; the enclosing provider still requires its pre-merge proof plus exact merged PR and closed issue |
 | Ownership marker leaks to unrelated workers | Low | Step environment allowlist contains only verify and deliver |
+| Foreign worker is incorrectly adopted | Low | Explicitly different cwd agents are excluded before name matching; same-project and cwd-less agents retain existing fail-closed ownership validation |
 | Rem rewinds to implement | Low | `next` stays `null` on remediable fail; `#259` already forbids first-observation rewind |
 
 ---
