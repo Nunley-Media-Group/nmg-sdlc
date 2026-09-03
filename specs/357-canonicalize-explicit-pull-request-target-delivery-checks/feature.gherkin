@@ -1,0 +1,35 @@
+**Issue**: #357
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/284-resolve-missing-required-check-event-provenance/
+
+@issue-357 @bug @delivery @check-provenance
+Feature: Canonicalize explicit pull_request_target delivery checks
+  Delivery previously preserved an explicit pull_request_target event even when
+  its linked Actions run matched the exact PR head, causing valid snapshots to fail.
+  Exact-head target events are now canonicalized without dropping the check.
+
+  @SCN001 @regression
+  Scenario: Explicit exact-head target event is canonicalized
+    Given a successful observed PR check explicitly reports event "pull_request_target"
+    And its linked Actions run head SHA equals the PR head
+    When delivery builds and classifies the exact-head snapshot
+    Then the check remains in the snapshot with event "pull_request"
+    And the check does not by itself make delivery evidence invalid
+
+  @SCN002 @regression
+  Scenario Outline: Unsafe explicit provenance remains rejected
+    Given a successful observed check has <condition>
+    When delivery builds and classifies the exact-head snapshot
+    Then the check is not canonicalized to event "pull_request"
+    And the check cannot make the snapshot merge-ready
+
+    Examples:
+      | condition                                      |
+      | event "push"                                  |
+      | event "merge_group"                           |
+      | an empty event with no resolvable Actions run  |
+      | a pull_request_target run at a different head  |
+      | an unreadable pull_request_target Actions run  |
+      | another non-PR event                           |
