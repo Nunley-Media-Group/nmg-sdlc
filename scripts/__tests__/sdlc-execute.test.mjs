@@ -2577,6 +2577,30 @@ describe('runExecute controller', () => {
     expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
   });
 
+  it('passes smoke ownership only to verification and delivery panes', () => {
+    const fixture = makeControllerFixture();
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env: { ...env, NMG_SDLC_SMOKE_OWNED: '1', UNRELATED_SECRET: 'do-not-copy' },
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
+      direction: 'right',
+      cwd: fixture.cwd,
+      environment: { NMG_SDLC_SMOKE_OWNED: '1' },
+    });
+    expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
+      direction: 'right',
+      cwd: fixture.cwd,
+      environment: { NMG_SDLC_SMOKE_OWNED: '1' },
+    });
+    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(2);
+  });
+
   it('omits pane environment when the smoke queue is missing', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({
@@ -3669,24 +3693,51 @@ describe('runExecute controller', () => {
     expect(persisted.failed).toMatchObject({ reasonCode: 'missing_handoff' });
   });
 
-  it('does not submit Enter after a successful prompt while state is stale idle', () => {
-    const fixture = makeControllerFixture({ settledBeforeSubmit: true, agentState: 'idle' });
+  it('keeps observing visible work while agent state is stale idle', () => {
+    const fixture = makeControllerFixture({
+      settledBeforeSubmit: true,
+      agentState: 'idle',
+      writeHandoffs: false,
+    });
     const readAgent = fixture.herdr.agentRead;
     const sendKeys = fixture.herdr.agentSendKeys;
+    let stateReads = 0;
+    let observations = 0;
+    fixture.herdr.agentGet = () => ({
+      result: { state: stateReads++ === 0 ? 'working' : 'idle' },
+    });
     fixture.herdr.agentRead = (input) => input.name === 's42-start' ? 'Working…' : readAgent(input);
     fixture.herdr.agentSendKeys = (input) => {
       if (input.name === 's42-start') throw new Error('must not resubmit an active worker prompt');
       return sendKeys(input);
+    };
+    fixture.herdr.observationPause = () => {
+      observations += 1;
+      if (observations !== 2) return;
+      const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+      fs.mkdirSync(handoffDir, { recursive: true });
+      fs.writeFileSync(path.join(handoffDir, '42-start.json'), `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 42,
+        step: 'start',
+        status: 'failed',
+        intervention: true,
+        summary: 'implementation failed',
+        artifacts: [],
+        next: null,
+        reasonCode: 'implementation_failed',
+      })}\n`);
     };
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
     expect(result.status).toBe(1);
+    expect(observations).toBe(2);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
-    expect(fixture.waits).toEqual([]);
+    expect(fixture.sentKeys).toEqual([]);
     expect(fixture.closed).toEqual(['pane-1']);
-    expect(persisted.failed).toMatchObject({ reasonCode: 'missing_handoff' });
+    expect(persisted.failed).toMatchObject({ reasonCode: 'implementation_failed' });
   });
 
   it('recovers a worker prompt from all three leading previews', () => {
@@ -4773,6 +4824,30 @@ describe('runExecute controller', () => {
       'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
     );
   });
+  it('ignores same-issue workers owned by another project', () => {
+    const fixture = makeControllerFixture();
+    const listAgents = fixture.herdr.listAgents;
+    fixture.herdr.listAgents = () => [{
+      name: 's42-implement',
+      pane_id: 'foreign-pane',
+      cwd: '/another/project',
+      state: 'working',
+    }, ...listAgents()];
+
+    const result = runExecute({
+      args: '#42',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-start');
+    expect(fixture.closed).not.toContain('foreign-pane');
+    expect(result.stdout).not.toContain('retained_worker_mismatch');
+  });
+
 
   it.each([
     ['missing ownership', (runState) => { runState.workers = {}; }],

@@ -29,16 +29,17 @@ function porcelainPaths(output) {
   return paths.filter((path) => !path.startsWith('.omp/'));
 }
 
-function handoff(issue, status, summary, reportPath, reasonCode = null) {
+function handoff(issue, status, summary, reportPath, reasonCode = null, options = {}) {
+  const passed = status === 'passed';
   return {
     schemaVersion: 1,
     issue,
     step: 'verify',
     status,
-    intervention: status !== 'passed',
+    intervention: options.intervention ?? (status !== 'passed'),
     summary,
-    artifacts: status === 'passed' ? [reportPath] : [],
-    next: status === 'passed' ? 'deliver' : null,
+    artifacts: options.artifacts ?? (passed ? [reportPath] : []),
+    next: passed ? 'deliver' : null,
     reasonCode,
   };
 }
@@ -60,7 +61,7 @@ function finalizeVerificationUnlocked({
     fs.writeFileSync(absolute, `${JSON.stringify(value, null, 2)}\n`);
     return { status: value.status === 'passed' ? 0 : 1, stdout: `NMG_SDLC_HANDOFF: ${handoffPath}\n`, stderr: '', handoff: value, handoffPath };
   };
-  const fail = (reasonCode, summary) => writeHandoff(handoff(issueNumber, 'failed', summary, reportPath, reasonCode));
+  const fail = (reasonCode, summary, options) => writeHandoff(handoff(issueNumber, 'failed', summary, reportPath, reasonCode, options));
 
   if (!Number.isInteger(issueNumber) || issueNumber <= 0 || isAbsolute(specPath)
     || !new RegExp(`^specs/${issueNumber}-[^/]+$`).test(specPath)) {
@@ -78,7 +79,16 @@ function finalizeVerificationUnlocked({
     options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath },
   });
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
-    return fail('verification_not_ready', `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`);
+    const remediableImplementationNonPass = readiness.status === 'blocked'
+      && readiness.reasonCode === 'implementation_non_pass'
+      && ['fail', 'partial'].includes(readiness.implementationStatus);
+    return fail(
+      'verification_not_ready',
+      `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`,
+      remediableImplementationNonPass
+        ? { intervention: false, artifacts: [reportPath] }
+        : undefined,
+    );
   }
 
   const branch = run('git', ['branch', '--show-current'], { cwd });

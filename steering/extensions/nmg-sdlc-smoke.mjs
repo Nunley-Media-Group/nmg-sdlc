@@ -236,7 +236,7 @@ export function createSmokeProvider({
       return envelope("failed", "nmg-sdlc-smoke issues config invalid", identity);
     }
     if (env.NMG_SDLC_SMOKE_OWNED === "1") {
-      return envelope("failed", "nmg-sdlc-smoke nested execution blocked", identity);
+      return envelope("passed", "nmg-sdlc-smoke nested execution blocked (satisfied by enclosing owned delivery)", identity);
     }
     if (!validHerdrEnvironment(env)) {
       return envelope("failed", "nmg-sdlc-smoke Herdr environment missing", identity);

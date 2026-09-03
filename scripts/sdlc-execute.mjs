@@ -80,12 +80,14 @@ const STEP_SKILL = {
 const STEP_EXTRA_WORKFLOWS = {
   implement: ['simplify'],
 };
-const VERIFY_PANE_ENV_KEYS = Object.freeze(['NMG_SDLC_SMOKE_ISSUES']);
+const STEP_PANE_ENV_KEYS = Object.freeze({
+  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES', 'NMG_SDLC_SMOKE_OWNED']),
+  deliver: Object.freeze(['NMG_SDLC_SMOKE_OWNED']),
+});
 
-function verifyPaneEnvironment(step, env) {
-  if (step !== 'verify') return null;
+function stepPaneEnvironment(step, env) {
   const environment = {};
-  for (const key of VERIFY_PANE_ENV_KEYS) {
+  for (const key of STEP_PANE_ENV_KEYS[step] ?? []) {
     if (typeof env?.[key] === 'string') environment[key] = env[key];
   }
   return Object.keys(environment).length > 0 ? environment : null;
@@ -387,8 +389,13 @@ function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
     const state = observedAgentState(herdr, agentName);
     if (!state) return { handoff: null, reasonCode: 'process_lost' };
     if (['idle', 'done'].includes(state)) {
-      if (terminalObservation) return result;
-      terminalObservation = true;
+      if (appearsWorking(herdr, agentName)) {
+        terminalObservation = false;
+      } else if (terminalObservation) {
+        return result;
+      } else {
+        terminalObservation = true;
+      }
     } else {
       terminalObservation = false;
     }
@@ -1022,6 +1029,18 @@ function firstAgentList(value) {
   if (Array.isArray(parsed)) return parsed;
   return parsed?.result?.agents || parsed?.agents || [];
 }
+function agentsForProject(value, cwd) {
+  const projectRoot = realpathSync(cwd);
+  return firstAgentList(value).filter((agent) => {
+    if (typeof agent?.cwd !== 'string' || agent.cwd.length === 0) return true;
+    try {
+      return realpathSync(agent.cwd) === projectRoot;
+    } catch {
+      return resolve(agent.cwd) === projectRoot;
+    }
+  });
+}
+
 
 function agentState(value) {
   const parsed = parseCommandOutput(value);
@@ -2141,7 +2160,7 @@ export function runExecute({
 
 
   try {
-    const existingAgents = firstAgentList(herdrApi.listAgents());
+    const existingAgents = agentsForProject(herdrApi.listAgents(), cwd);
     const createdPanes = new Set();
 
   function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {
@@ -2250,7 +2269,7 @@ export function runExecute({
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
         const { width, height } = paneDimensions(layout);
         const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-        const environment = verifyPaneEnvironment(step, env);
+        const environment = stepPaneEnvironment(step, env);
         const split = herdrApi.paneSplit({
           direction,
           cwd,
@@ -2933,7 +2952,7 @@ export function runExecute({
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);
       const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-      const environment = verifyPaneEnvironment(step, env);
+      const environment = stepPaneEnvironment(step, env);
       const split = herdrApi.paneSplit({
         direction,
         cwd,

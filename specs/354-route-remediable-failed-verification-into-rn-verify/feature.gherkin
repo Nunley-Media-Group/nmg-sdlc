@@ -48,3 +48,25 @@ Feature: Route remediable failed verification into rN-verify
     When execute consumes it
     Then later steps use the original verify step identity, not a leftover rem identity
     And no second sN-verify worker exists for that issue
+
+  @SCN005 @regression
+  Scenario: Owned smoke verification does not recurse
+    Given the mutable smoke provider starts an execute controller with NMG_SDLC_SMOKE_OWNED set to 1
+    When that controller starts its verify and deliver workers
+    Then both workers receive the smoke ownership marker
+    And the nested smoke provider passes without cloning or starting another execute controller
+    And the enclosing provider remains responsible for exact delivery proof and terminal GitHub state
+
+  @SCN006 @regression
+  Scenario: Foreign same-number workers do not collide
+    Given Herdr reports an sN worker whose project cwd differs from the active execute project
+    When execute starts issue N in the active project
+    Then it ignores the foreign worker for retained-worker and collision decisions
+    And it preserves ownership checks for workers from the active project
+
+  @SCN007 @regression
+  Scenario: Visible worker activity overrides stale idle state
+    Given a prompted worker is present and its terminal still shows active work
+    When Herdr temporarily reports the worker as idle or done before its handoff exists
+    Then execute continues observing without resubmitting the prompt or closing the pane
+    And it consumes the eventual original-step handoff

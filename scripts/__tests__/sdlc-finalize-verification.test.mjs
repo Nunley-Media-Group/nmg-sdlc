@@ -5,18 +5,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { finalizeVerification } from '../sdlc-finalize-verification.mjs';
-import { validateHandoff } from '../sdlc-execute.mjs';
+import { isRemediableFailedHandoff, validateHandoff } from '../sdlc-execute.mjs';
 import { acquireControllerLease, releaseControllerLease } from '../sdlc-controller-lease.mjs';
 
-function report(issue = 42, specPath = 'specs/42-feature') {
+function report(issue = 42, specPath = 'specs/42-feature', implementationStatus = 'Pass') {
   const scope = { issueNumber: issue, specPath, status: 'scoped', delivery: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] }, regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
-  return `# Verification\n\n## Implementation Status: **Pass**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
+  const status = implementationStatus == null ? '' : `## Implementation Status: **${implementationStatus}**\n\n`;
+  return `# Verification\n\n${status}<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
-function fixture() {
+function fixture(implementationStatus = 'Pass') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-finalize-verification-'));
   const spec = path.join(root, 'specs', '42-feature');
   fs.mkdirSync(spec, { recursive: true });
-  fs.writeFileSync(path.join(spec, 'verification-report.md'), report());
+  fs.writeFileSync(path.join(spec, 'verification-report.md'), report(42, 'specs/42-feature', implementationStatus));
   return root;
 }
 function result(status = 0, stdout = '') { return { status, stdout, stderr: '', error: null }; }
@@ -47,6 +48,49 @@ describe('verification finalization controller', () => {
     expect(calls).toContainEqual(['git', 'add', '--', 'specs/42-feature/verification-report.md']);
     expect(calls).toContainEqual(['git', 'commit', '-m', 'docs: record verification for #42']);
     expect(calls).toContainEqual(['git', 'push']);
+  });
+  it.each(['Fail', 'Partial'])('writes a remediable failed handoff for %s reports', (implementationStatus) => {
+    const root = fixture(implementationStatus);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root });
+    expect(outcome.status).toBe(1);
+    expect(outcome.handoff).toMatchObject({
+      status: 'failed',
+      intervention: false,
+      reasonCode: 'verification_not_ready',
+      step: 'verify',
+      next: null,
+    });
+    expect(outcome.handoff.artifacts).toEqual(['specs/42-feature/verification-report.md']);
+    expect(outcome.handoff.summary).toContain('implementation_non_pass');
+    expect(validateHandoff(outcome.handoff)).toEqual(outcome.handoff);
+    for (const state of ['idle', 'done']) {
+      expect(isRemediableFailedHandoff({ step: 'verify', state, handoff: outcome.handoff })).toBe(true);
+    }
+  });
+  it('keeps Incomplete reports as intervention', () => {
+    const root = fixture('Incomplete');
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root });
+    expect(outcome.status).toBe(1);
+    expect(outcome.handoff).toMatchObject({
+      status: 'failed',
+      intervention: true,
+      reasonCode: 'verification_not_ready',
+      step: 'verify',
+      next: null,
+    });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
+  });
+  it('keeps a missing Implementation Status as intervention', () => {
+    const root = fixture(null);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root });
+    expect(outcome.status).toBe(1);
+    expect(outcome.handoff).toMatchObject({
+      status: 'failed',
+      intervention: true,
+      step: 'verify',
+      next: null,
+    });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
   });
   it('requires the execute lease identity before publishing protected state', () => {
     const root = fixture();

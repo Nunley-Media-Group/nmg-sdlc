@@ -15,6 +15,9 @@
 | T001 | Make Fail/Partial verify handoffs remediable | [ ] |
 | T002 | Add finalize regression coverage | [ ] |
 | T003 | Confirm existing rem and pass paths | [ ] |
+| T004 | Prevent nested mutable-smoke recursion | [ ] |
+| T005 | Scope execute worker discovery to the active project | [ ] |
+| T006 | Preserve visibly active workers across stale idle state | [ ] |
 
 ---
 
@@ -59,6 +62,42 @@
 - [ ] Focused execute rem cases still pass: `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` exits 0
 - [ ] Partial/Incomplete/Fail remain `blocked` / `implementation_non_pass` in readiness tests
 - [ ] No review/fix/start/deliver intervention mapping changes
+
+
+### T004: Prevent nested mutable-smoke recursion
+
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/sdlc-execute.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] A provider invoked with `NMG_SDLC_SMOKE_OWNED=1` returns `passed` before cloning or executing.
+- [ ] A smoke-owned execute controller forwards `NMG_SDLC_SMOKE_OWNED` to verify and deliver workers only.
+- [ ] Nested verification performs no mutable smoke recursion.
+- [ ] The delivery worker still writes the enclosing clone's pre-merge delivery proof.
+- [ ] Focused smoke-provider and execute tests exit 0.
+
+### T005: Scope execute worker discovery to the active project
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T004
+**Acceptance**:
+- [ ] Herdr agents with a different `cwd` are excluded before issue and remediation worker matching.
+- [ ] Existing same-project retained-worker mismatch and ownership checks remain unchanged.
+- [ ] A regression fixture proves a foreign `s<N>-*` worker does not block the active project.
+- [ ] The focused execute suite exits 0.
+
+### T006: Preserve visibly active workers across stale idle state
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T005
+**Acceptance**:
+- [ ] An idle/done observation with visible `Working` output does not count as a terminal no-handoff observation.
+- [ ] Execute keeps observing the existing worker without resubmitting its prompt.
+- [ ] The eventual original-step handoff is consumed normally.
+- [ ] A regression fixture requires more than one stale-idle observation before writing the handoff.
+- [ ] The focused execute suite exits 0.
 
 ---
 

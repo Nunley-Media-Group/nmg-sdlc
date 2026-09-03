@@ -40,6 +40,20 @@ Observed 2026-09-02 on nmg-sdlc `3.20.4` executing pennyscan `#132`: verify wrot
 - Execute therefore called keep-open/stop instead of `beginRemediation` / `r<N>-verify`.
 - Existing rem fixtures never used this finalizer-produced intervention shape, so the gate mismatch was untested.
 
+### Verification Remediation Finding
+
+The required mutable smoke provider launches an execute controller with `NMG_SDLC_SMOKE_OWNED=1`, but `stepPaneEnvironment` forwarded that marker only to the deliver worker. The nested verify worker therefore ran the always-on mutable smoke provider again. The inner controller could deliver the same remote smoke issue before the enclosing clone recorded its own pre-merge proof, leaving the enclosing provider with no valid invocation-owned proof.
+
+Treat the ownership marker as a scoped recursion guard, not as successful terminal evidence by itself. Forward it only to verify and deliver workers. A nested provider that receives the marker returns a complete Pass without cloning or executing because the enclosing provider still owns and validates the exact delivery proof, merged PR, and closed issue after its controller returns.
+
+The next smoke attempt exposed a separate global-agent discovery defect. `runExecute` took every Herdr agent whose name began with `s<N>-` as an issue worker without checking its project cwd. A live `s71-implement` from another checkout therefore stopped a fresh smoke clone at step `start` with `retained_worker_mismatch`, even though that pane could not belong to the clone's persisted run identity.
+
+Scope the initial Herdr agent snapshot to the active project's canonical cwd before starter or remediation matching. Preserve agents that omit cwd so unknown listings still fail closed through the existing ownership checks; exclude only agents with an explicit different cwd.
+
+The same attempt then reached `s71-implement`, where an internal advisory completion made Herdr report stale idle while the primary worker continued visible tool activity. `observeExpectedHandoff` counted two idle observations, returned `missing_handoff`, and the controller closed the pane with the implementation still in progress. The retained OMP transcript ends in `SIGHUP` during file inspection and contains no worker-authored terminal result.
+
+When idle/done conflicts with terminal detection containing `Working`, keep observing and reset the terminal-observation latch. Do not resubmit the prompt. Once visible work ends, the existing two-observation missing-handoff rule still applies; an eventual handoff remains authoritative.
+
 ---
 
 ## Fix Strategy
@@ -121,6 +135,13 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | `scripts/sdlc-finalize-verification.mjs` | Optional `options` on `handoff`/`fail`; Fail/Partial set `intervention: false` and attach `reportPath` | Root cause: intervention was coupled to non-pass |
 | `workflows/verify-code/WORKFLOW.md` | Description + finalize close sentences | Worker contract currently claims every controller failure is intervention |
 | `scripts/__tests__/sdlc-finalize-verification.test.mjs` | Fail/Partial remediable; Incomplete/unverifiable still intervention | Locks the new branch without changing readiness tests |
+| `steering/extensions/nmg-sdlc-smoke.mjs` | Return Pass immediately when `NMG_SDLC_SMOKE_OWNED=1` | Prevent recursive execution while leaving terminal proof with the enclosing provider |
+| `scripts/sdlc-execute.mjs` | Forward smoke ownership to verify and deliver workers only | Give nested verification the recursion guard and delivery the proof-write authority |
+| `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Cover pass-without-recursion and exact worker environment propagation | Lock the ownership boundary found during verification |
+| `scripts/sdlc-execute.mjs` | Scope Herdr agent discovery to the active project cwd | Prevent same-number workers in other repositories from causing false retained-worker collisions |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Cover a foreign same-number worker alongside a successful active-project run | Lock project-scoped discovery without weakening same-project ownership checks |
+| `scripts/sdlc-execute.mjs` | Ignore stale idle/done observations while terminal detection still shows `Working` | Prevent closing a live worker whose internal advisory state temporarily masks primary activity |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Delay a worker handoff beyond two stale-idle observations while visible work continues | Prove the controller neither resubmits nor prematurely closes the worker |
 
 ### Blast Radius
 
@@ -137,6 +158,10 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | Incomplete starts rem | Med | Branch requires `implementationStatus` `'fail'` or `'partial'` only |
 | Publish/lease/invalid report start rem | Low | Those paths still default `intervention: true` or write no handoff |
 | Passed verify starts rem | Low | Passed path unchanged (`status: 'passed'`, `intervention: false`, `next: 'deliver'`) |
+| Nested smoke pass is mistaken for final delivery proof | Low | Only the nested provider passes; the enclosing provider still requires its pre-merge proof plus exact merged PR and closed issue |
+| Ownership marker leaks to unrelated workers | Low | Step environment allowlist contains only verify and deliver |
+| Foreign worker is incorrectly adopted | Low | Explicitly different cwd agents are excluded before name matching; same-project and cwd-less agents retain existing fail-closed ownership validation |
+| Visible work never settles | Low | Continue only while the existing detection source explicitly reports `Working`; once activity disappears, the two-observation terminal rule resumes |
 | Rem rewinds to implement | Low | `next` stays `null` on remediable fail; `#259` already forbids first-observation rewind |
 
 ---

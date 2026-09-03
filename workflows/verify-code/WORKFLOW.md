@@ -1,6 +1,6 @@
 ---
 name: verify-code
-description: "The architecture-reviewer runs inline verification against the approved specs/{N}-{slug}/ . Writes verification-report.md, comments on the issue, and produces handoff. Pass or PR Evidence Pending advances to deliver; otherwise failed intervention. Use only from automated /sdlc-execute."
+description: "The architecture-reviewer runs inline verification against the approved specs/{N}-{slug}/ . Writes verification-report.md, comments on the issue, and produces handoff. Pass or PR Evidence Pending advances to deliver. Fail or Partial writes a remediable failed verify handoff (intervention: false) for rN-verify. Incomplete, spec_not_approved, publish, lease, and unverifiable outcomes remain intervention. Use only from automated /sdlc-execute."
 ---
 
 # Verify Code
@@ -85,4 +85,4 @@ node <plugin-root>/scripts/sdlc-finalize-verification.mjs --issue N --spec specs
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
-Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Controller failure remains an intervention and never advances to delivery.
+Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Fail or Partial `implementation_non_pass` writes `status: failed` with `intervention: false` and does not advance to delivery. Incomplete, `spec_not_approved`, `verification_publish_failed`, lease failure, missing/invalid reports, and unverifiable readiness remain intervention and never start rem.

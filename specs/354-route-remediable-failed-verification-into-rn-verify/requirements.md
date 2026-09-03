@@ -55,6 +55,29 @@
 **Then** later steps use the original verify step identity, not a leftover rem identity
 **And** no second `s<N>-verify` worker exists for that issue
 
+### AC5: Owned smoke verification does not recurse
+
+**Given** the required mutable smoke provider starts an execute controller with `NMG_SDLC_SMOKE_OWNED=1`
+**When** that controller starts its verify and deliver workers
+**Then** both workers receive the ownership marker
+**And** the nested smoke provider returns Pass without cloning or starting another execute controller
+**And** the enclosing provider remains responsible for exact pre-merge delivery proof, merged PR, and issue closure
+
+### AC6: Foreign same-number workers do not block smoke execution
+
+**Given** Herdr reports an `s<N>-*` worker whose project cwd differs from the active execute project
+**When** execute selects issue N in the active project
+**Then** it ignores that foreign worker for retained-worker and collision decisions
+**And** workers from the active project retain the existing ownership and mismatch checks
+
+
+### AC7: Visible work survives stale idle observations
+
+**Given** a prompted worker remains present and its terminal shows active work
+**When** Herdr temporarily reports that worker as idle or done before its handoff exists
+**Then** execute continues observing without resubmitting the prompt or closing the pane
+**And** it consumes the eventual original-step handoff
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -63,6 +86,9 @@
 | FR2 | Execute starts the existing `#259` `r<N>-verify` loop for that remediable failed verify handoff and reruns verify, not implement. | Must |
 | FR3 | Incomplete verification, `spec_not_approved`, publish/lease failures, and unverifiable reports remain `intervention: true` (lease-held may still omit the handoff) and do not start rem. | Must |
 | FR4 | Passed verify still advances to deliver without rem. | Must |
+| FR5 | A smoke-owned controller forwards `NMG_SDLC_SMOKE_OWNED` only to verify and deliver workers; nested verification passes without recursion while the enclosing provider retains delivery-proof authority. | Must |
+| FR6 | Execute scopes live starter and remediation worker discovery to the active project cwd so same-number workers in another repository cannot produce `retained_worker_mismatch`. | Must |
+| FR7 | Handoff observation treats visible active work as authoritative over a transient idle/done agent state and continues until a handoff or confirmed terminal state exists. | Must |
 
 ## Out of Scope
 
@@ -78,3 +104,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #354 | 2026-09-02 | Initial defect report |
+| #354 | 2026-09-03 | Verification remediation: prevent nested smoke recursion, cross-project worker collisions, and stale-idle closure of visibly active workers |
