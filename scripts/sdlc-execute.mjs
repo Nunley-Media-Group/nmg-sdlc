@@ -81,7 +81,7 @@ const STEP_EXTRA_WORKFLOWS = {
   implement: ['simplify'],
 };
 const STEP_PANE_ENV_KEYS = Object.freeze({
-  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES']),
+  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES', 'NMG_SDLC_SMOKE_OWNED']),
   deliver: Object.freeze(['NMG_SDLC_SMOKE_OWNED']),
 });
 

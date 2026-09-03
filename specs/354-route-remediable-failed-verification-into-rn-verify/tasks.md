@@ -15,6 +15,7 @@
 | T001 | Make Fail/Partial verify handoffs remediable | [ ] |
 | T002 | Add finalize regression coverage | [ ] |
 | T003 | Confirm existing rem and pass paths | [ ] |
+| T004 | Prevent nested mutable-smoke recursion | [ ] |
 
 ---
 
@@ -60,6 +61,18 @@
 - [ ] Partial/Incomplete/Fail remain `blocked` / `implementation_non_pass` in readiness tests
 - [ ] No review/fix/start/deliver intervention mapping changes
 
+
+### T004: Prevent nested mutable-smoke recursion
+
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/sdlc-execute.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] A provider invoked with `NMG_SDLC_SMOKE_OWNED=1` returns `passed` before cloning or executing.
+- [ ] A smoke-owned execute controller forwards `NMG_SDLC_SMOKE_OWNED` to verify and deliver workers only.
+- [ ] Nested verification performs no mutable smoke recursion.
+- [ ] The delivery worker still writes the enclosing clone's pre-merge delivery proof.
+- [ ] Focused smoke-provider and execute tests exit 0.
 ---
 
 ## Validation Checklist

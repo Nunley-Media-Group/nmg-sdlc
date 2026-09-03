@@ -55,6 +55,14 @@
 **Then** later steps use the original verify step identity, not a leftover rem identity
 **And** no second `s<N>-verify` worker exists for that issue
 
+### AC5: Owned smoke verification does not recurse
+
+**Given** the required mutable smoke provider starts an execute controller with `NMG_SDLC_SMOKE_OWNED=1`
+**When** that controller starts its verify and deliver workers
+**Then** both workers receive the ownership marker
+**And** the nested smoke provider returns Pass without cloning or starting another execute controller
+**And** the enclosing provider remains responsible for exact pre-merge delivery proof, merged PR, and issue closure
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -63,6 +71,7 @@
 | FR2 | Execute starts the existing `#259` `r<N>-verify` loop for that remediable failed verify handoff and reruns verify, not implement. | Must |
 | FR3 | Incomplete verification, `spec_not_approved`, publish/lease failures, and unverifiable reports remain `intervention: true` (lease-held may still omit the handoff) and do not start rem. | Must |
 | FR4 | Passed verify still advances to deliver without rem. | Must |
+| FR5 | A smoke-owned controller forwards `NMG_SDLC_SMOKE_OWNED` only to verify and deliver workers; nested verification passes without recursion while the enclosing provider retains delivery-proof authority. | Must |
 
 ## Out of Scope
 
@@ -78,3 +87,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #354 | 2026-09-02 | Initial defect report |
+| #354 | 2026-09-03 | Verification remediation: prevent nested mutable-smoke recursion while preserving enclosing delivery proof ownership |

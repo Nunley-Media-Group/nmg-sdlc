@@ -149,7 +149,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     const fixture = harness({ env: { ...VALID_ENV, NMG_SDLC_SMOKE_OWNED: '1' } });
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke nested execution blocked' });
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke nested execution blocked (satisfied by enclosing owned delivery)' });
     expect(fixture.mkdtempSync).not.toHaveBeenCalled();
     expect(fixture.runCommand).not.toHaveBeenCalled();
   });

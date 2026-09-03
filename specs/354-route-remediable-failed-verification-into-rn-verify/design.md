@@ -40,6 +40,12 @@ Observed 2026-09-02 on nmg-sdlc `3.20.4` executing pennyscan `#132`: verify wrot
 - Execute therefore called keep-open/stop instead of `beginRemediation` / `r<N>-verify`.
 - Existing rem fixtures never used this finalizer-produced intervention shape, so the gate mismatch was untested.
 
+### Verification Remediation Finding
+
+The required mutable smoke provider launches an execute controller with `NMG_SDLC_SMOKE_OWNED=1`, but `stepPaneEnvironment` forwarded that marker only to the deliver worker. The nested verify worker therefore ran the always-on mutable smoke provider again. The inner controller could deliver the same remote smoke issue before the enclosing clone recorded its own pre-merge proof, leaving the enclosing provider with no valid invocation-owned proof.
+
+Treat the ownership marker as a scoped recursion guard, not as successful terminal evidence by itself. Forward it only to verify and deliver workers. A nested provider that receives the marker returns a complete Pass without cloning or executing because the enclosing provider still owns and validates the exact delivery proof, merged PR, and closed issue after its controller returns.
+
 ---
 
 ## Fix Strategy
@@ -121,6 +127,9 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | `scripts/sdlc-finalize-verification.mjs` | Optional `options` on `handoff`/`fail`; Fail/Partial set `intervention: false` and attach `reportPath` | Root cause: intervention was coupled to non-pass |
 | `workflows/verify-code/WORKFLOW.md` | Description + finalize close sentences | Worker contract currently claims every controller failure is intervention |
 | `scripts/__tests__/sdlc-finalize-verification.test.mjs` | Fail/Partial remediable; Incomplete/unverifiable still intervention | Locks the new branch without changing readiness tests |
+| `steering/extensions/nmg-sdlc-smoke.mjs` | Return Pass immediately when `NMG_SDLC_SMOKE_OWNED=1` | Prevent recursive execution while leaving terminal proof with the enclosing provider |
+| `scripts/sdlc-execute.mjs` | Forward smoke ownership to verify and deliver workers only | Give nested verification the recursion guard and delivery the proof-write authority |
+| `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Cover pass-without-recursion and exact worker environment propagation | Lock the ownership boundary found during verification |
 
 ### Blast Radius
 
@@ -137,6 +146,8 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | Incomplete starts rem | Med | Branch requires `implementationStatus` `'fail'` or `'partial'` only |
 | Publish/lease/invalid report start rem | Low | Those paths still default `intervention: true` or write no handoff |
 | Passed verify starts rem | Low | Passed path unchanged (`status: 'passed'`, `intervention: false`, `next: 'deliver'`) |
+| Nested smoke pass is mistaken for final delivery proof | Low | Only the nested provider passes; the enclosing provider still requires its pre-merge proof plus exact merged PR and closed issue |
+| Ownership marker leaks to unrelated workers | Low | Step environment allowlist contains only verify and deliver |
 | Rem rewinds to implement | Low | `next` stays `null` on remediable fail; `#259` already forbids first-observation rewind |
 
 ---
