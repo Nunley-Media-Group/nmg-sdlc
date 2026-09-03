@@ -71,6 +71,13 @@
 **And** workers from the active project retain the existing ownership and mismatch checks
 
 
+### AC7: Visible work survives stale idle observations
+
+**Given** a prompted worker remains present and its terminal shows active work
+**When** Herdr temporarily reports that worker as idle or done before its handoff exists
+**Then** execute continues observing without resubmitting the prompt or closing the pane
+**And** it consumes the eventual original-step handoff
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -81,6 +88,7 @@
 | FR4 | Passed verify still advances to deliver without rem. | Must |
 | FR5 | A smoke-owned controller forwards `NMG_SDLC_SMOKE_OWNED` only to verify and deliver workers; nested verification passes without recursion while the enclosing provider retains delivery-proof authority. | Must |
 | FR6 | Execute scopes live starter and remediation worker discovery to the active project cwd so same-number workers in another repository cannot produce `retained_worker_mismatch`. | Must |
+| FR7 | Handoff observation treats visible active work as authoritative over a transient idle/done agent state and continues until a handoff or confirmed terminal state exists. | Must |
 
 ## Out of Scope
 
@@ -96,4 +104,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #354 | 2026-09-02 | Initial defect report |
-| #354 | 2026-09-03 | Verification remediation: prevent nested mutable-smoke recursion and cross-project same-number worker collisions while preserving enclosing delivery proof ownership |
+| #354 | 2026-09-03 | Verification remediation: prevent nested smoke recursion, cross-project worker collisions, and stale-idle closure of visibly active workers |

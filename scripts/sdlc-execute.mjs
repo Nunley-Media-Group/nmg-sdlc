@@ -389,8 +389,13 @@ function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
     const state = observedAgentState(herdr, agentName);
     if (!state) return { handoff: null, reasonCode: 'process_lost' };
     if (['idle', 'done'].includes(state)) {
-      if (terminalObservation) return result;
-      terminalObservation = true;
+      if (appearsWorking(herdr, agentName)) {
+        terminalObservation = false;
+      } else if (terminalObservation) {
+        return result;
+      } else {
+        terminalObservation = true;
+      }
     } else {
       terminalObservation = false;
     }

@@ -50,6 +50,10 @@ The next smoke attempt exposed a separate global-agent discovery defect. `runExe
 
 Scope the initial Herdr agent snapshot to the active project's canonical cwd before starter or remediation matching. Preserve agents that omit cwd so unknown listings still fail closed through the existing ownership checks; exclude only agents with an explicit different cwd.
 
+The same attempt then reached `s71-implement`, where an internal advisory completion made Herdr report stale idle while the primary worker continued visible tool activity. `observeExpectedHandoff` counted two idle observations, returned `missing_handoff`, and the controller closed the pane with the implementation still in progress. The retained OMP transcript ends in `SIGHUP` during file inspection and contains no worker-authored terminal result.
+
+When idle/done conflicts with terminal detection containing `Working`, keep observing and reset the terminal-observation latch. Do not resubmit the prompt. Once visible work ends, the existing two-observation missing-handoff rule still applies; an eventual handoff remains authoritative.
+
 ---
 
 ## Fix Strategy
@@ -136,6 +140,8 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs` | Cover pass-without-recursion and exact worker environment propagation | Lock the ownership boundary found during verification |
 | `scripts/sdlc-execute.mjs` | Scope Herdr agent discovery to the active project cwd | Prevent same-number workers in other repositories from causing false retained-worker collisions |
 | `scripts/__tests__/sdlc-execute.test.mjs` | Cover a foreign same-number worker alongside a successful active-project run | Lock project-scoped discovery without weakening same-project ownership checks |
+| `scripts/sdlc-execute.mjs` | Ignore stale idle/done observations while terminal detection still shows `Working` | Prevent closing a live worker whose internal advisory state temporarily masks primary activity |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Delay a worker handoff beyond two stale-idle observations while visible work continues | Prove the controller neither resubmits nor prematurely closes the worker |
 
 ### Blast Radius
 
@@ -155,6 +161,7 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | Nested smoke pass is mistaken for final delivery proof | Low | Only the nested provider passes; the enclosing provider still requires its pre-merge proof plus exact merged PR and closed issue |
 | Ownership marker leaks to unrelated workers | Low | Step environment allowlist contains only verify and deliver |
 | Foreign worker is incorrectly adopted | Low | Explicitly different cwd agents are excluded before name matching; same-project and cwd-less agents retain existing fail-closed ownership validation |
+| Visible work never settles | Low | Continue only while the existing detection source explicitly reports `Working`; once activity disappears, the two-observation terminal rule resumes |
 | Rem rewinds to implement | Low | `next` stays `null` on remediable fail; `#259` already forbids first-observation rewind |
 
 ---

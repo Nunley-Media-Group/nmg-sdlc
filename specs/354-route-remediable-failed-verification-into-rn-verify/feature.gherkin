@@ -63,3 +63,10 @@ Feature: Route remediable failed verification into rN-verify
     When execute starts issue N in the active project
     Then it ignores the foreign worker for retained-worker and collision decisions
     And it preserves ownership checks for workers from the active project
+
+  @SCN007 @regression
+  Scenario: Visible worker activity overrides stale idle state
+    Given a prompted worker is present and its terminal still shows active work
+    When Herdr temporarily reports the worker as idle or done before its handoff exists
+    Then execute continues observing without resubmitting the prompt or closing the pane
+    And it consumes the eventual original-step handoff

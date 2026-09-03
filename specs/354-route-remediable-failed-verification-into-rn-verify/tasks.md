@@ -17,6 +17,7 @@
 | T003 | Confirm existing rem and pass paths | [ ] |
 | T004 | Prevent nested mutable-smoke recursion | [ ] |
 | T005 | Scope execute worker discovery to the active project | [ ] |
+| T006 | Preserve visibly active workers across stale idle state | [ ] |
 
 ---
 
@@ -84,6 +85,18 @@
 - [ ] Herdr agents with a different `cwd` are excluded before issue and remediation worker matching.
 - [ ] Existing same-project retained-worker mismatch and ownership checks remain unchanged.
 - [ ] A regression fixture proves a foreign `s<N>-*` worker does not block the active project.
+- [ ] The focused execute suite exits 0.
+
+### T006: Preserve visibly active workers across stale idle state
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
+**Type**: Modify
+**Depends**: T005
+**Acceptance**:
+- [ ] An idle/done observation with visible `Working` output does not count as a terminal no-handoff observation.
+- [ ] Execute keeps observing the existing worker without resubmitting its prompt.
+- [ ] The eventual original-step handoff is consumed normally.
+- [ ] A regression fixture requires more than one stale-idle observation before writing the handoff.
 - [ ] The focused execute suite exits 0.
 
 ---
