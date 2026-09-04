@@ -1,0 +1,48 @@
+**Issue**: #360
+**Date**: 2026-09-04
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/125-add-github-actions-contribution-gates-to-project-setup/
+
+# File: specs/360-close-contribution-gate-evidence-gaps-in-automated-delivery/feature.gherkin
+#
+# Generated from: specs/360-close-contribution-gate-evidence-gaps-in-automated-delivery/requirements.md
+Feature: Close contribution-gate evidence gaps in automated delivery
+  Automated delivery previously opened pull requests whose bodies omitted
+  steering alignment and relevant path mapping, then classified a
+  body-only contribution-gate repair as human review.
+  This was fixed by locally evaluating generated evidence before mutation
+  and repairing body-only remote gate failures in place.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Generated evidence satisfies the existing gate
+    Given a verified issue whose final delivery diff includes implementation, tests, and delivery version files
+    When automated delivery creates or updates the pull request
+    Then local contribution evaluation against that exact title, body, head, and changed-path set reports no missing steering evidence and no unmatched relevant paths
+    And the existing contribution-gate steering, path-mapping, and verification rules are unchanged
+
+  @SCN002 @regression
+  Scenario: Local evaluation precedes mutation
+    Given contribution evidence is incomplete for the exact final diff
+    When delivery would create a pull request or update its body
+    Then it does not perform that mutation
+    And it reports the incomplete evidence categories
+
+  @SCN003 @regression
+  Scenario: Body-only remote failures are not human review
+    Given an open delivery pull request whose head is unchanged
+    And the only failing check is incomplete contribution evidence that can be repaired in the pull-request body
+    When delivery remediates that failure
+    Then it updates the pull-request body without a git commit
+    And it does not write reasonCode human_review
+    And it continues observing the remote contribution gate
+
+  # --- Related Behavior Still Works ---
+
+  @SCN004 @regression
+  Scenario: True human review still stops delivery
+    Given a human reviewer requested changes, or an automated review thread has no actionable path
+    When delivery classifies the pull request
+    Then it still stops with reasonCode human_review and does not merge
