@@ -1251,6 +1251,38 @@ function runDeliverUnlocked({
   if (remediationResult === 'human_review') return fail(context, 'human_review', `Delivery for #${issueNumber} requires human review`);
 
   try {
+    const persistedDelivery = namespace.runState.delivery;
+    if (persistedDelivery?.status === 'complete') {
+      const terminalReadiness = { status: 'pass', readiness: { evidence: [] } };
+      const proof = scopedSnapshot({
+        context,
+        namespace,
+        run,
+        cwd,
+        issue: issueNumber,
+        prNumber: persistedDelivery.pullRequest,
+        readiness: terminalReadiness,
+        branch: null,
+      });
+      const proved = classifyPrDeliveryState(proof.snapshot, {
+        issueNumber,
+        expectedHead: persistedDelivery.expectedHead,
+      });
+      if (proved.status !== 'complete' || proof.issueData.state !== 'CLOSED') {
+        return fail(
+          context,
+          'merge_failed',
+          `PR #${persistedDelivery.pullRequest} merge and issue closure proof failed`,
+        );
+      }
+      return writeHandoff({
+        ...context,
+        status: 'passed',
+        summary: `PR #${proof.pr.number} merged at ${proof.pr.headRefOid}, issue #${issueNumber} closed`,
+        artifacts: [proof.pr.url],
+      });
+    }
+
     const spec = approvedSpec(fs, cwd, issueNumber);
     let readiness = inspectVerificationReadiness({
       content: fs.readFileSync(spec.verificationPath, 'utf8'),

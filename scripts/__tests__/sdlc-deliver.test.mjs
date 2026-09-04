@@ -481,6 +481,20 @@ function seedReconciliation(root, relativeRunPath = '.omp/sdlc/run.json') {
   fs.writeFileSync(runPath, `${JSON.stringify(runState, null, 2)}\n`);
   return runPath;
 }
+function seedComplete(root, { pullRequest = 77, expectedHead = H1 } = {}) {
+  const runPath = path.join(root, '.omp/sdlc/run.json');
+  const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+  runState.revision += 1;
+  runState.delivery = {
+    issue: 42,
+    pullRequest,
+    expectedHead,
+    status: 'complete',
+    reconciliation: null,
+  };
+  fs.writeFileSync(runPath, `${JSON.stringify(runState, null, 2)}\n`);
+}
+
 const roots = [];
 afterEach(() => {
   while (leases.length) releaseControllerLease(leases.pop());
@@ -1573,6 +1587,73 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toBe(false);
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
   });
+  test('re-enters completed delivery from a restored default branch without local verification files or mutations', () => {
+    const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
+    const f = fixture({ views: [merged], gitHead: 'a'.repeat(40) }); roots.push(f.root);
+    seedComplete(f.root);
+    fs.rmSync(path.join(f.root, 'specs', '42-delivery'), { recursive: true });
+    const restoredRun = (command, args) => (
+      command === 'git' && args[0] === 'branch' && args[1] === '--show-current'
+        ? { status: 0, stdout: 'main\n', stderr: '' }
+        : f.run(command, args)
+    );
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: restoredRun,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({
+      status: 0,
+      handoff: {
+        status: 'passed',
+        reasonCode: null,
+        artifacts: ['https://github.test/owner/repo/pull/77'],
+      },
+    });
+    expect(f.calls.some((call) => call[0] === 'git')).toBe(false);
+    expect(f.calls.some((call) => (
+      call[0] === 'gh'
+      && (
+        call[1] === 'issue' && ['close', 'edit', 'reopen'].includes(call[2])
+        || call[1] === 'pr' && ['create', 'edit', 'ready', 'merge'].includes(call[2])
+      )
+    ))).toBe(false);
+  });
+
+  test.each([
+    ['wrong head', { view: openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }), seed: {}, reasonCode: 'delivery_reconciliation_required' }],
+    ['wrong pull request', { view: openPr({ state: 'MERGED', issueState: 'CLOSED' }), seed: { pullRequest: 78 }, reasonCode: 'delivery_reconciliation_required' }],
+    ['non-merged pull request', { view: openPr({ issueState: 'CLOSED' }), seed: {}, reasonCode: 'merge_failed' }],
+    ['open issue', { view: openPr({ state: 'MERGED', issueState: 'OPEN' }), seed: {}, reasonCode: 'merge_failed' }],
+  ])('fails closed on completed delivery re-entry with %s', (name, { view, seed, reasonCode }) => {
+    const f = fixture({ views: [view] }); roots.push(f.root);
+    seedComplete(f.root, seed);
+    fs.rmSync(path.join(f.root, 'specs', '42-delivery'), { recursive: true });
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({ status: 1, handoff: { reasonCode } });
+    expect(f.calls.some((call) => (
+      call[0] === 'gh'
+      && (
+        call[1] === 'issue' && ['close', 'edit', 'reopen'].includes(call[2])
+        || call[1] === 'pr' && ['create', 'edit', 'ready', 'merge'].includes(call[2])
+      )
+    ))).toBe(false);
+  });
+
 
   test('refuses merged-PR cleanup when local HEAD has diverged', () => {
     const merged = openPr({ state: 'MERGED', issueState: 'CLOSED' });
