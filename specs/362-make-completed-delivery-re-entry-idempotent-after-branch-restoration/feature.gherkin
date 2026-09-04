@@ -1,0 +1,36 @@
+**Issue**: #362
+**Date**: 2026-09-04
+**Status**: Approved
+**Author**: NMG
+
+# File: specs/362-make-completed-delivery-re-entry-idempotent-after-branch-restoration/feature.gherkin
+Feature: Make completed delivery re-entry idempotent after branch restoration
+  A delivery that already merged and closed its issue must remain successful
+  when its worker invokes delivery again from the restored default branch.
+
+  @SCN001 @regression
+  Scenario: Completed re-entry succeeds without local verification files
+    Given persisted delivery is complete for an exact pull request and head
+    And the restored default branch lacks the issue verification report
+    When delivery is invoked again
+    Then it validates the remote merged pull request and closed issue
+    And it writes a passed delivery handoff and exits zero
+
+  @SCN002 @regression
+  Scenario: Completed re-entry performs no mutations
+    Given terminal remote proof matches persisted delivery identity
+    When completed delivery re-entry runs
+    Then it performs no git or GitHub mutation
+
+  @SCN003 @regression
+  Scenario: Terminal identity mismatch fails closed
+    Given terminal remote proof does not match the persisted pull request, head, merged state, or issue closure
+    When completed delivery re-entry runs
+    Then it fails with the existing reconciliation or merge-proof classification
+    And it does not report success
+
+  @SCN004 @regression
+  Scenario: Owned smoke observes successful execute completion
+    Given an owned smoke delivery merged its exact pull request and closed its issue
+    When its delivery worker repeats delivery before settlement
+    Then execute exits zero with invocation-owned delivery proof
