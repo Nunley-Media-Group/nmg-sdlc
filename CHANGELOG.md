@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.7] - 2026-09-04
+
+### Changed
+
+- Canonicalize explicit pull_request_target delivery checks (#357)
+
 ## [3.20.6] - 2026-09-03
 
 ### Fixed
