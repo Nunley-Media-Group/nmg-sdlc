@@ -2,6 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   buildDeliveryPullRequestBody,
+  createLocalGithubAdapter,
   evaluateContributionEvidence,
 } from '../contribution-evidence.mjs';
 
@@ -31,6 +32,24 @@ async function evaluate(body, changedPaths) {
     pathExists: async (requestedPath) => files.has(requestedPath),
   });
 }
+
+test('local GitHub adapter returns changed paths through listFiles and paginate', async () => {
+  const changedPaths = ['scripts/sdlc-deliver.mjs', 'VERSION'];
+  const github = createLocalGithubAdapter({
+    changedPaths,
+    readText: async () => '',
+    pathExists: async () => false,
+  });
+
+  await expect(github.rest.pulls.listFiles()).resolves.toEqual({
+    data: changedPaths.map((filename) => ({ filename })),
+  });
+  await expect(github.paginate(github.rest.pulls.listFiles, {
+    owner: 'local',
+    repo: 'repository',
+    pull_number: 1,
+  })).resolves.toEqual(changedPaths.map((filename) => ({ filename })));
+});
 
 describe('delivery contribution evidence', () => {
   test('builds a body that maps implementation and version paths through the canonical gate', async () => {

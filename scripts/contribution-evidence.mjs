@@ -21,24 +21,18 @@ function evaluatorSource(contract) {
     .join('\n');
 }
 
-export async function evaluateContributionEvidence({
-  title,
-  body,
-  changedPaths,
-  readText,
-  pathExists,
-}) {
-  if (!Array.isArray(changedPaths) || typeof readText !== 'function' || typeof pathExists !== 'function') {
-    throw new Error('invalid contribution evidence inputs');
-  }
-  const contract = fs.readFileSync(CONTRACT_PATH, 'utf8');
-  const executeEvaluator = new AsyncFunction('github', 'context', 'core', 'Buffer', evaluatorSource(contract));
-  const errors = [];
+export function createLocalGithubAdapter({ changedPaths, readText, pathExists }) {
   const notFound = () => Object.assign(new Error('not found'), { status: 404 });
-  const github = {
-    paginate: async () => changedPaths.map((filename) => ({ filename })),
+  const listFiles = async () => ({
+    data: changedPaths.map((filename) => ({ filename })),
+  });
+  return {
+    paginate: async (endpoint, options) => {
+      const response = await endpoint(options);
+      return response.data;
+    },
     rest: {
-      pulls: { listFiles: async () => ({ data: [] }) },
+      pulls: { listFiles },
       repos: {
         getContent: async ({ path: requestedPath }) => {
           if (!(await pathExists(requestedPath))) throw notFound();
@@ -53,6 +47,22 @@ export async function evaluateContributionEvidence({
       },
     },
   };
+}
+
+export async function evaluateContributionEvidence({
+  title,
+  body,
+  changedPaths,
+  readText,
+  pathExists,
+}) {
+  if (!Array.isArray(changedPaths) || typeof readText !== 'function' || typeof pathExists !== 'function') {
+    throw new Error('invalid contribution evidence inputs');
+  }
+  const contract = fs.readFileSync(CONTRACT_PATH, 'utf8');
+  const executeEvaluator = new AsyncFunction('github', 'context', 'core', 'Buffer', evaluatorSource(contract));
+  const errors = [];
+  const github = createLocalGithubAdapter({ changedPaths, readText, pathExists });
   const context = {
     repo: { owner: 'local', repo: 'repository' },
     payload: { pull_request: { number: 1, title, body, head: { sha: 'local' } } },
