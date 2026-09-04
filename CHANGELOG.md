@@ -10,6 +10,18 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.7] - 2026-09-04
+
+### Changed
+
+- Canonicalize explicit pull_request_target delivery checks (#357)
+
+## [3.20.6] - 2026-09-03
+
+### Fixed
+
+- Canonicalize explicit `pull_request_target` checks only after their linked Actions run proves PR-scoped provenance at the exact pull request head, while retaining required and unfiltered checks and preserving fail-closed boundaries (#357).
+
 ## [3.20.5] - 2026-09-03
 
 ### Changed

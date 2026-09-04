@@ -147,6 +147,8 @@ Publishing an approved spec applies the `spec-created` label. Execute accepts co
 
 `open-pr` invokes the deterministic `sdlc-deliver.mjs` controller for approved-spec and verification gates, version synchronization, commit and non-force push, exact-branch PR creation or resume, readiness polling, exact-head merge, issue-closure proof, and deliver handoff writing. Execute-owned delivery must match the active controller run id and canonical checkpoint. Standalone `/sdlc-open-pr` initializes one isolated UUID session under `.omp/sdlc/sessions/<token>/`, so another issue's canonical checkpoint and handoffs remain untouched. The controller CAS-persists the selected pull request and expected head before readiness or merge mutations; an unexpected identity becomes an idempotent `delivery_reconciliation_required` failure rather than a follow-up pull request. Readiness and automated-review polling have no wall-clock or poll-count deadline while their processes remain observable. Exit 0 alone is not completion: success requires the namespace-specific passed handoff proving the persisted pull request `MERGED` at the persisted head and the issue `CLOSED`.
 
+Delivery retains both required and unfiltered checks. An explicit `pull_request_target` event canonicalizes to `pull_request` only when its linked Actions run reports PR-scoped provenance at the exact pull request head; malformed, unreadable, non-PR, or head-mismatched evidence remains fail-closed.
+
 ### Address Review Comments
 
 `address-pr-comments` remains on-demand guidance. The deliver worker loads remediation context only when the controller exits 3 with an `NMG_SDLC_REMEDIATION` packet for an actionable automated-reviewer thread or failing check; green delivery does not inline it.
