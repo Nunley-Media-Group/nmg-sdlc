@@ -927,6 +927,56 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'commit')).toHaveLength(1);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit')).toBe(true);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(true);
+    expect(f.sleeps).toEqual([30_000]);
+  });
+
+  test('waits for a contribution gate rerun when the repaired body is unchanged', () => {
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const contributionGate = {
+      name: 'Validate nmg-sdlc contribution evidence',
+      state: 'FAILURE',
+      link: 'https://github.test/check/gate',
+      event: 'pull_request',
+    };
+    const open = (overrides = {}) => openPr({ body: DEFAULT_PR_BODY, ...overrides });
+    const f = fixture({
+      existingPr: open(),
+      requiredChecks: [requiredCheck],
+      checksSequence: [
+        [requiredCheck],
+        [requiredCheck, contributionGate],
+        [requiredCheck],
+        [requiredCheck],
+        [requiredCheck],
+      ],
+      views: [
+        open(),
+        open({ mergeStateStatus: 'UNSTABLE' }),
+        open(),
+        open(),
+        open({ state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.handoff.reasonCode).toBeNull();
+    expect(f.sleeps).toEqual([30_000]);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(true);
   });
 
   test('emits complete remediation JSON for failing checks and bot threads', () => {
@@ -1596,19 +1646,20 @@ describe('sdlc delivery controller', () => {
     expect(pending.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toContain('--base');
 
 
+    const staleBody = 'Closes #42\n';
     const satisfied = fixture({
-      existingPr: openPr({ isDraft: true, head: H1 }),
+      existingPr: openPr({ isDraft: true, head: H1, body: staleBody }),
       dirtyPaths: ['specs/42-delivery/verification-report.md'],
       checks: [{ name: 'contract-tests', state: 'SUCCESS', link: 'https://github.test/checks/h2', event: 'pull_request' }],
       requiredChecks: [],
       views: [
-        openPr({ isDraft: true, head: H1 }),
-        openPr({ isDraft: true, head: H1 }),
-        openPr({ isDraft: true, head: H2 }),
-        openPr({ isDraft: true, head: H2 }),
-        openPr({ head: H2 }),
-        openPr({ head: H2 }),
-        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+        openPr({ isDraft: true, head: H1, body: staleBody }),
+        openPr({ isDraft: true, head: H1, body: staleBody }),
+        openPr({ isDraft: true, head: H2, body: staleBody }),
+        openPr({ isDraft: true, head: H2, body: staleBody }),
+        openPr({ head: H2, body: staleBody }),
+        openPr({ head: H2, body: staleBody }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED', body: staleBody }),
       ],
     }); roots.push(satisfied.root);
     fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1, 'check_run'));
@@ -1626,6 +1677,8 @@ describe('sdlc delivery controller', () => {
     const merge = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
     expect(edit).toBeGreaterThanOrEqual(0);
     expect(ready).toBeGreaterThan(edit);
+    expect(satisfied.prBodies[0]).toContain('Steering alignment:');
+    expect(satisfied.prBodies[0]).toContain('nmg-sdlc-delivery-validation');
 
     expect(merge).toBeGreaterThan(ready);
     expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);

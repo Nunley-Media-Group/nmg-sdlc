@@ -905,6 +905,7 @@ function writeDeliveryValidation({
   pr,
   headSha,
   evidence,
+  pullRequestBody,
   changedPaths,
 }) {
   const marker = `<!-- nmg-sdlc-delivery-validation: ${JSON.stringify({
@@ -916,7 +917,7 @@ function writeDeliveryValidation({
     headSha,
     evidence,
   })} -->`;
-  const body = `${String(pr.body ?? '')
+  const body = `${pullRequestBody
     .replace(/^<!-- nmg-sdlc-delivery-validation:.*-->\r?\n?/gm, '')
     .replace(/\s+$/, '')}\n\n${marker}\n`;
   requireContributionEvidence({
@@ -1491,6 +1492,7 @@ function runDeliverUnlocked({
         pr: observed.pr,
         headSha: h2,
         evidence: finalEvidence,
+        pullRequestBody,
         changedPaths,
       });
       const validated = observe(readiness);
@@ -1547,20 +1549,18 @@ function runDeliverUnlocked({
             body: repairedBody,
             changedPaths,
           });
-          if (repairedBody.replace(/\s+$/, '') === String(observed.pr.body ?? '').replace(/\s+$/, '')) {
-            const error = new Error('contribution evidence repair produced no body change');
-            error.reasonCode = 'contribution_evidence_incomplete';
-            throw error;
+          if (repairedBody.replace(/\s+$/, '') !== String(observed.pr.body ?? '').replace(/\s+$/, '')) {
+            editPullRequestBody({
+              run,
+              fs,
+              cwd,
+              issue: issueNumber,
+              prNumber: observed.pr.number,
+              body: repairedBody,
+              name: 'pr-repair-body',
+            });
           }
-          editPullRequestBody({
-            run,
-            fs,
-            cwd,
-            issue: issueNumber,
-            prNumber: observed.pr.number,
-            body: repairedBody,
-            name: 'pr-repair-body',
-          });
+          sleep(POLL_INTERVAL_MS);
           continue;
         }
         return {
