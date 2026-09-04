@@ -1549,17 +1549,22 @@ function runDeliverUnlocked({
             body: repairedBody,
             changedPaths,
           });
-          if (repairedBody.replace(/\s+$/, '') !== String(observed.pr.body ?? '').replace(/\s+$/, '')) {
-            editPullRequestBody({
-              run,
-              fs,
-              cwd,
-              issue: issueNumber,
-              prNumber: observed.pr.number,
-              body: repairedBody,
-              name: 'pr-repair-body',
-            });
+          if (repairedBody.replace(/\s+$/, '') === String(observed.pr.body ?? '').replace(/\s+$/, '')) {
+            return fail(
+              context,
+              'contribution_evidence_incomplete',
+              `PR #${pr.number} contribution evidence repair did not change the pull-request body`,
+            );
           }
+          editPullRequestBody({
+            run,
+            fs,
+            cwd,
+            issue: issueNumber,
+            prNumber: observed.pr.number,
+            body: repairedBody,
+            name: 'pr-repair-body',
+          });
           sleep(POLL_INTERVAL_MS);
           continue;
         }

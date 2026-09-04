@@ -930,7 +930,7 @@ describe('sdlc delivery controller', () => {
     expect(f.sleeps).toEqual([30_000]);
   });
 
-  test('waits for a contribution gate rerun when the repaired body is unchanged', () => {
+  test('fails when a contribution gate repair cannot change the body', () => {
     const requiredCheck = {
       name: 'contract-tests',
       state: 'SUCCESS',
@@ -950,16 +950,10 @@ describe('sdlc delivery controller', () => {
       checksSequence: [
         [requiredCheck],
         [requiredCheck, contributionGate],
-        [requiredCheck],
-        [requiredCheck],
-        [requiredCheck],
       ],
       views: [
         open(),
         open({ mergeStateStatus: 'UNSTABLE' }),
-        open(),
-        open(),
-        open({ state: 'MERGED', issueState: 'CLOSED' }),
       ],
     }); roots.push(f.root);
 
@@ -972,11 +966,12 @@ describe('sdlc delivery controller', () => {
       sleep: f.sleep,
     });
 
-    expect(result.status).toBe(0);
-    expect(result.handoff.reasonCode).toBeNull();
-    expect(f.sleeps).toEqual([30_000]);
+    expect(result.status).toBe(1);
+    expect(result.handoff.reasonCode).toBe('contribution_evidence_incomplete');
+    expect(result.handoff.summary).toContain('repair did not change the pull-request body');
+    expect(f.sleeps).toEqual([]);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit')).toBe(false);
-    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(true);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
   });
 
   test('emits complete remediation JSON for failing checks and bot threads', () => {
