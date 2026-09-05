@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-25T23:26:35.796Z",
+  "generated_at": "2026-09-05T04:00:58.883Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -120,9 +120,9 @@
       "destination": "agents/spec-implementer.md:8"
     },
     {
-      "id": "fb19a7b23fd6",
+      "id": "a2b664fc7793",
       "source_before": "agents/spec-implementer.md:10",
-      "normalized": "follow the inlined write-code workflow for the given #n.",
+      "normalized": "follow the inlined write-code workflow for the given #n, including repair and re",
       "destination": "agents/spec-implementer.md:10"
     },
     {

@@ -2770,6 +2770,59 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('reverifies repeated implement repairs under the original identity before review', () => {
+    const fixture = makeControllerFixture({
+      remediableFailedStep: 'implement',
+      remFailures: 1,
+      failedNext: null,
+      handoffContent: (handoff) => JSON.stringify({
+        ...handoff,
+        reasonCode: handoff.status === 'failed' ? 'implementation_failed' : null,
+      }),
+    });
+    const promptAgent = fixture.herdr.agentPrompt;
+    const observed = [];
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-review1') {
+        observed.push(JSON.parse(fs.readFileSync(
+          path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), 'utf8',
+        )));
+      }
+      return promptAgent(input);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fixture.starts.slice(0, 5).map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 'r42-implement', 'r42-implement', 's42-review1',
+    ]);
+    expect(observed).toEqual([expect.objectContaining({
+      step: 'implement', status: 'passed', intervention: false,
+    })]);
+    expect(fixture.events).toContain('close:pane-3');
+    expect(fixture.events).toContain('close:pane-4');
+    expect(fixture.events.indexOf('close:pane-3')).toBeLessThan(
+      fixture.events.lastIndexOf('start:r42-implement'),
+    );
+    expect(fixture.events.indexOf('close:pane-4')).toBeLessThan(
+      fixture.events.indexOf('start:s42-review1'),
+    );
+  });
+
+  it('never starts remediation or review for an implement authority or publication blocker', () => {
+    const fixture = makeControllerFixture({ failedStep: 'implement', failedNext: null });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement']);
+    expect(checkpoint.completed[42]).toEqual(['start']);
+    expect(checkpoint.failed).toEqual(expect.objectContaining({
+      issue: 42, step: 'implement', reasonCode: 'implementation_failed',
+    }));
+  });
+
   it('closes a remediable failed verify pane then starts one rem session', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'verify' });
     const queue = '#39, 40';

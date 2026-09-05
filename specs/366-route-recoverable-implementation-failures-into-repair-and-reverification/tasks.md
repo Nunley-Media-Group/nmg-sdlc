@@ -24,11 +24,24 @@
 - [ ] A disposable live OMP exercise proves repair and reverification for an in-scope missing component and truthful stop for external authority.
 - [ ] The controller retains original implement identity and does not advance review before a passed published implementation.
 
-### T003: Verify and deliver the repair
-**File(s)**: specs/366-route-recoverable-implementation-failures-into-repair-and-reverification/verification-report.md, CHANGELOG.md, VERSION, package.json
+### T003: Record implementation verification and delivery prerequisites
+**File(s)**: specs/366-route-recoverable-implementation-failures-into-repair-and-reverification/verification-report.md, CHANGELOG.md
 **Type**: Modify/Create
 **Depends**: T002
 **Acceptance**:
-- [ ] Run required repository, skill, surface and fresh consumer smoke gates and record exact evidence.
-- [ ] Deliver a patch release through exact-head merged PR and closed issue.
-- [ ] Install the delivered version and verify installed version and surface; do not conflate source tests with installed proof.
+- [ ] Run the implementation-owned repository, skill, surface and live worker checks and record exact evidence.
+- [ ] Document fresh consumer smoke, release and installed verification as mandatory downstream boundaries, not tasks the implement worker may execute ahead of review.
+
+## Downstream Delivery Requirements
+
+These remain required for issue completion. They are not prerequisites for an implementation handoff: the normal pipeline must first reach their owning stage.
+
+- The verify worker runs the registered fresh consumer smoke gate using the orchestrator-provisioned `NMG_SDLC_SMOKE_ISSUES` queue and records exact evidence.
+- The deliver worker synchronizes VERSION/package.json and delivers a patch release through exact-head merged PR and closed issue.
+- The requesting orchestrator installs the delivered version and verifies installed version and surface, separately from source evidence.
+
+## Change History
+
+| Issue | Date | Summary |
+|---|---|---|
+| #366 | 2026-09-05 | Clarify stage ownership after the implementation worker correctly refused to perform downstream merge and installation before review; all delivery requirements remain mandatory. |

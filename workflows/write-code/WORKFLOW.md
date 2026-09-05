@@ -49,11 +49,22 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
     - Resolve and read `skill://skill-creator`.
     - Follow its editing procedure with the task title, acceptance bullets, target path, existing file content, and steering context. Never bypass the resolved skill for skill-bundled paths.
   - Else: use edit/write/read/glob/grep/bash tools to implement the change that satisfies the task Acceptance criteria, following design.md architecture and tech.md conventions. Make smallest correct change.
+- When an in-scope implementation detail is missing or an edit/test fails, follow Repair and Reverify below before deciding whether to hand off.
 - After change for the task: self-verify the Acceptance bullets for that task pass.
 - Run narrow test command from tech.md if obvious for the files (dry if possible). Report outcome.
 - Proceed to next task. Do not skip or reorder.
 
 If a task file list references a path outside the approved delivery scope or spec, note but continue only on mapped tasks.
+
+## Repair and Reverify
+
+1. Read the complete active requirements, design, tasks, and scenarios plus bounded relevant repository contracts and existing implementations. In a fresh `rN-implement` session, also consume the captured failure evidence and inspect preserved partial changes; retain the original `implement` step and handoff path.
+2. Distinguish engineering work from unavailable authority. Missing internal code or an unspecified implementation detail is work to resolve within approved outcomes, not a reason to demand external implementation policy. Choose a conservative implementation supported by repository evidence and approved constraints; record the rationale and any necessary in-scope clarification in the active design.
+3. Implement the repair and rerun the failing check plus the narrow checks covering affected behavior. If another repairable defect appears, repeat investigation, repair, and reverification under the same contract. Never weaken acceptance criteria, fabricate provider/calibration facts or verification evidence, or invent approval to make a check pass.
+4. If repairable work remains for a fresh session, preserve useful partial changes and write `status:"failed"`, `intervention:false`, `reasonCode:"implementation_failed"`, `next:null`, `step:"implement"`. In `summary`, identify the remaining defect, attempted repairs, check commands/results, and next repair; list exact evidence and changed paths in `artifacts`. The existing controller owns fresh-session remediation; do not add a retry subsystem or attempt cap.
+5. Escalate with `intervention:true` only when available tools and authorized repairs cannot resolve a genuine prerequisite: missing approved scope, required credentials or external evidence, conflicting safety authority, or publication failure. Name the exact missing prerequisite and attempted resolutions, not merely “missing policy” or “missing code”. Do not publish partial work as success.
+
+Repair does not waive task completion, simplification, verification, or the commit/push/clean-tree/upstream-equality gates below. A failed handoff never advances to review1.
 
 
 ## Pre-Publication Simplification
@@ -98,4 +109,5 @@ Next: execute review1
 ## Failure Modes (always produce handoff before stop)
 
 - Any precondition fail: spec_not_approved, no_issue_number, etc. with intervention:true
-- Edit or test failure that blocks: use "implementation_failed" with summary of blocker.
+- Remaining repairable implementation/detail/edit/test failure: use `implementation_failed`, `status:"failed"`, `intervention:false`, `next:null` with evidence and attempted repairs as specified in Repair and Reverify.
+- Genuine unresolved authority/scope/credential/evidence blocker or any publication failure: use `implementation_failed`, `status:"failed"`, `intervention:true`, `next:null` with the exact prerequisite and attempted resolutions. Preserve the specific precondition reason codes above.
