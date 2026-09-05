@@ -2800,6 +2800,8 @@ describe('runExecute controller', () => {
     expect(observed).toEqual([expect.objectContaining({
       step: 'implement', status: 'passed', intervention: false,
     })]);
+    expect(fixture.events).toContain('close:pane-3');
+    expect(fixture.events).toContain('close:pane-4');
     expect(fixture.events.indexOf('close:pane-3')).toBeLessThan(
       fixture.events.lastIndexOf('start:r42-implement'),
     );
