@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.9] - 2026-09-05
+
+### Fixed
+
+- Make completed delivery re-entry idempotent after restoring the default branch, while requiring fresh exact-head merge and issue-closure proof (#362).
+
 ## [3.20.8] - 2026-09-05
 
 ### Fixed
