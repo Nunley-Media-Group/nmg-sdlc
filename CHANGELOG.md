@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.20.8] - 2026-09-05
+
+### Fixed
+
+- Close automated delivery contribution-evidence gaps before pull-request mutation and repair body-only gate failures in place (#360).
+
 ## [3.20.7] - 2026-09-04
 
 ### Changed

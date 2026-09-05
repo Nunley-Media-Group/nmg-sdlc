@@ -6,6 +6,7 @@ import fsDefault from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { buildDeliveryPullRequestBody } from './contribution-evidence.mjs';
 import { classifyPrDeliveryState } from './pr-delivery-state.mjs';
 import {
   canonicalCheckName,
@@ -27,6 +28,11 @@ const ISSUE = /^#?([1-9]\d*)$/;
 const SESSION_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const POLL_INTERVAL_MS = 30_000;
+const CONTRIBUTION_EVIDENCE_SCRIPT = fileURLToPath(new URL('./contribution-evidence.mjs', import.meta.url));
+const CONTRIBUTION_GATE_CHECKS = new Set([
+  'Validate nmg-sdlc contribution evidence',
+  'nmg-sdlc contribution gate / Validate nmg-sdlc contribution evidence',
+]);
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -746,10 +752,44 @@ function publishVersionChanges({ run, cwd, issue, issueData, changed }) {
   else command(run, cwd, 'git', ['push', '-u', 'origin', 'HEAD']);
 }
 
+function changedPathsForDelivery({ run, cwd, base }) {
+  return command(run, cwd, 'git', ['diff', '--name-only', '-z', `${base}...HEAD`]).stdout
+    .split('\0')
+    .filter(Boolean);
+}
+
+function evaluateContributionEvidenceAtRoot({ run, fs, cwd, issue, title, body, changedPaths }) {
+  const inputPath = path.join(cwd, '.omp', 'sdlc', `contribution-evidence-${issue}.json`);
+  fs.mkdirSync(path.dirname(inputPath), { recursive: true });
+  fs.writeFileSync(inputPath, `${JSON.stringify({ title, body, changedPaths })}\n`);
+  try {
+    const { value } = jsonCommand(
+      run,
+      cwd,
+      process.execPath,
+      [CONTRIBUTION_EVIDENCE_SCRIPT, '--root', cwd, inputPath],
+    );
+    if (typeof value?.ok !== 'boolean' || !Array.isArray(value.errors)) {
+      throw new Error('contribution evidence evaluator returned an invalid result');
+    }
+    return value;
+  } finally {
+    fs.rmSync(inputPath, { force: true });
+  }
+}
+
+function requireContributionEvidence(options) {
+  const result = evaluateContributionEvidenceAtRoot(options);
+  if (result.ok) return;
+  const error = new Error(result.errors.join('; '));
+  error.reasonCode = 'contribution_evidence_incomplete';
+  throw error;
+}
+
 function existingPullRequest({ run, cwd, branch, issue }) {
   const { value } = jsonCommand(run, cwd, 'gh', [
     'pr', 'list', '--head', branch, '--state', 'all', '--limit', '100',
-    '--json', 'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
+    '--json', 'number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
   ]);
   if (!Array.isArray(value)) throw new Error('PR list is not an array');
   const closingPattern = new RegExp(`(?:^|\\n)Closes #${issue}(?:\\n|$)`, 'i');
@@ -764,7 +804,7 @@ function existingPullRequest({ run, cwd, branch, issue }) {
 function pullRequestByNumber({ run, cwd, prNumber }) {
   return jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
-    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
+    'number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
   ]).value;
 }
 
@@ -844,7 +884,30 @@ function publishVerificationReport({ run, cwd, issue, reportPath }) {
   command(run, cwd, 'git', ['push']);
 }
 
-function writeDeliveryValidation({ run, fs, cwd, issue, spec, pr, headSha, evidence }) {
+function editPullRequestBody({ run, fs, cwd, issue, prNumber, body, name = 'pr-body' }) {
+  const bodyPath = path.join(cwd, '.omp', 'sdlc', `${name}-${issue}.md`);
+  fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+  fs.writeFileSync(bodyPath, body);
+  try {
+    command(run, cwd, 'gh', ['pr', 'edit', String(prNumber), '--body-file', bodyPath]);
+  } finally {
+    fs.rmSync(bodyPath, { force: true });
+  }
+}
+
+function writeDeliveryValidation({
+  run,
+  fs,
+  cwd,
+  issue,
+  issueTitle,
+  spec,
+  pr,
+  headSha,
+  evidence,
+  pullRequestBody,
+  changedPaths,
+}) {
   const marker = `<!-- nmg-sdlc-delivery-validation: ${JSON.stringify({
     schemaVersion: 1,
     state: 'final_sha_validated',
@@ -854,17 +917,15 @@ function writeDeliveryValidation({ run, fs, cwd, issue, spec, pr, headSha, evide
     headSha,
     evidence,
   })} -->`;
-  const bodyPath = path.join(cwd, '.omp', 'sdlc', `pr-final-body-${issue}.md`);
-  fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
-  const body = String(pr.body ?? '')
+  const body = `${pullRequestBody
     .replace(/^<!-- nmg-sdlc-delivery-validation:.*-->\r?\n?/gm, '')
-    .replace(/\s+$/, '');
-  fs.writeFileSync(bodyPath, `${body}\n\n${marker}\n`);
-  try {
-    command(run, cwd, 'gh', ['pr', 'edit', String(pr.number), '--body-file', bodyPath]);
-  } finally {
-    fs.rmSync(bodyPath, { force: true });
-  }
+    .replace(/\s+$/, '')}\n\n${marker}\n`;
+  requireContributionEvidence({
+    run, fs, cwd, issue, title: issueTitle, body, changedPaths,
+  });
+  editPullRequestBody({
+    run, fs, cwd, issue, prNumber: pr.number, body, name: 'pr-final-body',
+  });
 }
 
 function cleanupBranch({ run, cwd, branch, base }) {
@@ -880,18 +941,21 @@ function cleanupBranch({ run, cwd, branch, base }) {
   return failures;
 }
 
-function createPullRequest({ run, fs, cwd, issue, issueData, branch, base, spec, draft }) {
+function createPullRequest({ run, fs, cwd, issue, issueData, branch, base, draft, body }) {
   const bodyPath = path.join(cwd, '.omp', 'sdlc', `pr-body-${issue}.md`);
   fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
-  fs.writeFileSync(bodyPath, `Closes #${issue}\n\nSpec: ${spec.relative}/\n\n## Verification\n\`${spec.relative}/verification-report.md\`\n`);
+  fs.writeFileSync(bodyPath, body);
   const args = ['pr', 'create', '--base', base, '--head', branch, '--title', issueData.title, '--body-file', bodyPath];
   if (draft) args.push('--draft');
-  const result = command(run, cwd, 'gh', args);
-  fs.rmSync(bodyPath, { force: true });
-  const url = String(result.stdout).trim();
-  const number = Number(url.match(/\/(\d+)\/?$/)?.[1]);
-  if (!number) throw new Error('created PR URL lacks a number');
-  return { number, url, headRefName: branch };
+  try {
+    const result = command(run, cwd, 'gh', args);
+    const url = String(result.stdout).trim();
+    const number = Number(url.match(/\/(\d+)\/?$/)?.[1]);
+    if (!number) throw new Error('created PR URL lacks a number');
+    return { number, url, headRefName: branch };
+  } finally {
+    fs.rmSync(bodyPath, { force: true });
+  }
 }
 
 function normalizeCheck(check) {
@@ -1034,7 +1098,7 @@ function authorizeReconciliationResume({ run, cwd, issue, namespace }) {
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const { value: pr } = jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
-    'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews,body',
+    'number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews,body',
   ]);
   const [, owner, name] = String(pr.url ?? '').match(/\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/) ?? [];
   if (!owner || !name) throw new Error('pull request base repository is unavailable');
@@ -1135,10 +1199,10 @@ function remediationPacket({
 }) {
   const failingNames = new Set(classified.evidence.checks
     .filter((check) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(check.state))
-    .map((check) => check.name));
+    .map((check) => canonicalCheckName(check.name, check.workflow)));
   const failingChecks = classified.evidence.checks
-    .filter((check) => failingNames.has(check.name))
-    .map((check) => ({ name: check.name, url: check.url }));
+    .filter((check) => failingNames.has(canonicalCheckName(check.name, check.workflow)))
+    .map((check) => ({ name: canonicalCheckName(check.name, check.workflow), url: check.url }));
   const threads = rawThreads
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
     .map((thread) => ({ thread, author: threadAuthor(thread) }))
@@ -1307,6 +1371,22 @@ function runDeliverUnlocked({
       throw error;
     }
     publishVersionChanges({ run, cwd, issue: issueNumber, issueData, changed });
+    const changedPaths = changedPathsForDelivery({ run, cwd, base: pr?.baseRefName ?? base });
+    const pullRequestBody = buildDeliveryPullRequestBody({
+      issue: issueNumber,
+      specRelative: spec.relative,
+      changedPaths,
+      verificationReport: fs.readFileSync(spec.verificationPath, 'utf8'),
+    });
+    requireContributionEvidence({
+      run,
+      fs,
+      cwd,
+      issue: issueNumber,
+      title: pr?.title ?? issueData.title,
+      body: pullRequestBody,
+      changedPaths,
+    });
     if (pr) {
       pr = scopedSnapshot({
         context,
@@ -1323,8 +1403,9 @@ function runDeliverUnlocked({
     }
     if (!pr) {
       const created = createPullRequest({
-        run, fs, cwd, issue: issueNumber, issueData, branch, base, spec,
+        run, fs, cwd, issue: issueNumber, issueData, branch, base,
         draft: readiness.status === 'pr_evidence_pending',
+        body: pullRequestBody,
       });
       pr = pullRequestByNumber({ run, cwd, prNumber: created.number });
       if (!Number.isSafeInteger(pr?.number) || !SHA.test(pr?.headRefOid)) {
@@ -1402,7 +1483,17 @@ function runDeliverUnlocked({
         finalEvidence = evidenceForHead(readiness, observed, h2);
       }
       writeDeliveryValidation({
-        run, fs, cwd, issue: issueNumber, spec, pr: observed.pr, headSha: h2, evidence: finalEvidence,
+        run,
+        fs,
+        cwd,
+        issue: issueNumber,
+        issueTitle: observed.pr.title ?? issueData.title,
+        spec,
+        pr: observed.pr,
+        headSha: h2,
+        evidence: finalEvidence,
+        pullRequestBody,
+        changedPaths,
       });
       const validated = observe(readiness);
       const validation = inspectDeliveryValidation({
@@ -1440,6 +1531,42 @@ function runDeliverUnlocked({
         });
         if (packet.threads.some((thread) => !thread.path)) {
           return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);
+        }
+        const gateOnlyBodyFailure = classified.reasonCode === 'checks_failed'
+          && observed.pr.headRefOid === namespace.runState.delivery.expectedHead
+          && packet.threads.length === 0
+          && packet.failingChecks.length > 0
+          && packet.failingChecks.every((check) => CONTRIBUTION_GATE_CHECKS.has(check.name));
+        if (gateOnlyBodyFailure) {
+          const markers = String(observed.pr.body ?? '').match(/^<!-- nmg-sdlc-delivery-validation:.*-->$/gm) ?? [];
+          const repairedBody = `${pullRequestBody.replace(/\s+$/, '')}${markers.length ? `\n\n${markers.join('\n')}` : ''}\n`;
+          requireContributionEvidence({
+            run,
+            fs,
+            cwd,
+            issue: issueNumber,
+            title: observed.pr.title ?? issueData.title,
+            body: repairedBody,
+            changedPaths,
+          });
+          if (repairedBody.replace(/\s+$/, '') === String(observed.pr.body ?? '').replace(/\s+$/, '')) {
+            return fail(
+              context,
+              'contribution_evidence_incomplete',
+              `PR #${pr.number} contribution evidence repair did not change the pull-request body`,
+            );
+          }
+          editPullRequestBody({
+            run,
+            fs,
+            cwd,
+            issue: issueNumber,
+            prNumber: observed.pr.number,
+            body: repairedBody,
+            name: 'pr-repair-body',
+          });
+          sleep(POLL_INTERVAL_MS);
+          continue;
         }
         return {
           status: 3,
@@ -1494,9 +1621,10 @@ function runDeliverUnlocked({
     }
   } catch (error) {
     if (error.deliveryResult) return error.deliveryResult;
-    const reasonCode = error.message === 'spec_not_approved' ? 'spec_not_approved'
-      : error.message === 'verification_not_ready' ? 'verification_not_ready'
-        : 'delivery_failed';
+    const reasonCode = error.reasonCode
+      ?? (error.message === 'spec_not_approved' ? 'spec_not_approved'
+        : error.message === 'verification_not_ready' ? 'verification_not_ready'
+          : 'delivery_failed');
     return fail(context, reasonCode, `Delivery failed for #${issueNumber}: ${error.message}`);
   }
 }

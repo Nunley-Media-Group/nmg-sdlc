@@ -10,6 +10,10 @@ import {
   parseDeliverCli,
   runDeliver,
 } from '../sdlc-deliver.mjs';
+import {
+  buildDeliveryPullRequestBody,
+  evaluateContributionEvidence,
+} from '../contribution-evidence.mjs';
 import { validateHandoff, writeRun } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
@@ -19,6 +23,18 @@ import {
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-deliver.mjs');
 const H1 = '1'.repeat(40);
 const H2 = '2'.repeat(40);
+const DEFAULT_CHANGED_PATHS = [
+  'scripts/sdlc-deliver.mjs',
+  'VERSION',
+  'package.json',
+  'CHANGELOG.md',
+];
+const DEFAULT_PR_BODY = buildDeliveryPullRequestBody({
+  issue: 42,
+  specRelative: 'specs/42-delivery',
+  changedPaths: DEFAULT_CHANGED_PATHS,
+  verificationReport: verification(),
+});
 
 describe('required check event enrichment', () => {
   const headSha = 'a'.repeat(40);
@@ -246,6 +262,11 @@ function makeRoot({
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) fs.writeFileSync(path.join(spec, name), `${header}${approvedMajor && ['requirements.md', 'design.md'].includes(name) ? '**Version bump**: major\n' : ''}`);
   fs.writeFileSync(path.join(spec, 'verification-report.md'), verification(issue, `specs/${issue}-delivery`));
   fs.mkdirSync(path.join(root, 'steering', 'snippets'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'steering', 'modules'), { recursive: true });
+  for (const name of ['product.mjs', 'tech.mjs', 'structure.mjs', 'verification.mjs']) {
+    fs.writeFileSync(path.join(root, 'steering', 'modules', name), 'export default {};\n');
+  }
+  fs.writeFileSync(path.join(root, 'CONTRIBUTING.md'), '# Contributing\n');
   fs.writeFileSync(path.join(root, 'steering', 'manifest.json'), `${JSON.stringify({
     snippets: [{
       id: 'project.tech',
@@ -269,8 +290,8 @@ function makeRoot({
   return root;
 }
 
-function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], reviews = [], mergeStateStatus = 'CLEAN', isDraft = false, body = 'Closes #42', base = 'main' } = {}) {
-  return { number: 77, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: base, mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState, body };
+function openPr({ head = H1, state = 'OPEN', issueState = 'OPEN', threads = [], reviews = [], mergeStateStatus = 'CLEAN', isDraft = false, body = DEFAULT_PR_BODY, base = 'main', title = 'Ship deterministic delivery' } = {}) {
+  return { number: 77, title, url: 'https://github.test/owner/repo/pull/77', state, isDraft, headRefName: '42-delivery', headRefOid: head, baseRefName: base, mergeStateStatus, mergedAt: state === 'MERGED' ? '2026-08-25T00:00:00Z' : null, mergeCommit: state === 'MERGED' ? { oid: 'a'.repeat(40) } : null, reviewThreads: threads, reviews, issueState, body };
 }
 
 const leases = [];
@@ -285,6 +306,7 @@ function fixture(options = {}) {
   const existingPr = options.existingPr === true ? openPr() : options.existingPr;
   const checksSequence = [...(options.checksSequence ?? [])];
   let editedBody = null;
+  const prBodies = [];
   let gitHead = options.gitHead ?? H1;
   let dirtyPaths = [...(options.dirtyPaths ?? [])];
   writeRun({
@@ -311,6 +333,21 @@ function fixture(options = {}) {
   }
   const run = (command, args) => {
     calls.push([command, ...args]);
+    if (command === process.execPath && options.evidenceResult) {
+      return {
+        status: 0,
+        stdout: `${JSON.stringify(options.evidenceResult)}\n`,
+        stderr: '',
+      };
+    }
+    if (command === process.execPath) {
+      const result = spawnSync(command, args, { cwd: root, encoding: 'utf8' });
+      return {
+        status: result.status ?? 1,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+      };
+    }
     if (command === 'git') {
       if (args[0] === 'branch' && args[1] === '--show-current') return { status: 0, stdout: '42-delivery\n', stderr: '' };
       if (args[0] === 'status') {
@@ -318,6 +355,10 @@ function fixture(options = {}) {
         return { status: 0, stdout, stderr: '' };
       }
       if (args[0] === 'diff' && args.includes('--cached')) return { status: options.emptyStagedDiff ? 0 : 1, stdout: '', stderr: '' };
+      if (args[0] === 'diff' && args[1] === '--name-only') {
+        const changedPaths = options.changedPaths ?? DEFAULT_CHANGED_PATHS;
+        return { status: 0, stdout: `${changedPaths.join('\0')}\0`, stderr: '' };
+      }
       if (args[0] === 'diff' && args[1] === '--quiet') return { status: options.deliveryStateDirty ? 1 : 0, stdout: '', stderr: '' };
       if (args[0] === 'log') return { status: options.deliveryCommit ? 0 : 1, stdout: options.deliveryCommit ? `${H1}\n` : '', stderr: '' };
       if (args[0] === 'show') {
@@ -356,7 +397,10 @@ function fixture(options = {}) {
     if (args[0] === 'pr' && args[1] === 'list') {
       return { status: 0, stdout: JSON.stringify(existingPr ? [existingPr] : []), stderr: '' };
     }
-    if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'create') {
+      prBodies.push(fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8'));
+      return { status: 0, stdout: 'https://github.test/pr/77\n', stderr: '' };
+    }
     if (args[0] === 'pr' && args[1] === 'view') {
       const identityOnly = !String(args[4] ?? '').includes('reviews');
       lastView = views.length ? (identityOnly ? views[0] : views.shift()) : lastView;
@@ -365,6 +409,7 @@ function fixture(options = {}) {
     }
     if (args[0] === 'pr' && args[1] === 'edit') {
       editedBody = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');
+      prBodies.push(editedBody);
       lastView.body = editedBody;
       return { status: 0, stdout: '', stderr: '' };
     }
@@ -415,7 +460,7 @@ function fixture(options = {}) {
     }
     throw new Error(`unexpected gh args: ${args.join(' ')}`);
   };
-  return { root, calls, sleeps, run, sleep: (milliseconds) => sleeps.push(milliseconds) };
+  return { root, calls, sleeps, prBodies, run, sleep: (milliseconds) => sleeps.push(milliseconds) };
 }
 
 function handoff(root) { return JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/handoffs/42-deliver.json'), 'utf8')); }
@@ -788,6 +833,147 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(true);
   });
 
+  test('creates a pull request body that passes local contribution evaluation', async () => {
+    const f = fixture(); roots.push(f.root);
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(result.status).toBe(0);
+    const body = f.prBodies[0];
+    const evaluated = await evaluateContributionEvidence({
+      title: 'Ship deterministic delivery',
+      body,
+      changedPaths: DEFAULT_CHANGED_PATHS,
+      pathExists: async (requestedPath) => fs.existsSync(path.join(f.root, requestedPath)),
+      readText: async (requestedPath) => fs.readFileSync(path.join(f.root, requestedPath), 'utf8'),
+    });
+    expect(evaluated).toEqual({ ok: true, errors: [] });
+  });
+
+  test('blocks pull request mutation when local contribution evaluation fails', () => {
+    const f = fixture({
+      evidenceResult: {
+        ok: false,
+        errors: ['Missing steering evidence', 'Unmatched changed paths: VERSION'],
+      },
+    }); roots.push(f.root);
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(result.handoff.reasonCode).toBe('contribution_evidence_incomplete');
+    expect(result.handoff.summary).toContain('Missing steering evidence');
+    expect(result.handoff.summary).toContain('Unmatched changed paths');
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && ['create', 'edit'].includes(call[2]))).toBe(false);
+  });
+
+  test.each([
+    ['Validate nmg-sdlc contribution evidence', undefined],
+    ['Validate nmg-sdlc contribution evidence', 'nmg-sdlc contribution gate'],
+  ])('repairs a gate-only body failure in place and continues observing (%s)', (name, workflow) => {
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const contributionGate = {
+      name,
+      workflow,
+      state: 'FAILURE',
+      link: 'https://github.test/check/gate',
+      event: 'pull_request',
+    };
+    const oldBody = 'Closes #42\n';
+    const open = () => openPr({ body: oldBody });
+    const f = fixture({
+      existingPr: openPr({ body: oldBody }),
+      requiredChecks: [requiredCheck],
+      checksSequence: [
+        [requiredCheck],
+        [requiredCheck, contributionGate],
+        [requiredCheck],
+        [requiredCheck],
+        [requiredCheck],
+      ],
+      views: [
+        open(),
+        openPr({ body: oldBody, mergeStateStatus: 'UNSTABLE' }),
+        open(),
+        open(),
+        openPr({ body: oldBody, state: 'MERGED', issueState: 'CLOSED' }),
+      ],
+    }); roots.push(f.root);
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('NMG_SDLC_REMEDIATION');
+    expect(result.handoff.reasonCode).toBeNull();
+    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'commit')).toHaveLength(1);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit')).toBe(true);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(true);
+    expect(f.sleeps).toEqual([30_000]);
+  });
+
+  test('fails when a contribution gate repair cannot change the body', () => {
+    const requiredCheck = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/check/contract-tests',
+      event: 'pull_request',
+    };
+    const contributionGate = {
+      name: 'Validate nmg-sdlc contribution evidence',
+      state: 'FAILURE',
+      link: 'https://github.test/check/gate',
+      event: 'pull_request',
+    };
+    const open = (overrides = {}) => openPr({ body: DEFAULT_PR_BODY, ...overrides });
+    const f = fixture({
+      existingPr: open(),
+      requiredChecks: [requiredCheck],
+      checksSequence: [
+        [requiredCheck],
+        [requiredCheck, contributionGate],
+      ],
+      views: [
+        open(),
+        open({ mergeStateStatus: 'UNSTABLE' }),
+      ],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.handoff.reasonCode).toBe('contribution_evidence_incomplete');
+    expect(result.handoff.summary).toContain('repair did not change the pull-request body');
+    expect(f.sleeps).toEqual([]);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'edit')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge')).toBe(false);
+  });
+
   test('emits complete remediation JSON for failing checks and bot threads', () => {
     const thread = { id: 'T1', isResolved: false, isOutdated: false, comments: [{ body: 'Fix this', path: 'src/a.mjs', line: 9, url: 'https://github.test/thread/1', author: { login: 'review-bot', __typename: 'User' } }] };
     const f = fixture({ checksStatus: 1, checks: [{ name: 'test', state: 'FAILURE', link: 'https://github.test/check/1', event: 'pull_request' }], views: [openPr({ threads: [thread] })] }); roots.push(f.root);
@@ -804,6 +990,12 @@ describe('sdlc delivery controller', () => {
       link: 'https://github.test/check/gate',
       event: 'pull_request',
     };
+    const otherFailure = {
+      name: 'unit tests',
+      state: 'FAILURE',
+      link: 'https://github.test/check/tests',
+      event: 'pull_request',
+    };
     const requiredCheck = {
       name: 'contract-tests',
       state: 'SUCCESS',
@@ -812,7 +1004,7 @@ describe('sdlc delivery controller', () => {
     };
     const f = fixture({
       requiredChecks: [requiredCheck],
-      checks: [requiredCheck, contributionGate],
+      checks: [requiredCheck, contributionGate, otherFailure],
       views: [openPr({ mergeStateStatus: 'UNSTABLE' })],
     }); roots.push(f.root);
 
@@ -1449,19 +1641,20 @@ describe('sdlc delivery controller', () => {
     expect(pending.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toContain('--base');
 
 
+    const staleBody = 'Closes #42\n';
     const satisfied = fixture({
-      existingPr: openPr({ isDraft: true, head: H1 }),
+      existingPr: openPr({ isDraft: true, head: H1, body: staleBody }),
       dirtyPaths: ['specs/42-delivery/verification-report.md'],
       checks: [{ name: 'contract-tests', state: 'SUCCESS', link: 'https://github.test/checks/h2', event: 'pull_request' }],
       requiredChecks: [],
       views: [
-        openPr({ isDraft: true, head: H1 }),
-        openPr({ isDraft: true, head: H1 }),
-        openPr({ isDraft: true, head: H2 }),
-        openPr({ isDraft: true, head: H2 }),
-        openPr({ head: H2 }),
-        openPr({ head: H2 }),
-        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' }),
+        openPr({ isDraft: true, head: H1, body: staleBody }),
+        openPr({ isDraft: true, head: H1, body: staleBody }),
+        openPr({ isDraft: true, head: H2, body: staleBody }),
+        openPr({ isDraft: true, head: H2, body: staleBody }),
+        openPr({ head: H2, body: staleBody }),
+        openPr({ head: H2, body: staleBody }),
+        openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED', body: staleBody }),
       ],
     }); roots.push(satisfied.root);
     fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1, 'check_run'));
@@ -1479,6 +1672,8 @@ describe('sdlc delivery controller', () => {
     const merge = satisfied.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
     expect(edit).toBeGreaterThanOrEqual(0);
     expect(ready).toBeGreaterThan(edit);
+    expect(satisfied.prBodies[0]).toContain('Steering alignment:');
+    expect(satisfied.prBodies[0]).toContain('nmg-sdlc-delivery-validation');
 
     expect(merge).toBeGreaterThan(ready);
     expect(satisfied.calls[merge]).toEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]);
