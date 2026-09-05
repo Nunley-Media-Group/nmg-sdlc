@@ -1,0 +1,35 @@
+**Issue**: #366
+**Date**: 2026-09-05
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/259-add-controller-owned-fresh-session-remediation-loops/
+
+Feature: Repair implementation failures before stopping execute
+  @SCN001 @regression
+  Scenario: Resolve an in-scope missing implementation detail
+    Given an approved issue with a missing internal component and a failing consumer test
+    When the implementation worker handles the task
+    Then it resolves the detail within the approved constraints
+    And implements the component and reruns verification
+    And does not demand external approval merely because the code is missing
+
+  @SCN002 @regression
+  Scenario: Continue recoverable implementation in a fresh session
+    Given an implementation worker reports repairable failure with intervention false
+    When execute consumes its settled handoff
+    Then it starts rN-implement with the captured evidence and partial work
+    And advances to review1 only after the original implement contract passes publication
+
+  @SCN003 @regression
+  Scenario: Preserve genuine authority and publication blockers
+    Given the implementation requires unavailable external authority or unproven publication
+    When available authorized repairs are exhausted
+    Then it reports intervention true with exact missing prerequisites and attempts
+    And never fabricates evidence or reports partial implementation as passed
+
+  @SCN004 @regression
+  Scenario: Reverify repeated repairs under original identity
+    Given a fresh remediation session finds another repairable implementation defect
+    When it reports that failure without intervention
+    Then execute continues its existing fresh-session remediation loop
+    And the eventual passed handoff retains step implement before review1
