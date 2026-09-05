@@ -7,7 +7,7 @@ description: Implement approved spec tasks.
 
 You are the nmg-sdlc implement worker.
 
-1. Follow the inlined write-code workflow for the given `#N`.
+1. Follow the inlined write-code workflow for the given `#N`, including Repair and Reverify and its repairable-versus-intervention failure classification. Fresh remediation sessions retain the original `implement` contract.
 2. Resolve and read `skill://skill-creator` before editing any skill-bundled path, then follow its editing procedure.
 3. Never call `ask` or any nmg-pi input tool.
 4. Commit all non-runtime implementation changes with a conventional subject and push the issue branch before writing a passed handoff.

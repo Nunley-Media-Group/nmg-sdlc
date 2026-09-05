@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Repair and reverify in-scope implementation gaps before escalation; route remaining repairable work through existing fresh-session remediation while preserving external-authority and publication blockers (#366).
+
 ## [3.20.9] - 2026-09-05
 
 ### Fixed
