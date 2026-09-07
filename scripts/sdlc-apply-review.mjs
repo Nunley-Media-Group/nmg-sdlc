@@ -2,6 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
@@ -68,7 +69,8 @@ function runApplyReviewUnlocked({
   const pass = (summary) => writeHandoff(handoffFor(issueNumber, step, 'passed', summary, artifactPath));
   const absoluteArtifact = join(cwd, artifactPath);
   if (!fs.existsSync(absoluteArtifact)) return fail(`Review artifact missing for #${issueNumber} ${reviewStep}`, 'review_artifact_missing');
-  const findings = fs.readFileSync(absoluteArtifact, 'utf8').trim();
+  const artifactBytes = fs.readFileSync(absoluteArtifact, 'utf8');
+  const findings = artifactBytes.trim();
   if (!findings || findings === 'No findings.') return pass(`No ${reviewStep} findings to apply for #${issueNumber}`);
   let ownerId;
   try {
@@ -76,6 +78,8 @@ function runApplyReviewUnlocked({
   } catch (error) {
     return fail(`Review-fix owner unavailable: ${error.message}`, error.reasonCode ?? 'recovery_owner_unreadable');
   }
+  const artifactDigest = createHash('sha256').update(artifactBytes).digest('hex');
+  const identityPath = join(cwd, `.omp/sdlc/reviews/${issueNumber}-${step}.publication.json`);
 
   const expectedSubject = `fix: apply ${reviewStep} findings for #${issueNumber}`;
   let allowedPaths;
@@ -96,6 +100,25 @@ function runApplyReviewUnlocked({
     const subject = run('git', ['log', '-1', '--format=%s', 'HEAD'], { cwd });
     if (divergence?.status !== 0 || subject?.status !== 0) return fail('Review-fix publication state is unreadable', 'apply_review_failed');
     if (!/^0\s+0$/.test(String(divergence.stdout).trim()) || String(subject.stdout).trim() === expectedSubject) {
+      let publicationIdentity = null;
+      if (fs.existsSync(identityPath)) {
+        try { publicationIdentity = JSON.parse(fs.readFileSync(identityPath, 'utf8')); } catch {}
+      }
+      const head = run('git', ['rev-parse', 'HEAD'], { cwd });
+      const commitSha = String(head?.stdout ?? '').trim();
+      if (head?.status !== 0 || !/^[0-9a-f]{40}$/.test(commitSha)) return fail('Review-fix HEAD is unreadable', 'apply_review_failed');
+      const identityMatches = publicationIdentity?.schemaVersion === 1
+        && publicationIdentity.ownerId === ownerId
+        && publicationIdentity.issue === issueNumber
+        && publicationIdentity.step === step
+        && publicationIdentity.artifactPath === artifactPath
+        && publicationIdentity.artifactDigest === artifactDigest
+        && publicationIdentity.commitSha === commitSha;
+      if (!identityMatches) {
+        // Neither a reused subject nor a failed handoff proves which findings were applied.
+        const packet = { schemaVersion: 1, kind: 'apply_review_required', issue: issueNumber, step, artifactPath, handoffPath };
+        return { status: 3, stdout: `NMG_SDLC_APPLY_REVIEW: ${JSON.stringify(packet)}\n`, stderr: '', handoff: null, handoffPath };
+      }
       const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
       if (!publication.passed) return fail(publication.summary, 'apply_review_failed');
       return pass(`Reconciled published ${reviewStep} findings for #${issueNumber}`);
@@ -125,6 +148,21 @@ function runApplyReviewUnlocked({
   }
   const commit = run('git', ['commit', '-m', expectedSubject], { cwd });
   if (commit?.status !== 0) return fail(`Failed to commit ${reviewStep} fixes for #${issueNumber}`, 'apply_review_failed');
+  // Persist exact application evidence before the first publication side effect.
+  const publishedHead = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const commitSha = String(publishedHead?.stdout ?? '').trim();
+  if (publishedHead?.status !== 0 || !/^[0-9a-f]{40}$/.test(commitSha)) return fail('Review-fix HEAD is unreadable', 'apply_review_failed');
+  const publicationIdentity = {
+    schemaVersion: 1,
+    ownerId,
+    issue: issueNumber,
+    step,
+    artifactPath,
+    artifactDigest,
+    commitSha,
+  };
+  if (!fs.existsSync(dirname(identityPath))) fs.mkdirSync(dirname(identityPath), { recursive: true });
+  fs.writeFileSync(identityPath, `${JSON.stringify(publicationIdentity, null, 2)}\n`);
   const push = run('git', ['push'], { cwd });
   const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
   if (!publication.passed) return fail(`${publication.summary}${push?.status !== 0 ? '; initial push failed' : ''}`, 'apply_review_failed');

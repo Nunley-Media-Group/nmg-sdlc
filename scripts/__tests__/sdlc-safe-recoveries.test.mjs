@@ -347,6 +347,25 @@ describe('publication CLI lease ownership boundary', () => {
     } finally { if (lease) releaseControllerLease(lease); }
   });
 
+  test('dirty implementation binding rejects a consumed publication allowance before Git mutation', () => {
+    const f = cliFixture();
+    expect(f.bind().status).toBe(0);
+    consumeSafeRecovery({ cwd: f.root, ownerId: runId, issue: 42, step: 'implement', class: 'stage_publication', evidence: { commitSha: f.git('rev-parse', 'HEAD') } });
+    f.put('src/code.mjs', 'additional approved changes\n');
+    const head = f.git('rev-parse', 'HEAD');
+    const upstream = f.git('rev-parse', '@{upstream}');
+    const index = f.git('diff', '--cached');
+    const recovery = fs.readFileSync(f.statePath);
+    const checkpoint = fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'));
+    const result = f.bind();
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 1, stderr: 'stage_publication_consumed\n' });
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('rev-parse', '@{upstream}')).toBe(upstream);
+    expect(f.git('diff', '--cached')).toBe(index);
+    expect(fs.readFileSync(f.statePath)).toEqual(recovery);
+    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'))).toEqual(checkpoint);
+  });
+
   test.each([
     ['checkpoint', false, 'recovery_owner_missing'],
     ['live lease', true, 'controller_lease_held'],

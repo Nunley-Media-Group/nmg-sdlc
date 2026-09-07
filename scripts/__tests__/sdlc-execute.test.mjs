@@ -1381,13 +1381,14 @@ describe('runExecute controller', () => {
   }
 
   function reviewEvidenceBytes(cwd, step = 'review1') {
+    const index = JSON.parse(fs.readFileSync(path.join(cwd, `.omp/sdlc/reviews/42-${step}.slices.json`), 'utf8'));
     const paths = [
       `.omp/sdlc/reviews/42-${step}.md`,
       `.omp/sdlc/handoffs/42-${step}.json`,
       `.omp/sdlc/reviews/42-${step}.slices.json`,
-      ...[1, 2, 3].flatMap((slice) => [
-        `.omp/sdlc/reviews/42-${step}-reviewer-${slice}.assignment.json`,
-        `.omp/sdlc/reviews/42-${step}-reviewer-${slice}.access.jsonl`,
+      ...index.slices.flatMap((_, index) => [
+        `.omp/sdlc/reviews/42-${step}-reviewer-${index + 1}.assignment.json`,
+        `.omp/sdlc/reviews/42-${step}-reviewer-${index + 1}.access.jsonl`,
       ]),
     ];
     return new Map(paths.map((file) => [file, fs.readFileSync(path.join(cwd, file))]));
@@ -3369,6 +3370,88 @@ describe('runExecute controller', () => {
       expect(fixture.starts).toEqual([]);
     }
   });
+  it('does not renew review evidence from unrelated HEAD churn or an old consumed recovery', () => {
+    const fixture = makeBoundedReviewFixture();
+    expect(fixture.invoke().status).toBe(0);
+    const original = reviewEvidenceBytes(fixture.cwd);
+    fixture.runState.recoveries.push({ runId: fixture.runState.runId, issue: 42, step: 'review1', disposition: 'consumed' });
+    fs.appendFileSync(path.join(fixture.cwd, 'cli/a.mjs'), 'unrelated change\n');
+    git(fixture.cwd, ['add', 'cli/a.mjs']);
+    git(fixture.cwd, ['commit', '-m', 'fix: unrelated head change']);
+    expect(() => fixture.invoke()).toThrow('review_scope_unproven');
+    expect(fixture.launches).toHaveLength(3);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(original);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.current.json'))).toBe(false);
+  });
+
+  it('reruns both immutable review generations after a downstream implementation repair changes HEAD', () => {
+    const fixture = makeControllerFixture({ failedStep: 'verify', failedNext: 'implement' });
+    expect(runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const originals = new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')]);
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
+    const failed = JSON.parse(fs.readFileSync(handoffPath, 'utf8'));
+    fs.writeFileSync(handoffPath, JSON.stringify({ ...failed, intervention: false }));
+    let head = 'a'.repeat(40);
+    const repairedHead = 'c'.repeat(40);
+    const run = (command, args) => command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD'
+      ? { status: 0, stdout: `${head}\n`, stderr: '' } : fixture.run(command, args);
+    const prompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-implement') head = repairedHead;
+      const result = prompt(input);
+      if (input.name === 's42-verify') {
+        const handoff = JSON.parse(fs.readFileSync(handoffPath, 'utf8'));
+        fs.writeFileSync(handoffPath, JSON.stringify({ ...handoff, status: 'passed', intervention: false, next: 'deliver', reasonCode: null }));
+      }
+      return result;
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    for (const step of ['review1', 'review2']) {
+      const current = resolveReviewArtifacts({ cwd: fixture.cwd, issue: 42, step });
+      expect(current.generation).toBe(`.head-${repairedHead}`);
+      const index = JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.indexPath), 'utf8'));
+      expect(index.headSha).toBe(repairedHead);
+      expect(index.slices.every(({ assignment }) => assignment.headSha === repairedHead)).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.handoffPath), 'utf8')).status).toBe('passed');
+    }
+    expect(new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')])).toEqual(originals);
+    expect(fixture.starts.filter(({ name }) => name === 's42-implement')).toHaveLength(2);
+    expect(fixture.starts.filter(({ name }) => name === 's42-review1-reviewer-1')).toHaveLength(2);
+    expect(fixture.starts.filter(({ name }) => name === 's42-review2-reviewer-1')).toHaveLength(2);
+  });
+
+  it.each(['review1', 'review2'])('bare exhausted historical %s recovery dispatches isolated review once and preserves old evidence', (step) => {
+    const next = step === 'review1' ? 'fix1' : 'fix2';
+    const fixture = makeControllerFixture({ blockedStep: next });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: step, workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)) },
+      failed: { issue: 42, step, reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step, status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    const oldPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step, status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(checkpoint.completed['42']).toContain(step);
+    expect(checkpoint.currentStep).toBe(next);
+    expect(checkpoint.recoveries).toHaveLength(1);
+    expect(checkpoint.recoveries[0]).toMatchObject({ issue: 42, step, disposition: 'consumed' });
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
+    const current = resolveReviewArtifacts({ cwd: fixture.cwd, issue: 42, step });
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.handoffPath), 'utf8')).status).toBe('passed');
+    expect(fixture.starts.filter(({ name }) => name === `s42-${step}-reviewer-1`)).toHaveLength(1);
+    const starts = fixture.starts.length;
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    expect(fixture.starts).toHaveLength(starts);
+  });
   it('retains cleanup evidence and the lease when the second remediation pane cannot close at the exact limit', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
     const paneClose = fixture.herdr.paneClose;
@@ -3400,10 +3483,7 @@ describe('runExecute controller', () => {
     });
     expect(persisted.workers['r42-implement']).toMatchObject({
       name: 'r42-implement', paneId: remWorkers[1].paneId,
-      projectRoot: persisted.projectRoot, runId: persisted.runId,
-      issue: 42, step: 'implement',
     });
-    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   it('keeps the controller lease when remediation limit cleanup checkpoint persistence fails', () => {

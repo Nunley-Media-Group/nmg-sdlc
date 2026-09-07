@@ -1139,9 +1139,7 @@ export function remediationPrompt({
     cwd,
     controllerRunId,
   });
-  const contract = failedStep === 'review1' || failedStep === 'review2'
-    ? reviewProtocolPrompt(reviewBase, stepPrompt)
-    : stepPrompt;
+  const contract = stepPrompt;
   return `${header}\n---\n${contract}`;
 }
 
@@ -1580,7 +1578,7 @@ function reviewProtocolPrompt() {
   throw new Error('review_scope_unproven');
 }
 
-export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = defaultRun, herdr }) {
+export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = defaultRun, herdr, historicalRecovery = false }) {
   const git = (args) => {
     const result = run('git', args, { cwd });
     if (!commandSucceeded(result)) throw new Error('review_scope_unproven');
@@ -1606,9 +1604,15 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
   }
   const directory = join(cwd, '.omp/sdlc/reviews');
   mkdirSync(directory, { recursive: true });
-  const { prefix, generation, indexPath: indexRelative, invalidationPath: invalidationRelative } = resolveReviewArtifacts({ cwd, issue, step });
-  const indexPath = join(cwd, indexRelative);
-  const invalidationPath = join(cwd, invalidationRelative);
+  let { prefix, generation, indexPath: indexRelative, invalidationPath: invalidationRelative } = resolveReviewArtifacts({ cwd, issue, step });
+  let indexPath = join(cwd, indexRelative);
+  let invalidationPath = join(cwd, invalidationRelative);
+  const authorizedRepair = runState.repairRewound?.[String(issue)]?.includes(step) === true;
+  if (authorizedRepair) {
+    runState.repairRewound[String(issue)] = runState.repairRewound[String(issue)].filter((pending) => pending !== step);
+    if (!runState.repairRewound[String(issue)].length) delete runState.repairRewound[String(issue)];
+    if (!Object.keys(runState.repairRewound).length) delete runState.repairRewound;
+  }
   if (existsSync(indexPath)) {
     const prior = JSON.parse(readFileSync(indexPath, 'utf8'));
     const handoffPath = join(cwd, HANDOFF_DIR, `${prefix}.json`);
@@ -1620,10 +1624,42 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
         ? `.omp/sdlc/handoffs/${prefix}.attempt-2.json` : `.omp/sdlc/handoffs/${prefix}.json` };
     }
   }
-  // Existing evidence is never silently replaced or used under a new identity.
-  if (existsSync(indexPath) || existsSync(invalidationPath)
+  // Only an authorized repair or the one-shot historical recovery may select fresh evidence.
+  const evidenceExistsForCurrentPrefix = existsSync(indexPath) || existsSync(invalidationPath)
     || existsSync(join(directory, `${prefix}.md`))
-    || existsSync(join(cwd, HANDOFF_DIR, `${prefix}.json`))) throw new Error('review_scope_unproven');
+    || existsSync(join(cwd, HANDOFF_DIR, `${prefix}.json`));
+  if (evidenceExistsForCurrentPrefix) {
+    let priorHead = null;
+    if (existsSync(indexPath)) {
+      try {
+        priorHead = JSON.parse(readFileSync(indexPath, 'utf8')).headSha;
+      } catch {}
+    }
+    const recoveryConsumed = Array.isArray(runState && runState.recoveries) && runState.recoveries.some((r) =>
+      r && r.runId === runState.runId && r.issue === issue && r.step === step && r.disposition === 'consumed'
+    );
+    const headChanged = priorHead && priorHead !== headSha;
+    if ((headChanged && authorizedRepair) || (historicalRecovery && recoveryConsumed)) {
+      const targetPrefix = `${issue}-${step}.head-${headSha}`;
+      if (['.slices.json', '.invalidation.json', '.md'].some((suffix) => existsSync(join(directory, `${targetPrefix}${suffix}`)))
+        || existsSync(join(cwd, HANDOFF_DIR, `${targetPrefix}.json`))) throw new Error('review_scope_unproven');
+      const runtime = realpathSync(join(cwd, RUN_DIR));
+      const marker = join(runtime, 'reviews', `${issue}-${step}.current.json`);
+      if (existsSync(marker) && lstatSync(marker).isSymbolicLink()) throw new Error('unsafe_review_artifact');
+      const temporary = `${marker}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify({ generation: `.head-${headSha}` })}\n`, { flag: 'wx' });
+      renameSync(temporary, marker);
+      const refreshed = resolveReviewArtifacts({ cwd, issue, step });
+      prefix = refreshed.prefix;
+      generation = refreshed.generation;
+      indexRelative = refreshed.indexPath;
+      invalidationRelative = refreshed.invalidationPath;
+      indexPath = join(cwd, indexRelative);
+      invalidationPath = join(cwd, invalidationRelative);
+    } else {
+      throw new Error('review_scope_unproven');
+    }
+  }
   const groups = Array.from({ length: Math.min(3, paths.length) }, () => []);
   paths.forEach((path, index) => groups[index % groups.length].push(path));
   const slices = groups.map((allowedPaths, index) => {
@@ -2775,6 +2811,36 @@ export function runExecute({
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      if (reviewStep && recovery) {
+        // Only the current bare-recovery dispatch can replace historical review evidence.
+        try {
+          const review = runBoundedReview({
+            cwd, issue, step, baseRef: reviewBase, runState, run, herdr: herdrApi,
+            historicalRecovery: recoveryDispatch === `${issue}:${step}`,
+          });
+          if (review.status !== 0) throw new Error(review.handoff?.reasonCode ?? 'review_failed');
+          const comp = runState.completed[String(issue)] || [];
+          if (!comp.includes(step)) comp.push(step);
+          runState.completed[String(issue)] = comp;
+          const nextStepAfter = nextStep(comp);
+          runState.currentStep = nextStepAfter;
+          runState.failed = null;
+          runState.remediation = null;
+          persistRunState(runState, cwd);
+          return { passed: true, step: nextStepAfter };
+        } catch (error) {
+          const rc = error && error.message ? error.message : 'review_failed';
+          runState.failed = { issue, step, reasonCode: rc, intervention: true };
+          persistRunState(runState, cwd);
+          return {
+            result: stop({
+              issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+              reasonCode: rc,
+              runState, cwd, herdr: herdrApi, output,
+            }),
+          };
+        }
+      }
       try {
         prompt = remediationPrompt({
           issue,
@@ -3225,6 +3291,8 @@ export function runExecute({
           runState.currentStep = step;
           runState.failed = null;
           runState.remediation = null;
+          runState.repairRewound = runState.repairRewound || {};
+          runState.repairRewound[String(issue)] = ['review1', 'review2'].filter((review) => !completed.includes(review));
           persistRunState(runState, cwd);
           live = step
             ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
@@ -3515,6 +3583,8 @@ export function runExecute({
             step = nextStep(remediation);
             runState.currentStep = step;
             runState.failed = null;
+            runState.repairRewound = runState.repairRewound || {};
+            runState.repairRewound[String(issue)] = ['review1', 'review2'].filter((review) => !remediation.includes(review));
             persistRunState(runState, cwd);
           } else {
             if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
@@ -3677,7 +3747,7 @@ export function runExecute({
         const stepPrompt = workerPrompt({
           step, issue, cwd, controllerRunId: runState.runId,
         });
-        prompt = reviewStep ? reviewProtocolPrompt(reviewBase, stepPrompt) : stepPrompt;
+        prompt = stepPrompt;
       } catch (error) {
         const reasonCode = workerPromptFailureReason(error);
         const closed = closePane(herdrApi, paneId);

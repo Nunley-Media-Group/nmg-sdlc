@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 import { runApplyReview } from '../sdlc-apply-review.mjs';
 import { resolveReviewArtifacts, validateHandoff } from '../sdlc-execute.mjs';
@@ -173,6 +174,62 @@ describe('runApplyReview', () => {
     expect(outcome.handoff.reasonCode).toBe('apply_review_failed');
     expect(mutations(f.calls)).toEqual([]);
   });
+  test('binds publication acknowledgement to durable identity (owner/issue/step/artifact+sha256+commit): same-path byte replace, missing identity, and failed-push/reinvoke all require or preserve correctly; unchanged matches', () => {
+    const f = fixture('P1: original findings\n');
+    fs.writeFileSync(path.join(f.root, 'src/code.mjs'), 'export const value = 2;\n');
+    const pub = f.apply({ applied: true });
+    expect(pub.status).toBe(0);
+    const head = f.git('rev-parse', 'HEAD');
+    const handoffPath = path.join(f.root, '.omp/sdlc/handoffs/42-fix1.json');
+    const identityPath = path.join(f.root, '.omp/sdlc/reviews/42-fix1.publication.json');
+    // identity persisted
+    expect(fs.existsSync(identityPath)).toBe(true);
+    const id = JSON.parse(fs.readFileSync(identityPath, 'utf8'));
+    expect(id).toMatchObject({ ownerId: f.ownerId, issue: 42, step: 'fix1', artifactPath: f.artifactPath });
+    const origBytes = 'P1: original findings\n';
+    const origDigest = createHash('sha256').update(origBytes).digest('hex');
+    expect(id.artifactDigest).toBe(origDigest);
+    expect(id.commitSha).toBe(head);
+    // 1. same-path byte replacement after publish -> status3 (path same but digest changes)
+    fs.writeFileSync(path.join(f.root, f.artifactPath), 'P1: SAME PATH but changed raw findings bytes\n');
+    let outcome = f.apply();
+    expect(outcome.status).toBe(3);
+    let pkt = JSON.parse(outcome.stdout.trim().slice('NMG_SDLC_APPLY_REVIEW: '.length));
+    expect(pkt.artifactPath).toBe(f.artifactPath); // same path
+    expect(fs.readFileSync(handoffPath, 'utf8')).toContain('"status": "passed"'); // no overwrite by fail
+    // restore for next
+    fs.writeFileSync(path.join(f.root, f.artifactPath), origBytes);
+    // 2. missing identity is fail-closed (no ack even if clean+subject)
+    fs.rmSync(identityPath, { force: true });
+    outcome = f.apply();
+    expect(outcome.status).toBe(3);
+    pkt = JSON.parse(outcome.stdout.trim().slice('NMG_SDLC_APPLY_REVIEW: '.length));
+    expect(pkt.kind).toBe('apply_review_required');
+    // 3. failed-push/reinvoke preserves identity for ack
+    // re-publish to recreate identity+commit (use dirty)
+    fs.writeFileSync(path.join(f.root, 'src/code.mjs'), 'export const value = 3;\n');
+    let pushes = 0;
+    const first = f.apply({ applied: true, run: (c, a, o) => {
+      if (a[0] === 'push' && pushes++ === 0) return { status: 1, stdout: '', stderr: 'fail' };
+      return f.run(c, a, o);
+    } });
+    expect(first.status).toBe(0);
+    expect(fs.existsSync(identityPath)).toBe(true);
+    const id2 = JSON.parse(fs.readFileSync(identityPath, 'utf8'));
+    expect(id2.commitSha).not.toBe(head);
+    // reinvoke clean (no applied), identity allows reconcile ack (no new consume/churn)
+    f.calls.length = 0;
+    const reinv = f.apply({ sessionToken: '33333333-3333-4333-8333-333333333333' });
+    expect(reinv.status).toBe(0);
+    expect(reinv.handoff.status).toBe('passed');
+    expect(f.git('rev-parse', 'HEAD')).toBe(id2.commitSha);
+    // 4. unchanged exact (identity matches bytes+path+commit) reconciles
+    const final = f.apply();
+    expect(final.status).toBe(0);
+    expect(final.handoff.status).toBe('passed');
+  });
+
+
 });
 
 describe('sdlc-apply-review CLI', () => {
