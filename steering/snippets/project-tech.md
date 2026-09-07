@@ -245,6 +245,20 @@ Do not pollute production repositories to prove issue/PR content. When a remote 
 
 The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through `scripts/sdlc-execute.mjs run` and its normal workflow-owned workers; the provider never performs ad-hoc GitHub writes. Before each verification, provision one or more fresh issues with approved specs through the smoke repository's normal `/sdlc-draft-issue` and `/sdlc-write-spec` workflows, then set their explicit numbers in `NMG_SDLC_SMOKE_ISSUES`. Delivered issues are terminal and must not be reused.
 
+### Smoke Experiment Scope and Progress
+
+The smoke repository is a verification surface for **nmg-sdlc**, not an additional implementation backlog. Every live exercise must name the plugin issue/change, its hypothesis, the minimum smoke fixture, and the observable pass/fail evidence before execution.
+
+1. Classify a failure from the controller, handoffs, command output, and source before editing. Repair confirmed nmg-sdlc defects in nmg-sdlc. Do not fix unrelated smoke application findings, improve its architecture, expand its feature scope, or weaken its assertions to make a plugin gate pass.
+2. Modify smoke issues/specs/code only when the change is a necessary fixture or means to test a named nmg-sdlc change. Record that causal link. Use the smoke repository's normal workflow ownership for remote mutations; do not take over unrelated open issues.
+3. Run one configured experiment at a time. A subsequent attempt requires a concrete changed plugin fix or hypothesis and its expected observation. An unchanged failure, repeated remediation packet, consumed issue queue, or lack of new diagnostic evidence is a stop, not permission to retry.
+4. After two unsuccessful repair-and-retest attempts without advancing the same experiment objective, finalize the failure evidence and stop that experiment. Do not reset the count by renaming workers, changing wording, creating replacement issues, or restarting verification. Do not use elapsed time or commit churn as progress.
+5. An unrelated smoke-project failure is outside the plugin worker's repair authority. Record its exact evidence and the unproved plugin acceptance criterion; do not launch fresh repair sessions to fix that smoke defect. Keep the gate non-passing and use an intervention handoff when no authorized in-scope repair remains.
+6. A plugin defect remains in scope: fix it, prove the failing boundary with a focused reproduction, and rerun only the necessary live experiment under these progress limits. Never declare smoke success from unit tests, status output, old merged PRs, or a manually manufactured passed handoff.
+7. Preserve failed experiment evidence. Cancellation closes only invocation-owned controllers and workers unless retention was explicitly requested. Never stop Herdr or unrelated panes as experiment cleanup.
+
+These limits apply inside a worker as well as across controller remediation sessions. They do not impose a wall-clock deadline on a healthy observable command and do not bypass any exact-head, credential, approval, or human-review requirement.
+
 ### Verification Evidence Boundaries
 
 - Local source tests prove the source tree only.

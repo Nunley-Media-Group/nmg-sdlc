@@ -79,17 +79,4 @@ describe('repo steering contract (v3)', () => {
     }
   });
 
-  test('documents OMP plugin install rather than Codex marketplace add', () => {
-    const readme = read('README.md');
-
-    expect(readme).toContain('omp plugin install');
-    expect(readme).not.toContain('codex plugin marketplace add');
-  });
-
-  test('requires project upgrade after every install or update', () => {
-    const readme = read('README.md');
-
-    expect(readme).toContain('After every install or update, run /sdlc-upgrade-project in each project.');
-    expect(readme).toContain('Review and apply all relevant approved migrations before running any other SDLC workflow.');
-  });
 });

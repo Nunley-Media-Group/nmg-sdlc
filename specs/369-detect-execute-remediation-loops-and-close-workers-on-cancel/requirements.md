@@ -98,8 +98,23 @@ Evidence: pennyscan `.omp/sdlc/run.json` run `fc4e5751-9dfa-4210-96f8-d6c4b1a80a
 
 This issue supersedes only the unlimited same-step retry and cancellation behavior in #259 and #366. In-scope repair remains autonomous. Two completed remediations without advancement are a loop; elapsed time, commits, changing summaries, or model activity alone are not advancement. An unchanged stopped handoff or loop checkpoint remains stopped on reinvocation. A subsequently validated passed handoff may advance the pipeline. Genuine blocked/intervention handoffs are never converted into failed non-intervention handoffs to restart work.
 
+## Additional operator acceptance criteria
+
+### AC8: Keep smoke verification bounded and plugin-scoped
+
+**Given** nmg-sdlc changes are verified against `Nunley-Media-Group/nmg-sdlc-smoke`
+**When** an exercise exposes a failure
+**Then** repair only a confirmed nmg-sdlc defect; modify smoke code only as a necessary fixture to prove a named plugin change, and stop unchanged/no-progress or unrelated smoke-project failures rather than repeatedly repairing them. Registered steering must state this boundary.
+
+### AC9: Document complete supported operation
+
+**Given** a user installs or updates nmg-sdlc
+**When** they follow `README.md`
+**Then** they can find concrete installation, prerequisite, setup, command, issue/spec publication, execution/resume/cancel/debug, verification/smoke-scope, troubleshooting, and exact-head completion instructions. Review the complete implementation against literal `main` and fix actionable findings before delivery.
+
 ## Change History
 
 | Issue | Date | Summary |
 |---|---|---|
 | #369 | 2026-09-06 | Initial approved feature spec under the requested contribution repair workflow |
+| #369 | 2026-09-06 | Added the user's explicit smoke-scope, loop-safety, complete README, and native main-review requirements |

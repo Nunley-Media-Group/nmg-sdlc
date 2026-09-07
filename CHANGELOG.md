@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop execute after two completed same-step remediations without progress, preserve blocked/intervention and loop stops on resume, and require recorded ownership before reusing remediation panes (#369).
+- Supervise execute independently of blocking controller commands so signals and invoking-job loss close owned worker panes, including pending prompts; preserve explicit retention and cleanup-failure evidence (#369).
+- Keep failed worker startup ownership until cleanup resolves instead of leaving untracked panes (#369).
+
+### Changed
+
+- Replace the README with a complete supported operating guide and reinforce registered steering with bounded, plugin-only smoke experiments; unrelated smoke-project findings are not a repair backlog (#369).
+
 ## [3.20.10] - 2026-09-05
 
 ### Fixed

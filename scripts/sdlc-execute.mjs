@@ -791,7 +791,8 @@ export function remediationCompletedSteps({
     !handoff
     || handoff.issue !== issue
     || handoff.step !== step
-    || (handoff.status !== 'failed' && !handoff.intervention)
+    || handoff.status !== 'failed'
+    || handoff.intervention !== false
   ) {
     return null;
   }
@@ -1441,7 +1442,7 @@ function cleanupControllerWorkers({
     ) {
       continue;
     }
-    if (retainWorker || ['pending', 'activating'].includes(worker.promptDelivery)) {
+    if (retainWorker) {
       checkout ??= currentCheckout(cwd, run);
       if (checkout) actions.push({ name, worker, checkout });
     } else if (closePane(herdr, worker.paneId)) {
@@ -2016,6 +2017,12 @@ export function runExecute({
     });
   }
 
+  function completedRemediations(remediation = runState.remediation) {
+    if (!remediation) return 0;
+    return Number.isSafeInteger(remediation.completedAttempts)
+      ? remediation.completedAttempts
+      : Math.max(0, (remediation.attempt || 1) - 1);
+  }
   const resumedPromptActivations = new Set();
 
   function recoverPendingWorkerPrompts() {
@@ -2026,6 +2033,11 @@ export function runExecute({
         || worker.issue !== runState.currentIssue
         || worker.step !== runState.currentStep
       ) {
+        continue;
+      }
+      const remediation = runState.remediation;
+      if (remediation?.issue === worker.issue && remediation.step === worker.step
+        && (remediation.status === 'stopped' || completedRemediations(remediation) >= 2)) {
         continue;
       }
       const handoffPath = join(cwd, HANDOFF_DIR, `${worker.issue}-${worker.step}.json`);
@@ -2163,12 +2175,28 @@ export function runExecute({
     const existingAgents = agentsForProject(herdrApi.listAgents(), cwd);
     const createdPanes = new Set();
 
+
+  function stopRemediationLoop(issue, step) {
+    runState.remediation.status = 'stopped';
+    runState.remediation.reasonCode = 'remediation_loop';
+    persistRunState(runState, cwd);
+    runState = cleanupControllerWorkers({
+      runState, cwd, run, herdr: herdrApi, retainWorker: parsedArgs.retainWorker,
+    });
+    return stop({
+      issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+      reasonCode: 'remediation_loop', runState, cwd, herdr: herdrApi, output,
+    });
+  }
+
   function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {
     if (!isRemediableFailedHandoff({ step, state, handoff })) return false;
     const prior = runState.remediation?.issue === issue && runState.remediation?.step === step
       ? runState.remediation
       : null;
-    const attempt = (prior?.attempt || 0) + 1;
+    const completedAttempts = completedRemediations(prior)
+      + (agentName === remAgentName(issue, step) ? 1 : 0);
+    const attempt = completedAttempts >= 2 ? prior.attempt : completedAttempts + 1;
     const artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
     const history = [
       ...(Array.isArray(prior?.history) ? prior.history : []),
@@ -2186,6 +2214,7 @@ export function runExecute({
       issue,
       step,
       attempt,
+      completedAttempts,
       status: 'active',
       reasonCode: handoff.reasonCode,
       summary: handoff.summary,
@@ -2214,6 +2243,9 @@ export function runExecute({
     let remLive = liveAgent;
     const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
     while (true) {
+      if (!remLive && completedRemediations() >= 2) {
+        return stopRemediationLoop(issue, step);
+      }
       const agentName = remAgentName(issue, step);
       let paneId = remLive?.pane_id ?? remLive?.paneId;
       let state;
@@ -2316,8 +2348,6 @@ export function runExecute({
           started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
         }
         if (!commandSucceeded(started)) {
-          delete runState.workers[agentName];
-          runState.remediation.remWorker = null;
           return stop({
             issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
             runState, cwd, herdr: herdrApi, output,
@@ -2453,6 +2483,7 @@ export function runExecute({
       const { handoff } = handoffResult;
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
+        if (completedRemediations() >= 2) return stopRemediationLoop(issue, step);
         if (!closePane(herdrApi, paneId)) {
           return stop({
             issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
@@ -2460,6 +2491,7 @@ export function runExecute({
           });
         }
         delete runState.workers[agentName];
+        persistRunState(runState, cwd);
         remLive = null;
         continue;
       }
@@ -2467,10 +2499,7 @@ export function runExecute({
         runState.remediation.reasonCode = handoff.reasonCode || handoff.status || state || 'worker_failed';
         runState.remediation.summary = handoff.summary;
         runState.remediation.artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
-        if (
-          ['idle', 'done'].includes(state)
-          && (handoff.status === 'blocked' || handoff.intervention)
-        ) {
+        if (handoff.status === 'blocked' || handoff.intervention) {
           runState.remediation.status = 'stopped';
         }
         return stop({
@@ -2516,6 +2545,7 @@ export function runExecute({
       };
     }
     delete runState.workers[agentName];
+    persistRunState(runState, cwd);
     return runRemediationLoop({ issue, step });
   }
 
@@ -2546,34 +2576,76 @@ export function runExecute({
     let live = step
       ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
       : null;
-    if (
-      step
-      && !live
-      && runState.failed?.issue === issue
-      && runState.failed.step === step
-    ) {
-      const failedHandoff = readExpectedHandoff(
-        join(cwd, HANDOFF_DIR, `${issue}-${step}.json`),
-        issue,
-        step,
+    const checkpointRemediation = runState.remediation?.issue === issue
+      && runState.remediation.step === step ? runState.remediation : null;
+    if (step && (
+      (runState.failed?.issue === issue && runState.failed.step === step)
+      || checkpointRemediation
+    )) {
+      const resumeAgent = live || existingAgents.find(
+        (agent) => String(agent?.name || '') === remAgentName(issue, step),
+      );
+      const handoff = readExpectedHandoff(
+        join(cwd, HANDOFF_DIR, `${issue}-${step}.json`), issue, step,
       ).handoff;
-      const completed = failedHandoff
-        ? remediationCompletedSteps({
-          issue,
-          step,
-          completed: runState.completed[String(issue)],
-          handoff: failedHandoff,
-        })
-        : null;
-      if (completed) {
-        runState.completed[String(issue)] = completed;
-        step = nextStep(completed);
+      if (handoff && (handoff.status === 'blocked' || handoff.intervention)) {
+        return stop({
+          issue, step,
+          paneId: resumeAgent?.pane_id ?? resumeAgent?.paneId ?? 'none',
+          agentName: resumeAgent?.name ?? `s${issue}-${step}`,
+          reasonCode: handoff.reasonCode || handoff.status,
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      const passedHandoff = validatedPassedWorkerHandoff(cwd, issue, step);
+      if (checkpointRemediation && !passedHandoff && (
+        checkpointRemediation.reasonCode === 'remediation_loop'
+        || completedRemediations(checkpointRemediation) >= 2
+      )) {
+        return stopRemediationLoop(issue, step);
+      }
+      if (!resumeAgent && passedHandoff && step !== 'deliver') {
+        for (const [name, worker] of Object.entries(runState.workers)) {
+          if (
+            worker.issue !== issue || worker.step !== step
+            || worker.runId !== runState.runId || worker.projectRoot !== runState.projectRoot
+            || worker.name !== name
+          ) continue;
+          if (!closePane(herdrApi, worker.paneId)) {
+            return stop({
+              issue, step, paneId: worker.paneId, agentName: name,
+              reasonCode: 'pane_close_failed', runState, cwd, herdr: herdrApi, output,
+            });
+          }
+          delete runState.workers[name];
+        }
+        runState.completed[String(issue)].push(step);
+        step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;
         runState.failed = null;
+        runState.remediation = null;
         persistRunState(runState, cwd);
-        live = step
-          ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
-          : null;
+      } else if (!resumeAgent && checkpointRemediation?.status !== 'active') {
+        const completed = remediationCompletedSteps({
+          issue, step, completed: runState.completed[String(issue)], handoff,
+        });
+        if (completed) {
+          runState.completed[String(issue)] = completed;
+          step = nextStep(completed);
+          runState.currentStep = step;
+          runState.failed = null;
+          runState.remediation = null;
+          persistRunState(runState, cwd);
+          live = step
+            ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
+            : null;
+        } else if (checkpointRemediation?.status === 'stopped') {
+          return stop({
+            issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+            reasonCode: checkpointRemediation.reasonCode || 'invalid_handoff',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
       }
     }
     if (step === 'deliver') {
@@ -2654,46 +2726,26 @@ export function runExecute({
     const liveRem = step
       ? existingAgents.find((agent) => String(agent?.name || '') === remAgentName(issue, step))
       : null;
+    if (liveRem) {
+      const agentName = String(liveRem.name);
+      const paneId = liveRem.pane_id ?? liveRem.paneId ?? 'unknown';
+      const passedHandoff = validatedPassedWorkerHandoff(cwd, issue, step);
+      const checkout = matchingWorkerOwnership({
+        runState, issue, step, agentName, paneId, cwd, run,
+        allowCompletedHeadAdvance: Boolean(passedHandoff),
+      });
+      if (!checkout || !runState.remediation
+        || runState.remediation.issue !== issue || runState.remediation.step !== step) {
+        return stop({
+          issue, step, paneId, agentName, reasonCode: 'retained_worker_mismatch',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+      if (passedHandoff) Object.assign(runState.workers[agentName], checkout);
+    }
     const activeRemediation = runState.remediation?.status === 'active'
       && runState.remediation.issue === issue
       && runState.remediation.step === step;
-    const stoppedRemediation = runState.remediation?.status === 'stopped'
-      && runState.remediation.issue === issue
-      && runState.remediation.step === step;
-    if (step && stoppedRemediation && !liveRem) {
-      const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-      const handoffResult = readExpectedHandoff(handoffPath, issue, step);
-      if (!handoffResult.handoff) {
-        return stop({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step),
-          reasonCode: handoffResult.reasonCode,
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
-      const { handoff } = handoffResult;
-      const rewindHandoff = handoff.status === 'blocked' && !handoff.intervention
-        ? { ...handoff, status: 'failed' }
-        : handoff;
-      const completed = remediationCompletedSteps({
-        issue,
-        step,
-        completed: runState.completed[String(issue)],
-        handoff: rewindHandoff,
-      });
-      if (!completed) {
-        return stop({
-          issue, step, paneId: 'none', agentName: remAgentName(issue, step), reasonCode: 'invalid_handoff',
-          runState, cwd, herdr: herdrApi, output,
-        });
-      }
-      runState.completed[String(issue)] = completed;
-      step = nextStep(completed);
-      runState.currentStep = step;
-      runState.failed = null;
-      runState.remediation = null;
-      persistRunState(runState, cwd);
-      live = null;
-    }
     if (step && (liveRem || activeRemediation)) {
       const remResult = runRemediationLoop({ issue, step, liveAgent: liveRem });
       if (remResult.result) return remResult.result;
@@ -2838,12 +2890,6 @@ export function runExecute({
           });
         }
         const { handoff } = handoffResult;
-        if (isRemediableFailedHandoff({ step, state, handoff })) {
-          const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
-          if (remResult.result) return remResult.result;
-          if (Number.isInteger(remResult.status)) return remResult;
-          step = remResult.step;
-        } else {
           const remediation = runState.failed?.issue === issue && runState.failed?.step === step
             ? remediationCompletedSteps({
               issue,
@@ -2852,6 +2898,12 @@ export function runExecute({
               handoff,
             })
             : null;
+        if (isRemediableFailedHandoff({ step, state, handoff }) && !remediation) {
+          const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
+          if (remResult.result) return remResult.result;
+          if (Number.isInteger(remResult.status)) return remResult;
+          step = remResult.step;
+        } else {
           if (remediation) {
             if (!['idle', 'done'].includes(state)) {
               return stop({
@@ -3025,7 +3077,6 @@ export function runExecute({
         started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       }
       if (!commandSucceeded(started)) {
-        delete runState.workers[agentName];
         return stop({
           issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
           runState, cwd, herdr: herdrApi, output,
@@ -3203,14 +3254,15 @@ export function runExecute({
   }
 }
 
-function runCli(argv = process.argv.slice(2)) {
+async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
   if (!sub) {
     console.error('sdlc-execute: missing subcommand');
     process.exit(2);
   }
   if (sub === 'run') {
-    const result = runExecute({ args: rest.join(' '), installSignalHandlers: true });
+    const { superviseExecute } = await import('./sdlc-execute-supervisor.mjs');
+    const result = await superviseExecute({ args: rest.join(' ') });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     process.exit(result.status);

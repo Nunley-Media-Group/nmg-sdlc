@@ -31,6 +31,14 @@
 - [ ] Record exact focused/full validation commands and outcomes plus live cancellation and consumer delivery proof.
 - [ ] Complete exact-head contribution delivery, synchronize release artifacts, and validate the installed candidate in a fresh session.
 
+### T004: Reinforce operator guidance and smoke boundaries
+**File(s)**: README.md, steering/snippets/project-tech.md, steering/snippets/project-product.md
+**Type**: Modify
+**Acceptance**:
+- [ ] AC8: registered steering restricts smoke edits to named nmg-sdlc verification fixtures, requires causal classification before repair, and stops unchanged/no-progress or unrelated smoke failures.
+- [ ] AC9: README provides a complete supported operating guide with concrete commands, safe recovery, explicit smoke setup, and truthful terminal delivery criteria.
+- [ ] Execute native `/review` against literal `main`, fix all actionable findings, and reverify affected behavior.
+
 ## Behavior evidence mapping
 
 Behavior for scripts/sdlc-execute.mjs: failed remediation without ordered-step advancement stops and remains stopped; cancellation preserves ownership through cleanup.
