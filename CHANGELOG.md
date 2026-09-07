@@ -10,6 +10,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-09-07
+
 ### Fixed
 
 - Stop execute after two completed same-step remediations without progress, preserve blocked/intervention and loop stops on resume, and require recorded ownership before reusing remediation panes (#369).
@@ -23,6 +25,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Changed
 
 - Replace the README with a complete supported operating guide and reinforce registered steering with bounded, plugin-only smoke experiments; unrelated smoke-project findings are not a repair backlog (#369).
+
+### Changed
+
+- Detect execute remediation loops and close workers on cancel (#369)
 
 ## [3.20.10] - 2026-09-05
 
