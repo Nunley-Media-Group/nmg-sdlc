@@ -485,7 +485,8 @@ function inspectRecoveryWorkers(data, herdr) {
   if (!commandSucceeded(response) || !Array.isArray(agents)) throw new Error('ownership_unreadable');
   const owned = Object.entries(data.workers || {});
   for (const agent of agents) {
-    if ([`s${data.currentIssue}-${data.currentStep}`, remAgentName(data.currentIssue, data.currentStep)].includes(agent.name)
+    if ((String(agent.name || '').startsWith(`s${data.currentIssue}-`)
+      || agent.name === remAgentName(data.currentIssue, data.currentStep))
       && !data.workers?.[agent.name]) throw new Error('retained_worker_mismatch');
   }
   if (!owned.length) return { absent: [], present: [] };
@@ -2828,7 +2829,7 @@ export function runExecute({
         || completedRemediations(checkpointRemediation) >= 2
       )) {
         if (!bareRecovery) return stopRemediationLoop(issue, step);
-        if (resumeAgent || Object.values(runState.workers).some((worker) =>
+        if (issueAgents.length > 0 || resumeAgent || Object.values(runState.workers).some((worker) =>
           worker.issue === issue && worker.step === step)) {
           return stop({
             issue, step, paneId: 'none', agentName: remAgentName(issue, step),

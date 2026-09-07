@@ -56,6 +56,30 @@ describe('sdlc-status v3 recommendations', () => {
     expect(inferLifecycle(evidence).nextAction.manualRepairRequired).toBe(true);
   });
 
+  it.each(['missing-issue', 'blocked-dependency', 'unknown-dependency', 'scope-repair', 'complete'])(
+    'preserves lifecycle precedence over leftover recovery for %s',
+    (boundary) => {
+      const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
+      if (boundary === 'missing-issue') evidence.issue = null;
+      if (boundary.endsWith('-dependency')) {
+        evidence.issue.dependency = {
+          status: boundary.split('-')[0], reasonCode: 'dependency_unreadable',
+        };
+      }
+      if (boundary === 'scope-repair') evidence.spec.scope = { status: 'repair_required' };
+      if (boundary === 'complete') {
+        evidence.issue.state = 'CLOSED';
+        evidence.verification = { status: 'pass', current: true };
+        evidence.pullRequest = { state: 'MERGED' };
+      }
+      const expected = inferLifecycle(evidence).nextAction;
+      for (const state of ['resumable', 'loop-recovery-available', 'recovery-consumed', 'blocked']) {
+        evidence.recovery = { state, action: 'Repair checkpoint ownership.' };
+        expect(inferLifecycle(evidence).nextAction).toEqual(expected);
+      }
+    },
+  );
+
   it('recommends write-spec when the first ready issue has no approved spec', () => {
     const status = inferLifecycle(baseEvidence({ spec: null }));
     expect(status.stage).toBe('ready');

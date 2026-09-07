@@ -559,7 +559,8 @@ export function inferLifecycle(evidence) {
     nextAction = { command: '/sdlc-draft-issue', reason: 'no active issue', manualRepairRequired: false };
   }
 
-  if (evidence.recovery && !['absent', 'completed'].includes(evidence.recovery.state)) {
+  if (['specified', 'implementing', 'verified', 'review', 'delivery-validation-pending'].includes(stage)
+    && evidence.recovery && !['absent', 'completed'].includes(evidence.recovery.state)) {
     const blocked = ['blocked', 'recovery-consumed'].includes(evidence.recovery.state);
     nextAction = {
       command: blocked ? evidence.recovery.action : '/sdlc-execute',

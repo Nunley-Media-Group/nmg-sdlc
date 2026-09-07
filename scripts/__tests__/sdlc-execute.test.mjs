@@ -3065,6 +3065,18 @@ describe('runExecute controller', () => {
     return fixture;
   }
 
+  it('refuses leftover non-current issue agents without consuming recovery', () => {
+    const fixture = exhaustedRecoveryFixture();
+    fixture.herdr.listAgents = () => [{ name: 's42-start', pane_id: 'leftover-pane', state: 'idle' }];
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr })).toMatchObject({
+      state: 'blocked', reasonCode: 'retained_worker_mismatch',
+    });
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).recoveries).toBeUndefined();
+  });
+
   it('bare recovery dispatches once for legacy attempt 13 and cannot replay after failure or churn', () => {
     const fixture = exhaustedRecoveryFixture();
     expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }).state).toBe('loop-recovery-available');
