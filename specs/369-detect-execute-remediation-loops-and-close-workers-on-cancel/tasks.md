@@ -47,14 +47,17 @@
 - [ ] Use the shared termination contract across supervisor, command verification, smoke command supervision, and OMP exercises; preserve platform selection and fail-closed cleanup errors.
 - [ ] AC3/AC4: a validated passed delivery handoff escapes a stopped remediation checkpoint through the existing exact-head merge and issue-closure checks.
 - [ ] Preserve execute usage exit status 2 and assert unexpected-controller-loss descendant death before fixture teardown.
+- [ ] AC6: whole invoking-job process-tree cancellation cannot kill the reparented supervisor; no controller starts before bootstrap exit, and authenticated connection loss triggers owned cleanup.
 
 ### T006: Repair live scope evidence interoperability
-**File(s)**: scripts/issue-spec-scope.mjs, scripts/verification-readiness.mjs, scripts/sdlc-finalize-verification.mjs, scripts/__tests__/verification-readiness.test.mjs, scripts/__tests__/sdlc-finalize-verification.test.mjs
+**File(s)**: scripts/issue-spec-scope.mjs, scripts/verification-readiness.mjs, scripts/sdlc-finalize-verification.mjs, scripts/sdlc-deliver.mjs, scripts/__tests__/verification-readiness.test.mjs, scripts/__tests__/sdlc-finalize-verification.test.mjs, scripts/__tests__/sdlc-deliver.test.mjs, workflows/verify-code/WORKFLOW.md
 **Type**: Modify
 **Acceptance**:
 - [ ] AC11: canonical named scenarios in implicit single-issue scopes pass readiness; numbered scenario requirements for explicit manifests, exact scope matching, malformed-name rejection, and duplicate rejection remain enforced.
 - [ ] A safe local unverifiable report can enter bounded verify remediation without waiving report validation, branch publication, or genuine external intervention.
 - [ ] Preserve the first smoke failure evidence and prove the unchanged #93 report under the plugin fix before retrying that same unconsumed queue.
+- [ ] Finalization and delivery compare against freshly resolved complete scope; stale same-issue markers cannot publish or enter delivery.
+- [ ] Follow `skill-creator` for workflow synchronization and preserve the controller-owned handoff boundary.
 
 ## Behavior evidence mapping
 
@@ -68,3 +71,5 @@ Behavior for steering/extensions/nmg-sdlc-smoke.mjs: apply shared process superv
 Behavior for scripts/issue-spec-scope.mjs: expose one canonical scenario identity contract for numbered and implicit named scenarios.
 Behavior for scripts/verification-readiness.mjs: accept resolver-produced implicit scenario identities while rejecting malformed, duplicate, and mismatched scope evidence.
 Behavior for scripts/sdlc-finalize-verification.mjs: route safe local report evidence errors to bounded repair without producing a passed handoff or publishing unready evidence.
+Behavior for scripts/sdlc-deliver.mjs: reject verification markers that disagree with current canonical issue scope before protected delivery mutation.
+Behavior for workflows/verify-code/WORKFLOW.md: direct safe local report-evidence failures into bounded controller-owned remediation while retaining genuine intervention boundaries.

@@ -10,7 +10,7 @@
 
 Keep the existing ordered lifecycle, fresh remediation worker, and validated handoff contracts. Stop a same-issue/same-step remediation streak after two completed unsuccessful remediation workers, before allocating a third. A completed step resets its streak; no elapsed-time deadline or run-wide attempt cap is introduced.
 
-Cancellation must work while the synchronous controller is blocked in a Herdr child command. The public CLI delegates to an asynchronous, invocation-owned supervisor outside the invoking job's process group. The supervisor runs the existing synchronous controller in its own owned child process group. Signals and loss of the invoking job's IPC connection cancel the owned controller group, then close checkpoint-owned Herdr panes and persist cancellation before releasing its exact lease. The supervisor exits after its invocation; it is not a plugin service. Library callers retain the synchronous runExecute API.
+Cancellation must work while the synchronous controller is blocked in a Herdr child command, including when the invoking harness kills its whole process tree. Before starting any controller or worker, a short-lived Node bootstrap hands the asynchronous supervisor to the operating system and exits; the launcher must observe that exit before authorizing work. A one-time authenticated loopback channel preserves invoking-job lifetime detection after reparenting. Signals and connection loss cancel the owned controller group, then close checkpoint-owned Herdr panes and persist cancellation before releasing its exact lease. The supervisor exits after its invocation; it is not a persistent plugin service. Library callers retain the synchronous runExecute API.
 
 ## State transitions
 
@@ -42,6 +42,8 @@ After terminating the owned group, drain or close its owned streams and preserve
 ## Canonical report scope
 
 The scope resolver already emits stable `SCN` tags for explicitly identified scenarios and `SCENARIO:<name>` identities for untagged implicit single-issue specs. Export and reuse that scenario identity validation instead of giving readiness a narrower grammar. Named identities remain unavailable to explicit ownership manifests. Keep exact normalized scope comparisons, array uniqueness, and all evidence/publication checks. A safe report that is locally unverifiable remains unpassed and can be regenerated through bounded verification remediation; it is not automatically an external-authority intervention.
+
+Finalization and every delivery readiness recheck obtain the current canonical scope from the actual project and active spec, then compare the report against that complete projection. Missing or ambiguous live authority cannot be replaced by an empty scope. Synchronize `workflows/verify-code/WORKFLOW.md` with safe report repairability under the required skill-authoring contract.
 
 ## Files and interfaces
 

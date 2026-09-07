@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
@@ -24,6 +25,36 @@ function alive(pid) {
   }
 }
 
+function descendantTree(rootPid) {
+  const snapshot = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' });
+  if (snapshot.status !== 0) throw new Error(snapshot.stderr);
+  const parents = snapshot.stdout.trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
+  const owned = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [pid, ppid] of parents) {
+      if (owned.has(ppid) && !owned.has(pid)) {
+        owned.add(pid);
+        changed = true;
+      }
+    }
+  }
+  return [...owned];
+}
+
+async function refusesConnection(port) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: '127.0.0.1', port });
+    socket.once('connect', () => { socket.destroy(); resolve(false); });
+    socket.once('error', (error) => {
+      socket.destroy();
+      if (error.code === 'ECONNREFUSED') resolve(true);
+      else resolve(false);
+    });
+  });
+}
+
 function git(cwd, args) {
   const result = spawnSync('git', args, {
     cwd, encoding: 'utf8', env: {
@@ -35,7 +66,10 @@ function git(cwd, args) {
   return result.stdout.trim();
 }
 
-async function fixture({ pending = false, retain = false, closeFailure = false, inheritedPipes = false, groupFailure = false } = {}) {
+async function fixture({
+  pending = false, retain = false, closeFailure = false, inheritedPipes = false, groupFailure = false,
+  holdBootstrap = false, startupFailure = false, probePeer = false, waitForController = true, outsideHerdr = false,
+} = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
   const runtime = path.join(root, '.omp/sdlc');
   const bin = path.join(runtime, 'bin');
@@ -71,6 +105,12 @@ async function fixture({ pending = false, retain = false, closeFailure = false, 
   const leasePath = path.join(runtime, 'controller.lock');
   const marker = path.join(runtime, 'waiting.json');
   const closedPath = path.join(runtime, 'closed.jsonl');
+  const supervisorPath = path.join(runtime, 'supervisor.json');
+  const bootstrapReady = path.join(runtime, 'bootstrap-ready');
+  const bootstrapRelease = path.join(runtime, 'bootstrap-release');
+  const controllerStarted = path.join(runtime, 'controller-started.json');
+  const peerRefused = path.join(runtime, 'peer-refused');
+  const extraClosed = path.join(runtime, 'extra-closed');
   fs.writeFileSync(runPath, JSON.stringify(checkpoint));
   const command = (name, content) => {
     const file = path.join(bin, name);
@@ -80,6 +120,44 @@ async function fixture({ pending = false, retain = false, closeFailure = false, 
   const preload = path.join(bin, 'controller-fixture.mjs');
   fs.writeFileSync(preload, `
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import { createConnection } from 'node:net';
+if (process.argv[2] === 'bootstrap') {
+  if (${holdBootstrap}) {
+    const hold = setInterval(() => {
+      if (fs.existsSync(${JSON.stringify(bootstrapRelease)})) clearInterval(hold);
+    }, 20);
+    process.once('disconnect', () => fs.writeFileSync(${JSON.stringify(bootstrapReady)}, String(process.pid)));
+  }
+  if (${probePeer}) {
+    const port = Number(process.env.SDLC_EXECUTE_BRIDGE_PORT);
+    await new Promise((resolve, reject) => {
+      const intruder = createConnection({ host: '127.0.0.1', port });
+      intruder.once('error', reject);
+      intruder.once('connect', () => intruder.write(JSON.stringify({ type: 'authenticate', nonce: 'wrong' })+'\\n'));
+      intruder.once('data', () => reject(new Error('Unauthenticated peer was accepted')));
+      intruder.once('close', () => {
+        fs.writeFileSync(${JSON.stringify(peerRefused)}, '');
+        resolve();
+      });
+    });
+    const extra = createConnection({ host: '127.0.0.1', port });
+    extra.on('error', () => {});
+    extra.once('close', () => fs.writeFileSync(${JSON.stringify(extraClosed)}, ''));
+  }
+}
+if (process.argv[2] === 'supervisor') {
+  fs.writeFileSync(${JSON.stringify(supervisorPath)}, JSON.stringify({
+    pid: process.pid, bootstrapPid: process.ppid, port: Number(process.env.SDLC_EXECUTE_BRIDGE_PORT),
+  }));
+  if (${startupFailure}) process.exit(17);
+}
+if (process.argv[2] === 'controller') {
+  fs.writeFileSync(${JSON.stringify(controllerStarted)}, JSON.stringify({
+    pid: process.pid, supervisorPid: process.ppid,
+    bridgeSecretsPresent: ['SDLC_EXECUTE_BRIDGE_PORT', 'SDLC_EXECUTE_BRIDGE_NONCE'].some(key => key in process.env),
+  }));
+}
 if (${inheritedPipes} && process.argv[2] === 'controller') {
   const pipeHolder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -123,7 +201,7 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
     cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
       ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --import=${pathToFileURL(preload).href}`,
-      HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller-pane',
+      HERDR_ENV: outsideHerdr ? '0' : '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller-pane',
     },
   });
   let stdout = '';
@@ -132,22 +210,36 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
   child.stderr.on('data', chunk => { stderr += chunk; });
   const done = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr })));
   const value = { root, runtime, child, done, runPath, leasePath, marker,
+    supervisorPath, bootstrapReady, bootstrapRelease, controllerStarted, peerRefused, extraClosed,
     readRun: () => JSON.parse(fs.readFileSync(runPath, 'utf8')),
     closed: () => fs.existsSync(closedPath) ? fs.readFileSync(closedPath, 'utf8').trim().split('\n').map(JSON.parse) : [],
   };
   fixtures.push(value);
-  await until(() => {
-    if (child.exitCode !== null) throw new Error(`CLI exited before blocking: ${stdout}${stderr}`);
-    return fs.existsSync(marker);
-  }, 'the actual controller entering its blocking external command');
-  value.waiting = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  value.waitForController = async () => {
+    await until(() => {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`CLI exited before blocking: ${stdout}${stderr}`);
+      return fs.existsSync(marker);
+    }, 'the actual controller entering its blocking external command');
+    value.waiting = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  };
+  if (waitForController) await value.waitForController();
   return value;
 }
 
 afterEach(async () => {
   for (const value of fixtures.splice(0)) {
+    fs.writeFileSync(value.bootstrapRelease, '');
     if (value.child.exitCode === null && value.child.signalCode === null) value.child.kill('SIGTERM');
     await value.done;
+    if (fs.existsSync(value.supervisorPath)) {
+      const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
+      // Exact fixture-recorded PIDs only; these are fallback cleanup, never proof.
+      for (const pid of [supervisor.bootstrapPid, supervisor.pid]) {
+        try { process.kill(pid, 'SIGKILL'); } catch (error) {
+          if (error.code !== 'ESRCH') throw error;
+        }
+      }
+    }
     // Each PID came from this fixture's own blocked command, never from another session.
     if (value.waiting) {
       try { process.kill(-value.waiting.controllerPid, 'SIGKILL'); } catch (error) {
@@ -165,6 +257,95 @@ afterEach(async () => {
 
 const posix = process.platform === 'win32' ? describe.skip : describe;
 posix('execute CLI cancellation during real blocking commands', () => {
+  it('survives host cancellation of the invoking process tree after bootstrap exit', async () => {
+    const value = await fixture({ inheritedPipes: true });
+    const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
+    value.foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true, stdio: 'ignore',
+    });
+    // Capture only this fixture launcher's descendants using OS ancestry, not
+    // process groups. The old detached direct child dies in this exact sweep.
+    const captured = descendantTree(value.child.pid);
+    for (const pid of captured) {
+      try { process.kill(pid, 'SIGKILL'); } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
+    expect((await value.done).signal).toBe('SIGKILL');
+    await until(() => value.readRun().failed?.reasonCode === 'controller_cancelled'
+      && !fs.existsSync(value.leasePath), 'automatic owned cleanup after host tree cancellation');
+    expect(captured).not.toContain(supervisor.pid);
+    expect(captured).not.toContain(value.waiting.controllerPid);
+    expect(value.closed()).toEqual(['owned-worker']);
+    expect(value.readRun().workers['s42-implement']).toBeUndefined();
+    expect(value.readRun().workers['r42-verify'].runId).toBe('foreign-run');
+    await until(() => [supervisor.pid, value.waiting.controllerPid, value.waiting.pid, value.waiting.pipePid]
+      .every(pid => !alive(pid)), 'the daemon and its owned descendants exiting before teardown');
+    expect(alive(value.foreign.pid)).toBe(true);
+    expect(await refusesConnection(supervisor.port)).toBe(true);
+  }, 30_000);
+
+  it.each(['bootstrap-loss', 'daemon-startup'])('fails %s before creating controller ownership', async (failure) => {
+    const value = await fixture({
+      holdBootstrap: failure === 'bootstrap-loss', startupFailure: failure === 'daemon-startup',
+      waitForController: false,
+    });
+    const before = fs.readFileSync(value.runPath, 'utf8');
+    await until(() => fs.existsSync(value.supervisorPath), 'the fixture supervisor starting');
+    const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
+    if (failure === 'bootstrap-loss') {
+      await until(() => fs.existsSync(value.bootstrapReady), 'authenticated readiness before bootstrap loss');
+      process.kill(supervisor.bootstrapPid, 'SIGKILL');
+    }
+    const result = await value.done;
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('controller_supervisor_startup_failed');
+    expect(fs.existsSync(value.controllerStarted)).toBe(false);
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
+    expect(value.closed()).toEqual([]);
+    await until(() => !alive(supervisor.pid) && !alive(supervisor.bootstrapPid), 'failed startup processes exiting');
+    expect(await refusesConnection(supervisor.port)).toBe(true);
+  }, 30_000);
+
+  it('rejects unauthenticated peers without surrendering invocation ownership', async () => {
+    const value = await fixture({ probePeer: true, holdBootstrap: true, waitForController: false });
+    await until(() => fs.existsSync(value.bootstrapReady), 'the ready bootstrap held before exit');
+    const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
+    const unsafeTree = descendantTree(value.child.pid);
+    expect(unsafeTree).toContain(supervisor.bootstrapPid);
+    expect(unsafeTree).toContain(supervisor.pid);
+    expect(fs.existsSync(value.controllerStarted)).toBe(false);
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    fs.writeFileSync(value.bootstrapRelease, '');
+    await value.waitForController();
+    expect(alive(supervisor.bootstrapPid)).toBe(false);
+    expect(fs.existsSync(value.peerRefused)).toBe(true);
+    expect(fs.existsSync(value.extraClosed)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(value.controllerStarted, 'utf8')).bridgeSecretsPresent).toBe(false);
+    expect(await refusesConnection(supervisor.port)).toBe(true);
+    value.child.kill('SIGTERM');
+    expect((await value.done).code).toBe(143);
+    expect(value.readRun().failed.reasonCode).toBe('controller_cancelled');
+    expect(value.closed()).toEqual(['owned-worker']);
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    await until(() => !alive(supervisor.pid) && !alive(value.waiting.pid), 'authenticated owner cleanup');
+  }, 30_000);
+
+  it('releases the daemon and listener after an ordinary controller error result', async () => {
+    const value = await fixture({ outsideHerdr: true, waitForController: false });
+    const result = await value.done;
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain('execute requires a Herdr OMP session');
+    expect(result.stderr).toBe('');
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    expect(value.readRun().failed).toBeNull();
+    expect(value.closed()).toEqual([]);
+    const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
+    await until(() => !alive(supervisor.pid) && !alive(supervisor.bootstrapPid), 'normal daemon completion');
+    expect(await refusesConnection(supervisor.port)).toBe(true);
+  }, 30_000);
+
   it.each([false, true])('cleans descendants after direct controller SIGKILL (inherited pipes: %s)', async (inheritedPipes) => {
     const value = await fixture({ inheritedPipes });
     value.foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {

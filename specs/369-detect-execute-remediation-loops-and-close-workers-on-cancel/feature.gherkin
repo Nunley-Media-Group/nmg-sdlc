@@ -169,3 +169,19 @@ Feature: Progress-bounded execute remediation and owned cancellation
     And bounded verification remediation can regenerate the report
     And publication and advancement require a subsequently validated report
     And unsafe paths or genuinely incomplete external evidence remain intervention conditions
+
+  @AC6
+  Scenario: Survive complete invoking-job tree cancellation
+    Given the invocation bootstrap has exited and the supervisor is reparented
+    And execute owns a live worker
+    When the harness kills the complete invoking-job process tree
+    Then the surviving supervisor observes authenticated connection loss
+    And it closes the owned worker and records controller_cancelled before releasing its lease
+    And unrelated review workers remain alive
+
+  @AC11
+  Scenario: Recheck live scope before publication and delivery
+    Given a same-issue verification marker omits a current canonical obligation
+    When finalization or delivery rechecks the live spec
+    Then the stale marker is rejected before protected mutation
+    And no passed handoff or delivery progression is produced

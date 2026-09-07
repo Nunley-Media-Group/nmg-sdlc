@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { inspectVerificationReadiness } from './verification-readiness.mjs';
+import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
+import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 
@@ -74,9 +76,25 @@ function finalizeVerificationUnlocked({
   const stat = fs.lstatSync(absoluteReport);
   if (!stat.isFile() || stat.isSymbolicLink()) return fail('verification_report_invalid', `Verification report is unsafe for #${issueNumber}`);
 
+  const selectedSpec = resolveSpecDir(root, issueNumber);
+  if (selectedSpec !== resolve(root, specPath) || !isSpecApproved(selectedSpec, issueNumber)) {
+    return fail('spec_not_approved', `Approved singular spec authority is unavailable for #${issueNumber}`);
+  }
+  const scope = inspectIssueSpecScope({
+    projectRoot: root,
+    issueNumber,
+    specPath,
+  }, {
+    lstat: (filePath) => fs.lstatSync(filePath),
+    readFile: (filePath) => fs.readFileSync(filePath, 'utf8'),
+  });
+  if (!['scoped', 'implicit_single_issue'].includes(scope.status)) {
+    return fail('spec_not_approved', `Live spec scope is unavailable for #${issueNumber}: ${scope.reasonCode}`);
+  }
+
   const readiness = inspectVerificationReadiness({
     content: fs.readFileSync(absoluteReport, 'utf8'),
-    options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath },
+    options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath, expectedScope: scope },
   });
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
     const remediableReport = readiness.status === 'unverifiable'

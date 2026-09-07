@@ -197,9 +197,11 @@ Blocked/intervention handoffs stop immediately. Missing approval, unavailable cr
 
 Resume the **same issue queue**, in the same project. Completed stages are skipped and matching owned workers are reused instead of duplicated. Do not change the queue or remove the checkpoint to sidestep an unfinished run.
 
-Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The invocation supervisor remains responsive while the controller is blocked in an external wait; invoking-job loss also triggers owned cleanup. It terminates only the owned controller process group, closes its recorded worker panes, and persists `controller_cancelled`. Pending prompts are not an exemption from cancellation cleanup. Unrelated panes and the Herdr server remain untouched.
+Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The invocation supervisor remains responsive while the controller is blocked in an external wait. Before work starts, a short-lived bootstrap exits and leaves the supervisor outside the invoking process tree; an authenticated local connection detects invoking-job loss. It terminates only the owned controller process group, closes its recorded worker panes, and persists `controller_cancelled`. Pending prompts are not an exemption from cancellation cleanup. Unrelated panes and the Herdr server remain untouched.
 
 Unexpected controller death is also a failure, not completion. Remaining owned subprocesses must be terminated even if their parent has already exited; a surviving descendant or open output pipe is not proof that the controller is still healthy. Cleanup failures preserve diagnostic ownership instead of releasing it as successful cleanup.
+
+The supervisor ends with its invocation; it is not a persistent plugin service. Whole-process-tree cancellation is covered for standard POSIX reparenting. Windows Job Object termination and custom child-subreaper topologies are not covered by that guarantee.
 
 `--retain-worker` keeps the worker pane on stop/cancellation for inspection; it does not keep the controller running or turn failure into success. A retained worker must match its recorded name, pane, project, run, issue, step, branch, and head before reuse. Close or persistence failures retain ownership evidence for recovery.
 
