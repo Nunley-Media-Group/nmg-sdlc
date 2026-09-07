@@ -1,0 +1,92 @@
+**Issue**: #369
+**Date**: 2026-09-06
+**Status**: Approved
+**Author**: NMG
+
+Feature: Progress-bounded execute remediation and owned cancellation
+  As an operator running execute
+  I want autonomous repairs to advance the pipeline and cancellation to stop owned work
+  So that a failed stage cannot consume unbounded work
+
+  @AC1
+  Scenario: Start one repair before checking its outcome
+    Given an incomplete remediable step has a settled failed non-intervention handoff
+    When execute continues
+    Then it starts one remediation worker
+    And it observes that worker before starting another
+
+  @AC2
+  Scenario: Stop after two unsuccessful remediations
+    Given two remediations have finished for the same issue and step
+    And currentStep and completed have not advanced
+    When execute would otherwise start another remediation
+    Then it records remediation_loop and stopped remediation
+    And it closes controller-owned worker panes
+    And it starts no third remediation
+    And reinvocation with unchanged evidence remains stopped
+
+  @AC3
+  Scenario Outline: Preserve a genuine stop across resume
+    Given a settled handoff has status <status> and intervention <intervention>
+    When execute observes it and is subsequently reinvoked unchanged
+    Then it starts no remediation worker
+    And it does not reinterpret that handoff as permission to rewind
+
+    Examples:
+      | status  | intervention |
+      | blocked | false        |
+      | failed  | true         |
+      | passed  | true         |
+
+  @AC4
+  Scenario: Continue after repaired success
+    Given a remediation finishes with a valid passed non-intervention handoff
+    When execute records that step in completed
+    Then it advances currentStep and clears the no-progress streak
+    And it continues the remaining pipeline
+
+  @AC5
+  Scenario Outline: Apply progress detection to every remediable stage
+    Given the current step is <step>
+    And two remediation workers finish without advancing the step
+    When execute checks progress
+    Then it stops with remediation_loop before starting a third repair
+
+    Examples:
+      | step      |
+      | implement |
+      | review1   |
+      | fix1      |
+      | review2   |
+      | fix2      |
+      | verify    |
+      | deliver   |
+
+  @AC6
+  Scenario Outline: Cancel while an external wait blocks the controller
+    Given execute owns a worker pane and is blocked in an external command
+    And retain-worker was not passed
+    When cancellation occurs through <source>
+    Then the owned controller process group stops
+    And the owned worker pane closes
+    And the latest run checkpoint records controller_cancelled
+    And unrelated worker panes remain untouched
+
+    Examples:
+      | source             |
+      | SIGINT             |
+      | SIGTERM            |
+      | invoking job death |
+
+  @AC6
+  Scenario: Cleanup includes a worker whose prompt has not activated
+    Given execute owns a pending or activating worker pane
+    When execute is cancelled
+    Then it closes that pane and records cancellation
+
+  @AC7
+  Scenario: Retain a worker explicitly
+    Given execute was invoked with retain-worker
+    When it stops or is cancelled
+    Then its owned worker pane remains open
+    And the stopped or cancelled checkpoint remains recorded
