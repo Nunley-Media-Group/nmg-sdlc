@@ -279,6 +279,15 @@ Shared rule `reconcileStagePublication({ cwd, issue, step, expectedSubject, allo
 
 Subjects: implement = the existing conventional implement subject; fix1/fix2 = `fix: apply review1 findings for #<N>` / `review2`; verify = `docs: record verification for #<N>`; deliver-side PR evidence = `docs: record PR evidence for #<N>`.
 
+Scope parsing clarification (AC4/AC10, T002/T003): use only `File(s)` declarations
+under task identifiers admitted by the existing live-scope adapter. Accept plain
+and backtick paths separated by commas or semicolons, with parenthetical
+annotations kept outside path authority. Exclude entries marked delivery owner
+only from implementation/fix scope. Reject malformed or ambiguous declarations
+and unsafe paths rather than extracting path-looking words from descriptions.
+Verification remains restricted to its report; no caller-supplied allowlist or
+approved-package rewrite is a substitute for parsing the supported format.
+
 Never change Fail/Partial/Incomplete to Pass.
 
 Automatic publication stays inside the owning stage helper/workflow: reconcile

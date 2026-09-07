@@ -719,6 +719,41 @@ function validPublicationPath(file) {
     && file !== '.omp' && !file.startsWith('.omp/');
 }
 
+function publicationFileEntries(value) {
+  const entries = [];
+  let pathText = '';
+  let notes = '';
+  let parentheses = 0;
+  let quoted = false;
+  const finish = () => {
+    // Parse the whole declaration, never mine paths from surrounding prose.
+    const match = /^(?:plus new\s+)?(?:`([^`]+)`|([^\s`(),;]+))$/.exec(pathText.trim());
+    const declared = match?.[1] ?? match?.[2];
+    if (!declared || !validPublicationPath(declared)
+      || (!match[1] && !/[/.]/.test(declared) && !/^[A-Z][A-Z0-9_-]*$/.test(declared))) {
+      throw safeError('publication_scope_unproven');
+    }
+    if (!/\bdelivery[- ]owner\s+only\b/i.test(notes)) entries.push(declared);
+    pathText = '';
+    notes = '';
+  };
+  for (const character of value) {
+    if (character === '`') quoted = !quoted;
+    if (!quoted && character === '(') {
+      parentheses += 1;
+      pathText += parentheses === 1 ? ' ' : '';
+    } else if (!quoted && character === ')') {
+      if (--parentheses < 0) throw safeError('publication_scope_unproven');
+    } else if (!quoted && parentheses === 0 && /[,;]/.test(character)) {
+      finish();
+    } else if (parentheses > 0) notes += character;
+    else pathText += character;
+  }
+  if (quoted || parentheses !== 0) throw safeError('publication_scope_unproven');
+  finish();
+  return entries;
+}
+
 // Only task identifiers admitted by the existing live-scope adapter contribute
 // path authority. Callers cannot supply an asserted allowlist through the CLI.
 export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step, run = defaultRun } = {}) {
@@ -743,25 +778,7 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
     if (heading) active = scope.delivery.tasks.includes(heading[1]);
     else if (/^#{1,3} /.test(line)) active = false;
     if (active && /^\*\*File\(s\)\*\*:/.test(line)) {
-      let parentheses = 0;
-      let start = -1;
-      for (let index = 0; index < line.length; index += 1) {
-        const character = line[index];
-        if (character === '`') {
-          if (start < 0) start = index + 1;
-          else {
-            if (parentheses === 0) {
-              const declared = line.slice(start, index);
-              if (!validPublicationPath(declared)) throw safeError('publication_scope_unproven');
-              patterns.add(declared);
-            }
-            start = -1;
-          }
-        } else if (start < 0 && character === '(') parentheses += 1;
-        else if (start < 0 && character === ')') parentheses -= 1;
-        if (parentheses < 0) throw safeError('publication_scope_unproven');
-      }
-      if (start >= 0 || parentheses !== 0) throw safeError('publication_scope_unproven');
+      for (const declared of publicationFileEntries(line.slice(line.indexOf(':') + 1))) patterns.add(declared);
     }
   }
   const result = run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...patterns], { cwd });

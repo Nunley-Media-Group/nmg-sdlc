@@ -324,6 +324,72 @@ describe('publication CLI lease ownership boundary', () => {
     return { ...f, bind };
   }
 
+  test('bind accepts approved plain and quoted File(s) lists without granting notes or out-of-task paths', () => {
+    const f = cliFixture();
+    f.put(`${spec}/tasks.md`, `**Issue**: #42
+**Status**: Approved
+
+### T001: Add opt-in composed-greeting brackets
+
+**File(s)**: src/nmg_sdlc_smoke/cli.py
+**Type**: Modify
+
+### T002: Cover enabled composition and omitted preservation
+
+**File(s)**: tests/features/add_nmg_smoke_brackets_flag.feature; tests/features/steps/test_brackets_steps.py
+**Type**: Create
+
+### T003: Document the flag and verify delivery behavior
+
+**File(s)**: README.md; CHANGELOG.md; VERSION (delivery owner only)
+**Type**: Modify
+
+### T004: Preserve quoted declarations
+
+**File(s)**: \`src/code.mjs\` (see \`notes.txt\`; not authority), \`deleted.txt\` (remove)
+**Notes**: \`prose.txt\`
+
+### T000: Not an admitted task identifier
+
+**File(s)**: unowned.txt
+
+## Execution Boundary
+
+**File(s)**: outside.txt
+`);
+    for (const file of ['VERSION', 'notes.txt', 'prose.txt', 'unowned.txt', 'outside.txt']) f.put(file, 'not implementation authority\n');
+    const result = f.bind();
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+    const publication = JSON.parse(result.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''));
+    expect(publication.allowedPaths).toEqual([
+      'CHANGELOG.md', 'README.md', 'deleted.txt', 'src/code.mjs', 'src/nmg_sdlc_smoke/cli.py',
+      ...['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md', 'verification-report.md'].map((file) => `${spec}/${file}`),
+      'tests/features/add_nmg_smoke_brackets_flag.feature', 'tests/features/steps/test_brackets_steps.py',
+    ].sort());
+    expect(reconcileStagePublication({
+      cwd: f.root, issue: 42, step: 'implement', ownerId: runId,
+      expectedSubject: 'feat: add brackets #42', allowedPaths: publication.allowedPaths, run: f.run,
+    })).toMatchObject({ passed: false });
+    expect(f.state().records).toEqual([]);
+  });
+
+  test.each([
+    'src/code.mjs; ../escape.txt',
+    '`src/code.mjs`; `../escape.txt`',
+    'src/code.mjs; update unrelated.txt',
+    'src/code.mjs; notes',
+    'src/code.mjs (unclosed',
+    '`src/code.mjs',
+    'src/code.mjs;; unrelated.txt',
+    'src/code.mjs; .omp/sdlc/run.json',
+  ])('bind rejects ambiguous or unsafe declarations: %s', (files) => {
+    const f = cliFixture();
+    f.put(`${spec}/tasks.md`, `**Issue**: #42\n**Status**: Approved\n\n### T001: Changes\n\n**File(s)**: ${files}\n`);
+    const result = f.bind();
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 1, stderr: 'publication_scope_unproven\n' });
+    expect(fs.existsSync(f.statePath)).toBe(false);
+  });
+
   test.each(['fresh', 'joined'])('binds the original controller through a %s lease without granting recovery credit', (mode) => {
     const f = cliFixture();
     const checkpoint = fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'));

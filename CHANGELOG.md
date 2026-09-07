@@ -17,6 +17,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Inspect mergeability against approved task scope and rerun stale gates after safe base reconciliation; distinguish automatic review from human authority and reconcile exact-head merge/linked closure without replay (#374).
 - Preserve complete source bare-recovery discovery, status, ownership, and one-shot predecessor compatibility without changing predecessor spec ownership or failure history (#374).
 - Resolve the smoke controller from the selected plugin root and propagate that root into clone execution, keeping candidate review-receipt inspection on the same isolation module identity and failing unresolved controllers before remote execution (#374).
+- Read approved task publication paths in plain or backtick form with comma/semicolon separators; reject ambiguous prose and unsafe paths, ignore annotations and out-of-task declarations, and exclude delivery-owner-only entries (#374).
 
 ## [3.21.0] - 2026-09-07
 

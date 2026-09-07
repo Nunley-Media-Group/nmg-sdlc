@@ -59,6 +59,14 @@ discovery/status contract in the source paths above, not only the execute
 implementation. Preserve predecessor spec ownership and failed evidence; do not
 claim predecessor delivery or issue closure.
 
+**Implementation clarification (AC4/AC10, T002/T003)**: Derive publication paths
+from approved task `File(s)` declarations in plain or backtick form, including
+comma/semicolon lists. Descriptions and parenthetical references are not path
+authority; delivery-owner-only entries are not implementation scope. Reject
+ambiguous declarations and traversal, retaining the existing live-task ownership
+gate. Prove exact paths and denied boundaries through the real publication CLI
+in a disposable Git repository without editing the originating approved package.
+
 ### T003: AC1–AC11 behavioral tests
 
 **File(s)**: `scripts/__tests__/sdlc-review-isolation.test.mjs` (create), `scripts/__tests__/extension-review-isolation.test.mjs` (create), `scripts/__tests__/sdlc-review-main.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-finalize-verification.test.mjs`, `scripts/__tests__/sdlc-apply-review.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/pr-delivery-state.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`, plus new `scripts/__tests__/sdlc-safe-recoveries.test.mjs`
