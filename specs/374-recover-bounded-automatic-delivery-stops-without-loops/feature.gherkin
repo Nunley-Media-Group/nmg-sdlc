@@ -1,0 +1,94 @@
+**Issue**: #374
+**Date**: 2026-09-07
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/
+
+# File: specs/374-recover-bounded-automatic-delivery-stops-without-loops/feature.gherkin
+#
+# Generated from: specs/374-recover-bounded-automatic-delivery-stops-without-loops/requirements.md
+Feature: Recover bounded automatic delivery stops without loops
+  Delivery stops that are reasonably expected to recover automatically
+  previously became whole-step intervention, hard failure, or fabricated
+  success. This was fixed by classifying each stop family and giving newly
+  safe classes a durable one-use recovery identity that cannot refill #369 or #372.
+
+  @SCN001 @regression
+  Scenario: Complete stop-class inventory
+    Given the execute, start/dispatch, implementation/fix, review, verification/publication, CI/bot review, exact-head merge/closure, and cleanup stop families
+    When the spec for this issue is approved
+    Then every family has exactly one disposition: a safe automatic action with preconditions and proof, existing adequate handling that remains, or an explicit required-intervention rationale
+    And the inventory includes controller lease/cancel/process/cleanup/supervisor stops, pane/agent/prompt/process/ownership stops, checkpoint and identity mismatches, branch/dirty-tree/cleanup stops, handoff/remediation-loop/recovery-consumed stops, dependency and issue-graph stops, spec-authority stops, implementation/apply-review/review-artifact/review-failed/delivery-not-complete stops, verification report publication, mergeability defects, CI/bot review attribution, and post-merge observation and closure
+
+  @SCN002 @regression
+  Scenario: Invalid review slice is replaced, not escalated
+    Given a host review with an explicit issue/base/head/spec/assignment identity
+    And a reviewer that reads outside its assigned files
+    When execute observes that contamination
+    Then it discards the offending evidence, does not rewrite assigned scope, and launches at most one fresh bounded slice replacement for that review1 or review2 step under a durable one-use identity
+    And a second contamination or replacement failure for the same step stops fail-closed without converting historical interventions into success
+    And independently valid compliant slices are reused only with exact head/base/spec/scope identity proof
+
+  @SCN003 @regression
+  Scenario: Empty or missing review never becomes a pass
+    Given a missing host-review artifact or empty review output
+    When the review helper finalizes the step
+    Then it does not synthesize "No findings." or any passed handoff from empty or missing output
+    And the step remains failed or blocked with a distinct reason rather than a fabricated pass
+
+  @SCN004 @regression
+  Scenario: Verification report publication reconciles exact outcome
+    Given a locally produced verification report whose exact commit exists and whose push did not land, or whose exact commit is already on the expected upstream
+    When execute or verification finalization resumes
+    Then it publishes the known pending commit without a duplicate commit or force-push, or acknowledges the already-published exact state
+    And dirty partial, divergent, or unknown-ownership state stays stopped
+    And Fail/Partial/Incomplete non-pass status is never changed to escape the gate
+
+  @SCN005 @regression
+  Scenario: Remediable mergeability is not a hard merge failure
+    Given a delivery classifier result of remediable mergeability_defect for BEHIND, DIRTY, or CONFLICTING
+    When deliver runs
+    Then it performs only safe in-scope base/head reconciliation followed by fresh complete verification after any content or base change
+    And it does not treat that class as merge_failed solely because checks/threads handlers do not match
+    And it does not blindly resolve conflicts outside approved scope
+
+  @SCN006 @regression
+  Scenario: Automatic review is not treated as human changes_requested
+    Given a changes_requested or unresolved-thread event
+    When deliver classifies it
+    Then allow-listed bot or pathless automation is attributed as automatic and proceeds only with supported actionable evidence or an exact unresolved reason
+    And actual human review is never overridden, resolved, or converted into an automatic repair
+    And pathless automation is not relabeled as human review
+
+  @SCN007 @regression
+  Scenario: Post-merge observation reconciles before retry or failure
+    Given an exact-head squash merge command has been issued, or a generic transport error occurred around merge or close
+    When deliver decides success or failure
+    Then it reconciles remote exact expected PR, head, merge, and issue-closure identity with bounded read-only eventual-consistency recovery before retry or stop
+    And it never replays merge, never closes an unrelated issue, and never treats one premature observation as proof of failure when identity is still settling
+    And a merged PR whose linked issue remains open is either closed under proven workflow-owned scope or stopped as an external blocker after reconciliation
+
+  @SCN008 @regression
+  Scenario: Durable one-use recovery identities compose without loops
+    Given a newly classified safe stop class for a run/issue/step
+    When automatic recovery runs
+    Then it consumes a durable one-use identity for that class/run/issue/step before acting
+    And it does not refill #369 two-attempt same-step remediations or #372 one-shot exhausted-run recoveries
+    And work-dispatching recovery still requires semantic stage or diagnosed-condition advancement to count as progress
+    And identical repair packets are not repeated
+    And healthy active jobs have no wall-clock deadline
+
+  @SCN009 @regression
+  Scenario: Unproven and unsafe classes stay fail-closed
+    Given a stop class that cannot be proven safe, or a class listed as remaining forbidden
+    When execute observes it
+    Then it stays stopped with an explicit intervention rationale and does not invent an automatic action
+    And forbidden actions remain forbidden including rewriting historical intervention into eligibility, treating all nonzero exits as transport, auto-deleting dependency edges, auto-approving spec authority, stealing ownership, blind merge/close replay, replaying stopped smoke #96, and manufacturing a passed handoff
+
+  @SCN010 @regression
+  Scenario: No regression of existing bounded recovery and gates
+    Given existing #369 loop detection, #372 operator-authorized exhausted recovery, passed-handoff settlement, exact stale-lease and absent-worker reconciliation, pending-CI wait, contribution-gate body repair that stops on unchanged body, and exact-head publication/merge/closure gates
+    When this recovery protocol is added
+    Then those behaviors remain
+    And ordinary reinvocation still does not grant new #369 or #372 attempts
+    And reusable behavior stays programming-language, framework, stack, and OS agnostic
