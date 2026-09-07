@@ -7,81 +7,83 @@
 **Related Spec**: specs/369-detect-execute-remediation-loops-and-close-workers-on-cancel/
 
 ## Bug Report
-An operator cannot resume a legitimately abandoned delivery after repairing the cause of failure: the persisted remediation-loop stop survives a plugin upgrade, while lease recovery cannot authorize another attempt. Ordinary reinvocation must remain stopped, but an explicit audited operator action must safely authorize one real repair attempt.
+Bare /sdlc-execute cannot resume a branch's incomplete delivery automatically. It opens an issue picker, while an exhausted legacy remediation checkpoint cannot start recovery even after the cause of failure is fixed. The user requires no-parameter branch-local recovery and continued delivery without weakening loop protection.
 
 ## Root Cause Analysis
-The execute checkpoint gate in scripts/sdlc-execute.mjs rejects exhausted remediation history before launching a worker. --recover-stale only reclaims controller ownership. A passed handoff can advance, but no supported operator recovery command can launch the work required to produce it. Stale recorded panes may also produce pane_close_failed instead of confirmed-absence reconciliation.
+The public command always selects issues when no tokens remain. The execute checkpoint gate correctly preserves #369's exhausted retry history, but has no bounded, auditable bare-invocation recovery transition. --recover-stale reclaims ownership only. A previously recorded pane that no longer exists can also leave pane_close_failed.
 
-**User Confirmed**: Yes — operator requested fixing recovery and completing the abandoned delivery without another loop.
+**User Confirmed**: Yes. User requested: "When I run sdlc-execute with no params in a branch that is an incomplete execute run it should just automatically recover and continue delivery without weakening loop protection."
 
 ## Reproduction Steps
-1. Retain a delivery checkpoint with two or more completed remediations without stage advancement (observed legacy run: 13 attempts).
-2. Fix the underlying cause or install an updated plugin.
-3. Invoke execute for the same issue queue with --recover-stale.
-4. Observe successful stale-lease reclamation followed by remediation_loop, without resumed work.
+1. Retain an incomplete execute run on its linked feature branch (observed legacy case: 13 implementation remediation attempts).
+2. Fix the original failure or install an updated plugin.
+3. Invoke /sdlc-execute with no parameters.
+4. Observe issue selection rather than recovery; selecting the same issue still stops at the exhausted remediation gate.
 
 ## Expected Behavior
-The operator can inspect the exact stopped checkpoint and explicitly authorize one bounded retry with a recorded reason. Existing work and historical evidence survive. Ordinary resumes and upgrades never implicitly grant new attempts. A failed authorized attempt stops; passed work advances only through unchanged validation and delivery gates.
+Bare execute resolves the exact current branch's incomplete checkpoint, safely recovers demonstrably stale ownership and resumes its persisted queue without a picker or extra flags. For an exhausted loop stop it consumes one durable recovery allowance for that run/issue/step. If that recovery fails, repeated bare commands cannot regenerate the allowance. All historical evidence and downstream gates remain mandatory.
 
 ## Actual Behavior
-The controller stops before starting another worker and emits an opaque stop message. Its only documented escape requires an already-passed handoff.
+The command opens a picker, then the controller refuses exhausted state without a supported repair dispatch path.
 
 ## Environment
 | Factor | Value |
 |---|---|
-| OS / Platform | Observed macOS; required solution is project-, language-, and platform-agnostic |
-| Version / Commit | nmg-sdlc 3.21.0 |
+| OS / Platform | Observed macOS; solution must be project-, language-, and platform-agnostic |
+| Version | nmg-sdlc 3.21.0 |
 | Runtime | Node.js, Herdr OMP |
 
 ## Acceptance Criteria
-### AC1: Explicit exact-checkpoint authorization
-**Given** a stopped remediation-loop checkpoint and an operator-provided reason
-**When** the operator authorizes retry using its current immutable recovery identity
-**Then** execute durably consumes that authorization once and launches at most one real repair worker, preserving the issue queue, work, completed stages, previous failures, and attempt history.
+### AC1: Bare execute resumes the current branch's incomplete run
+**Given** the current branch has one matching incomplete execute checkpoint
+**When** the user invokes /sdlc-execute with no parameters
+**Then** execute resolves and resumes that exact persisted issue queue and stage without a picker, issue tokens or recovery flags, preserving current work and completed stages; demonstrably stale ownership is recovered automatically, while live ownership is never stolen.
 
-### AC2: No implicit allowance or authorization replay
-**Given** a stopped run, a stale or consumed authorization, or the same authorization submitted concurrently
-**When** execute is invoked normally, with only stale-lease recovery, after an upgrade, or with the invalid authorization
-**Then** no new repair allowance is granted; at most one concurrent consumer may dispatch, and failure explains the exact current blocker and supported operator action.
+### AC2: Exhausted recovery is durable and cannot become a loop
+**Given** the matched checkpoint is an exhausted remediation-loop stop, including legacy attempt 13
+**When** bare execute first recovers that stopped run/issue/step
+**Then** it durably consumes exactly one recovery allowance before launching at most one repair worker, preserving every prior attempt and failure; duplicate, concurrent and later bare invocations cannot create a second allowance for that same unadvanced stage, including after commits, changed summaries, plugin upgrades or failed recovery.
 
-### AC3: Failed recovery stays bounded
-**Given** an authorized recovery worker
-**When** it fails without stage advancement or its dispatch becomes ambiguous
-**Then** no automatic follow-on remediation is started; the checkpoint and evidence remain available, and re-entry cannot replay the consumed attempt.
+### AC3: Failed or ambiguous recovery remains stopped
+**Given** the one authorized recovery has been consumed
+**When** its worker fails without stage advancement, its dispatch becomes ambiguous, or invocation/process loss occurs
+**Then** no automatic follow-on remediation or replay starts; the consumed allowance, ownership and evidence remain durable, and the output names the exact actionable blocker without recommending another unchanged retry.
 
-### AC4: Passed work completes normal delivery
-**Given** the authorized worker produces a genuinely validated passed handoff
-**When** execute processes it
-**Then** the normal remaining review, verification, exact-head publication, merge, and closure gates execute without any waiver; a subsequent stage retains the normal bounded remediation policy.
+### AC4: Validated recovery continues through delivery
+**Given** a resumed or recovery worker produces a genuinely validated passed handoff
+**When** execute advances the stage
+**Then** normal remaining reviews, fixes, verification, exact-head merge and issue closure continue without waiver; later stages retain normal bounded remediation, and genuine already-passed handoffs can settle without consuming recovery work.
 
-### AC5: Intervention and ownership remain fail-closed
-**Given** blocked/intervention evidence, mismatched queue or stage, an active controller or worker, ambiguous ownership, or unreadable Herdr evidence
-**When** retry is requested
-**Then** it does not bypass those blockers, mutate unrelated state, or launch duplicate workers. A positively confirmed absent recorded pane may be reconciled without pretending a live pane was closed; ambiguous or reused identities remain protected.
+### AC5: Branch, intervention and ownership stay fail-closed
+**Given** a mismatched/ambiguous checkpoint or branch, blocked/intervention evidence, live owner or worker, reused pane identity or unreadable Herdr evidence
+**When** bare recovery is attempted
+**Then** execute refuses unsafe adoption, never downgrades intervention and does not mutate unrelated state or duplicate workers; only positively confirmed absent owned panes may be reconciled as absent.
 
-### AC6: Discoverable and verified operator recovery
-**Given** a legacy exhausted run and the installed plugin
-**When** the operator inspects status or the stopped command result
-**Then** the output includes the stable reason, current recovery identity when eligible, and an exact supported retry command distinct from stale-lease recovery. Behavioral regressions, an actual isolated command exercise, and the registered fresh live-smoke delivery gate prove the change.
+### AC6: Discovery fallback and operator diagnostics remain complete
+**Given** there is no matching incomplete run and no conflicting or unreadable checkpoint
+**When** bare execute is invoked
+**Then** existing specified-issue selection remains available; completed runs are not reopened. When an incomplete run exists, status and stop output distinguish resumable, loop-recovery-available, recovery-consumed and blocked states with the exact next action. Behavioral regressions, an isolated actual command exercise and fresh registered smoke delivery prove the complete path.
 
 ## Functional Requirements
 | ID | Requirement | Priority |
 |---|---|---|
-| FR1 | Provide an explicit one-use recovery authorization bound to current run, issue, step, checkpoint and operator reason. | Must |
-| FR2 | Preserve accumulated history and normal two-remediation protection; no automatic retry of exhausted legacy runs. | Must |
-| FR3 | Keep intervention, ownership, cancellation, publication and exact-head gates fail-closed. | Must |
-| FR4 | Make failures actionable and reconcile only positively absent owned panes. | Must |
+| FR1 | Resolve bare execute from exact current-branch checkpoint before issue selection. | Must |
+| FR2 | Consume a single audited recovery allowance per exhausted run/issue/step before dispatch; preserve all attempt history. | Must |
+| FR3 | Do not regenerate allowance without actual stage advancement or convert intervention into retryable failure. | Must |
+| FR4 | Recover only proven stale/absent ownership and preserve every normal cancellation, publication and delivery gate. | Must |
+| FR5 | No new operator flags or manual token/reason workflow is required for bare recovery. | Must |
 
 ## Contract Precedence
-This issue adds an explicit operator-authorized exception to #369's unchanged reinvocation stop. It does not change ordinary reinvocation, legacy-attempt counting, or automatic retry limits.
+This issue adds the explicitly requested bare-command recovery transition to #369. Ordinary explicit-queue reinvocation and --recover-stale alone do not silently grant fresh retries. Automatic remediation still stops after its normal bound. Bare recovery is one additional persisted allowance, never reset by command reinvocation, summary/commit churn or upgraded code.
 
 ## Out of Scope
-- PennyScan product code, trading, live profiles, or broker/service mutations.
-- Removing checkpoints, clearing attempt history, editing passed handoffs, bypassing gates, or changing unrelated #360 state.
-- Unlimited retries, automatic authorization generation/consumption, extra strategy workers, or smoke-application backlog repair.
+- PennyScan product code, trading, live profiles or broker/service mutations.
+- Deleting checkpoints, clearing history, fabricating passed handoffs or altering unrelated #360 state.
+- Unlimited restart epochs, automatic recovery after a consumed failed attempt, extra classifier workers or smoke backlog repair.
 
 ## Change History
 
 | Issue | Date | Summary |
 |---|---|---|
 | #372 | 2026-09-07 | Initial defect specification authorized by the operator request to fix recovery and complete delivery without repeating a loop |
+| #372 | 2026-09-07 | User requires bare execute to recover the exact incomplete branch automatically; one durable recovery allowance per unadvanced stage, no flags or token workflow |

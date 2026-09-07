@@ -4,52 +4,54 @@
 **Author**: NMG
 **Related Spec**: specs/369-detect-execute-remediation-loops-and-close-workers-on-cancel/
 
-Feature: Bounded operator recovery of an exhausted delivery
-  Ordinary resume previously offered no explicit path out of a remediation loop.
-  A single-use checkpoint authorization permits one repair without weakening gates.
+Feature: Bare execute recovers the current incomplete delivery without looping
+  Bare execute previously selected issues instead of resuming the current branch.
+  One durable recovery allowance restores exhausted work without repeated attempts.
 
   @SCN001 @regression
-  Scenario: Explicit exact-checkpoint authorization
-    Given a legacy delivery stopped after 13 implementation attempts
-    And the operator supplies its current recovery identity and a reason
-    When execute consumes the authorized retry
-    Then exactly one repair worker may run
-    And the issue queue, prior attempts, work and completed stages are preserved
+  Scenario: Bare execute resumes the current branch's incomplete run
+    Given the current branch has one exact matching incomplete execute checkpoint
+    When the user invokes execute with no parameters
+    Then its persisted queue and stage resume without a picker or recovery flags
+    And only demonstrably stale ownership is recovered automatically
+    And work, prior evidence and completed stages are preserved
 
   @SCN002 @regression
-  Scenario: No implicit allowance or authorization replay
-    Given a stopped checkpoint with a consumed or stale recovery identity
-    When ordinary resume, stale-lease recovery, an upgrade or concurrent replay is attempted
-    Then no new repair allowance is granted
-    And no more than one consumer can dispatch the originally authorized attempt
+  Scenario: Exhausted recovery is durable and cannot become a loop
+    Given a legacy run stopped after 13 implementation attempts
+    When bare execute first recovers its exhausted stage
+    Then exactly one durable recovery allowance is consumed before at most one worker dispatch
+    And concurrent or repeated bare commands cannot create another allowance
+    And later commits, summaries, failures or plugin upgrades do not reset that allowance
 
   @SCN003 @regression
-  Scenario: Failed recovery stays bounded
-    Given an authorized recovery worker has been dispatched
-    When it fails without advancement or dispatch becomes ambiguous
-    Then no automatic follow-on remediation starts
-    And reentry cannot replay the consumed attempt
-    And the failed evidence remains available
+  Scenario: Failed or ambiguous recovery remains stopped
+    Given the recovery allowance for the current run issue and stage is consumed
+    When the worker fails or dispatch or invocation loss makes its outcome ambiguous
+    Then no automatic follow-on remediation or replay occurs
+    And ownership and failed evidence remain durable
+    And output reports the blocker without recommending another unchanged retry
 
   @SCN004 @regression
-  Scenario: Passed work completes normal delivery
-    Given an authorized recovery produces a validated passed handoff
+  Scenario: Validated recovery continues through delivery
+    Given a resumed worker produces a genuinely validated passed handoff
     When execute advances the stage
-    Then every remaining review, verification and exact-head delivery gate remains required
-    And the next stage retains its normal bounded remediation policy
+    Then all remaining normal review verification and exact-head delivery gates continue
+    And later stages retain their normal bounded remediation policy
+    And an existing valid passed handoff needs no new repair dispatch
 
   @SCN005 @regression
-  Scenario: Intervention and ownership remain fail-closed
-    Given retry encounters intervention, blocked evidence or uncertain ownership
-    When the operator supplies a recovery identity
-    Then execute refuses to bypass the blocker or launch duplicate work
-    And only positively absent recorded panes can be reconciled
-    And unrelated and reused pane identities remain protected
+  Scenario: Branch intervention and ownership stay fail-closed
+    Given checkpoint, intervention or ownership evidence prevents safe recovery
+    When bare execute is invoked
+    Then no unsafe adoption intervention downgrade or duplicate worker occurs
+    And only positively confirmed absent recorded panes are reconciled
 
   @SCN006 @regression
-  Scenario: Discoverable and verified operator recovery
-    Given an eligible exhausted checkpoint is inspected through the installed command surface
-    When the operator reads status or the stopped command result
-    Then output names the reason and current recovery identity with an exact retry command
-    And stale-lease recovery is distinguished from retry authorization
-    And actual isolated command and fresh registered smoke delivery evidence prove the contract
+  Scenario: Discovery fallback and operator diagnostics remain complete
+    Given no incomplete run or conflicting unreadable checkpoint exists
+    When bare execute is invoked
+    Then the existing specified-issue selection remains available
+    And completed runs are not reopened
+    And recovery status distinguishes available consumed and blocked work with actionable output
+    And an isolated actual command and fresh registered smoke delivery prove the path

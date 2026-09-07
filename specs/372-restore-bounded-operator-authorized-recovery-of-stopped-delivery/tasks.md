@@ -7,51 +7,54 @@
 **Related Spec**: specs/369-detect-execute-remediation-loops-and-close-workers-on-cancel/
 
 ## Summary
-Four ordered defect tasks cover runtime repair, regression proof, operator surface and managed verification/delivery.
+Four scoped tasks cover bare discovery/runtime repair, regressions, operator surface and final validation.
 
-### T001: Implement exact single-use recovery and safe ownership reconciliation
-**File(s)**: scripts/sdlc-execute.mjs; scripts/sdlc-status.mjs; scripts/sdlc-execute-supervisor.mjs only if needed; existing shared runtime helpers in src/ as required for one authoritative classifier.
+### T001: Implement exact-branch bare recovery and durable loop protection
+**File(s)**: scripts/sdlc-execute.mjs; scripts/sdlc-status.mjs; scripts/sdlc-execute-supervisor.mjs as needed; existing shared helpers in src/ as needed for one authoritative classifier.
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] AC1-AC5 preserve historical evidence and grant one exact authorized worker without an implicit allowance.
-- [ ] Consume before dispatch; stale/concurrent/replayed/mismatched authorization and persistence failure cannot launch duplicates.
-- [ ] Only positively absent pane ownership is reconciled; blocked, intervention, active and ambiguous owners stay protected.
-- [ ] Passed recovery advances through existing gates; failed or ambiguous recovery cannot start automatic follow-on repair.
+- [ ] AC1-AC5 resolve bare run to exact incomplete branch/queue, safely reclaim proven stale ownership, and preserve history/work/completed stages.
+- [ ] Exhausted recovery consumes once per run/issue/step before one dispatch; repeat/concurrent invocations, commits, summaries, upgrade or another failure cannot refresh it.
+- [ ] Persistence/dispatch/process-loss ambiguity stops without replay or automatic follow-on remediation.
+- [ ] Intervention, branch and ownership remain fail-closed; only positively absent panes are reconciled.
+- [ ] Passed handoffs settle and continue existing gates; later stages retain normal bounded policy.
 
-### T002: Add behavior-focused regressions and isolated command proof
-**File(s)**: scripts/__tests__/sdlc-execute.test.mjs; scripts/__tests__/sdlc-status.test.mjs; scripts/__tests__/sdlc-execute-supervisor.test.mjs as applicable; existing fixtures in scripts/__fixtures__/ only as needed.
+### T002: Prove bare recovery and failure boundaries
+**File(s)**: scripts/__tests__/sdlc-execute.test.mjs; scripts/__tests__/sdlc-status.test.mjs; scripts/__tests__/sdlc-execute-supervisor.test.mjs as applicable; existing scripts/__fixtures__/ only as needed.
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] AC1-AC6 and SCN001-SCN006 have observable evidence including legacy 13-attempt checkpoints and ownership/replay boundaries.
-- [ ] Focused reproduction fails before repair and passes afterward; actual isolated CLI proof records consumed-one-attempt behavior.
-- [ ] Existing loop, cancellation, usage and exact-head contracts remain covered without weakened assertions.
+- [ ] AC1-AC6 and SCN001-SCN006 have behavior evidence including legacy 13-attempt state and exact linked-branch identity.
+- [ ] Before/after regression proves the gap; actual isolated bare CLI exercise proves recovery dispatch once and no replay after failure/churn.
+- [ ] Cover clean absence selection fallback, completed/mismatched/unreadable state, intervention and active/absent/reused/unknown ownership without weakening existing tests.
 
-### T003: Publish actionable operator recovery guidance
-**File(s)**: commands/sdlc-execute.md; workflows/execute/; README.md; scripts/skill-inventory.baseline.json only when audit requires it; affected existing public-surface tests.
+### T003: Integrate the no-parameter public command and actionable diagnostics
+**File(s)**: commands/sdlc-execute.md; workflows/execute/; README.md; scripts/skill-inventory.baseline.json only if audit requires it; existing affected command/surface tests.
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] AC6 exposes eligible identity and exact retry command through stop/status, including cleanup blockers.
-- [ ] Resume, lease recovery and authorization are distinct; automation never self-authorizes retries.
-- [ ] Follow skill-creator for bundled edits and applicable inventory/surface/exercise checks.
+- [ ] Bare invocation resolves current incomplete run before picker and requires no extra operator flags, tokens or reason entry.
+- [ ] No incomplete run preserves normal selection; conflicting evidence fails closed rather than selecting another issue.
+- [ ] Status/stop distinguish resumable, one-time recovery, consumed recovery and blockers; no unchanged-repeat advice after consumed failure.
+- [ ] Follow skill-creator and applicable inventory/surface/exercise requirements for bundled changes.
 
-### T004: Verify and deliver the scoped controller repair
-**File(s)**: specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/verification-report.md; CHANGELOG.md; VERSION; package.json; minimal normal-workflow smoke fixture in the configured remote smoke repository.
+### T004: Verify and publish scoped implementation evidence
+**File(s)**: specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/verification-report.md; CHANGELOG.md; VERSION; package.json; normal-workflow minimal remote smoke fixture when required by the verification stage.
 **Type**: Modify
 **Depends**: T001, T002, T003
 **Acceptance**:
-- [ ] Complete simplification, full registered tests, applicable artifact checks, fresh invocation-bound smoke, two managed reviews/fixes and final scope/architecture verification.
-- [ ] Smoke changes are necessary plugin proof only; preserve failures and stop unchanged or two-attempt no-progress experiments.
-- [ ] Publish clean implementation with upstream equality, then standard exact-head PR merge and issue closure; publication is intermediate, not completion.
-- [ ] Preserve unrelated plugin #360 and PennyScan #137 state; actual PennyScan recovery is a later consumer action, not plugin proof.
+- [ ] Implementation is simplified and all implementation-owned checks pass with truthful evidence and clean commit/push/upstream equality.
+- [ ] Two managed reviews/fixes, full registered final verification with fresh invocation-bound smoke, and standard exact-head merge/closure complete in their owning stages.
+- [ ] Smoke proof is scoped to #372, preserves failures and stops unchanged or two-attempt no-progress experiments.
+- [ ] No installed-plugin edits or unrelated nmg-sdlc #360/PennyScan #137 state mutations occur.
 
-## Implementation Handoff Boundary
-T004 describes pipeline completion, not permission for implement to impersonate review/verify/deliver. The implementation worker completes T001-T003 and its implementation-owned simplification/tests/clean commit-push gates, records truthful evidence for downstream tasks, and hands off. The controller's review/fix/verify/deliver stages own their respective T004 gates. Do not loop in implement trying to open a PR or forge downstream completion.
+## Stage Ownership
+Implement completes T001-T003 and its own simplification/tests/commit-push evidence. It does not impersonate review, verify or deliver. T004's downstream gates are completed by the controller's owning stages; their absence during implementation is not permission to loop, fabricate handoffs or open a PR from implement.
 
 ## Change History
 
 | Issue | Date | Summary |
 |---|---|---|
 | #372 | 2026-09-07 | Initial defect specification authorized by the operator request to fix recovery and complete delivery without repeating a loop |
+| #372 | 2026-09-07 | User-directed bare recovery replaces manual authorization flags throughout acceptance and tests |
