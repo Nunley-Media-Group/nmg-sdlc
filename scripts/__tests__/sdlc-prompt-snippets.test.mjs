@@ -23,6 +23,7 @@ import {
 } from '../../src/sdlc-commands.mjs';
 import { VALID_STEPS } from '../sdlc-execute.mjs';
 import { workflowBody } from '../../src/sdlc-workflows.mjs';
+import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -140,13 +141,23 @@ describe('prompt snippet registry', () => {
     expect(rendered.text).not.toContain('{{pluginRoot}}');
   });
 
-  it('loads project snippets with Node when the extension host is not Node', () => {
+  it('loads project snippets with Node when the extension host is not Node', async () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-compiled-host-'));
-    fs.cpSync(path.join(repoRoot, 'steering'), path.join(projectRoot, 'steering'), { recursive: true });
-
     const originalExecPath = process.execPath;
-    process.execPath = path.join(os.tmpdir(), 'compiled-omp-host');
+    const policy = 'Keep issue delivery scoped to the approved project contract.';
     try {
+      await applySteeringPlan(projectRoot, createInitializePlan(projectRoot, {
+        snippets: [{
+          id: 'project.product',
+          path: 'steering/snippets/project-product.md',
+          consumers: ['sdlc-draft-issue'],
+          slot: 'body',
+          order: 500,
+          content: `${policy}\n`,
+        }],
+        validations: [],
+      }));
+      process.execPath = path.join(os.tmpdir(), 'compiled-omp-host');
       const rendered = rewriteInteractiveInput('/sdlc-draft-issue repair runtime loading', {
         source: 'interactive',
         sessionMode: 'none',
@@ -154,10 +165,10 @@ describe('prompt snippet registry', () => {
         provenanceRoot: projectRoot,
       });
       expect(rendered.text).toMatch(/^\/plan\n/);
-      expect(rendered.text).toContain('# nmg-sdlc Product Steering');
-      expect(rendered.text).not.toContain('project_runtime_invalid');
+      expect(rendered.text).toContain(policy);
     } finally {
       process.execPath = originalExecPath;
+      fs.rmSync(projectRoot, { recursive: true, force: true });
     }
   });
 

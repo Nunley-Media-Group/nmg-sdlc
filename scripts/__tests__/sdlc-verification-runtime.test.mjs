@@ -1,8 +1,8 @@
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -37,6 +37,30 @@ async function fixture(validations) {
 }
 function command(id, code, required = true, when = { kind: 'always' }) {
   return { id, provider: 'builtin.command', required, when, config: { program: process.execPath, args: ['-e', code], cwd: '.', env: [] } };
+}
+
+const processFixtures = [];
+afterEach(async () => {
+  jest.restoreAllMocks();
+  for (const child of processFixtures.splice(0)) {
+    const closed = new Promise(resolve => child.once('close', resolve));
+    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) {
+      if (error.code !== 'ESRCH') throw error;
+    }
+    if (child.exitCode === null && child.signalCode === null) await closed;
+  }
+});
+
+async function untilGone(pid) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try { process.kill(pid, 0); } catch (error) {
+      if (error.code === 'ESRCH') return;
+      throw error;
+    }
+    if (Date.now() >= deadline) throw new Error(`Owned descendant ${pid} survived cleanup`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
 }
 
 
@@ -319,21 +343,88 @@ describe('deterministic verification runtime', () => {
     expect(cancelled.results[0].result.summary).toBe('cancelled');
   });
 
-  it('cancels an active command and cleans up its process group', async () => {
-    const source = 'const {spawn}=require("node:child_process"); spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:["ignore","inherit","inherit"]}); setInterval(()=>{},1000)';
-    const root = await fixture([command('required.cancelled.tree', source)]);
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 40);
+  (process.platform === 'win32' ? it.skip : it).each(['cancel', 'SIGKILL', 'denied'])(
+    'settles owned descendant cleanup truthfully on command %s',
+    async (mode) => {
+      const source = `
+        const { spawn } = require('node:child_process');
+        const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          stdio: ['ignore', 'inherit', 'inherit'],
+        });
+        process.stderr.write('owned stderr\\n');
+        process.stdout.write(JSON.stringify({ pid: descendant.pid }) + '\\n');
+        setInterval(() => {}, 1000);
+      `;
+      const root = await fixture([command('required.owned.tree', source)]);
+      const foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+      processFixtures.push(foreign);
+      const controller = new AbortController();
+      let owned;
+      let ready;
+      const treeReady = new Promise(resolve => { ready = resolve; });
+      const pending = runSteeringValidations({
+        projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'),
+        baseRef: 'HEAD', signal: controller.signal,
+        spawnCommand: (program, args, options) => {
+          owned = spawn(program, args, options);
+          processFixtures.push(owned);
+          let output = '';
+          let tree;
+          let stderrReady = false;
+          const markReady = () => { if (tree && stderrReady) ready(tree); };
+          owned.stdout.on('data', chunk => {
+            output += chunk;
+            if (output.includes('\n')) {
+              tree = JSON.parse(output.trim());
+              markReady();
+            }
+          });
+          owned.stderr.on('data', () => { stderrReady = true; markReady(); });
+          return owned;
+        },
+      });
+      const descendant = await treeReady;
+      if (mode === 'denied') {
+        const kill = process.kill;
+        jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+          if (pid === -owned.pid) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
+          return kill(pid, signal);
+        });
+      }
+      if (mode === 'cancel') controller.abort();
+      else owned.kill('SIGKILL');
+      const artifact = await pending;
+      expect(artifact.ceiling).toBe(mode === 'SIGKILL' ? 'Fail' : 'Incomplete');
+      expect(artifact.results[0].effectiveStatus).toBe(mode === 'SIGKILL' ? 'failed' : 'incomplete');
+      if (mode === 'denied') {
+        expect(artifact.results[0].result.summary).toContain('process-loss cleanup failed');
+      } else {
+        expect(artifact.results[0].result.summary).toBe(mode === 'cancel' ? 'command cancelled' : 'command exited by signal SIGKILL');
+      }
+      expect(artifact.results[0].result.evidence[0].stdout).toContain(String(descendant.pid));
+      expect(artifact.results[0].result.evidence[0].stderr).toContain('owned stderr');
+      if (mode === 'denied') {
+        expect(() => process.kill(descendant.pid, 0)).not.toThrow();
+      } else {
+        await untilGone(descendant.pid);
+        expect(() => process.kill(descendant.pid, 0)).toThrow();
+      }
+      expect(() => process.kill(foreign.pid, 0)).not.toThrow();
+    },
+    15_000,
+  );
+
+  it('drains both output streams before recording normal command completion', async () => {
+    const root = await fixture([command('required.drained', `
+      process.stdout.write('o'.repeat(60000) + 'stdout-end');
+      process.stderr.write('e'.repeat(60000) + 'stderr-end');
+    `)]);
     const artifact = await runSteeringValidations({
-      projectRoot: root,
-      issue: 42,
-      specDir: path.join(root, 'specs', '42-test'),
-      baseRef: 'HEAD',
-      signal: controller.signal,
+      projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD',
     });
-    expect(artifact.ceiling).toBe('Incomplete');
-    expect(artifact.results[0].effectiveStatus).toBe('incomplete');
-    expect(artifact.results[0].result.summary).toBe('command cancelled');
+    expect(artifact.results[0].effectiveStatus).toBe('passed');
+    expect(artifact.results[0].result.evidence[0].stdout).toBe('o'.repeat(60000) + 'stdout-end');
+    expect(artifact.results[0].result.evidence[0].stderr).toBe('e'.repeat(60000) + 'stderr-end');
   });
 
   it('does not launch a command when cancellation is already explicit', async () => {

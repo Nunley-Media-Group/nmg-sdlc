@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildDeliveryPullRequestBody } from './contribution-evidence.mjs';
 import { classifyPrDeliveryState } from './pr-delivery-state.mjs';
+import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import {
   canonicalCheckName,
   evidenceIdentity,
@@ -438,9 +439,23 @@ function approvedSpec(fs, cwd, issue) {
     }
     files[name] = content;
   }
+  const scope = inspectIssueSpecScope({
+    projectRoot: cwd,
+    issueNumber: issue,
+    specPath: relative,
+  }, {
+    lstat: (filePath) => fs.lstatSync(filePath),
+    realpath: (filePath) => fs.realpathSync(filePath),
+    readFile: (filePath) => fs.readFileSync(filePath, 'utf8'),
+  });
+  if (!['scoped', 'implicit_single_issue'].includes(scope.status)) {
+    throw Object.assign(new Error(`Live spec scope is unavailable: ${scope.reasonCode}`), {
+      reasonCode: 'spec_not_approved',
+    });
+  }
   const verificationPath = path.join(root, 'verification-report.md');
   if (!fs.existsSync(verificationPath)) throw new Error('verification_not_ready');
-  return { root, relative, files, verificationPath };
+  return { root, relative, files, verificationPath, scope };
 }
 
 function issueLabels(issue) {
@@ -1286,7 +1301,7 @@ function runDeliverUnlocked({
     const spec = approvedSpec(fs, cwd, issueNumber);
     let readiness = inspectVerificationReadiness({
       content: fs.readFileSync(spec.verificationPath, 'utf8'),
-      options: { expectedIssueNumber: issueNumber, expectedSpecPath: spec.relative },
+      options: { expectedIssueNumber: issueNumber, expectedSpecPath: spec.relative, expectedScope: spec.scope },
     });
     if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
       return fail(context, 'verification_not_ready', `Verification is not ready for delivery: ${readiness.reasonCode}`);
@@ -1479,11 +1494,16 @@ function runDeliverUnlocked({
       if (evidenceHeads.length !== 1) return fail(context, 'verification_not_ready', 'Satisfied PR evidence does not identify one H1');
       const h1 = evidenceHeads[0];
       if (observed.pr.headRefOid.toLowerCase() === h1) {
+        const currentSpec = approvedSpec(fs, cwd, issueNumber);
+        if (currentSpec.relative !== spec.relative) {
+          return fail(context, 'spec_not_approved', 'The selected live spec changed during delivery');
+        }
         const bound = inspectVerificationReadiness({
           content: fs.readFileSync(spec.verificationPath, 'utf8'),
           options: {
             expectedIssueNumber: issueNumber,
             expectedSpecPath: spec.relative,
+            expectedScope: currentSpec.scope,
             expectedHeadSha: observed.pr.headRefOid,
           },
         });

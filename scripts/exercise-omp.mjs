@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { terminateOwnedProcessGroup } from "../src/process-supervision.mjs";
+import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "../src/process-supervision.mjs";
 import { isCliEntry } from "./plugin-controller-path.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -87,10 +87,13 @@ export async function runExercise(options) {
   let nextId = 1;
   const pending = new Map();
   let resolveReady;
-  let childClosed = false;
   let resolveAgentEnd;
   let resolveLoss;
   let intentionalStop = false;
+  let cleanupPromise;
+  const cleanup = (leaderLost = false) => cleanupPromise ??= (
+    leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup
+  )(child);
   const ready = new Promise((resolvePromise) => { resolveReady = resolvePromise; });
   const agentEnded = new Promise((resolvePromise) => { resolveAgentEnd = resolvePromise; });
   const processLost = new Promise((resolvePromise) => { resolveLoss = resolvePromise; });
@@ -140,16 +143,24 @@ export async function runExercise(options) {
   child.once("error", (error) => {
     if (!intentionalStop) resolveLoss(exerciseError("launch_failed", `OMP RPC launch failed: ${error.message}`));
   });
-  child.once("close", (code, signal) => {
-    childClosed = true;
+  const lost = async (code, signal) => {
+    if (intentionalStop) return;
+    const result = await cleanup(true);
     if (!intentionalStop) {
+      if (!result.ok) {
+        resolveLoss(exerciseError("cleanup_failed", `OMP RPC cleanup failed: ${result.error.message}`));
+        return;
+      }
       const reasonCode = (typeof code === "number" && code !== 0) || signal ? "process_failed" : "process_lost";
       resolveLoss(exerciseError(
         reasonCode,
         `OMP RPC process ${reasonCode === "process_failed" ? "failed" : "was lost"} before completion${typeof code === "number" ? ` (exit ${code})` : signal ? ` (${signal})` : ""}${stderr ? `\n${stderr}` : ""}`,
       ));
     }
-  });
+  };
+  // Start cleanup at leader exit; inherited pipes may keep close from arriving.
+  child.once("exit", lost);
+  child.once("close", lost);
   let cancel;
   const cancelled = new Promise((_, reject) => {
     cancel = () => reject(exerciseError("cancelled", "OMP RPC exercise cancelled"));
@@ -172,11 +183,15 @@ export async function runExercise(options) {
     for (const { reject } of pending.values()) reject(exerciseError("cancelled", "OMP RPC exercise stopped"));
     pending.clear();
     try { child.stdin.end(); } catch {}
-    const cleanup = await terminateOwnedProcessGroup(child, {
-      closed: childClosed,
-    });
-    if (!cleanup.ok) throw exerciseError("cleanup_failed", `OMP RPC cleanup failed: ${cleanup.error.message}`);
+    const result = await cleanup();
     rl.close();
+    if (!result.ok) {
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref?.();
+      throw exerciseError("cleanup_failed", `OMP RPC cleanup failed: ${result.error.message}`);
+    }
   }
 }
 async function main(argv) {

@@ -15,6 +15,7 @@ import {
   evaluateContributionEvidence,
 } from '../contribution-evidence.mjs';
 import { validateHandoff, writeRun } from '../sdlc-execute.mjs';
+import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import {
   acquireControllerLease,
   releaseControllerLease,
@@ -33,7 +34,7 @@ const DEFAULT_PR_BODY = buildDeliveryPullRequestBody({
   issue: 42,
   specRelative: 'specs/42-delivery',
   changedPaths: DEFAULT_CHANGED_PATHS,
-  verificationReport: verification(),
+  verificationReport: '## Implementation Status: **Pass**\n',
 });
 
 describe('required check event enrichment', () => {
@@ -199,25 +200,29 @@ const SELF_REFERENTIAL_BREAKING_BODY = [
   'Blocks: (none)',
 ].join('\n');
 
-function verification(issue = 42, specPath = 'specs/42-delivery') {
-  const scope = { issueNumber: issue, specPath, status: 'scoped', delivery: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] }, regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
+function liveScope(root, issue = 42) {
+  const { issueNumber, specPath, status, delivery, regression } = inspectIssueSpecScope({
+    projectRoot: root,
+    issueNumber: issue,
+    specPath: `specs/${issue}-delivery`,
+  });
+  return { issueNumber, specPath, status, delivery, regression };
+}
+
+function verification(root, issue = 42) {
+  const scope = liveScope(root, issue);
   return `# Verification\n\n## Implementation Status: **Pass**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
 
 function controlledVerification(
+  root,
   state,
   headSha = H1,
   evidenceKind = 'required_check',
   names = ['contract-tests'],
 ) {
-  const specPath = 'specs/42-delivery';
-  const scope = {
-    issueNumber: 42,
-    specPath,
-    status: 'scoped',
-    delivery: { acceptanceCriteria: ['AC1'], functionalRequirements: ['FR1'], tasks: ['T001'], scenarios: ['SCN001'] },
-    regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
-  };
+  const scope = liveScope(root);
+  const { specPath } = scope;
   const local = {
     ...scope.delivery,
     regression: scope.regression,
@@ -259,8 +264,16 @@ function makeRoot({
   const spec = path.join(root, 'specs', `${issue}-delivery`);
   fs.mkdirSync(spec, { recursive: true });
   const header = `**Issue**: #${issue}\n**Status**: Approved\n`;
-  for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) fs.writeFileSync(path.join(spec, name), `${header}${approvedMajor && ['requirements.md', 'design.md'].includes(name) ? '**Version bump**: major\n' : ''}`);
-  fs.writeFileSync(path.join(spec, 'verification-report.md'), verification(issue, `specs/${issue}-delivery`));
+  const documents = {
+    'requirements.md': '### AC1: Deliver verified changes\n\n| FR1 | Deliver only current evidence | Must |\n',
+    'design.md': 'Publish exact-head verification before delivery.\n',
+    'tasks.md': '## T001: Deliver verified changes\n',
+    'feature.gherkin': 'Feature: Delivery\n  Scenario: Deliver current evidence\n    Given verification passed\n    When delivery runs\n    Then the verified changes are delivered\n',
+  };
+  for (const [name, body] of Object.entries(documents)) {
+    fs.writeFileSync(path.join(spec, name), `${header}${approvedMajor && ['requirements.md', 'design.md'].includes(name) ? '**Version bump**: major\n' : ''}\n${body}`);
+  }
+  fs.writeFileSync(path.join(spec, 'verification-report.md'), verification(root, issue));
   fs.mkdirSync(path.join(root, 'steering', 'snippets'), { recursive: true });
   fs.mkdirSync(path.join(root, 'steering', 'modules'), { recursive: true });
   for (const name of ['product.mjs', 'tech.mjs', 'structure.mjs', 'verification.mjs']) {
@@ -1710,9 +1723,90 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.some((call) => call[0] === 'git' && ['commit', 'push'].includes(call[1]))).toBe(false);
   });
 
+  test('delivers an ordinary report with resolver-produced named implicit scope', () => {
+    const f = fixture(); roots.push(f.root);
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed', intervention: false } });
+    expect(f.calls).toContainEqual(['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H1]);
+  });
+
+  test.each(['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'])(
+    'rejects stale same-identity %s scope before entering delivery',
+    (state) => {
+      const f = fixture(); roots.push(f.root);
+      if (state !== 'pass') {
+        fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification(f.root, state));
+      }
+      fs.appendFileSync(path.join(f.root, 'specs/42-delivery/requirements.md'), '\n### AC2: Verify the delivery head\n');
+      const runBefore = fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8');
+      const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
+      expect(result).toMatchObject({
+        status: 1,
+        handoff: { status: 'failed', intervention: true, reasonCode: 'verification_not_ready' },
+      });
+      expect(f.calls).toEqual([]);
+      expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.4.5\n');
+      expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).toBe(runBefore);
+    },
+  );
+
+  test.each([
+    ['missing spec file', (root) => fs.rmSync(path.join(root, 'specs/42-delivery/design.md'))],
+    ['ambiguous spec selection', (root) => fs.mkdirSync(path.join(root, 'specs/42-other'))],
+    ['invalid inventory', (root) => fs.appendFileSync(path.join(root, 'specs/42-delivery/requirements.md'), '\n### AC1: Duplicate authority\n')],
+    ['invalid ownership manifest', (root) => fs.writeFileSync(path.join(root, 'specs/42-delivery/issue-scope.json'), '{}\n')],
+  ])('rejects %s rather than trusting report authority', (_description, changeSpec) => {
+    const f = fixture(); roots.push(f.root);
+    changeSpec(f.root);
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
+    expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', intervention: true } });
+    expect(f.calls).toEqual([]);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.4.5\n');
+  });
+
+  test.each([
+    ['a renamed live scenario', (root) => {
+      const gherkin = path.join(root, 'specs/42-delivery/feature.gherkin');
+      fs.writeFileSync(gherkin, fs.readFileSync(gherkin, 'utf8').replace('Scenario: Deliver current evidence', 'Scenario: Deliver exact-head evidence'));
+    }, 'verification_not_ready'],
+    ['ambiguous live authority', (root) => fs.mkdirSync(path.join(root, 'specs/42-other')), 'spec_not_approved'],
+    ['invalid live ownership', (root) => fs.writeFileSync(path.join(root, 'specs/42-delivery/issue-scope.json'), '{}\n'), 'spec_not_approved'],
+  ])('rechecks %s before publishing controlled-draft report evidence', (_description, changeSpec, reasonCode) => {
+    const f = fixture({
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [{ name: 'contract-tests', state: 'SUCCESS', link: 'https://github.test/checks/h1', event: 'pull_request' }],
+      views: [openPr({ isDraft: true, head: H1 }), openPr({ isDraft: true, head: H1 })],
+    }); roots.push(f.root);
+    fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification(f.root, 'pr_evidence_satisfied', H1));
+    let snapshots = 0;
+    let callsAtChange = null;
+    const run = (command, args) => {
+      const result = f.run(command, args);
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && args[4]?.includes('reviews')) {
+        snapshots += 1;
+        if (snapshots === 2) {
+          changeSpec(f.root);
+          callsAtChange = f.calls.length;
+        }
+      }
+      return result;
+    };
+    const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run, fs, sleep: f.sleep });
+    expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', intervention: true, reasonCode } });
+    expect(callsAtChange).not.toBeNull();
+    expect(f.calls.slice(callsAtChange).some((call) => (
+      call[0] === 'git' && ['add', 'commit', 'push'].includes(call[1])
+      || call[0] === 'gh' && call[1] === 'pr' && ['create', 'edit', 'ready', 'merge'].includes(call[2])
+    ))).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit'
+      && call.includes('docs: record PR evidence for #42'))).toBe(false);
+    expect(handoff(f.root).status).toBe('failed');
+  });
+
   test('binds controlled-draft H1 evidence to H2 before readiness and merge', () => {
     const pending = fixture({ views: [openPr({ isDraft: true, head: H1 })] }); roots.push(pending.root);
-    fs.writeFileSync(path.join(pending.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));
+    fs.writeFileSync(path.join(pending.root, 'specs/42-delivery/verification-report.md'), controlledVerification(pending.root, 'pr_evidence_pending'));
     const request = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: pending.root, run: pending.run, fs, sleep: pending.sleep });
     expect(request).toMatchObject({
       status: 3,
@@ -1738,7 +1832,7 @@ describe('sdlc delivery controller', () => {
         openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED', body: staleBody }),
       ],
     }); roots.push(satisfied.root);
-    fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1, 'check_run'));
+    fs.writeFileSync(path.join(satisfied.root, 'specs/42-delivery/verification-report.md'), controlledVerification(satisfied.root, 'pr_evidence_satisfied', H1, 'check_run'));
     const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: satisfied.root, run: satisfied.run, fs, sleep: satisfied.sleep });
     expect(result.status).toBe(0);
     expect(JSON.parse(
@@ -1799,7 +1893,7 @@ describe('sdlc delivery controller', () => {
     }); roots.push(f.root);
     fs.writeFileSync(
       path.join(f.root, 'specs/42-delivery/verification-report.md'),
-      controlledVerification('pr_evidence_satisfied', H1, 'check_run', names),
+      controlledVerification(f.root, 'pr_evidence_satisfied', H1, 'check_run', names),
     );
 
     const result = runDeliver({
@@ -1846,7 +1940,7 @@ describe('sdlc delivery controller', () => {
     }); roots.push(f.root);
     fs.writeFileSync(
       path.join(f.root, 'specs/42-delivery/verification-report.md'),
-      controlledVerification('pr_evidence_satisfied', H1, 'check_run', ['verify']),
+      controlledVerification(f.root, 'pr_evidence_satisfied', H1, 'check_run', ['verify']),
     );
 
     const result = runDeliver({
@@ -1887,7 +1981,7 @@ describe('sdlc delivery controller', () => {
     const f = fixture(options); roots.push(f.root);
     fs.writeFileSync(
       path.join(f.root, 'specs/42-delivery/verification-report.md'),
-      controlledVerification('pr_evidence_satisfied', H1, 'check_run'),
+      controlledVerification(f.root, 'pr_evidence_satisfied', H1, 'check_run'),
     );
     const sleep = (milliseconds) => {
       f.sleeps.push(milliseconds);
@@ -1903,7 +1997,7 @@ describe('sdlc delivery controller', () => {
       defaultBase: 'trunk',
       views: [openPr({ isDraft: true, head: H1, base: 'trunk' })],
     }); roots.push(f.root);
-    fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_pending'));
+    fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification(f.root, 'pr_evidence_pending'));
     const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.status).toBe(3);
     expect(f.calls.find((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'create')).toEqual(expect.arrayContaining([
@@ -1925,7 +2019,7 @@ describe('sdlc delivery controller', () => {
       ],
     }); roots.push(f.root);
     fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
-    fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification('pr_evidence_satisfied', H1));
+    fs.writeFileSync(path.join(f.root, 'specs/42-delivery/verification-report.md'), controlledVerification(f.root, 'pr_evidence_satisfied', H1));
     const result = runDeliver({ issue: 42, controllerRunId: 'execute-run', cwd: f.root, run: f.run, fs, sleep: f.sleep });
     expect(result.handoff.reasonCode).toBe('verification_not_ready');
     expect(result.handoff.summary).toContain('did not advance H1 to H2');

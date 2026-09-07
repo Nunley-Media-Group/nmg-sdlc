@@ -1,5 +1,8 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { createSmokeProvider } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const VALID_ENV = Object.freeze({
@@ -83,6 +86,84 @@ function harness(options = {}) {
 
 function retained(resultEnvelope) {
   return resultEnvelope.evidence.some((item) => item.summary === 'retained smoke clone');
+}
+
+const commandFixtures = [];
+afterEach(async () => {
+  jest.restoreAllMocks();
+  for (const fixture of commandFixtures.splice(0)) {
+    if (fs.existsSync(fixture.marker)) {
+      const { pid } = JSON.parse(fs.readFileSync(fixture.marker, 'utf8'));
+      try { process.kill(-pid, 'SIGKILL'); } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
+    if (fixture.foreign && fixture.foreign.exitCode === null && fixture.foreign.signalCode === null) {
+      const closed = new Promise(resolve => fixture.foreign.once('close', resolve));
+      fixture.foreign.kill('SIGKILL');
+      await closed;
+    }
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+async function until(predicate, detail) {
+  const deadline = Date.now() + 10_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`Did not observe ${detail}`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) {
+    if (error.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+function commandFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-command-'));
+  const bin = path.join(root, 'bin');
+  const work = path.join(root, 'work');
+  const marker = path.join(root, 'waiting.json');
+  fs.mkdirSync(bin);
+  fs.mkdirSync(work);
+  fs.mkdirSync(path.join(root, 'scripts'));
+  const executable = (name, source) => {
+    const file = path.join(bin, name);
+    fs.writeFileSync(file, `#!/usr/bin/env node\n${source}`);
+    fs.chmodSync(file, 0o755);
+  };
+  executable('gh', `
+    const args = process.argv.slice(2);
+    if (args[0] === 'auth') process.exit(0);
+    if (args[0] !== 'api') throw new Error('Unexpected fixture gh command');
+    console.log(JSON.stringify({ data: { repository: { issue: {
+      state: 'OPEN', url: 'https://example.test/issues/7',
+      closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
+    } } } }));
+  `);
+  executable('git', `
+    const args = process.argv.slice(2);
+    if (args[0] === 'clone' || args[0] === 'status') process.exit(0);
+    if (args[0] !== 'remote') throw new Error('Unexpected fixture git command');
+    console.log('https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git');
+  `);
+  fs.writeFileSync(path.join(root, 'scripts', 'sdlc-execute.mjs'), `
+    import { spawn } from 'node:child_process';
+    import { writeFileSync } from 'node:fs';
+    const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    process.stdout.write('owned command stdout\\n');
+    process.stderr.write('owned command stderr\\n');
+    writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ pid: process.pid, descendant: descendant.pid }));
+    setInterval(() => {}, 1000);
+  `);
+  const value = { root, work, marker };
+  commandFixtures.push(value);
+  return value;
 }
 
 describe('nmg-sdlc mutable delivery smoke provider', () => {
@@ -199,6 +280,57 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
   });
+
+  (process.platform === 'win32' ? it.skip : it).each(['SIGKILL', 'cancel', 'denied'])(
+    'settles real smoke command descendant cleanup truthfully on %s and retains evidence',
+    async (mode) => {
+      const fixture = commandFixture();
+      fixture.foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        detached: true, stdio: 'ignore',
+      });
+      const controller = new AbortController();
+      const provider = createSmokeProvider({
+        env: {
+          ...process.env, ...VALID_ENV, NMG_SDLC_SMOKE_OWNED: '0',
+          PATH: `${path.join(fixture.root, 'bin')}${path.delimiter}${process.env.PATH}`,
+        },
+        mkdtempSync: () => fixture.work,
+      });
+      const pending = provider({
+        projectRoot: fixture.root, config: { issues: [7] },
+        identity: { headSha: 'fixture-head' }, signal: controller.signal,
+      });
+      await until(() => fs.existsSync(fixture.marker), 'the owned smoke command starting its descendant');
+      const tree = JSON.parse(fs.readFileSync(fixture.marker, 'utf8'));
+      if (mode === 'denied') {
+        const kill = process.kill;
+        jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+          if (pid === -tree.pid) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
+          return kill(pid, signal);
+        });
+      }
+      if (mode === 'cancel') controller.abort();
+      else process.kill(tree.pid, 'SIGKILL');
+      const outcome = await pending;
+      expect(outcome.status).toBe(mode === 'SIGKILL' ? 'failed' : 'incomplete');
+      expect(retained(outcome)).toBe(true);
+      expect(fs.existsSync(fixture.work)).toBe(true);
+      if (mode === 'denied') {
+        expect(outcome.summary).toContain('cleanup_failed');
+        expect(outcome.evidence).toContainEqual(expect.objectContaining({
+          kind: 'command', stderr: 'fixture group termination denied',
+        }));
+        expect(alive(tree.descendant)).toBe(true);
+      } else {
+        expect(outcome.evidence).toContainEqual(expect.objectContaining({
+          kind: 'command', stdout: 'owned command stdout\n', stderr: 'owned command stderr\n',
+        }));
+        await until(() => !alive(tree.descendant), 'the owned smoke descendant exiting before teardown');
+      }
+      expect(alive(fixture.foreign.pid)).toBe(true);
+    },
+    20_000,
+  );
 
   it('runs the explicit issue queue once in order without picker or ad-hoc writes', async () => {
     const fixture = harness();

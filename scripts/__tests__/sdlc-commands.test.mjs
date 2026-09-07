@@ -1,10 +1,11 @@
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { spawn } from 'node:child_process';
 
 import {
   exerciseOmpArgs,
@@ -22,6 +23,29 @@ import {
 } from '../../src/sdlc-commands.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const processFixtures = [];
+afterEach(async () => {
+  jest.restoreAllMocks();
+  for (const child of processFixtures.splice(0)) {
+    const closed = new Promise(resolve => child.once('close', resolve));
+    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) {
+      if (error.code !== 'ESRCH') throw error;
+    }
+    if (child.exitCode === null && child.signalCode === null) await closed;
+  }
+});
+
+async function untilGone(pid) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try { process.kill(pid, 0); } catch (error) {
+      if (error.code === 'ESRCH') return;
+      throw error;
+    }
+    if (Date.now() >= deadline) throw new Error(`Owned descendant ${pid} survived cleanup`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
 
 function provenanceRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-command-provenance-'));
@@ -179,6 +203,72 @@ describe('exercise-omp args', () => {
       spawnProcess,
     })).rejects.toMatchObject({ reasonCode: 'process_lost' });
   });
+
+  (process.platform === 'win32' ? it.skip : it).each(['SIGKILL', 'exit', 'denied'])(
+    'settles RPC descendant cleanup truthfully after unexpected leader %s',
+    async (mode) => {
+      const source = `
+        const { spawn } = require('node:child_process');
+        const { createInterface } = require('node:readline');
+        const send = frame => process.stdout.write(JSON.stringify(frame) + '\\n');
+        createInterface({ input: process.stdin }).on('line', line => {
+          const frame = JSON.parse(line);
+          if (frame.type !== 'prompt') return;
+          const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+            stdio: ['ignore', 'inherit', 'inherit'],
+          });
+          send({ type: 'response', id: frame.id, success: true });
+          send({ type: 'fixture_tree', pid: descendant.pid });
+          if (${JSON.stringify(mode)} === 'exit') process.exit(0);
+        });
+        send({ type: 'ready' });
+      `;
+      const foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+      processFixtures.push(foreign);
+      let owned;
+      let ready;
+      const treeReady = new Promise(resolve => { ready = resolve; });
+      const pending = runExercise({
+        cwd: os.tmpdir(), message: '/sdlc-status --json',
+        spawnProcess: (_program, _args, options) => {
+          owned = spawn(process.execPath, ['-e', source], options);
+          processFixtures.push(owned);
+          let output = '';
+          owned.stdout.on('data', chunk => {
+            output += chunk;
+            for (;;) {
+              const end = output.indexOf('\n');
+              if (end < 0) break;
+              const frame = JSON.parse(output.slice(0, end));
+              output = output.slice(end + 1);
+              if (frame.type === 'fixture_tree') ready(frame);
+            }
+          });
+          return owned;
+        },
+      }).then(result => ({ result }), error => ({ error }));
+      const descendant = await treeReady;
+      if (mode === 'denied') {
+        const kill = process.kill;
+        jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+          if (pid === -owned.pid) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
+          return kill(pid, signal);
+        });
+      }
+      if (mode !== 'exit') owned.kill('SIGKILL');
+      expect((await pending).error).toMatchObject({
+        reasonCode: mode === 'denied' ? 'cleanup_failed' : mode === 'SIGKILL' ? 'process_failed' : 'process_lost',
+      });
+      if (mode === 'denied') {
+        expect(() => process.kill(descendant.pid, 0)).not.toThrow();
+      } else {
+        await untilGone(descendant.pid);
+        expect(() => process.kill(descendant.pid, 0)).toThrow();
+      }
+      expect(() => process.kill(foreign.pid, 0)).not.toThrow();
+    },
+    10_000,
+  );
 
   it('honors explicit exercise cancellation', async () => {
     const spawnProcess = () => {

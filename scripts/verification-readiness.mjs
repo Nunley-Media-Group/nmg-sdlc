@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { isScenarioIdentifier } from './issue-spec-scope.mjs';
 
 export const MAX_VERIFICATION_REPORT_BYTES = 256 * 1024;
 export const CHECK_IDENTITY_SEPARATOR = ' / ';
@@ -104,9 +105,11 @@ function implementationStatus(content) {
   };
 }
 
-function validIdentifierArray(value, prefix, { allowEmpty = true, max = 200 } = {}) {
+function validIdentifierArray(value, prefix, { allowEmpty = true, max = 200, allowScenarioNames = false } = {}) {
   if (!Array.isArray(value) || value.length > max || (!allowEmpty && value.length === 0)) return false;
-  if (!value.every((item) => typeof item === 'string' && IDENTIFIER_PATTERN.test(item) && item.startsWith(prefix))) return false;
+  if (!value.every((item) => prefix === 'SCN'
+    ? isScenarioIdentifier(item, allowScenarioNames)
+    : typeof item === 'string' && IDENTIFIER_PATTERN.test(item) && item.startsWith(prefix))) return false;
   return new Set(value).size === value.length;
 }
 
@@ -116,13 +119,14 @@ function scopeProjection(value) {
   if (!['scoped', 'implicit_single_issue'].includes(value.status)) return null;
   if (!exactKeys(value.delivery, ['acceptanceCriteria', 'functionalRequirements', 'tasks', 'scenarios'])) return null;
   if (!exactKeys(value.regression, ['acceptanceCriteria', 'functionalRequirements', 'scenarios'])) return null;
+  const scenarioOptions = { allowScenarioNames: value.status === 'implicit_single_issue' };
   if (!validIdentifierArray(value.delivery.acceptanceCriteria, 'AC')) return null;
   if (!validIdentifierArray(value.delivery.functionalRequirements, 'FR')) return null;
   if (!validIdentifierArray(value.delivery.tasks, 'T')) return null;
-  if (!validIdentifierArray(value.delivery.scenarios, 'SCN')) return null;
+  if (!validIdentifierArray(value.delivery.scenarios, 'SCN', scenarioOptions)) return null;
   if (!validIdentifierArray(value.regression.acceptanceCriteria, 'AC')) return null;
   if (!validIdentifierArray(value.regression.functionalRequirements, 'FR')) return null;
-  if (!validIdentifierArray(value.regression.scenarios, 'SCN')) return null;
+  if (!validIdentifierArray(value.regression.scenarios, 'SCN', scenarioOptions)) return null;
   return value;
 }
 

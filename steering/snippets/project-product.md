@@ -59,6 +59,12 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
 | Dogfooding | Skill changes are verified through contracts and executable exercises |
 
+### Bounded Consumer Experiments
+
+When developing nmg-sdlc, use `Nunley-Media-Group/nmg-sdlc-smoke` to prove a named plugin behavior end to end. It is not permission to repair the smoke application's independent backlog. Smoke-project changes are authorized only as necessary test fixtures or means to verify an nmg-sdlc change.
+
+Classify failures before repair. Fix plugin defects in the plugin; preserve and report unrelated smoke findings without expanding scope. Stop unchanged/no-progress experiments rather than repeating them or creating replacement issues to chase a green gate. Follow the technical steering's evidence-based attempt limits inside workers and across fresh remediation sessions. Completion requires real invocation-bound delivery evidence, never an edited success marker or weakened acceptance criterion.
+
 ---
 
 ## Success Metrics

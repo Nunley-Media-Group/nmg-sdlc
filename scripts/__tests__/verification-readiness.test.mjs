@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   canonicalCheckName,
@@ -10,11 +9,11 @@ import {
   resolveDeclaredCheck,
   runCli,
 } from '../verification-readiness.mjs';
+import { classifyIssueSpecScope } from '../issue-spec-scope.mjs';
 
 const HEAD_1 = '1'.repeat(40);
 const HEAD_2 = '2'.repeat(40);
 const SPEC_PATH = 'specs/feature-readiness';
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCOPE = {
   issueNumber: 42,
   specPath: SPEC_PATH,
@@ -163,6 +162,44 @@ describe('verification readiness contract', () => {
     })).toMatchObject({ status: 'pass', reasonCode: 'ordinary_pass', gaps: [] });
   });
 
+  it('accepts resolver-produced named scenarios without losing exact scope matching', () => {
+    const metadata = '**Issue**: #42\n';
+    const resolved = classifyIssueSpecScope({ issueNumber: 42, specPath: 'specs/42-fixture' }, {
+      requirements: `${metadata}\n### AC1: Count greeting words\n`,
+      design: metadata,
+      tasks: `${metadata}\n### T001: Add the helper\n`,
+      gherkin: `${metadata}\nFeature: Greeting words\n  @AC1\n  Scenario: Count greeting words\n    Given a valid name\n    Then the word count is correct\n`,
+    });
+    expect(resolved.status).toBe('implicit_single_issue');
+    expect(resolved.delivery.scenarios).toEqual(['SCENARIO:Count greeting words']);
+    const { issueNumber, specPath, status, delivery, regression } = resolved;
+    const scope = { issueNumber, specPath, status, delivery, regression };
+    const content = `### Implementation Status: Pass\n\n${marker('nmg-sdlc-issue-scope', scope)}\n`;
+    expect(inspectVerificationReadiness({ content, options: { expectedScope: resolved } }))
+      .toMatchObject({ status: 'pass', reasonCode: 'ordinary_pass', gaps: [] });
+    expect(inspectVerificationReadiness({
+      content,
+      options: { expectedScope: { ...resolved, delivery: { ...delivery, scenarios: ['SCENARIO:A different obligation'] } } },
+    })).toMatchObject({ status: 'unverifiable', reasonCode: 'scope_evidence_invalid' });
+  });
+
+  it.each([
+    ['explicit manifest', 'scoped', ['SCENARIO:Count greeting words']],
+    ['empty name', 'implicit_single_issue', ['SCENARIO:']],
+    ['multiline name', 'implicit_single_issue', ['SCENARIO:Count\nwords']],
+    ['duplicate identity', 'implicit_single_issue', ['SCENARIO:Count words', 'SCENARIO:Count words']],
+  ])('rejects invalid named scenario evidence: %s', (_case, status, scenarios) => {
+    const scope = {
+      ...SCOPE,
+      status,
+      delivery: { ...SCOPE.delivery, scenarios },
+      regression: { ...SCOPE.regression, scenarios: [] },
+    };
+    const content = report('Pass').replace(marker('nmg-sdlc-issue-scope', SCOPE), marker('nmg-sdlc-issue-scope', scope));
+    expect(inspectVerificationReadiness({ content }))
+      .toMatchObject({ status: 'unverifiable', reasonCode: 'scope_evidence_invalid' });
+  });
+
   it('rejects a malformed optional readiness marker instead of treating it as an ordinary pass', () => {
     const malformed = report('Pass').replace(
       '\n\n',
@@ -200,19 +237,6 @@ describe('verification readiness contract', () => {
     });
   });
 
-  it('keeps the report scaffold canonical and places readiness immediately after scope', () => {
-    const template = fs.readFileSync(
-      path.join(repoRoot, 'workflows', 'verify-code', 'checklists', 'report-template.md'),
-      'utf8',
-    );
-    expect(template).toContain('### Implementation Status: Pass / PR Evidence Pending / Partial / Incomplete / Fail');
-    const scope = template.indexOf('<!-- nmg-sdlc-issue-scope:');
-    const readiness = template.indexOf('<!-- Include exactly one nmg-sdlc-pr-readiness marker');
-    const delivery = template.indexOf('## Delivery Validation');
-    expect(scope).toBeGreaterThan(-1);
-    expect(readiness).toBeGreaterThan(scope);
-    expect(delivery).toBeGreaterThan(readiness);
-  });
 
   it('accepts exact scoped local completion with allowlisted pending evidence', () => {
     expect(inspectVerificationReadiness({

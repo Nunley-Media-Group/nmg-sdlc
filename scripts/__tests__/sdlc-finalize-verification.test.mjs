@@ -5,11 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { finalizeVerification } from '../sdlc-finalize-verification.mjs';
+import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { isRemediableFailedHandoff, validateHandoff } from '../sdlc-execute.mjs';
 import { acquireControllerLease, releaseControllerLease } from '../sdlc-controller-lease.mjs';
 
-function report(issue = 42, specPath = 'specs/42-feature', implementationStatus = 'Pass') {
-  const scope = { issueNumber: issue, specPath, status: 'scoped', delivery: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] }, regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
+function report(root, implementationStatus = 'Pass') {
+  const { issueNumber, specPath, status: scopeStatus, delivery, regression } = inspectIssueSpecScope({
+    projectRoot: root,
+    issueNumber: 42,
+    specPath: 'specs/42-feature',
+  });
+  const scope = { issueNumber, specPath, status: scopeStatus, delivery, regression };
   const status = implementationStatus == null ? '' : `## Implementation Status: **${implementationStatus}**\n\n`;
   return `# Verification\n\n${status}<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
@@ -17,7 +23,12 @@ function fixture(implementationStatus = 'Pass') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-finalize-verification-'));
   const spec = path.join(root, 'specs', '42-feature');
   fs.mkdirSync(spec, { recursive: true });
-  fs.writeFileSync(path.join(spec, 'verification-report.md'), report(42, 'specs/42-feature', implementationStatus));
+  const header = '**Issue**: #42\n**Status**: Approved\n\n';
+  fs.writeFileSync(path.join(spec, 'requirements.md'), `${header}### AC1: Publish verified evidence\n\n| FR1 | Publish only current evidence | Must |\n`);
+  fs.writeFileSync(path.join(spec, 'design.md'), `${header}Publish the report only after verifying its scope.\n`);
+  fs.writeFileSync(path.join(spec, 'tasks.md'), `${header}## T001: Publish verified evidence\n`);
+  fs.writeFileSync(path.join(spec, 'feature.gherkin'), `${header}Feature: Verification\n  Scenario: Publish current evidence\n    Given verification passed\n    When the report is finalized\n    Then the current evidence is published\n`);
+  fs.writeFileSync(path.join(spec, 'verification-report.md'), report(root, implementationStatus));
   return root;
 }
 function result(status = 0, stdout = '') { return { status, stdout, stderr: '', error: null }; }
@@ -38,7 +49,7 @@ function successfulRun(reportDirty = true) {
 }
 
 describe('verification finalization controller', () => {
-  it('publishes the changed report before writing a passed handoff', () => {
+  it('publishes resolver-produced named implicit scope before writing a passed handoff', () => {
     const root = fixture();
     const { run, calls } = successfulRun(true);
     const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
@@ -48,6 +59,46 @@ describe('verification finalization controller', () => {
     expect(calls).toContainEqual(['git', 'add', '--', 'specs/42-feature/verification-report.md']);
     expect(calls).toContainEqual(['git', 'commit', '-m', 'docs: record verification for #42']);
     expect(calls).toContainEqual(['git', 'push']);
+  });
+  it.each([
+    ['a newly required AC', (root) => fs.appendFileSync(path.join(root, 'specs/42-feature/requirements.md'), '\n### AC2: Verify the publication head\n')],
+    ['a renamed scenario', (root) => {
+      const gherkin = path.join(root, 'specs/42-feature/feature.gherkin');
+      fs.writeFileSync(gherkin, fs.readFileSync(gherkin, 'utf8').replace('Scenario: Publish current evidence', 'Scenario: Publish exact-head evidence'));
+    }],
+  ])('rejects a same-identity stale report after %s as local evidence repair', (_description, changeSpec) => {
+    const root = fixture();
+    changeSpec(root);
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: { status: 'failed', intervention: false, reasonCode: 'verification_not_ready', next: null },
+    });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(true);
+    expect(calls).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(root, outcome.handoffPath), 'utf8')).status).toBe('failed');
+  });
+  it.each([
+    ['missing spec file', (root) => fs.rmSync(path.join(root, 'specs/42-feature/design.md'))],
+    ['ambiguous spec selection', (root) => fs.mkdirSync(path.join(root, 'specs/42-other'))],
+    ['invalid inventory', (root) => fs.appendFileSync(path.join(root, 'specs/42-feature/requirements.md'), '\n### AC1: Duplicate authority\n')],
+    ['invalid ownership manifest', (root) => fs.writeFileSync(path.join(root, 'specs/42-feature/issue-scope.json'), '{}\n')],
+    ['unapproved spec', (root) => {
+      const design = path.join(root, 'specs/42-feature/design.md');
+      fs.writeFileSync(design, fs.readFileSync(design, 'utf8').replace('Status**: Approved', 'Status**: Draft'));
+    }],
+  ])('keeps %s as intervention instead of repairing the report', (_description, changeSpec) => {
+    const root = fixture();
+    changeSpec(root);
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: { status: 'failed', intervention: true, reasonCode: 'spec_not_approved', next: null },
+    });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
+    expect(calls).toEqual([]);
   });
   it.each(['Fail', 'Partial'])('writes a remediable failed handoff for %s reports', (implementationStatus) => {
     const root = fixture(implementationStatus);
@@ -80,17 +131,36 @@ describe('verification finalization controller', () => {
     });
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
   });
-  it('keeps a missing Implementation Status as intervention', () => {
+  it('repairs a safe incomplete report format without publishing unready evidence', () => {
     const root = fixture(null);
-    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root });
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
     expect(outcome.status).toBe(1);
     expect(outcome.handoff).toMatchObject({
       status: 'failed',
-      intervention: true,
+      intervention: false,
       step: 'verify',
       next: null,
     });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(true);
+    expect(calls).toEqual([]);
+    fs.writeFileSync(path.join(root, 'specs/42-feature/verification-report.md'), report(root));
+    const repaired = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(repaired.status).toBe(0);
+    expect(repaired.handoff).toMatchObject({ status: 'passed', intervention: false, next: 'deliver' });
+  });
+
+  it('keeps unsafe report paths outside autonomous evidence repair', () => {
+    const root = fixture();
+    const reportPath = path.join(root, 'specs/42-feature/verification-report.md');
+    const target = path.join(root, 'foreign-report.md');
+    fs.renameSync(reportPath, target);
+    fs.symlinkSync(target, reportPath);
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(outcome.handoff).toMatchObject({ status: 'failed', intervention: true, reasonCode: 'verification_report_invalid' });
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
+    expect(calls).toEqual([]);
   });
   it('requires the execute lease identity before publishing protected state', () => {
     const root = fixture();
@@ -202,7 +272,7 @@ describe('verification finalization controller', () => {
     const root = fixture();
     const reportPath = path.join(root, 'specs', '42-feature', 'verification-report.md');
     fs.rmSync(reportPath);
-    fs.writeFileSync(path.join(root, 'outside.md'), report());
+    fs.writeFileSync(path.join(root, 'outside.md'), report(root));
     fs.symlinkSync(path.join(root, 'outside.md'), reportPath);
     const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run: () => result(0) });
     expect(outcome.status).toBe(1);

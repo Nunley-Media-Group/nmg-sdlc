@@ -10,6 +10,26 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-09-07
+
+### Fixed
+
+- Stop execute after two completed same-step remediations without progress, preserve blocked/intervention and loop stops on resume, and require recorded ownership before reusing remediation panes (#369).
+- Keep execute supervision outside the invoking POSIX process tree before work starts, so host tree cancellation and signals close owned worker panes, including pending prompts; preserve explicit retention and cleanup-failure evidence (#369).
+- Keep failed worker startup ownership until cleanup resolves instead of leaving untracked panes (#369).
+- Retain controller lease ownership when ordinary stop, remediation-limit cleanup, or synchronous cancellation cannot close an owned pane or persist cleanup; preserve the cleanup diagnostic through the final checkpoint (#369).
+- Terminate remaining owned descendants after unexpected leader loss without hanging on inherited output pipes across execute, verification, smoke, and exercise supervision; preserve usage exit status 2 (#369).
+- Let a validated passed delivery handoff escape a remediation-loop stop through the existing exact-head merge and issue-closure checks (#369).
+- Accept canonical named-scenario evidence from implicit issue scopes, compare finalization and delivery reports against fresh live scope, and route safe local report-evidence errors into bounded verification repair instead of unnecessary intervention (#369).
+
+### Changed
+
+- Replace the README with a complete supported operating guide and reinforce registered steering with bounded, plugin-only smoke experiments; unrelated smoke-project findings are not a repair backlog (#369).
+
+### Changed
+
+- Detect execute remediation loops and close workers on cancel (#369)
+
 ## [3.20.10] - 2026-09-05
 
 ### Fixed
