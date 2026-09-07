@@ -159,7 +159,7 @@ Every file declares singular `**Issue**: #42` and `**Status**: Draft` or `**Stat
 /sdlc-execute
 ```
 
-Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. The bare command opens a multi-select picker: selected chips come first in displayed order, then valid Other tokens. Empty Continue reopens the picker; it does not run an empty queue.
+Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. The bare command first discovers the exact current branch's incomplete checkpoint and resumes its persisted queue without a picker or extra flags. Conflicting or unreadable evidence blocks selection. Only clean absence or completed delivery opens the existing multi-select picker: selected chips come first in displayed order, then valid Other tokens. Empty Continue reopens the picker; it does not run an empty queue.
 
 Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
 
@@ -184,6 +184,10 @@ Workers resolve in-scope implementation details using approved requirements, rep
 
 A settled failed, non-intervention handoff can start a fresh `rN-step` remediation worker for `implement`, either review/fix stage, `verify`, or `deliver`. Only one repair runs at a time. After **two completed remediations for the same issue and step without advancement**, execute records `remediation_loop` and stops before a third. Commit churn, changing summaries, and elapsed time are not stage advancement. A passed remediation advances and clears that streak.
 
+On the exact incomplete branch, bare `/sdlc-execute` can consume **one additional durable recovery allowance per run, issue and stopped stage**, including legacy checkpoints with 13 attempts. Consumption is persisted before dispatch and preserves the original history. A failed recovery, ambiguous dispatch, cancellation or process loss cannot authorize another repair. Repeated commands, commits, summary changes and plugin upgrades never replenish it. A genuinely validated passed handoff may still settle and advance through the normal remaining gates; later stages keep their ordinary bounded remediation policy.
+
+The additional allowance belongs only to parameter-free execution. Neither an explicit issue queue nor either existing optional flag grants fresh exhausted repair work; `--recover-stale` alone still concerns ownership only.
+
 Safe local verification-report format or scope-evidence errors remain unpassed, but can use the same bounded repair path. Regenerating that report does not waive its scope, gate, publication, or identity checks. Genuine `Incomplete` evidence and unsafe report paths still require intervention.
 
 Blocked/intervention handoffs stop immediately. Missing approval, unavailable credentials or required external evidence, unsafe ownership, and human-review authority are not permission to improvise success. An unchanged blocked/intervention or loop stop remains stopped on reinvocation. A later validated passed handoff can advance; an authorized non-intervention earlier-step repair reruns downstream gates. Do not edit a handoff to say passed without satisfying its contract.
@@ -197,7 +201,7 @@ Blocked/intervention handoffs stop immediately. Missing approval, unavailable cr
 /sdlc-execute --recover-stale #42
 ```
 
-Resume the **same issue queue**, in the same project. Completed stages are skipped and matching owned workers are reused instead of duplicated. Do not change the queue or remove the checkpoint to sidestep an unfinished run.
+On the exact incomplete issue branch, run bare `/sdlc-execute` to resume the **same persisted issue queue** in the same project, automatically reclaiming only proven stale ownership. No issue tokens, recovery flag, token or reason entry is required. Completed stages are skipped; matching passed handoffs settle without unnecessary repair work. Do not change the queue or remove the checkpoint to sidestep an unfinished run.
 
 Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The invocation supervisor remains responsive while the controller is blocked in an external wait. Before work starts, a short-lived bootstrap exits and leaves the supervisor outside the invoking process tree; an authenticated local connection detects invoking-job loss. It terminates only the owned controller process group, closes its recorded worker panes, and persists `controller_cancelled`. Pending prompts are not an exemption from cancellation cleanup. Unrelated panes and the Herdr server remain untouched.
 
@@ -208,6 +212,8 @@ The supervisor ends with its invocation; it is not a persistent plugin service. 
 `--retain-worker` keeps the worker pane on stop/cancellation for inspection; it does not keep the controller running or turn failure into success. A retained worker must match its recorded name, pane, project, run, issue, step, branch, and head before reuse. Close or persistence failures retain ownership evidence for recovery.
 
 `--recover-stale` is for a **proven-dead** controller lease, not an active-controller bypass. Recovery checks process and pane ownership; a live, unreadable, or conflicting lease still blocks. Never manually remove an active lock, start a second controller, or stop Herdr as a recovery shortcut.
+
+Status and stop output distinguish `resumable`, `loop-recovery-available`, `recovery-consumed` and `blocked`, including primary and cleanup failure reasons. An unsuccessful consumed recovery requires inspecting and repairing the named blocker and producing genuine validated stage evidence; another unchanged bare invocation will not launch a worker. Reused panes, active owners, intervention and unreadable ownership evidence remain blockers. Only positively absent recorded panes are reconciled as absent, never reported as successfully closed.
 
 ## Verification and terminal delivery
 

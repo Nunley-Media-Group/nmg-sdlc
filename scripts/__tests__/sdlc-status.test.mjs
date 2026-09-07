@@ -39,6 +39,23 @@ function baseEvidence(overrides = {}) {
 }
 
 describe('sdlc-status v3 recommendations', () => {
+  it('recommends bare recovery instead of starting a new queue, and refuses consumed recovery retries', () => {
+    const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
+    evidence.recovery = { state: 'loop-recovery-available', action: 'Resume the existing queue.' };
+    expect(inferLifecycle(evidence).nextAction.command).toBe('/sdlc-execute');
+    evidence.recovery = {
+      state: 'recovery-consumed', reasonCode: 'remediation_loop',
+      cleanupReasonCode: 'pane_close_failed',
+      action: 'Inspect recorded recovery evidence and repair the blocker; do not retry unchanged execution.',
+    };
+    const consumed = inferLifecycle(evidence);
+    expect(consumed.nextAction.manualRepairRequired).toBe(true);
+    expect(consumed.nextAction.command).not.toContain('/sdlc-execute');
+    expect(renderText(consumed)).toContain('pane_close_failed');
+    evidence.recovery = { state: 'blocked', reasonCode: 'checkpoint_branch_mismatch', action: 'Resolve the checkpoint branch mismatch.' };
+    expect(inferLifecycle(evidence).nextAction.manualRepairRequired).toBe(true);
+  });
+
   it('recommends write-spec when the first ready issue has no approved spec', () => {
     const status = inferLifecycle(baseEvidence({ spec: null }));
     expect(status.stage).toBe('ready');

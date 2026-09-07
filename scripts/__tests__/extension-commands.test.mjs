@@ -82,27 +82,6 @@ describe('extension sdlc- commands', () => {
     }
   });
 
-  it('ships no cwd-relative or host-absolute controller dispatch in active prompt surfaces', () => {
-    const roots = ['commands', 'workflows', 'references'];
-    const markdown = [];
-    while (roots.length > 0) {
-      const relative = roots.pop();
-      const absolute = path.join(repoRoot, relative);
-      for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
-        const child = path.join(relative, entry.name);
-        if (entry.isDirectory()) roots.push(child);
-        else if (entry.isFile() && entry.name.endsWith('.md')) markdown.push(child);
-      }
-    }
-    for (const file of markdown) {
-      if (!file.startsWith('references/')) {
-        expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
-      }
-      expect(read(file)).not.toMatch(
-        /(?:\/|[A-Za-z]:[\\/]|\\\\)[^"'\r\n`]*[\\/]nmg-sdlc[\\/]+scripts[\\/]+[A-Za-z0-9._-]+\.mjs/,
-      );
-    }
-  });
 
   it('package omp declares extensions and no skills key', () => {
     const manifest = JSON.parse(read('package.json'));

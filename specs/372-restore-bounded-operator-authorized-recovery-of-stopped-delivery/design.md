@@ -39,6 +39,15 @@ Blocked/intervention evidence, mismatched branch/queue, active controller or unm
 ### Operator output
 Status and stop output share authoritative classification: normal resumable run, eligible one-time loop recovery, consumed recovery, completed run, or blocked ownership/intervention. Include primary and cleanup reason and a concrete next action. Bare execute is the action for eligible recovery; a consumed unsuccessful recovery reports what must be repaired and must not recommend another unchanged bare retry. Never describe checklist ticks, activity or commits as stage completion.
 
+### Implementation decisions
+
+- `discover-recovery` and status share `discoverRecovery`; worker/pane evidence uses complete Herdr `agent list` and `pane list` responses through the same read-only ownership classifier. Execution rechecks that evidence under the existing controller lease before reconciling absence.
+- Preserve confirmed-absent worker identities in `absentWorkers`, including their exact issue branch. These identities remain authoritative when legacy `run.branch` still names the initial default branch.
+- Store audited allowance consumption in checkpoint `recoveries`, keyed by immutable `runId`, issue and step. Preserve the source remediation and failure records, invocation UUID, consumption timestamp and final disposition. The in-memory dispatch permission is invocation-local and cannot be reconstructed after process loss.
+- Parameter-free execution alone grants the allowance. Existing optional flags retain their original ownership/retention behavior and do not grant fresh exhausted work. Recovery startup and process-loss paths cannot reuse ordinary worker-start retry permission.
+- A validated passed handoff may settle an earlier prompt-pending intervention, but an intervention or blocked handoff itself is never downgraded. Passed absent-worker settlement retains the existing branch/head ancestry check.
+- Implementation-owned CLI/OMP exercises use disposable local adapters. Fresh registered consumer smoke, managed review and exact-head delivery remain downstream stage obligations, as specified by T004.
+
 ## Contract Precedence
 #372 adds the user's automatic bare-invocation transition to #369. It does not relax ordinary automatic retry counts or permit repeat recovery allowance for an unadvanced stage. Bare-command discovery replaces issue selection only for the exact incomplete branch; explicit issue execution retains its previous contract. All downstream publication and delivery checks remain unchanged.
 

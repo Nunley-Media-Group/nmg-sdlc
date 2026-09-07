@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Resume the exact incomplete branch's persisted delivery queue before the bare execute picker, automatically reclaiming only proven stale ownership and preserving completed stages (#372).
+- Grant parameter-free execute one durable, audited recovery dispatch per exhausted run/issue/step; preserve legacy attempt history and prevent replay after failed or ambiguous recovery, process loss, commits, or plugin upgrades (#372).
+- Reconcile only positively absent recorded panes, retain exact linked-branch evidence, and expose resumable, available, consumed and blocked recovery diagnostics without waiving downstream delivery gates (#372).
+
 ## [3.21.0] - 2026-09-07
 
 ### Fixed

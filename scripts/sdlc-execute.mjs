@@ -49,6 +49,7 @@ import {
 import {
   acquireControllerLease,
   reclaimStaleControllerLease,
+  readControllerLease,
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 
@@ -477,6 +478,122 @@ export function readRun(root = process.cwd()) {
   return readRunAt(RUN_FILE, root);
 }
 
+function inspectRecoveryWorkers(data, herdr) {
+  const response = herdr.listAgents();
+  const parsed = parseCommandOutput(response);
+  const agents = Array.isArray(parsed) ? parsed : parsed?.result?.agents ?? parsed?.agents;
+  if (!commandSucceeded(response) || !Array.isArray(agents)) throw new Error('ownership_unreadable');
+  const owned = Object.entries(data.workers || {});
+  for (const agent of agents) {
+    if ([`s${data.currentIssue}-${data.currentStep}`, remAgentName(data.currentIssue, data.currentStep)].includes(agent.name)
+      && !data.workers?.[agent.name]) throw new Error('retained_worker_mismatch');
+  }
+  if (!owned.length) return { absent: [], present: [] };
+  const paneResponse = herdr.listPanes();
+  const paneData = parseCommandOutput(paneResponse);
+  const panes = Array.isArray(paneData) ? paneData : paneData?.result?.panes ?? paneData?.panes;
+  if (!commandSucceeded(paneResponse) || !Array.isArray(panes)) throw new Error('ownership_unreadable');
+  const absent = [];
+  const present = [];
+  for (const [name, worker] of owned) {
+    if (worker.name !== name || worker.runId !== data.runId
+      || worker.projectRoot !== data.projectRoot) throw new Error('retained_worker_mismatch');
+    const agent = agents.find((entry) => entry.name === name);
+    const pane = panes.find((entry) => String(entry.pane_id ?? entry.paneId) === String(worker.paneId));
+    if (!agent && !pane) absent.push([name, worker]);
+    else if (!agent || !pane || String(agent.pane_id ?? agent.paneId) !== String(worker.paneId)) {
+      throw new Error('retained_worker_mismatch');
+    } else present.push(worker);
+  }
+  return { absent, present };
+}
+
+export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
+  const blocked = (reasonCode) => ({
+    state: 'blocked', reasonCode,
+    action: `Resolve ${reasonCode} using the checkpoint and ownership evidence before execution.`,
+  });
+  try {
+    const checkpointPath = join(cwd, RUN_FILE);
+    if (!existsSync(checkpointPath)) return { state: 'absent' };
+    const checkpointStat = lstatSync(checkpointPath);
+    if (!checkpointStat.isFile() || checkpointStat.isSymbolicLink()) {
+      return blocked('checkpoint_unreadable');
+    }
+    const data = readRun(cwd);
+    if (!data) return blocked('checkpoint_unreadable');
+    if (completedRunState(data, { requireReleasedCurrentIssue: true })
+      || legacyCompletedRunState(data)) return { state: 'completed' };
+    if (!validRunIdentity(data) || data.projectRoot !== realpathSync(cwd)
+      || !data.issues.length || new Set(data.issues).size !== data.issues.length
+      || !data.issues.includes(data.currentIssue)
+      || nextStep(data.completed?.[String(data.currentIssue)] ?? []) !== data.currentStep) {
+      return blocked('checkpoint_identity_mismatch');
+    }
+    const checkout = currentCheckout(cwd, run);
+    const workerBranches = [...new Set([
+      ...Object.values(data.workers || {}), ...(data.absentWorkers || []),
+    ].filter((worker) => worker.runId === data.runId && worker.projectRoot === data.projectRoot
+      && worker.issue === data.currentIssue).map((worker) => worker.branch))];
+    const linked = workerBranches.length === 1 ? workerBranches[0]
+      : data.branch.startsWith(`${data.currentIssue}-`) ? data.branch
+        : issueBranchName(data.currentIssue, cwd, run);
+    if (workerBranches.length > 1 || !checkout || !linked || checkout.branch !== linked
+      || !linked.startsWith(`${data.currentIssue}-`)) {
+      return blocked('checkpoint_branch_mismatch');
+    }
+    const handoff = readExpectedHandoff(
+      join(cwd, HANDOFF_DIR, `${data.currentIssue}-${data.currentStep}.json`),
+      data.currentIssue, data.currentStep,
+    ).handoff;
+    if ((data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep))
+      || handoff?.intervention || handoff?.status === 'blocked') {
+      return blocked(handoff?.reasonCode || data.failed?.reasonCode || 'intervention_required');
+    }
+    const lease = readControllerLease(cwd);
+    if (lease && lease.pid !== process.pid) {
+      try {
+        process.kill(lease.pid, 0);
+        return blocked('controller_lease_held');
+      } catch (error) {
+        if (error.code !== 'ESRCH') return blocked('controller_lease_held');
+      }
+    }
+    if (['retained_worker_mismatch', 'ownership_unreadable'].includes(data.failed?.reasonCode)) {
+      return blocked(data.failed.reasonCode);
+    }
+    const recovery = data.recoveries?.find((entry) => entry.runId === data.runId
+      && entry.issue === data.currentIssue && entry.step === data.currentStep);
+    const remediation = data.remediation?.issue === data.currentIssue
+      && data.remediation.step === data.currentStep ? data.remediation : null;
+    const exhausted = remediation && (remediation.reasonCode === 'remediation_loop'
+      || (remediation.completedAttempts ?? Math.max(0, (remediation.attempt || 1) - 1)) >= 2);
+    let ownership;
+    try {
+      ownership = inspectRecoveryWorkers(data, herdr);
+    } catch (error) {
+      return blocked(['ownership_unreadable', 'retained_worker_mismatch'].includes(error.message)
+        ? error.message : 'ownership_unreadable');
+    }
+    if (exhausted && !recovery && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep)
+      && ownership.present.some((worker) => worker.issue === data.currentIssue && worker.step === data.currentStep)) {
+      return blocked('retained_worker_mismatch');
+    }
+    const state = recovery ? 'recovery-consumed' : exhausted ? 'loop-recovery-available' : 'resumable';
+    return {
+      state, issues: data.issues, runId: data.runId, branch: checkout.branch,
+      issue: data.currentIssue, step: data.currentStep,
+      reasonCode: data.failed?.reasonCode ?? null,
+      cleanupReasonCode: data.failed?.cleanupReasonCode ?? null,
+      action: recovery
+        ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
+        : 'Run /sdlc-execute with no parameters to resume this exact queue.',
+    };
+  } catch {
+    return blocked('checkpoint_unreadable');
+  }
+}
+
 const RUN_IDENTITY_FIELDS = Object.freeze([
   'projectRoot',
   'runId',
@@ -865,7 +982,9 @@ export function remediationPrompt({
     : '- (none)';
   const header = [
     `You are remediating issue #${issue} step ${failedStep} (attempt ${resolvedEvidence.attempt}).`,
-    `Failed worker ${resolvedEvidence.closedName} in pane ${resolvedEvidence.closedPaneId} was closed after evidence capture.`,
+    resolvedEvidence.closedName && resolvedEvidence.closedPaneId
+      ? `Captured failed worker: ${resolvedEvidence.closedName}, pane ${resolvedEvidence.closedPaneId}. Consult checkpoint cleanup evidence for its disposition.`
+      : 'Legacy checkpoint has no recorded failed-worker identity; preserve its available failure evidence.',
     `reasonCode: ${resolvedEvidence.reasonCode}`,
     `summary: ${resolvedEvidence.summary}`,
     'artifacts:',
@@ -995,6 +1114,7 @@ export function defaultHerdr(run, cwd) {
       ]),
     ]),
     paneClose: (paneId) => invoke(['pane', 'close', paneId]),
+    listPanes: () => invoke(['pane', 'list']),
     agentStart: ({ name, paneId }) => {
       let configPath;
       try {
@@ -1255,7 +1375,7 @@ function deliverGeneratedPromptOnce({
     if (presence === 'unknown') {
       return { delivered: false, reasonCode: 'prompt_pending' };
     }
-    if (restarted) return { delivered: false, reasonCode: 'process_lost' };
+    if (restarted || !start) return { delivered: false, reasonCode: 'process_lost' };
     restarted = true;
     waitForAgentStartRetry();
     if (!commandSucceeded(start())) {
@@ -1583,15 +1703,26 @@ function stopResult({
   const incomingCleanup = runState.failed && runState.failed.cleanupReasonCode
     ? { cleanupReasonCode: runState.failed.cleanupReasonCode }
     : {};
+  const recoveryRecord = runState.recoveries?.find((entry) =>
+    entry.runId === runState.runId && entry.issue === issue && entry.step === step);
+  if (recoveryRecord) Object.assign(recoveryRecord, {
+    disposition: 'stopped', reasonCode, stoppedAt: new Date().toISOString(),
+    evidence: structuredClone(runState.remediation),
+  });
   runState.failed = {
     issue,
     step,
     reasonCode,
+    ...(runState.failed?.intervention ? { intervention: true } : {}),
     ...(reasonCode === 'prompt_pending' ? { intervention: true } : {}),
     ...incomingCleanup,
   };
   persistRunState(runState, cwd);
   output.push(sentence);
+  const recovery = discoverRecovery({ cwd, run, herdr });
+  if (!['absent', 'completed'].includes(recovery.state)) {
+    output.push(`${recovery.state}: ${recovery.reasonCode || reasonCode}${recovery.cleanupReasonCode ? `; cleanup: ${recovery.cleanupReasonCode}` : ''}. ${recovery.action}`);
+  }
   return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
 }
 
@@ -1734,12 +1865,18 @@ export function runExecute({
   const existingCheckpoint = readRunCheckpointAt(RUN_FILE, cwd);
   let existingRun = existingCheckpoint.data;
   let issues = parsedArgs.issues;
+  let recoveryIssue = null;
+  let recoveryBranch = null;
+  const bareRecovery = parsedArgs.defaultBacklog && !parsedArgs.recoverStale && !parsedArgs.retainWorker;
   if (parsedArgs.defaultBacklog) {
-    const resumable = Array.isArray(existingRun?.issues)
-      && existingRun.issues.length > 0
-      && existingRun.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0);
-    if (resumable) {
-      issues = existingRun.issues;
+    const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
+    if (discovery.state === 'blocked') {
+      return { status: 1, stdout: '', stderr: `${discovery.reasonCode}: ${discovery.action}\n` };
+    }
+    if (discovery.issues) {
+      issues = discovery.issues;
+      recoveryIssue = discovery.issue;
+      recoveryBranch = discovery.branch;
     } else {
       let specified;
       try {
@@ -1787,7 +1924,7 @@ export function runExecute({
   let runState = existingRun;
   let controllerLease;
   let releaseLeaseInFinally = true;
-  if (parsedArgs.recoverStale) {
+  if (parsedArgs.recoverStale || parsedArgs.defaultBacklog) {
     try {
       const recovery = reclaimStaleControllerLease({
         projectRoot: cwd,
@@ -1959,6 +2096,24 @@ export function runExecute({
     return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
   }
   runState.workers ||= {};
+  if (parsedArgs.defaultBacklog) {
+    try {
+      const { absent } = inspectRecoveryWorkers(runState, herdrApi);
+      for (const [name, worker] of absent) {
+        if (validatedPassedWorkerHandoff(cwd, worker.issue, worker.step)
+          && !matchingWorkerOwnership({
+            runState, issue: worker.issue, step: worker.step, agentName: name,
+            paneId: worker.paneId, cwd, run, allowCompletedHeadAdvance: true,
+          })) throw new Error('retained_worker_mismatch');
+        runState.absentWorkers ||= [];
+        runState.absentWorkers.push({ ...worker, confirmedAbsentAt: new Date().toISOString() });
+        delete runState.workers[name];
+      }
+      if (absent.length) persistRunState(runState, cwd);
+    } catch (error) {
+      return { status: 1, stdout: '', stderr: `${error.message}\n` };
+    }
+  }
   try {
     if (migratePromptDeliveryStates(runState)) persistRunState(runState, cwd);
   } catch (error) {
@@ -2059,9 +2214,12 @@ export function runExecute({
       : Math.max(0, (remediation.attempt || 1) - 1);
   }
   const resumedPromptActivations = new Set();
+  let recoveryDispatch = null;
 
   function recoverPendingWorkerPrompts() {
     for (const worker of Object.values(runState.workers)) {
+      if (runState.recoveries?.some((entry) => entry.runId === runState.runId
+        && entry.issue === worker.issue && entry.step === worker.step)) continue;
       if (
         !['pending', 'activating'].includes(worker?.promptDelivery)
         || !issues.includes(worker.issue)
@@ -2288,16 +2446,18 @@ export function runExecute({
       reasonCode: remediation.reasonCode,
       summary: remediation.summary,
       artifacts: remediation.artifacts,
-      closedName: remediation.closedWorker.name,
-      closedPaneId: remediation.closedWorker.paneId,
+      closedName: remediation.closedWorker?.name,
+      closedPaneId: remediation.closedWorker?.paneId,
     };
   }
 
   function runRemediationLoop({ issue, step, liveAgent = null }) {
     let remLive = liveAgent;
     const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
+    const recovery = runState.recoveries?.find((entry) =>
+      entry.runId === runState.runId && entry.issue === issue && entry.step === step);
     while (true) {
-      if (!remLive && completedRemediations() >= 2) {
+      if (!remLive && (recovery || completedRemediations() >= 2) && recoveryDispatch !== `${issue}:${step}`) {
         return stopRemediationLoop(issue, step);
       }
       const agentName = remAgentName(issue, step);
@@ -2352,6 +2512,7 @@ export function runExecute({
           state = agentState(herdrApi.agentGet(agentName));
         }
       } else {
+        if (recoveryDispatch === `${issue}:${step}`) recoveryDispatch = null;
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
         const { width, height } = paneDimensions(layout);
         const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
@@ -2397,7 +2558,7 @@ export function runExecute({
         runState.remediation.remWorker = { name: agentName, paneId };
         persistRunState(runState, cwd);
         let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
-        if (!commandSucceeded(started)) {
+        if (!commandSucceeded(started) && !recovery) {
           waitForAgentStartRetry();
           started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
         }
@@ -2435,7 +2596,7 @@ export function runExecute({
             paneId,
             prompt,
             handoffPath,
-            start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+            start: recovery ? null : () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
           });
           if (!delivered.delivered) {
             return stop({
@@ -2537,7 +2698,7 @@ export function runExecute({
       const { handoff } = handoffResult;
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
-        if (completedRemediations() >= 2) return stopRemediationLoop(issue, step);
+        if (recovery || completedRemediations() >= 2) return stopRemediationLoop(issue, step);
         if (!closePane(herdrApi, paneId)) {
           return stop({
             issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
@@ -2580,6 +2741,7 @@ export function runExecute({
       runState.completed[String(issue)].push(step);
       runState.currentStep = nextStep(runState.completed[String(issue)]);
       runState.failed = null;
+      if (recovery) Object.assign(recovery, { disposition: 'passed', completedAt: new Date().toISOString() });
       runState.remediation = null;
       persistRunState(runState, cwd);
       return { passed: true, step: runState.currentStep };
@@ -2605,6 +2767,7 @@ export function runExecute({
 
   for (let issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
     const issue = issues[issueIndex];
+    if (parsedArgs.defaultBacklog && nextStep(runState.completed?.[String(issue)] ?? []) === null) continue;
     const issueAgents = existingAgents.filter(
       (agent) => String(agent?.name || '').startsWith(`s${issue}-`),
     );
@@ -2632,6 +2795,14 @@ export function runExecute({
       : null;
     const checkpointRemediation = runState.remediation?.issue === issue
       && runState.remediation.step === step ? runState.remediation : null;
+    const consumedRecovery = runState.recoveries?.find((entry) =>
+      entry.runId === runState.runId && entry.issue === issue && entry.step === step);
+    if (consumedRecovery && !validatedPassedWorkerHandoff(cwd, issue, step)) {
+      return stop({
+        issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+        reasonCode: 'recovery_consumed', runState, cwd, herdr: herdrApi, output,
+      });
+    }
     if (step && (
       (runState.failed?.issue === issue && runState.failed.step === step)
       || checkpointRemediation
@@ -2656,7 +2827,28 @@ export function runExecute({
         checkpointRemediation.reasonCode === 'remediation_loop'
         || completedRemediations(checkpointRemediation) >= 2
       )) {
-        return stopRemediationLoop(issue, step);
+        if (!bareRecovery) return stopRemediationLoop(issue, step);
+        if (resumeAgent || Object.values(runState.workers).some((worker) =>
+          worker.issue === issue && worker.step === step)) {
+          return stop({
+            issue, step, paneId: 'none', agentName: remAgentName(issue, step),
+            reasonCode: 'retained_worker_mismatch', runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        if (currentCheckout(cwd, run)?.branch !== recoveryBranch) {
+          return { status: 1, stdout: '', stderr: 'checkpoint_branch_mismatch\n' };
+        }
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId, issue, step, invocationId: randomUUID(),
+          consumedAt: new Date().toISOString(),
+          source: structuredClone(checkpointRemediation),
+          failure: structuredClone(runState.failed),
+          disposition: 'consumed',
+        });
+        checkpointRemediation.status = 'active';
+        persistRunState(runState, cwd);
+        recoveryDispatch = `${issue}:${step}`;
       }
       if (!resumeAgent && passedHandoff && step !== 'deliver') {
         for (const [name, worker] of Object.entries(runState.workers)) {
@@ -2724,7 +2916,7 @@ export function runExecute({
         continue;
       }
     }
-    if (step && step !== 'start') {
+    if (step && step !== 'start' && !(parsedArgs.defaultBacklog && issue === recoveryIssue)) {
       const reasonCode = restoreActiveIssueBranch(issue, cwd, run);
       if (reasonCode) {
         return stop({
@@ -3330,6 +3522,11 @@ async function runCli(argv = process.argv.slice(2)) {
       console.error(error instanceof Error ? error.message : usageError());
       process.exit(2);
     }
+  }
+  if (sub === 'discover-recovery') {
+    const result = discoverRecovery();
+    console.log(JSON.stringify(result));
+    process.exit(result.state === 'blocked' ? 1 : 0);
   }
   if (sub === 'list-specified') {
     try {

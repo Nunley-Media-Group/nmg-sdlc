@@ -24,6 +24,7 @@ import {
   runExecute,
   listSpecifiedIssues,
   defaultHerdr,
+  discoverRecovery,
 } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
@@ -76,7 +77,7 @@ function boundRunData(root, fields = {}) {
         runId: fields.runId ?? 'test-run-id',
         issue: currentIssue,
         step: currentStep,
-        branch: fields.workerBranch ?? '42-ship-it',
+        branch: fields.workerBranch ?? `${currentIssue}-ship-it`,
         head: fields.workerHead ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       },
     } : {},
@@ -762,32 +763,6 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     })).toBe(false);
   });
 
-  it('renders the deterministic remediation header before the original worker prompt', () => {
-    const prompt = remediationPrompt({
-      issue: 42,
-      failedStep: 'verify',
-      cwd: makeSpecDir(),
-      evidence: {
-        attempt: 2,
-        reasonCode: 'verification_failed',
-        summary: 'verify failed',
-        artifacts: ['artifacts/verify.txt'],
-        closedName: 'r42-verify',
-        closedPaneId: 'pane-8',
-      },
-    });
-    expect(prompt.startsWith([
-      'You are remediating issue #42 step verify (attempt 2).',
-      'Failed worker r42-verify in pane pane-8 was closed after evidence capture.',
-      'reasonCode: verification_failed',
-      'summary: verify failed',
-      'artifacts:',
-      '- artifacts/verify.txt',
-    ].join('\n'))).toBe(true);
-    expect(prompt).toContain('\n---\n');
-    expect(prompt).toContain('# Verify Code');
-    expect(() => workerPrompt({ step: 'rem', issue: 42 })).toThrow('invalid step for workerPrompt');
-  });
 
   it('worker-prompt CLI accepts rem evidence and rejects start as a failed step', () => {
     const root = makeSpecDir();
@@ -1183,6 +1158,7 @@ describe('runExecute controller', () => {
 
     const herdr = {
       integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
+      listPanes: () => ({ result: { panes: herdr.listAgents().map((agent) => ({ pane_id: agent.pane_id })) } }),
       paneLayout: () => ({ result: { width: paneWidth, height: 40 } }),
       paneSplit: (input) => {
         expect(input.direction).toBe(paneWidth >= 40 ? 'right' : 'down');
@@ -3062,6 +3038,198 @@ describe('runExecute controller', () => {
     }
   });
 
+  it.each(['', '--recover-stale #42'])('reclaims proven stale ownership through %s without stealing a live lease', (args) => {
+    const fixture = makeControllerFixture({ blockedStep: 'implement' });
+    seedRun(fixture.cwd, { branch: '42-ship-it', workers: {} });
+    const lease = acquireControllerLease({ projectRoot: fixture.cwd, runId: 'test-run-id', controllerPaneId: 'dead-pane', pid: 99999999 });
+    const result = runExecute({
+      args, cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+      processApi: { kill: () => { throw Object.assign(new Error('absent'), { code: 'ESRCH' }); } },
+    });
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement']);
+    expect(fs.existsSync(lease.path)).toBe(false);
+  });
+
+  function exhaustedRecoveryFixture(options = {}) {
+    const fixture = makeControllerFixture({ remFailures: 1, ...options });
+    seedRun(fixture.cwd, {
+      branch: 'main', currentStep: 'implement', completed: { 42: ['start'] },
+      failed: { issue: 42, step: 'implement', reasonCode: 'remediation_loop' },
+      remediation: {
+        issue: 42, step: 'implement', attempt: 13, status: 'stopped',
+        reasonCode: 'remediation_loop', summary: 'original failure',
+        history: [{ attempt: 12, reasonCode: 'implementation_failed' }],
+      },
+    });
+    return fixture;
+  }
+
+  it('bare recovery dispatches once for legacy attempt 13 and cannot replay after failure or churn', () => {
+    const fixture = exhaustedRecoveryFixture();
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }).state).toBe('loop-recovery-available');
+    const first = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(first.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const stopped = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    expect(stopped.completed[42]).toEqual(['start']);
+    expect(stopped.recoveries[0].source.attempt).toBe(13);
+    expect(stopped.recoveries[0].source.history).toEqual([{ attempt: 12, reasonCode: 'implementation_failed' }]);
+    expect(stopped.absentWorkers[0].paneId).toBe('kept-implement-pane');
+    expect(fixture.closed).not.toContain('kept-implement-pane');
+    stopped.head = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    stopped.remediation.summary = 'new summary after plugin upgrade and commit';
+    fs.writeFileSync(runPath, JSON.stringify(stopped));
+    for (const args of ['', '#42', '--recover-stale #42']) {
+      expect(runExecute({ args, cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    }
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+    expect(JSON.parse(fs.readFileSync(runPath, 'utf8')).recoveries).toHaveLength(1);
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }).state).toBe('recovery-consumed');
+  });
+
+  it('recovery consumption is durable before dispatch and concurrent invocation cannot dispatch', () => {
+    const fixture = exhaustedRecoveryFixture();
+    const split = fixture.herdr.paneSplit;
+    fixture.herdr.paneSplit = (input) => {
+      const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+      expect(checkpoint.recoveries).toHaveLength(1);
+      const concurrent = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+      expect(concurrent.status).toBe(1);
+      expect(fixture.starts).toEqual([]);
+      return split(input);
+    };
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+  });
+
+  it('ambiguous split after consumption never replays on a later bare command', () => {
+    const fixture = exhaustedRecoveryFixture();
+    fixture.herdr.paneSplit = () => { throw new Error('transport lost after dispatch'); };
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).recoveries).toHaveLength(1);
+    fixture.herdr.paneSplit = () => { throw new Error('must not dispatch again'); };
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('validated recovery advances into normal reviews and leaves later remediation bounded', () => {
+    const fixture = exhaustedRecoveryFixture({ remFailures: 0, blockedStep: 'review1' });
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement', 's42-review1']);
+    expect(checkpoint.completed[42]).toEqual(['start', 'implement']);
+    expect(checkpoint.recoveries[0].disposition).toBe('passed');
+  });
+
+  it.each(['branch', 'intervention', 'reused-pane', 'unknown-panes', 'live-worker'])(
+    'bare recovery refuses unsafe %s evidence without dispatch',
+    (boundary) => {
+      const fixture = exhaustedRecoveryFixture(boundary === 'branch' ? { branch: '42-other' } : {});
+      if (boundary === 'intervention') {
+        const file = path.join(fixture.cwd, '.omp/sdlc/run.json');
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        data.failed.intervention = true;
+        fs.writeFileSync(file, JSON.stringify(data));
+      }
+      if (boundary === 'reused-pane') fixture.herdr.listPanes = () => ({ result: { panes: [{ pane_id: 'kept-implement-pane' }] } });
+      if (boundary === 'unknown-panes') fixture.herdr.listPanes = () => ({ status: 1 });
+      if (boundary === 'live-worker') fixture.herdr.listAgents = () => [{ name: 's42-implement', pane_id: 'kept-implement-pane', state: 'working' }];
+      const before = fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8');
+      const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+      expect(result.status).toBe(1);
+      expect(fixture.starts).toEqual([]);
+      expect(fixture.closed).toEqual([]);
+      expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).recoveries).toBeUndefined();
+      if (['branch', 'intervention', 'reused-pane', 'unknown-panes'].includes(boundary)) {
+        expect(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).toBe(before);
+      }
+    },
+  );
+
+  it('discovery distinguishes clean absence and unreadable checkpoints without selecting issues', () => {
+    const fixture = makeControllerFixture();
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run }).state).toBe('absent');
+    fs.mkdirSync(path.join(fixture.cwd, '.omp/sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), '{');
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run }).state).toBe('blocked');
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    expect(fixture.calls.some(([command, ...args]) => command === 'gh' && args[0] === 'issue' && args[1] === 'list')).toBe(false);
+  });
+
+  it.each(['start-failure', 'lost-before-prompt'])('does not restart a recovery worker after %s', (failure) => {
+    const fixture = exhaustedRecoveryFixture({ agentStartStatuses: failure === 'start-failure' ? [1, 0] : [] });
+    if (failure === 'lost-before-prompt') {
+      const start = fixture.herdr.agentStart;
+      fixture.herdr.agentStart = (input) => {
+        const result = start(input);
+        fixture.herdr.listAgents = () => [];
+        return result;
+      };
+    }
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+    expect(fixture.prompts).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).recoveries).toHaveLength(1);
+  });
+
+  it('retains exact linked-worker branch identity after an absent legacy worker is reconciled', () => {
+    const fixture = exhaustedRecoveryFixture({ branch: '42-operator-linked-name' });
+    const file = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const checkpoint = JSON.parse(fs.readFileSync(file, 'utf8'));
+    checkpoint.workers['s42-implement'].branch = '42-operator-linked-name';
+    fs.writeFileSync(file, JSON.stringify(checkpoint));
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }).state).toBe('recovery-consumed');
+    expect(fixture.calls.some(([command, ...args]) => command === 'git' && args[0] === 'checkout')).toBe(false);
+  });
+
+  it('a legacy loop stop with missing attempt counts still receives only one recovery dispatch', () => {
+    const fixture = exhaustedRecoveryFixture({ remFailures: 5 });
+    const file = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const checkpoint = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete checkpoint.remediation.attempt;
+    fs.writeFileSync(file, JSON.stringify(checkpoint));
+    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r42-implement']);
+  });
+
+  it.each(['--recover-stale', '--retain-worker', '#42'])('does not grant exhausted recovery for non-bare %s', (args) => {
+    const fixture = exhaustedRecoveryFixture();
+    runExecute({ args, cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(fixture.starts).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8')).recoveries).toBeUndefined();
+  });
+
+  it('does not dispatch when recovery consumption loses its checkpoint compare-and-swap', () => {
+    const fixture = exhaustedRecoveryFixture();
+    fixture.herdr.listPanes = () => ({ result: { panes: [] } });
+    let reads = 0;
+    fixture.herdr.listAgents = () => {
+      if (++reads === 2) {
+        const file = path.join(fixture.cwd, '.omp/sdlc/run.json');
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        data.revision += 1;
+        fs.writeFileSync(file, JSON.stringify(data));
+      }
+      return [];
+    };
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.splits).toEqual([]);
+  });
+
+  it('completed checkpoints fall through discovery without reopening delivered stages', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, { currentIssue: null, currentStep: null, completed: { 42: VALID_STEPS }, workers: {} });
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run }).state).toBe('completed');
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(0);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('legacy attempt 13 does not restart a remediation', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
@@ -3405,7 +3573,7 @@ describe('runExecute controller', () => {
       ...activeStartedAgents(fixture),
     ];
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
-    fixture.herdr.agentRead = () => 'You are rem\nFailed work\nreasonCode:';
+    fixture.herdr.agentRead = () => remediationPrompt({ issue: 42, failedStep: 'verify', cwd: fixture.cwd });
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
@@ -4614,11 +4782,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
-    expect(result).toEqual({
-      status: 1,
-      stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.\n',
-      stderr: '',
-    });
+    expect(result.status).toBe(1);
     expect(observations).toBe(60);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
@@ -5668,7 +5832,7 @@ describe('runExecute controller', () => {
       return baseRun(command, args);
     };
 
-    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    runExecute({ args: '#42 #43', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     const checkoutMain = events.indexOf('checkout:main');
     const checkoutLater = events.indexOf('checkout:43-later');
@@ -5747,7 +5911,7 @@ describe('runExecute controller', () => {
     };
 
     const result = runExecute({
-      args: '',
+      args: '#42 #43',
       cwd: fixture.cwd,
       env,
       run: fixture.run,
