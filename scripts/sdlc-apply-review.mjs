@@ -115,9 +115,27 @@ function runApplyReviewUnlocked({
         && publicationIdentity.artifactDigest === artifactDigest
         && publicationIdentity.commitSha === commitSha;
       if (!identityMatches) {
-        // Neither a reused subject nor a failed handoff proves which findings were applied.
-        const packet = { schemaVersion: 1, kind: 'apply_review_required', issue: issueNumber, step, artifactPath, handoffPath };
-        return { status: 3, stdout: `NMG_SDLC_APPLY_REVIEW: ${JSON.stringify(packet)}\n`, stderr: '', handoff: null, handoffPath };
+        if (!applied) {
+          // Neither a reused subject nor a failed handoff proves which findings were applied.
+          const packet = { schemaVersion: 1, kind: 'apply_review_required', issue: issueNumber, step, artifactPath, handoffPath };
+          return { status: 3, stdout: `NMG_SDLC_APPLY_REVIEW: ${JSON.stringify(packet)}\n`, stderr: '', handoff: null, handoffPath };
+        }
+        // Explicit --applied no-change invocation may acknowledge current findings only after
+        // reconcileStagePublication validates publication. Persist current identity; rejected must not.
+        const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
+        if (!publication.passed) return fail(publication.summary, 'apply_review_failed');
+        const publicationIdentity = {
+          schemaVersion: 1,
+          ownerId,
+          issue: issueNumber,
+          step,
+          artifactPath,
+          artifactDigest,
+          commitSha,
+        };
+        if (!fs.existsSync(dirname(identityPath))) fs.mkdirSync(dirname(identityPath), { recursive: true });
+        fs.writeFileSync(identityPath, `${JSON.stringify(publicationIdentity, null, 2)}\n`);
+        return pass(`Reconciled published ${reviewStep} findings for #${issueNumber}`);
       }
       const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
       if (!publication.passed) return fail(publication.summary, 'apply_review_failed');

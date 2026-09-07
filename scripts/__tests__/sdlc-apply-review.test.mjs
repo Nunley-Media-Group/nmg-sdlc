@@ -228,8 +228,36 @@ describe('runApplyReview', () => {
     expect(final.status).toBe(0);
     expect(final.handoff.status).toBe('passed');
   });
-
-
+  test('explicit no-change application acknowledges changed findings only after publication validation', () => {
+    const f = fixture('P1: original findings\n');
+    fs.writeFileSync(path.join(f.root, 'src/code.mjs'), 'export const value = 2;\n');
+    expect(f.apply({ applied: true }).status).toBe(0);
+    const head = f.git('rev-parse', 'HEAD');
+    const remoteHead = f.git('--git-dir', f.remote, 'rev-parse', 'refs/heads/42-feature');
+    const identityPath = path.join(f.root, '.omp/sdlc/reviews/42-fix1.publication.json');
+    const newFindings = 'P1: changed findings for regression\n';
+    fs.writeFileSync(path.join(f.root, f.artifactPath), newFindings);
+    // automatic stale digest still requests application (fail-closed)
+    expect(f.apply().status).toBe(3);
+    f.calls.length = 0;
+    // explicit --applied no-change -> observable pass, no manufactured commit/push
+    const ack = f.apply({ applied: true });
+    expect(ack.status).toBe(0);
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('--git-dir', f.remote, 'rev-parse', 'refs/heads/42-feature')).toBe(remoteHead);
+    expect(f.apply().status).toBe(0);
+    expect(mutations(f.calls)).toEqual([]);
+    // rejection must not update/record identity
+    fs.writeFileSync(path.join(f.root, f.artifactPath), 'P1: another change\n');
+    const priorIdentity = fs.readFileSync(identityPath, 'utf8');
+    const rejected = f.apply({ applied: true, run: (command, args, options) => {
+      if (command === 'git' && args[0] === 'branch') return failed;
+      return f.run(command, args, options);
+    } });
+    expect(rejected.status).toBe(1);
+    expect(rejected.handoff.reasonCode).toBe('apply_review_failed');
+    expect(fs.readFileSync(identityPath, 'utf8')).toBe(priorIdentity);
+  });
 });
 
 describe('sdlc-apply-review CLI', () => {

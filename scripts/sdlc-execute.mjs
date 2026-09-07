@@ -451,7 +451,7 @@ function parsedReviewResult(text) {
   return matches.at(-1)?.[1]?.trim() ?? '';
 }
 
-function validReviewArtifact(cwd, issue, step, handoff, run = defaultRun) {
+export function validReviewArtifact(cwd, issue, step, handoff, run = defaultRun) {
   if (handoff.status !== 'passed') return true;
   try {
     const { prefix, attemptSuffix, artifactPath, indexPath } = resolveReviewArtifacts({ cwd, issue, step });
@@ -1763,7 +1763,7 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
       const body = findings.filter((text) => text !== 'No findings.').join('\n\n') || 'No findings.';
       writeFileSync(artifact, `${body}\n`, { flag: 'wx' });
     }
-    const finalized = runReviewMain({ cwd, issue, step, generation, attempt, result: contaminated ? 'review_failed' : undefined });
+    const finalized = runReviewMain({ cwd, issue, step, generation, attempt, run, result: contaminated ? 'review_failed' : undefined });
     if (!contaminated) return finalized;
     if (attempt === 2) throw new Error('invalid_review_slice');
     const consumed = consumeSafeRecovery({
@@ -2829,13 +2829,31 @@ export function runExecute({
           persistRunState(runState, cwd);
           return { passed: true, step: nextStepAfter };
         } catch (error) {
-          const rc = error && error.message ? error.message : 'review_failed';
-          runState.failed = { issue, step, reasonCode: rc, intervention: true };
+          let reasonCode = error && error.message ? error.message : 'review_failed';
+          try {
+            if (existsSync(join(cwd, resolveReviewArtifacts({ cwd, issue, step }).invalidationPath))) reasonCode = 'invalid_review_slice';
+          } catch {}
+          let cleanupFailed = (error && error.message) === 'pane_close_failed';
+          if (!parsedArgs.retainWorker && reasonCode !== 'prompt_pending') {
+            for (const [name, worker] of Object.entries(runState.workers ?? {})) {
+              if (worker.projectRoot !== runState.projectRoot || worker.runId !== runState.runId
+                || worker.issue !== issue || worker.step !== step) continue;
+              if ((error && error.message) === 'pane_close_failed' && (!error.workerName || error.workerName === name)) continue;
+              if (closePane(herdrApi, worker.paneId)) {
+                delete runState.workers[name];
+                output.push(`Closed review slice ${name} in pane ${worker.paneId}.`);
+              } else cleanupFailed = true;
+            }
+          }
+          runState.failed = {
+            issue, step, reasonCode, intervention: true,
+            ...(cleanupFailed ? { cleanupReasonCode: 'pane_close_failed' } : {}),
+          };
           persistRunState(runState, cwd);
           return {
             result: stop({
               issue, step, paneId: 'none', agentName: remAgentName(issue, step),
-              reasonCode: rc,
+              reasonCode,
               runState, cwd, herdr: herdrApi, output,
             }),
           };
@@ -3673,7 +3691,7 @@ export function runExecute({
           persistRunState(runState, cwd);
           continue;
         } catch (error) {
-          let reasonCode = error.message;
+          let reasonCode = error && error.message ? error.message : 'review_failed';
           try {
             if (existsSync(join(cwd, resolveReviewArtifacts({ cwd, issue, step }).invalidationPath))) reasonCode = 'invalid_review_slice';
           } catch {}

@@ -3452,79 +3452,70 @@ describe('runExecute controller', () => {
     expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
     expect(fixture.starts).toHaveLength(starts);
   });
-  it('retains cleanup evidence and the lease when the second remediation pane cannot close at the exact limit', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    const paneClose = fixture.herdr.paneClose;
-    const failedCloses = [];
-    fixture.herdr.paneClose = (paneId) => {
-      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
-      if (secondRem?.paneId === paneId) {
-        failedCloses.push(paneId);
-        return { status: 1 };
-      }
-      return paneClose(paneId);
-    };
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
-
+  it.each([
+    ['review1', 'review_failed'],
+    ['review2', 'review_scope_unproven'],
+  ])('closes recorded historical %s slices after %s and preserves failed evidence', (step, reasonCode) => {
+    const fixture = makeControllerFixture(reasonCode === 'review_failed'
+      ? { failedStep: step }
+      : { reviewReceipt: () => {} });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: step, workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)) },
+      failed: { issue: 42, step, reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step, status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    const oldPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step, status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(1);
-    expect(remWorkers).toHaveLength(2);
-    expect(failedCloses).toEqual([remWorkers[1].paneId]);
-    expect(fixture.closed).toContain(remWorkers[0].paneId);
-    expect(persisted.completed['42']).toEqual(['start']);
-    expect(persisted.remediation).toMatchObject({
-      issue: 42, step: 'implement', completedAttempts: 2,
-      status: 'stopped', reasonCode: 'remediation_loop',
-    });
-    expect(persisted.failed).toEqual({
-      issue: 42, step: 'implement', reasonCode: 'remediation_loop',
-      cleanupReasonCode: 'pane_close_failed',
-    });
-    expect(persisted.workers['r42-implement']).toMatchObject({
-      name: 'r42-implement', paneId: remWorkers[1].paneId,
-    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.failed).toMatchObject({ issue: 42, step, reasonCode, intervention: true });
+    const slices = fixture.starts.filter(({ name }) => name.startsWith(`s42-${step}-reviewer-`));
+    expect(slices.map(({ name }) => name)).toEqual([`s42-${step}-reviewer-1`]);
+    expect(fixture.closed).toEqual(slices.map(({ paneId }) => paneId));
+    expect(persisted.workers).toEqual({});
+    expect(persisted.failed.cleanupReasonCode).toBeUndefined();
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
   });
 
-  it('keeps the controller lease when remediation limit cleanup checkpoint persistence fails', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    const paneClose = fixture.herdr.paneClose;
-    let failedPane;
-    fixture.herdr.paneClose = (paneId) => {
-      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
-      if (secondRem?.paneId === paneId) {
-        failedPane = paneId;
-        fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
-        return { status: 1 };
-      }
-      return paneClose(paneId);
-    };
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
-
-    expect(result.status).toBe(1);
-    expect(remWorkers).toHaveLength(2);
-    expect(failedPane).toBe(remWorkers[1].paneId);
-    expect(persisted.remediation).toMatchObject({ status: 'stopped', reasonCode: 'remediation_loop' });
-    expect(persisted.workers['r42-implement']).toMatchObject({
-      paneId: failedPane, projectRoot: persisted.projectRoot, runId: persisted.runId,
+  it('retains the exact historical review slice and lease when failure cleanup cannot close it', () => {
+    const fixture = makeControllerFixture({ reviewReceipt: () => {}, paneCloseStatus: 1 });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: 'review1', workers: {},
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step: 'review1', status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
     });
+    const oldPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json');
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step: 'review1', status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.failed).toMatchObject({
+      issue: 42, step: 'review1', reasonCode: 'review_scope_unproven',
+      cleanupReasonCode: 'pane_close_failed', intervention: true,
+    });
+    const slices = fixture.starts.filter(({ name }) => name.startsWith('s42-review1-reviewer-'));
+    expect(slices.map(({ name }) => name)).toEqual(['s42-review1-reviewer-1']);
+    expect(fixture.closed).toEqual(slices.map(({ paneId }) => paneId));
+    expect(Object.keys(persisted.workers)).toEqual(['s42-review1-reviewer-1']);
+    expect(persisted.workers['s42-review1-reviewer-1'].paneId).toBe(slices[0].paneId);
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
-
-  it('unchanged reinvocation stays stopped after remediation_loop with no additional worker', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const firstRems = fixture.starts.filter(({ name }) => name.startsWith('r42-')).length;
-    const result2 = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    expect(result2.status).toBe(1);
-    expect(fixture.starts.filter(({ name }) => name.startsWith('r42-')).length).toBe(firstRems);
-    expect(persisted.remediation.status).toBe('stopped');
-  });
-
-  it('passed first or second remediation advances current step and gives next stage a fresh streak', () => {
+  it('retains cleanup evidence and the lease when the second remediation pane cannot close at the exact limit', () => {
     for (const rf of [0, 1]) {
       const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: rf, failedNext: null });
       const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });

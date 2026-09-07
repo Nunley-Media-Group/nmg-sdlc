@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { validReviewArtifact } from './sdlc-execute.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-review-main.mjs --issue N --step review1|review2 [--result review_failed]';
 const REVIEW_STEPS = new Set(['review1', 'review2']);
@@ -36,7 +37,6 @@ export function runReviewMain({
   attempt = 1,
   generation = '',
 } = {}) {
-  void run;
   const issueNumber = Number(issue);
   if (attempt !== 1 && attempt !== 2) throw new Error('invalid_review_attempt');
   if (generation !== '' && !/^\.head-[0-9a-f]{40}$/.test(generation)) throw new Error('invalid_review_generation');
@@ -74,13 +74,17 @@ export function runReviewMain({
   const artifact = fs.readFileSync(absoluteArtifact, 'utf8');
   if (!artifact.trim()) return fail(`Review artifact empty for #${issueNumber} ${step}`, 'review_empty');
 
-  return writeHandoff(handoffFor(
+  const handoff = handoffFor(
     issueNumber,
     step,
     'passed',
     `Review ${step} completed for #${issueNumber}`,
     artifactPath,
-  ));
+  );
+  if (!validReviewArtifact(cwd, issueNumber, step, handoff, run)) {
+    return fail(`Review host proof unavailable for #${issueNumber} ${step}`, 'review_scope_unproven');
+  }
+  return writeHandoff(handoff);
 }
 
 function parseCli(argv) {
