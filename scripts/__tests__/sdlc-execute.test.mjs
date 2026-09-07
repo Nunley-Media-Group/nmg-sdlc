@@ -2976,21 +2976,67 @@ describe('runExecute controller', () => {
     expect(String(persisted.remediation.reasonCode || persisted.failed?.reasonCode || '')).toMatch(/remediation_loop/);
     expect(persisted.completed[42] || []).not.toContain(step);
   });
-  it('preserves lease ownership and records cleanup diagnostic on pane close failure exactly at the remediation limit', () => {
+  it('retains cleanup evidence and the lease when the second remediation pane cannot close at the exact limit', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    const originalClose = fixture.herdr.paneClose;
+    const paneClose = fixture.herdr.paneClose;
+    const failedCloses = [];
     fixture.herdr.paneClose = (paneId) => {
-      (fixture.closed = fixture.closed || []).push(paneId);
-      return { status: 1 };
+      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
+      if (secondRem?.paneId === paneId) {
+        failedCloses.push(paneId);
+        return { status: 1 };
+      }
+      return paneClose(paneId);
     };
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
+
     expect(result.status).toBe(1);
+    expect(remWorkers).toHaveLength(2);
+    expect(failedCloses).toEqual([remWorkers[1].paneId]);
+    expect(fixture.closed).toContain(remWorkers[0].paneId);
+    expect(persisted.completed['42']).toEqual(['start']);
+    expect(persisted.remediation).toMatchObject({
+      issue: 42, step: 'implement', completedAttempts: 2,
+      status: 'stopped', reasonCode: 'remediation_loop',
+    });
+    expect(persisted.failed).toEqual({
+      issue: 42, step: 'implement', reasonCode: 'remediation_loop',
+      cleanupReasonCode: 'pane_close_failed',
+    });
+    expect(persisted.workers['r42-implement']).toMatchObject({
+      name: 'r42-implement', paneId: remWorkers[1].paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+      issue: 42, step: 'implement',
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
+  });
+
+  it('keeps the controller lease when remediation limit cleanup checkpoint persistence fails', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
+    const paneClose = fixture.herdr.paneClose;
+    let failedPane;
+    fixture.herdr.paneClose = (paneId) => {
+      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
+      if (secondRem?.paneId === paneId) {
+        failedPane = paneId;
+        fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
+        return { status: 1 };
+      }
+      return paneClose(paneId);
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
+
+    expect(result.status).toBe(1);
+    expect(remWorkers).toHaveLength(2);
+    expect(failedPane).toBe(remWorkers[1].paneId);
     expect(persisted.remediation).toMatchObject({ status: 'stopped', reasonCode: 'remediation_loop' });
-    expect(persisted.failed).toMatchObject({ reasonCode: 'remediation_loop', cleanupReasonCode: 'pane_close_failed' });
-    const hasRemWorker = Object.keys(persisted.workers || {}).some((k) => k.startsWith('r42-'));
-    expect(hasRemWorker).toBe(true);
-    // lease retained (not released on close failure)
+    expect(persisted.workers['r42-implement']).toMatchObject({
+      paneId: failedPane, projectRoot: persisted.projectRoot, runId: persisted.runId,
+    });
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
@@ -3586,6 +3632,11 @@ describe('runExecute controller', () => {
       remWorker: null,
     });
     expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
+    expect(persisted.workers['s42-verify']).toMatchObject({
+      paneId: fixture.starts.find(({ name }) => name === 's42-verify').paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   it('runs deterministic review completion for a review rem worker', () => {
@@ -4086,6 +4137,44 @@ describe('runExecute controller', () => {
     });
     expect(persisted.workers['s42-start']).toBeUndefined();
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('records synchronous cancellation cleanup failure and retains the owned worker and lease', () => {
+    const fixture = makeControllerFixture({ writeHandoffs: false });
+    const processApi = new EventEmitter();
+    const failedCloses = [];
+    processApi.exit = (code) => {
+      throw new Error(`signal_exit_${code}`);
+    };
+    fixture.herdr.paneClose = (paneId) => {
+      failedCloses.push(paneId);
+      throw new Error('pane close unavailable');
+    };
+    fixture.herdr.agentPrompt = () => {
+      processApi.emit('SIGTERM');
+      return { status: 1 };
+    };
+
+    const result = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+      installSignalHandlers: true, processApi,
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('signal_exit_143\n');
+    expect(fixture.starts).toHaveLength(1);
+    expect(failedCloses).toEqual([fixture.starts[0].paneId]);
+    expect(persisted.failed).toEqual({
+      issue: 42, step: 'start', reasonCode: 'controller_cancelled',
+      cleanupReasonCode: 'pane_close_failed',
+    });
+    expect(persisted.workers['s42-start']).toMatchObject({
+      name: 's42-start', paneId: fixture.starts[0].paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+      issue: 42, step: 'start',
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   it('keeps the controller lease when cancellation checkpoint persistence fails', () => {
@@ -5032,6 +5121,49 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toEqual(['pane-1']);
     expect(persisted.completed['42']).toEqual([]);
     expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'pane_close_failed' });
+    expect(persisted.workers['s42-start']).toMatchObject({
+      paneId: fixture.starts[0].paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
+  });
+
+  it('keeps the controller lease when ordinary failure-stop pane cleanup fails', () => {
+    const fixture = makeControllerFixture({ failedStep: 'start', paneCloseStatus: 1 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toHaveLength(1);
+    expect(fixture.closed).toEqual([fixture.starts[0].paneId]);
+    expect(persisted.completed['42']).toEqual([]);
+    expect(persisted.failed).toEqual({ issue: 42, step: 'start', reasonCode: 'pane_close_failed' });
+    expect(persisted.workers['s42-start']).toMatchObject({
+      name: 's42-start', paneId: fixture.starts[0].paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+      issue: 42, step: 'start',
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
+  });
+
+  it('keeps the controller lease when ordinary failure-stop checkpoint persistence fails', () => {
+    const fixture = makeControllerFixture({ failedStep: 'start' });
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
+      return paneClose(paneId);
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toHaveLength(1);
+    expect(fixture.closed).toEqual([fixture.starts[0].paneId]);
+    expect(persisted.workers['s42-start']).toMatchObject({
+      paneId: fixture.starts[0].paneId,
+      projectRoot: persisted.projectRoot, runId: persisted.runId,
+    });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
   it('does not start a second worker when an issue worker is live', () => {

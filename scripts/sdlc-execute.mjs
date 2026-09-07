@@ -1580,11 +1580,15 @@ function stopResult({
   } catch {
     // The orchestrator sentence remains authoritative when notifications are unavailable.
   }
+  const incomingCleanup = runState.failed && runState.failed.cleanupReasonCode
+    ? { cleanupReasonCode: runState.failed.cleanupReasonCode }
+    : {};
   runState.failed = {
     issue,
     step,
     reasonCode,
     ...(reasonCode === 'prompt_pending' ? { intervention: true } : {}),
+    ...incomingCleanup,
   };
   persistRunState(runState, cwd);
   output.push(sentence);
@@ -1964,11 +1968,26 @@ export function runExecute({
       stderr: `${error instanceof Error ? error.message : String(error)}\n`,
     };
   }
-  const stop = (input) => stopResult({
-    ...input,
-    run,
-    retainWorker: parsedArgs.retainWorker,
-  });
+  const stop = (input) => {
+    try {
+      const result = stopResult({
+        ...input,
+        run,
+        retainWorker: parsedArgs.retainWorker,
+      });
+      if (
+        !parsedArgs.retainWorker
+        && runState.failed?.reasonCode === 'pane_close_failed'
+        && hasUnclosedOwnedWorkers(runState)
+      ) {
+        releaseLeaseInFinally = false;
+      }
+      return result;
+    } catch (error) {
+      releaseLeaseInFinally = false;
+      throw error;
+    }
+  };
   function persistPromptDelivery(worker, promptDelivery) {
     worker.promptDelivery = promptDelivery;
     worker.promptDeliveryVersion = PROMPT_DELIVERY_VERSION;
@@ -2193,6 +2212,8 @@ export function runExecute({
 
 
   function stopRemediationLoop(issue, step) {
+    const releaseAfterCleanup = releaseLeaseInFinally;
+    releaseLeaseInFinally = false;
     runState.remediation.status = 'stopped';
     runState.remediation.reasonCode = 'remediation_loop';
     persistRunState(runState, cwd);
@@ -2213,12 +2234,13 @@ export function runExecute({
         };
       }
       persistRunState(runState, cwd);
-      releaseLeaseInFinally = false;
     }
-    return stop({
+    const result = stop({
       issue, step, paneId: 'none', agentName: remAgentName(issue, step),
       reasonCode: 'remediation_loop', runState, cwd, herdr: herdrApi, output,
     });
+    if (!closeFailed) releaseLeaseInFinally = releaseAfterCleanup;
+    return result;
   }
 
   function persistRemediationFailure({ issue, step, state, handoff, agentName, paneId }) {
