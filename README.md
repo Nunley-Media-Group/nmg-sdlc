@@ -46,6 +46,8 @@ omp plugin doctor
 
 If the installation is pinned to a commit, deliberately install the desired newer ref rather than assuming a pinned source moves. Open a **fresh OMP session** after changing the installed package so command registration and loaded prompts use the new version. Do not stop an active Herdr server to update this plugin.
 
+Before verifying a development candidate against a consumer project, install that exact candidate and use fresh OMP workers. Running a controller from a source checkout alone is not enough: workers can still load the older installed extension and its controller paths. Check the installed path with `omp plugin list --json` and exercise the installed validator on the retained evidence before retrying a failed smoke run. When switching an existing package installation to a local link, remove the existing installation through OMP's plugin manager first; do not repeat a failed link unchanged.
+
 Then, in every existing consumer project, run `/sdlc-upgrade-project` and approve the relevant migrations before further SDLC work. For a project not yet using nmg-sdlc, use `/sdlc-onboard-project` first.
 
 ## Quick start
