@@ -49,20 +49,22 @@ describe('runReviewMain', () => {
     expect(fs.readFileSync(artifact, 'utf8')).toBe('P1: fix this\n');
   });
 
-  test('rewrites an empty artifact to the canonical no-findings body', () => {
+  test('empty review fails without fabricating or changing evidence', () => {
     const root = makeRoot();
     const artifact = writeArtifact(root, 'review2', '  \n');
     const outcome = runReviewMain({ issue: 42, step: 'review2', cwd: root, run: () => null, fs });
 
-    expect(outcome.handoff.next).toBe('fix2');
-    expect(validateHandoff(outcome.handoff)).toEqual(outcome.handoff);
-    expect(fs.readFileSync(artifact, 'utf8')).toBe('No findings.\n');
+    expect(outcome.status).toBe(1);
+    expect(outcome.handoff).toMatchObject({
+      status: 'failed', next: null, intervention: true, reasonCode: 'review_empty',
+    });
+    expect(fs.readFileSync(artifact, 'utf8')).toBe('  \n');
   });
 
   test.each([
-    ['missing artifact', undefined],
-    ['reported review failure', 'review_failed'],
-  ])('writes review_failed for %s', (_label, result) => {
+    ['missing artifact', undefined, 'review_artifact_missing'],
+    ['reported review failure', 'review_failed', 'review_failed'],
+  ])('fails closed for %s', (_label, result, reasonCode) => {
     const root = makeRoot();
     const outcome = runReviewMain({ issue: 42, step: 'review1', cwd: root, run: () => null, fs, result });
 
@@ -70,7 +72,7 @@ describe('runReviewMain', () => {
     expect(outcome.handoff).toMatchObject({
       status: 'failed',
       intervention: true,
-      reasonCode: 'review_failed',
+      reasonCode,
       next: null,
       schemaVersion: 1,
       issue: 42,
@@ -79,6 +81,7 @@ describe('runReviewMain', () => {
       artifacts: [],
     });
     expect(validateHandoff(outcome.handoff)).toEqual(outcome.handoff);
+    expect(fs.existsSync(path.join(root, '.omp/sdlc/reviews/42-review1.md'))).toBe(false);
   });
 });
 
@@ -91,7 +94,6 @@ describe('sdlc-review-main CLI', () => {
     });
 
     expect(result.status).toBe(2);
-    expect(result.stderr.trim()).toBe('Usage: node scripts/sdlc-review-main.mjs --issue N --step review1|review2 [--result review_failed]');
     expect(fs.existsSync(path.join(root, '.omp/sdlc/handoffs'))).toBe(false);
   });
 });

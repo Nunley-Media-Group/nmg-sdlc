@@ -11,6 +11,7 @@ import {
   rewriteInteractiveInput,
   sessionModeFromEntries,
 } from "./sdlc-commands.mjs";
+import { installReviewIsolation } from "./sdlc-review-isolation.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
   registerCommand(name: string, options: {
@@ -19,6 +20,11 @@ type ExtensionAPI = {
   }): void;
   sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
   appendEntry(customType: string, data?: unknown): void;
+  getActiveTools(): string[];
+  setActiveTools(toolNames: string[]): Promise<void>;
+  on(event: "tool_call", handler: (event: { toolName?: string; input?: { path?: string; [key: string]: unknown } }, ctx?: unknown) => { block?: boolean; reason?: string } | void): void;
+  on(event: "user_bash", handler: (event: { command?: string }, ctx?: unknown) => { result: unknown } | void): void;
+  on(event: "user_python", handler: (event: { code?: string }, ctx?: unknown) => { result: unknown } | void): void;
   on(event: string, handler: (event: unknown, ctx: unknown) => unknown): void;
 };
 
@@ -38,6 +44,7 @@ function readRunState(): unknown | null {
 }
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
+  installReviewIsolation(pi, { env: process.env });
   process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   resolvePluginController("sdlc-deliver.mjs", {
     env: process.env,

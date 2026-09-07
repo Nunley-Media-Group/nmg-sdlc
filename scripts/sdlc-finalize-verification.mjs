@@ -8,6 +8,7 @@ import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
+import { assertInitialStagePublication, resolveRecoveryOwner, reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id ID]';
 
@@ -52,6 +53,8 @@ function finalizeVerificationUnlocked({
   cwd = process.cwd(),
   run = defaultRun,
   fs = { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync },
+  controllerRunId,
+  sessionToken,
 } = {}) {
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
@@ -68,6 +71,12 @@ function finalizeVerificationUnlocked({
   if (!Number.isInteger(issueNumber) || issueNumber <= 0 || isAbsolute(specPath)
     || !new RegExp(`^specs/${issueNumber}-[^/]+$`).test(specPath)) {
     return { status: 2, stdout: '', stderr: `${USAGE}\n`, handoff: null, handoffPath: null };
+  }
+  let ownerId;
+  try {
+    ownerId = resolveRecoveryOwner({ cwd, issue: issueNumber, step: 'verify', controllerRunId, sessionToken, run });
+  } catch (error) {
+    return fail(error.reasonCode ?? 'recovery_owner_unreadable', `Verification owner unavailable for #${issueNumber}: ${error.message}`);
   }
   const root = resolve(cwd);
   const absoluteReport = resolve(root, reportPath);
@@ -121,7 +130,13 @@ function finalizeVerificationUnlocked({
     return fail('verification_publish_failed', `Unexpected verification changes for #${issueNumber}: ${dirty.filter((path) => path !== reportPath).join(', ')}`);
   }
 
+  let needsReconciliation = !dirty.includes(reportPath);
   if (dirty.includes(reportPath)) {
+    try {
+      assertInitialStagePublication({ cwd, ownerId, issue: issueNumber, step: 'verify', run });
+    } catch (error) {
+      return fail('verification_publish_failed', `Verification publication remains stopped: ${error.reasonCode ?? error.message}`);
+    }
     const add = run('git', ['add', '--', reportPath], { cwd });
     if (!commandSucceeded(add)) return fail('verification_publish_failed', `Failed to stage verification report for #${issueNumber}`);
     const staged = run('git', ['diff', '--cached', '--quiet', '--', reportPath], { cwd });
@@ -129,7 +144,15 @@ function finalizeVerificationUnlocked({
     const commit = run('git', ['commit', '-m', `docs: record verification for #${issueNumber}`], { cwd });
     if (!commandSucceeded(commit)) return fail('verification_publish_failed', `Failed to commit verification report for #${issueNumber}`);
     const push = run('git', ['push'], { cwd });
-    if (!commandSucceeded(push)) return fail('verification_publish_failed', `Failed to push verification report for #${issueNumber}`);
+    needsReconciliation = !commandSucceeded(push);
+  }
+  if (needsReconciliation) {
+    // Reconcile a failed first push before emitting a terminal handoff.
+    const publication = reconcileStagePublication({
+      cwd, issue: issueNumber, step: 'verify', ownerId, run,
+      expectedSubject: `docs: record verification for #${issueNumber}`, allowedPaths: [reportPath],
+    });
+    if (!publication.passed) return fail('verification_publish_failed', publication.summary);
   }
 
   const upstream = run('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { cwd });
@@ -185,7 +208,8 @@ export function finalizeVerification(options = {}) {
     }
   }
   try {
-    return finalizeVerificationUnlocked(options);
+    const controllerRunId = leaseContext.owned ? leaseContext.lease.record.runId : leaseContext.lease.runId;
+    return finalizeVerificationUnlocked({ ...options, controllerRunId });
   } finally {
     for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
     if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);

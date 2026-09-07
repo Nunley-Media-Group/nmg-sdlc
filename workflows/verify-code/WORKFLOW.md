@@ -23,6 +23,16 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 
 5. Read the verification report template from references/report-format.md and checklists/* for the architecture areas.
 
+Before running verification, modifying code, or generating a report, bind the durable verify owner:
+
+```bash
+node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
+```
+
+Use the exact worker-header controller run id; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. Owner or scope failure is intervention and stops before work. The lease is only a mutex: fresh leases and sessions reuse the existing incomplete project/issue/branch/verify owner, and standalone verification never creates execute `run.json`.
+
+On a publication-only reinvoke with an existing report, run Finalize Verification first without rewriting report bytes, reposting its issue comment, or rerunning publication commands manually. The finalizer rechecks live scope and report readiness. Only if its output explicitly diagnoses repairable verification evidence may Repair and Reverify regenerate that evidence using real checks and unchanged authority. A publication stop is not permission to alter Fail, Partial, or Incomplete status.
+
 ## Deterministic Steering Gate
 
 Before prose review, run:
@@ -84,6 +94,8 @@ node <plugin-root>/scripts/sdlc-finalize-verification.mjs --issue N --spec specs
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
+
+The finalizer keeps the normal dirty-report commit and first push flow. It reconciles a failed first push before emitting a terminal handoff: exact upstream equality acknowledges a landed push; a proven clean-ahead known commit consumes `stage_publication` once before one non-force recovery push. A publication-only reinvoke uses the same proof and owner without another commit. Remote identity, known subject, report-only scope, and clean-tree proof are mandatory. A new report, head, lease, or session cannot replenish that allowance. Never manually replay a failed recovery push.
 
 Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Fail or Partial `implementation_non_pass`, and a safe report with locally unverifiable readiness, write `status: failed` with `intervention: false`; they do not advance to delivery and may enter bounded `rN-verify` repair.
 

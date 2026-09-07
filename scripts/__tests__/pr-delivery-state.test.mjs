@@ -24,7 +24,7 @@ function snapshot(overrides = {}) {
       mergeCommitOid: null,
     },
     checks: [{ name: 'test', event: 'pull_request', state: 'SUCCESS', required: true, url: 'https://example.test/check' }],
-    reviews: [{ id: 'R1', author: 'reviewer', state: 'APPROVED', submittedAt: '2026-08-16T12:00:00Z' }],
+    reviews: [{ id: 'R1', author: { login: 'reviewer', __typename: 'User' }, state: 'APPROVED', submittedAt: '2026-08-16T12:00:00Z' }],
     threads: [{ id: 'T1', isResolved: true, isOutdated: false, url: 'https://example.test/thread' }],
     pagination: { checksComplete: true, reviewsComplete: true, threadsComplete: true },
     requiredChecksConfigured: true,
@@ -59,9 +59,55 @@ describe('exact-head PR delivery state', () => {
   test('distinguishes pending checks, failures, reviews, threads, and mergeability', () => {
     expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', event: 'pull_request', state: 'PENDING' }] }), { issueNumber: 177 }).status).toBe('pending');
     expect(classifyPrDeliveryState(snapshot({ checks: [{ name: 'test', event: 'pull_request', state: 'FAILURE' }] }), { issueNumber: 177 }).status).toBe('remediate');
-    expect(classifyPrDeliveryState(snapshot({ reviews: [{ id: 'R2', author: 'reviewer', state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T13:00:00Z' }] }), { issueNumber: 177 }).reasonCode).toBe('changes_requested');
-    expect(classifyPrDeliveryState(snapshot({ threads: [{ id: 'T2', isResolved: false, isOutdated: false }] }), { issueNumber: 177 }).reasonCode).toBe('review_threads_unresolved');
+    expect(classifyPrDeliveryState(snapshot({ reviews: [{ id: 'R2', author: { login: 'reviewer', __typename: 'User' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T13:00:00Z' }] }), { issueNumber: 177 })).toMatchObject({ status: 'external_blocker', reasonCode: 'human_review' });
+    expect(classifyPrDeliveryState(snapshot({ threads: [{ id: 'T2', isResolved: false, isOutdated: false, author: { login: 'coderabbitai', __typename: 'User' }, path: 'src/feature.mjs' }] }), { issueNumber: 177 }).reasonCode).toBe('review_threads_unresolved');
     expect(classifyPrDeliveryState(snapshot({ pullRequest: { mergeStateStatus: 'BEHIND' } }), { issueNumber: 177 }).reasonCode).toBe('mergeability_defect');
+  });
+
+  test.each([
+    ['provider bot', { login: 'provider-check', __typename: 'Bot' }, []],
+    ['built-in bot', { login: 'CodeRabbitAI', __typename: 'User' }, []],
+    ['configured bot', { login: 'Project-Automation', __typename: 'User' }, ['project-automation']],
+  ])('attributes %s changes requests without granting human review authority', (_name, author, botLogins) => {
+    const reviews = [{ id: 'R2', author, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T13:00:00Z' }];
+    const threads = [{ id: 'T2', isResolved: false, isOutdated: false, author, path: 'src/feature.mjs' }];
+    expect(classifyPrDeliveryState(snapshot({ reviews }), { issueNumber: 177, botLogins })).toMatchObject({
+      status: 'external_blocker', reasonCode: 'automatic_review_unactionable',
+    });
+    expect(classifyPrDeliveryState(snapshot({ reviews, threads }), { issueNumber: 177, botLogins })).toMatchObject({
+      status: 'remediate', reasonCode: 'changes_requested',
+    });
+    expect(classifyPrDeliveryState(snapshot({ reviews, threads: [{ ...threads[0], path: null }] }), { issueNumber: 177, botLogins })).toMatchObject({
+      status: 'external_blocker', reasonCode: 'automatic_review_unactionable',
+    });
+  });
+
+  test('never lets actionable automation override human or unattributed review', () => {
+    const bot = { login: 'review-robot', __typename: 'Bot' };
+    const automaticThread = { id: 'bot-thread', isResolved: false, isOutdated: false, author: bot, path: 'src/feature.mjs' };
+    for (const author of [{ login: 'maintainer', __typename: 'User' }, null]) {
+      const result = classifyPrDeliveryState(snapshot({
+        threads: [automaticThread, { id: 'human-thread', isResolved: false, isOutdated: false, author, path: 'src/feature.mjs' }],
+      }), { issueNumber: 177 });
+      expect(result).toMatchObject({ status: 'external_blocker', reasonCode: 'human_review' });
+    }
+  });
+
+  test('uses the latest review per author without dismissing another human request', () => {
+    const author = { login: 'maintainer', __typename: 'User' };
+    const requested = { id: 'request', author, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-16T12:00:00Z' };
+    const approved = { id: 'approval', author, state: 'APPROVED', submittedAt: '2026-08-16T13:00:00Z' };
+    expect(classifyPrDeliveryState(snapshot({ reviews: [approved, requested] }), { issueNumber: 177 }).status).toBe('merge_ready');
+    expect(classifyPrDeliveryState(snapshot({
+      reviews: [approved, requested, { ...requested, id: 'other-request', author: { login: 'other-maintainer', __typename: 'User' } }],
+    }), { issueNumber: 177 })).toMatchObject({ status: 'external_blocker', reasonCode: 'human_review' });
+  });
+
+  test('rejects incomplete review pagination even when the visible bot review is approved', () => {
+    expect(classifyPrDeliveryState(snapshot({
+      reviews: [{ id: 'bot-approval', author: { login: 'robot', __typename: 'Bot' }, state: 'APPROVED' }],
+      pagination: { reviewsComplete: false },
+    }), { issueNumber: 177 })).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
   });
   test('lets failing checks override UNSTABLE without changing clean-check mergeability', () => {
     const failedUnstable = classifyPrDeliveryState(snapshot({

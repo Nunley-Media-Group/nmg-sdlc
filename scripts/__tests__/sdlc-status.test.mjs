@@ -75,6 +75,51 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.nextAction.command).toBe('/sdlc-execute #42');
   });
 
+  it('recommends bare recovery instead of starting a new queue, and refuses consumed recovery retries', () => {
+    const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
+    evidence.recovery = { state: 'loop-recovery-available', action: 'Resume the existing queue.' };
+    expect(inferLifecycle(evidence).nextAction.command).toBe('/sdlc-execute');
+    evidence.recovery = {
+      state: 'recovery-consumed', reasonCode: 'remediation_loop',
+      cleanupReasonCode: 'pane_close_failed',
+      action: 'Inspect recorded recovery evidence and repair the blocker; do not retry unchanged execution.',
+    };
+    const consumed = inferLifecycle(evidence);
+    expect(consumed.nextAction.manualRepairRequired).toBe(true);
+    expect(consumed.nextAction.command).not.toContain('/sdlc-execute');
+    expect(renderText(consumed)).toContain('pane_close_failed');
+    evidence.recovery = { state: 'blocked', reasonCode: 'checkpoint_branch_mismatch', action: 'Resolve the checkpoint branch mismatch.' };
+    expect(inferLifecycle(evidence).nextAction.manualRepairRequired).toBe(true);
+    // also covers resumable bare
+    evidence.recovery = { state: 'resumable', action: 'Run /sdlc-execute with no parameters.' };
+    expect(inferLifecycle(evidence).nextAction.command).toBe('/sdlc-execute');
+    expect(inferLifecycle(evidence).nextAction.reason).toBe('resumable');
+  });
+
+  it.each(['missing-issue', 'blocked-dependency', 'unknown-dependency', 'scope-repair', 'complete'])(
+    'preserves lifecycle precedence over leftover recovery for %s',
+    (boundary) => {
+      const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
+      if (boundary === 'missing-issue') evidence.issue = null;
+      if (boundary.endsWith('-dependency')) {
+        evidence.issue.dependency = {
+          status: boundary.split('-')[0], reasonCode: 'dependency_unreadable',
+        };
+      }
+      if (boundary === 'scope-repair') evidence.spec.scope = { status: 'repair_required' };
+      if (boundary === 'complete') {
+        evidence.issue.state = 'CLOSED';
+        evidence.verification = { status: 'pass', current: true };
+        evidence.pullRequest = { state: 'MERGED' };
+      }
+      const expected = inferLifecycle(evidence).nextAction;
+      for (const state of ['resumable', 'loop-recovery-available', 'recovery-consumed', 'blocked']) {
+        evidence.recovery = { state, action: 'Repair checkpoint ownership.' };
+        expect(inferLifecycle(evidence).nextAction).toEqual(expected);
+      }
+    },
+  );
+
   it('recommends verify-code after implementation starts', () => {
     const status = inferLifecycle(baseEvidence({
       project: { branch: '42-example', dirty: false, implementationPaths: ['src/foo.ts'], baseRelativeCommits: [] },

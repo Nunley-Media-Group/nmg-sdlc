@@ -34,6 +34,14 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
 
 If spec resolution fails any check, produce the failed handoff and stop before any edit.
 
+Before implementation edits, reports, or commits, bind the durable stage owner under the controller lease:
+
+```bash
+node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]
+```
+
+Use the exact controller run id from the worker header; omit the bracketed option only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. The helper validates the approved spec and live delivery-task scope; it persists the incomplete project/issue/branch/stage owner without creating execute `run.json`. A fresh lease or session never grants a new owner. Any owner/scope failure stops before edits with an intervention handoff.
+
 ## Execute Tasks in Order
 
 Read specs/N-SLUG/tasks.md
@@ -75,11 +83,11 @@ If this worker prompt includes the appended `# Simplify` workflow, execute that 
 
 Complete this boundary before writing a passed handoff:
 
-1. Run `git status --porcelain` and collect every changed path except `.omp/` runtime state.
-2. When non-runtime changes exist, stage those exact paths with `git add -- <paths>`, verify the staged diff is non-empty, and commit once with a conventional subject (`feat:`, `fix:`, `docs:`, or `chore:`) that describes issue #N.
-3. Read the current branch and its upstream. The branch must start with `N-`. If no upstream exists, run `git push -u origin HEAD`; otherwise run `git push`.
-4. Require the non-runtime worktree to be clean and require `git rev-parse HEAD` to equal `git rev-parse @{upstream}`. A pre-existing clean implementation is acceptable only when this publication proof passes.
-5. Any staging, commit, branch, upstream, push, or publication-proof failure writes the implement handoff with `status:"failed"`, `intervention:true`, `reasonCode:"implementation_failed"`, `next:null`, then stops. Never start review1 from unpublished or uncommitted implementation.
+1. Run the same `bind` command again after tasks and simplification to obtain the current approved `allowedPaths`. Run `git status --porcelain=v1 -z` and collect every changed path except `.omp/` runtime state, including both sides of renames. Every changed path must belong to that helper-provided set; never widen scope from model assertions.
+2. When approved non-runtime changes exist, stage those exact paths, verify the staged diff is non-empty, and commit once with a conventional subject (`feat:`, `fix:`, `docs:`, or `chore:`) describing issue `#N`. Use literal Git pathspecs and avoid restaging already-staged deleted rename sources. Read the current branch and upstream: the branch must start with `N-`; run `git push -u origin HEAD` only for this newly created commit with no upstream, otherwise `git push`. This normal first publication does not consume a recovery allowance. Preserve a failed push's commit and proceed to outcome reconciliation below; never repeat a manual push.
+3. If the non-runtime worktree was already clean, do not commit or push directly. Do not rename, amend, or create a commit to satisfy the check.
+4. Read the exact existing stage subject with `git log -1 --format=%s HEAD`. For clean existing publication and every first-push outcome, run `node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" reconcile --issue N --step implement --spec specs/N-SLUG --subject "<exact stage subject>" [--controller-run-id R]`. Use an argument-array process invocation; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`. The helper acknowledges only exact upstream HEAD with expected stage subject and approved path proof, or consumes one `stage_publication` record before pushing known clean-ahead commits without a duplicate commit or force. Divergent, dirty, unknown-subject/scope, changed consumed evidence, and exhausted allowance remain stopped.
+5. Any unresolved staging, commit, branch, upstream, owner, or publication-proof failure writes the implement handoff with `status:"failed"`, `intervention:true`, `reasonCode:"implementation_failed"`, `next:null`, then stops. Never start review1 from unpublished or uncommitted implementation; never replenish `#369` or `#372` recovery state.
 
 ## Write Handoff
 

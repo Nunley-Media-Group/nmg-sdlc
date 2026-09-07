@@ -16,6 +16,11 @@ The table is the sole authority for stack-specific mirrors. JSON uses a dot-sepa
 
 Stage all configured version artifacts together. One delivery commit carries the bump when needed. Resume accepts a prior delivery commit only when it contains `VERSION`, `CHANGELOG.md`, and every currently declared mirror and the working tree matches that commit for the same paths.
 
+Do not push again merely because the version is already synchronized. A known
+clean-ahead delivery commit may reconcile through `stage_publication` once
+under the pre-existing logical owner, with exact version paths and subject.
+A fresh session token or lease cannot authorize another recovery push.
+
 BREAKING detection and the approved-major note check happen in the caller before the bump; a violation produces a `major_bump_required` failed handoff.
 
 No sibling/epic downgrade logic exists in v3.

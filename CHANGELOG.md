@@ -10,6 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Enforce host-restricted file-assigned review slices, capture final assistant results without terminal scraping, reject empty/missing/unproven review output, and preserve original evidence during one bounded replacement (#374).
+- Reconcile known publication commits and exact upstream outcomes under stable logical owners without duplicate commits, force-pushes, or renewed recovery allowances across sessions and leases; preserve validated controller identity through both freshly acquired and joined publication leases (#374).
+- Inspect mergeability against approved task scope and rerun stale gates after safe base reconciliation; distinguish automatic review from human authority and reconcile exact-head merge/linked closure without replay (#374).
+- Preserve complete source bare-recovery discovery, status, ownership, and one-shot predecessor compatibility without changing predecessor spec ownership or failure history (#374).
+
 ## [3.21.0] - 2026-09-07
 
 ### Fixed

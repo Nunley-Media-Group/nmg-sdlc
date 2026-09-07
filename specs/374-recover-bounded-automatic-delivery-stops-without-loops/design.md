@@ -22,6 +22,21 @@ Installed `#372` (reviewed `bda2935`) stores one exhausted-run allowance in `run
 
 Standalone `sdlc-finalize-verification.mjs` / `sdlc-deliver.mjs` use `enterControllerLease({ runId: controllerRunId })`. When `controllerRunId` is omitted, `enterControllerLease` mints `randomUUID()` every process (`sdlc-controller-lease.mjs` 225–233). That UUID is a mutex, not a `#374` owner. Must not fabricate execute `run.json`.
 
+Implementation clarification: the source branch at `f2f0f16` contained the approved
+predecessor spec but not its controller implementation. Port the inspected
+`sdlc-execute.mjs` predecessor changes from the reviewed `bda2935` bootstrap into
+the source before integrating this issue, preserving the bare-execute
+`recoveries[]` transition and absent-worker reconciliation specified above.
+This is source implementation, not installed-runtime verification evidence;
+validate the resulting source with its explicit plugin root. Do not modify the
+running bootstrap.
+The coordinator explicitly includes complete predecessor public compatibility
+under AC10: `scripts/sdlc-status.mjs`, its behavioral tests,
+`commands/sdlc-execute.md`, `workflows/execute/`, and README diagnostics must agree
+with source discovery, ownership, and the one-shot bare recovery transition.
+Keep the original predecessor spec, branch, history, and failed evidence intact;
+this work neither delivers nor closes that issue.
+
 ### Affected Code
 
 | File | Role |
@@ -186,6 +201,14 @@ Then `session_start` may run asynchronously:
 
 **Receipts:** append-only JSONL at `NMG_SDLC_REVIEW_RECEIPT`. Never truncate, rewrite, unlink, or edit prior lines. Invalidation/replacement does not delete `.access.jsonl`. Host writes only; model-written files are ignored.
 
+Result integrity clarification: capture only a completed assistant
+`message_end` snapshot (`role: assistant`, `stopReason: stop`) as a host
+`review_result` receipt. Tool and terminal output cannot supply findings merely
+by containing result delimiters. Reuse also checks that artifact bytes match the
+captured results. For relative reads, require the actual handler `ctx.cwd` to
+resolve to the snapshot root; this prevents reading a same-named checkout file
+when a pane starts in the wrong directory. Cwd alone never proves compliance.
+
 **`tool_call` handler:** return `{ block: true, reason: "nmg-sdlc review isolation: <code>" }` unless the gate is allow-listed **and** `event.toolName === "read"` **and** `isAllowedSnapshotRead(event.input.path, assignment)` allows. Block `grep`, `glob`, `bash`, `edit`, `write`, and every `CustomToolCallEvent` (`eval`, `python`, `task`, `web_search`, MCP, network, and unknown names). Append a receipt for every event with `decision: "allow"|"block"`.
 
 **Path allow (`src/sdlc-review-isolation.mjs` `isAllowedSnapshotRead(requestedPath, assignment)`):**
@@ -245,6 +268,13 @@ Subjects: implement = the existing conventional implement subject; fix1/fix2 = `
 
 Never change Fail/Partial/Incomplete to Pass.
 
+Automatic publication stays inside the owning stage helper/workflow: reconcile
+a failed first push before emitting its terminal handoff. A landed push is
+acknowledged; an absent known commit gets the one consumed recovery push.
+An unresolved or consumed recovery still stops with intervention. This avoids
+turning historical intervention records into new execute-worker eligibility or
+spending generic remediation attempts on publication.
+
 ### Mergeability (AC5)
 
 Do not `merge_failed` only because checks/threads handlers missed. Do not stop solely because `mergeStateStatus === 'CONFLICTING'`.
@@ -259,6 +289,16 @@ When classifier status is `remediate` and reason is `mergeability_defect` for `B
 6. GitHub `DIRTY` with unrelated **local** porcelain remains `dirty_tree`, not this class.
 
 If step 4 produced a new HEAD (content or base change): do not merge the PR. Mark `review1`,`fix1`,`review2`,`fix2`,`verify` incomplete for that issue without deleting their files. Set `currentStep` to the first incomplete gate (`review1` if reviews existed). Re-run those gates on the new head. This is not a `#369` deliver remediation and does not mint new `#374` keys. Stale passed review handoffs are not reused.
+
+Implementation clarification: after the delivery helper persists the exact new
+head and `mergeabilityReverificationRequired`, it emits the non-passing
+`mergeability_reverification_required` control handoff. Execute handles it before
+generic remediation accounting. Preserve stale handoff/report bytes in the
+head-bound revalidation evidence directory; leave original review evidence in
+place. A `reviews/<N>-<step>.current.json` pointer selects new immutable
+`.head-<SHA>` review artifacts, assignments, receipts, and handoffs. The head is
+only an artifact identity, never a recovery owner or allowance key. The same
+`class/runId/issue/step` records govern any replacement in the new review.
 
 ### Automatic vs human review (AC6)
 

@@ -171,9 +171,11 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
   });
 
   it('automated skills do not invoke user-input tools', () => {
+    const withoutProhibitions = (source) => source.replace(/\b(?:Never|Do not) call `ask`(?=[.,\s]|$)/g, '');
+    expect(withoutProhibitions('Do not call `ask`. Then invoke `ask`.')).toMatch(/\bask\b/);
     for (const name of AUTOMATED) {
       const source = read(`workflows/${name}/WORKFLOW.md`);
-      const executableInstructions = source.replaceAll('Never call `ask`.', '');
+      const executableInstructions = withoutProhibitions(source);
       expect(`${name}\n${executableInstructions}`).not.toMatch(/\bask\b/);
       expect(source).not.toContain('request_user_input');
     }

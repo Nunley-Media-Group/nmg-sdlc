@@ -26,7 +26,7 @@ import {
   inspectVerificationReadiness,
   MAX_VERIFICATION_REPORT_BYTES,
 } from './verification-readiness.mjs';
-import { isSpecApproved } from './sdlc-execute.mjs';
+import { discoverRecovery, isSpecApproved } from './sdlc-execute.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -416,6 +416,10 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     ? Object.fromEntries(Object.entries(github.pullRequest).filter(([key]) => key !== 'body'))
     : null;
   return {
+    recovery: discoverRecovery({ cwd: projectRoot, run: (command, args, options) => {
+      const result = adapters.run(command, args, options);
+      return { ...result, status: result.ok ? 0 : 1 };
+    } }),
     project: {
       root: projectRoot,
       branch,
@@ -555,6 +559,16 @@ export function inferLifecycle(evidence) {
     nextAction = { command: '/sdlc-draft-issue', reason: 'no active issue', manualRepairRequired: false };
   }
 
+  if (['specified', 'implementing', 'verified', 'review', 'delivery-validation-pending'].includes(stage)
+    && evidence.recovery && !['absent', 'completed'].includes(evidence.recovery.state)) {
+    const blocked = ['blocked', 'recovery-consumed'].includes(evidence.recovery.state);
+    nextAction = {
+      command: blocked ? evidence.recovery.action : '/sdlc-execute',
+      reason: evidence.recovery.state,
+      manualRepairRequired: blocked,
+    };
+  }
+
   const artifacts = artifactSummary(evidence, stage);
   return {
     schemaVersion: 1,
@@ -563,6 +577,7 @@ export function inferLifecycle(evidence) {
     spec: evidence.spec,
     verification: evidence.verification,
     pullRequest: evidence.pullRequest,
+    recovery: evidence.recovery,
     stage,
     completedArtifacts: artifacts.completed,
     missingArtifacts: artifacts.missing,
@@ -604,6 +619,7 @@ export function renderText(status) {
     `Missing: ${listOrNone(status.missingArtifacts)}`,
   ];
   if (status.gaps.length) lines.push(`Gaps: ${status.gaps.join('; ')}`);
+  if (status.recovery) lines.push(`Recovery: ${status.recovery.state}${status.recovery.reasonCode ? ` (${status.recovery.reasonCode})` : ''}${status.recovery.cleanupReasonCode ? `; cleanup: ${status.recovery.cleanupReasonCode}` : ''}`);
   lines.push(`Next: ${status.nextAction.command}`);
   return lines.join('\n');
 }
