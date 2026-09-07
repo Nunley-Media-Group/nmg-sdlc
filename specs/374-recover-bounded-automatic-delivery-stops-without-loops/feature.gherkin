@@ -23,11 +23,11 @@ Feature: Recover bounded automatic delivery stops without loops
   @SCN002 @regression
   Scenario: Invalid review slice is replaced, not escalated
     Given a host review with an explicit issue/base/head/spec/assignment identity
-    And a reviewer that reads outside its assigned files
-    When execute observes that contamination
+    And a reviewer that successfully executes a read or other tool outside its assigned files
+    When execute observes that contamination from host-generated receipts
     Then it discards the offending evidence, does not rewrite assigned scope, and launches at most one fresh bounded slice replacement for that review1 or review2 step under a durable one-use identity
     And a second contamination or replacement failure for the same step stops fail-closed without converting historical interventions into success
-    And independently valid compliant slices are reused only with exact head/base/spec/scope identity proof
+    And independently valid compliant slices are reused only with exact head/base/spec/scope identity proof plus host restriction receipts
 
   @SCN003 @regression
   Scenario: Empty or missing review never becomes a pass
@@ -77,13 +77,14 @@ Feature: Recover bounded automatic delivery stops without loops
     And work-dispatching recovery still requires semantic stage or diagnosed-condition advancement to count as progress
     And identical repair packets are not repeated
     And healthy active jobs have no wall-clock deadline
+    And standalone reinvokes that acquire a fresh lease UUID reuse the same incomplete project/issue/branch/stage owner without a second side effect
 
   @SCN009 @regression
   Scenario: Unproven and unsafe classes stay fail-closed
     Given a stop class that cannot be proven safe, or a class listed as remaining forbidden
     When execute observes it
     Then it stays stopped with an explicit intervention rationale and does not invent an automatic action
-    And forbidden actions remain forbidden including rewriting historical intervention into eligibility, treating all nonzero exits as transport, auto-deleting dependency edges, auto-approving spec authority, stealing ownership, blind merge/close replay, replaying stopped smoke #96, and manufacturing a passed handoff
+    And forbidden actions remain forbidden including rewriting historical intervention into eligibility, treating all nonzero exits as transport, auto-deleting dependency edges, auto-approving spec authority, stealing ownership, blind merge/close replay, replaying stopped smoke #96, manufacturing a passed handoff, and treating pane cwd or model prose as review-isolation proof
 
   @SCN010 @regression
   Scenario: No regression of existing bounded recovery and gates
@@ -92,3 +93,14 @@ Feature: Recover bounded automatic delivery stops without loops
     Then those behaviors remain
     And ordinary reinvocation still does not grant new #369 or #372 attempts
     And reusable behavior stays programming-language, framework, stack, and OS agnostic
+
+  @SCN011 @regression
+  Scenario: Review isolation is host-enforced, not cwd
+    Given a per-slice review session launched with NMG_SDLC_REVIEW_SLICE=1 and immutable assignment and receipt paths
+    When the nmg-sdlc extension starts that session
+    Then it registers deny-all tool_call and user_bash/user_python handlers synchronously before any async activation
+    And it then arms setActiveTools read-only or a proven empty tool-less fallback
+    And it appends host-generated receipts bound to the assignment invocation identity without rewriting prior receipt bytes
+    And non-read tools, user shell, user python, URL and internal-URI reads, archive members, unsupported selectors, symlink escape, traversal, and absolute paths outside allowed snapshot files are blocked before execution
+    And missing hook, setActiveTools, or receipt proof fails as review_scope_unproven
+    And ordinary sessions without that env keep their existing active tools

@@ -12,18 +12,21 @@
 
 Stage helpers treat recoverable Git/GitHub/review outcomes as terminal intervention or fabricated success. `runReviewMain` rewrites empty artifacts to `No findings.\n` and passes. Missing artifacts share `review_failed`. `reviewProtocolPrompt` assigns files in prose and launches three task-tool reviewers inside one sibling OMP worker whose cwd is the full project; `herdr.agentStart` accepts only `{ name, paneId, kind: 'omp' }` with no path allowlist. A union of all reviewers' files (or findings that merely name paths) cannot detect the observed out-of-assignment read (BDD files from a CLI-assigned slice) while `bash`/`eval` remain available.
 
+A snapshot pane cwd is not isolation. Absolute paths, `../` traversal, symlinks, `bash`, `eval`/`python`, `task`, and network/`read` URLs still reach the original checkout. `src/extension.ts` does not subscribe to `tool_call`, `user_bash`, or `user_python`, and never calls `setActiveTools`.
+
 `finalizeVerification` and `runApplyReview` commit then push only while the path is dirty. A successful commit plus failed push leaves a clean ahead branch that later fails closed. Write-code publication in `workflows/write-code/WORKFLOW.md` has the same commit-then-push shape.
 
 `classifyPrDeliveryState` already returns remediable `mergeability_defect` for `BEHIND`/`DIRTY`/`CONFLICTING`. Deliver remediates only `checks_failed` and `review_threads_unresolved`, so mergeability becomes `merge_failed` without inspecting actual base/head/conflicts. Bot `CHANGES_REQUESTED` is collapsed to `human_review`. One post-merge observe fails `merge_failed` while identity is settling.
 
 Installed `#372` (reviewed `bda2935`) stores one exhausted-run allowance in `run.json` `recoveries[]` keyed by `runId`+`issue`+`step`, consumed by bare `/sdlc-execute` with no flags. There is no `--retry-stopped`. `#369` uses `remediation.completedAttempts`. This issue must not write substitute exhausted-run records into `recoveries[]` or increment `#369` attempts.
 
-Standalone `sdlc-finalize-verification.mjs` / `sdlc-deliver.mjs` use `enterControllerLease({ runId: controllerRunId })` and must not fabricate execute `run.json`.
+Standalone `sdlc-finalize-verification.mjs` / `sdlc-deliver.mjs` use `enterControllerLease({ runId: controllerRunId })`. When `controllerRunId` is omitted, `enterControllerLease` mints `randomUUID()` every process (`sdlc-controller-lease.mjs` 225–233). That UUID is a mutex, not a `#374` owner. Must not fabricate execute `run.json`.
 
 ### Affected Code
 
 | File | Role |
 |------|------|
+| `src/extension.ts` | No tool restriction; ordinary and review sessions share full tools |
 | `scripts/sdlc-review-main.mjs` | Empty rewrite to `No findings.\n` |
 | `scripts/sdlc-execute.mjs` | Review protocol, paneSplit cwd, persistRunState, `#369` loop, `#372` `recoveries[]` on reviewed tree |
 | `scripts/sdlc-apply-review.mjs` | Dirty-only commit+push; empty findings treated as fix no-op |
@@ -36,7 +39,7 @@ Standalone `sdlc-finalize-verification.mjs` / `sdlc-deliver.mjs` use `enterContr
 
 ### Triggering Conditions
 
-- A file-assigned nested reviewer can read paths outside its slice because the worker cwd is the full repo.
+- A file-assigned nested reviewer can read paths outside its slice because tools are unrestricted; pane cwd does not prevent absolute/`../`/shell access.
 - Empty or missing review artifact.
 - Report/fix/implement commit exists, worktree clean, branch ahead of `@{u}`.
 - Classifier `mergeability_defect` for `BEHIND`, `DIRTY`, or `CONFLICTING`.
@@ -54,7 +57,7 @@ Add `.omp/sdlc/safe-recoveries.json` as the durable owner for `#374` classes. Do
 ```json
 {
   "class": "invalid_review_slice",
-  "runId": "<lease-or-execute-runId>",
+  "runId": "<logical-owner-id>",
   "issue": 374,
   "step": "review1",
   "invocationId": "<uuid>",
@@ -64,22 +67,45 @@ Add `.omp/sdlc/safe-recoveries.json` as the durable owner for `#374` classes. Do
 }
 ```
 
-**Allowance key is exactly `class` + `runId` + `issue` + `step`.** At most one consumed record per that tuple. `evidence` (head SHA, base SHA, spec digest, slice snapshot ids, commitSha, mergeStateStatus, assignment) is revalidation material only. If current evidence does not match stored evidence, stop fail-closed; do **not** insert a second record. Changing head, reason, scope, version, summary, or plugin does not replenish.
+**Allowance key is exactly `class` + `runId` + `issue` + `step`.** Here `runId` is the logical recovery owner id, never the controller lease UUID. At most one consumed record per that tuple. `evidence` (head SHA, base SHA, spec digest, slice snapshot ids, commitSha, mergeStateStatus, assignment) is revalidation material only. If current evidence does not match stored evidence, stop fail-closed; do **not** insert a second record. Changing head, reason, scope, version, summary, plugin, PID, process start, lease UUID, `session-init` token, or report file bytes does not replenish.
 
-`runId` is `run.json.runId` when an execute checkpoint exists and the lease `runId` matches it. Otherwise `runId` is the controller lease `runId` from `enterControllerLease`. Standalone `--controller-run-id` uses that id. Standalone without execute never writes `run.json`.
+Same file also stores `owners[]` (CAS with records):
 
-Do not append to `#372` `recoveries[]`. Lookup of exhausted-run remains `recoveries.find(runId, issue, step)` with no `class` field. Ordinary explicit-queue reinvocation and `--recover-stale` still do not grant `#372` allowances; only the installed bare-execute transition does.
+```json
+{
+  "ownerId": "<uuid>",
+  "projectRoot": "<realpath>",
+  "issue": 374,
+  "branch": "<issue-branch>",
+  "step": "verify",
+  "status": "incomplete"
+}
+```
 
-Consume under the lease **before** side effects. Persistence failure dispatches nothing.
+**`resolveRecoveryOwner({ cwd, issue, step, branch, sessionToken })` in `scripts/sdlc-safe-recoveries.mjs` (no equivalent exists) before any `#374` action:**
+
+1. `projectRoot = fs.realpathSync(cwd)`. `branch` is `git rev-parse --abbrev-ref HEAD` (fail `recovery_owner_unreadable` if unreadable).
+2. If `.omp/sdlc/run.json` exists, parses, and `run.json.runId` equals the current controller lease `runId` → `ownerId = run.json.runId`. Upsert an `owners[]` row for `(projectRoot, issue, branch, step)` with that id and `status: incomplete` if missing. Do not write `run.json` when it is absent.
+3. Else lookup `owners[]` rows whose `projectRoot`, `issue`, `branch`, `step` match and `status === "incomplete"`.
+   - Exactly one → reuse that `ownerId`.
+   - More than one → fail `recovery_owner_ambiguous`; do not act.
+4. If `sessionToken` is set, use existing `.omp/sdlc/sessions/<sessionToken>/` only as a pointer: if that session's stored `recoveryOwnerId` (or matching `owners[]` row) equals the unique incomplete owner for this tuple, reuse it. A new `session-init` token for the same incomplete tuple binds to that existing owner and must not mint a new `ownerId`. Session/issue/branch/step mismatch → `recovery_owner_ambiguous`.
+5. Zero matches: if any prior incomplete artifact exists for that tuple (failed/partial handoff `.omp/sdlc/handoffs/<issue>-<step>.json`, consumed `records[]` row, unpublished report commit, or assignment/receipt files) → fail `recovery_owner_missing`; do not invent an owner after attempted work.
+6. Zero matches and no prior incomplete artifact: this is the first genuinely new owner. Persist a new `ownerId` (`randomUUID`) in `owners[]` with `status: incomplete` **before** any recovery side effect. Then act.
+7. Never use `enterControllerLease`'s `runId`, `--controller-run-id` unless it equals an already-resolved owner, PID, or HEAD as the owner key. Standalone helpers still take the lease for mutual exclusion; they persist `#374` records under `ownerId`. Standalone without execute never writes `.omp/sdlc/run.json`.
+
+Do not append to `#372` `recoveries[]`. Lookup of exhausted-run remains `recoveries.find(runId, issue, step)` with no `class` field (`run.json.runId`, not `#374` ownerId). Ordinary explicit-queue reinvocation and `--recover-stale` still do not grant `#372` allowances; only the installed bare-execute transition does.
+
+Consume under the lease **before** side effects, after owner resolution. Persistence failure dispatches nothing.
 
 ### Composed finite bounds
 
-- `invalid_review_slice`: one replacement for the **entire** `review1` or `review2` step for that run, not per nested slice and not per head.
-- `stage_publication` (implement / fix1 / fix2 / verify): one push-or-ack of a known commit per step.
-- `mergeability_defect`: one reconciliation attempt per deliver step for that run. After a content or base change, invalidate completed `review1`/`fix1`/`review2`/`fix2`/`verify` for that issue (do not delete their artifacts) and re-run **all** those gates on the new head. That re-entry does not mint new `invalid_review_slice` or `mergeability_defect` allowances. Stale review approvals must not be retained.
-- `automatic_review` and `post_merge_observation`: one consume each per deliver step.
+- `invalid_review_slice`: one replacement for the **entire** `review1` or `review2` step for that **owner**, not per nested slice, head, or lease UUID.
+- `stage_publication` (implement / fix1 / fix2 / verify): one push-or-ack of a known commit per step per owner.
+- `mergeability_defect`: one reconciliation attempt per deliver step for that owner. After a content or base change, invalidate completed `review1`/`fix1`/`review2`/`fix2`/`verify` for that issue (do not delete their artifacts) and re-run **all** those gates on the new head. That re-entry does not mint new `invalid_review_slice` or `mergeability_defect` allowances. Stale review approvals must not be retained.
+- `automatic_review` and `post_merge_observation`: one consume each per deliver step per owner.
 - `#369` two-attempt remediation and `#372` `recoveries[]` stay isolated; `#374` actions do not increment them.
-- Progress for work-dispatching `#369` remains `currentStep`/`completed` advancement. New SHA/wording/PID/time is not `#369` progress and is not a new `#374` allowance.
+- Progress for work-dispatching `#369` remains `currentStep`/`completed` advancement. New SHA/wording/PID/time/lease UUID is not `#369` progress and is not a new `#374` allowance.
 - Re-entry to verify/deliver after mergeability is composed under already-consumed keys, not a new epoch.
 - Identical `NMG_SDLC_REMEDIATION` fingerprints are not re-emitted.
 - Healthy jobs have no wall-clock deadline (`#286`). `POLL_INTERVAL_MS` (30000) is an observe interval, not a failed command.
@@ -105,11 +131,11 @@ Disposition is proof-based. A newly observed class with known-outcome settlement
 | Apply-review publication: same for `fix: apply reviewN findings` | `apply_review_failed` | **Safe** `stage_publication` on `fix1`/`fix2` |
 | Apply-review missing review artifact | `review_artifact_missing` | Required intervention |
 | Review picker / base missing | `review_failed` | Required intervention |
-| Invalid review slice (out-of-assignment **host-prevented or host-proven** read) | whole-step `review_failed` | **Safe** one replacement per review step |
+| Invalid review slice (host receipt `decision=allow` for a disallowed tool/path) | whole-step `review_failed` | **Safe** one replacement per review step |
 | Empty review | rewrite pass | **Required intervention** `review_empty` |
 | Missing review | `review_failed` | **Required intervention** `review_artifact_missing` |
 | Exact written `No findings.` | pass | Existing adequate |
-| Review scope unproven (no snapshot isolation, missing host proof) | pass or review_failed | **Required intervention** `review_scope_unproven`; not a pass; not a slice replacement |
+| Review scope unproven (missing `setActiveTools` proof, missing receipts, hooks not armed) | pass or review_failed | **Required intervention** `review_scope_unproven`; not a pass; not a slice replacement; cwd is not proof |
 | Verify Fail/Partial | `#354` | Existing adequate; never flip to Pass |
 | Verify Incomplete | intervention | Existing adequate |
 | Verify publication commit+no push or exact upstream | `verification_publish_failed` | **Safe** `stage_publication` on `verify` |
@@ -129,27 +155,70 @@ Disposition is proof-based. A newly observed class with known-outcome settlement
 
 Additional families found in implementation get a proof-based row (safe with preconditions, existing adequate, or intervention with rationale). They must not narrow this issue to review-only.
 
-### Review slices (AC2) — prevent, then replace once
+### Review slices (AC2, AC11) — host-prevent, then replace once
 
-`herdr.agentStart` has no path allowlist. Scanning findings filenames, self-attested compliance flags, or `read`/`grep` argv while the same worker still has `bash`/`eval` against the project cwd is **not** certification.
+`herdr.agentStart` has no path allowlist. Scanning findings filenames, self-attested compliance flags, `read`/`grep` argv, or pane cwd while the same worker still has `bash`/`eval` is **not** certification.
+
+New helper `src/sdlc-review-isolation.mjs` (no equivalent exists) owns assignment load, canonical path allow, and JSONL receipt append. `src/extension.ts` arms it only when `process.env.NMG_SDLC_REVIEW_SLICE === "1"`. Keep the local structural `ExtensionAPI` type; add `getActiveTools(): string[]`, `setActiveTools(toolNames: string[]): Promise<void>`, and `on` overloads for `tool_call`, `user_bash`, and `user_python`. Do not import `@oh-my-pi`.
 
 **Prevention (required for a passing review):**
 
 1. Partition the merge-base diff so each changed path belongs to exactly one slice (`reviewer-1`..`reviewer-3`). Do not use the union of all reviewers' files as any slice's allowlist (that allowed the BDD-vs-CLI violation).
-2. Bind metadata: issue, step, immutable `baseSha`, `headSha`, spec digest (hash of the four spec files at `headSha`), `sliceId`, exact `allowedPaths`, `invocationId`. Persist as `.omp/sdlc/reviews/<N>-<step>.assignment.json` and never rewrite `allowedPaths` on replacement.
-3. Materialize an immutable snapshot **outside the project tree** (`fs.mkdtempSync` under the process temp dir, name `nmg-sdlc-review-<runId>-<issue>-<step>-<sliceId>`). Copy only `allowedPaths` at `headSha` into that directory. Do not place the snapshot under the repo (parent `..` would escape to the project).
-4. Launch each slice via existing Herdr `paneSplit({ direction, cwd: snapshotDir })` then `agentStart({ name, paneId, kind: 'omp' })`. Pane cwd is the snapshot; out-of-assignment paths are absent. Full-file context is only files copied into that snapshot.
-5. Record pane id, snapshot path, and assignment identity in `safe-recoveries` evidence / assignment JSON. Slice workers do not write the canonical step handoff.
+2. Bind metadata: issue, step, immutable `baseSha`, `headSha`, spec digest (hash of the four spec files at `headSha`), `sliceId`, exact `allowedPaths`, `invocationId`, `snapshotDir`. Persist as `.omp/sdlc/reviews/<N>-<step>-<sliceId>.assignment.json` in the **consumer project** and never rewrite `allowedPaths` on replacement.
+3. Materialize an immutable snapshot **outside the project tree** (`fs.mkdtempSync` under the process temp dir, name `nmg-sdlc-review-<runId>-<issue>-<step>-<sliceId>`). Copy only `allowedPaths` at `headSha` into that directory preserving relative paths. Do not place the snapshot under the repo.
+4. Launch each slice via existing Herdr `paneSplit({ direction, cwd: snapshotDir, environment })` then `agentStart({ name, paneId, kind: 'omp' })`. Environment **must** include exactly:
+   - `NMG_SDLC_REVIEW_SLICE=1`
+   - `NMG_SDLC_REVIEW_ASSIGNMENT=<absolute assignment json>`
+   - `NMG_SDLC_REVIEW_RECEIPT=<absolute jsonl path>` `.omp/sdlc/reviews/<N>-<step>-<sliceId>.access.jsonl`
+   These keys are **not** added to `STEP_PANE_ENV_KEYS` for implement/verify/deliver. Snapshot cwd is a convenience copy, not compliance.
+5. Slice workers do not write the canonical step handoff.
 
-If paneSplit `--cwd` cannot be set to the snapshot (Herdr failure) or the started agent's cwd is not that directory, do not pass the review. Reason `review_scope_unproven`, intervention true. Do not invent an OMP SDK path-allowlist. Do not accept a model-written "I only read assigned files" receipt.
+**Extension arming (only if `process.env.NMG_SDLC_REVIEW_SLICE === "1"` at factory load):**
 
-**Contamination:** a slice pane whose cwd is the project, or any host-recorded filesystem access (Herdr/OMP integration events, if present) whose path is outside that slice's snapshot. Findings text naming extra paths is not a read.
+In `nmgSdlc(pi)`, **synchronously** before any `await`, `setActiveTools`, `session_start` handler body, or input rewrite, register `pi.on("tool_call")`, `pi.on("user_bash")`, and `pi.on("user_python")` once in deny-all mode (block every tool, replace every user_bash/user_python). Do not wait for `session_start`.
 
-**On first proven contamination or first failed isolation for that step:** consume `invalid_review_slice` for `class/runId/issue/step`. Do **not** unlink or rewrite the original `.omp/sdlc/reviews/<N>-<step>.md` or `.omp/sdlc/handoffs/<N>-<step>.json`. Write `.omp/sdlc/reviews/<N>-<step>.invalidation.json` `{ reason, invocationId, originalArtifact, originalHandoff, at }`. Launch at most one replacement of **all** slices for that step with the **same** assignment JSON (same allowedPaths). Replacement artifacts go to `.omp/sdlc/reviews/<N>-<step>.attempt-2.md` and `.omp/sdlc/handoffs/<N>-<step>.attempt-2.json`. Execute consumes attempt-2 as current; originals remain bytes-identical.
+Then `session_start` may run asynchronously:
+
+1. Read and parse `NMG_SDLC_REVIEW_ASSIGNMENT`. Require JSON object with `issue` (positive integer), `step` (`review1` or `review2`), `sliceId`, `runId` (logical owner id), `invocationId`, `baseSha`, `headSha`, `specDigest`, `allowedPaths` (non-empty array of relative POSIX paths with no `..` segments), `snapshotDir` (absolute). Unreadable/invalid → append receipt `event=arm_failed`, do not call `setActiveTools`, keep deny-all. Execute treats `arm_failed` as `review_scope_unproven`.
+2. `await pi.setActiveTools(["read"])`. Then `pi.getActiveTools()` must equal `["read"]` as a set. If `read` cannot be activated: `await pi.setActiveTools([])` and require `getActiveTools()` empty **and** inject the assignment file bytes as context messages (tool-less fallback). If neither proof holds, append `arm_failed`, keep deny-all, and do not emit `session_start`.
+3. Only after assignment validates, flip the in-memory gate from deny-all to allow-listed snapshot `read`. Handlers stay the same functions; they read that gate.
+4. Append receipt `{ event: "session_start", invocationId, assignmentDigest, activeTools, at }` where `assignmentDigest` is sha256 of the raw assignment file bytes.
+
+**Receipts:** append-only JSONL at `NMG_SDLC_REVIEW_RECEIPT`. Never truncate, rewrite, unlink, or edit prior lines. Invalidation/replacement does not delete `.access.jsonl`. Host writes only; model-written files are ignored.
+
+**`tool_call` handler:** return `{ block: true, reason: "nmg-sdlc review isolation: <code>" }` unless the gate is allow-listed **and** `event.toolName === "read"` **and** `isAllowedSnapshotRead(event.input.path, assignment)` allows. Block `grep`, `glob`, `bash`, `edit`, `write`, and every `CustomToolCallEvent` (`eval`, `python`, `task`, `web_search`, MCP, network, and unknown names). Append a receipt for every event with `decision: "allow"|"block"`.
+
+**Path allow (`src/sdlc-review-isolation.mjs` `isAllowedSnapshotRead(requestedPath, assignment)`):**
+
+1. If `requestedPath` is missing or not a string → deny `path_unreadable`.
+2. If it matches `^[a-zA-Z][a-zA-Z0-9+.-]*:` (any scheme, including `http`, `https`, `file`, `ssh`, `skill`, `agent`, `artifact`, `memory`, `rule`, `local`, `mcp`, `xd`, `issue`, `pr`, `omp`, `archive`) → deny `url_read`. Do not resolve internal URIs to backing files.
+3. If the string contains `!` archive-member syntax (`zip:path/inside` or `file.ext:path/inside/archive` after a non-selector colon that is not a line-range/`raw`/`conflicts` tail) → deny `archive_member`.
+4. Selector peel, implemented locally (do not import `@oh-my-pi`): supported tails are `raw`, `conflicts`, line ranges `N`, `N-M`, `N-`, `N+K`, comma lists, and compounds `raw:50-100` / `50-100:raw`. If `lstat` of the raw path exists as a file, prefer the literal path (OMP #4618). Else peel a supported selector and check the remaining path. Unknown or malformed selector → deny `unsupported_selector`. `?q=` and hash fragments → deny `unsupported_selector`.
+5. `resolved = path.resolve(assignment.snapshotDir, peeledPath)`.
+6. `realSnapshot = fs.realpathSync(assignment.snapshotDir)` (fail deny `snapshot_unreadable` if missing).
+7. `realTarget = fs.existsSync(resolved) ? fs.realpathSync(resolved) : path.normalize(resolved)`.
+8. `rel = path.relative(realSnapshot, realTarget)`. If `rel === ""` or `rel` is absolute or `rel` splits to a `..` segment → deny `outside_snapshot`.
+9. `posix = rel.split(path.sep).join("/")`. Allow only when `assignment.allowedPaths` includes that exact string (file, not directory prefix). Deny `not_allowed_path` otherwise.
+
+Do not follow a symlink that realpath's outside `realSnapshot`. Do not rewrite `event.input` to coerce a path; block instead.
+
+**`user_bash`:** always intercept when env was set at factory load. Do not execute the command. Return `{ result: { output: "nmg-sdlc review isolation: user_bash blocked", exitCode: 1, cancelled: false, truncated: false, totalLines: 1, totalBytes: <byteLength>, outputLines: 1, outputBytes: <byteLength> } }` and receipt `decision=block`. `user_python`: same with `{ result: { output: "nmg-sdlc review isolation: user_python blocked", exitCode: 1, cancelled: false, truncated: false, totalLines: 1, totalBytes: <byteLength>, outputLines: 1, outputBytes: <byteLength>, displayOutputs: [], stdinRequested: false } }`. These events have no `block` field.
+
+**Ordinary sessions:** `NMG_SDLC_REVIEW_SLICE` unset or not `"1"` at factory load → do not call `setActiveTools`, do not register isolation handlers, do not write receipts.
+
+**Execute pass/fail after a slice worker exits:**
+
+- Missing receipt file, missing `session_start` row, `activeTools` not exactly `["read"]` (or empty under the documented tool-less fallback), or `arm_failed` → `review_scope_unproven`, intervention, **not** `invalid_review_slice`.
+- Any receipt `decision=allow` for a disallowed tool/path, or a `tool_result` proving such a call executed → proven contamination.
+- Blocked disallowed calls with `decision=block` are isolation working; they are not contamination and not a pass by themselves.
+- Cwd matching `snapshotDir` is ignored for compliance.
+- Findings text naming extra paths is not a read.
+
+**On first proven contamination for that step:** consume `invalid_review_slice` for `class/runId/issue/step`. Do **not** unlink or rewrite the original `.omp/sdlc/reviews/<N>-<step>.md` or `.omp/sdlc/handoffs/<N>-<step>.json`. Write `.omp/sdlc/reviews/<N>-<step>.invalidation.json` `{ reason, invocationId, originalArtifact, originalHandoff, at }`. Launch at most one replacement of **all** slices for that step with the **same** assignment JSON (same `allowedPaths`). Replacement artifacts go to `.omp/sdlc/reviews/<N>-<step>.attempt-2.md` and `.omp/sdlc/handoffs/<N>-<step>.attempt-2.json`. Execute consumes attempt-2 as current; originals remain bytes-identical.
 
 Second contamination or replacement failure: fail `invalid_review_slice` intervention. Do not convert historical intervention/invalidation files into a pass.
 
-Reuse a slice result only when `baseSha`, `headSha`, spec digest, `sliceId`, and `allowedPaths` all match exactly and isolation cwd proof exists. "Discard offending evidence" in AC2 means do not use it as the current passing artifact; it does not mean delete files.
+Reuse a slice result only when `baseSha`, `headSha`, spec digest, `sliceId`, `allowedPaths`, and `invocationId`-bound host receipts all match. "Discard offending evidence" in AC2 means do not use it as the current passing artifact; it does not mean delete files.
 
 ### Empty or missing review (AC3)
 
@@ -212,19 +281,21 @@ Completed-delivery re-entry uses the same bounded read-only reconcile.
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `scripts/sdlc-safe-recoveries.mjs` (new; no equivalent exists) | CAS file owner for class/runId/issue/step | Standalone + execute without fabricating run.json |
-| `scripts/sdlc-execute.mjs` | Snapshot panes; invalidation without delete; gate invalidation after mergeability; do not touch `recoveries[]` | AC2, AC5, AC8, `#372` |
+| `src/sdlc-review-isolation.mjs` (new; no equivalent exists) | Canonical allow + JSONL receipts | Testable without OMP |
+| `src/extension.ts` | Deny-all hooks at factory load when `NMG_SDLC_REVIEW_SLICE=1`; then `setActiveTools` | AC11 |
+| `scripts/sdlc-safe-recoveries.mjs` (new; no equivalent exists) | CAS `owners[]` + records keyed by logical ownerId, not lease UUID | AC8; standalone without fabricating run.json |
+| `scripts/sdlc-execute.mjs` | Slice env/assignment; receipt-gated pass; invalidation without delete; gate invalidation after mergeability; do not touch `recoveries[]` | AC2, AC5, AC8, AC11, `#372` |
 | `scripts/sdlc-review-main.mjs` | `review_empty` / `review_artifact_missing` | AC3 |
-| `scripts/sdlc-finalize-verification.mjs` | Stage publication reconcile; use lease runId + safe-recoveries.json | AC4, AC8 |
+| `scripts/sdlc-finalize-verification.mjs` | Stage publication reconcile; `resolveRecoveryOwner` + safe-recoveries.json | AC4, AC8 |
 | `scripts/sdlc-apply-review.mjs` | Same publication reconcile | AC1/AC4 |
 | `workflows/write-code/` | Same publication reconcile after skill-creator | AC1 |
-| `scripts/sdlc-deliver.mjs` | Inspect mergeability; bot vs human; post-merge observe; standalone safe-recoveries | AC5–AC7 |
+| `scripts/sdlc-deliver.mjs` | Inspect mergeability; bot vs human; post-merge observe; bind session namespace to prior owner | AC5–AC8 |
 | `scripts/pr-delivery-state.mjs` | Author typename/login on reviews | AC6 |
-| Tests + workflow exercises + fresh smoke | See tasks T003–T004 | AC10 |
+| Tests + workflow exercises + fresh smoke | See tasks T003–T004 | AC10, AC11 |
 
 ### Blast Radius
 
-Direct: review launch, publication resume, deliver classify/merge/close, execute completed-step invalidation. Indirect: `#208` empty rewrite, `#282` publish, `#372` `recoveries[]`, `#369` attempts, `#354` verify rem, `#195` exact-head. Risk: High if keys include head SHA or `recoveries[]` is reused.
+Direct: review launch, extension tool surface for review-slice sessions only, publication resume, deliver classify/merge/close, execute completed-step invalidation. Indirect: `#208` empty rewrite, `#282` publish, `#372` `recoveries[]`, `#369` attempts, `#354` verify rem, `#195` exact-head. Risk: High if keys include head SHA, `recoveries[]` is reused, or ordinary sessions lose tools.
 
 ---
 
@@ -233,9 +304,11 @@ Direct: review launch, publication resume, deliver classify/merge/close, execute
 | Risk | Mitigation |
 |------|------------|
 | Head change refills slice replacement | Key excludes head; test second head does not add a record |
+| Fresh lease UUID refills `#374` | `resolveRecoveryOwner`; restart test with new `enterControllerLease` UUID and unchanged `records[]` |
 | `#372` recoveries length grows | Assert `recoveries` unchanged on `#374` actions |
 | Empty review still passes | Delete rewrite test; assert `review_empty` |
-| Findings-text treated as reads | Isolation cwd test; prose extra paths with snapshot isolation still pass |
+| Findings-text or cwd treated as reads/isolation | Receipt tests; prose extra paths with armed isolation still pass; cwd-only without receipts is `review_scope_unproven` |
+| Ordinary session tools stripped | Env unset at factory load leaves handlers unregistered; test default session active tools unchanged |
 | CONFLICTING enum skips inspect | Fixture auto-mergeable in-scope conflict reconciles; out-of-scope conflict stops with paths |
 | Stale reviews kept after rebase | completed[] loses review/verify after new HEAD |
 | Standalone writes run.json | finalize/deliver without execute checkpoint leaves run.json absent |
