@@ -209,6 +209,19 @@ captured results. For relative reads, require the actual handler `ctx.cwd` to
 resolve to the snapshot root; this prevents reading a same-named checkout file
 when a pane starts in the wrong directory. Cwd alone never proves compliance.
 
+Coordinator verification-repair clarification (AC10/AC11/T004):
+`steering/extensions/nmg-sdlc-smoke.mjs` must select and propagate the same
+explicit plugin root as the installed review workers, using
+`scripts/plugin-controller-path.mjs` `resolvePluginRoot` and
+`resolvePluginController` conventions rather than the source `request.projectRoot`.
+Unresolved controllers fail before remote execution; default module-relative
+resolution remains supported. `scripts/__tests__/nmg-sdlc-smoke.test.mjs` must
+exercise real isolated source/candidate locations, smoke-clone cwd, and candidate
+receipt inspection. Preserve exact `isolationModule` URL identity checks and
+receipt bytes: no hash fallback or weakened validation. Preserve source-native
+proof hashes and the canonical failed Incomplete report; publication and any
+changed-hypothesis remote verification remain coordinator-owned.
+
 **`tool_call` handler:** return `{ block: true, reason: "nmg-sdlc review isolation: <code>" }` unless the gate is allow-listed **and** `event.toolName === "read"` **and** `isAllowedSnapshotRead(event.input.path, assignment)` allows. Block `grep`, `glob`, `bash`, `edit`, `write`, and every `CustomToolCallEvent` (`eval`, `python`, `task`, `web_search`, MCP, network, and unknown names). Append a receipt for every event with `decision: "allow"|"block"`.
 
 **Path allow (`src/sdlc-review-isolation.mjs` `isAllowedSnapshotRead(requestedPath, assignment)`):**

@@ -77,7 +77,7 @@ claim predecessor delivery or issue closure.
 
 ### T004: Registered gates, workflow exercise, live bypass, fresh smoke
 
-**File(s)**: `workflows/review-main/`, `workflows/verify-code/`, `workflows/open-pr/`, `commands/sdlc-verify-code.md`, `commands/sdlc-open-pr.md`, `scripts/skill-inventory.baseline.json`
+**File(s)**: `workflows/review-main/`, `workflows/verify-code/`, `workflows/open-pr/`, `commands/sdlc-verify-code.md`, `commands/sdlc-open-pr.md`, `scripts/skill-inventory.baseline.json`, `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`
 **Type**: Verify
 **Depends**: T001, T002, T003
 **Acceptance**:
@@ -88,6 +88,19 @@ claim predecessor delivery or issue closure.
 - [ ] Fresh authorized invocation-bound live smoke: provision new smoke issues with approved specs through normal ownership; set `NMG_SDLC_SMOKE_ISSUES` to those numbers only; do not replay stopped smoke `#96`; run `node scripts/sdlc-execute.mjs run` with `NMG_SDLC_SMOKE_OWNED=1` against a non-shallow clone of `Nunley-Media-Group/nmg-sdlc-smoke`; pass only with exact-head MERGED PR + CLOSED issue proof for this invocation
 - [ ] Coordinator staging: reserve fresh smoke #98 for the standard downstream final verification after manager-based immutable candidate installation; implementation runs source-local proof and does not consume that queue or claim the live gate passed.
 - [ ] `#369` loop stop, `#372` bare `recoveries[]` one-shot, pending-CI wait, unchanged contribution-gate body, exact-head CAS mismatch still fail-closed in the suite
+
+**Coordinator implementation clarification (AC10/AC11, verification repair)**:
+Resolve the smoke provider's controller with the existing
+`scripts/plugin-controller-path.mjs` resolver conventions and propagate the
+selected `NMG_SDLC_PLUGIN_ROOT` into execution in the smoke clone. An explicit
+candidate root must win over the source project root so candidate review receipts
+are inspected by the same isolation module identity. Fail unresolved controllers
+before remote execution. Prove selection with real isolated source/candidate
+locations and compatible receipt inspection, not only mocked command arguments.
+Preserve exact isolation-module URL validation, receipt bytes, source-native
+proof hashes, and the canonical failed Incomplete report. This clarifies existing
+T004 parity behavior; it grants no scope bypass, custom allowlist, remote replay,
+replacement queue, installed-candidate edit, or publication authority.
 
 The command Markdown files are generated mirrors of the approved workflows.
 Regenerate them with the existing command renderer; do not author independent

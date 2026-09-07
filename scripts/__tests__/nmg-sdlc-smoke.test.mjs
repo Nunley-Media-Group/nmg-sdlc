@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { inspectReviewReceipts } from '../../src/sdlc-review-isolation.mjs';
 import { createSmokeProvider } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
+
+const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 const VALID_ENV = Object.freeze({
   HERDR_ENV: '1',
@@ -130,6 +134,7 @@ function commandFixture() {
   fs.mkdirSync(bin);
   fs.mkdirSync(work);
   fs.mkdirSync(path.join(root, 'scripts'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'nmg-sdlc' }));
   const executable = (name, source) => {
     const file = path.join(bin, name);
     fs.writeFileSync(file, `#!/usr/bin/env node\n${source}`);
@@ -167,6 +172,69 @@ function commandFixture() {
 }
 
 describe('nmg-sdlc mutable delivery smoke provider', () => {
+  it('fails an unresolved selected controller before any remote command', async () => {
+    const local = commandFixture();
+    fs.unlinkSync(path.join(local.root, 'scripts/sdlc-execute.mjs'));
+    const fixture = harness({ env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: local.root } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke controller unresolved: sdlc-execute.mjs',
+    });
+    expect(fixture.runCommand).not.toHaveBeenCalled();
+    expect(fixture.mkdtempSync).not.toHaveBeenCalled();
+  });
+
+  it('executes the explicit candidate in clone cwd and inspects its unchanged isolation receipts', async () => {
+    const fixture = commandFixture();
+    const candidate = path.join(fixture.root, 'candidate');
+    fs.mkdirSync(path.join(candidate, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(candidate, 'src'));
+    fs.writeFileSync(path.join(candidate, 'package.json'), JSON.stringify({ name: 'nmg-sdlc' }));
+    fs.copyFileSync(new URL('../../src/sdlc-review-isolation.mjs', import.meta.url),
+      path.join(candidate, 'src/sdlc-review-isolation.mjs'));
+    const assignmentPath = path.join(fixture.work, 'assignment.json');
+    const receiptPath = path.join(fixture.work, 'access.jsonl');
+    fs.writeFileSync(path.join(fixture.work, 'allowed.txt'), 'snapshot\n');
+    fs.writeFileSync(assignmentPath, JSON.stringify({
+      issue: 7, step: 'review1', sliceId: 'reviewer-1', runId: 'owner',
+      invocationId: 'candidate-parity', baseSha: 'base', headSha: 'head',
+      specDigest: 'digest', snapshotDir: fixture.work, allowedPaths: ['allowed.txt'],
+    }));
+    const isolation = await import(pathToFileURL(path.join(candidate, 'src/sdlc-review-isolation.mjs')).href);
+    const handlers = new Map();
+    let tools = [];
+    isolation.installReviewIsolation({
+      on: (event, fn) => handlers.set(event, fn),
+      setActiveTools: async (names) => { tools = names; },
+      getActiveTools: () => tools,
+    }, { env: { NMG_SDLC_REVIEW_SLICE: '1', NMG_SDLC_REVIEW_ASSIGNMENT: assignmentPath,
+      NMG_SDLC_REVIEW_RECEIPT: receiptPath } });
+    await handlers.get('session_start')();
+    const receiptBytes = fs.readFileSync(receiptPath);
+    expect(inspectReviewReceipts(assignmentPath, receiptPath).reasonCode).toBe('review_scope_unproven');
+    fs.writeFileSync(path.join(candidate, 'scripts/sdlc-execute.mjs'), `
+      import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
+      const inspection = inspectReviewReceipts(${JSON.stringify(assignmentPath)}, ${JSON.stringify(receiptPath)});
+      console.log(JSON.stringify({ controller: import.meta.url, cwd: process.cwd(),
+        pluginRoot: process.env.NMG_SDLC_PLUGIN_ROOT, inspection }));
+      process.exit(inspection.valid ? 0 : 1);
+    `);
+    const provider = createSmokeProvider({
+      env: { ...process.env, ...VALID_ENV, NMG_SDLC_SMOKE_OWNED: '0',
+        NMG_SDLC_PLUGIN_ROOT: candidate,
+        PATH: `${path.join(fixture.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+      mkdtempSync: () => fixture.work,
+    });
+    const outcome = await provider({ projectRoot: fixture.root, config: { issues: [7] }, identity: {} });
+    const execution = outcome.evidence.find(item => item.summary === 'sdlc-execute run #7');
+    expect(JSON.parse(execution.stdout)).toMatchObject({
+      controller: pathToFileURL(fs.realpathSync(path.join(candidate, 'scripts/sdlc-execute.mjs'))).href,
+      cwd: fs.realpathSync(fixture.work), pluginRoot: candidate,
+      inspection: { valid: true, contaminated: false },
+    });
+    expect(fs.readFileSync(receiptPath)).toEqual(receiptBytes);
+    expect(outcome.summary).toContain('missing invocation delivery proof');
+  });
+
   it('registers the required production env-backed smoke queue', () => {
     const manifest = JSON.parse(fs.readFileSync(
       new URL('../../steering/manifest.json', import.meta.url),
@@ -210,7 +278,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
 
     expect(outcome.status).toBe('passed');
     const execute = fixture.calls.find((call) => call.program === process.execPath);
-    expect(execute.args).toEqual(['/plugin/scripts/sdlc-execute.mjs', 'run', '#11', '#12']);
+    expect(execute.args).toEqual([path.join(SOURCE_ROOT, 'scripts/sdlc-execute.mjs'), 'run', '#11', '#12']);
   });
 
   it('fails when the reusable queue environment variable is absent or invalid', async () => {
@@ -292,6 +360,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       const provider = createSmokeProvider({
         env: {
           ...process.env, ...VALID_ENV, NMG_SDLC_SMOKE_OWNED: '0',
+          NMG_SDLC_PLUGIN_ROOT: fixture.root,
           PATH: `${path.join(fixture.root, 'bin')}${path.delimiter}${process.env.PATH}`,
         },
         mkdtempSync: () => fixture.work,
@@ -340,7 +409,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(outcome.status).toBe('passed');
     expect(executeCalls).toHaveLength(1);
     expect(executeCalls[0]).toMatchObject({
-      args: ['/plugin/scripts/sdlc-execute.mjs', 'run', '#7', '#9'],
+      args: [path.join(SOURCE_ROOT, 'scripts/sdlc-execute.mjs'), 'run', '#7', '#9'],
       options: {
         cwd: '/tmp/nmg-sdlc-smoke-fixture',
         env: expect.objectContaining({ NMG_SDLC_SMOKE_OWNED: '1' }),
