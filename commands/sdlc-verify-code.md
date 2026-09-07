@@ -86,4 +86,6 @@ node <plugin-root>/scripts/sdlc-finalize-verification.mjs --issue N --spec specs
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
-Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Fail or Partial `implementation_non_pass` writes `status: failed` with `intervention: false` and does not advance to delivery. Incomplete, `spec_not_approved`, `verification_publish_failed`, lease failure, missing/invalid reports, and unverifiable readiness remain intervention and never start rem.
+Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Fail or Partial `implementation_non_pass`, and a safe report with locally unverifiable readiness, write `status: failed` with `intervention: false`; they do not advance to delivery and may enter bounded `rN-verify` repair.
+
+Incomplete evidence, `spec_not_approved`, `verification_publish_failed`, lease failure, and missing or unsafe report paths remain intervention. Never rewrite a controller handoff to change this classification or bypass live scope, evidence, ownership, or publication checks.
