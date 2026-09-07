@@ -2976,6 +2976,23 @@ describe('runExecute controller', () => {
     expect(String(persisted.remediation.reasonCode || persisted.failed?.reasonCode || '')).toMatch(/remediation_loop/);
     expect(persisted.completed[42] || []).not.toContain(step);
   });
+  it('preserves lease ownership and records cleanup diagnostic on pane close failure exactly at the remediation limit', () => {
+    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
+    const originalClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      (fixture.closed = fixture.closed || []).push(paneId);
+      return { status: 1 };
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(result.status).toBe(1);
+    expect(persisted.remediation).toMatchObject({ status: 'stopped', reasonCode: 'remediation_loop' });
+    expect(persisted.failed).toMatchObject({ reasonCode: 'remediation_loop', cleanupReasonCode: 'pane_close_failed' });
+    const hasRemWorker = Object.keys(persisted.workers || {}).some((k) => k.startsWith('r42-'));
+    expect(hasRemWorker).toBe(true);
+    // lease retained (not released on close failure)
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
+  });
 
   it('unchanged reinvocation stays stopped after remediation_loop with no additional worker', () => {
     const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });

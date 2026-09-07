@@ -1463,6 +1463,17 @@ function cleanupControllerWorkers({
   }
   return latest;
 }
+function hasUnclosedOwnedWorkers(runState) {
+  if (!runState || !runState.workers) return false;
+  return Object.values(runState.workers).some((worker) =>
+    worker &&
+    worker.projectRoot === runState.projectRoot &&
+    worker.runId === runState.runId &&
+    Number.isSafeInteger(worker.issue) &&
+    VALID_STEPS.includes(worker.step)
+  );
+}
+
 
 
 function workerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
@@ -1811,6 +1822,7 @@ export function runExecute({
             herdr: herdrApi,
             retainWorker: parsedArgs.retainWorker,
           });
+          const closeFailed = !parsedArgs.retainWorker && hasUnclosedOwnedWorkers(runState);
           if (
             Number.isSafeInteger(runState.currentIssue)
             && VALID_STEPS.includes(runState.currentStep)
@@ -1819,9 +1831,13 @@ export function runExecute({
               issue: runState.currentIssue,
               step: runState.currentStep,
               reasonCode: 'controller_cancelled',
+              ...(closeFailed ? { cleanupReasonCode: 'pane_close_failed' } : {}),
             };
           }
           persistRunState(runState, cwd);
+          if (closeFailed) {
+            releaseLeaseInFinally = false;
+          }
         } catch {
           releaseLeaseInFinally = false;
         }
@@ -2183,6 +2199,22 @@ export function runExecute({
     runState = cleanupControllerWorkers({
       runState, cwd, run, herdr: herdrApi, retainWorker: parsedArgs.retainWorker,
     });
+    const closeFailed = !parsedArgs.retainWorker && hasUnclosedOwnedWorkers(runState);
+    if (closeFailed) {
+      if (
+        Number.isSafeInteger(runState.currentIssue)
+        && VALID_STEPS.includes(runState.currentStep)
+      ) {
+        runState.failed = {
+          issue: runState.currentIssue,
+          step: runState.currentStep,
+          reasonCode: 'remediation_loop',
+          cleanupReasonCode: 'pane_close_failed',
+        };
+      }
+      persistRunState(runState, cwd);
+      releaseLeaseInFinally = false;
+    }
     return stop({
       issue, step, paneId: 'none', agentName: remAgentName(issue, step),
       reasonCode: 'remediation_loop', runState, cwd, herdr: herdrApi, output,
