@@ -1,0 +1,55 @@
+**Issue**: #372
+**Date**: 2026-09-07
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/369-detect-execute-remediation-loops-and-close-workers-on-cancel/
+
+Feature: Bounded operator recovery of an exhausted delivery
+  Ordinary resume previously offered no explicit path out of a remediation loop.
+  A single-use checkpoint authorization permits one repair without weakening gates.
+
+  @SCN001 @regression
+  Scenario: Explicit exact-checkpoint authorization
+    Given a legacy delivery stopped after 13 implementation attempts
+    And the operator supplies its current recovery identity and a reason
+    When execute consumes the authorized retry
+    Then exactly one repair worker may run
+    And the issue queue, prior attempts, work and completed stages are preserved
+
+  @SCN002 @regression
+  Scenario: No implicit allowance or authorization replay
+    Given a stopped checkpoint with a consumed or stale recovery identity
+    When ordinary resume, stale-lease recovery, an upgrade or concurrent replay is attempted
+    Then no new repair allowance is granted
+    And no more than one consumer can dispatch the originally authorized attempt
+
+  @SCN003 @regression
+  Scenario: Failed recovery stays bounded
+    Given an authorized recovery worker has been dispatched
+    When it fails without advancement or dispatch becomes ambiguous
+    Then no automatic follow-on remediation starts
+    And reentry cannot replay the consumed attempt
+    And the failed evidence remains available
+
+  @SCN004 @regression
+  Scenario: Passed work completes normal delivery
+    Given an authorized recovery produces a validated passed handoff
+    When execute advances the stage
+    Then every remaining review, verification and exact-head delivery gate remains required
+    And the next stage retains its normal bounded remediation policy
+
+  @SCN005 @regression
+  Scenario: Intervention and ownership remain fail-closed
+    Given retry encounters intervention, blocked evidence or uncertain ownership
+    When the operator supplies a recovery identity
+    Then execute refuses to bypass the blocker or launch duplicate work
+    And only positively absent recorded panes can be reconciled
+    And unrelated and reused pane identities remain protected
+
+  @SCN006 @regression
+  Scenario: Discoverable and verified operator recovery
+    Given an eligible exhausted checkpoint is inspected through the installed command surface
+    When the operator reads status or the stopped command result
+    Then output names the reason and current recovery identity with an exact retry command
+    And stale-lease recovery is distinguished from retry authorization
+    And actual isolated command and fresh registered smoke delivery evidence prove the contract
