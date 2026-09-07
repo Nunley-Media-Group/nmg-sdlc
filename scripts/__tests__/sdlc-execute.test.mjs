@@ -5704,6 +5704,117 @@ describe('runExecute controller', () => {
     expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
   });
 
+  it('completes stopped delivery remediation from repaired passed proof without starting another worker', () => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    seedRun(fixture.cwd, {
+      currentStep: 'deliver',
+      completed: { 42: VALID_STEPS.slice(0, -1) },
+      failed: { issue: 42, step: 'deliver', reasonCode: 'remediation_loop' },
+      remediation: { issue: 42, step: 'deliver', status: 'stopped', reasonCode: 'remediation_loop' },
+      workers: {},
+      delivery: {
+        issue: 42,
+        pullRequest: 77,
+        expectedHead: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'complete',
+        reconciliation: null,
+      },
+    });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'deliver',
+      status: 'passed',
+      intervention: false,
+      summary: 'PR merged and issue closed',
+      artifacts: ['https://github.test/pull/77'],
+      next: null,
+      reasonCode: null,
+    })}\n`);
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls).toContainEqual(['gh', 'pr', 'view', '77', '--json', 'state,headRefName']);
+    expect(fixture.calls).toContainEqual(['gh', 'issue', 'view', '42', '--json', 'state']);
+    expect(fixture.calls).toContainEqual([
+      'git', 'fetch', 'origin', '+refs/heads/main:refs/remotes/origin/main',
+    ]);
+    expect(fixture.calls).toContainEqual(['git', 'merge', '--ff-only', 'origin/main']);
+    expect(fixture.calls).toContainEqual(['git', 'branch', '-d', '42-ship-it']);
+    expect(fixture.calls).not.toContainEqual(['git', 'checkout', '42-ship-it']);
+  });
+
+  it.each([
+    { pullRequestState: 'OPEN', issueState: 'CLOSED' },
+    { pullRequestState: 'MERGED', issueState: 'OPEN' },
+  ])('keeps stopped delivery incomplete when repaired passed evidence has PR $pullRequestState and issue $issueState', ({
+    pullRequestState, issueState,
+  }) => {
+    const fixture = makeControllerFixture({ branch: 'main' });
+    seedRun(fixture.cwd, {
+      currentStep: 'deliver',
+      completed: { 42: VALID_STEPS.slice(0, -1) },
+      failed: { issue: 42, step: 'deliver', reasonCode: 'remediation_loop' },
+      remediation: { issue: 42, step: 'deliver', status: 'stopped', reasonCode: 'remediation_loop' },
+      workers: {},
+      delivery: {
+        issue: 42,
+        pullRequest: 77,
+        expectedHead: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'complete',
+        reconciliation: null,
+      },
+    });
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'deliver',
+      status: 'passed',
+      intervention: false,
+      summary: 'PR merged and issue closed',
+      artifacts: ['https://github.test/pull/77'],
+      next: null,
+      reasonCode: null,
+    })}\n`);
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view') {
+        fixture.calls.push([command, ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ state: pullRequestState, headRefName: '42-ship-it' }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.includes('state')) {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: JSON.stringify({ state: issueState }), stderr: '' };
+      }
+      return baseRun(command, args);
+    };
+
+    const result = runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+      waitForDeliveryRetry: () => {},
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+
+    expect(result.status).toBe(1);
+    expect(persisted.completed['42']).not.toContain('deliver');
+    expect(persisted.failed).toMatchObject({ issue: 42, step: 'deliver', reasonCode: 'delivery_not_complete' });
+    expect(persisted.remediation).toMatchObject({ issue: 42, step: 'deliver', status: 'stopped' });
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls).not.toContainEqual(['git', 'merge', '--ff-only', 'origin/main']);
+    expect(fixture.calls).not.toContainEqual(['git', 'branch', '-d', '42-ship-it']);
+  });
+
   it('retries terminal delivery proof while GitHub state converges', () => {
     const fixture = makeControllerFixture({ branch: 'main' });
     seedRun(fixture.cwd, {

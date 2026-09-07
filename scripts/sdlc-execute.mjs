@@ -2625,7 +2625,7 @@ export function runExecute({
         runState.failed = null;
         runState.remediation = null;
         persistRunState(runState, cwd);
-      } else if (!resumeAgent && checkpointRemediation?.status !== 'active') {
+      } else if (!resumeAgent && !passedHandoff && checkpointRemediation?.status !== 'active') {
         const completed = remediationCompletedSteps({
           issue, step, completed: runState.completed[String(issue)], handoff,
         });

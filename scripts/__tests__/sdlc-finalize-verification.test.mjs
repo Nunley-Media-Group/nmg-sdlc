@@ -80,17 +80,36 @@ describe('verification finalization controller', () => {
     });
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
   });
-  it('keeps a missing Implementation Status as intervention', () => {
+  it('repairs a safe incomplete report format without publishing unready evidence', () => {
     const root = fixture(null);
-    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root });
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
     expect(outcome.status).toBe(1);
     expect(outcome.handoff).toMatchObject({
       status: 'failed',
-      intervention: true,
+      intervention: false,
       step: 'verify',
       next: null,
     });
+    expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(true);
+    expect(calls).toEqual([]);
+    fs.writeFileSync(path.join(root, 'specs/42-feature/verification-report.md'), report());
+    const repaired = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(repaired.status).toBe(0);
+    expect(repaired.handoff).toMatchObject({ status: 'passed', intervention: false, next: 'deliver' });
+  });
+
+  it('keeps unsafe report paths outside autonomous evidence repair', () => {
+    const root = fixture();
+    const reportPath = path.join(root, 'specs/42-feature/verification-report.md');
+    const target = path.join(root, 'foreign-report.md');
+    fs.renameSync(reportPath, target);
+    fs.symlinkSync(target, reportPath);
+    const { run, calls } = successfulRun(true);
+    const outcome = finalizeVerification({ issue: 42, spec: 'specs/42-feature', cwd: root, run });
+    expect(outcome.handoff).toMatchObject({ status: 'failed', intervention: true, reasonCode: 'verification_report_invalid' });
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(false);
+    expect(calls).toEqual([]);
   });
   it('requires the execute lease identity before publishing protected state', () => {
     const root = fixture();

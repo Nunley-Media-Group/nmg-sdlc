@@ -29,6 +29,12 @@ const ID_PATTERNS = Object.freeze({
   scenarios: /^SCN0*[1-9]\d*$/,
 });
 
+export function isScenarioIdentifier(value, allowName = false) {
+  return typeof value === 'string'
+    && (ID_PATTERNS.scenarios.test(value)
+      || (allowName && /^SCENARIO:\S(?:[^\r\n\u2028\u2029]*\S)?$/.test(value)));
+}
+
 function emptyInventory() {
   return {
     acceptanceCriteria: [],
@@ -184,7 +190,9 @@ function extractScenarios(content, gaps) {
     const scenario = line.match(/^\s*Scenario(?: Outline)?:\s*(.+?)\s*$/);
     if (!scenario) continue;
     if (pendingTags.length > 1) gaps.push(`scenario ${scenario[1]} has multiple stable SCN tags`);
-    scenarios.push(pendingTags[0] ?? `SCENARIO:${scenario[1]}`);
+    const identifier = pendingTags[0] ?? `SCENARIO:${scenario[1]}`;
+    if (isScenarioIdentifier(identifier, true)) scenarios.push(identifier);
+    else gaps.push('feature.gherkin contains an invalid scenario identifier');
     pendingTags = [];
   }
   if (new Set(scenarios).size !== scenarios.length) gaps.push('feature.gherkin contains duplicate scenario identifiers or names');

@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSy
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
-import { terminateOwnedProcessGroup } from "./process-supervision.mjs";
+import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
 const RESULT_STATUSES = new Set(["passed", "failed", "incomplete", "skipped", "not_applicable"]);
@@ -117,12 +117,19 @@ function commandProvider(request) {
       stdout: bounded(stdout),
       stderr: bounded(stderr),
     }];
+    const stop = async (leaderLost = false) => {
+      const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
+      if (!cleanup.ok) {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref?.();
+      }
+      return cleanup;
+    };
     const cancel = async () => {
       if (settled || terminalOverride) return;
       terminalOverride = "cancelled";
-      const cleanup = await terminateOwnedProcessGroup(child);
-      child.stdout?.destroy();
-      child.stderr?.destroy();
+      const cleanup = await stop();
       settle(resultEnvelope("incomplete", cleanup.ok ? "command cancelled" : `command cancellation cleanup failed: ${cleanup.error.message}`, request.identity, evidence(`${program} ${args.join(" ")} cancelled`)));
     };
     try {
@@ -135,19 +142,29 @@ function commandProvider(request) {
     child.on("error", (error) => {
       if (!terminalOverride) settle(resultEnvelope("incomplete", `command launch failed: ${error.message}`, request.identity));
     });
-    child.on("close", async (code, signal) => {
-      if (terminalOverride || settled) return;
+    const completed = (code, signal) => {
       if (typeof code === "number") {
-        settle(resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, evidence(`${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`)));
-        return;
+        return resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, evidence(`${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`));
       }
       if (signal) {
-        settle(resultEnvelope("failed", `command exited by signal ${signal}`, request.identity, evidence(`${program} ${args.join(" ")} exited by signal ${signal}`)));
-        return;
+        return resultEnvelope("failed", `command exited by signal ${signal}`, request.identity, evidence(`${program} ${args.join(" ")} exited by signal ${signal}`));
       }
+      return resultEnvelope("incomplete", "command process lost", request.identity, evidence(`${program} ${args.join(" ")} process lost`));
+    };
+    const lost = async (code, signal) => {
+      if (terminalOverride || settled) return;
       terminalOverride = "process_lost";
-      const cleanup = await terminateOwnedProcessGroup(child, { closed: true });
-      settle(resultEnvelope("incomplete", cleanup.ok ? "command process lost" : `command process-loss cleanup failed: ${cleanup.error.message}`, request.identity, evidence(`${program} ${args.join(" ")} process lost`)));
+      const cleanup = await stop(true);
+      settle(cleanup.ok ? completed(code, signal) : resultEnvelope("incomplete", `command process-loss cleanup failed: ${cleanup.error.message}`, request.identity, evidence(`${program} ${args.join(" ")} process lost`)));
+    };
+    // close can be held open indefinitely by a descendant after leader loss.
+    child.once("exit", (code, signal) => {
+      if (typeof code !== "number") void lost(code, signal);
+    });
+    child.once("close", (code, signal) => {
+      if (terminalOverride || settled) return;
+      if (typeof code === "number") settle(completed(code, signal));
+      else void lost(code, signal);
     });
     if (request.signal) request.signal.addEventListener("abort", cancel, { once: true });
     if (request.signal?.aborted) void cancel();

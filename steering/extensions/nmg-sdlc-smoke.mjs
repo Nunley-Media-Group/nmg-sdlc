@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "../../src/process-supervision.mjs";
 
 const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
 const SMOKE_OWNER = "Nunley-Media-Group";
@@ -19,45 +20,6 @@ const CLOSING_PRS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
     }
   }
 }`;
-function waitForClose(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => child.once("close", resolve));
-}
-
-function terminateOwnedProcessGroup(child) {
-  const pid = child?.pid;
-  if (child?.exitCode !== null || child?.signalCode !== null || !Number.isInteger(pid) || pid <= 0) {
-    return Promise.resolve({ ok: true, alreadyExited: true });
-  }
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch (error) {
-      if (error?.code === "ESRCH") return Promise.resolve({ ok: true, alreadyExited: true });
-      return Promise.resolve({ ok: false, error });
-    }
-    return waitForClose(child).then(() => ({ ok: true, alreadyExited: false }));
-  }
-  return new Promise((resolve) => {
-    const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-      shell: false,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.once("error", (error) => {
-      resolve(error?.code === "ESRCH" ? { ok: true, alreadyExited: true } : { ok: false, error });
-    });
-    killer.once("close", async (code) => {
-      if (code !== 0) {
-        if (child.exitCode !== null || child.signalCode !== null) resolve({ ok: true, alreadyExited: true });
-        else resolve({ ok: false, error: new Error(`taskkill exited ${code}`) });
-        return;
-      }
-      await waitForClose(child);
-      resolve({ ok: true, alreadyExited: false });
-    });
-  });
-}
 
 function envelope(status, summary, identity, evidence = []) {
   return { schemaVersion: 1, status, summary, identity, evidence };
@@ -82,10 +44,19 @@ function runCommand(program, args, { cwd, env, signal } = {}) {
       signal?.removeEventListener("abort", cancel);
       resolve({ stdout, stderr, ...result });
     };
+    const stop = async (leaderLost = false) => {
+      const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
+      if (!cleanup.ok) {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref?.();
+      }
+      return cleanup;
+    };
     const cancel = async () => {
       if (settled || terminalOverride) return;
       terminalOverride = "cancelled";
-      const cleanup = await terminateOwnedProcessGroup(child);
+      const cleanup = await stop();
       settle({ status: null, signal: null, reasonCode: cleanup.ok ? "cancelled" : "cleanup_failed", error: cleanup.error });
     };
     try {
@@ -104,11 +75,23 @@ function runCommand(program, args, { cwd, env, signal } = {}) {
     child.once("error", (error) => {
       if (!terminalOverride) settle({ status: null, signal: null, reasonCode: "launch_failed", error });
     });
+    const completed = (code, childSignal) => {
+      if (typeof code === "number") return { status: code, signal: childSignal, reasonCode: code === 0 ? null : "failed" };
+      return { status: null, signal: childSignal, reasonCode: childSignal ? "failed" : "process_lost" };
+    };
+    const lost = async (code, childSignal) => {
+      if (terminalOverride || settled) return;
+      terminalOverride = "process_lost";
+      const cleanup = await stop(true);
+      settle(cleanup.ok ? completed(code, childSignal) : { status: null, signal: childSignal, reasonCode: "cleanup_failed", error: cleanup.error });
+    };
+    child.once("exit", (code, childSignal) => {
+      if (typeof code !== "number") void lost(code, childSignal);
+    });
     child.once("close", (code, childSignal) => {
       if (terminalOverride || settled) return;
-      if (typeof code === "number") settle({ status: code, signal: childSignal, reasonCode: code === 0 ? null : "failed" });
-      else if (childSignal) settle({ status: null, signal: childSignal, reasonCode: "failed" });
-      else settle({ status: null, signal: null, reasonCode: "process_lost" });
+      if (typeof code === "number") settle(completed(code, childSignal));
+      else void lost(code, childSignal);
     });
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) void cancel();

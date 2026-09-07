@@ -106,3 +106,66 @@ Feature: Progress-bounded execute remediation and owned cancellation
     Then documented commands cover setup through exact-head merge and issue closure
     And recovery and smoke boundaries match the runtime and registered steering
     And the implementation has been reviewed against main before delivery
+
+  @AC4
+  Scenario: Resume verified delivery after a loop stop
+    Given delivery stopped with remediation_loop and no live worker
+    And a subsequently validated passed delivery handoff proves the exact merged head and closed issue
+    When execute resumes
+    Then it completes the existing delivery verification and checkout cleanup
+    And it launches no replacement remediation
+
+  @AC10
+  Scenario: Clean descendants after direct controller loss
+    Given execute owns a blocking external descendant
+    And that descendant holds inherited output pipes
+    And an unrelated process group is running
+    When the controller leader is killed directly
+    Then waiting ends and the owned descendant is terminated before ownership is released
+    And the checkpoint records controller_process_lost
+    And the unrelated group remains alive
+
+  @AC10
+  Scenario Outline: End supervised waiting after leader loss
+    Given an owned <consumer> command has a descendant holding its output pipes
+    When the command leader disappears before a valid terminal result
+    Then the remaining owned group is cleaned up
+    And the result remains failed or incomplete rather than passed
+    And unrelated processes are untouched
+
+    Examples:
+      | consumer            |
+      | verification        |
+      | smoke verification  |
+      | OMP exercise        |
+
+  @AC10
+  Scenario: Preserve usage failures through the supervisor
+    Given execute is invoked with an unknown argument
+    When the public CLI rejects the invocation
+    Then it exits with usage status 2
+    And it creates no worker or controller lease
+
+  @AC10
+  Scenario: Preserve ordinary closed-process cleanup safety
+    Given normal cleanup observes an already-closed child
+    When its old process identity could have been reused
+    Then ordinary cleanup sends no signal to that identity
+    And only freshly observed owned leader loss can use explicit descendant cleanup
+
+  @AC11
+  Scenario: Consume canonical implicit scenario identities
+    Given an approved implicit single-issue spec has untagged scenarios
+    And its verification report contains the exact scope resolver output
+    When readiness validates the report
+    Then canonical named scenario identities are accepted
+    And stale, duplicate, malformed, or explicit-manifest named identities are rejected
+
+  @AC11
+  Scenario: Repair local report evidence without waiving verification
+    Given the current safe verification report has an unverifiable local format
+    When finalization evaluates it
+    Then it emits an unpassed non-intervention handoff with the report artifact
+    And bounded verification remediation can regenerate the report
+    And publication and advancement require a subsequently validated report
+    And unsafe paths or genuinely incomplete external evidence remain intervention conditions

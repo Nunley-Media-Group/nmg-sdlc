@@ -79,13 +79,14 @@ function finalizeVerificationUnlocked({
     options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath },
   });
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
-    const remediableImplementationNonPass = readiness.status === 'blocked'
-      && readiness.reasonCode === 'implementation_non_pass'
-      && ['fail', 'partial'].includes(readiness.implementationStatus);
+    const remediableReport = readiness.status === 'unverifiable'
+      || (readiness.status === 'blocked'
+        && readiness.reasonCode === 'implementation_non_pass'
+        && ['fail', 'partial'].includes(readiness.implementationStatus));
     return fail(
       'verification_not_ready',
       `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`,
-      remediableImplementationNonPass
+      remediableReport
         ? { intervention: false, artifacts: [reportPath] }
         : undefined,
     );

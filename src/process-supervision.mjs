@@ -5,7 +5,8 @@ function alreadyExited(error) {
 }
 
 function waitForClose(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if ((child.exitCode !== null || child.signalCode !== null)
+    && (child.stdio ?? []).every((stream) => !stream || stream.destroyed)) return Promise.resolve();
   return new Promise((resolve) => child.once("close", resolve));
 }
 
@@ -16,16 +17,28 @@ function waitForResult(child) {
   });
 }
 
-export async function terminateOwnedProcessGroup(child, {
+export function terminateOwnedProcessGroup(child, options = {}) {
+  // Ordinary completion/cancellation may race with exit. Do not target a PGID
+  // that could have been reused after a previously completed invocation.
+  if (child?.exitCode !== null || child?.signalCode !== null) {
+    return Promise.resolve({ ok: true, alreadyExited: true });
+  }
+  return terminateOwnedProcessGroupAfterLeaderLoss(child, options);
+}
+
+// Only a caller that has just observed unexpected leader loss may bypass the
+// normal exited-leader guard to stop this invocation's surviving descendants.
+export async function terminateOwnedProcessGroupAfterLeaderLoss(child, {
   platform = process.platform,
   killGroup = process.kill,
   spawnProcess = spawn,
   signal = "SIGKILL",
-  closed = false,
 } = {}) {
   const pid = child?.pid;
-  if (closed || child?.exitCode !== null || child?.signalCode !== null || !Number.isInteger(pid) || pid <= 0) {
-    return { ok: true, alreadyExited: true };
+  if (pid === undefined) return { ok: true, alreadyExited: true };
+  // -1 is a POSIX broadcast, never an owned process group.
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid > 0x7fffffff) {
+    return { ok: false, error: new Error("invalid owned process group pid") };
   }
 
   if (platform === "win32") {
@@ -46,17 +59,21 @@ export async function terminateOwnedProcessGroup(child, {
       return { ok: false, error: result.error };
     }
     if (result.code !== 0) {
-      if (child.exitCode !== null || child.signalCode !== null) return { ok: true, alreadyExited: true };
       return { ok: false, error: new Error(`taskkill exited ${result.code}`) };
     }
     await waitForClose(child);
     return { ok: true, alreadyExited: false };
   }
 
+  // The captured detached leader's PID remains the owned PGID after its exit.
+  // Signal that group before waiting for pipes inherited by its descendants.
   try {
     killGroup(-pid, signal);
   } catch (error) {
-    if (alreadyExited(error)) return { ok: true, alreadyExited: true };
+    if (alreadyExited(error)) {
+      if (child.exitCode !== null || child.signalCode !== null) await waitForClose(child);
+      return { ok: true, alreadyExited: true };
+    }
     return { ok: false, error };
   }
   await waitForClose(child);

@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
 const fixtures = [];
@@ -14,6 +14,13 @@ async function until(predicate, detail) {
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error(`Did not observe ${detail}`);
     await pause();
+  }
+}
+
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) {
+    if (error.code === 'ESRCH') return false;
+    throw error;
   }
 }
 
@@ -28,7 +35,7 @@ function git(cwd, args) {
   return result.stdout.trim();
 }
 
-async function fixture({ pending = false, retain = false, closeFailure = false } = {}) {
+async function fixture({ pending = false, retain = false, closeFailure = false, inheritedPipes = false, groupFailure = false } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
   const runtime = path.join(root, '.omp/sdlc');
   const bin = path.join(runtime, 'bin');
@@ -70,6 +77,23 @@ async function fixture({ pending = false, retain = false, closeFailure = false }
     fs.writeFileSync(file, `#!/usr/bin/env node\n${content}`);
     fs.chmodSync(file, 0o755);
   };
+  const preload = path.join(bin, 'controller-fixture.mjs');
+  fs.writeFileSync(preload, `
+import { spawn } from 'node:child_process';
+if (${inheritedPipes} && process.argv[2] === 'controller') {
+  const pipeHolder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  process.env.SDLC_FIXTURE_PIPE_PID = String(pipeHolder.pid);
+}
+if (${groupFailure} && process.argv[2] === 'supervisor') {
+  const kill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid < -1) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
+    return kill(pid, signal);
+  };
+}
+`);
   command('gh', `const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'auth') out('');
@@ -86,7 +110,7 @@ if (args[0] === 'integration') out('omp: installed');
 if (args[0] === 'agent' && args[1] === 'list') out([{name:'s42-implement',pane_id:'owned-worker',cwd:${JSON.stringify(root)},state:'working'}]);
 if (args[0] === 'agent' && args[1] === 'get') out({result:{state:'working'}});
 if (args[0] === 'agent' && args[1] === ${JSON.stringify(pending ? 'prompt' : 'wait')}) {
-  fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,controllerPid:process.ppid}));
+  fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,controllerPid:process.ppid,pipePid:Number(process.env.SDLC_FIXTURE_PIPE_PID)||null}));
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);
 }
 if (args[0] === 'pane' && args[1] === 'close') {
@@ -98,6 +122,7 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
   const child = spawn('node', [EXECUTE, 'run', ...(retain ? ['--retain-worker'] : []), '#42'], {
     cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
       ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --import=${pathToFileURL(preload).href}`,
       HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller-pane',
     },
   });
@@ -128,6 +153,11 @@ afterEach(async () => {
       try { process.kill(-value.waiting.controllerPid, 'SIGKILL'); } catch (error) {
         if (error.code !== 'ESRCH') throw error;
       }
+      if (value.foreign && value.foreign.exitCode === null && value.foreign.signalCode === null) {
+        const done = new Promise(resolve => value.foreign.once('close', resolve));
+        process.kill(-value.foreign.pid, 'SIGKILL');
+        await done;
+      }
     }
     fs.rmSync(value.root, { recursive: true, force: true });
   }
@@ -135,6 +165,66 @@ afterEach(async () => {
 
 const posix = process.platform === 'win32' ? describe.skip : describe;
 posix('execute CLI cancellation during real blocking commands', () => {
+  it.each([false, true])('cleans descendants after direct controller SIGKILL (inherited pipes: %s)', async (inheritedPipes) => {
+    const value = await fixture({ inheritedPipes });
+    value.foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true, stdio: 'ignore',
+    });
+    process.kill(value.waiting.controllerPid, 'SIGKILL');
+    const result = await value.done;
+    expect(result.code).toBe(1);
+    expect(value.readRun().failed.reasonCode).toBe('controller_process_lost');
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    expect(value.closed()).toEqual(['owned-worker']);
+    expect(value.readRun().workers['r42-verify'].runId).toBe('foreign-run');
+    await until(() => !alive(value.waiting.pid), 'the blocked Herdr descendant exiting before teardown');
+    if (inheritedPipes) {
+      await until(() => !alive(value.waiting.pipePid), 'the inherited-pipe descendant exiting before teardown');
+    }
+    expect(alive(value.foreign.pid)).toBe(true);
+  }, 30_000);
+
+  it.each(['loss', 'cancel'])('retains ownership and returns cleanup failure without hanging on %s', async (mode) => {
+    const value = await fixture({ inheritedPipes: true, groupFailure: true });
+    const before = fs.readFileSync(value.runPath, 'utf8');
+    const lease = fs.readFileSync(value.leasePath, 'utf8');
+    if (mode === 'loss') process.kill(value.waiting.controllerPid, 'SIGKILL');
+    else value.child.kill('SIGTERM');
+    const result = await value.done;
+    expect(result.code).toBe(mode === 'loss' ? 1 : 143);
+    expect(result.stderr).toContain('controller_process_cleanup_failed');
+    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
+    expect(fs.readFileSync(value.leasePath, 'utf8')).toBe(lease);
+    expect(value.closed()).toEqual([]);
+    expect(alive(value.waiting.pid)).toBe(true);
+    expect(alive(value.waiting.pipePid)).toBe(true);
+  }, 30_000);
+
+  it('preserves explicit pane retention on direct controller loss', async () => {
+    const value = await fixture({ retain: true, inheritedPipes: true });
+    process.kill(value.waiting.controllerPid, 'SIGKILL');
+    expect((await value.done).code).toBe(1);
+    expect(value.readRun().failed.reasonCode).toBe('controller_process_lost');
+    expect(value.closed()).toEqual([]);
+    expect(value.readRun().workers['s42-implement'].paneId).toBe('owned-worker');
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    await until(() => !alive(value.waiting.pid) && !alive(value.waiting.pipePid), 'owned descendants exiting despite pane retention');
+  }, 30_000);
+
+  it('keeps the lease when direct loss cannot persist its checkpoint', async () => {
+    const value = await fixture({ inheritedPipes: true });
+    const before = fs.readFileSync(value.runPath, 'utf8');
+    fs.writeFileSync(path.join(value.runtime, 'run.json.lock'), 'owned test lock');
+    process.kill(value.waiting.controllerPid, 'SIGKILL');
+    const result = await value.done;
+    expect(result.code).toBe(1);
+    expect(result.stderr).not.toBe('');
+    expect(value.closed()).toEqual(['owned-worker']);
+    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
+    expect(fs.existsSync(value.leasePath)).toBe(true);
+    await until(() => !alive(value.waiting.pid) && !alive(value.waiting.pipePid), 'owned descendants exiting before checkpoint failure');
+  }, 30_000);
+
   it.each([
     ['SIGINT', true, 130], ['SIGTERM', false, 143], ['SIGKILL', false, null],
   ])('%s closes owned workers and preserves foreign ownership', async (signal, pending, exitCode) => {
@@ -191,4 +281,18 @@ posix('execute CLI cancellation during real blocking commands', () => {
     expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
     expect(fs.existsSync(value.leasePath)).toBe(true);
   }, 30_000);
+});
+
+describe('execute CLI argument failures', () => {
+  it('returns usage status 2 for unknown execute input', async () => {
+    const child = spawn(process.execPath, [EXECUTE, 'run', '--unknown'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stdout.resume();
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const code = await new Promise(resolve => child.once('close', resolve));
+    expect(code).toBe(2);
+    expect(stderr).toContain('Usage:');
+  });
 });

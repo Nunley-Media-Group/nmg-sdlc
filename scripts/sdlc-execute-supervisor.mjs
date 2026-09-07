@@ -3,7 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { terminateOwnedProcessGroup } from '../src/process-supervision.mjs';
+import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from '../src/process-supervision.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import {
   controllerLeasePath,
@@ -83,7 +83,15 @@ function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
 }
 
 async function runSupervisor(args) {
-  const parsed = parseArgs(args);
+  let parsed;
+  try {
+    parsed = parseArgs(args);
+  } catch (error) {
+    await sendMessage(process, { type: 'result', status: 2, stdout: '', stderr: `${error.message}\n` });
+    if (process.connected) process.disconnect();
+    process.exitCode = 2;
+    return;
+  }
   const controller = spawn('node', [SCRIPT, 'controller', args], {
     cwd: process.cwd(), env: process.env,
     detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -92,25 +100,29 @@ async function runSupervisor(args) {
   let stderr = '';
   controller.stdout.on('data', (chunk) => { stdout += chunk; });
   controller.stderr.on('data', (chunk) => { stderr += chunk; });
-  const exited = new Promise((resolve) => {
+  const closed = new Promise((resolve) => {
     controller.once('error', (error) => resolve({ code: 1, error }));
     controller.once('close', (code, signal) => resolve({ code, signal }));
   });
-  let cancellation = null;
+  let leaderLost = false;
+  const exited = new Promise((resolve) => {
+    // A dead leader's inherited pipes need not close until its group is stopped.
+    controller.once('exit', (code, signal) => {
+      if (signal || typeof code !== 'number') {
+        leaderLost = true;
+        resolve({ code, signal });
+      }
+    });
+    closed.then(resolve);
+  });
+  let requestCancellation;
+  const cancelled = new Promise((resolve) => { requestCancellation = resolve; });
   let cancelSignal = null;
   let finished = false;
   const cancel = (signal) => {
-    if (finished || cancellation) return;
+    if (finished || cancelSignal) return;
     cancelSignal = signal;
-    cancellation = (async () => {
-      // runExecute blocks synchronously: stop its owned group without waiting on its event loop.
-      const result = await terminateOwnedProcessGroup(controller);
-      if (!result.ok) throw result.error || new Error('controller_process_cleanup_failed');
-      await exited;
-      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker, 'controller_cancelled');
-    })();
-    // Attach immediately; the normal completion path below consumes the same failure.
-    cancellation.catch(() => {});
+    requestCancellation({ cancelled: true });
   };
   process.on('message', (message) => {
     if (message?.type === 'cancel') cancel(message.signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
@@ -120,18 +132,28 @@ async function runSupervisor(args) {
   process.once('SIGTERM', () => cancel('SIGTERM'));
   if (!process.connected) cancel('SIGTERM');
 
-  const outcome = await exited;
+  const outcome = await Promise.race([exited, cancelled]);
+  finished = true;
   let status = outcome.code ?? 1;
-  if (cancellation) {
-    status = cancelSignal === 'SIGINT' ? 130 : 143;
-    try { await cancellation; } catch (error) { stderr += `${error.message}\n`; }
-  } else if (outcome.signal) {
+  if (cancelSignal || leaderLost) {
+    status = cancelSignal ? (cancelSignal === 'SIGINT' ? 130 : 143) : 1;
     try {
-      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker, 'controller_process_lost');
-    } catch (error) { stderr += `${error.message}\n`; }
+      // Stop the group before reading its last checkpoint or releasing ownership.
+      const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(controller);
+      if (!cleanup.ok) throw new Error(`controller_process_cleanup_failed: ${cleanup.error.message}`);
+      await closed;
+      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker,
+        cancelSignal ? 'controller_cancelled' : 'controller_process_lost');
+    } catch (error) {
+      stderr += `${error.message}\n`;
+      // Failed termination must not hang on surviving children or release their lease.
+      controller.stdout.destroy();
+      controller.stderr.destroy();
+      if (controller.connected) controller.disconnect();
+      controller.unref();
+    }
   }
   if (outcome.error) stderr += `${outcome.error.message}\n`;
-  finished = true;
   await sendMessage(process, { type: 'result', status, stdout, stderr });
   if (process.connected) process.disconnect();
   process.exitCode = status;

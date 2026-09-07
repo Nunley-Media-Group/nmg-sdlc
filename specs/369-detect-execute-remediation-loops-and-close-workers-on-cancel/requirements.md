@@ -112,9 +112,19 @@ This issue supersedes only the unlimited same-step retry and cancellation behavi
 **When** they follow `README.md`
 **Then** they can find concrete installation, prerequisite, setup, command, issue/spec publication, execution/resume/cancel/debug, verification/smoke-scope, troubleshooting, and exact-head completion instructions. Review the complete implementation against literal `main` and fix actionable findings before delivery.
 
+### AC10: Preserve owned descendant cleanup and CLI failure contracts
+
+A controller or supervised command leader exiting does not prove its owned descendants have exited. On cancellation, signal loss, or exercise process loss, terminate the remaining owned process group before claiming cleanup; observe leader exit without waiting indefinitely on descendant-held output pipes. Apply the shared cleanup contract to execute supervision, verification commands, live smoke commands, and the OMP exercise runner. Preserve failed/incomplete classifications and checkpoint/lease ownership when cleanup fails. Regression evidence must assert descendant death before fixture teardown. Invalid execute arguments continue to return the established usage exit status 2. This repairs nmg-sdlc runtime behavior only; no unrelated smoke-application repairs are authorized.
+
+### AC11: Keep canonical scope evidence interoperable and locally repairable
+
+For an approved implicit single-issue spec with untagged Gherkin scenarios, the scope resolver's canonical `SCENARIO:<name>` identifiers are valid verification scope evidence. Readiness, finalization, and delivery must consume the same canonical identities without requiring smoke-spec renumbering or accepting stale/mismatched scope. Explicit ownership manifests retain their stable SCN identifier requirement. A safe current verification report whose local format or scope evidence is unverifiable is a bounded model-repair opportunity, not automatically a human-intervention blocker; invalid paths, genuine incomplete/external-authority conditions, and all proof/identity/publication gates remain fail-closed. Prove the original retained smoke #93 report changes from `scope_evidence_invalid` to ready under the plugin fix, then retry the same unconsumed smoke queue under the recorded experiment limit. Do not modify smoke application code to hide the mismatch.
+
 ## Change History
 
 | Issue | Date | Summary |
 |---|---|---|
 | #369 | 2026-09-06 | Initial approved feature spec under the requested contribution repair workflow |
 | #369 | 2026-09-06 | Added the user's explicit smoke-scope, loop-safety, complete README, and native main-review requirements |
+| #369 | 2026-09-07 | Added confirmed owned-descendant process-loss repair and preserved CLI usage failures; a validated passed delivery handoff must escape a loop stop through exact-head completion verification |
+| #369 | 2026-09-07 | Live smoke #93 exposed resolver/readiness disagreement on untagged scenario identities and an unnecessary intervention stop for locally repairable report evidence |
