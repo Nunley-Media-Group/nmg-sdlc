@@ -1,28 +1,30 @@
 # Verification Report: Recover bounded automatic delivery stops without loops
 
-**Date**: 2026-09-07
+**Date**: 2026-09-08
 **Issue**: #374
 **Reviewer**: Fresh inline architecture-reviewer / verify-code owner
-**Scope**: Exact source and clean manager-installed candidate 30c0f9d14d4405389c5f1de330cd2e48299f8f55
+**Scope**: Exact source and manager-installed candidate `9d6b17ad286eca75e1cdaa4a6b242ad741cde717`
 
 ## Executive Summary
 
-### Implementation Status: Incomplete
+### Implementation Status: Pass
 
-The one authorized fresh registered smoke invocation failed at #100 implement. The full current source suite passed. The provider-parity repair selects the explicit candidate controller through the existing resolver and preserves exact isolation-module identity checks, but this invocation never reached review to prove the repaired boundary end-to-end. The implementation worker stopped because the publication scope helper returned only the four spec files: the approved task paths are unquoted, while the helper extracts only backtick-delimited paths. No implementation, review, pre-merge head, new merged implementation PR, or issue closure is proved. The mandatory steering artifact has ceiling **Fail**; this report remains **Incomplete** because the required live acceptance evidence is unavailable. Neither permits delivery.
+The single explicitly authorized fresh registered invocation passed both mandatory validations: the full current source suite and real consumer delivery of smoke #102. The candidate controller accepted genuine installed-candidate review receipts through both review rounds. The provider observed a new closing PR #104, outside the empty pre-run baseline, MERGED at exact delivery head `92a01fb2e3677ee4679982c15a8de8f4bb469d32`, with issue #102 CLOSED. This is new invocation-bound proof, not a replay or reinterpretation of smoke #100, #98, or #96.
+
+The repaired scope parser accepts supported plain/backtick approved task declarations while retaining live task ownership, path rejection, annotation exclusion and report-only verification authority. The provider uses the existing env-first controller resolver and preserves exact isolation-module URL enforcement. No source or installed-candidate edits were made during this verification.
 
 | Category | Score (1–5) |
 |---|---:|
-| Spec compliance | 3 |
+| Spec compliance | 5 |
 | SOLID | 3 |
 | Security | 4 |
 | Performance | 3 |
 | Testability | 4 |
-| Error handling | 3 |
-| Architecture average (five checklists) | 3.4 |
-| Overall average (six categories) | 3.3 |
+| Error handling | 4 |
+| Architecture average (five checklists) | 3.6 |
+| Overall average (six categories) | 3.8 |
 
-No source repair, candidate edit, smoke retry, replacement queue, native-driver replay, checkpoint/counter mutation, or manufactured handoff occurred in this review. The existing original failed report was not passed merely because the repair publication committed it unchanged.
+No blocking findings remain. This report verifies #374; it does not claim #374 has merged, authorize controller replay before its genuine passed verify handoff, or claim delivery/closure of predecessor #372.
 
 ## Issue Scope
 
@@ -31,157 +33,161 @@ No source repair, candidate edit, smoke retry, replacement queue, native-driver 
 - Manifest: implicit single issue; no issue-scope.json.
 - Resolver: implicit_single_issue.
 - Delivery: AC1–AC11; FR1–FR8; T001–T004; SCN001–SCN011.
-- Separate regression identifiers: none. AC10 retains the existing #369/#372 obligations without claiming predecessor delivery.
-- All four active specification files declare singular #374 and Approved. Related #372 metadata was inspected within the bounded dependency context; its original ownership and failed evidence remain unchanged.
+- Separate regression identifiers: none. AC10 preserves #369/#372 obligations without taking ownership of those issues.
+- All four active specification files declare singular #374 and Approved. Related #372 requirements metadata was inspected within the bounded predecessor context. No predecessor spec or historical evidence was changed.
 
 <!-- nmg-sdlc-issue-scope: {"issueNumber":374,"specPath":"specs/374-recover-bounded-automatic-delivery-stops-without-loops","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10","AC11"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Delivery Validation
 
-- Local verification: Not complete; mandatory fresh smoke failed.
-- PR evidence: No qualifying PR-only readiness marker. Missing live smoke proof cannot be deferred as PR Evidence Pending.
-- Candidate helper bound original durable verify owner `d89d8ee2-1964-467f-a325-d2dec8f8acb6` before work, with `passed:true` and only this report as the allowed publication path.
-- Original #374 execute remains stopped. This review does not authorize its replay.
+- Local verification: Pass, including the mandatory fresh consumer smoke gate.
+- PR evidence: No deferred PR-only requirement or readiness marker. The smoke PR is completed verification evidence, not #374 delivery evidence.
+- Candidate helper bound original durable verify owner `d89d8ee2-1964-467f-a325-d2dec8f8acb6` with `passed:true` and only this report as the allowed publication path before verification.
+- Report publication and the verify handoff remain owned by `sdlc-finalize-verification.mjs`; no manually authored handoff or success marker.
 
 ## Preservation and Evidence Identity
 
-Before any canonical replacement, the original report, `.omp/sdlc/handoffs/374-verify.json`, `.omp/sdlc/verification/374.json`, and prior smoke diagnosis were copied byte-for-byte into:
+Before canonical evidence replacement, the current smoke100 failed report, verify handoff, verification artifact, diagnosis, original checkpoint/counters and retained smoke100 runtime evidence were copied byte-for-byte into the unique directory:
 
-`.omp/sdlc/evidence/374-before-parity-final-verification/20260907T214935.261730Z/`
+`.omp/sdlc/evidence/374-before-scope-parser-final-verification/20260908T000519.690199Z/`
 
-The archive manifest records each SHA256 and byte count. Original report SHA256: `c0525981a4e26f7bf029ca11a7d83b3562a3889077070c4612c835092790b72c`. No archived or historical failure bytes were changed.
+Its manifest records 13 files with SHA256 and byte counts. The archived report SHA256 is `6ef0fbef7193f263c16fdb252b618fb0731df20360a41eecfdfc35cb0abfd98a`. The earlier `.omp/sdlc/evidence/374-before-parity-final-verification/` archive and all historical failures remain unchanged. After the successful runner, the original #374 run.json and safe-recoveries.json still matched the new archive byte-for-byte. No checkpoint, recovery budget or historical intervention was rewritten to grant eligibility.
 
-Current preparation and hash proof: `.omp/sdlc/evidence/374-parity-final-preparation.json`. Nine core implementation files match both the previously reviewed d27cc21 candidate and the current candidate byte-for-byte. All five affected workflow bundles also match the prior reviewed source bytes. Retained exercise runner/support hashes match. The narrow new provider repair and its subprocess regression were reviewed directly rather than reopening old audits.
+Current preparation proof: `.omp/sdlc/evidence/374-scope-parser-final-preparation.json`. It records original-owner binding, actual current source/candidate hashes, retained-evidence validity, the single queue102 authorization, small local gates and the final provider result.
 
-Installation evidence: `.omp/sdlc/evidence/374-provider-parity-candidate-install.json`. Local repair evidence: `.omp/sdlc/evidence/374-provider-parity-local-smoke.log` and `374-provider-parity-focused.log`. The former proves local subprocess selection and receipt acceptance only, not remote delivery; the latter records 39 passed tests, one expected skip, exit 0.
+All 31 retained native/workflow/exercise-support identity entries match current source and candidate. Eight of nine core files match the prior reviewed implementation; only `scripts/sdlc-safe-recoveries.mjs` differs, as expected for the new parser repair, and it matches the installed candidate. The parser and provider were reviewed directly; unchanged expensive probes were not rerun.
+
+Repair evidence remains separately attributable:
+
+- `.omp/sdlc/evidence/374-plain-scope-local-proof.json`: real isolated CLI binds the exact original plain-path task format; annotation/out-of-task exclusions hold; traversal and prose declarations fail `publication_scope_unproven`.
+- `.omp/sdlc/evidence/374-scope-parser-publication-proof.json`: exact published repair head, original owner, preserved hashes and prior 1073-test local proof. That prior suite is not substituted for this runner's new suite.
+- `.omp/sdlc/evidence/374-scope-parser-candidate-install.json`: clean installed candidate and source parity.
+- `.omp/sdlc/evidence/374-provider-parity-local-smoke.log`: isolated source/candidate controller selection and receipt acceptance, distinct from remote delivery.
 
 ## Deterministic Steering Artifact and Ceiling
 
-Artifact: `.omp/sdlc/verification/374.json`, generated `2026-09-07T21:56:18.364Z`.
+Artifact: `.omp/sdlc/verification/374.json`, generated `2026-09-08T00:23:02.426Z`; immutable copy at `.omp/sdlc/evidence/374-scope-parser-final-smoke102/verification-374.json`.
 
-- Source HEAD: `30c0f9d14d4405389c5f1de330cd2e48299f8f55`; initial tree clean.
+- Source HEAD: `9d6b17ad286eca75e1cdaa4a6b242ad741cde717`; initial tree clean.
 - Steering hash: `sha256:ae22a075cfd78d4a7ee6ccef09899bacabc84201cc650180dd68c975d1d3ca07`.
-- Spec hash: `sha256:cf45b135a91a47d60f9cf447282515650241be2a12bae604fbb6b2d7caf74571`.
+- Spec hash: `sha256:eb235bb8cb11318ebac6725093b934a334b7c3009fd3cb7bd2207058449cdd90`.
 - Coverage: declared 2, recorded 2, complete true; missing, duplicate and unknown lists empty.
 - `repository.tests`: passed, command exit 0.
-- `repository.nmg-sdlc-smoke`: failed, execute exit 1.
-- Canonical runner: exit 1, ceiling **Fail**. This result is not overridden by prose or retained local evidence.
-- Registered product, tech, structure and verification modules, snippets and smoke provider were loaded/reviewed; no legacy steering fallback.
+- `repository.nmg-sdlc-smoke`: passed, `nmg-sdlc-smoke delivered #102`.
+- Runner: exit 0, `ok:true`, `ceiling:null`.
+- Registered product, tech, structure and verification modules, snippets and smoke provider were loaded/reviewed. No legacy steering fallback.
 
-Exactly one invocation:
+Exactly one canonical invocation, with no wall-clock deadline:
 
 ```text
-node /Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-30c0f9d/scripts/sdlc-verify-steering.mjs --project . --issue 374 --spec specs/374-recover-bounded-automatic-delivery-stops-without-loops --base main --controller-run-id d89d8ee2-1964-467f-a325-d2dec8f8acb6
-NMG_SDLC_PLUGIN_ROOT=/Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-30c0f9d
-NMG_SDLC_SMOKE_ISSUES=100
+node /Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-9d6b17a/scripts/sdlc-verify-steering.mjs --project . --issue 374 --spec specs/374-recover-bounded-automatic-delivery-stops-without-loops --base main --controller-run-id d89d8ee2-1964-467f-a325-d2dec8f8acb6
+NMG_SDLC_PLUGIN_ROOT=/Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-9d6b17a
+NMG_SDLC_SMOKE_ISSUES=102
 CI=true
 timeout=0
 ```
 
-The current source test suite ran once through that runner, not as a second independent suite. The registered provider alone cloned and invoked the candidate controller. Neither #98 nor #96 was executed.
+The runner alone ran the full source suite and the registered provider. No duplicate suite, additional queue, provider reinvocation, native-driver/model probe, or safety-approval impersonation occurred.
 
 ## Acceptance Criteria Verification
 
 | AC / Scenario | Status | Evidence |
 |---|---|---|
-| AC1 / SCN001: stop inventory | Pass | Approved design.md:128–169 inventories the controller, ownership, review, publication, dependency, CI, merge, closure and forbidden families. |
-| AC2 / SCN002: bounded slice replacement | Incomplete | Unchanged reviewed execute implementation and current regression suite cover immutable assignments, receipt-based contamination, one step-wide replacement and budget preservation. Fresh #100 stopped before review; current installed end-to-end acceptance remains unproved. |
-| AC3 / SCN003: empty/missing review | Pass | `scripts/sdlc-review-main.mjs` preserves distinct review_empty/review_artifact_missing without synthetic findings. Current review-main/execute suites pass. |
-| AC4 / SCN004: exact report publication | Pass, local behavior only | `sdlc-safe-recoveries.mjs:618–712` and finalizer enforce owner, exact upstream, known subject, clean state and scope before one recovery push. Current real-local-remote regressions pass. This non-pass report is not claimed committed or pushed by finalization. |
-| AC5 / SCN005: mergeability reconciliation | Pass, local behavior only | Unchanged `reconcileMergeability` and execute gate invalidation implementation; current deliver/execute suites cover real merge-tree inspection, unsafe conflicts and full gate re-entry without replenishment. |
-| AC6 / SCN006: automation attribution | Pass | Current classifier/delivery suites preserve Bot/allowlisted versus human attribution and automatic_review_unactionable for pathless automation. |
-| AC7 / SCN007: post-merge reconciliation | Pass, local behavior only | Current deliver regressions cover bounded observations, exact head/linkage and no merge replay. Fresh smoke never reached a pre-merge or closure boundary. |
-| AC8 / SCN008: durable one-use owner | Pass, local behavior only | Current safe-recoveries/finalizer/apply-review tests exercise fresh and joined leases, standalone identity reuse, locks and consumed-record replay rejection. Original verify binding succeeded with the original logical run owner. |
-| AC9 / SCN009: fail closed | Pass | Smoke #100 stopped intervention-bearing when approved implementation targets were absent from the bound allowlist; no scope bypass or historical success rewrite. Current unsafe-path/identity/budget regressions pass. |
-| AC10 / SCN010: compatibility and portability | Incomplete | Current source suite preserves predecessor public discovery/status/bare recovery and existing budgets. Required consumer smoke is blocked by the approved-task/publication-scope syntax mismatch; no predecessor delivery claim. |
-| AC11 / SCN011: host-enforced isolation | Partial | Retained genuine native tool proof and exact current source/candidate module hashes establish the unchanged host guard. New local subprocess parity regression accepts candidate receipts without weakening URL identity. Fresh consumer run did not reach review, so installed lifecycle acceptance remains unproved. |
+| AC1 / SCN001: complete stop inventory | Pass | Approved design.md inventories controller/ownership, review, publication, dependencies, CI, merge/closure and forbidden stops with one proof-based disposition. Current implementation tests preserve those classifications. |
+| AC2 / SCN002: bounded slice replacement | Pass | Unchanged reviewed execute/isolation code and current behavioral suite cover receipt-proven contamination, original assignments, immutable evidence, one whole-step replacement and exact-identity reuse. Fresh #102 completed both genuine isolated review rounds. The rare contamination branch is regression-tested, not claimed deliberately triggered in this smoke. |
+| AC3 / SCN003: empty/missing review | Pass | `scripts/sdlc-review-main.mjs` retains distinct `review_empty` and `review_artifact_missing` without synthetic findings. Current review-main/execute regressions pass. Fresh review results contain actual host-captured `No findings.` output, not empty normalization. |
+| AC4 / SCN004: exact publication reconciliation | Pass | `sdlc-safe-recoveries.mjs`, finalizer and apply-review enforce owner, known subject, clean state, exact upstream and scope before one recovery push. Current real-local-remote tests pass. Parser lines 722–804 accept supported declarations and deny unsafe/ambiguous authority; verification remains report-only. Fresh #102 successfully published implementation and verification through owning stages. |
+| AC5 / SCN005: safe mergeability reconciliation | Pass | Unchanged deliver reconciliation and execute gate invalidation code; current deliver/execute tests inspect actual merge trees, reject unsafe/out-of-scope conflicts, and require all review/verify gates after base/content changes without replenishing budgets. Smoke proves normal terminal delivery, not an injected merge conflict. |
+| AC6 / SCN006: automatic versus human review | Pass | Current classifier/delivery regressions preserve Bot/allowlisted attribution, `automatic_review_unactionable` for pathless automation, and human-review intervention. No human review override occurred. |
+| AC7 / SCN007: bounded post-merge observation | Pass | Current deliver tests cover bounded reads, exact head/linkage, no merge replay and scoped closure. Fresh provider records a new exact-head MERGED PR and CLOSED linked issue, rather than accepting a premature observation or old merge. |
+| AC8 / SCN008: durable one-use owners | Pass | Current safe-recoveries/finalizer/apply-review tests cover fresh/joined leases, standalone owner reuse, consumed-record replay rejection, locks and isolated budgets. Actual #374 verify bind reused the original run owner; original checkpoint/counters remained byte-identical after the runner. |
+| AC9 / SCN009: fail closed | Pass | Current unsafe path, ambiguous ownership, approval, identity and budget regressions pass. Historical smoke stops remain immutable. Only the user's explicit one-invocation extension authorized queue102; no forbidden queue or fake pass was used. |
+| AC10 / SCN010: compatibility and portability | Pass | Current 1073-test suite preserves predecessor public discovery/status, no-flag one-shot recovery, ownership/absence gates, #369 accounting, pending-CI and exact-head contracts. Supported task syntax now works in the real fresh consumer lifecycle. No predecessor ownership/delivery claim. |
+| AC11 / SCN011: host-enforced isolation | Pass | Retained genuine native proof matches both current module hashes. Fresh review1/review2 receipts record read-only activation, exact candidate module URL, assigned reads and completed host results; the actual candidate controller accepted them. Current negative-path tests and retained source-isolation evidence cover forbidden tool/path/URI/archive calls and ordinary-session preservation. |
 
-FR1–FR8 map to these AC rows. FR2/FR7/FR8 are not claimed end-to-end complete while AC2/AC10/AC11 remain non-passing.
+FR1–FR8 are satisfied by the mapped ACs. The source regression suite proves injected failure/restart cases; genuine retained native proof proves host interception; fresh smoke proves installed consumer progression and terminal delivery. These evidence layers are not interchangeable.
 
 ## Regression Obligations
 
-No separate resolver regression identifiers exist. AC10 explicitly covers #369 loop detection, #372 bare one-shot recoveries[], public diagnostics and ownership/absence gates, passed-handoff settlement, pending CI, unchanged contribution-body stop, and exact-head CAS. The current suite passed these source contracts. No original #372 branch, spec ownership, history or failed evidence was modified or represented as delivered.
+There are no separate resolver regression identifiers. AC10 explicitly retains #369 loop detection, #372 bare one-shot recoveries[], discovery/status diagnostics and ownership/absence gates, passed-handoff settlement, pending-CI wait, unchanged contribution-body stop, and exact-head CAS. Their current source tests pass. Original #372 branch, spec ownership, history and failed evidence remain untouched; #374 does not deliver or close #372.
 
 ## Task Completion
 
 | Task | Status | Evidence |
 |---|---|---|
-| T001 | Partial | Guard/replacement/empty-review source and local behavioral proof exist; fresh installed review completion remains unproved. |
-| T002 | Locally verified, integration gap | Current owner/publication/mergeability/bot/post-merge tests pass. Actual implementation scope binding excludes unquoted approved task paths. |
-| T003 | Complete for local regression layer | 1064 current tests passed; eleven approved scenarios correspond to eleven ACs. |
-| T004 | Incomplete | Applicable local gates and retained host proof available; one authorized fresh smoke stopped implement without merge/closure. |
+| T001 | Complete | Guard/replacement/empty-review source, current regressions, unchanged native proof and two real installed review rounds. |
+| T002 | Complete | Current publication/owner/mergeability/automation/observation regressions; repaired task-scope CLI boundary; genuine consumer publication and delivery. |
+| T003 | Complete | Current full suite: 1073 pass, two expected skips, zero failures. Eleven scenarios map to eleven ACs. |
+| T004 | Complete | Current registered gates, small surface/inventory/hygiene gates, hash-valid retained workflow/native evidence, and sole fresh invocation-bound exact-head MERGED/CLOSED proof. |
 
-Unchecked task boxes in the approved package were not rewritten into completion.
+The approved package's historical unchecked boxes were not rewritten. Completion is recorded here with evidence.
 
 ## Architecture Assessment
 
-The five installed checklists were applied inline without delegation.
+The five checklists were applied inline without delegating the review.
 
-- **SOLID 3/5:** Recovery and isolation modules separate owner/receipt mechanics from orchestration, with injected command/filesystem seams. Execute/deliver remain large. The provider repair reuses `resolvePluginRoot`/`resolvePluginController` rather than introducing a second resolver. The task-authoring/publication-parser boundary still disagrees on path syntax.
-- **Security 4/5:** Candidate resolution occurs before remote commands; controller argv is not shell-interpolated. Exact module URL identity, immutable receipts, default-deny host interception, approved scope and human-review boundaries remain intact. The current stop is fail-closed, not a security bypass. Web auth, SQL, CORS and password storage are not applicable to this local CLI repair.
-- **Performance 3/5:** The repair adds bounded startup resolution, no polling or retry allowance. Existing synchronous CLI inspection and full slice replacement remain overhead. Healthy workflow commands have no deadline; explicit cancellation/process-loss handling remains distinct. No performance benchmark is claimed.
-- **Testability 4/5:** The new regression executes a real isolated candidate subprocess in clone cwd, rejects those receipts from the source module, accepts them from the selected candidate and checks byte preservation. It deliberately does not claim missing delivery proof as success. Current tests do not prevent the observed unquoted task-path integration gap.
-- **Error handling 3/5:** Unresolved controllers fail before GitHub activity. Publication/review/ownership failures remain explicit. However, the scope parser returns successful spec-only authority instead of diagnosing that no implementation paths were extracted, leaving the worker to detect the mismatch. The failed worker correctly refuses to widen scope.
-
-No source changes were made during this verification. Fixing this new integration boundary requires Main coordination; the one-shot experiment does not authorize a source/candidate repair, fixture amendment or remote replay.
+- **SOLID 3/5:** Recovery ownership/publication and review isolation are separated from orchestration with command/filesystem seams. The provider reuses `resolvePluginRoot`/`resolvePluginController`; the parser stays inside the existing live-scope adapter rather than introducing caller-supplied authority. Execute/deliver remain large modules, an existing maintainability cost rather than a new blocking defect.
+- **Security 4/5:** Default-deny synchronous host interception, immutable receipts, exact module URL identity, approved task ownership and human-review boundaries remain intact. Parser whole-declaration validation prevents mining paths from descriptions; traversal, internal runtime targets and malformed declarations fail closed. Controller selection happens before remote execution and uses argument arrays. Web auth, SQL, CORS and password storage are not applicable to this CLI change; no new dependency audit or credential probe is claimed.
+- **Performance 3/5:** Bounded startup parsing/resolution introduces no polling or retry allowance. Existing synchronous CLI inspection and complete slice replacement retain overhead. Healthy commands have no workflow deadline; cancellation/process loss remain distinct. No benchmark is claimed.
+- **Testability 4/5:** Real isolated Git/CLI fixtures defend task syntax, denied boundaries, lease shapes and publication. The provider subprocess regression distinguishes source and candidate receipt identity without weakening checks. Current full source tests plus genuine installed lifecycle evidence cover complementary boundaries. Gherkin is mapped to behavioral tests/runtime evidence; no separate Cucumber execution is claimed.
+- **Error handling 4/5:** Unsupported or ambiguous declarations return `publication_scope_unproven` instead of silently extracting arbitrary prose. Unresolved controllers fail before GitHub activity. Review, ownership, publication and lifecycle statuses remain explicit and fail-closed. The previously observed valid-plain-path omission is repaired and now exercised end-to-end.
 
 ## Test and BDD Results
 
-Registered `npm test -- --runInBand`, cwd source `scripts/`, exit 0: **55 suites passed, one skipped; 1064 tests passed, two skipped; zero failures; no snapshots**. Expected skips remain the opt-in historical start-issue backfill exercise and Windows-only junction exercise on this host. Full output is embedded in the canonical artifact, `repository.tests` evidence.
+Registered `npm test -- --runInBand`, cwd source `scripts/`, exit 0: **55 suites passed, one skipped; 1073 tests passed, two skipped; zero failures; zero snapshots**. Full output is embedded in the canonical `repository.tests` evidence. Expected skips are the opt-in historical start-issue backfill exercise and Windows-only junction exercise on this host.
 
-SCN001–SCN011 are the behavioral contract. Jest behavior tests, retained host receipts and the actual smoke lifecycle provide evidence; no separate Cucumber runner or successful live coverage of unvisited stages is claimed.
+SCN001–SCN011 correspond one-to-one with AC1–AC11. Jest behavior tests and runtime evidence provide execution proof; the smoke fixture has its own two approved scenarios. No unvisited fault branch is represented as a live injected experiment.
 
 ## Exercise and Native Proof
 
-Retained prior evidence is reused only with unchanged content hashes recorded in `.omp/sdlc/evidence/374-parity-final-preparation.json`:
+Retained results are reused only after current source/candidate hash checks in `374-scope-parser-final-preparation.json`:
 
 - verify-code fixture: exit 0, 14 pass / 0 fail / 0 skipped.
 - open-pr fixture: exit 0, 15 pass / 0 fail / 0 skipped.
-- review-main fixture absent (prior exit 2). Prior disposable RPC fallback using exact workflow bytes stopped `review_scope_unproven` on missing assignment/receipt, exit 0, without remote writes/reviewers/handoffs. This is negative-path evidence only.
-- Five affected bundles—execute, open-pr, review-main, verify-code, write-code—retain prior successful portable-validator evidence using unchanged temporary copies with WORKFLOW.md copied to SKILL.md. Direct validation originally rejected the repository's WORKFLOW.md naming; no source renaming was performed.
-- `.omp/sdlc/evidence/native-builtin-proof/result.json`: passed, actual native bash/eval/task, no custom tool registrations, user_bash blocked, assigned read allowed, captured host result valid and uncontaminated. No native driver/model probes were rerun.
+- review-main fixture absent (retained exit 2). Its prior disposable RPC fallback exercised `review_scope_unproven` on missing assignment/receipt without remote writes. Fresh #102 additionally supplies successful actual installed review1/review2 workflow evidence; the absent fixture is not itself counted as passing.
+- Five affected bundles—execute, open-pr, review-main, verify-code, write-code—retain successful portable-validator evidence using unchanged temporary copies with WORKFLOW.md copied to SKILL.md. The original direct naming rejection remains documented; no source renaming or new validator run.
+- Retained `.omp/sdlc/evidence/native-builtin-proof/result.json`: passed; actual native bash/eval/task, no custom tool registration, user_bash blocked, assigned read allowed, completed host result valid and uncontaminated.
 - Current source and candidate extension SHA256: `f1807cff9fae028cb34e10afd9c51cf8123f85b3fd57337dd80ae77301c00a6d`.
 - Current source and candidate isolation SHA256: `e501f3e36343ead479053740e0531e4fd0ab44f99330f3a7502c1518dffcd829`.
-- Retained source-isolation evidence covers forbidden path/URI/archive attempts and ordinary-session control; genuine native proof closes only the native-tool portion. None substitutes for successful current smoke delivery.
+- Retained source-isolation evidence covers forbidden paths/URIs/archive attempts and ordinary-session control. These unchanged probes were not rerun.
 
 ## Steering Doc Verification Gates
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Contract tests | Pass | Current runner exit 0; 1064 tests passed, two expected skips. |
-| Fresh live smoke | Fail; required lifecycle evidence Incomplete | One queue100 invocation; stopped implement, no review/pre-merge/MERGED/CLOSED proof. |
+| Contract tests | Pass | Current canonical runner: exit 0, 1073 pass, two expected skips. |
+| Fresh live smoke | Pass | Sole queue102 invocation; new PR104 exact-head MERGED and issue102 CLOSED. |
 | Skill inventory | Pass | Fresh exit 0: 43 items mapped, clean. |
 | Plugin surface | Pass | Fresh exit 0: Plugin surface validation passed: repository. |
-| Skill creator validation | Pass for unchanged bundles | Retained successful five-bundle adapter validation; all bundle bytes unchanged. |
-| Skill exercises | Pass for exercised paths only | Retained verify-code/open-pr fixtures and review-main missing-proof fallback; hashes unchanged. |
-| Prompt quality | Pass for unchanged workflow contracts | Explicit stage authority, no worker questions, immutable evidence and downstream handoff rules retained. New task-path interoperability finding is recorded separately, not suppressed. |
+| Skill creator validation | Pass for unchanged bundles | Retained successful five-bundle adapter validation; all content hashes match. |
+| Skill exercises | Pass for applicable evidence | Retained verify-code/open-pr fixtures, review-main negative fallback, and fresh real installed workflow lifecycle. |
+| Prompt quality | Pass | Unchanged workflow contracts preserve explicit authority, complete failure paths, bounded context, worker no-question rules and owning finalizers. |
 | Git hygiene | Pass | Fresh `git diff --check main...HEAD`, exit 0, no output. |
 
 ## Real Smoke Lifecycle Evidence
 
-- Named experiment: #374 provider-parity repair; hypothesis that the explicit installed candidate controller accepts installed candidate review receipts without relaxing identity.
-- Authorized fresh queue: [100] only. Spec publication PR #101 merged at `3da5090adfcd75f4cbdfd8dcfef17e07d45f0e30`; author proof confirms all four Approved blobs. This spec PR is not implementation-delivery proof.
-- Provider baseline: #100 OPEN; closing PR nodes empty; `hasNextPage:false`.
-- Full-history provider clone: `/private/var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-smoke-vB04dl`.
-- Smoke run: `ed5f2469-9dc0-4501-92c7-bc92d3addcb7`.
-- Completed: start. Stopped: implement, `implementation_failed`, intervention true, next null. Controller exit 1; invocation-owned worker pane w2:p8J closed and checkpoint workers {}.
-- Exact worker report: candidate bind passed but allowed only the four spec blobs; no implementation edits, tests, staging, commits or pushes performed.
-- Approved tasks.md:21,32,44 uses unquoted `**File(s)**` values. `scripts/sdlc-safe-recoveries.mjs:739–765` extracts only backtick-delimited paths.
-- Read-only call to candidate `inspectPublicationScope` against the retained clone reproduced the exact four-file allowlist, exit 0. It did not invoke a controller, provider, lease bind, mutation or repair.
-- No review receipt acceptance was reached. No `.omp/sdlc/smoke-deliveries/100.json` exists. No new exact-head merged implementation PR or CLOSED issue evidence is claimed.
-- Byte-preserved current run/handoff/owner/provenance and canonical artifact: `.omp/sdlc/evidence/374-parity-final-smoke100/`. Exact diagnosis: `diagnosis.json` there.
+- Named experiment: #374 supported task-scope parsing plus installed-controller parity. Hypothesis: the repaired candidate admits supported exact approved implementation paths and accepts its own genuine review receipts without weakening scope, ownership or isolation identity.
+- User explicitly extended the exhausted experiment limit by exactly one fresh issue/spec and one registered invocation. Queue: [102] only. No #100/#98/#96 replay or further queue.
+- Minimal fixture: `--parentheses`, approved `specs/102-add-nmg-smoke-parentheses-flag`. Docs-only PR103 merged at `aae74156cb9dcc510ebb8a66b69a0e4194b8c892`; this is authoring evidence, not delivery proof. Author supplied exact four-blob parity and installed scope preflight admitting six implementation targets plus four specs, excluding VERSION and unexpected paths.
+- Provider baseline: #102 OPEN, closing PR nodes empty, `hasNextPage:false`.
+- Full-history clone: `/private/var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-smoke-1MEmwQ`; clone argv did not use a shallow option.
+- Smoke run: `2983450c-9e1f-4188-87b6-0a13dc3cae57`.
+- Actual process proof: PID83261 ran `/Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-9d6b17a/scripts/sdlc-execute.mjs run #102`, parent PID85134 was the original-run canonical candidate verify runner. Retained `controller-provenance.json` records this observation.
+- Observed semantic progression: start, implement, review1, fix1, review2, fix2, verify; subsequent successful provider result proves terminal execute/delivery completion. Intermediate implementation head: `8ac1ba66d62e81976a0f9b9d8bc70a666d6f31bc`.
+- Review receipts include `activeTools:["read"]`, assigned reads and completed host `review_result`, with exact `isolationModule` `file:///Users/rnunley/.omp/recovery/nmg-sdlc-374-candidate-9d6b17a/src/sdlc-review-isolation.mjs`. Controller completion of both reviews proves those receipts were accepted under candidate parity.
+- New implementation delivery: [PR104](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/104) **MERGED**, exact head `92a01fb2e3677ee4679982c15a8de8f4bb469d32`; [issue102](https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/102) **CLOSED**. Provider compared PR number/head against the invocation's pre-merge delivery record and excluded all baseline PRs. Final proof has complete pagination.
+- Provider completed successfully and removed its clone; clone absence was observed. Read-only evidence snapshots were retained before cleanup. No external approval dialog was answered or impersonated by this verifier.
+
+Evidence directory: `.omp/sdlc/evidence/374-scope-parser-final-smoke102/`, containing actual controller provenance, timestamped review/runtime snapshots with byte hashes, and the final canonical artifact. The provider's successful exact-head comparison is retained in that artifact; the cleaned clone's final delivery file is not claimed as a separately retained file.
 
 ## Fixes Applied and Cleanup
 
-None in this verification. The previously authorized provider repair is reviewed, not reimplemented. Failed smoke clone and immutable evidence are intentionally retained. No new temporary driver was created. Old failed evidence remains archived; canonical replacements represent this new invocation only.
+No source fixes during this verification. The authorized parser/provider repairs were reviewed rather than reimplemented. No new test, native driver or throwaway probe was created. The registered provider cleaned its successful clone; immutable success and historical failure evidence is intentionally retained. Existing workflow documentation and changelog were unchanged by this report-only review.
 
 ## Remaining Issues
 
-| Severity | Location | Finding | Disposition |
-|---|---|---|---|
-| High | `scripts/sdlc-safe-recoveries.mjs:739–765`; approved smoke tasks.md:21,32,44 | Unquoted approved task targets are omitted from publication authority; bind reports passed with only spec files and implementation cannot proceed. | Preserve stop; Main must coordinate any contract/source/fixture correction. No scope override or repeat invocation authorized. |
-| High | AC2, AC10, AC11 / T004 | Repaired provider-parity hypothesis has local proof but no current successful installed review/delivery lifecycle. | Required gate remains non-passing; no new queue or same-queue replay. |
+No blocking acceptance or architecture findings. Existing large orchestration modules and synchronous CLI inspection are maintainability/performance costs already reflected in scores; no unrelated refactor is proposed or authorized. The missing deterministic review-main fixture is covered by explicitly identified runtime evidence, not silently skipped.
 
 ## Recommendation
 
-**Not ready for delivery.** Finalize truthful Incomplete evidence through the owning candidate finalizer with the original #374 run ID. A non-pass finalizer handoff is the result, not permission to resume the original controller. Notify Main with the exact smoke100 stop and retained evidence. Do not manually commit/push a failed report, manufacture a pass, rewrite failed checkpoints, or start another experiment.
+**Ready for the owning verification finalizer and downstream #374 delivery.** Publish this exact report through the current candidate helper with original run ID, and accept only its genuine validated passed handoff. Main retains controller-resume ownership. This report does not itself merge #374 or close any predecessor issue.
