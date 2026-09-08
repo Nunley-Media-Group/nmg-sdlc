@@ -477,3 +477,75 @@ describe('execute CLI argument failures', () => {
     expect(stderr).toContain('Usage:');
   });
 });
+
+describe('bare CLI recovery', () => {
+  it('dispatches one legacy repair and never replays after failed recovery and a new commit', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bare-recovery-')));
+    try {
+      const runtime = path.join(root, '.omp/sdlc');
+      const bin = path.join(runtime, 'bin');
+      fs.mkdirSync(bin, { recursive: true });
+      const spec = path.join(root, 'specs/42-ship-it');
+      fs.mkdirSync(spec, { recursive: true });
+      for (const file of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
+        fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
+      }
+      fs.writeFileSync(path.join(root, '.gitignore'), '.omp/sdlc/\n');
+      git(root, ['init', '-b', '42-ship-it']);
+      git(root, ['add', '.gitignore', 'specs']);
+      git(root, ['commit', '-m', 'recovery fixture']);
+      const checkpointPath = path.join(runtime, 'run.json');
+      fs.writeFileSync(checkpointPath, JSON.stringify({
+        schemaVersion: 1, projectRoot: root, runId: 'bare-cli', issue: 42,
+        branch: '42-ship-it', head: git(root, ['rev-parse', 'HEAD']), issues: [42], revision: 1,
+        currentIssue: 42, currentStep: 'implement', completed: { 42: ['start'] }, workers: {},
+        failed: { issue: 42, step: 'implement', reasonCode: 'remediation_loop' },
+        remediation: { issue: 42, step: 'implement', attempt: 13, status: 'stopped', reasonCode: 'remediation_loop' },
+      }));
+      const command = (name, body) => {
+        fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n${body}`);
+        fs.chmodSync(path.join(bin, name), 0o755);
+      };
+      command('gh', `const a=process.argv.slice(2);
+console.log(JSON.stringify(a[0]==='auth'?'':{number:42,title:'Ship It',labels:[{name:'spec-created'}]}));`);
+      command('herdr', `const fs=require('node:fs'),p=require('node:path'),a=process.argv.slice(2);
+const runtime=p.join(process.cwd(),'.omp/sdlc');
+const out=v=>{console.log(typeof v==='string'?v:JSON.stringify(v));process.exit(0)};
+if(a[0]==='integration')out('omp: installed');
+if(a[0]==='agent'&&a[1]==='list')out(fs.existsSync(p.join(runtime,'active'))?[{name:'r42-implement',pane_id:'repair',state:'done'}]:[]);
+if(a[0]==='pane'&&a[1]==='layout')out({result:{width:120,height:40}});
+if(a[0]==='pane'&&a[1]==='split'){
+ const checkpoint=JSON.parse(fs.readFileSync(p.join(runtime,'run.json')));
+ if(checkpoint.recoveries?.length!==1)throw Error('dispatch before durable consumption');
+ fs.appendFileSync(p.join(runtime,'dispatches'),'split\\n');out({result:{pane:{pane_id:'repair'}}});
+}
+if(a[0]==='agent'&&a[1]==='prompt'){
+ fs.mkdirSync(p.join(runtime,'handoffs'),{recursive:true});
+ fs.writeFileSync(p.join(runtime,'handoffs/42-implement.json'),JSON.stringify({
+ schemaVersion:1,issue:42,step:'implement',status:'failed',intervention:false,summary:'controlled failure',artifacts:[],next:null,reasonCode:'implementation_failed'}));out('');
+}
+if(a[0]==='agent'&&a[1]==='get')out({result:{state:'done'}});
+if(a[0]==='agent'&&a[1]==='start'){fs.writeFileSync(p.join(runtime,'active'),'');out('');}
+if(a[0]==='pane'&&a[1]==='close'){fs.rmSync(p.join(runtime,'active'),{force:true});out('');}
+if(a[0]==='notification')out('');
+throw Error('unexpected adapter command '+a.slice(0,2));`);
+      const invoke = () => spawnSync(process.execPath, [EXECUTE, 'run'], {
+        cwd: root, encoding: 'utf8', timeout: 0,
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+          HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller' },
+      });
+      const first = invoke();
+      expect({ status: first.status, error: first.error?.message, stderr: first.stderr }).toEqual({ status: 1, error: undefined, stderr: '' });
+      expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
+      expect(JSON.parse(fs.readFileSync(checkpointPath)).recoveries[0].source.attempt).toBe(13);
+      expect(JSON.parse(fs.readFileSync(path.join(runtime, 'handoffs/42-implement.json'))).reasonCode).toBe('implementation_failed');
+      git(root, ['commit', '--allow-empty', '-m', 'operator repair and plugin upgrade simulation']);
+      const second = invoke();
+      expect(second.status).toBe(1);
+      expect(second.stdout).toContain('recovery-consumed');
+      expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+});
