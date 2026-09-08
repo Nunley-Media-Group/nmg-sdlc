@@ -159,7 +159,7 @@ Every file declares singular `**Issue**: #42` and `**Status**: Draft` or `**Stat
 /sdlc-execute
 ```
 
-Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. The bare command opens a multi-select picker: selected chips come first in displayed order, then valid Other tokens. Empty Continue reopens the picker; it does not run an empty queue.
+Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. The bare command first discovers the exact current branch's incomplete checkpoint and resumes its persisted queue without a picker or extra flags. Conflicting or unreadable evidence blocks selection. Only clean absence or completed delivery opens the existing multi-select picker: selected chips come first in displayed order, then valid Other tokens. Empty Continue reopens the picker; it does not run an empty queue.
 
 Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
 
@@ -176,13 +176,19 @@ Start from a clean tree. Resume may preserve partial work already on the target 
 | `verify` | Run registered validations and acceptance/architecture review; publish a truthful verification report |
 | `deliver` | Synchronize release artifacts, create/resume the exact PR, handle eligible automated feedback, prove required checks, merge the expected head, and prove issue closure |
 
-Workers are sibling Herdr `--kind omp` panes. Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Review workers use a single controller-owned prompt and persist their findings before settlement.
+Workers are sibling Herdr `--kind omp` panes. Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Reviews use separate file-assigned snapshots outside the checkout, host-enforced read-only tools, and invocation-bound append-only receipts. Only host-captured final assistant output supplies findings; terminal or tool text cannot substitute for a review result. Missing isolation proof, missing output, and empty output remain non-passing.
 
 ### Autonomous repair and progress limits
 
 Workers resolve in-scope implementation details using approved requirements, repository evidence, and conservative engineering judgment. They repair and reverify ordinary code/test failures rather than asking for decisions a model can make within that authority.
 
 A settled failed, non-intervention handoff can start a fresh `rN-step` remediation worker for `implement`, either review/fix stage, `verify`, or `deliver`. Only one repair runs at a time. After **two completed remediations for the same issue and step without advancement**, execute records `remediation_loop` and stops before a third. Commit churn, changing summaries, and elapsed time are not stage advancement. A passed remediation advances and clears that streak.
+
+On the exact incomplete branch, bare `/sdlc-execute` can consume **one additional durable recovery allowance per run, issue and stopped stage**, including legacy checkpoints with 13 attempts. Consumption is persisted before dispatch and preserves the original history. A failed recovery, ambiguous dispatch, cancellation or process loss cannot authorize another repair. Repeated commands, commits, summary changes and plugin upgrades never replenish it. A genuinely validated passed handoff may still settle and advance through the normal remaining gates; later stages keep their ordinary bounded remediation policy.
+
+The additional allowance belongs only to parameter-free execution. Neither an explicit issue queue nor either existing optional flag grants fresh exhausted repair work; `--recover-stale` alone still concerns ownership only.
+
+Safe automatic recovery has a separate durable allowance for each class, logical owner, issue, and stage. Known committed publication is reconciled before another push; proven review contamination permits one whole-step replacement while preserving original evidence. Safe base reconciliation reruns every review/fix/verification gate on the new head. Bot review remains distinct from human authority, and post-merge observation never replays merge or closes an unrelated issue. New commits, leases, sessions, or plugin versions do not replenish these allowances or the existing remediation budgets.
 
 Safe local verification-report format or scope-evidence errors remain unpassed, but can use the same bounded repair path. Regenerating that report does not waive its scope, gate, publication, or identity checks. Genuine `Incomplete` evidence and unsafe report paths still require intervention.
 
@@ -197,7 +203,7 @@ Blocked/intervention handoffs stop immediately. Missing approval, unavailable cr
 /sdlc-execute --recover-stale #42
 ```
 
-Resume the **same issue queue**, in the same project. Completed stages are skipped and matching owned workers are reused instead of duplicated. Do not change the queue or remove the checkpoint to sidestep an unfinished run.
+On the exact incomplete issue branch, run bare `/sdlc-execute` to resume the **same persisted issue queue** in the same project, automatically reclaiming only proven stale ownership. No issue tokens, recovery flag, token or reason entry is required. Completed stages are skipped; matching passed handoffs settle without unnecessary repair work. Do not change the queue or remove the checkpoint to sidestep an unfinished run.
 
 Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The invocation supervisor remains responsive while the controller is blocked in an external wait. Before work starts, a short-lived bootstrap exits and leaves the supervisor outside the invoking process tree; an authenticated local connection detects invoking-job loss. It terminates only the owned controller process group, closes its recorded worker panes, and persists `controller_cancelled`. Pending prompts are not an exemption from cancellation cleanup. Unrelated panes and the Herdr server remain untouched.
 
@@ -208,6 +214,8 @@ The supervisor ends with its invocation; it is not a persistent plugin service. 
 `--retain-worker` keeps the worker pane on stop/cancellation for inspection; it does not keep the controller running or turn failure into success. A retained worker must match its recorded name, pane, project, run, issue, step, branch, and head before reuse. Close or persistence failures retain ownership evidence for recovery.
 
 `--recover-stale` is for a **proven-dead** controller lease, not an active-controller bypass. Recovery checks process and pane ownership; a live, unreadable, or conflicting lease still blocks. Never manually remove an active lock, start a second controller, or stop Herdr as a recovery shortcut.
+
+Status and stop output distinguish `resumable`, `loop-recovery-available`, `recovery-consumed` and `blocked`, including primary and cleanup failure reasons. An unsuccessful consumed recovery requires inspecting and repairing the named blocker and producing genuine validated stage evidence; another unchanged bare invocation will not launch a worker. Reused panes, active owners, intervention and unreadable ownership evidence remain blockers. Only positively absent recorded panes are reconciled as absent, never reported as successfully closed.
 
 ## Verification and terminal delivery
 
@@ -222,7 +230,7 @@ Verification records identity-bound deterministic results in `.omp/sdlc/verifica
 
 Delivery rechecks immutable evidence at the exact head. It uses non-force pushes and retains both required and unfiltered checks. Unexpected PR/head identity is a reconciliation failure, not permission to open another PR or merge a different commit. Human review remains human-owned; actionable configured automated-reviewer feedback is handled within approved scope.
 
-Execute-owned delivery uses the canonical run namespace. Standalone `/sdlc-open-pr` creates one UUID session under `.omp/sdlc/sessions/<token>/` and reuses it throughout remediation; another issue's canonical run is not overwritten.
+Execute-owned delivery uses the canonical run namespace. Standalone `/sdlc-open-pr` creates a token-specific handoff directory and recovery-owner pointer under `.omp/sdlc/sessions/<token>/`; tokens for the same incomplete project/issue/branch/stage share logical-owner delivery state. Another issue's canonical run is not overwritten, and standalone helpers do not create root execute `run.json`.
 
 **Done means:** the persisted PR is `MERGED` at the persisted expected head, the GitHub issue is `CLOSED`, the delivery handoff is passed, and local default-branch synchronization/cleanup completes. An open PR, green local tests, or a printed success sentence proves less than that.
 
@@ -253,10 +261,13 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `.omp/sdlc/controller.lock` | Exclusive controller identity |
 | `.omp/sdlc/handoffs/<N>-<step>.json` | Validated stage outcome and referenced evidence |
 | `.omp/sdlc/reviews/<N>-review{1,2}.md` | Findings consumed by the dedicated fix stage |
+| `.omp/sdlc/reviews/*.assignment.json` and `*.access.jsonl` | Immutable slice identity, host restriction receipts, and captured final results |
+| `.omp/sdlc/reviews/*.{current,invalidation}.json` | Current head-bound review selection and preserved invalidation history |
+| `.omp/sdlc/safe-recoveries.json` | Stable logical owners and one-use recovery records, separate from execute remediation budgets |
 | `.omp/sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
 | `.omp/sdlc/prompt-provenance/` | Recorded prompt composition |
 | `specs/<N>-<slug>/verification-report.md` | Durable acceptance and verification report |
-| `.omp/sdlc/sessions/<token>/` | Standalone delivery namespace |
+| `.omp/sdlc/sessions/<token>/` | Standalone handoffs and pointer to shared logical-owner delivery state |
 
 - **Commands missing or controller paths unresolved:** inspect `omp plugin list --json` and `omp plugin doctor`; use a fresh session with the intended installed version, then apply project upgrades.
 - **No eligible issue / unapproved spec:** finish issue/spec publication and inspect official blockers; do not manually apply labels as a substitute for approval.

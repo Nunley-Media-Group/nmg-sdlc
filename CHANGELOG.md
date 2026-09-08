@@ -10,6 +10,21 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.21.1] - 2026-09-08
+
+### Fixed
+
+- Enforce host-restricted file-assigned review slices, capture final assistant results without terminal scraping, reject empty/missing/unproven review output, and preserve original evidence during one bounded replacement (#374).
+- Reconcile known publication commits and exact upstream outcomes under stable logical owners without duplicate commits, force-pushes, or renewed recovery allowances across sessions and leases; preserve validated controller identity through both freshly acquired and joined publication leases (#374).
+- Inspect mergeability against approved task scope and rerun stale gates after safe base reconciliation; distinguish automatic review from human authority and reconcile exact-head merge/linked closure without replay (#374).
+- Preserve complete source bare-recovery discovery, status, ownership, and one-shot predecessor compatibility without changing predecessor spec ownership or failure history (#374).
+- Resolve the smoke controller from the selected plugin root and propagate that root into clone execution, keeping candidate review-receipt inspection on the same isolation module identity and failing unresolved controllers before remote execution (#374).
+- Read approved task publication paths in plain or backtick form with comma/semicolon separators; reject ambiguous prose and unsafe paths, ignore annotations and out-of-task declarations, and exclude delivery-owner-only entries (#374).
+
+### Changed
+
+- Recover bounded automatic delivery stops without loops (#374)
+
 ## [3.21.0] - 2026-09-07
 
 ### Fixed

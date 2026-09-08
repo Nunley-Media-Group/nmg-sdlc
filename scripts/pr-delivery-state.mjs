@@ -91,7 +91,8 @@ function normalizeSnapshot(snapshot, options, gaps) {
   )) : [];
   const reviews = Array.isArray(snapshot?.reviews) ? snapshot.reviews.map((review, index) => ({
     id: text(review?.id) ?? `index-${index}`,
-    author: text(review?.author ?? review?.authorLogin),
+    authorLogin: text(review?.authorLogin ?? review?.author?.login ?? review?.author)?.toLowerCase() ?? null,
+    authorTypename: text(review?.authorTypename ?? review?.author?.__typename),
     state: String(review?.state ?? '').toUpperCase(),
     submittedAt: text(review?.submittedAt) ?? '',
   })).sort((left, right) => left.submittedAt.localeCompare(right.submittedAt) || left.id.localeCompare(right.id)) : [];
@@ -100,6 +101,9 @@ function normalizeSnapshot(snapshot, options, gaps) {
     isResolved: thread?.isResolved,
     isOutdated: thread?.isOutdated,
     url: text(thread?.url),
+    authorLogin: text(thread?.authorLogin ?? thread?.author?.login)?.toLowerCase() ?? null,
+    authorTypename: text(thread?.authorTypename ?? thread?.author?.__typename),
+    path: text(thread?.path),
   })).sort((left, right) => String(left.id).localeCompare(String(right.id))) : [];
   const verification = snapshot?.verification && typeof snapshot.verification === 'object'
     ? {
@@ -121,6 +125,8 @@ function normalizeSnapshot(snapshot, options, gaps) {
     requiredChecksConfigured: snapshot?.requiredChecksConfigured === true,
     declaredPrOnlyChecks,
     verification,
+    botLogins: [...new Set(['coderabbitai', ...(options.botLogins ?? snapshot?.botLogins ?? [])]
+      .map((login) => String(login).toLowerCase()))].sort(),
   };
 
   if (snapshot?.schemaVersion !== 1) gaps.push('schemaVersion must equal 1');
@@ -159,7 +165,7 @@ function normalizeSnapshot(snapshot, options, gaps) {
     }
   }
   for (const review of reviews) {
-    if (!review.author || !REVIEW_STATES.has(review.state)) gaps.push('review identity or state is invalid');
+    if (!review.authorLogin || !REVIEW_STATES.has(review.state)) gaps.push('review identity or state is invalid');
   }
   const threadIds = new Set();
   for (const thread of threads) {
@@ -201,6 +207,23 @@ export function classifyPrDeliveryState(snapshot, options = {}) {
     return result(normalized, 'external_blocker', 'issue_closed_before_merge', ['the active issue closed before its exact PR merged']);
   }
 
+  const automatic = (author) => author.authorTypename === 'Bot'
+    || normalized.botLogins.includes(author.authorLogin);
+  const latestByAuthor = new Map();
+  for (const review of normalized.reviews) latestByAuthor.set(review.authorLogin, review);
+  const requested = [...latestByAuthor.values()].filter((review) => review.state === 'CHANGES_REQUESTED');
+  const unresolved = normalized.threads.filter((thread) => !thread.isResolved && !thread.isOutdated);
+  if (requested.some((review) => !automatic(review)) || unresolved.some((thread) => !automatic(thread))) {
+    return result(normalized, 'external_blocker', 'human_review', ['human or unattributed review requires intervention']);
+  }
+  if (requested.length > 0 || unresolved.length > 0) {
+    if (unresolved.length === 0 || unresolved.some((thread) => !thread.path)) {
+      return result(normalized, 'external_blocker', 'automatic_review_unactionable', ['automatic review lacks actionable path-bearing threads']);
+    }
+    return result(normalized, 'remediate', requested.length ? 'changes_requested' : 'review_threads_unresolved',
+      unresolved.map((thread) => `unresolved automatic thread ${thread.id}`));
+  }
+
   const failing = normalized.checks.filter((check) => FAILURE_CHECKS.has(check.state));
   if (failing.length > 0) {
     return result(normalized, 'remediate', 'checks_failed', failing.map((check) => `${check.name}: ${check.state}`));
@@ -214,16 +237,6 @@ export function classifyPrDeliveryState(snapshot, options = {}) {
     return result(normalized, 'unverifiable', 'required_checks_missing', ['required or declared PR-only checks were not returned']);
   }
 
-  const latestByAuthor = new Map();
-  for (const review of normalized.reviews) latestByAuthor.set(review.author, review);
-  const requested = [...latestByAuthor.values()].filter((review) => review.state === 'CHANGES_REQUESTED');
-  if (requested.length > 0) {
-    return result(normalized, 'remediate', 'changes_requested', requested.map((review) => `changes requested by ${review.author}`));
-  }
-  const unresolved = normalized.threads.filter((thread) => !thread.isResolved && !thread.isOutdated);
-  if (unresolved.length > 0) {
-    return result(normalized, 'remediate', 'review_threads_unresolved', unresolved.map((thread) => `unresolved thread ${thread.id}`));
-  }
   if (pullRequest.isDraft) return result(normalized, 'pending', 'pull_request_still_draft');
   if (pullRequest.mergeStateStatus === 'CLEAN') return result(normalized, 'merge_ready', 'exact_head_clean');
   if (['UNKNOWN', 'UNSTABLE'].includes(pullRequest.mergeStateStatus)) {

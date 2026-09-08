@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { validReviewArtifact } from './sdlc-execute.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-review-main.mjs --issue N --step review1|review2 [--result review_failed]';
 const REVIEW_STEPS = new Set(['review1', 'review2']);
@@ -33,11 +34,15 @@ export function runReviewMain({
   run = defaultRun,
   fs = { existsSync, mkdirSync, readFileSync, writeFileSync },
   result,
+  attempt = 1,
+  generation = '',
 } = {}) {
-  void run;
   const issueNumber = Number(issue);
-  const artifactPath = `.omp/sdlc/reviews/${issueNumber}-${step}.md`;
-  const handoffPath = `.omp/sdlc/handoffs/${issueNumber}-${step}.json`;
+  if (attempt !== 1 && attempt !== 2) throw new Error('invalid_review_attempt');
+  if (generation !== '' && !/^\.head-[0-9a-f]{40}$/.test(generation)) throw new Error('invalid_review_generation');
+  const suffix = `${generation}${attempt === 2 ? '.attempt-2' : ''}`;
+  const artifactPath = `.omp/sdlc/reviews/${issueNumber}-${step}${suffix}.md`;
+  const handoffPath = `.omp/sdlc/handoffs/${issueNumber}-${step}${suffix}.json`;
   const writeHandoff = (handoff) => {
     const absolutePath = join(cwd, handoffPath);
     const directory = dirname(absolutePath);
@@ -51,31 +56,35 @@ export function runReviewMain({
       handoffPath,
     };
   };
-  const fail = (summary) => writeHandoff(handoffFor(
+  const fail = (summary, reasonCode = 'review_failed') => writeHandoff(handoffFor(
     issueNumber,
     step,
     'failed',
     summary,
     artifactPath,
-    'review_failed',
+    reasonCode,
   ));
 
   if (result === 'review_failed') return fail(`Review ${step} failed for #${issueNumber}`);
 
   const absoluteArtifact = join(cwd, artifactPath);
   if (!fs.existsSync(absoluteArtifact)) {
-    return fail(`Review artifact missing for #${issueNumber} ${step}`);
+    return fail(`Review artifact missing for #${issueNumber} ${step}`, 'review_artifact_missing');
   }
   const artifact = fs.readFileSync(absoluteArtifact, 'utf8');
-  if (!artifact.trim()) fs.writeFileSync(absoluteArtifact, 'No findings.\n');
+  if (!artifact.trim()) return fail(`Review artifact empty for #${issueNumber} ${step}`, 'review_empty');
 
-  return writeHandoff(handoffFor(
+  const handoff = handoffFor(
     issueNumber,
     step,
     'passed',
     `Review ${step} completed for #${issueNumber}`,
     artifactPath,
-  ));
+  );
+  if (!validReviewArtifact(cwd, issueNumber, step, handoff, run)) {
+    return fail(`Review host proof unavailable for #${issueNumber} ${step}`, 'review_scope_unproven');
+  }
+  return writeHandoff(handoff);
 }
 
 function parseCli(argv) {

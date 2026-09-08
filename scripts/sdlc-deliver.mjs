@@ -20,13 +20,19 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 import {
   assertControllerLease,
+  enterControllerLease,
+  releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 import { readRunAt, writeRunAt } from './sdlc-execute.mjs';
+import {
+  assertInitialStagePublication, assertRecoveryOwner, consumeSafeRecovery, inspectPublicationScope, reconcileStagePublication, resolveRecoveryOwner,
+} from './sdlc-safe-recoveries.mjs';
 
-const USAGE = 'Usage: node scripts/sdlc-deliver.mjs session-init --issue N | --issue N (--controller-run-id R | --session-token T) [--remediation-result human_review]';
+const USAGE = 'Usage: node scripts/sdlc-deliver.mjs session-init --issue N | --issue N (--controller-run-id R | --session-token T) [--remediation-result human_review|automatic_review_unactionable]';
 const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 const ISSUE = /^#?([1-9]\d*)$/;
 const SESSION_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const RECOVERY_OWNER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const POLL_INTERVAL_MS = 30_000;
 const CONTRIBUTION_EVIDENCE_SCRIPT = fileURLToPath(new URL('./contribution-evidence.mjs', import.meta.url));
@@ -37,6 +43,15 @@ const CONTRIBUTION_GATE_CHECKS = new Set([
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      reviews(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          id
+          state
+          submittedAt
+          author { login __typename }
+        }
+      }
       reviewThreads(first: 100) {
         pageInfo {
           hasNextPage
@@ -130,7 +145,7 @@ export function parseDeliverCli(argv) {
     }
     if (!sessionInit && arg === '--remediation-result' && remediationResult === null && index + 1 < args.length) {
       remediationResult = args[index += 1];
-      if (remediationResult !== 'human_review') throw new Error(USAGE);
+      if (!['human_review', 'automatic_review_unactionable'].includes(remediationResult)) throw new Error(USAGE);
       continue;
     }
     throw new Error(USAGE);
@@ -180,15 +195,27 @@ export function initializeDeliverySession({
   const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
   const head = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
   if (!branch.startsWith(`${issueNumber}-`) || !SHA.test(head)) throw new Error('invalid_session_identity');
+  const recoveryOwnerId = resolveRecoveryOwner({
+    cwd, issue: issueNumber, step: 'deliver', branch, sessionToken: token, run,
+    priorIncomplete: hasPendingDeliveryPublication({ run, cwd, issue: issueNumber }),
+  });
+  if (!RECOVERY_OWNER_ID.test(recoveryOwnerId)) throw new Error('recovery_owner_ambiguous');
 
-  const sessionsDir = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'sessions']);
-  const sessionDir = path.join(sessionsDir, token);
-  fs.mkdirSync(sessionDir);
-  const paths = deliveryPaths(token);
-  const runState = {
+  ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'sessions', token, 'handoffs']);
+  const sessionDir = path.join(cwd, '.omp', 'sdlc', 'sessions', token);
+  fs.writeFileSync(path.join(sessionDir, 'recovery-owner.json'), `${JSON.stringify({
+    projectRoot, issue: issueNumber, step: 'deliver', branch, recoveryOwnerId,
+  }, null, 2)}\n`, { flag: 'wx' });
+  const paths = deliveryPaths(recoveryOwnerId);
+  ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'sessions', recoveryOwnerId]);
+  const existing = readRunAt(paths.runFile, cwd);
+  if (existing && (existing.runId !== recoveryOwnerId || existing.issue !== issueNumber
+    || existing.projectRoot !== projectRoot || existing.branch !== branch)) throw new Error('delivery_scope_mismatch');
+  const runState = existing ?? {
     schemaVersion: 1,
     projectRoot,
-    runId: token,
+    runId: recoveryOwnerId,
+    recoveryOwnerId,
     issue: issueNumber,
     branch,
     head,
@@ -200,7 +227,7 @@ export function initializeDeliverySession({
     failed: null,
     startedAt: now(),
   };
-  writeRunAt(runState, cwd, paths.runFile, paths.handoffDir, 0);
+  if (!existing) writeRunAt(runState, cwd, paths.runFile, paths.handoffDir, 0);
   return {
     status: 0,
     stdout: `NMG_SDLC_SESSION: ${token}\n`,
@@ -227,11 +254,12 @@ function resolveDeliveryNamespace({
   cwd,
   fs,
   issue,
+  run,
   controllerRunId = null,
   sessionToken = null,
 }) {
   if ((controllerRunId === null) === (sessionToken === null)) throw new Error('delivery_scope_required');
-  const paths = deliveryPaths(sessionToken);
+  let paths = deliveryPaths(sessionToken);
   if (controllerRunId !== null) {
     const lease = assertControllerLease({ projectRoot: cwd, runId: controllerRunId });
     if (!lease) throw new Error('delivery_scope_mismatch');
@@ -243,10 +271,19 @@ function resolveDeliveryNamespace({
       const stat = fs.lstatSync(current);
       if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('unsafe_session_path');
     }
+    const pointerPath = path.join(current, 'recovery-owner.json');
+    const pointerStat = fs.lstatSync(pointerPath);
+    if (pointerStat.isSymbolicLink() || !pointerStat.isFile()) throw new Error('unsafe_session_path');
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, 'utf8'));
+    const recoveryOwnerId = resolveRecoveryOwner({
+      cwd, issue, step: 'deliver', branch: pointer.branch, sessionToken, run,
+    });
+    if (!RECOVERY_OWNER_ID.test(recoveryOwnerId)) throw new Error('recovery_owner_ambiguous');
+    paths = { runFile: deliveryPaths(recoveryOwnerId).runFile, handoffDir: paths.handoffDir };
     assertSafeSessionArtifacts(fs, cwd, paths);
   }
   const runState = readRunAt(paths.runFile, cwd);
-  const expectedRunId = sessionToken ?? controllerRunId;
+  const expectedRunId = sessionToken ? runState?.recoveryOwnerId : controllerRunId;
   if (
     !runState
     || runState.projectRoot !== fs.realpathSync(cwd)
@@ -258,10 +295,31 @@ function resolveDeliveryNamespace({
   ) {
     throw new Error('delivery_scope_mismatch');
   }
+  const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
+  const completed = runState.delivery?.status === 'complete';
+  const recoveryOwnerId = completed && runState.recoveryOwnerId
+    ? assertRecoveryOwner({
+      cwd, ownerId: runState.recoveryOwnerId, issue, step: 'deliver',
+      branch: runState.delivery.branch ?? runState.branch,
+    })
+    : resolveRecoveryOwner({
+      cwd, issue, step: 'deliver', branch, sessionToken, controllerRunId, run,
+      priorIncomplete: completed ? false : Boolean(runState.delivery) || hasPendingDeliveryPublication({ run, cwd, issue }),
+    });
+  if (runState.recoveryOwnerId && runState.recoveryOwnerId !== recoveryOwnerId) {
+    throw new Error('recovery_owner_ambiguous');
+  }
+  if (runState.recoveryOwnerId !== recoveryOwnerId) {
+    const revision = runState.revision;
+    runState.recoveryOwnerId = recoveryOwnerId;
+    runState.revision += 1;
+    writeRunAt(runState, cwd, paths.runFile, paths.handoffDir, revision);
+  }
   return {
     ...paths,
     sessionToken,
     runState,
+    recoveryOwnerId,
     handoffPath: `${paths.handoffDir}/${issue}-deliver.json`,
   };
 }
@@ -283,6 +341,7 @@ function expectedDelivery(issue, pr) {
     issue,
     pullRequest: pr.number,
     expectedHead: pr.headRefOid,
+    branch: pr.headRefName,
     status: 'expected',
     reconciliation: null,
   };
@@ -372,7 +431,7 @@ function handoffFor(issue, status, summary, artifacts, reasonCode) {
     issue,
     step: 'deliver',
     status,
-    intervention: status !== 'passed',
+    intervention: status !== 'passed' && reasonCode !== 'mergeability_reverification_required',
     summary,
     artifacts,
     next: null,
@@ -702,7 +761,7 @@ function hasSynchronizedDeliveryState({ run, fs, cwd, issue, issueData, tech, ch
   return diff.status === 0;
 }
 
-function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now }) {
+function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now, ownerId }) {
   const versionPath = path.join(cwd, 'VERSION');
   const changelogPath = path.join(cwd, 'CHANGELOG.md');
   const current = fs.readFileSync(versionPath, 'utf8').trim();
@@ -717,6 +776,7 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   if (hasSynchronizedDeliveryState({
     run, fs, cwd, issue, issueData, tech, changelog, version: current,
   })) return { version: current, changed: [] };
+  assertInitialStagePublication({ cwd, ownerId, issue, step: 'deliver', run });
   const labels = issueLabels(issueData);
   const bump = breaking && approvedMajor(spec) ? 'major' : labels.includes('bug') ? 'patch' : 'minor';
   const version = bumpedVersion(current, bump);
@@ -751,26 +811,64 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
 }
 
 function parsePorcelain(output) {
-  return String(output || '').split('\0').filter(Boolean).map((entry) => entry.slice(3));
+  const entries = String(output || '').split('\0');
+  const paths = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry) continue;
+    paths.push(entry.slice(3));
+    if (/[RC]/.test(entry.slice(0, 2)) && entries[index + 1]) paths.push(entries[++index]);
+  }
+  return paths;
 }
 
-function publishVersionChanges({ run, cwd, issue, issueData, changed }) {
+function publishVersionChanges({ run, cwd, issue, issueData, changed, ownerId, allowedPaths }) {
+  if (changed.length === 0) return;
   if (changed.length > 0) {
     command(run, cwd, 'git', ['add', '--', ...changed]);
     const staged = command(run, cwd, 'git', ['diff', '--cached', '--quiet'], { allowFailure: true });
-    if (staged.status === 0) throw new Error('delivery version diff is empty');
+    if (staged.status !== 1) throw new Error('delivery version diff is empty or unreadable');
     const prefix = issueLabels(issueData).includes('bug') ? 'fix' : 'feat';
     command(run, cwd, 'git', ['commit', '-m', `${prefix}: deliver issue #${issue}`]);
   }
   const upstream = command(run, cwd, 'git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { allowFailure: true });
-  if (upstream.status === 0) command(run, cwd, 'git', ['push']);
-  else command(run, cwd, 'git', ['push', '-u', 'origin', 'HEAD']);
+  const push = upstream.status === 0
+    ? command(run, cwd, 'git', ['push'], { allowFailure: true })
+    : command(run, cwd, 'git', ['push', '-u', 'origin', 'HEAD'], { allowFailure: true });
+  if (push.status !== 0) {
+    const prefix = issueLabels(issueData).includes('bug') ? 'fix' : 'feat';
+    const publication = reconcileStagePublication({
+      run, cwd, issue, step: 'deliver', ownerId, allowedPaths,
+      expectedSubject: `${prefix}: deliver issue #${issue}`,
+    });
+    if (!publication.passed) throw Object.assign(new Error(publication.summary), { reasonCode: publication.reasonCode });
+  }
 }
 
 function changedPathsForDelivery({ run, cwd, base }) {
   return command(run, cwd, 'git', ['diff', '--name-only', '-z', `${base}...HEAD`]).stdout
     .split('\0')
     .filter(Boolean);
+}
+
+function hasPendingDeliveryPublication({ run, cwd, issue }) {
+  const subject = command(run, cwd, 'git', ['log', '-1', '--format=%s']).stdout.trim();
+  if (![ `docs: record PR evidence for #${issue}`, `fix: deliver issue #${issue}`, `feat: deliver issue #${issue}` ].includes(subject)) return false;
+  const upstream = command(run, cwd, 'git', ['rev-list', '--left-right', '--count', '@{u}...HEAD'], { allowFailure: true });
+  return upstream.status !== 0 || String(upstream.stdout).trim().split(/\s+/).some((count) => count !== '0');
+}
+
+function reconcilePendingDeliveryPublication({ run, cwd, issue, ownerId, reportPath, tech, fs, acknowledge = false }) {
+  if (!hasPendingDeliveryPublication({ run, cwd, issue }) && !acknowledge) return false;
+  const expectedSubject = command(run, cwd, 'git', ['log', '-1', '--format=%s']).stdout.trim();
+  if (![`docs: record PR evidence for #${issue}`, `fix: deliver issue #${issue}`, `feat: deliver issue #${issue}`].includes(expectedSubject)) return false;
+  const allowedPaths = expectedSubject === `docs: record PR evidence for #${issue}`
+    ? [reportPath] : deliveryVersionArtifacts(tech, cwd, fs).paths;
+  const publication = reconcileStagePublication({ run, cwd, issue, step: 'deliver', ownerId, expectedSubject, allowedPaths });
+  if (!publication.passed) throw Object.assign(new Error(publication.summary), {
+    reasonCode: publication.reasonCode ?? 'verification_publish_failed',
+  });
+  return true;
 }
 
 function evaluateContributionEvidenceAtRoot({ run, fs, cwd, issue, title, body, changedPaths }) {
@@ -890,13 +988,27 @@ function evidenceForHead(readiness, observed, headSha) {
   return result;
 }
 
-function publishVerificationReport({ run, cwd, issue, reportPath }) {
-  command(run, cwd, 'git', ['add', '--', reportPath]);
-  const staged = command(run, cwd, 'git', ['diff', '--cached', '--quiet'], { allowFailure: true });
-  if (staged.status !== 0) {
-    command(run, cwd, 'git', ['commit', '-m', `docs: record PR evidence for #${issue}`]);
+function publishVerificationReport({ run, cwd, issue, reportPath, ownerId }) {
+  const changed = command(run, cwd, 'git', ['diff', '--quiet', 'HEAD', '--', reportPath], { allowFailure: true });
+  if (changed.status > 1) throw new Error('PR evidence report diff is unreadable');
+  if (changed.status === 1) {
+    assertInitialStagePublication({ cwd, ownerId, issue, step: 'deliver', run });
+    command(run, cwd, 'git', ['add', '--', reportPath]);
   }
-  command(run, cwd, 'git', ['push']);
+  const staged = command(run, cwd, 'git', ['diff', '--cached', '--quiet'], { allowFailure: true });
+  if (staged.status > 1) throw new Error('PR evidence staged diff is unreadable');
+  if (staged.status === 1) {
+    command(run, cwd, 'git', ['commit', '-m', `docs: record PR evidence for #${issue}`]);
+    const push = command(run, cwd, 'git', ['push'], { allowFailure: true });
+    if (push.status === 0) return;
+  }
+  const publication = reconcileStagePublication({
+    run, cwd, issue, step: 'deliver', ownerId,
+    expectedSubject: `docs: record PR evidence for #${issue}`, allowedPaths: [reportPath],
+  });
+  if (!publication.passed) throw Object.assign(new Error(publication.summary), {
+    reasonCode: publication.reasonCode ?? 'verification_publish_failed',
+  });
 }
 
 function editPullRequestBody({ run, fs, cwd, issue, prNumber, body, name = 'pr-body' }) {
@@ -1098,6 +1210,7 @@ function authorizeReconciliationResume({ run, cwd, issue, namespace }) {
       || checks.length === 0 && !noRequiredChecks
     ) return false;
     persistDelivery(namespace, cwd, {
+      ...persisted,
       issue,
       pullRequest: persisted.pullRequest,
       expectedHead: localHead,
@@ -1113,7 +1226,7 @@ function authorizeReconciliationResume({ run, cwd, issue, namespace }) {
 function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
   const { value: pr } = jsonCommand(run, cwd, 'gh', [
     'pr', 'view', String(prNumber), '--json',
-    'number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,reviews,body',
+    'number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,mergedAt,mergeCommit,body',
   ]);
   const [, owner, name] = String(pr.url ?? '').match(/\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/) ?? [];
   if (!owner || !name) throw new Error('pull request base repository is unavailable');
@@ -1151,20 +1264,29 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     { headSha: pr.headRefOid, resolveRun, cache: runEvidenceCache },
   );
   const { value: issueData } = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']);
-  const reviews = (pr.reviews ?? []).map((review, index) => ({
+  const reviewConnection = threadData.data.repository.pullRequest.reviews;
+  if (!reviewConnection || !Array.isArray(reviewConnection.nodes)) throw new Error('GraphQL review authors are unavailable');
+  const reviews = reviewConnection.nodes.map((review, index) => ({
     id: review.id ?? `review-${index}`,
-    author: review.author?.login ?? review.authorLogin,
+    authorLogin: review.author?.login ?? review.authorLogin,
+    authorTypename: review.author?.__typename ?? review.authorTypename,
     state: review.state,
     submittedAt: review.submittedAt ?? '',
   }));
   const reviewThreads = threadData.data.repository.pullRequest.reviewThreads;
   const rawThreads = reviewThreads.nodes ?? [];
-  const threads = rawThreads.map((thread) => ({
-    id: thread.id,
-    isResolved: thread.isResolved,
-    isOutdated: thread.isOutdated,
-    url: thread.url ?? threadAuthor(thread).url,
-  }));
+  const threads = rawThreads.map((thread) => {
+    const author = threadAuthor(thread);
+    return {
+      id: thread.id,
+      isResolved: thread.isResolved,
+      isOutdated: thread.isOutdated,
+      url: author.url,
+      authorLogin: author.login,
+      authorTypename: author.typename,
+      path: author.path,
+    };
+  });
   const evidence = declaredEvidence;
   const declaredPrOnlyChecks = evidence
     .filter((item) => ['required_check', 'check_run'].includes(item.kind))
@@ -1185,7 +1307,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     && rawThreads.every((thread) => thread.comments?.pageInfo?.hasNextPage === false);
   const snapshot = {
     schemaVersion: 1,
-    issue: { number: issueData.number ?? issue, state: issueData.state },
+    issue: { number: issueData.number, state: issueData.state },
     pullRequest: {
       ...pr,
       mergeCommitOid: pr.mergeCommit?.oid ?? pr.mergeCommitOid ?? null,
@@ -1193,7 +1315,7 @@ function fetchSnapshot({ run, cwd, issue, prNumber, readiness }) {
     checks: snapshotChecks,
     reviews,
     threads,
-    pagination: { checksComplete: true, reviewsComplete: true, threadsComplete },
+    pagination: { checksComplete: true, reviewsComplete: reviewConnection.pageInfo?.hasNextPage === false, threadsComplete },
     requiredChecksConfigured: declaredPrOnlyChecks.length > 0,
     declaredPrOnlyChecks,
     verification: {
@@ -1222,7 +1344,10 @@ function remediationPacket({
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
     .map((thread) => ({ thread, author: threadAuthor(thread) }))
     .filter(({ author }) => isBot(author, botLogins))
-    .map(({ author }) => ({ path: author.path, line: author.line, body: author.body, url: author.url }));
+    .map(({ author }) => ({
+      path: author.path, line: author.line, body: author.body, url: author.url,
+      authorLogin: author.login, authorTypename: author.typename,
+    }));
   return {
     schemaVersion: 1,
     kind: 'remediation_required',
@@ -1237,10 +1362,177 @@ function remediationPacket({
   };
 }
 
-function classifyHumanReview(rawThreads, botLogins) {
-  return rawThreads
-    .filter((thread) => !thread.isResolved && !thread.isOutdated)
-    .some((thread) => !isBot(threadAuthor(thread), botLogins));
+
+function consumeDeliveryRecovery({ cwd, issue, namespace }, className, evidence) {
+  return consumeSafeRecovery({
+    cwd, ownerId: namespace.recoveryOwnerId, issue, step: 'deliver', class: className, evidence,
+  });
+}
+
+function mergeabilityReverification(context) {
+  return fail(context, 'mergeability_reverification_required',
+    `Base reconciliation changed #${context.issue} to ${context.namespace.runState.delivery.expectedHead}; rerun review1, fix1, review2, fix2, and verify before delivery`);
+}
+
+function reconcileMergeability({ context, run, branch, observed, allowedPaths }) {
+  const { cwd, namespace, issue } = context;
+  const expected = namespace.runState.delivery;
+  const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+    .filter((entry) => !entry.startsWith('.omp/'));
+  if (dirty.length) return fail(context, 'dirty_tree', `Preserved local work: ${dirty.join(', ')}`);
+  const recovery = consumeDeliveryRecovery(context, 'mergeability_defect', {
+    pullRequest: expected.pullRequest, headSha: expected.expectedHead,
+    mergeStateStatus: observed.pr.mergeStateStatus, allowedPaths,
+  });
+  if (!recovery.consumed) return fail(context, 'mergeability_defect', 'The one base/head reconciliation is already consumed; no merge or push was repeated');
+  let conflicts = [];
+  let inspection = '';
+  let mergeStarted = false;
+  try {
+    const base = resolveDefaultBase({ run, cwd });
+    if (observed.pr.baseRefName !== base || observed.pr.headRefName !== branch) throw new Error('PR base/head scope changed');
+    command(run, cwd, 'git', ['fetch', '--no-tags', 'origin', `refs/heads/${base}`]);
+    const baseSha = command(run, cwd, 'git', ['rev-parse', 'FETCH_HEAD']).stdout.trim();
+    command(run, cwd, 'git', ['fetch', '--no-tags', 'origin', `refs/heads/${branch}`]);
+    const remoteHead = command(run, cwd, 'git', ['rev-parse', 'FETCH_HEAD']).stdout.trim();
+    if (!SHA.test(baseSha) || remoteHead !== expected.expectedHead
+      || command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== remoteHead) {
+      return reconciliationFailure(context, namespace, { ...observed.pr, headRefOid: remoteHead });
+    }
+    const mergeBase = command(run, cwd, 'git', ['merge-base', remoteHead, baseSha]).stdout.trim();
+    const divergence = command(run, cwd, 'git', ['rev-list', '--left-right', '--count', `${baseSha}...${remoteHead}`]).stdout.trim();
+    if (!SHA.test(mergeBase) || !/^\d+\s+\d+$/.test(divergence)) throw new Error('base/head inspection is unreadable');
+    inspection = `base=${baseSha}, head=${remoteHead}, merge-base=${mergeBase}, divergence=${divergence}`;
+    const trial = command(run, cwd, 'git', [
+      'merge-tree', '--write-tree', '--name-only', '-z', remoteHead, baseSha,
+    ], { allowFailure: true });
+    const fields = String(trial.stdout).split('\0');
+    const tree = fields.shift();
+    for (const field of fields) {
+      if (!field) break;
+      conflicts.push(field);
+    }
+    if (![0, 1].includes(trial.status) || !SHA.test(tree ?? '')) throw new Error('isolated merge-tree inspection failed');
+    const outside = conflicts.filter((file) => !allowedPaths.includes(file));
+    if (outside.length) throw new Error(`conflicts outside approved delivery paths: ${outside.join(', ')}`);
+    if (trial.status !== 0 || conflicts.length) throw new Error('isolated trial retains unresolved conflicts');
+    const mergedPaths = command(run, cwd, 'git', ['diff', '--name-only', '-z', remoteHead, tree]).stdout.split('\0').filter(Boolean);
+    if (mergedPaths.length) {
+      const markers = command(run, cwd, 'git', [
+        'grep', '-I', '-l', '-E', '^(<{7}|={7}|>{7})( |$)', tree, '--', ...mergedPaths,
+      ], { allowFailure: true });
+      if (markers.status !== 1) throw new Error(`merged tree has conflict markers or is unreadable: ${String(markers.stdout || markers.stderr).trim()}`);
+    }
+    const fresh = pullRequestByNumber({ run, cwd, prNumber: expected.pullRequest });
+    if (fresh.number !== expected.pullRequest || fresh.headRefOid !== remoteHead || fresh.state !== 'OPEN') {
+      return reconciliationFailure(context, namespace, fresh);
+    }
+    if (command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim() !== branch
+      || command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== remoteHead
+      || parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+        .some((entry) => !entry.startsWith('.omp/'))) throw new Error('local branch changed during inspection; preserved without merge');
+    mergeStarted = true;
+    command(run, cwd, 'git', ['merge', '--no-ff', '--no-edit', baseSha]);
+    mergeStarted = false;
+    const head = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+    if (head === remoteHead) throw new Error('fetched base is already included; GitHub mergeability remains unresolved');
+    if (!SHA.test(head) || command(run, cwd, 'git', ['rev-parse', 'HEAD^{tree}']).stdout.trim() !== tree
+      || command(run, cwd, 'git', ['rev-list', '--parents', '-n', '1', head]).stdout.trim() !== `${head} ${remoteHead} ${baseSha}`
+      || parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+        .some((entry) => !entry.startsWith('.omp/'))) throw new Error('actual merge differs from the isolated clean trial; preserved without push');
+    const pushed = command(run, cwd, 'git', ['push', 'origin', `HEAD:refs/heads/${branch}`], { allowFailure: true });
+    const remote = command(run, cwd, 'git', ['ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`]).stdout.trim().split(/\s+/);
+    if (remote.length !== 2 || remote[0] !== head || remote[1] !== `refs/heads/${branch}`) {
+      throw new Error(`reconciled head publication is unproven: ${String(pushed.stderr).trim()}`);
+    }
+    persistDelivery(namespace, cwd, {
+      ...expected, expectedHead: head, branch, reconciliation: null,
+      mergeabilityReverificationRequired: true,
+    });
+    return mergeabilityReverification(context);
+  } catch (error) {
+    if (mergeStarted) {
+      const aborted = command(run, cwd, 'git', ['merge', '--abort'], { allowFailure: true });
+      if (aborted.status !== 0) inspection += '; merge abort failed; inspect the preserved worktree';
+    }
+    return fail(context, 'mergeability_defect', `${error.message}; ${inspection}; conflicted paths: ${conflicts.join(', ') || '(none)'}`);
+  }
+}
+
+function reconcilePostMerge({ context, run, sleep, recovery = null }) {
+  const { cwd, issue, namespace } = context;
+  const expected = namespace.runState.delivery;
+  const claim = recovery ?? consumeDeliveryRecovery(context, 'post_merge_observation', {
+    pullRequest: expected.pullRequest, headSha: expected.expectedHead,
+  });
+  if (claim.record.evidence.pullRequest !== expected.pullRequest
+    || claim.record.evidence.headSha !== expected.expectedHead) {
+    abortDelivery(fail(context, 'delivery_reconciliation_required', 'Consumed merge observation belongs to a different exact PR/head; no merge replay'));
+  }
+  let reasonCode = 'merge_failed';
+  let summary = 'Exact merge outcome is not yet observable';
+  let closureCandidate = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt) sleep(POLL_INTERVAL_MS);
+    closureCandidate = null;
+    try {
+      const pr = jsonCommand(run, cwd, 'gh', [
+        'pr', 'view', String(expected.pullRequest), '--json',
+        'number,url,state,headRefOid,headRefName,baseRefName,mergedAt,mergeCommit,closingIssuesReferences,body',
+      ]).value;
+      if (pr.number !== expected.pullRequest || pr.headRefOid !== expected.expectedHead) {
+        abortDelivery(reconciliationFailure(context, namespace, pr));
+      }
+      const issueData = jsonCommand(run, cwd, 'gh', ['issue', 'view', String(issue), '--json', 'number,state,url']).value;
+      const repositoryUrl = String(pr.url ?? '').replace(/\/pull\/[1-9]\d*\/?$/, '');
+      if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+$/.test(repositoryUrl)
+        || pr.url !== `${repositoryUrl}/pull/${expected.pullRequest}`
+        || issueData.number !== issue || issueData.url !== `${repositoryUrl}/issues/${issue}`) {
+        abortDelivery(fail(context, 'delivery_reconciliation_required', 'Observed issue/repository identity does not match the exact delivery target'));
+      }
+      const merged = pr.state === 'MERGED' && Boolean(pr.mergedAt) && SHA.test(pr.mergeCommit?.oid ?? '');
+      const linked = Array.isArray(pr.closingIssuesReferences)
+        && pr.closingIssuesReferences.some((linkedIssue) => linkedIssue.number === issue && linkedIssue.url === issueData.url);
+      if (merged && linked && issueData.state === 'CLOSED') return { pr, issueData };
+      if (merged && linked && issueData.state === 'OPEN') closureCandidate = { pr, issueData };
+      reasonCode = merged && issueData.state === 'OPEN' ? 'merged_pr_child_still_open'
+        : merged && !linked ? 'delivery_linkage_unproven' : 'merge_failed';
+      summary = `PR #${expected.pullRequest} at ${expected.expectedHead}: state=${pr.state}, merged=${merged}, issue #${issue}=${issueData.state}, linkage=${linked}`;
+    } catch (error) {
+      if (error.deliveryResult) throw error;
+      reasonCode = 'merge_observation_unreadable';
+      summary = error.message;
+    }
+  }
+  const authorized = expected.issue === issue && namespace.runState.currentIssue === issue
+    && namespace.runState.currentStep === 'deliver' && namespace.runState.issues.includes(issue)
+    && namespace.runState.recoveryOwnerId === namespace.recoveryOwnerId;
+  if (closureCandidate && authorized && !expected.closeIssued) {
+    persistDelivery(namespace, cwd, { ...namespace.runState.delivery, closeIssued: true });
+    let closeError = '';
+    try {
+      const closed = command(run, cwd, 'gh', ['issue', 'close', closureCandidate.issueData.url], { allowFailure: true });
+      if (closed.status !== 0) closeError = String(closed.stderr || closed.stdout).trim();
+    } catch (error) {
+      closeError = error.message;
+    }
+    try {
+      const issueData = jsonCommand(run, cwd, 'gh', [
+        'issue', 'view', closureCandidate.issueData.url, '--json', 'number,state,url',
+      ]).value;
+      if (issueData.number !== issue || issueData.url !== closureCandidate.issueData.url) {
+        abortDelivery(fail(context, 'delivery_reconciliation_required', 'Issue identity changed while reconciling the one authorized close'));
+      }
+      if (issueData.state === 'CLOSED') return { pr: closureCandidate.pr, issueData };
+      reasonCode = 'merged_pr_child_still_open';
+      summary = `Exact linked issue #${issue} remains ${issueData.state} after its one authorized close${closeError ? `: ${closeError}` : ''}`;
+    } catch (error) {
+      if (error.deliveryResult) throw error;
+      reasonCode = 'merge_observation_unreadable';
+      summary = `Issue closure is unproven after its one authorized close: ${error.message}`;
+    }
+  }
+  abortDelivery(fail(context, reasonCode, `${summary}; exhausted three read-only observations; no merge or issue-close replay`));
 }
 
 function runDeliverUnlocked({
@@ -1257,6 +1549,7 @@ function runDeliverUnlocked({
   const issueNumber = positiveIssue(issue);
   if (!issueNumber) throw new Error('issue must be a positive integer');
   const context = { cwd, fs, issue: issueNumber, namespace };
+  if (namespace.runState.delivery?.mergeabilityReverificationRequired) return mergeabilityReverification(context);
   if (
     namespace.runState.delivery?.status === 'reconciliation_required'
     && !authorizeReconciliationResume({ run, cwd, issue: issueNumber, namespace })
@@ -1264,32 +1557,17 @@ function runDeliverUnlocked({
     return reconciliationFailure(context, namespace, null);
   }
   if (remediationResult === 'human_review') return fail(context, 'human_review', `Delivery for #${issueNumber} requires human review`);
+  if (remediationResult === 'automatic_review_unactionable') {
+    return fail(context, 'automatic_review_unactionable', `Automatic delivery remediation for #${issueNumber} is unsafe, unsupported, or unchanged`);
+  }
 
   try {
     const persistedDelivery = namespace.runState.delivery;
-    if (persistedDelivery?.status === 'complete') {
-      const terminalReadiness = { status: 'pass', readiness: { evidence: [] } };
-      const proof = scopedSnapshot({
-        context,
-        namespace,
-        run,
-        cwd,
-        issue: issueNumber,
-        prNumber: persistedDelivery.pullRequest,
-        readiness: terminalReadiness,
-        branch: null,
+    if (persistedDelivery?.status === 'complete' || persistedDelivery?.mergeIssued) {
+      const proof = reconcilePostMerge({ context, run, sleep });
+      if (persistedDelivery.status !== 'complete') persistDelivery(namespace, cwd, {
+        ...namespace.runState.delivery, status: 'complete', reconciliation: null,
       });
-      const proved = classifyPrDeliveryState(proof.snapshot, {
-        issueNumber,
-        expectedHead: persistedDelivery.expectedHead,
-      });
-      if (proved.status !== 'complete' || proof.issueData.state !== 'CLOSED') {
-        return fail(
-          context,
-          'merge_failed',
-          `PR #${persistedDelivery.pullRequest} merge and issue closure proof failed`,
-        );
-      }
       return writeHandoff({
         ...context,
         status: 'passed',
@@ -1316,9 +1594,14 @@ function runDeliverUnlocked({
     const branch = command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim();
     if (!branch.startsWith(`${issueNumber}-`)) return fail(context, 'delivery_failed', `Current branch ${branch || '(detached)'} does not belong to #${issueNumber}`);
     const localHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+    const reportPath = path.relative(cwd, spec.verificationPath);
+    const publicationResumed = reconcilePendingDeliveryPublication({
+      run, cwd, issue: issueNumber, ownerId: namespace.recoveryOwnerId, reportPath, tech, fs,
+      acknowledge: Boolean(namespace.sessionToken && namespace.runState.head !== localHead && !namespace.runState.delivery),
+    });
     if (namespace.sessionToken && (
       namespace.runState.branch !== branch
-      || namespace.runState.head !== localHead && !namespace.runState.delivery
+      || namespace.runState.head !== localHead && !namespace.runState.delivery && !publicationResumed
     )) {
       return fail(context, 'delivery_scope_mismatch', 'Standalone delivery session no longer matches its bound branch and initial head');
     }
@@ -1327,7 +1610,6 @@ function runDeliverUnlocked({
       ? pullRequestByNumber({ run, cwd, prNumber: persisted.pullRequest })
       : existingPullRequest({ run, cwd, branch, issue: issueNumber });
     const base = resolveDefaultBase({ run, cwd });
-    const reportPath = path.relative(cwd, spec.verificationPath);
     const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
       .filter((entry) => !entry.startsWith('.omp/'));
     const controlledReportOnly = readiness.status === 'pr_evidence_satisfied'
@@ -1362,17 +1644,7 @@ function runDeliverUnlocked({
       return reconciliationFailure(context, namespace, pr);
     }
     if (pr?.state === 'MERGED') {
-      const terminalReadiness = { ...readiness, status: 'pass' };
-      const proof = scopedSnapshot({
-        context,
-        namespace,
-        run,
-        cwd,
-        issue: issueNumber,
-        prNumber: pr.number,
-        readiness: terminalReadiness,
-        branch,
-      });
+      const proof = reconcilePostMerge({ context, run, sleep });
       if (readiness.status === 'pr_evidence_satisfied') {
         const validation = inspectDeliveryValidation({
           content: proof.pr.body ?? '',
@@ -1388,10 +1660,6 @@ function runDeliverUnlocked({
         if (validation.status !== 'final_sha_validated') {
           return fail(context, 'merge_failed', `Merged PR #${pr.number} lacks valid final-head evidence`);
         }
-      }
-      const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: pr.headRefOid });
-      if (proved.status !== 'complete' || proof.issueData.state !== 'CLOSED') {
-        return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
       }
       persistDelivery(namespace, cwd, {
         ...namespace.runState.delivery,
@@ -1410,14 +1678,19 @@ function runDeliverUnlocked({
 
     let changed;
     try {
-      ({ version, changed } = synchronizeVersion({ run, fs, cwd, issue: issueNumber, spec, issueData, tech, now }));
+      ({ version, changed } = synchronizeVersion({
+        run, fs, cwd, issue: issueNumber, spec, issueData, tech, now, ownerId: namespace.recoveryOwnerId,
+      }));
     } catch (error) {
       if (error.reasonCode === 'major_bump_required') {
         return fail(context, 'major_bump_required', `BREAKING issue #${issueNumber} lacks an approved major version bump`);
       }
       throw error;
     }
-    publishVersionChanges({ run, cwd, issue: issueNumber, issueData, changed });
+    publishVersionChanges({
+      run, cwd, issue: issueNumber, issueData, changed, ownerId: namespace.recoveryOwnerId,
+      allowedPaths: deliveryVersionArtifacts(tech, cwd, fs).paths,
+    });
     const changedPaths = changedPathsForDelivery({ run, cwd, base: pr?.baseRefName ?? base });
     const pullRequestBody = buildDeliveryPullRequestBody({
       issue: issueNumber,
@@ -1455,10 +1728,14 @@ function runDeliverUnlocked({
         body: pullRequestBody,
       });
       pr = pullRequestByNumber({ run, cwd, prNumber: created.number });
-      if (!Number.isSafeInteger(pr?.number) || !SHA.test(pr?.headRefOid)) {
+      if (pr?.number !== created.number || !SHA.test(pr?.headRefOid)
+        || pr.headRefName !== branch || pr.baseRefName !== base) {
         throw new Error('created PR identity is invalid');
       }
-      persistDelivery(namespace, cwd, expectedDelivery(issueNumber, pr));
+      const expectedHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
+      if (!SHA.test(expectedHead)) throw new Error('published HEAD is unreadable');
+      persistDelivery(namespace, cwd, { ...expectedDelivery(issueNumber, pr), expectedHead });
+      if (pr.headRefOid !== expectedHead) return reconciliationFailure(context, namespace, pr);
     }
     const observe = (snapshotReadiness, allowHeadAdvance = false) => scopedSnapshot({
       context,
@@ -1511,7 +1788,7 @@ function runDeliverUnlocked({
           return fail(context, 'verification_not_ready', `Verification report is not satisfied for draft head ${observed.pr.headRefOid}`);
         }
         publishVerificationReport({
-          run, cwd, issue: issueNumber, reportPath,
+          run, cwd, issue: issueNumber, reportPath, ownerId: namespace.recoveryOwnerId,
         });
         observed = observe(readiness, true);
         if (observed.pr.headRefOid.toLowerCase() === h1) {
@@ -1568,11 +1845,27 @@ function runDeliverUnlocked({
 
     while (true) {
       const observed = observe(deliveryReadiness);
-      const classified = classifyPrDeliveryState(observed.snapshot, { issueNumber });
-      if (classifyHumanReview(observed.rawThreads, botLogins) || classified.reasonCode === 'changes_requested') {
+      const classified = classifyPrDeliveryState(observed.snapshot, { issueNumber, botLogins });
+      if (classified.reasonCode === 'human_review') {
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
       }
-      if (classified.status === 'remediate' && ['checks_failed', 'review_threads_unresolved'].includes(classified.reasonCode)) {
+      if (classified.reasonCode === 'mergeability_defect') {
+        const allowedPaths = inspectPublicationScope({
+          cwd, issue: issueNumber, step: 'implement', spec: spec.relative, run,
+        });
+        return reconcileMergeability({ context, run, branch, observed, allowedPaths });
+      }
+      const automaticReview = ['changes_requested', 'review_threads_unresolved', 'automatic_review_unactionable'].includes(classified.reasonCode);
+      if (automaticReview) {
+        const recovery = consumeDeliveryRecovery(context, 'automatic_review', {
+          pullRequest: observed.pr.number, headSha: observed.pr.headRefOid, fingerprint: classified.fingerprint,
+        });
+        if (!recovery.consumed) return fail(context, 'automatic_review_unactionable', 'The one automatic-review remediation is consumed; no repeated packet');
+        if (classified.reasonCode === 'automatic_review_unactionable') {
+          return fail(context, 'automatic_review_unactionable', `PR #${pr.number} automation lacks supported actionable path evidence`);
+        }
+      }
+      if (classified.status === 'remediate' && ['checks_failed', 'changes_requested', 'review_threads_unresolved'].includes(classified.reasonCode)) {
         const packet = remediationPacket({
           issue: issueNumber,
           pr: observed.pr,
@@ -1582,7 +1875,7 @@ function runDeliverUnlocked({
           handoffPath: namespace.handoffPath,
         });
         if (packet.threads.some((thread) => !thread.path)) {
-          return fail(context, 'human_review', `PR #${pr.number} has an automated review thread without an actionable path`);
+          return fail(context, 'automatic_review_unactionable', `PR #${pr.number} has an automated review thread without an actionable path`);
         }
         const gateOnlyBodyFailure = classified.reasonCode === 'checks_failed'
           && observed.pr.headRefOid === namespace.runState.delivery.expectedHead
@@ -1620,6 +1913,12 @@ function runDeliverUnlocked({
           sleep(POLL_INTERVAL_MS);
           continue;
         }
+        if (namespace.runState.delivery.lastRemediationFingerprint === classified.fingerprint) {
+          return fail(context, 'automatic_review_unactionable', 'The same delivery repair packet is unchanged; no repeated dispatch');
+        }
+        persistDelivery(namespace, cwd, {
+          ...namespace.runState.delivery, lastRemediationFingerprint: classified.fingerprint,
+        });
         return {
           status: 3,
           stdout: `NMG_SDLC_REMEDIATION: ${JSON.stringify(packet)}\n`,
@@ -1639,24 +1938,33 @@ function runDeliverUnlocked({
 
       const head = namespace.runState.delivery.expectedHead;
       const refreshed = observe(deliveryReadiness);
-      if (refreshed.pr.headRefOid !== head) continue;
-      writeSmokeDeliveryProof({
-        cwd,
-        env,
-        fs,
-        issue: issueNumber,
-        pullRequest: namespace.runState.delivery.pullRequest,
-        headSha: head,
-      });
-      command(run, cwd, 'gh', [
-        'pr', 'merge', String(namespace.runState.delivery.pullRequest),
-        '--squash', '--match-head-commit', head,
-      ]);
-      const proof = observe(deliveryReadiness);
-      const proved = classifyPrDeliveryState(proof.snapshot, { issueNumber, expectedHead: head });
-      if (proved.status !== 'complete' || proof.pr.headRefOid !== head || proof.issueData.state !== 'CLOSED') {
-        return fail(context, 'merge_failed', `PR #${pr.number} merge and issue closure proof failed`);
+      if (refreshed.pr.headRefOid !== head
+        || classifyPrDeliveryState(refreshed.snapshot, { issueNumber, botLogins }).status !== 'merge_ready') continue;
+      if (command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim() !== branch
+        || command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== head
+        || parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
+          .some((entry) => !entry.startsWith('.omp/'))) {
+        return fail(context, 'delivery_reconciliation_required', 'Local branch or publication state changed before exact-head merge');
       }
+      const recovery = consumeDeliveryRecovery(context, 'post_merge_observation', {
+        pullRequest: namespace.runState.delivery.pullRequest, headSha: head,
+      });
+      if (recovery.consumed) {
+        persistDelivery(namespace, cwd, { ...namespace.runState.delivery, mergeIssued: true });
+        writeSmokeDeliveryProof({
+          cwd, env, fs, issue: issueNumber,
+          pullRequest: namespace.runState.delivery.pullRequest, headSha: head,
+        });
+        try {
+          command(run, cwd, 'gh', [
+            'pr', 'merge', String(namespace.runState.delivery.pullRequest),
+            '--squash', '--match-head-commit', head,
+          ], { allowFailure: true });
+        } catch {
+          // A transport failure is not proof that the exact-head merge did not land.
+        }
+      }
+      const proof = reconcilePostMerge({ context, run, sleep, recovery });
       persistDelivery(namespace, cwd, {
         ...namespace.runState.delivery,
         status: 'complete',
@@ -1684,15 +1992,21 @@ function runDeliverUnlocked({
 export function runDeliver(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   let namespace;
+  let leaseContext;
+  const processApi = options.processApi ?? process;
+  const signalHandlers = [];
   try {
+    if (!options.controllerRunId) leaseContext = enterControllerLease({ projectRoot: cwd });
     namespace = resolveDeliveryNamespace({
       cwd,
       fs: options.fs ?? fsDefault,
+      run: options.run ?? defaultRun,
       issue: positiveIssue(options.issue),
       controllerRunId: options.controllerRunId ?? null,
       sessionToken: options.sessionToken ?? null,
     });
   } catch (error) {
+    if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);
     const paths = deliveryPaths(SESSION_TOKEN.test(options.sessionToken ?? '') ? options.sessionToken : null);
     return {
       status: 1,
@@ -1702,7 +2016,23 @@ export function runDeliver(options = {}) {
       handoffPath: `${paths.handoffDir}/${options.issue}-deliver.json`,
     };
   }
-  return runDeliverUnlocked({ ...options, cwd, namespace });
+  if (leaseContext?.owned) {
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      const handler = () => {
+        releaseControllerLease(leaseContext.lease);
+        leaseContext = null;
+        processApi.exit(signal === 'SIGINT' ? 130 : 143);
+      };
+      processApi.once(signal, handler);
+      signalHandlers.push([signal, handler]);
+    }
+  }
+  try {
+    return runDeliverUnlocked({ ...options, cwd, namespace });
+  } finally {
+    for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
+    if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);
+  }
 }
 
 function main() {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "../../src/process-supervision.mjs";
+import { resolvePluginController, resolvePluginRoot } from "../../scripts/plugin-controller-path.mjs";
 
 const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
 const SMOKE_OWNER = "Nunley-Media-Group";
@@ -225,6 +226,19 @@ export function createSmokeProvider({
       return envelope("failed", "nmg-sdlc-smoke Herdr environment missing", identity);
     }
 
+    let controller;
+    let pluginRoot;
+    try {
+      const options = {
+        env,
+        importMetaUrl: new URL("../../scripts/plugin-controller-path.mjs", import.meta.url).href,
+      };
+      pluginRoot = resolvePluginRoot(options);
+      controller = resolvePluginController("sdlc-execute.mjs", options);
+    } catch (error) {
+      return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
+    }
+
     const auth = await executeCommand("gh", ["auth", "status"], { env, signal: request.signal });
     if (environmentalFailure(auth)) {
       return envelope("incomplete", `nmg-sdlc-smoke GitHub auth ${auth.reasonCode}`, identity, [
@@ -297,14 +311,13 @@ export function createSmokeProvider({
         baselines.set(issue, new Set(baseline.pullRequests.map(pullRequestIdentity)));
       }
 
-      const controller = join(request.projectRoot, "scripts", "sdlc-execute.mjs");
       const execute = await executeCommand(process.execPath, [
         controller,
         "run",
         ...issues.map((issue) => `#${issue}`),
       ], {
         cwd: work,
-        env: { ...env, NMG_SDLC_SMOKE_OWNED: "1" },
+        env: { ...env, NMG_SDLC_PLUGIN_ROOT: pluginRoot, NMG_SDLC_SMOKE_OWNED: "1" },
         signal: request.signal,
       });
       const evidence = [

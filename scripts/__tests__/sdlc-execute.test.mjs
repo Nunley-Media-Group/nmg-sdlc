@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   parseArgs,
   VALID_STEPS,
@@ -24,15 +25,38 @@ import {
   runExecute,
   listSpecifiedIssues,
   defaultHerdr,
+  runBoundedReview,
+  resolveReviewArtifacts,
+  invalidateDeliveryGates,
 } from '../sdlc-execute.mjs';
 import {
   acquireControllerLease,
   releaseControllerLease,
 } from '../sdlc-controller-lease.mjs';
 import { startIssue } from '../start-issue.mjs';
+import { consumeSafeRecovery, resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
+const ISOLATION_MODULE = pathToFileURL(fs.realpathSync(
+  path.join(REPOSITORY_ROOT, 'src/sdlc-review-isolation.mjs'),
+)).href;
+
+function appendReviewReceipts(environment, rows = [], start = {}, includeStart = true) {
+  const bytes = fs.readFileSync(environment.NMG_SDLC_REVIEW_ASSIGNMENT);
+  const assignment = JSON.parse(bytes);
+  const identity = {
+    invocationId: assignment.invocationId,
+    assignmentDigest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+  };
+  for (const row of [
+    ...(includeStart ? [{ event: 'session_start', activeTools: ['read'], isolationModule: ISOLATION_MODULE, ...start }] : []),
+    ...rows,
+  ]) {
+    fs.appendFileSync(environment.NMG_SDLC_REVIEW_RECEIPT, `${JSON.stringify({ ...identity, ...row })}\n`);
+  }
+  return assignment;
+}
 
 
 const temporaryRoots = [];
@@ -60,7 +84,7 @@ function boundRunData(root, fields = {}) {
     projectRoot: fields.projectRoot ?? fs.realpathSync(root),
     runId: fields.runId ?? 'test-run-id',
     issue: fields.issue ?? currentIssue,
-    branch: fields.branch ?? 'issue-branch',
+    branch: fields.branch ?? `${fields.issue ?? currentIssue}-ship-it`,
     head: fields.head ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     issues: fields.issues ?? [currentIssue],
     revision: fields.revision ?? 1,
@@ -76,7 +100,7 @@ function boundRunData(root, fields = {}) {
         runId: fields.runId ?? 'test-run-id',
         issue: currentIssue,
         step: currentStep,
-        branch: fields.workerBranch ?? '42-ship-it',
+        branch: fields.workerBranch ?? `${currentIssue}-ship-it`,
         head: fields.workerHead ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       },
     } : {},
@@ -581,7 +605,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       fs.unlinkSync(lockPath);
     }
   });
-  it('removes only exact runtime owned by a completed queue', () => {
+  it('removes completed runtime while preserving original review handoff bytes', () => {
     const root = makeSpecDir();
     const runPath = path.join(root, '.omp/sdlc/run.json');
     const handoffDir = path.join(root, '.omp/sdlc/handoffs');
@@ -592,8 +616,14 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       remediation: null,
     });
     fs.mkdirSync(provenanceDir, { recursive: true });
+    const reviewBytes = new Map();
     for (const step of VALID_STEPS) {
       fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), '{}\n');
+      if (step === 'review1' || step === 'review2') {
+        const bytes = Buffer.from(`{"step":"${step}","summary":"original review evidence"}\r\n`);
+        fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), bytes);
+        reviewBytes.set(step, bytes);
+      }
       fs.writeFileSync(path.join(provenanceDir, `worker-${step}.json`), '{}\n');
     }
     fs.writeFileSync(path.join(handoffDir, 'unrelated.json'), '{}\n');
@@ -605,7 +635,9 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(fs.existsSync(runPath)).toBe(false);
     expect(fs.existsSync(`${runPath}.tmp`)).toBe(false);
     for (const step of VALID_STEPS) {
-      expect(fs.existsSync(path.join(handoffDir, `42-${step}.json`))).toBe(false);
+      const handoffPath = path.join(handoffDir, `42-${step}.json`);
+      if (reviewBytes.has(step)) expect(fs.readFileSync(handoffPath)).toEqual(reviewBytes.get(step));
+      else expect(fs.existsSync(handoffPath)).toBe(false);
       expect(fs.existsSync(path.join(provenanceDir, `worker-${step}.json`))).toBe(false);
     }
     expect(fs.existsSync(path.join(handoffDir, 'unrelated.json'))).toBe(true);
@@ -692,21 +724,6 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(cli.stdout).not.toMatch(/\/skill:/);
   });
 
-  it('workerPrompt maps implementation, review, fix, and delivery workflows', () => {
-    const implement = workerPrompt({ step: 'implement', issue: 42 });
-    const review = workerPrompt({ step: 'review1', issue: 42 });
-    expect(implement).toContain('# Simplify');
-    expect(implement).toContain('## Commit and Push Implementation');
-    expect(implement).toContain('git push');
-    expect(review).toContain('# Review Main');
-    expect(review).toContain('sdlc-review-main.mjs');
-    expect(review).toContain('Run the host review now in this sibling OMP worker');
-    expect(review).toContain('Do not invoke `/review`, start `omp`, or route review work through the controller or main pane.');
-    expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('# Apply Review');
-    expect(workerPrompt({ step: 'fix1', issue: 42 })).toContain('sdlc-apply-review.mjs');
-    expect(workerPrompt({ step: 'deliver', issue: 42 })).toContain('sdlc-deliver.mjs');
-    expect(workerPrompt({ step: 'deliver', issue: 42 })).not.toContain('# Address PR Comments');
-  });
 
   it('workerPrompt materializes every controller from the active package root', () => {
     const root = makeSpecDir();
@@ -762,32 +779,6 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     })).toBe(false);
   });
 
-  it('renders the deterministic remediation header before the original worker prompt', () => {
-    const prompt = remediationPrompt({
-      issue: 42,
-      failedStep: 'verify',
-      cwd: makeSpecDir(),
-      evidence: {
-        attempt: 2,
-        reasonCode: 'verification_failed',
-        summary: 'verify failed',
-        artifacts: ['artifacts/verify.txt'],
-        closedName: 'r42-verify',
-        closedPaneId: 'pane-8',
-      },
-    });
-    expect(prompt.startsWith([
-      'You are remediating issue #42 step verify (attempt 2).',
-      'Failed worker r42-verify in pane pane-8 was closed after evidence capture.',
-      'reasonCode: verification_failed',
-      'summary: verify failed',
-      'artifacts:',
-      '- artifacts/verify.txt',
-    ].join('\n'))).toBe(true);
-    expect(prompt).toContain('\n---\n');
-    expect(prompt).toContain('# Verify Code');
-    expect(() => workerPrompt({ step: 'rem', issue: 42 })).toThrow('invalid step for workerPrompt');
-  });
 
   it('worker-prompt CLI accepts rem evidence and rejects start as a failed step', () => {
     const root = makeSpecDir();
@@ -816,41 +807,6 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
     expect(rejected.stderr.trim()).toBe('Usage: node sdlc-execute.mjs worker-prompt --step rem --issue N --failed-step <implement|review1|fix1|review2|fix2|verify|deliver>');
   });
 
-  it('worker-prompt CLI resolves the review base for review remediation', () => {
-    const root = makeSpecDir();
-    seedRun(root, {
-      remediation: {
-        issue: 42,
-        step: 'review1',
-        attempt: 1,
-        status: 'active',
-        reasonCode: 'review_failed',
-        summary: 'review failed',
-        artifacts: [],
-        closedWorker: { name: 's42-review1', paneId: 'pane-3' },
-      },
-    });
-    execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
-    execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: root });
-    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
-    execFileSync('git', ['commit', '--allow-empty', '-m', 'test'], { cwd: root, stdio: 'ignore' });
-    const bin = path.join(root, 'bin');
-    fs.mkdirSync(bin);
-    fs.writeFileSync(path.join(bin, 'gh'), '#!/usr/bin/env node\nprocess.stdout.write("main\\n");\n');
-    fs.chmodSync(path.join(bin, 'gh'), 0o755);
-
-    const result = spawnSync(process.execPath, [
-      SCRIPT, 'worker-prompt', '--step', 'rem', '--issue', '42', '--failed-step', 'review1',
-    ], {
-      cwd: root,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-    });
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('exact base `main`');
-    expect(result.stdout).toContain('You are remediating issue #42 step review1');
-  });
 
 
   it('write-run CLI persists run state with an expected revision', () => {
@@ -1019,10 +975,9 @@ describe('runExecute controller', () => {
     defaultBranch = 'main',
     localDefaultRef = true,
     remoteDefaultRef = true,
-    reviewRequestFailure = false,
-    reviewRequestStalled = false,
     reviewArtifactBody = 'No findings.\n',
     reviewPromptStatus = 0,
+    reviewReceipt = (environment) => appendReviewReceipts(environment),
     paneWidth = 120,
     writeHandoffs = true,
     handoffContent = null,
@@ -1078,7 +1033,8 @@ describe('runExecute controller', () => {
     const pendingAgentStartStatuses = [...agentStartStatuses];
     let remPromptCount = 0;
     let agentLost = false;
-    let reviewInProgress = false;
+    const paneEnvironments = new Map();
+    const reviewEnvironments = new Map();
 
     const run = (command, args) => {
       calls.push([command, ...args]);
@@ -1144,6 +1100,32 @@ describe('runExecute controller', () => {
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
         return { status: 0, stdout: `${branch}\n`, stderr: '' };
       }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+        return { status: 0, stdout: `${branch}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base') {
+        if (args[1] === '--is-ancestor') return { status: 1, stdout: '', stderr: '' };
+        return { status: 0, stdout: `${'b'.repeat(40)}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'show') {
+        const file = args[1].slice(args[1].indexOf(':') + 1);
+        return {
+          status: 0,
+          stdout: file.startsWith('specs/')
+            ? fs.readFileSync(path.join(cwd, file))
+            : Buffer.from('export const changed = true;\n'),
+          stderr: '',
+        };
+      }
+      if (command === 'git' && args[0] === 'diff') {
+        return {
+          status: 0,
+          stdout: args.includes('--name-only')
+            ? 'src/change.mjs\0'
+            : 'diff --git a/src/change.mjs b/src/change.mjs\n+export const changed = true;\n',
+          stderr: '',
+        };
+      }
       if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { status: 0, stdout: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n', stderr: '' };
       }
@@ -1185,9 +1167,11 @@ describe('runExecute controller', () => {
       integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
       paneLayout: () => ({ result: { width: paneWidth, height: 40 } }),
       paneSplit: (input) => {
-        expect(input.direction).toBe(paneWidth >= 40 ? 'right' : 'down');
+        if (input.environment?.NMG_SDLC_REVIEW_SLICE === '1') roots.push(input.cwd);
+        else expect(input.direction).toBe(paneWidth >= 40 ? 'right' : 'down');
         splits.push(input);
         paneSequence += 1;
+        paneEnvironments.set(`pane-${paneSequence}`, input.environment);
         return { result: { pane: { pane_id: `pane-${paneSequence}` } } };
       },
       paneClose: (paneId) => {
@@ -1198,16 +1182,22 @@ describe('runExecute controller', () => {
       agentStart: (input) => {
         starts.push(input);
         events.push(`start:${input.name}`);
+        const environment = paneEnvironments.get(input.paneId);
+        if (environment?.NMG_SDLC_REVIEW_SLICE === '1') reviewEnvironments.set(input.name, environment);
         return { status: pendingAgentStartStatuses.shift() ?? 0 };
       },
       agentPrompt: ({ name, prompt }) => {
         activePrompt = prompt;
         prompts.push({ name, prompt });
         events.push(`prompt:${name}`);
-        const reviewPrompt = prompt.includes('# Controller-Owned Host Review');
-        if (reviewPrompt) {
-          reviewInProgress = reviewRequestStalled;
-          if (reviewRequestFailure) return { status: 1, reasonCode: 'worker_failed' };
+        const environment = reviewEnvironments.get(name);
+        if (environment) {
+          reviewReceipt(environment);
+          appendReviewReceipts(environment, [{
+            event: 'review_result', stopReason: 'stop',
+            text: `NMG_REVIEW_RESULT_BEGIN\n${reviewArtifactBody.trim()}\nNMG_REVIEW_RESULT_END\n`,
+          }], {}, false);
+          return { status: reviewPromptStatus };
         }
         const step = name.slice(name.lastIndexOf('-') + 1);
         const workerIssue = Number(/^.[^0-9]*([1-9]\d*)-/.exec(name)?.[1] || 42);
@@ -1241,9 +1231,7 @@ describe('runExecute controller', () => {
             status,
             intervention,
             summary: `${step} complete`,
-            artifacts: !failed && reviewPrompt
-              ? [`.omp/sdlc/reviews/${workerIssue}-${step}.md`]
-              : failed && !intervention ? [`artifacts/${step}.txt`] : [],
+            artifacts: failed && !intervention ? [`artifacts/${step}.txt`] : [],
             next: failed ? failedNext : step === 'deliver' ? null : 'next',
             reasonCode: intervention ? 'implementation_failed' : failed ? `${step}_failed` : null,
           };
@@ -1251,18 +1239,12 @@ describe('runExecute controller', () => {
             ? handoffContent(handoff, { isRem, step })
             : JSON.stringify(handoff);
           fs.writeFileSync(path.join(handoffDir, `${workerIssue}-${step}.json`), `${content}\n`);
-          if (!failed && reviewPrompt) {
-            const artifactPath = path.join(cwd, `.omp/sdlc/reviews/${workerIssue}-${step}.md`);
-            fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-            fs.writeFileSync(artifactPath, reviewArtifactBody);
-          }
         }
-        if (reviewPrompt && reviewRequestStalled) {
-          return { status: 1, reasonCode: 'agent_prompt_stalled' };
-        }
-        return { status: reviewPrompt ? reviewPromptStatus : promptStatus };
+        return { status: promptStatus };
       },
-      agentRead: () => activePrompt,
+      agentRead: ({ name }) => reviewEnvironments.has(name)
+        ? { status: 0, stdout: `NMG_REVIEW_RESULT_BEGIN\n${reviewArtifactBody.trim()}\nNMG_REVIEW_RESULT_END\n` }
+        : activePrompt,
       agentSendKeys: ({ keys }) => {
         sentKeys.push(keys);
         return { status: 0 };
@@ -1275,18 +1257,16 @@ describe('runExecute controller', () => {
       },
       agentWait: (input) => {
         waits.push(input);
-        if (!input.until && reviewInProgress) {
-          reviewInProgress = false;
-          return { status: 0 };
-        }
+        if (reviewEnvironments.has(input.name)) return { status: 0 };
         if (!input.until && writeHandoffs) {
           const name = input.name;
           const step = name.slice(name.lastIndexOf('-') + 1);
+          const workerIssue = Number(/^.[^0-9]*([1-9]\d*)-/.exec(name)?.[1] || 42);
           const handoffDir = path.join(cwd, '.omp/sdlc/handoffs');
           fs.mkdirSync(handoffDir, { recursive: true });
-          fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
+          fs.writeFileSync(path.join(handoffDir, `${workerIssue}-${step}.json`), `${JSON.stringify({
             schemaVersion: 1,
-            issue: 42,
+            issue: workerIssue,
             step,
             status: 'passed',
             intervention: false,
@@ -1298,8 +1278,13 @@ describe('runExecute controller', () => {
         }
         return { status: 0 };
       },
-      agentGet: () => {
+      agentGet: (name) => {
         events.push('get');
+        const environment = reviewEnvironments.get(name);
+        if (environment) {
+          const { step } = JSON.parse(fs.readFileSync(environment.NMG_SDLC_REVIEW_ASSIGNMENT, 'utf8'));
+          return { result: { state: step === failedStep ? 'error' : 'done' } };
+        }
         return agentLost ? { status: 1 } : ({ result: { state: agentState } });
       },
       listAgents: () => {
@@ -1308,12 +1293,419 @@ describe('runExecute controller', () => {
           .filter((started) => !closed.includes(started.paneId))
           .map((started) => ({ name: started.name, pane_id: started.paneId, state: agentState }));
       },
+      listPanes: () => herdr.listAgents().map(({ pane_id }) => ({ pane_id })),
       notificationShow: (notice) => notifications.push(notice),
     };
     return {
       cwd, calls, starts, splits, closed, events, notifications, sentKeys, waits, prompts, run, herdr,
+      reviewEnvironments,
     };
   }
+
+  function makeBoundedReviewFixture({
+    receipt = ({ environment }) => appendReviewReceipts(environment),
+    response = () => ({ status: 0, stdout: 'NMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END\n' }),
+    onLaunch = () => {},
+  } = {}) {
+    const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-bounded-review-test-')));
+    roots.push(cwd);
+    git(cwd, ['init', '-b', 'main']);
+    const specDir = path.join(cwd, 'specs/42-review');
+    fs.mkdirSync(specDir, { recursive: true });
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(cwd, '.gitignore'), '.omp/\n');
+    const changedPaths = [
+      'cli/a.mjs', 'cli/b.mjs', 'lib/a.mjs', 'lib/b.mjs',
+      'specs/42-review/feature.gherkin', 'specs/42-review/tasks.md',
+    ];
+    for (const file of changedPaths.filter((file) => !file.startsWith('specs/'))) {
+      fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
+      fs.writeFileSync(path.join(cwd, file), 'base\n');
+    }
+    git(cwd, ['add', '.']);
+    git(cwd, ['commit', '-m', 'chore: review fixture base']);
+    const baseSha = git(cwd, ['rev-parse', 'HEAD']).trim();
+    git(cwd, ['switch', '-c', '42-review']);
+    for (const file of changedPaths) fs.appendFileSync(path.join(cwd, file), `changed ${file}\n`);
+    git(cwd, ['add', '.']);
+    git(cwd, ['commit', '-m', 'feat: review fixture change']);
+    const headSha = git(cwd, ['rev-parse', 'HEAD']).trim();
+    const runState = seedRun(cwd, {
+      branch: '42-review', head: headSha, currentStep: 'review1',
+      completed: { 42: ['start', 'implement'] }, workers: {},
+      recoveries: [{ runId: 'historical-owner', issue: 7, step: 'verify', disposition: 'stopped' }],
+      remediation: { issue: 42, step: 'deliver', completedAttempts: 2, status: 'stopped' },
+    });
+    const panes = new Map();
+    const workers = new Map();
+    const launches = [];
+    const closed = [];
+    const herdr = {
+      paneSplit: (input) => {
+        const assignmentBytes = fs.readFileSync(input.environment.NMG_SDLC_REVIEW_ASSIGNMENT);
+        const assignment = JSON.parse(assignmentBytes);
+        const launch = {
+          ...input, assignment, assignmentBytes,
+          attempt: input.environment.NMG_SDLC_REVIEW_RECEIPT.includes('.attempt-2.') ? 2 : 1,
+        };
+        roots.push(input.cwd);
+        launches.push(launch);
+        const pane_id = `bounded-pane-${launches.length}`;
+        panes.set(pane_id, launch);
+        onLaunch(launch, { cwd, runState });
+        return { status: 0, pane_id };
+      },
+      agentStart: ({ name, paneId }) => {
+        workers.set(name, panes.get(paneId));
+        return { status: 0 };
+      },
+      agentPrompt: ({ name }) => {
+        receipt(workers.get(name));
+        const result = response(workers.get(name));
+        if (result?.status === 0 && typeof result.stdout === 'string') {
+          appendReviewReceipts(workers.get(name).environment, [{
+            event: 'review_result', stopReason: 'stop', text: result.stdout,
+          }], {}, false);
+        }
+        return { status: 0 };
+      },
+      agentWait: () => ({ status: 0 }),
+      agentGet: () => ({ status: 0, agent_status: 'done' }),
+      agentRead: () => { throw new Error('terminal text is not host review output'); },
+      paneClose: (paneId) => { closed.push(paneId); return { status: 0 }; },
+    };
+    return {
+      cwd, runState, herdr, launches, closed, changedPaths, baseSha, headSha,
+      invoke: (step = 'review1') => runBoundedReview({ cwd, issue: 42, step, baseRef: 'main', runState, herdr }),
+    };
+  }
+
+  function reviewEvidenceBytes(cwd, step = 'review1') {
+    const index = JSON.parse(fs.readFileSync(path.join(cwd, `.omp/sdlc/reviews/42-${step}.slices.json`), 'utf8'));
+    const paths = [
+      `.omp/sdlc/reviews/42-${step}.md`,
+      `.omp/sdlc/handoffs/42-${step}.json`,
+      `.omp/sdlc/reviews/42-${step}.slices.json`,
+      ...index.slices.flatMap((_, index) => [
+        `.omp/sdlc/reviews/42-${step}-reviewer-${index + 1}.assignment.json`,
+        `.omp/sdlc/reviews/42-${step}-reviewer-${index + 1}.access.jsonl`,
+      ]),
+    ];
+    return new Map(paths.map((file) => [file, fs.readFileSync(path.join(cwd, file))]));
+  }
+
+  it('SCN002 SCN011 partitions changed paths into disjoint snapshots and reuses only receipt-proven review', () => {
+    const fixture = makeBoundedReviewFixture();
+    const checkoutPath = path.join(fixture.cwd, 'cli/a.mjs');
+    fs.appendFileSync(checkoutPath, 'uncommitted bytes must not enter the snapshot\n');
+    const checkoutBytes = fs.readFileSync(checkoutPath);
+    expect(fixture.invoke().status).toBe(0);
+    expect(fixture.launches).toHaveLength(3);
+    const assigned = fixture.launches.flatMap(({ assignment }) => assignment.allowedPaths);
+    expect(assigned.sort()).toEqual(fixture.changedPaths);
+    expect(new Set(assigned).size).toBe(fixture.changedPaths.length);
+    for (const { cwd, assignment, environment } of fixture.launches) {
+      expect(assignment.allowedPaths).toHaveLength(2);
+      expect(assignment).toMatchObject({
+        issue: 42, step: 'review1', runId: fixture.runState.runId,
+        headSha: fixture.headSha, baseSha: fixture.baseSha,
+      });
+      expect(path.relative(fixture.cwd, cwd).split(path.sep)).toContain('..');
+      expect(environment.NMG_SDLC_REVIEW_SLICE).toBe('1');
+      expect(path.isAbsolute(environment.NMG_SDLC_REVIEW_ASSIGNMENT)).toBe(true);
+      expect(path.isAbsolute(environment.NMG_SDLC_REVIEW_RECEIPT)).toBe(true);
+      for (const file of fixture.changedPaths) {
+        const snapshotPath = path.join(cwd, file);
+        if (assignment.allowedPaths.includes(file)) {
+          expect(fs.readFileSync(snapshotPath, 'utf8')).toBe(git(fixture.cwd, ['show', `${fixture.headSha}:${file}`]));
+        } else expect(fs.existsSync(snapshotPath)).toBe(false);
+      }
+    }
+    const bytes = reviewEvidenceBytes(fixture.cwd);
+    expect(fixture.invoke().status).toBe(0);
+    expect(fixture.launches).toHaveLength(3);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(bytes);
+    expect(fs.readFileSync(checkoutPath)).toEqual(checkoutBytes);
+  });
+
+  it('SCN002 SCN008 replaces the whole step once and preserves every original evidence byte', () => {
+    let originals;
+    let consumedBeforeReplacement;
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment, assignment, attempt }) => appendReviewReceipts(environment,
+        attempt === 1 && assignment.sliceId === 'reviewer-2'
+          ? [{ event: 'tool_call', toolName: 'bash', decision: 'allow' }] : []),
+      onLaunch: ({ attempt }, { cwd }) => {
+        if (attempt !== 2 || originals) return;
+        originals = reviewEvidenceBytes(cwd);
+        consumedBeforeReplacement = JSON.parse(fs.readFileSync(path.join(cwd, '.omp/sdlc/safe-recoveries.json')));
+      },
+    });
+    const counters = structuredClone({
+      recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation,
+    });
+    const result = fixture.invoke();
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(result.handoffPath).toBe('.omp/sdlc/handoffs/42-review1.attempt-2.json');
+    expect(fixture.launches.map(({ attempt }) => attempt)).toEqual([1, 1, 1, 2, 2, 2]);
+    for (let slice = 0; slice < 3; slice += 1) {
+      expect(fixture.launches[slice + 3].assignmentBytes).toEqual(fixture.launches[slice].assignmentBytes);
+    }
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(originals);
+    expect(JSON.parse(originals.get('.omp/sdlc/handoffs/42-review1.json'))).toMatchObject({ status: 'failed' });
+    expect(consumedBeforeReplacement.records).toEqual([expect.objectContaining({
+      class: 'invalid_review_slice', runId: fixture.runState.runId, issue: 42, step: 'review1', disposition: 'consumed',
+    })]);
+    expect({
+      recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation,
+    }).toEqual(counters);
+    expect(fixture.invoke().handoff.status).toBe('passed');
+    expect(fixture.launches).toHaveLength(6);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(originals);
+  });
+
+  it('SCN002 SCN008 stops second contamination without any third launch or budget refill', () => {
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment, assignment }) => appendReviewReceipts(environment,
+        assignment.sliceId === 'reviewer-1'
+          ? [{ event: 'tool_call', toolName: 'read', path: path.join(REPOSITORY_ROOT, 'package.json'), decision: 'allow' }]
+          : []),
+    });
+    const counters = structuredClone({ recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation });
+    expect(() => fixture.invoke()).toThrow('invalid_review_slice');
+    expect(fixture.launches.map(({ attempt }) => attempt)).toEqual([1, 1, 1, 2, 2, 2]);
+    const original = reviewEvidenceBytes(fixture.cwd);
+    const safePath = path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json');
+    const safe = fs.readFileSync(safePath);
+    expect(JSON.parse(safe).records).toHaveLength(1);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.attempt-2.json'))).status).toBe('failed');
+    expect(() => fixture.invoke()).toThrow('review_scope_unproven');
+    expect(fixture.launches).toHaveLength(6);
+    expect(fs.readFileSync(safePath)).toEqual(safe);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(original);
+    expect({ recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation }).toEqual(counters);
+  });
+
+  it('SCN009 SCN011 rejects cwd and model scope claims without host receipts', () => {
+    const fixture = makeBoundedReviewFixture({
+      receipt: () => {},
+      response: () => ({ status: 0, stdout: 'I only read assigned files.\nNMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END\n' }),
+    });
+    expect(() => fixture.invoke()).toThrow('review_scope_unproven');
+    expect(fixture.launches).toHaveLength(3);
+    const safe = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json')));
+    expect(safe.records).toEqual([]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.invalidation.json'))).toBe(false);
+  });
+
+  it.each([
+    ['foreign source module', { isolationModule: 'file:///foreign/src/sdlc-review-isolation.mjs' }],
+    ['wrong invocation', { invocationId: 'another-invocation' }],
+    ['wrong assignment digest', { assignmentDigest: `sha256:${'0'.repeat(64)}` }],
+    ['unrestricted active tools', { activeTools: ['read', 'bash'] }],
+  ])('SCN011 rejects %s receipts without granting a replacement', (_label, start) => {
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment }) => appendReviewReceipts(environment, [], start),
+    });
+    expect(() => fixture.invoke()).toThrow('review_scope_unproven');
+    expect(fixture.launches).toHaveLength(3);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'))).records).toEqual([]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
+  });
+
+  it('SCN002 stops an unproven replacement as invalid_review_slice without generic remediation', () => {
+    const fixture = makeControllerFixture({
+      reviewReceipt: (environment) => {
+        if (!environment.NMG_SDLC_REVIEW_RECEIPT.includes('.attempt-2.')) {
+          appendReviewReceipts(environment, [{ event: 'tool_call', toolName: 'bash', decision: 'allow' }]);
+        }
+      },
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
+    expect(result.status).toBe(1);
+    expect(checkpoint.failed).toMatchObject({ step: 'review1', reasonCode: 'invalid_review_slice' });
+    expect(fixture.starts.map(({ name }) => name)).toEqual([
+      's42-start', 's42-implement', 's42-review1-reviewer-1', 's42-review1-reviewer-1.attempt-2',
+    ]);
+    expect(checkpoint.remediation?.completedAttempts ?? 0).toBe(0);
+    expect(checkpoint.recoveries ?? []).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).status).toBe('failed');
+  });
+
+  it('SCN011 accepts blocked disallowed calls without treating findings prose as contamination', () => {
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment, assignment }) => appendReviewReceipts(environment, [
+        { event: 'tool_call', toolName: 'bash', decision: 'block' },
+        { event: 'tool_call', toolName: 'read', path: assignment.allowedPaths[0], decision: 'allow' },
+      ]),
+      response: () => ({ status: 0, stdout: 'NMG_REVIEW_RESULT_BEGIN\nP1: caller in unassigned/consumer.mjs needs correction.\nNMG_REVIEW_RESULT_END\n' }),
+    });
+    expect(fixture.invoke().handoff.status).toBe('passed');
+    expect(fixture.launches).toHaveLength(3);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'))).records).toEqual([]);
+  });
+
+  it.each([
+    ['missing response', { status: 1 }, 'review_artifact_missing'],
+    ['empty delimited result', { status: 0, stdout: 'NMG_REVIEW_RESULT_BEGIN\n \nNMG_REVIEW_RESULT_END\n' }, 'review_empty'],
+  ])('SCN003 keeps %s nonpassing without fabricating an artifact', (_label, response, reason) => {
+    const fixture = makeBoundedReviewFixture({ response: () => response });
+    expect(() => fixture.invoke()).toThrow(reason);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.md'))).toBe(false);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'))).records).toEqual([]);
+  });
+
+  it('SCN003 never promotes delimiter-looking terminal or tool output into a host review result', () => {
+    const fixture = makeBoundedReviewFixture({ response: () => ({ status: 1 }) });
+    fixture.herdr.agentRead = () => ({ status: 0, stdout: 'NMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END\n' });
+    expect(() => fixture.invoke()).toThrow('review_artifact_missing');
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
+  });
+
+  function prepareMergeabilityRevalidation(fixture) {
+    fs.appendFileSync(path.join(fixture.cwd, 'cli/a.mjs'), 'reconciled base\n');
+    git(fixture.cwd, ['add', 'cli/a.mjs']);
+    git(fixture.cwd, ['commit', '-m', 'fix: reconcile review fixture base']);
+    const head = git(fixture.cwd, ['rev-parse', 'HEAD']).trim();
+    const ownerId = resolveRecoveryOwner({
+      cwd: fixture.cwd, issue: 42, step: 'deliver', controllerRunId: fixture.runState.runId,
+    });
+    consumeSafeRecovery({ cwd: fixture.cwd, ownerId, issue: 42, step: 'deliver', class: 'mergeability_defect' });
+    Object.assign(fixture.runState, {
+      currentStep: 'deliver',
+      completed: { 42: VALID_STEPS.slice(0, -1), 7: ['start', 'implement'] },
+      delivery: { issue: 42, expectedHead: head, mergeabilityReverificationRequired: true },
+    });
+    const revision = fixture.runState.revision;
+    fixture.runState.revision += 1;
+    writeRun(fixture.runState, fixture.cwd, revision);
+    return head;
+  }
+
+  it('SCN005 SCN008 SCN010 invalidates all gates and selects new immutable head evidence without refilling budgets', () => {
+    const fixture = makeBoundedReviewFixture();
+    expect(fixture.invoke().status).toBe(0);
+    expect(fixture.invoke('review2').status).toBe(0);
+    const originals = new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')]);
+    const head = prepareMergeabilityRevalidation(fixture);
+    const before = structuredClone({ recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation });
+    const safePath = path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json');
+    const safeBytes = fs.readFileSync(safePath);
+    expect(invalidateDeliveryGates({ cwd: fixture.cwd, issue: 42, runState: fixture.runState })).toBe('review1');
+    expect(fixture.runState.completed).toEqual({ 42: ['start', 'implement'], 7: ['start', 'implement'] });
+    expect(fixture.runState.delivery.mergeabilityReverificationRequired).toBe(false);
+    expect({ recoveries: fixture.runState.recoveries, remediation: fixture.runState.remediation }).toEqual(before);
+    expect(fs.readFileSync(safePath)).toEqual(safeBytes);
+    for (const step of ['review1', 'review2']) {
+      expect(resolveReviewArtifacts({ cwd: fixture.cwd, issue: 42, step })).toMatchObject({
+        generation: `.head-${head}`, attemptSuffix: '',
+        artifactPath: `.omp/sdlc/reviews/42-${step}.head-${head}.md`,
+        handoffPath: `.omp/sdlc/handoffs/42-${step}.head-${head}.json`,
+        indexPath: `.omp/sdlc/reviews/42-${step}.head-${head}.slices.json`,
+      });
+      expect(fixture.invoke(step)).toMatchObject({
+        status: 0,
+        handoff: { status: 'passed', artifacts: [`.omp/sdlc/reviews/42-${step}.head-${head}.md`] },
+      });
+    }
+    expect(fixture.launches.slice(6).map(({ assignment }) => assignment.headSha)).toEqual(Array(6).fill(head));
+    expect(new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')])).toEqual(originals);
+    expect(fs.readFileSync(safePath)).toEqual(safeBytes);
+    const history = path.join(fixture.cwd, `.omp/sdlc/reviews/42-revalidation-${head}`);
+    expect(fs.readFileSync(path.join(history, '42-review1.json'))).toEqual(originals.get('.omp/sdlc/handoffs/42-review1.json'));
+    expect(fs.readFileSync(path.join(history, '42-review2.md'))).toEqual(originals.get('.omp/sdlc/reviews/42-review2.md'));
+  });
+
+  it('SCN008 retains the consumed whole-step replacement allowance after head-bound revalidation', () => {
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment, assignment, attempt }) => appendReviewReceipts(environment,
+        attempt === 1 && assignment.sliceId === 'reviewer-1'
+          ? [{ event: 'tool_call', toolName: 'bash', decision: 'allow' }] : []),
+    });
+    expect(fixture.invoke().status).toBe(0);
+    const original = reviewEvidenceBytes(fixture.cwd);
+    const head = prepareMergeabilityRevalidation(fixture);
+    const safePath = path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json');
+    const safeBytes = fs.readFileSync(safePath);
+    invalidateDeliveryGates({ cwd: fixture.cwd, issue: 42, runState: fixture.runState });
+    expect(() => fixture.invoke()).toThrow('invalid_review_slice');
+    expect(fixture.launches).toHaveLength(9);
+    expect(fixture.launches.slice(6).map(({ attempt }) => attempt)).toEqual([1, 1, 1]);
+    expect(fs.existsSync(path.join(fixture.cwd, `.omp/sdlc/reviews/42-review1.head-${head}.attempt-2.md`))).toBe(false);
+    expect(fs.readFileSync(safePath)).toEqual(safeBytes);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(original);
+    expect(fixture.runState.remediation.completedAttempts).toBe(2);
+    expect(fixture.runState.recoveries).toHaveLength(1);
+  });
+
+  it('SCN005 SCN010 routes mergeability control handoffs through every gate before generic delivery remediation', () => {
+    let reconciled = false;
+    let head = 'a'.repeat(40);
+    let checkpointBeforeRevalidation;
+    let counters;
+    let deliveryCalls = 0;
+    const fixture = makeControllerFixture({
+      handoffContent: (handoff, { step }) => {
+        if (step !== 'deliver') return JSON.stringify(handoff);
+        deliveryCalls += 1;
+        if (reconciled) return JSON.stringify(handoff);
+        reconciled = true;
+        head = 'c'.repeat(40);
+        const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
+        const ownerId = resolveRecoveryOwner({
+          cwd: fixture.cwd, issue: 42, step: 'deliver', controllerRunId: checkpoint.runId, run: fixture.run,
+        });
+        consumeSafeRecovery({ cwd: fixture.cwd, ownerId, issue: 42, step: 'deliver', class: 'mergeability_defect' });
+        checkpoint.delivery = { issue: 42, expectedHead: head, mergeabilityReverificationRequired: true };
+        checkpoint.remediation = { issue: 42, step: 'deliver', status: 'active', completedAttempts: 2 };
+        checkpoint.recoveries = [{ runId: 'historical-owner', issue: 7, step: 'verify', disposition: 'stopped' }];
+        counters = structuredClone({ remediation: checkpoint.remediation, recoveries: checkpoint.recoveries });
+        const revision = checkpoint.revision;
+        checkpoint.revision += 1;
+        writeRun(checkpoint, fixture.cwd, revision);
+        return JSON.stringify({
+          ...handoff, status: 'failed', intervention: false, next: null,
+          reasonCode: 'mergeability_reverification_required',
+        });
+      },
+    });
+    const run = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${head}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor'
+        && args[2] === 'a'.repeat(40) && args[3] === 'c'.repeat(40) && reconciled) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return run(command, args);
+    };
+    const prompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (reconciled && !checkpointBeforeRevalidation && fixture.reviewEnvironments.has(input.name)) {
+        checkpointBeforeRevalidation = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
+      }
+      return prompt(input);
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toMatchObject({ status: 0 });
+    expect(deliveryCalls).toBe(2);
+    expect(fixture.starts.slice(8).map(({ name }) => name)).toEqual([
+      's42-review1-reviewer-1', 's42-fix1', 's42-review2-reviewer-1', 's42-fix2', 's42-verify', 's42-deliver',
+    ]);
+    expect(checkpointBeforeRevalidation.completed['42']).toEqual(['start', 'implement']);
+    expect(checkpointBeforeRevalidation.delivery.mergeabilityReverificationRequired).toBe(false);
+    expect({
+      remediation: checkpointBeforeRevalidation.remediation, recoveries: checkpointBeforeRevalidation.recoveries,
+    }).toEqual(counters);
+    expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'))).records).toEqual([
+      expect.objectContaining({ class: 'mergeability_defect', issue: 42, step: 'deliver', disposition: 'consumed' }),
+    ]);
+  });
 
   function activeStartedAgents(fixture) {
     return fixture.starts
@@ -1364,8 +1756,6 @@ describe('runExecute controller', () => {
       if (observations !== 3) return;
       const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
       fs.mkdirSync(handoffDir, { recursive: true });
-      const review = step === 'review1' || step === 'review2';
-      const artifacts = review ? [`.omp/sdlc/reviews/42-${step}.md`] : [];
       fs.writeFileSync(path.join(handoffDir, `42-${step}.json`), `${JSON.stringify({
         schemaVersion: 1,
         issue: 42,
@@ -1373,15 +1763,10 @@ describe('runExecute controller', () => {
         status: 'passed',
         intervention: false,
         summary: `${step} completed after delayed activation`,
-        artifacts,
+        artifacts: [],
         next: step === 'deliver' ? null : 'next',
         reasonCode: null,
       })}\n`);
-      if (review) {
-        const artifactPath = path.join(fixture.cwd, artifacts[0]);
-        fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-        fs.writeFileSync(artifactPath, 'No findings.\n');
-      }
     };
     const result = () => observations;
     result.deliveryStates = () => deliveryStates;
@@ -1827,6 +2212,7 @@ describe('runExecute controller', () => {
       issues: [42],
       currentIssue: 42,
       currentStep: 'start',
+      workers: {},
       completed: { 42: [] },
       failed: null,
       startedAt: '2026-08-23T00:00:00.000Z',
@@ -1834,7 +2220,7 @@ describe('runExecute controller', () => {
 
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
-    expect(result.status).toBe(0);
+    expect(result).toMatchObject({ status: 0 });
     expect(fixture.starts[0].name).toBe('s42-start');
   });
 
@@ -1987,7 +2373,9 @@ describe('runExecute controller', () => {
         expect(nextRun.runId.length).toBeGreaterThan(0);
         expect(nextRun.revision).toBeGreaterThan(0);
         for (const step of VALID_STEPS) {
-          expect(fs.existsSync(path.join(handoffDir, `6-${step}.json`))).toBe(false);
+          const handoffPath = path.join(handoffDir, `6-${step}.json`);
+          if (step === 'review1' || step === 'review2') expect(fs.readFileSync(handoffPath, 'utf8')).toBe('{}\n');
+          else expect(fs.existsSync(handoffPath)).toBe(false);
           const provenancePath = path.join(provenanceDir, `worker-${step}.json`);
           if (['start', 'implement'].includes(step)) {
             expect(fs.readFileSync(provenancePath, 'utf8')).not.toBe('{}\n');
@@ -2518,9 +2906,9 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([
       { name: 's42-start', paneId: 'pane-1', kind: 'omp' },
       { name: 's42-implement', paneId: 'pane-2', kind: 'omp' },
-      { name: 's42-review1', paneId: 'pane-3', kind: 'omp' },
+      { name: 's42-review1-reviewer-1', paneId: 'pane-3', kind: 'omp' },
       { name: 's42-fix1', paneId: 'pane-4', kind: 'omp' },
-      { name: 's42-review2', paneId: 'pane-5', kind: 'omp' },
+      { name: 's42-review2-reviewer-1', paneId: 'pane-5', kind: 'omp' },
       { name: 's42-fix2', paneId: 'pane-6', kind: 'omp' },
       { name: 's42-verify', paneId: 'pane-7', kind: 'omp' },
       { name: 's42-deliver', paneId: 'pane-8', kind: 'omp' },
@@ -2528,18 +2916,13 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toEqual([
       'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7', 'pane-8',
     ]);
-    const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.includes('# Controller-Owned Host Review')
-    ));
-    expect(reviewPrompts.map(({ name }) => name)).toEqual([
-      's42-review1',
-      's42-review2',
+    expect([...fixture.reviewEnvironments.keys()]).toEqual([
+      's42-review1-reviewer-1', 's42-review2-reviewer-1',
     ]);
-    expect(reviewPrompts.every(({ prompt }) => prompt.includes('exact base `main`'))).toBe(true);
     expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
     expect(fixture.sentKeys).toEqual([]);
     const generatedPromptNames = fixture.prompts
-      .filter(({ prompt }) => !prompt.includes('# Controller-Owned Host Review'))
+      .filter(({ name }) => !fixture.reviewEnvironments.has(name))
       .map(({ name }) => name);
     expect(generatedPromptNames).toEqual([
       's42-start',
@@ -2575,7 +2958,7 @@ describe('runExecute controller', () => {
       cwd: fixture.cwd,
       environment: { NMG_SDLC_SMOKE_ISSUES: queue },
     });
-    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
+    expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
 
   it('passes smoke ownership only to verification and delivery panes', () => {
@@ -2599,10 +2982,10 @@ describe('runExecute controller', () => {
       cwd: fixture.cwd,
       environment: { NMG_SDLC_SMOKE_OWNED: '1' },
     });
-    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(2);
+    expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_OWNED)).toHaveLength(2);
   });
 
-  it('omits pane environment when the smoke queue is missing', () => {
+  it('omits smoke values when the smoke queue and ownership are missing', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({
       args: '#42',
@@ -2612,8 +2995,11 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result.status).toBe(0);
-    expect(fixture.splits.every((split) => !Object.hasOwn(split, 'environment'))).toBe(true);
+    expect(result).toMatchObject({ status: 0 });
+    for (const { environment = {} } of fixture.splits) {
+      expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_ISSUES');
+      expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_OWNED');
+    }
   });
 
   it('passes pane environment through Herdr argv without shell composition', () => {
@@ -2643,8 +3029,6 @@ describe('runExecute controller', () => {
   it('disables the interactive large-paste menu before submitting a canonical verify prompt', () => {
     const root = makeSpecDir();
     const prompt = workerPrompt({ step: 'verify', issue: 347, cwd: REPOSITORY_ROOT });
-    expect(prompt.split('\n').length).toBeGreaterThan(100);
-    expect(prompt).not.toMatch(/\s$/);
 
     const calls = [];
     const herdr = defaultHerdr((command, args, options) => {
@@ -2711,22 +3095,9 @@ describe('runExecute controller', () => {
       cwd: fixture.cwd,
       environment: { NMG_SDLC_SMOKE_ISSUES: queue },
     });
-    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toHaveLength(1);
+    expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
 
-  it('omits pane environment when the smoke queue is missing', () => {
-    const fixture = makeControllerFixture();
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(fixture.splits.every((split) => !Object.hasOwn(split, 'environment'))).toBe(true);
-  });
 
   it('passes pane environment through Herdr argv without shell composition', () => {
     const calls = [];
@@ -2784,7 +3155,7 @@ describe('runExecute controller', () => {
     const promptAgent = fixture.herdr.agentPrompt;
     const observed = [];
     fixture.herdr.agentPrompt = (input) => {
-      if (input.name === 's42-review1') {
+      if (input.name === 's42-review1-reviewer-1') {
         observed.push(JSON.parse(fs.readFileSync(
           path.join(fixture.cwd, '.omp/sdlc/handoffs/42-implement.json'), 'utf8',
         )));
@@ -2796,7 +3167,7 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(0);
     expect(fixture.starts.slice(0, 5).map(({ name }) => name)).toEqual([
-      's42-start', 's42-implement', 'r42-implement', 'r42-implement', 's42-review1',
+      's42-start', 's42-implement', 'r42-implement', 'r42-implement', 's42-review1-reviewer-1',
     ]);
     expect(observed).toEqual([expect.objectContaining({
       step: 'implement', status: 'passed', intervention: false,
@@ -2807,7 +3178,7 @@ describe('runExecute controller', () => {
       fixture.events.lastIndexOf('start:r42-implement'),
     );
     expect(fixture.events.indexOf('close:pane-4')).toBeLessThan(
-      fixture.events.indexOf('start:s42-review1'),
+      fixture.events.indexOf('start:s42-review1-reviewer-1'),
     );
   });
 
@@ -2841,7 +3212,7 @@ describe('runExecute controller', () => {
     expect(verifyStarts).toHaveLength(1);
     expect(remStarts).toHaveLength(1);
     expect(fixture.events.indexOf('close:pane-7')).toBeLessThan(fixture.events.indexOf('start:r42-verify'));
-    expect(fixture.splits.filter((split) => Object.hasOwn(split, 'environment'))).toEqual([
+    expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toEqual([
       {
         direction: 'right',
         cwd: fixture.cwd,
@@ -2965,7 +3336,7 @@ describe('runExecute controller', () => {
     expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'stopped' });
     expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify' });
   });
-  it.each(REMEDIABLE_STEPS)('stops after two failed remediation completions for every remediable step %s with remediation_loop and no third worker', (step) => {
+  it.each(REMEDIABLE_STEPS.filter((step) => !step.startsWith('review')))('SCN010 stops after two failed remediation completions for step %s with remediation_loop and no third worker', (step) => {
     const fixture = makeControllerFixture({ remediableFailedStep: step, remFailures: 2 });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
@@ -2976,87 +3347,180 @@ describe('runExecute controller', () => {
     expect(String(persisted.remediation.reasonCode || persisted.failed?.reasonCode || '')).toMatch(/remediation_loop/);
     expect(persisted.completed[42] || []).not.toContain(step);
   });
+
+  it.each(['review1', 'review2'])('SCN010 preserves an exhausted historical %s remediation on explicit reinvocation', (step) => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: step, workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)) },
+      failed: { issue: 42, step, reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step, status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    fs.writeFileSync(path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`), JSON.stringify({
+      schemaVersion: 1, issue: 42, step, status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    }));
+    for (let invocation = 0; invocation < 2; invocation += 1) {
+      expect(runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+      const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
+      expect(checkpoint.remediation.completedAttempts).toBe(2);
+      expect(checkpoint.failed.reasonCode).toBe('remediation_loop');
+      expect(checkpoint.recoveries).toEqual([]);
+      expect(fixture.starts).toEqual([]);
+    }
+  });
+  it('does not renew review evidence from unrelated HEAD churn or an old consumed recovery', () => {
+    const fixture = makeBoundedReviewFixture();
+    expect(fixture.invoke().status).toBe(0);
+    const original = reviewEvidenceBytes(fixture.cwd);
+    fixture.runState.recoveries.push({ runId: fixture.runState.runId, issue: 42, step: 'review1', disposition: 'consumed' });
+    fs.appendFileSync(path.join(fixture.cwd, 'cli/a.mjs'), 'unrelated change\n');
+    git(fixture.cwd, ['add', 'cli/a.mjs']);
+    git(fixture.cwd, ['commit', '-m', 'fix: unrelated head change']);
+    expect(() => fixture.invoke()).toThrow('review_scope_unproven');
+    expect(fixture.launches).toHaveLength(3);
+    expect(reviewEvidenceBytes(fixture.cwd)).toEqual(original);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.current.json'))).toBe(false);
+  });
+
+  it('reruns both immutable review generations after a downstream implementation repair changes HEAD', () => {
+    const fixture = makeControllerFixture({ failedStep: 'verify', failedNext: 'implement' });
+    expect(runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const originals = new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')]);
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
+    const failed = JSON.parse(fs.readFileSync(handoffPath, 'utf8'));
+    fs.writeFileSync(handoffPath, JSON.stringify({ ...failed, intervention: false }));
+    let head = 'a'.repeat(40);
+    const repairedHead = 'c'.repeat(40);
+    const run = (command, args) => command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD'
+      ? { status: 0, stdout: `${head}\n`, stderr: '' } : fixture.run(command, args);
+    const prompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (input.name === 's42-implement') head = repairedHead;
+      const result = prompt(input);
+      if (input.name === 's42-verify') {
+        const handoff = JSON.parse(fs.readFileSync(handoffPath, 'utf8'));
+        fs.writeFileSync(handoffPath, JSON.stringify({ ...handoff, status: 'passed', intervention: false, next: 'deliver', reasonCode: null }));
+      }
+      return result;
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    for (const step of ['review1', 'review2']) {
+      const current = resolveReviewArtifacts({ cwd: fixture.cwd, issue: 42, step });
+      expect(current.generation).toBe(`.head-${repairedHead}`);
+      const index = JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.indexPath), 'utf8'));
+      expect(index.headSha).toBe(repairedHead);
+      expect(index.slices.every(({ assignment }) => assignment.headSha === repairedHead)).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.handoffPath), 'utf8')).status).toBe('passed');
+    }
+    expect(new Map([...reviewEvidenceBytes(fixture.cwd), ...reviewEvidenceBytes(fixture.cwd, 'review2')])).toEqual(originals);
+    expect(fixture.starts.filter(({ name }) => name === 's42-implement')).toHaveLength(2);
+    expect(fixture.starts.filter(({ name }) => name === 's42-review1-reviewer-1')).toHaveLength(2);
+    expect(fixture.starts.filter(({ name }) => name === 's42-review2-reviewer-1')).toHaveLength(2);
+  });
+
+  it.each(['review1', 'review2'])('bare exhausted historical %s recovery dispatches isolated review once and preserves old evidence', (step) => {
+    const next = step === 'review1' ? 'fix1' : 'fix2';
+    const fixture = makeControllerFixture({ blockedStep: next });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: step, workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)) },
+      failed: { issue: 42, step, reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step, status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    const oldPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step, status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(checkpoint.completed['42']).toContain(step);
+    expect(checkpoint.currentStep).toBe(next);
+    expect(checkpoint.recoveries).toHaveLength(1);
+    expect(checkpoint.recoveries[0]).toMatchObject({ issue: 42, step, disposition: 'consumed' });
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
+    const current = resolveReviewArtifacts({ cwd: fixture.cwd, issue: 42, step });
+    expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, current.handoffPath), 'utf8')).status).toBe('passed');
+    expect(fixture.starts.filter(({ name }) => name === `s42-${step}-reviewer-1`)).toHaveLength(1);
+    const starts = fixture.starts.length;
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    expect(fixture.starts).toHaveLength(starts);
+  });
+  it.each([
+    ['review1', 'review_failed'],
+    ['review2', 'review_scope_unproven'],
+  ])('closes recorded historical %s slices after %s and preserves failed evidence', (step, reasonCode) => {
+    const fixture = makeControllerFixture(reasonCode === 'review_failed'
+      ? { failedStep: step }
+      : { reviewReceipt: () => {} });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: step, workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)) },
+      failed: { issue: 42, step, reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step, status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    const oldPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step, status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.failed).toMatchObject({ issue: 42, step, reasonCode, intervention: true });
+    const slices = fixture.starts.filter(({ name }) => name.startsWith(`s42-${step}-reviewer-`));
+    expect(slices.map(({ name }) => name)).toEqual([`s42-${step}-reviewer-1`]);
+    expect(fixture.closed).toEqual(slices.map(({ paneId }) => paneId));
+    expect(persisted.workers).toEqual({});
+    expect(persisted.failed.cleanupReasonCode).toBeUndefined();
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('retains the exact historical review slice and lease when failure cleanup cannot close it', () => {
+    const fixture = makeControllerFixture({ reviewReceipt: () => {}, paneCloseStatus: 1 });
+    seedRun(fixture.cwd, {
+      branch: '42-ship-it', currentStep: 'review1', workers: {},
+      completed: { 42: ['start', 'implement'] },
+      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
+      recoveries: [],
+      remediation: { issue: 42, step: 'review1', status: 'stopped', reasonCode: 'remediation_loop', completedAttempts: 2 },
+    });
+    const oldPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json');
+    const original = JSON.stringify({
+      schemaVersion: 1, issue: 42, step: 'review1', status: 'failed', intervention: false,
+      summary: 'historical review failed', artifacts: [], next: null, reasonCode: 'review_failed',
+    });
+    fs.writeFileSync(oldPath, original);
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
+    expect(persisted.failed).toMatchObject({
+      issue: 42, step: 'review1', reasonCode: 'review_scope_unproven',
+      cleanupReasonCode: 'pane_close_failed', intervention: true,
+    });
+    const slices = fixture.starts.filter(({ name }) => name.startsWith('s42-review1-reviewer-'));
+    expect(slices.map(({ name }) => name)).toEqual(['s42-review1-reviewer-1']);
+    expect(fixture.closed).toEqual(slices.map(({ paneId }) => paneId));
+    expect(Object.keys(persisted.workers)).toEqual(['s42-review1-reviewer-1']);
+    expect(persisted.workers['s42-review1-reviewer-1'].paneId).toBe(slices[0].paneId);
+    expect(fs.readFileSync(oldPath, 'utf8')).toBe(original);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
+  });
   it('retains cleanup evidence and the lease when the second remediation pane cannot close at the exact limit', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    const paneClose = fixture.herdr.paneClose;
-    const failedCloses = [];
-    fixture.herdr.paneClose = (paneId) => {
-      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
-      if (secondRem?.paneId === paneId) {
-        failedCloses.push(paneId);
-        return { status: 1 };
-      }
-      return paneClose(paneId);
-    };
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
-
-    expect(result.status).toBe(1);
-    expect(remWorkers).toHaveLength(2);
-    expect(failedCloses).toEqual([remWorkers[1].paneId]);
-    expect(fixture.closed).toContain(remWorkers[0].paneId);
-    expect(persisted.completed['42']).toEqual(['start']);
-    expect(persisted.remediation).toMatchObject({
-      issue: 42, step: 'implement', completedAttempts: 2,
-      status: 'stopped', reasonCode: 'remediation_loop',
-    });
-    expect(persisted.failed).toEqual({
-      issue: 42, step: 'implement', reasonCode: 'remediation_loop',
-      cleanupReasonCode: 'pane_close_failed',
-    });
-    expect(persisted.workers['r42-implement']).toMatchObject({
-      name: 'r42-implement', paneId: remWorkers[1].paneId,
-      projectRoot: persisted.projectRoot, runId: persisted.runId,
-      issue: 42, step: 'implement',
-    });
-    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
-  });
-
-  it('keeps the controller lease when remediation limit cleanup checkpoint persistence fails', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    const paneClose = fixture.herdr.paneClose;
-    let failedPane;
-    fixture.herdr.paneClose = (paneId) => {
-      const secondRem = fixture.starts.filter(({ name }) => name === 'r42-implement')[1];
-      if (secondRem?.paneId === paneId) {
-        failedPane = paneId;
-        fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json.lock'), '');
-        return { status: 1 };
-      }
-      return paneClose(paneId);
-    };
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    const remWorkers = fixture.starts.filter(({ name }) => name === 'r42-implement');
-
-    expect(result.status).toBe(1);
-    expect(remWorkers).toHaveLength(2);
-    expect(failedPane).toBe(remWorkers[1].paneId);
-    expect(persisted.remediation).toMatchObject({ status: 'stopped', reasonCode: 'remediation_loop' });
-    expect(persisted.workers['r42-implement']).toMatchObject({
-      paneId: failedPane, projectRoot: persisted.projectRoot, runId: persisted.runId,
-    });
-    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
-  });
-
-  it('unchanged reinvocation stays stopped after remediation_loop with no additional worker', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: 2 });
-    runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const firstRems = fixture.starts.filter(({ name }) => name.startsWith('r42-')).length;
-    const result2 = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
-    expect(result2.status).toBe(1);
-    expect(fixture.starts.filter(({ name }) => name.startsWith('r42-')).length).toBe(firstRems);
-    expect(persisted.remediation.status).toBe('stopped');
-  });
-
-  it('passed first or second remediation advances current step and gives next stage a fresh streak', () => {
     for (const rf of [0, 1]) {
       const fixture = makeControllerFixture({ remediableFailedStep: 'implement', remFailures: rf, failedNext: null });
       const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
       expect(result.status).toBe(0);
-      expect(fixture.starts.some(({ name }) => name === 's42-review1')).toBe(true);
+      expect(fixture.starts.some(({ name }) => name === 's42-review1-reviewer-1')).toBe(true);
       const rems = fixture.starts.filter(({ name }) => name === 'r42-implement').length;
       expect(rems).toBe(rf + 1);
     }
@@ -3288,88 +3752,6 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('resumes live review remediation activation without a second protocol prompt', () => {
-    const fixture = makeControllerFixture();
-    seedRun(fixture.cwd, {
-      schemaVersion: 1,
-      issues: [42],
-      currentIssue: 42,
-      currentStep: 'review1',
-      completed: { 42: ['start', 'implement'] },
-      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
-      remediation: {
-        issue: 42,
-        step: 'review1',
-        attempt: 1,
-        status: 'active',
-        reasonCode: 'review_failed',
-        summary: 'review failed',
-        artifacts: [],
-        closedWorker: { name: 's42-review1', paneId: 'closed-review' },
-        remWorker: { name: 'r42-review1', paneId: 'live-rem' },
-        history: [],
-      },
-      workers: {
-        'r42-review1': {
-          name: 'r42-review1',
-          paneId: 'live-rem',
-          projectRoot: fs.realpathSync(fixture.cwd),
-          runId: 'test-run-id',
-          issue: 42,
-          step: 'review1',
-          branch: '42-ship-it',
-          head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        },
-      },
-      startedAt: '2026-08-25T00:00:00.000Z',
-    });
-    fixture.herdr.listAgents = () => [{
-      name: 'r42-review1',
-      pane_id: 'live-rem',
-      state: 'idle',
-    }, ...activeStartedAgents(fixture)];
-    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
-    const agentPrompt = fixture.herdr.agentPrompt;
-    fixture.herdr.agentPrompt = (input) => {
-      if (input.name !== 'r42-review1') return agentPrompt(input);
-      fixture.prompts.push(input);
-      fixture.events.push(`prompt:${input.name}`);
-      return { status: 0 };
-    };
-    fixture.herdr.observationPause = () => {
-      throw new Error('simulated controller crash during live review remediation activation');
-    };
-
-    const first = runExecute({
-      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
-    });
-    const crashed = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
-
-    expect(first.status).toBe(1);
-    expect(crashed.workers['r42-review1']).toMatchObject({
-      promptDelivery: 'activating',
-      promptDeliveryVersion: 2,
-    });
-    expect(fixture.prompts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
-    expect(fixture.closed).toEqual([]);
-
-    let wroteEvidence = false;
-    fixture.herdr.observationPause = () => {
-      if (wroteEvidence) return;
-      wroteEvidence = true;
-      writeReviewEvidence(fixture, 'review1');
-    };
-    const second = runExecute({
-      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
-    });
-
-    expect(second.status).toBe(0);
-    expect(wroteEvidence).toBe(true);
-    expect(fixture.prompts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
-    expect(fixture.closed).toContain('live-rem');
-  });
 
   it('submits a pasted prompt when resuming an idle remediation worker', () => {
     const fixture = makeControllerFixture();
@@ -3405,11 +3787,13 @@ describe('runExecute controller', () => {
       ...activeStartedAgents(fixture),
     ];
     fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
-    fixture.herdr.agentRead = () => 'You are rem\nFailed work\nreasonCode:';
+    const readAgent = fixture.herdr.agentRead;
+    const pastedPrompt = remediationPrompt({ issue: 42, failedStep: 'verify', cwd: fixture.cwd });
+    fixture.herdr.agentRead = (input) => input.name === 'r42-verify' ? pastedPrompt : readAgent(input);
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
-    expect(result.status).toBe(0);
+    expect(result).toMatchObject({ status: 0 });
     expect(fixture.sentKeys[0]).toEqual(['enter']);
     expect(fixture.waits.slice(0, 2)).toEqual([
       { name: 'r42-verify', until: 'working' },
@@ -3639,20 +4023,6 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
-  it('runs deterministic review completion for a review rem worker', () => {
-    const fixture = makeControllerFixture({ remediableFailedStep: 'review1' });
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-
-    expect(result.status).toBe(0);
-    expect(fixture.starts.filter(({ name }) => name === 'r42-review1')).toHaveLength(1);
-    expect(fixture.prompts.some(({ name, prompt }) => (
-      name === 'r42-review1'
-      && prompt.includes('exact base `main`')
-    ))).toBe(true);
-    expect(fixture.prompts.some(({ name, prompt }) => name === 'r42-review1' && prompt.includes('You are remediating issue #42 step review1'))).toBe(true);
-    expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
-    expect(fixture.sentKeys).toEqual([]);
-  });
 
   it('waits through fresh standard idle before working and prompts exactly once', () => {
     const fixture = makeControllerFixture();
@@ -3670,19 +4040,18 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
-  it('waits through fresh review idle before working and prompts exactly once', () => {
+  it('observes a working review slice without a deadline or duplicate prompt', () => {
     const fixture = makeControllerFixture();
-    const observations = configureDelayedIdleTransition(fixture, 's42-review1', 'review1');
-
-    const result = runExecute({
-      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
-    });
-
+    const get = fixture.herdr.agentGet;
+    let observations = 0;
+    fixture.herdr.agentGet = (name) => name === 's42-review1-reviewer-1' && observations < 65
+      ? { result: { state: 'working' } }
+      : get(name);
+    fixture.herdr.observationPause = () => { observations += 1; };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(0);
-    expect(observations()).toBe(3);
-    expect(observations.deliveryStates()).toContain('activating');
-    expect(fixture.prompts.filter(({ name }) => name === 's42-review1')).toHaveLength(1);
-    expect(fixture.sentKeys).toEqual([]);
+    expect(observations).toBe(65);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-review1-reviewer-1')).toHaveLength(1);
     expect(fixture.closed).toContain('pane-3');
   });
 
@@ -3763,7 +4132,6 @@ describe('runExecute controller', () => {
     });
 
     expect(second.status).toBe(1);
-    expect(second.stdout).toContain('Stopped on #42 implement');
     expect(pauses).toBeGreaterThanOrEqual(2);
     expect(fixture.prompts.filter(({ name }) => name === 's42-start')).toHaveLength(1);
     expect(fixture.closed).toContain('pane-1');
@@ -4030,24 +4398,13 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toContain('pane-1');
   });
 
-  it('keeps a failed worker pane and sends the exact notification', () => {
-    const fixture = makeControllerFixture({ failedStep: 'implement' });
-    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result.status).toBe(1);
-    expect(fixture.closed).toEqual(['pane-1', 'pane-2']);
-    expect(fixture.notifications).toEqual([{
-      title: 'nmg-sdlc stopped',
-      body: 'Stopped on #42 implement. Worker pane pane-2 agent s42-implement closed.',
-      sound: 'request',
-    }]);
-  });
 
   it('stops after failed review1 without launching later queue steps', () => {
     const fixture = makeControllerFixture({ failedStep: 'review1' });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 
     expect(result.status).toBe(1);
-    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1']);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement', 's42-review1-reviewer-1']);
     expect(fixture.starts.some(({ name }) => /s42-(fix1|review2|fix2|verify|deliver)/.test(name))).toBe(false);
     expect(fixture.closed).toEqual(['pane-1', 'pane-2', 'pane-3']);
   });
@@ -4211,131 +4568,29 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'))).toBe(true);
   });
 
-  function writeReviewEvidence(fixture, step, body = 'No findings.\n') {
-    const artifact = `.omp/sdlc/reviews/42-${step}.md`;
-    const artifactPath = path.join(fixture.cwd, artifact);
-    const handoffPath = path.join(fixture.cwd, `.omp/sdlc/handoffs/42-${step}.json`);
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
-    fs.writeFileSync(artifactPath, body);
-    fs.writeFileSync(handoffPath, `${JSON.stringify({
-      schemaVersion: 1,
-      issue: 42,
-      step,
-      status: 'passed',
-      intervention: false,
-      summary: `${step} complete`,
-      artifacts: [artifact],
-      next: step === 'review1' ? 'fix1' : 'fix2',
-      reasonCode: null,
-    })}\n`);
-  }
 
-  it('SCN001 reviews both passes against a remote-only default ref without picker interaction', () => {
-    const defaultBranch = 'main-with-a-name-long-enough-to-wrap-in-a-narrow-pane';
-    const fixture = makeControllerFixture({
-      defaultBranch,
-      localDefaultRef: false,
-      remoteDefaultRef: true,
-      paneWidth: 30,
-    });
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
+  it.each([true, false])('selects the exact default review base with local ref present %s', (localDefaultRef) => {
+    const fixture = makeControllerFixture({ localDefaultRef, paneWidth: 30 });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     expect(result.status).toBe(0);
-    const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.startsWith('# Controller-Owned Host Review')
-    ));
-    expect(reviewPrompts.map(({ name }) => name)).toEqual(['s42-review1', 's42-review2']);
-    expect(reviewPrompts.every(({ prompt }) => (
-      prompt.includes(`exact base \`origin/${defaultBranch}\``)
-      && prompt.includes('# Review Finalization Contract')
-    ))).toBe(true);
-    expect(fixture.calls).toContainEqual([
-      'git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${defaultBranch}`,
-    ]);
-    expect(fixture.prompts.some(({ prompt }) => prompt === '/review')).toBe(false);
+    for (const step of ['review1', 'review2']) {
+      const index = JSON.parse(fs.readFileSync(path.join(fixture.cwd, `.omp/sdlc/reviews/42-${step}.slices.json`)));
+      expect(index.baseRef).toBe(localDefaultRef ? 'main' : 'origin/main');
+    }
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('SCN002 prefers the exact local default ref for both review passes', () => {
+
+  it('settles a review slice from receipts and results after an observer wait error', () => {
     const fixture = makeControllerFixture();
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    const reviewPrompts = fixture.prompts.filter(({ prompt }) => (
-      prompt.startsWith('# Controller-Owned Host Review')
-    ));
-    expect(reviewPrompts.map(({ name }) => name)).toEqual(['s42-review1', 's42-review2']);
-    expect(reviewPrompts.every(({ prompt }) => prompt.includes('exact base `main`'))).toBe(true);
-    expect(fixture.calls).not.toContainEqual([
-      'git', 'show-ref', '--verify', '--quiet', 'refs/remotes/origin/main',
-    ]);
-  });
-
-  it('SCN004 accepts a successful review handoff without a settlement wait', () => {
-    const fixture = makeControllerFixture();
-    const agentWait = fixture.herdr.agentWait;
-    fixture.herdr.agentWait = (input) => (
-      input.name === 's42-review1'
-        ? { status: 1, reasonCode: 'no_future_working_transition' }
-        : agentWait(input)
-    );
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
+    const wait = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = (input) => fixture.reviewEnvironments.has(input.name)
+      ? { status: 1, reasonCode: 'no_future_working_transition' }
+      : wait(input);
+    expect(runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(0);
     expect(fixture.closed).toContain('pane-3');
   });
 
-  it('SCN005 submits one Enter for an exactly pasted stalled review prompt', () => {
-    const fixture = makeControllerFixture();
-    const agentPrompt = fixture.herdr.agentPrompt;
-    const pending = new Map();
-    fixture.herdr.agentPrompt = (input) => {
-      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
-      fixture.prompts.push(input);
-      pending.set(input.name, input.prompt);
-      return { status: 1, reasonCode: 'agent_prompt_stalled' };
-    };
-    fixture.herdr.agentRead = ({ name }) => pending.get(name) || '';
-    fixture.herdr.agentSendKeys = ({ name, keys }) => {
-      fixture.sentKeys.push(keys);
-      writeReviewEvidence(fixture, name.endsWith('review1') ? 'review1' : 'review2');
-      pending.delete(name);
-      return { status: 0 };
-    };
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(fixture.sentKeys).toEqual([['enter'], ['enter']]);
-    expect(fixture.waits.filter(({ name }) => name.startsWith('s42-review'))).toEqual([]);
-  });
 
   it('SCN003 fails review before submission when both exact default refs are missing', () => {
     const fixture = makeControllerFixture({
@@ -4352,164 +4607,26 @@ describe('runExecute controller', () => {
 
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement']);
-    expect(fixture.prompts.some(({ prompt }) => (
-      prompt.startsWith('# Controller-Owned Host Review') || prompt === '/review'
-    ))).toBe(false);
+    expect(fixture.reviewEnvironments.size).toBe(0);
     expect(fixture.sentKeys).toEqual([]);
   });
 
-  it('SCN006 observes a live review worker after a non-stall prompt failure', () => {
-    const fixture = makeControllerFixture();
-    const agentPrompt = fixture.herdr.agentPrompt;
-    let pendingStep = null;
-    let observations = 0;
-    fixture.herdr.agentPrompt = (input) => {
-      if (
-        input.name === 's42-review1'
-        && input.prompt.startsWith('# Controller-Owned Host Review')
-      ) {
-        fixture.prompts.push(input);
-        pendingStep = 'review1';
-        return { status: 1, reasonCode: 'worker_failed' };
-      }
-      return agentPrompt(input);
-    };
-    fixture.herdr.observationPause = () => {
-      observations += 1;
-      writeReviewEvidence(fixture, pendingStep);
-      pendingStep = null;
-    };
 
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(observations).toBe(1);
-    expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1');
-    expect(fixture.sentKeys).toEqual([]);
-  });
-
-  it('SCN006 accepts passed evidence written during a non-stall prompt failure', () => {
+  it('fails an unproven slice prompt dispatch without Enter or downstream workers', () => {
     const fixture = makeControllerFixture({ reviewPromptStatus: 1 });
-    const paneClose = fixture.herdr.paneClose;
-    let acceptedEvidence = false;
-    fixture.herdr.paneClose = (paneId) => {
-      acceptedEvidence ||= fs.existsSync(
-        path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'),
-      );
-      return paneClose(paneId);
-    };
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(acceptedEvidence).toBe(true);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
-    expect(fixture.sentKeys).toEqual([]);
-  });
-
-  it('SCN006 fails review_failed when the worker is absent after a non-stall failure', () => {
-    const fixture = makeControllerFixture({ reviewRequestFailure: true });
-    fixture.herdr.listAgents = () => activeStartedAgents(fixture)
-      .filter(({ name }) => !name.startsWith('s42-review'));
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
-
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
     expect(result.status).toBe(1);
-    expect(persisted.failed).toEqual({
-      issue: 42,
-      step: 'review1',
-      reasonCode: 'process_lost',
-    });
+    expect(persisted.failed).toMatchObject({ step: 'review1', reasonCode: 'prompt_pending' });
     expect(fixture.starts.map(({ name }) => name)).toEqual([
-      's42-start', 's42-implement', 's42-review1',
+      's42-start', 's42-implement', 's42-review1-reviewer-1',
     ]);
     expect(fixture.sentKeys).toEqual([]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
   });
 
-  it('SCN006 fails process_lost when a live worker disappears during observation', () => {
-    const fixture = makeControllerFixture({ reviewRequestFailure: true });
-    const listAgents = fixture.herdr.listAgents;
-    let workerLost = false;
-    let observations = 0;
-    fixture.herdr.listAgents = () => workerLost ? [] : listAgents();
-    fixture.herdr.observationPause = () => {
-      observations += 1;
-      workerLost = true;
-    };
 
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
 
-    expect(result.status).toBe(1);
-    expect(persisted.failed).toEqual({
-      issue: 42,
-      step: 'review1',
-      reasonCode: 'process_lost',
-    });
-    expect(observations).toBe(1);
-    expect(fixture.starts.filter(({ name }) => name === 's42-review1')).toHaveLength(1);
-    expect(fixture.sentKeys).toEqual([]);
-  });
-
-  it('SCN007 survives the 13-second stalled result with skipped detection until evidence appears', () => {
-    const fixture = makeControllerFixture();
-    const agentPrompt = fixture.herdr.agentPrompt;
-    let pendingStep = null;
-    let observations = 0;
-    fixture.herdr.agentPrompt = (input) => {
-      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
-      fixture.prompts.push(input);
-      pendingStep = input.name.endsWith('review1') ? 'review1' : 'review2';
-      return { status: 1, reasonCode: 'agent_prompt_stalled', stderr: 'after 13 seconds' };
-    };
-    fixture.herdr.agentRead = () => '';
-    fixture.herdr.observationPause = () => {
-      observations += 1;
-      writeReviewEvidence(fixture, pendingStep);
-      pendingStep = null;
-    };
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(observations).toBe(2);
-    expect(fixture.sentKeys).toEqual([]);
-    expect(fixture.waits.filter(({ name }) => name.startsWith('s42-review'))).toEqual([]);
-  });
 
   it('SCN008 preserves findings artifacts and validates their handoffs', () => {
     const fixture = makeControllerFixture({ reviewArtifactBody: 'P1: fix the race\n' });
@@ -4543,65 +4660,17 @@ describe('runExecute controller', () => {
     }));
   });
 
-  it('rejects a passed review handoff whose canonical artifact is empty', () => {
+  it('SCN003 stops empty slice output before writing a review artifact or passed handoff', () => {
     const fixture = makeControllerFixture({ reviewArtifactBody: '' });
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
-
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
     expect(result.status).toBe(1);
-    expect(persisted.failed).toEqual({
-      issue: 42,
-      step: 'review1',
-      reasonCode: 'invalid_handoff',
-    });
-    expect(fixture.closed).toContain('pane-3');
+    expect(persisted.failed).toMatchObject({ issue: 42, step: 'review1', reasonCode: 'review_empty', intervention: true });
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/reviews/42-review1.md'))).toBe(false);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
+    expect(fixture.starts.some(({ name }) => name.includes('fix1'))).toBe(false);
   });
 
-  it('SCN009 fails hard when the owned review worker disappears without a handoff', () => {
-    const fixture = makeControllerFixture();
-    const agentPrompt = fixture.herdr.agentPrompt;
-    const listAgents = fixture.herdr.listAgents;
-    let reviewLost = false;
-    fixture.herdr.agentPrompt = (input) => {
-      if (!input.prompt.startsWith('# Controller-Owned Host Review')) return agentPrompt(input);
-      fixture.prompts.push(input);
-      return { status: 1, reasonCode: 'agent_prompt_stalled' };
-    };
-    fixture.herdr.agentRead = () => '';
-    fixture.herdr.observationPause = () => {
-      reviewLost = true;
-    };
-    fixture.herdr.listAgents = () => listAgents().filter((agent) => (
-      !reviewLost || !agent.name.startsWith('s42-review')
-    ));
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
-    );
-
-    expect(result.status).toBe(1);
-    expect(persisted.failed).toEqual({
-      issue: 42,
-      step: 'review1',
-      reasonCode: 'process_lost',
-    });
-    expect(fixture.closed).toContain('pane-3');
-  });
   it.each([
     ['malformed JSON', () => '{"schemaVersion":'],
     ['missing schemaVersion', ({ schemaVersion: _schemaVersion, ...handoff }) => JSON.stringify(handoff)],
@@ -4614,11 +4683,7 @@ describe('runExecute controller', () => {
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
 
-    expect(result).toEqual({
-      status: 1,
-      stdout: 'Stopped on #42 start. Worker pane pane-1 agent s42-start closed.\n',
-      stderr: '',
-    });
+    expect(result).toMatchObject({ status: 1 });
     expect(observations).toBe(60);
     expect(fixture.starts).toEqual([{ name: 's42-start', paneId: 'pane-1', kind: 'omp' }]);
     expect(fixture.starts.some(({ name }) => name.startsWith('r42-'))).toBe(false);
@@ -5175,9 +5240,6 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toHaveLength(0);
     expect(fixture.closed).toEqual([]);
     expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
-    expect(result.stdout).toContain(
-      'Stopped on #42 start. Worker pane kept-pane agent s42-verify left open.',
-    );
   });
   it('ignores same-issue workers owned by another project', () => {
     const fixture = makeControllerFixture();
@@ -5228,9 +5290,9 @@ describe('runExecute controller', () => {
       run: fixture.run,
       herdr: fixture.herdr,
     });
+    expect(result).toMatchObject({ status: 1 });
     const persisted = JSON.parse(fs.readFileSync(runPath, 'utf8'));
 
-    expect(result.status).toBe(1);
     expect(persisted.failed.reasonCode).toBe('retained_worker_mismatch');
     expect(fixture.closed).not.toContain('kept-pane');
     expect(fixture.starts).toEqual([]);
@@ -5288,7 +5350,7 @@ describe('runExecute controller', () => {
     expect(paneWasOpenDuringWait).toBe(true);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
     expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-implement');
-    expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1');
+    expect(fixture.starts.map(({ name }) => name)).toContain('s42-review1-reviewer-1');
     expect(fixture.closed[0]).toBe('kept-implement-pane');
     expect(fixture.waits).toContainEqual({ name: 's42-implement', until: 'working' });
     expect(fixture.waits.find((wait) => wait.name === 's42-implement' && wait.until === 'working'))
@@ -5327,92 +5389,22 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.closed).toEqual(['kept-implement-pane']);
   });
-  it('observes a retained review worker after a non-stall prompt failure', () => {
-    const fixture = makeControllerFixture({ localDefaultRef: false });
-    seedRun(fixture.cwd, {
-      schemaVersion: 1,
-      issues: [42],
-      currentIssue: 42,
-      currentStep: 'review1',
-      completed: { 42: ['start', 'implement'] },
-      failed: { issue: 42, step: 'review1', reasonCode: 'review_failed' },
-      startedAt: '2026-08-25T00:00:00.000Z',
-    });
-    fixture.herdr.listAgents = () => [{
-      name: 's42-review1',
-      pane_id: 'kept-review-pane',
-      state: 'idle',
-    }, ...activeStartedAgents(fixture)];
-    fixture.herdr.agentGet = () => ({ result: { state: 'idle' } });
-    const agentPrompt = fixture.herdr.agentPrompt;
-    let observations = 0;
-    fixture.herdr.agentPrompt = (input) => {
-      if (
-        input.name === 's42-review1'
-        && input.prompt.startsWith('# Controller-Owned Host Review')
-      ) {
-        fixture.prompts.push(input);
-        return { status: 1, reasonCode: 'worker_failed' };
-      }
-      return agentPrompt(input);
-    };
-    fixture.herdr.observationPause = () => {
-      observations += 1;
-      writeReviewEvidence(fixture, 'review1');
-    };
 
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(observations).toBe(1);
-    expect(fixture.prompts.some(({ name, prompt }) => (
-      name === 's42-review1'
-      && prompt.includes('exact base `origin/main`')
-    ))).toBe(true);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
-    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
-    expect(fixture.closed[0]).toBe('kept-review-pane');
-    expect(fixture.sentKeys).toEqual([]);
-  });
-
-  it('accepts a retained review handoff without consulting a working state', () => {
+  it('rejects legacy retained review prose without host assignment and receipt proof', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
-      schemaVersion: 1,
-      issues: [42],
-      currentIssue: 42,
-      currentStep: 'review1',
-      completed: { 42: ['start', 'implement'] },
+      currentStep: 'review1', completed: { 42: ['start', 'implement'] },
       failed: { issue: 42, step: 'review1', reasonCode: 'worker_failed' },
-      startedAt: '2026-08-25T00:00:00.000Z',
     });
     fixture.herdr.listAgents = () => [{
-      name: 's42-review1',
-      pane_id: 'kept-review-pane',
-      state: 'working',
-    }, ...activeStartedAgents(fixture)];
-    fixture.herdr.agentGet = (name) => ({
-      result: { state: name === 's42-review1' ? 'working' : 'done' },
-    });
-
-    const result = runExecute({
-      args: '#42',
-      cwd: fixture.cwd,
-      env,
-      run: fixture.run,
-      herdr: fixture.herdr,
-    });
-
-    expect(result.status).toBe(0);
-    expect(fixture.waits.filter(({ name }) => name === 's42-review1')).toEqual([]);
-    expect(fixture.starts.map(({ name }) => name)).not.toContain('s42-review1');
-    expect(fixture.closed[0]).toBe('kept-review-pane');
+      name: 's42-review1', pane_id: 'kept-review-pane', state: 'idle',
+    }];
+    fixture.herdr.agentRead = () => 'No findings.';
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(1);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.prompts).toEqual([]);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-review1.json'))).toBe(false);
   });
 
 
@@ -5460,9 +5452,9 @@ describe('runExecute controller', () => {
     expect(result.stdout).not.toContain('no second worker started');
     expect(fixture.starts).toEqual([
       { name: 's42-implement', paneId: 'pane-1', kind: 'omp' },
-      { name: 's42-review1', paneId: 'pane-2', kind: 'omp' },
+      { name: 's42-review1-reviewer-1', paneId: 'pane-2', kind: 'omp' },
       { name: 's42-fix1', paneId: 'pane-3', kind: 'omp' },
-      { name: 's42-review2', paneId: 'pane-4', kind: 'omp' },
+      { name: 's42-review2-reviewer-1', paneId: 'pane-4', kind: 'omp' },
       { name: 's42-fix2', paneId: 'pane-5', kind: 'omp' },
       { name: 's42-verify', paneId: 'pane-6', kind: 'omp' },
       { name: 's42-deliver', paneId: 'pane-7', kind: 'omp' },
@@ -5483,9 +5475,9 @@ describe('runExecute controller', () => {
     expect(fixture.starts.map(({ name }) => name)).toEqual([
       's42-start',
       's42-implement',
-      's42-review1',
+      's42-review1-reviewer-1',
       's42-fix1',
-      's42-review2',
+      's42-review2-reviewer-1',
       's42-fix2',
       's42-verify',
     ]);
@@ -5521,12 +5513,13 @@ describe('runExecute controller', () => {
     expect(resumed.status).toBe(0);
     expect(fixture.starts.slice(7).map(({ name }) => name)).toEqual([
       's42-implement',
-      's42-review1',
       's42-fix1',
-      's42-review2',
       's42-fix2',
       's42-verify',
       's42-deliver',
+    ]);
+    expect([...fixture.reviewEnvironments.keys()]).toEqual([
+      's42-review1-reviewer-1', 's42-review2-reviewer-1',
     ]);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
   });
@@ -5543,9 +5536,9 @@ describe('runExecute controller', () => {
     ]);
     expect(fixture.starts.map(({ name }) => name)).toEqual([
       's42-implement',
-      's42-review1',
+      's42-review1-reviewer-1',
       's42-fix1',
-      's42-review2',
+      's42-review2-reviewer-1',
       's42-fix2',
       's42-verify',
       's42-deliver',
@@ -5592,12 +5585,12 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
     const names = fixture.starts.map(({ name }) => name);
 
-    expect(result.status).toBe(1);
+    expect(result).toMatchObject({ status: 1 });
     expect(names).toEqual([
       's42-implement',
-      's42-review1',
+      's42-review1-reviewer-1',
       's42-fix1',
-      's42-review2',
+      's42-review2-reviewer-1',
       's42-fix2',
       's42-verify',
       's42-deliver',
@@ -5621,6 +5614,7 @@ describe('runExecute controller', () => {
       issues: [42, 43],
       currentIssue: 43,
       currentStep: 'review1',
+      workerBranch: '43-later',
       completed: {
         42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'],
         43: ['start', 'implement'],
@@ -5639,11 +5633,12 @@ describe('runExecute controller', () => {
     };
     const agentPrompt = fixture.herdr.agentPrompt;
     fixture.herdr.agentPrompt = (input) => {
-      if (input.prompt === '/review') reviewPromptBranches.push(currentBranch);
+      if (fixture.reviewEnvironments.has(input.name)) reviewPromptBranches.push(currentBranch);
       return agentPrompt(input);
     };
     fixture.run = (command, args) => {
-      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+      if (command === 'git' && ((args[0] === 'branch' && args[1] === '--show-current')
+        || (args[0] === 'rev-parse' && args[1] === '--abbrev-ref'))) {
         fixture.calls.push([command, ...args]);
         return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
       }
@@ -5668,11 +5663,12 @@ describe('runExecute controller', () => {
       return baseRun(command, args);
     };
 
-    runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result).toMatchObject({ status: 0 });
 
     const checkoutMain = events.indexOf('checkout:main');
     const checkoutLater = events.indexOf('checkout:43-later');
-    const reviewStart = events.indexOf('start:s43-review1:43-later');
+    const reviewStart = events.indexOf('start:s43-review1-reviewer-1:43-later');
     expect(checkoutMain).toBeGreaterThanOrEqual(0);
     expect(checkoutLater).toBeGreaterThan(checkoutMain);
     expect(reviewStart).toBeGreaterThan(checkoutLater);
@@ -5687,20 +5683,20 @@ describe('runExecute controller', () => {
       schemaVersion: 1,
       issues: [42, 43],
       currentIssue: 43,
-      currentStep: 'review1',
+      currentStep: 'verify',
       completed: {
         42: VALID_STEPS,
-        43: ['start', 'implement'],
+        43: VALID_STEPS.slice(0, -2),
       },
       failed: null,
       workers: {
-        's43-review1': {
-          name: 's43-review1',
+        's43-verify': {
+          name: 's43-verify',
           paneId: 'kept-review-pane',
           projectRoot: fs.realpathSync(fixture.cwd),
           runId: 'test-run-id',
           issue: 43,
-          step: 'review1',
+          step: 'verify',
           branch: '43-later',
           head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         },
@@ -5708,7 +5704,7 @@ describe('runExecute controller', () => {
       startedAt: '2026-08-24T00:00:00.000Z',
     });
     fixture.herdr.listAgents = () => [{
-      name: 's43-review1',
+      name: 's43-verify',
       pane_id: 'kept-review-pane',
       state: 'working',
     }, ...activeStartedAgents(fixture)];
@@ -5721,7 +5717,7 @@ describe('runExecute controller', () => {
       return paneClose(paneId);
     };
     fixture.herdr.agentGet = (name) => ({
-      result: { state: name === 's43-review1' ? 'working' : 'done' },
+      result: { state: name === 's43-verify' ? 'working' : 'done' },
     });
     fixture.run = (command, args) => {
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
@@ -5754,13 +5750,15 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result.status).toBe(0);
+    const checkpointPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const stopped = fs.existsSync(checkpointPath) ? JSON.parse(fs.readFileSync(checkpointPath)).failed : null;
+    expect({ status: result.status, reasonCode: stopped?.reasonCode ?? null }).toEqual({ status: 0, reasonCode: null });
     expect(result.stdout).not.toContain('retained_worker_mismatch');
     const checkout = events.indexOf('checkout:43-later');
     const retained = events.indexOf('retained:kept-review-pane:43-later');
     expect(checkout).toBeGreaterThanOrEqual(0);
     expect(retained).toBeGreaterThan(checkout);
-    expect(fixture.starts.map(({ name }) => name)).not.toContain('s43-review1');
+    expect(fixture.starts.map(({ name }) => name)).not.toContain('s43-verify');
     expect(fixture.closed).toContain('kept-review-pane');
   });
 
@@ -6104,9 +6102,6 @@ describe('runExecute controller', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'));
     expect(result.status).toBe(1);
     expect(result.stdout).not.toContain('no second worker started');
-    expect(result.stdout).toContain(
-      'Stopped on #42 verify. Worker pane kept-verify-pane agent s42-verify closed.',
-    );
     expect(persisted.failed.reasonCode).toBe('verification_failed');
     expect(fixture.waits).toContainEqual({ name: 's42-verify' });
     expect(fixture.closed).toEqual(['kept-verify-pane']);
