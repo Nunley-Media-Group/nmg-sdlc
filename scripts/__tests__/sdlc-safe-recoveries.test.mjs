@@ -551,13 +551,32 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
   });
 
+  test('rejects a repeated task identifier in generic publication mode', () => {
+    expect(() => parseDeliveryTaskFileLines([
+      '## T001: First block',
+      '**File(s)**: `src/a.ts`',
+      '### T001: Repeated block',
+      '**File(s)**: `src/b.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 3,
+    }));
+  });
+
   test('write-spec task template uses only the shared publication grammar', () => {
     const renderedTemplate = fs.readFileSync(TASKS_TEMPLATE, 'utf8')
       .replace(/^```(?:markdown)?\s*$/gm, '');
-    const entries = parseDeliveryTaskFileLines(renderedTemplate, {
-      spec: 'workflows/write-spec/templates/tasks.md',
-    });
-    expect(entries.length).toBeGreaterThan(0);
+    const variants = renderedTemplate.split('# Defect Tasks Variant');
+    expect(variants).toHaveLength(2);
+    for (const variant of variants) {
+      const entries = parseDeliveryTaskFileLines(variant, {
+        spec: 'workflows/write-spec/templates/tasks.md',
+      });
+      expect(entries.length).toBeGreaterThan(0);
+    }
   });
 
 

@@ -867,7 +867,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
   let task = null;
   const finishTask = () => {
     if (!task || !acceptedTasks.has(task.id)) return;
-    if (explicitTaskIds && validatedTaskCounts.has(task.id)) {
+    if (validatedTaskCounts.has(task.id)) {
       throw safeError('publication_scope_unproven', {
         spec,
         taskId: task.id,
