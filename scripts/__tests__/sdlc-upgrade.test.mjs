@@ -178,7 +178,17 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
       '',
     ].join('\n'));
     write(root, 'specs/feature-baz/design.md', '# Design\n\n**Issues**: #2, #6\n');
-    write(root, 'specs/feature-baz/tasks.md', '# Tasks\n\n**Issues**: #2, #6\n');
+    write(root, 'specs/feature-baz/tasks.md', [
+      '# Tasks',
+      '',
+      '**Issues**: #2, #6',
+      '',
+      '### T001: Change two',
+      '**File(s)**: Create `src/two.ts`',
+      '### T002: Change six',
+      '**File(s)**: Create `src/six.ts`',
+      '',
+    ].join('\n'));
     write(root, 'specs/feature-baz/feature.gherkin', [
       'Feature: Baz',
       '@SCN1',
@@ -193,20 +203,26 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
       schemaVersion: 1,
       issues: {
         '2': {
-          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: [], scenarios: ['SCN1'] },
+          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: ['T001'], scenarios: ['SCN1'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
         '6': {
-          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: [], scenarios: ['SCN2'] },
+          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: ['T002'], scenarios: ['SCN2'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
       },
     }, null, 2));
 
-    const ids = detectUpgrade(root).items
-      .filter((item) => ['cumulative-split', 'directory-rename'].includes(item.kind))
+    const report = detectUpgrade(root);
+    const publication = report.items.find((item) => item.kind === 'publication-files');
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/feature-baz/tasks.md',
+      projectedPaths: ['specs/2-baz/tasks.md', 'specs/6-baz/tasks.md'],
+    }));
+    const ids = report.items
+      .filter((item) => ['publication-files', 'cumulative-split', 'directory-rename'].includes(item.kind))
       .map((item) => item.id);
     applyUpgrade(root, ids, noNetworkRun);
 
@@ -219,6 +235,10 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Two');
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).not.toContain('Scenario: Six');
     expect(fs.readFileSync(path.join(root, 'specs/6-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Six');
+    expect(fs.readFileSync(path.join(root, 'specs/2-baz/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/two.ts`');
+    expect(fs.readFileSync(path.join(root, 'specs/6-baz/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/six.ts`');
   });
 });
 

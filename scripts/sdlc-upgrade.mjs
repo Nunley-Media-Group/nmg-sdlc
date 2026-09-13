@@ -831,11 +831,15 @@ function publicationFilesUpgrade(root, specDirs) {
       }
     }
     if (rewrites.length || findings.length) {
+      const projectedPaths = [...new Set(
+        (specDir.projectedRels ?? (specDir.projectedRel ? [specDir.projectedRel] : []))
+          .filter((projectedRel) => projectedRel !== specDir.rel)
+          .map((projectedRel) => `${projectedRel}/tasks.md`),
+      )];
       packages.push({
         path: relativePath,
-        ...(specDir.projectedRel && specDir.projectedRel !== specDir.rel
-          ? { projectedPath: `${specDir.projectedRel}/tasks.md` }
-          : {}),
+        ...(projectedPaths.length === 1 ? { projectedPath: projectedPaths[0] } : {}),
+        ...(projectedPaths.length > 1 ? { projectedPaths } : {}),
         sourceDigest: createHash('sha256').update(source).digest('hex'),
         rewrites,
         findings,
@@ -860,14 +864,23 @@ function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
       .map((specDir) => [specDir.rel, specDir]),
   );
   for (const item of upgradeItems) {
-    if (!item.actionable || !item.from || !item.to
-      || !['directory-rename', 'epic-flatten'].includes(item.kind)
-      || !/^specs\/[1-9]\d*-[a-z0-9-]+$/.test(item.to)) continue;
+    if (!item.actionable || !item.from) continue;
+    let projectedRels = [];
+    if (['directory-rename', 'epic-flatten'].includes(item.kind) && item.to) {
+      projectedRels = [item.to];
+    } else if (item.kind === 'cumulative-split') {
+      projectedRels = (item.issueNumbers ?? []).map((issue) => `specs/${issue}-${item.slug}`);
+    }
+    projectedRels = projectedRels.filter((projectedRel) => (
+      /^specs\/[1-9]\d*-[a-z0-9-]+$/.test(projectedRel)
+    ));
+    if (!projectedRels.length) continue;
+    const existing = candidates.get(item.from);
     candidates.set(item.from, {
-      name: path.basename(item.to),
+      name: path.basename(projectedRels[0]),
       full: path.join(root, item.from),
       rel: item.from,
-      projectedRel: item.to,
+      projectedRels: [...new Set([...(existing?.projectedRels ?? []), ...projectedRels])],
     });
   }
   return [...candidates.values()];
