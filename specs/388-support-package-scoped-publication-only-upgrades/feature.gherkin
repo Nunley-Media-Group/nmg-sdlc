@@ -1,0 +1,88 @@
+**Issue**: #388
+**Date**: 2026-09-13
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/
+
+# File: scripts/__tests__/sdlc-upgrade.test.mjs
+#
+# Generated from: specs/388-support-package-scoped-publication-only-upgrades/requirements.md
+Feature: Support package-scoped publication-only upgrades
+  Publication repair must represent the operator's exact package authority and
+  must not inherit the full repository upgrade's unrelated mutations.
+
+  @SCN001 @regression
+  Scenario: Detect only the explicitly selected package
+    Given several spec packages contain publication rewrites or findings
+    When publication-only detection selects one valid package
+    Then the report includes only that package
+    And disabling issue-dependency lookup is not used as package selection
+
+  @SCN002 @regression
+  Scenario: Approval binds exact root selection report and bytes
+    Given a selected publication-only report
+    When its approval id is calculated
+    Then it binds the canonical root and sorted selected package set
+    And it binds every selected regular-file digest and exact rewrite and finding
+
+  @SCN003 @regression
+  Scenario: Apply performs only selected publication writes
+    Given one selected package has approved rewrites and unselected packages are dirty
+    When publication-only apply receives the exact approval id and selection
+    Then only selected File(s) line payloads change
+    And no dependency label backfill GitHub or other upgrade side effect runs
+
+  @SCN004 @regression
+  Scenario Outline: Invalid selection fails closed
+    Given publication-only detection receives <selection>
+    When it validates package authority
+    Then it fails before mutation with a stable reason code
+    Examples:
+      | selection |
+      | an empty set |
+      | a duplicate path |
+      | an absolute or traversal path |
+      | a path outside specs |
+      | a missing package |
+      | a symlinked package |
+      | an incomplete package |
+      | a wrongly named package |
+      | an issue-mismatched package |
+      | a non-Approved package |
+
+  @SCN005 @regression
+  Scenario Outline: Stale or foreign approval fails closed
+    Given an approved selected report
+    When apply observes <change>
+    Then no file is mutated
+    Examples:
+      | change |
+      | changed source bytes |
+      | added package content |
+      | a different selected package set |
+      | a different repository root |
+      | a different report id |
+
+  @SCN006 @regression
+  Scenario: Mixed line endings and unrelated bytes are preserved
+    Given a selected tasks file mixes CRLF and LF and unrelated files have known bytes
+    When publication-only apply succeeds
+    Then every original line separator remains in place
+    And only approved line payload bytes differ
+    And unrelated files remain byte-for-byte equal
+
+  @SCN007 @regression
+  Scenario: PathCast-shaped four-token repair converges
+    Given selected T001 through T004 contain four recoverable PathCast-style Files declarations
+    And unselected packages contain rewrites and findings
+    When the selected item is approved and applied
+    Then exactly four selected tokens become canonical File(s) declarations
+    And repeating selected detection reports zero writes
+    And every unselected package remains unchanged
+
+  @SCN008 @regression
+  Scenario: Workflow uses the dedicated native entry point
+    Given package-bounded publication authority in /sdlc-upgrade-project
+    When the workflow renders detection and apply commands
+    Then it uses detect-publication and apply-publication with explicit spec selections
+    And existing unbounded detect and apply commands remain supported
