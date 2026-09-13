@@ -112,6 +112,9 @@ function fixture({
       return { status: localBranch ? 0 : 1, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'fetch') {
+      if (args.includes(`refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`)) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
       return { status: remoteBranch || (remoteBranchAfterDevelop && developAttempted) ? 0 : 1, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'config' && args[1] === '--get-all') {
@@ -126,6 +129,12 @@ function fixture({
     }
     if (command === 'git' && args[0] === 'checkout') {
       return { status: checkoutStatus, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'merge-base') {
+      return { status: 1, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'merge') {
+      return { status: 0, stdout: '', stderr: '' };
     }
     if (command === 'git' && args[0] === 'branch') {
       branchReads += 1;
@@ -268,14 +277,21 @@ describe('startIssue controller', () => {
   });
 
   it('checks out an existing local canonical issue branch without developing it', () => {
-    const f = fixture({ localBranch: true });
+    const f = fixture({ localBranch: true, remoteBranch: true });
     const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(result.handoff.status).toBe('passed');
     expect(f.calls).toContainEqual([
       'git', 'show-ref', '--verify', '--quiet', 'refs/heads/42-ship-it',
     ]);
     expect(f.calls).toContainEqual(['git', 'checkout', '42-ship-it']);
-    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'fetch')).toBe(false);
+    expect(f.calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/main:refs/remotes/origin/main',
+    ]);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
@@ -305,12 +321,16 @@ describe('startIssue controller', () => {
     const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
 
     expect(result.handoff.status).toBe('passed');
-    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(2);
+    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(4);
     expect(f.calls).toContainEqual([
       'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
     ]);
     expect(f.calls).toContainEqual([
       'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/main:refs/remotes/origin/main',
     ]);
   });
 
@@ -372,6 +392,9 @@ describe('startIssue controller', () => {
       }
       if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
         return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
       }
       if (command === 'gh' && args[0] === 'repo') {
         return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
@@ -424,12 +447,16 @@ describe('startIssue controller', () => {
     const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
 
     expect(result.handoff.status).toBe('passed');
-    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(2);
+    expect(f.calls.filter((call) => call[0] === 'git' && call[1] === 'fetch')).toHaveLength(4);
     expect(f.calls).toContainEqual([
       'gh', 'issue', 'develop', '42', '--checkout', '--name', '42-ship-it', '--base', 'main',
     ]);
     expect(f.calls).toContainEqual([
       'git', 'checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it',
+    ]);
+    expect(f.calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/main:refs/remotes/origin/main',
     ]);
   });
 
@@ -491,6 +518,9 @@ describe('startIssue controller', () => {
       if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
         return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
       }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
       if (command === 'gh' && args[0] === 'repo') {
         return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
       }
@@ -533,6 +563,197 @@ describe('startIssue controller', () => {
     expect(calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
+  it.each(['remote-only', 'local', 'current'])(
+    'fast-forwards a fully integrated %s spec branch without mutating its remote',
+    (reuseMode) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-integrated-branch-'));
+      roots.push(root);
+      const remote = path.join(root, 'remote.git');
+      const seed = path.join(root, 'seed');
+      const cwd = path.join(root, 'clone');
+      fs.mkdirSync(seed);
+      runGit(root, ['init', '--bare', remote]);
+      runGit(seed, ['init', '-b', 'main']);
+      runGit(seed, ['config', 'user.name', 'Test']);
+      runGit(seed, ['config', 'user.email', 'test@example.com']);
+      fs.writeFileSync(path.join(seed, 'README.md'), 'main\n');
+      runGit(seed, ['add', 'README.md']);
+      runGit(seed, ['commit', '-m', 'main']);
+      runGit(seed, ['remote', 'add', 'origin', remote]);
+      runGit(seed, ['push', '-u', 'origin', 'main']);
+      runGit(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+      runGit(seed, ['checkout', '-b', '42-ship-it']);
+      fs.writeFileSync(path.join(seed, 'spec.txt'), 'approved\n');
+      runGit(seed, ['add', 'spec.txt']);
+      runGit(seed, ['commit', '-m', 'spec']);
+      const specHead = runGit(seed, ['rev-parse', 'HEAD']).stdout.trim();
+      runGit(seed, ['push', '-u', 'origin', '42-ship-it']);
+      runGit(seed, ['checkout', 'main']);
+      runGit(seed, ['merge', '--no-ff', '-m', 'merge spec', '42-ship-it']);
+      fs.appendFileSync(path.join(seed, 'README.md'), 'later default work\n');
+      runGit(seed, ['commit', '-am', 'later default work']);
+      runGit(seed, ['push', 'origin', 'main']);
+      const defaultHead = runGit(seed, ['rev-parse', 'HEAD']).stdout.trim();
+      runGit(root, ['clone', '--single-branch', remote, cwd]);
+      if (reuseMode !== 'remote-only') {
+        runGit(cwd, [
+          'fetch', 'origin',
+          'refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+        ]);
+        runGit(cwd, ['branch', '--track', '42-ship-it', 'origin/42-ship-it']);
+      }
+      if (reuseMode === 'current') runGit(cwd, ['checkout', '42-ship-it']);
+
+      const calls = [];
+      const run = (command, args) => {
+        calls.push([command, ...args]);
+        if (command === 'git') return runGit(cwd, args);
+        if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              number: 42, title: 'Ship It!', body: '', labels: [],
+              state: args.includes('number,title,body,labels,state') ? 'OPEN' : 'open',
+            }),
+            stderr: '',
+          };
+        }
+        if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+          return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+        }
+        if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+          return { status: 0, stdout: 'main\n', stderr: '' };
+        }
+        if (command === 'gh' && args[0] === 'repo') {
+          return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
+        }
+        if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+          return { status: 0, stdout: '[[]]', stderr: '' };
+        }
+        if (command === 'gh' && args[0] === 'api' && /^repos\/nmg\/repo\/issues\/42$/.test(args[1] || '')) {
+          return {
+            status: 0,
+            stdout: '{"id":4200,"number":42,"state":"open","title":"Ship It!","repository_url":"https://api.github.com/repos/nmg/repo"}',
+            stderr: '',
+          };
+        }
+        if (command === 'gh' && args[0] === 'api') {
+          return {
+            status: 0,
+            stdout: '{"data":{"repository":{"issue":{"projectItems":{"nodes":[]}}}}}',
+            stderr: '',
+          };
+        }
+        throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+      };
+
+      const result = startIssue({ issue: 42, cwd, run });
+
+      expect(result.handoff.status).toBe('passed');
+      expect(runGit(cwd, ['branch', '--show-current']).stdout.trim()).toBe('42-ship-it');
+      expect(runGit(cwd, ['rev-parse', 'HEAD']).stdout.trim()).toBe(defaultHead);
+      expect(runGit(cwd, ['rev-parse', 'origin/42-ship-it']).stdout.trim()).toBe(specHead);
+      expect(runGit(remote, ['rev-parse', 'refs/heads/42-ship-it']).stdout.trim()).toBe(specHead);
+      expect(calls).toContainEqual(['git', 'merge', '--ff-only', 'refs/remotes/origin/main']);
+      expect(calls.some((call) => call[0] === 'git' && call[1] === 'push')).toBe(false);
+      expect(calls.some((call) => call.includes('--force') || call.includes('--reset'))).toBe(false);
+    },
+  );
+
+  it('preserves a divergent current issue branch and its canonical remote', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-divergent-branch-'));
+    roots.push(root);
+    const remote = path.join(root, 'remote.git');
+    const seed = path.join(root, 'seed');
+    const cwd = path.join(root, 'clone');
+    fs.mkdirSync(seed);
+    runGit(root, ['init', '--bare', remote]);
+    runGit(seed, ['init', '-b', 'main']);
+    runGit(seed, ['config', 'user.name', 'Test']);
+    runGit(seed, ['config', 'user.email', 'test@example.com']);
+    fs.writeFileSync(path.join(seed, 'README.md'), 'main\n');
+    runGit(seed, ['add', 'README.md']);
+    runGit(seed, ['commit', '-m', 'main']);
+    runGit(seed, ['remote', 'add', 'origin', remote]);
+    runGit(seed, ['push', '-u', 'origin', 'main']);
+    runGit(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    runGit(seed, ['checkout', '-b', '42-ship-it']);
+    fs.writeFileSync(path.join(seed, 'spec.txt'), 'approved\n');
+    runGit(seed, ['add', 'spec.txt']);
+    runGit(seed, ['commit', '-m', 'spec']);
+    const remoteIssueHead = runGit(seed, ['rev-parse', 'HEAD']).stdout.trim();
+    runGit(seed, ['push', '-u', 'origin', '42-ship-it']);
+    runGit(seed, ['checkout', 'main']);
+    runGit(seed, ['merge', '--no-ff', '-m', 'merge spec', '42-ship-it']);
+    fs.appendFileSync(path.join(seed, 'README.md'), 'later default work\n');
+    runGit(seed, ['commit', '-am', 'later default work']);
+    runGit(seed, ['push', 'origin', 'main']);
+    runGit(root, ['clone', remote, cwd]);
+    runGit(cwd, ['config', 'user.name', 'Test']);
+    runGit(cwd, ['config', 'user.email', 'test@example.com']);
+    runGit(cwd, ['checkout', '--track', '-b', '42-ship-it', 'origin/42-ship-it']);
+    fs.writeFileSync(path.join(cwd, 'implementation.txt'), 'local implementation\n');
+    runGit(cwd, ['add', 'implementation.txt']);
+    runGit(cwd, ['commit', '-m', 'local implementation']);
+    const localHead = runGit(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      if (command === 'git') return runGit(cwd, args);
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: 42, title: 'Ship It!', body: '', labels: [],
+            state: args.includes('number,title,body,labels,state') ? 'OPEN' : 'open',
+          }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+        return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo') {
+        return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+        return { status: 0, stdout: '[[]]', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && /^repos\/nmg\/repo\/issues\/42$/.test(args[1] || '')) {
+        return {
+          status: 0,
+          stdout: '{"id":4200,"number":42,"state":"open","title":"Ship It!","repository_url":"https://api.github.com/repos/nmg/repo"}',
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'api') {
+        return {
+          status: 0,
+          stdout: '{"data":{"repository":{"issue":{"projectItems":{"nodes":[]}}}}}',
+          stderr: '',
+        };
+      }
+      throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const result = startIssue({ issue: 42, cwd, run });
+
+    expect(result.handoff).toMatchObject({ status: 'failed', reasonCode: 'branch_checkout_failed' });
+    expect(runGit(cwd, ['rev-parse', 'HEAD']).stdout.trim()).toBe(localHead);
+    expect(runGit(cwd, ['rev-parse', 'origin/42-ship-it']).stdout.trim()).toBe(remoteIssueHead);
+    expect(runGit(remote, ['rev-parse', 'refs/heads/42-ship-it']).stdout.trim()).toBe(remoteIssueHead);
+    expect(calls).toContainEqual([
+      'git', 'fetch', '--quiet', '--no-tags', 'origin',
+      'refs/heads/42-ship-it:refs/remotes/origin/42-ship-it',
+    ]);
+    expect(calls.some((call) => call[0] === 'git' && call[1] === 'push')).toBe(false);
+    expect(calls.some((call) => call.includes('--force') || call.includes('--reset'))).toBe(false);
+  });
+
 
   it('develops the issue branch from a clean detached HEAD', () => {
     const f = fixture({ branch: '', dirty: '' });
@@ -544,8 +765,11 @@ describe('startIssue controller', () => {
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'config' && call[2] === '--add')).toBe(false);
   });
 
-  it('writes default_branch_unreadable', () => {
-    const f = fixture({ defaultStatus: 1 });
+  it.each([
+    ['failed lookup', 1, 'main'],
+    ['empty successful lookup', 0, ''],
+  ])('writes default_branch_unreadable for a reused branch with %s', (_label, defaultStatus, defaultBranch) => {
+    const f = fixture({ branch: '42-ship-it', defaultStatus, defaultBranch });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('default_branch_unreadable');
   });

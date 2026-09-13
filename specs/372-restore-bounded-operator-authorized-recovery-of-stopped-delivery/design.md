@@ -19,6 +19,9 @@ The no-token public command always enters issue selection. The controller correc
 | workflows/execute/ | Authoritative bare-invocation and bounded recovery instructions |
 | README.md | Resume and blocked-state operator guidance |
 | scripts/__tests__/ | Existing execute/status/supervisor regression fixtures |
+| agents/spec-implementer.md; workflows/write-code/WORKFLOW.md | Declare the literal `#N` subject invariant and order machine validation before Git publication |
+| scripts/sdlc-safe-recoveries.mjs | Validate a planned implement subject during the existing pre-publication bind boundary |
+| scripts/__tests__/sdlc-safe-recoveries.test.mjs; scripts/__tests__/rendered-prompt-contract.test.mjs | Prove invalid subjects stop before publication and the rendered contract invokes validation |
 
 ## Fix Strategy
 ### Public entry and target resolution
@@ -48,6 +51,14 @@ Status and stop output share authoritative classification: normal resumable run,
 - A validated passed handoff may settle an earlier prompt-pending intervention, but an intervention or blocked handoff itself is never downgraded. Passed absent-worker settlement retains the existing branch/head ancestry check.
 - Implementation-owned CLI/OMP exercises use disposable local adapters. Fresh registered consumer smoke, managed review and exact-head delivery remain downstream stage obligations, as specified by T004.
 
+### Implementation subject preflight
+Choose the exact conventional implementation subject before staging. Pass it to the existing `bind` publication helper, which validates the conventional prefix and literal issue token before acquiring or persisting publication ownership. Only that validated subject may be committed and later supplied to `reconcile`. This moves discovery ahead of commit/push without adding a publication mechanism or changing recovery budgets.
+
+The initial pre-edit owner bind remains subject-free because no commit subject is needed at that clean boundary. The post-implementation dirty bind requires `--subject`; clean existing publication remains verified by subject-bearing `reconcile`. Cancellation, process-loss, consumed recovery, checkpoint, and handoff behavior are unchanged, preserving AC3.
+
+### Integrated spec branch refresh
+Spec publication can leave the canonical remote issue branch at a commit already integrated into the default branch. If start blindly tracks that branch after default advances, implementation begins from stale history and delivery can encounter avoidable conflicts. After tracking an existing remote issue branch, fetch the exact default ref and test whether the issue head is its ancestor. Only that proven containment permits a local `--ff-only` advance to the current default head. Divergent issue branches remain unchanged; the start stage does not force, reset, push, or resolve conflicts.
+
 ## Contract Precedence
 #372 adds the user's automatic bare-invocation transition to #369. It does not relax ordinary automatic retry counts or permit repeat recovery allowance for an unadvanced stage. Bare-command discovery replaces issue selection only for the exact incomplete branch; explicit issue execution retains its previous contract. All downstream publication and delivery checks remain unchanged.
 
@@ -60,7 +71,11 @@ Status and stop output share authoritative classification: normal resumable run,
 ## Regression Testing
 Use existing Jest fixtures to cover branch-local no-picker discovery, legacy default run.branch plus exact linked worker branch, clean no-run fallback, completed/ambiguous/mismatched/unreadable state, proven stale versus live ownership, a legacy 13-attempt recovery launching once, concurrent/repeated bare commands, summary/head/version churn after failed recovery, persistence/dispatch/process-loss boundaries, blocked/intervention refusal, missing versus reused panes, passed-handoff advancement and later-stage budgets. Preserve existing explicit-queue usage and cancellation contracts. Map AC1-AC6/SCN001-SCN006 to observable evidence.
 
+Add CLI regressions showing that an implement `bind` with a conventional subject missing literal `#N` returns `publication_subject_unproven` before durable owner or Git publication mutation, while the canonical issue-bearing subject passes. Rendered-prompt coverage proves the worker receives the ordering and exact helper argument.
+
 Run an actual isolated CLI bare recovery exercise using a disposable checkpoint and controlled adapters, never PennyScan state. Complete all registered validations including fresh invocation-bound nmg-sdlc-smoke delivery. Keep the smoke fixture minimal and hypothesis-bound with two-attempt/no-unchanged-retry limits; unrelated smoke application defects are blockers. Use skill-creator for bundled edits, applicable inventory/surface/exercise gates, two managed reviews/fixes and final verification/exact-head delivery.
+
+Add a real-repository regression where the canonical issue branch is merged, default advances, and a single-branch clone starts the issue. Assert the local issue branch reaches the exact fetched default head while its remote remains unchanged. Retain the existing divergent remote-branch regression to prove implementation history is preserved.
 
 ## Risks and Mitigations
 - Wrong branch adoption: exact shared identity checks before ownership or picker fallback.
@@ -78,3 +93,5 @@ None. The user explicitly requested automatic no-parameter recovery without weak
 |---|---|---|
 | #372 | 2026-09-07 | Initial defect specification authorized by the operator request to fix recovery and complete delivery without repeating a loop |
 | #372 | 2026-09-07 | Replaced manual flags with exact-branch bare recovery and durable once-per-unadvanced-stage protection at user direction |
+| #372 | 2026-09-13 | Added planned-subject validation at the existing implement bind boundary; preserved AC3 and all cancellation/recovery state semantics |
+| #372 | 2026-09-13 | Added containment-proven fast-forward of integrated remote spec branches after the registered smoke reproduced stale-branch conflicts |

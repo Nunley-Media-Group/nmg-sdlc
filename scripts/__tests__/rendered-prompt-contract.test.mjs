@@ -23,6 +23,14 @@ describe('rendered prompt contracts', () => {
     expect(prompt).toContain('Do not change generated artifacts.');
   });
 
+  test('implement prompt separates clean owner binding from dirty subject preflight', () => {
+    const prompt = workerPrompt({ step: 'implement', issue: 42 });
+    expect(prompt).toContain('A clean subjectless bind establishes the approved owner/path scope before edits');
+    expect(prompt).toContain('for issue 42, `#42`');
+    expect(prompt).toContain('--subject "<exact planned subject>"');
+    expect(prompt).toContain('before any staging, commit, or push');
+  });
+
   test('deliver prompt routes every repeated controller result', () => {
     const prompt = workerPrompt({ step: 'deliver', issue: 42 });
     expect(prompt).toContain('Route every invocation, including every post-remediation rerun');

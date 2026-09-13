@@ -12,6 +12,8 @@ Bare /sdlc-execute cannot resume a branch's incomplete delivery automatically. I
 ## Root Cause Analysis
 The public command always selects issues when no tokens remain. The execute checkpoint gate correctly preserves #369's exhausted retry history, but has no bounded, auditable bare-invocation recovery transition. --recover-stale reclaims ownership only. A previously recorded pane that no longer exists can also leave pane_close_failed.
 
+A later implementation worker exposed a separate publication-contract mismatch while completing this issue: `agents/spec-implementer.md` permitted any conventional subject, while `sdlc-safe-recoveries.mjs` required the exact subject to contain literal `#N` only after commit/push. The subject invariant must be explicit and machine-checked before Git publication. This amendment does not alter AC3 or cancellation recovery semantics.
+
 **User Confirmed**: Yes. User requested: "When I run sdlc-execute with no params in a branch that is an incomplete execute run it should just automatically recover and continue delivery without weakening loop protection."
 
 ## Reproduction Steps
@@ -64,6 +66,16 @@ The command opens a picker, then the controller refuses exhausted state without 
 **When** bare execute is invoked
 **Then** existing specified-issue selection remains available; completed runs are not reopened. When an incomplete run exists, status and stop output distinguish resumable, loop-recovery-available, recovery-consumed and blocked states with the exact next action. Behavioral regressions, an isolated actual command exercise and fresh registered smoke delivery prove the complete path.
 
+### AC7: Implementation subject ownership is proven before publication
+**Given** an implementation worker has completed approved changes
+**When** it prepares the implementation commit subject
+**Then** the agent and write-code contracts require a conventional subject containing literal `#N`, and the existing publication helper rejects a missing or wrong issue identifier before staging, commit, or push while accepting the canonical issue-bearing subject.
+
+### AC8: Integrated spec branches start from the current default head
+**Given** the canonical remote issue branch contains only approved spec history already integrated into the default branch
+**When** the start worker reuses that branch after the default branch has advanced
+**Then** it fast-forwards the local issue branch to the fetched current default head before implementation, without force, reset, remote mutation, or rewriting a divergent implementation branch.
+
 ## Functional Requirements
 | ID | Requirement | Priority |
 |---|---|---|
@@ -72,6 +84,8 @@ The command opens a picker, then the controller refuses exhausted state without 
 | FR3 | Do not regenerate allowance without actual stage advancement or convert intervention into retryable failure. | Must |
 | FR4 | Recover only proven stale/absent ownership and preserve every normal cancellation, publication and delivery gate. | Must |
 | FR5 | No new operator flags or manual token/reason workflow is required for bare recovery. | Must |
+| FR6 | Require and machine-check the implementation conventional subject with literal `#N` before any Git publication mutation. | Must |
+| FR7 | Fast-forward a reused canonical remote issue branch only when its head is already an ancestor of the fetched default branch. | Must |
 
 ## Contract Precedence
 This issue adds the explicitly requested bare-command recovery transition to #369. Ordinary explicit-queue reinvocation and --recover-stale alone do not silently grant fresh retries. Automatic remediation still stops after its normal bound. Bare recovery is one additional persisted allowance, never reset by command reinvocation, summary/commit churn or upgraded code.
@@ -88,3 +102,5 @@ This issue adds the explicitly requested bare-command recovery transition to #36
 | #372 | 2026-09-07 | Initial defect specification authorized by the operator request to fix recovery and complete delivery without repeating a loop |
 | #372 | 2026-09-07 | User requires bare execute to recover the exact incomplete branch automatically; one durable recovery allowance per unadvanced stage, no flags or token workflow |
 | #372 | 2026-09-08 | Spec revised before delivery: restore the user-approved bare-command package from bda29350c915ed80a889a44af6a0febd4c2eb2af for an explicitly authorized fresh completion run from released 3.21.1; retain the original issue/spec ownership and protected branch, with the absent original runtime and recovered failure evidence historical only, never copied into live runtime state or represented as a resume |
+| #372 | 2026-09-13 | Added the pre-publication implementation-subject invariant discovered during completion; AC3 and cancellation/process-loss no-replay semantics remain unchanged |
+| #372 | 2026-09-13 | Added the verification-discovered integrated-spec-branch start invariant after smoke issue #96 reproduced a stale branch and real merge conflicts |

@@ -2037,7 +2037,7 @@ function stopResult({
     : {};
   const recoveryRecord = runState.recoveries?.find((entry) =>
     entry.runId === runState.runId && entry.issue === issue && entry.step === step);
-  if (recoveryRecord) Object.assign(recoveryRecord, {
+  if (recoveryRecord && recoveryRecord.disposition !== 'stopped') Object.assign(recoveryRecord, {
     disposition: 'stopped', reasonCode, stoppedAt: new Date().toISOString(),
     evidence: structuredClone(runState.remediation),
   });

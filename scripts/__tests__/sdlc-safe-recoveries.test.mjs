@@ -317,11 +317,16 @@ describe('publication CLI lease ownership boundary', () => {
     f.put('.omp/sdlc/handoffs/42-implement.json', JSON.stringify({
       schemaVersion: 1, issue: 42, step: 'implement', status: 'failed', intervention: true,
     }));
-    const bind = (identity = runId) => spawnSync(process.execPath, [
-      script, 'bind', '--issue', '42', '--step', 'implement', '--spec', spec,
+    const publication = (action, identity, subject) => spawnSync(process.execPath, [
+      script, action, '--issue', '42', '--step', 'implement', '--spec', spec,
       '--controller-run-id', identity,
+      ...(subject === null ? [] : ['--subject', subject]),
     ], { cwd: f.root, encoding: 'utf8' });
-    return { ...f, bind };
+    const bind = (identity = runId, subject = 'fix: validate implementation subject before publication for #42') =>
+      publication('bind', identity, subject);
+    const reconcile = (identity = runId, subject = 'fix: validate implementation subject before publication for #42') =>
+      publication('reconcile', identity, subject);
+    return { ...f, bind, reconcile };
   }
 
   test('bind accepts approved plain and quoted File(s) lists without granting notes or out-of-task paths', () => {
@@ -371,6 +376,93 @@ describe('publication CLI lease ownership boundary', () => {
       expectedSubject: 'feat: add brackets #42', allowedPaths: publication.allowedPaths, run: f.run,
     })).toMatchObject({ passed: false });
     expect(f.state().records).toEqual([]);
+  });
+
+  test('accepts the clean subjectless initial implement bind', () => {
+    const f = cliFixture();
+    f.git('add', '--', spec);
+    f.git('commit', '-m', 'docs: approve publication fixture #42');
+    f.git('push');
+    expect(f.git('status', '--porcelain=v1')).toBe('');
+
+    const initial = f.bind(runId, null);
+    expect({ status: initial.status, stderr: initial.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(initial.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
+      passed: true, ownerId: runId,
+    });
+  });
+
+  test('rejects dirty missing, wrong, and non-boundary issue identifiers before publication', () => {
+    const f = cliFixture();
+    expect(f.git('status', '--porcelain=v1')).not.toBe('');
+    const head = f.git('rev-parse', 'HEAD');
+    const upstream = f.git('rev-parse', '@{upstream}');
+    for (const subject of [
+      null,
+      'fix: validate implementation subject before publication',
+      'fix: validate implementation subject before publication for #43',
+      'fix: validate implementation subject before publication for #420',
+      'not-a-conventional-subject #42',
+      ' fix: validate implementation subject before publication for #42',
+      'fix: validate implementation subject before publication for #42 ',
+      'fix: validate implementation subject before publication for #42\nbody',
+      'fix: validate implementation subject before publication for #42\rbody',
+    ]) {
+      const rejected = f.bind(runId, subject);
+      expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+        status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+      });
+      expect(fs.existsSync(f.statePath)).toBe(false);
+      expect(f.git('rev-parse', 'HEAD')).toBe(head);
+      expect(f.git('rev-parse', '@{upstream}')).toBe(upstream);
+      expect(f.git('diff', '--cached')).toBe('');
+    }
+
+    const accepted = f.bind();
+    expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(accepted.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
+      passed: true, ownerId: runId,
+    });
+  });
+
+  test('rejects an already-staged implement bind before publication', () => {
+    const f = cliFixture();
+    f.put('src/code.mjs', 'staged implementation\n');
+    f.git('add', '--', 'src/code.mjs');
+    const head = f.git('rev-parse', 'HEAD');
+    const upstream = f.git('rev-parse', '@{upstream}');
+
+    const rejected = f.bind(runId, 'fix: validate implementation subject before publication #42');
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+    });
+    expect(fs.existsSync(f.statePath)).toBe(false);
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('rev-parse', '@{upstream}')).toBe(upstream);
+    expect(f.git('diff', '--cached', '--name-only')).toBe('src/code.mjs');
+  });
+
+  test('binds the planned implement subject to later reconciliation', () => {
+    const f = cliFixture();
+    f.git('add', '--', spec);
+    f.git('commit', '-m', 'docs: approve publication fixture #42');
+    f.git('push');
+    f.put('src/code.mjs', 'planned implementation\n');
+    const planned = 'fix: publish the planned implementation for #42';
+
+    const accepted = f.bind(runId, planned);
+    expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(f.state().owners).toEqual([
+      expect.objectContaining({ ownerId: runId, plannedSubject: planned }),
+    ]);
+    f.git('add', '--', 'src/code.mjs');
+    f.git('commit', '-m', planned);
+
+    const rejected = f.reconcile(runId, 'fix: substitute a different implementation for #42');
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+    });
+    expect(f.git('rev-parse', 'refs/heads/42-feature')).not.toBe(f.git('rev-parse', 'refs/remotes/origin/42-feature'));
   });
 
   test.each([
