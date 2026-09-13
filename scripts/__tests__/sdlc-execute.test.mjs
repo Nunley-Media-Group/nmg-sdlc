@@ -2237,6 +2237,28 @@ describe('runExecute controller', () => {
       && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
   });
 
+  it('does not rerun implement publication validation when resuming a later stage', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: null,
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Legacy publication scope',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.stderr).not.toContain('publication_scope_unproven');
+    expect(fixture.starts[0].name).toBe('s42-verify');
+  });
+
   it('resumes an existing run issue list on empty args', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
@@ -5375,6 +5397,15 @@ describe('runExecute controller', () => {
       if (input.name === 's42-implement') paneWasOpenDuringWait = fixture.closed.length === 0;
       return agentWait(input);
     };
+
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Legacy publication scope',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 

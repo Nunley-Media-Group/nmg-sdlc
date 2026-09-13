@@ -101,11 +101,16 @@ export function applySpecCreatedLabel(issueN, run = defaultRun) {
   if (edit?.status !== 0) throw commandError(`Unable to label issue #${issue}`, edit);
 }
 
-export function backfillSpecCreatedLabels(root, run = defaultRun) {
+export function backfillSpecCreatedLabels(root, run = defaultRun, { excludeIssues = [] } = {}) {
   const cwd = path.resolve(root);
+  const excluded = new Set(excludeIssues);
   const runInRoot = (command, args, options = {}) => run(command, args, { ...options, cwd });
   const result = { ok: true, labeled: [], already: [], skipped: [], failed: [] };
   for (const issue of listIssueOwnedSpecNumbers(cwd)) {
+    if (excluded.has(issue)) {
+      result.skipped.push(issue);
+      continue;
+    }
     try {
       const view = runInRoot('gh', ['issue', 'view', String(issue), '--json', 'number,labels']);
       const issueData = parseJsonResult(view, `Unable to read issue #${issue}`);

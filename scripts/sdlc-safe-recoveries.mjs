@@ -754,11 +754,13 @@ export function reconcileStagePublication({
 }
 
 function validPublicationPath(file) {
+  const firstGlob = typeof file === 'string' ? file.search(/[*?\[]/) : -1;
   return typeof file === 'string' && file.length > 0 && !isAbsolute(file)
     && !file.includes('\\') && !file.includes('\0') && !file.startsWith(':')
     && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(file)
     && !file.split('/').some((part) => part === '..' || part === '.')
-    && file !== '.omp' && !file.startsWith('.omp/');
+    && file !== '.omp' && !file.startsWith('.omp/')
+    && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 
 export const PUBLICATION_FILE_SYNTAX = 'Use repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';

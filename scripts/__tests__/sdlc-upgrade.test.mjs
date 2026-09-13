@@ -687,6 +687,55 @@ describe('publication File(s) upgrade', () => {
       .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
   });
 
+  it('preserves supported annotations and CRLF while canonicalizing', () => {
+    const root = makeRoot();
+    const source = [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '**File(s)**: Create `src/a.ts` (delivery-owner only)',
+      '',
+    ].join('\r\n');
+    write(root, 'specs/42-add-x/tasks.md', source);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+
+    const updated = fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8');
+    expect(updated).toContain('**File(s)**: `src/a.ts` (delivery-owner only)');
+    expect(updated.replaceAll('\r\n', '')).not.toContain('\n');
+  });
+
+  it.each([
+    'Create `src/a.ts` or `src/b.ts`',
+    'Create `src/a.ts` and src/b.ts',
+  ])('keeps ambiguous declaration as a finding: %s', (declaration) => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', `### T001: Create code\n**File(s)**: ${declaration}\n`);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.actionable).toBe(false);
+    expect(item.packages[0].rewrites).toEqual([]);
+    expect(item.packages[0].findings).toEqual([
+      expect.objectContaining({ entry: declaration }),
+    ]);
+  });
+
+  it('canonicalizes an unambiguous prose-prefixed path list', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', '### T001: Create code\n**File(s)**: Modify `src/a.ts`, `src/b.ts`\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.packages[0].findings).toEqual([]);
+    expect(item.packages[0].rewrites).toEqual([
+      expect.objectContaining({ after: '**File(s)**: `src/a.ts`, `src/b.ts`' }),
+    ]);
+  });
+
   it('keeps mixed unsafe quotes and prose-only declarations as findings', () => {
     const root = makeRoot();
     write(root, 'specs/42-add-x/tasks.md', [
@@ -704,6 +753,63 @@ describe('publication File(s) upgrade', () => {
     expect(item.actionable).toBe(false);
     expect(item.packages[0].rewrites).toEqual([]);
     expect(item.packages[0].findings).toHaveLength(3);
+  });
+
+  it('does not backfill spec-created while publication findings remain unapproved', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/42-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/42-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create src/a.ts\n');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [], run, { includeIssueDependencies: false });
+
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
+  });
+
+  it('does not backfill spec-created when an approved rewrite leaves findings', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/42-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/42-add-x/tasks.md', [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Recoverable',
+      '**File(s)**: Create `src/a.ts`',
+      '### T002: Unrecoverable',
+      '**File(s)**: Create src/b.ts',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [item.id], run, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
   });
 
   it('rejects an approved rewrite when tasks change after detection', () => {

@@ -768,6 +768,36 @@ function applySteeringRuntime(root, item) {
   }
 }
 
+function recoverPublicationFileDeclaration(value) {
+  const tokens = [];
+  const tokenPattern = /`([^`]*)`(?:\s*(\([^()`]*\)))?/g;
+  let cursor = 0;
+  let match;
+  while ((match = tokenPattern.exec(value)) !== null) {
+    const between = value.slice(cursor, match.index);
+    if (tokens.length > 0) {
+      if (!/^\s*[,;]\s*$/.test(between)) return null;
+    } else if (
+      /[`()]/.test(between)
+      || /\b(?:and|or)\b/i.test(between)
+      || /[A-Za-z0-9_-][/.][A-Za-z0-9_*?[/-]/.test(between)
+    ) return null;
+    const quoted = `\`${match[1]}\``;
+    try {
+      if (publicationFileEntries(quoted).length !== 1) return null;
+      publicationFileEntries(`${quoted}${match[2] ? ` ${match[2]}` : ''}`);
+    } catch {
+      return null;
+    }
+    tokens.push(`${quoted}${match[2] ? ` ${match[2]}` : ''}`);
+    cursor = tokenPattern.lastIndex;
+  }
+  const suffix = value.slice(cursor);
+  if (!tokens.length || /[`()]/.test(suffix) || /\b(?:and|or)\b/i.test(suffix)
+    || /[A-Za-z0-9_-][/.][A-Za-z0-9_*?[/-]/.test(suffix)) return null;
+  return tokens.join(', ');
+}
+
 function publicationFilesUpgrade(root, specDirs) {
   const packages = [];
   for (const specDir of specDirs) {
@@ -788,25 +818,13 @@ function publicationFilesUpgrade(root, specDirs) {
         publicationFileEntries(match[2]);
         continue;
       } catch {}
-      const quoted = [...match[2].matchAll(/`([^`]*)`/g)];
-      const balanced = (match[2].match(/`/g) ?? []).length === quoted.length * 2;
-      const paths = [];
-      let safe = balanced && quoted.length > 0 && !/[()]/.test(match[2]);
-      for (const quote of quoted) {
-        try {
-          const parsed = publicationFileEntries(`\`${quote[1]}\``);
-          if (parsed.length !== 1) safe = false;
-          else paths.push(parsed[0]);
-        } catch {
-          safe = false;
-        }
-      }
+      const recovered = recoverPublicationFileDeclaration(match[2]);
       const detail = { line: index + 1, entry: match[2] };
-      if (safe) {
+      if (recovered !== null) {
         rewrites.push({
           ...detail,
           before: line,
-          after: `${match[1]}${paths.map((entry) => `\`${entry}\``).join(', ')}`,
+          after: `${match[1]}${recovered}`,
         });
       } else {
         findings.push(detail);
@@ -845,7 +863,9 @@ function applyPublicationFiles(root, item) {
   for (const plan of item.packages) {
     if (!plan.rewrites.length) continue;
     const target = path.join(root, plan.path);
-    const lines = safeRead(target).split(/\r?\n/);
+    const source = safeRead(target);
+    const newline = source.includes('\r\n') ? '\r\n' : '\n';
+    const lines = source.split(/\r?\n/);
     for (const rewrite of plan.rewrites) {
       if (lines[rewrite.line - 1] !== rewrite.before) {
         const error = new Error('Publication File(s) changed after plan approval');
@@ -854,7 +874,7 @@ function applyPublicationFiles(root, item) {
       }
       lines[rewrite.line - 1] = rewrite.after;
     }
-    fs.writeFileSync(target, lines.join('\n'));
+    fs.writeFileSync(target, lines.join(newline));
   }
   return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
 }
@@ -1451,6 +1471,16 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
+  const invalidPublicationIssues = new Set();
+  if (livePublicationItem) {
+    const publicationApproved = approvedSet.has(livePublicationItem.id);
+    for (const publicationPackage of livePublicationItem.packages) {
+      if (publicationApproved && publicationPackage.findings.length === 0) continue;
+      const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
+      if (issue) invalidPublicationIssues.add(Number(issue));
+    }
+  }
+
 
   for (const item of toApply) {
     let res;
@@ -1489,7 +1519,9 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     }
     results.push(res);
   }
-  const backfill = backfillSpecCreatedLabels(rootAbs, run);
+  const backfill = backfillSpecCreatedLabels(rootAbs, run, {
+    excludeIssues: invalidPublicationIssues,
+  });
   results.push({
     id: 'spec-created-backfill',
     status: backfill.ok ? 'applied' : 'failed',

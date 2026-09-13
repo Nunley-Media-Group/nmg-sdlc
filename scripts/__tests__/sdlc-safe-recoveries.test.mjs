@@ -319,6 +319,11 @@ describe('approved publication scope', () => {
     }));
   });
 
+  test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
+    expect(() => publicationFileEntries(declaration))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
+  });
+
   test('rejects a bounded declaration that expands to no files', () => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';

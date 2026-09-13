@@ -49,7 +49,7 @@
 
 ### T003: Authoring contract, public documentation, and upgrade rewrite
 
-**File(s)**: `README.md`, `scripts/sdlc-upgrade.mjs`, `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/templates/tasks.md`, `workflows/upgrade-project/WORKFLOW.md`
+**File(s)**: `README.md`, `scripts/sdlc-upgrade.mjs`, `scripts/spec-created-label.mjs`, `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/templates/tasks.md`, `workflows/upgrade-project/WORKFLOW.md`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
@@ -91,3 +91,4 @@ Before moving to IMPLEMENT phase:
 |---|---|---|
 | #379 | 2026-09-13 | Initial defect report |
 | #379 | 2026-09-13 | Spec revised before delivery: authorized README grammar and pre-dispatch diagnostics documentation in T003 |
+| #379 | 2026-09-13 | Pre-delivery review1 scope amendment: authorized spec-created label backfill changes in T003 and clarified retained-worker, bounded-glob, upgrade annotation, ambiguity, invalid-package, and CRLF regressions without changing approved intent |

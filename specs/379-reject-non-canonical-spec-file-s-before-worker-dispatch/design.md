@@ -97,3 +97,4 @@ Before moving to TASKS phase:
 |---|---|---|
 | #379 | 2026-09-13 | Initial defect report |
 | #379 | 2026-09-13 | Spec revised before delivery: added the public README grammar and pre-dispatch diagnostics obligation |
+| #379 | 2026-09-13 | Pre-delivery review1 clarification: place validation at new implement dispatch, require a non-magic glob prefix, preserve safe annotations and line endings, reject ambiguous recovery, and withhold label backfill from invalid packages |

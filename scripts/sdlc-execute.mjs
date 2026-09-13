@@ -3200,18 +3200,6 @@ export function runExecute({
       output.push(`Run /sdlc-write-spec #${issue}`);
       return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
     }
-    const specRelative = isAbsolute(spec.dir)
-      ? relative(cwd, spec.dir).split('\\').join('/')
-      : spec.dir.split('\\').join('/');
-    try {
-      inspectPublicationScope({ cwd, issue, spec: specRelative, step: 'implement', run });
-    } catch (error) {
-      const lines = [error.reasonCode ?? error.message];
-      for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
-        if (error[key] != null) lines.push(`${key}: ${error[key]}`);
-      }
-      return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
-    }
 
     runState.currentIssue = issue;
     runState.completed[String(issue)] ||= [];
@@ -3220,6 +3208,25 @@ export function runExecute({
     let live = step
       ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
       : null;
+    const implementationAlreadyOwned = Object.values(runState.workers ?? {}).some(
+      (worker) => worker.issue === issue && worker.step === 'implement',
+    );
+    const dispatchesNewImplementation = ['start', 'implement'].includes(step)
+      && !live && !runState.failed && !runState.remediation && !implementationAlreadyOwned;
+    if (dispatchesNewImplementation) {
+      const specRelative = isAbsolute(spec.dir)
+        ? relative(cwd, spec.dir).split('\\').join('/')
+        : spec.dir.split('\\').join('/');
+      try {
+        inspectPublicationScope({ cwd, issue, spec: specRelative, step: 'implement', run });
+      } catch (error) {
+        const lines = [error.reasonCode ?? error.message];
+        for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+          if (error[key] != null) lines.push(`${key}: ${error[key]}`);
+        }
+        return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
+      }
+    }
     if (step === 'deliver' && !live && issueAgents.length === 0
       && !existingAgents.some((agent) => agent.name === remAgentName(issue, step))
       && runState.delivery?.mergeabilityReverificationRequired) {
@@ -3734,6 +3741,7 @@ export function runExecute({
           });
         }
       }
+
 
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);

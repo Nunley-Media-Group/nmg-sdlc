@@ -90,3 +90,4 @@
 |-------|------|---------|
 | #379 | 2026-09-13 | Initial defect report |
 | #379 | 2026-09-13 | Spec revised before delivery: clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |
+| #379 | 2026-09-13 | Pre-delivery review1 clarification: scope validation applies at new implement dispatch; bounded globs, unambiguous upgrade recovery, supported annotations, valid-package label backfill, and source line endings remain fail-closed or preserved as specified |
