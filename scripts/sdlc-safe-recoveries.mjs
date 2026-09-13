@@ -848,25 +848,26 @@ function stripHtmlComments(line, inComment) {
 const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
-  const acceptedTasks = taskIds == null ? null : new Set(taskIds);
+  const explicitTaskIds = taskIds != null;
+  const acceptedTasks = new Set(taskIds ?? []);
   const sourceLines = String(content).split(/\r?\n/);
   const acceptedTaskLines = new Map();
-  if (acceptedTasks) {
-    for (const [index, line] of sourceLines.entries()) {
-      const taskId = DELIVERY_TASK_HEADING.exec(line)?.[1];
-      if (acceptedTasks.has(taskId) && !acceptedTaskLines.has(taskId)) {
-        acceptedTaskLines.set(taskId, index + 1);
-      }
-    }
+  const expectedTaskCounts = new Map();
+  for (const [index, line] of sourceLines.entries()) {
+    const taskId = DELIVERY_TASK_HEADING.exec(line)?.[1];
+    if (!taskId || (explicitTaskIds && !acceptedTasks.has(taskId))) continue;
+    acceptedTasks.add(taskId);
+    if (!acceptedTaskLines.has(taskId)) acceptedTaskLines.set(taskId, index + 1);
+    expectedTaskCounts.set(taskId, (expectedTaskCounts.get(taskId) ?? 0) + 1);
   }
-  const validatedTasks = new Set();
+  const validatedTaskCounts = new Map();
   const entries = [];
   let fence = null;
   let inHtmlComment = false;
   let task = null;
   const finishTask = () => {
-    if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) return;
-    if (acceptedTasks && validatedTasks.has(task.id)) {
+    if (!task || !acceptedTasks.has(task.id)) return;
+    if (explicitTaskIds && validatedTaskCounts.has(task.id)) {
       throw safeError('publication_scope_unproven', {
         spec,
         taskId: task.id,
@@ -906,7 +907,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
         syntax: PUBLICATION_FILE_SYNTAX,
       });
     }
-    validatedTasks.add(task.id);
+    validatedTaskCounts.set(task.id, (validatedTaskCounts.get(task.id) ?? 0) + 1);
   };
   for (const [index, sourceLine] of sourceLines.entries()) {
     if (fence) {
@@ -934,7 +935,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       task = null;
       continue;
     }
-    if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) continue;
+    if (!task || !acceptedTasks.has(task.id)) continue;
     const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
     if (!metadata) continue;
     const [, label, value] = metadata;
@@ -949,16 +950,15 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
     }
   }
   finishTask();
-  if (acceptedTasks) {
-    for (const taskId of acceptedTasks) {
-      if (validatedTasks.has(taskId)) continue;
-      throw safeError('publication_scope_unproven', {
-        spec,
-        taskId,
-        line: acceptedTaskLines.get(taskId),
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
-    }
+  for (const taskId of acceptedTasks) {
+    const expected = expectedTaskCounts.get(taskId) ?? 1;
+    if (validatedTaskCounts.get(taskId) === expected) continue;
+    throw safeError('publication_scope_unproven', {
+      spec,
+      taskId,
+      line: acceptedTaskLines.get(taskId),
+      syntax: PUBLICATION_FILE_SYNTAX,
+    });
   }
   return entries;
 }
