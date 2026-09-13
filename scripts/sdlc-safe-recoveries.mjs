@@ -865,16 +865,17 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
     spec: `${spec}/tasks.md`,
     taskIds: scope.delivery.tasks,
   });
+  const verificationReport = `${spec}/verification-report.md`;
   const paths = new Set(
     ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
       .map((file) => `${spec}/${file}`),
   );
   for (const file of observePublicationPaths(run, cwd, `${spec}/`)) {
-    if (file !== `${spec}/verification-report.md`) paths.add(file);
+    if (file !== verificationReport) paths.add(file);
   }
   for (const declared of declarations) {
     const expands = declared.endsWith('/') || /[*?\[]/.test(declared);
-    if (!expands) paths.add(declared);
+    if (!expands && declared !== verificationReport) paths.add(declared);
     const matches = observePublicationPaths(run, cwd, declared);
     if (expands && matches.size === 0) {
       throw safeError('publication_scope_unproven', {
@@ -883,7 +884,9 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
         syntax: PUBLICATION_FILE_SYNTAX,
       });
     }
-    for (const file of matches) paths.add(file);
+    for (const file of matches) {
+      if (file !== verificationReport) paths.add(file);
+    }
   }
   if (!paths.size) throw safeError('publication_scope_unproven');
   return [...paths].sort();

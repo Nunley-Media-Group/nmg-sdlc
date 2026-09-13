@@ -287,7 +287,7 @@ describe('approved publication scope', () => {
     const spec = 'specs/42-feature';
     f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
     f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
-    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (remove)\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (remove), \`${REPORT}\`\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
     f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n    Given approved tasks\n    When changes publish\n    Then only approved paths publish\n`);
     f.put('unrelated.txt', 'not authorized\n');
     const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run });
