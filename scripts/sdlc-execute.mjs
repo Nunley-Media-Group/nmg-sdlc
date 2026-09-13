@@ -3208,11 +3208,8 @@ export function runExecute({
     let live = step
       ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
       : null;
-    const implementationAlreadyOwned = Object.values(runState.workers ?? {}).some(
-      (worker) => worker.issue === issue && worker.step === 'implement',
-    );
     const dispatchesNewImplementation = ['start', 'implement'].includes(step)
-      && !live && !runState.failed && !runState.remediation && !implementationAlreadyOwned;
+      && !live && !runState.failed && !runState.remediation;
     if (dispatchesNewImplementation) {
       const specRelative = isAbsolute(spec.dir)
         ? relative(cwd, spec.dir).split('\\').join('/')

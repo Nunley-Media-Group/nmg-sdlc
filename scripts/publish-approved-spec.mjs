@@ -311,11 +311,11 @@ function validatePublicationFiles(dir) {
 function commitPush(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
+  ensureOnBranch(issueN, branch);
   if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
     fail('spec_not_approved');
   }
   validatePublicationFiles(dir);
-  ensureOnBranch(issueN, branch);
 
   const added = git(['add', '--', dir]);
   if (added.status !== 0) {
@@ -360,11 +360,11 @@ function defaultBranch() {
 function mergeSpec(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
+  ensureOnBranch(issueN, branch);
   if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
     fail('spec_not_approved');
   }
   validatePublicationFiles(dir);
-  ensureOnBranch(issueN, branch);
 
   const base = readDefaultBranch();
   if (base === branch) {

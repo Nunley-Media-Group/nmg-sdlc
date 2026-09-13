@@ -755,6 +755,31 @@ describe('publication File(s) upgrade', () => {
     expect(item.packages[0].findings).toHaveLength(3);
   });
 
+  it('does not backfill a transformed package with invalid publication declarations', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create src/a.ts\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'directory-rename');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [item.id], run, { includeIssueDependencies: false });
+
+    expect(fs.existsSync(path.join(root, 'specs/42-add-x/tasks.md'))).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
+  });
+
   it('does not backfill spec-created while publication findings remain unapproved', () => {
     const root = makeRoot();
     for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {

@@ -2237,6 +2237,47 @@ describe('runExecute controller', () => {
       && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
   });
 
+  it('rejects invalid publication File(s) before replacing stale implement ownership', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: null,
+      workers: {
+        's42-implement': {
+          name: 's42-implement',
+          paneId: 'missing-implement-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'implement',
+          branch: '42-ship-it',
+          head: 'a'.repeat(40),
+          promptDelivery: 'delivered',
+          promptDeliveryVersion: 2,
+        },
+      },
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+  });
+
   it('does not rerun implement publication validation when resuming a later stage', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {

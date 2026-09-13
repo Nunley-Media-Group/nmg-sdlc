@@ -296,6 +296,7 @@ describe('approved publication scope', () => {
     expect(scope).not.toContain('unrelated.txt');
     expect(scope).not.toContain('skill://skill-creator');
     expect(inspectPublicationScope({ cwd: f.root, issue: 42, step: 'verify', spec, run: f.run })).toEqual([REPORT]);
+    expect(scope).not.toContain(REPORT);
     f.put(`${spec}/design.md`, `${header.replace('Approved', 'Draft')}Unapproved changes.\n`);
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
   });
@@ -431,7 +432,7 @@ describe('publication CLI lease ownership boundary', () => {
     const publication = JSON.parse(result.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''));
     expect(publication.allowedPaths).toEqual([
       'CHANGELOG.md', 'README.md', 'deleted.txt', 'src/code.mjs', 'src/nmg_sdlc_smoke/cli.py',
-      ...['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md', 'verification-report.md'].map((file) => `${spec}/${file}`),
+      ...['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md'].map((file) => `${spec}/${file}`),
       'tests/features/add_nmg_smoke_brackets_flag.feature', 'tests/features/steps/test_brackets_steps.py',
     ].sort());
     expect(reconcileStagePublication({

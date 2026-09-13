@@ -866,10 +866,12 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
     taskIds: scope.delivery.tasks,
   });
   const paths = new Set(
-    ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin', 'verification-report.md']
+    ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
       .map((file) => `${spec}/${file}`),
   );
-  for (const file of observePublicationPaths(run, cwd, `${spec}/`)) paths.add(file);
+  for (const file of observePublicationPaths(run, cwd, `${spec}/`)) {
+    if (file !== `${spec}/verification-report.md`) paths.add(file);
+  }
   for (const declared of declarations) {
     const expands = declared.endsWith('/') || /[*?\[]/.test(declared);
     if (!expands) paths.add(declared);

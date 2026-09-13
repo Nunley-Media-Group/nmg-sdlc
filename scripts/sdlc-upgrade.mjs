@@ -1472,15 +1472,6 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
   const invalidPublicationIssues = new Set();
-  if (livePublicationItem) {
-    const publicationApproved = approvedSet.has(livePublicationItem.id);
-    for (const publicationPackage of livePublicationItem.packages) {
-      if (publicationApproved && publicationPackage.findings.length === 0) continue;
-      const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
-      if (issue) invalidPublicationIssues.add(Number(issue));
-    }
-  }
-
 
   for (const item of toApply) {
     let res;
@@ -1518,6 +1509,11 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = { id: item.id, status: 'skipped:unknown-kind' };
     }
     results.push(res);
+  }
+  const postTransformPublication = publicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
+  for (const publicationPackage of postTransformPublication?.packages ?? []) {
+    const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
+    if (issue) invalidPublicationIssues.add(Number(issue));
   }
   const backfill = backfillSpecCreatedLabels(rootAbs, run, {
     excludeIssues: invalidPublicationIssues,
