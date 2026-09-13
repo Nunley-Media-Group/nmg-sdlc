@@ -1,7 +1,9 @@
 import { describe, expect, it, afterEach } from '@jest/globals';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   applyIssueDependencyUpgrade,
   applyPublicationUpgrade,
@@ -1286,6 +1288,36 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(afterTasks.replace('**File(s)**:', '**Files**:')).toBe(beforeTasks);
     expect(fs.readFileSync(path.join(root, selected, 'raw.bin'))).toEqual(beforeRaw);
     expect(fs.readFileSync(path.join(root, 'unrelated.txt'))).toEqual(beforeUnrelated);
+  });
+
+  it('rejects repeated CLI approval options without applying either value', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-cli-approval';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const tasksPath = path.join(root, selected, 'tasks.md');
+    const before = fs.readFileSync(tasksPath);
+    const script = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
+
+    const result = spawnSync(process.execPath, [
+      script,
+      'apply-publication',
+      '--root',
+      root,
+      '--spec',
+      selected,
+      '--approve',
+      report.item.id,
+      '--approve',
+      report.item.id,
+    ], {
+      encoding: 'utf8',
+      shell: false,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('publication_files_approval_invalid');
+    expect(fs.readFileSync(tasksPath)).toEqual(before);
   });
 });
 

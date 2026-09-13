@@ -1870,9 +1870,9 @@ function parseArgv(argv) {
     else if (a.startsWith('--root=')) args.root = a.split('=')[1];
     else if (a === '--approve' || a === '-a') {
       const v = argv[++i] || '';
-      args.approve = v.split(',').map((s) => s.trim()).filter(Boolean);
+      args.approve.push(...v.split(',').map((s) => s.trim()).filter(Boolean));
     } else if (a.startsWith('--approve=')) {
-      args.approve = a.split('=')[1].split(',').map((s) => s.trim()).filter(Boolean);
+      args.approve.push(...a.split('=')[1].split(',').map((s) => s.trim()).filter(Boolean));
     } else if (a === '--spec' || a === '-s') {
       const value = argv[++i];
       if (value) args.specDirs.push(value);
