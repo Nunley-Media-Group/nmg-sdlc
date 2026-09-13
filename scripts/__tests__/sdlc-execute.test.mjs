@@ -2246,6 +2246,7 @@ describe('runExecute controller', () => {
   it.each([
     ['fenced', ['```text', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '```']],
     ['commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
+    ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ])('rejects an admitted %s task hidden from publication parsing before dispatch', (_name, hiddenTask) => {
     const fixture = makeControllerFixture();
     const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');

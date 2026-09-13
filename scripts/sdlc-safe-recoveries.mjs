@@ -811,14 +811,13 @@ function closesMarkdownFence(line, fence) {
   return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
 }
 
-function stripHtmlComments(line, inComment) {
+function stripHtmlComments(line, inComment, codeSpan) {
   let visible = '';
   let offset = 0;
-  let codeSpan = 0;
   while (offset < line.length) {
     if (inComment) {
       const end = line.indexOf('-->', offset);
-      if (end === -1) return { line: visible, inComment: true };
+      if (end === -1) return { line: visible, inComment: true, codeSpan };
       inComment = false;
       offset = end + 3;
       continue;
@@ -842,7 +841,7 @@ function stripHtmlComments(line, inComment) {
     }
     visible += line[offset++];
   }
-  return { line: visible, inComment };
+  return { line: visible, inComment, codeSpan };
 }
 
 const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
@@ -864,17 +863,10 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
   const entries = [];
   let fence = null;
   let inHtmlComment = false;
+  let codeSpan = 0;
   let task = null;
   const finishTask = () => {
     if (!task || !acceptedTasks.has(task.id)) return;
-    if (validatedTaskCounts.has(task.id)) {
-      throw safeError('publication_scope_unproven', {
-        spec,
-        taskId: task.id,
-        line: task.line,
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
-    }
     const nearMiss = task.nearMisses[0];
     if (nearMiss) {
       throw safeError('publication_scope_unproven', {
@@ -914,11 +906,17 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       if (closesMarkdownFence(sourceLine, fence)) fence = null;
       continue;
     }
-    const stripped = stripHtmlComments(sourceLine, inHtmlComment);
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripHtmlComments(sourceLine, inHtmlComment, codeSpan);
     const line = stripped.line;
     inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) continue;
     fence = markdownFence(line);
-    if (fence) continue;
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
     const heading = DELIVERY_TASK_HEADING.exec(line);
     if (heading) {
       finishTask();
