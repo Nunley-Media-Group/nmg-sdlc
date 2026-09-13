@@ -1,0 +1,46 @@
+**Issue**: #383
+**Date**: 2026-09-13
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/
+
+# File: scripts/__tests__/sdlc-safe-recoveries.test.mjs
+#
+# Generated from: specs/383-reject-missing-near-miss-or-duplicate-delivery-file-declarations/requirements.md
+Feature: Require one canonical File(s) declaration per delivery task
+  Approved delivery tasks must not silently lose or combine publication authority.
+
+  @SCN001 @regression
+  Scenario: Missing declaration is rejected before dispatch
+    Given an Approved spec with an admitted task that has no File(s) declaration
+    When execute performs publication scope preflight
+    Then publication_scope_unproven identifies the spec and task
+    And no pane, worker, or bind subprocess is created
+
+  @SCN002 @regression
+  Scenario: Near-miss Files label is rejected before dispatch
+    Given an Approved spec with an admitted task declaring Files instead of File(s)
+    When execute performs publication scope preflight
+    Then publication_scope_unproven identifies the near-miss line and task
+    And no pane, worker, or bind subprocess is created
+
+  @SCN003 @regression
+  Scenario: Duplicate canonical declarations are rejected before dispatch
+    Given an Approved spec with two File(s) declarations in one admitted task
+    When execute performs publication scope preflight
+    Then publication_scope_unproven identifies the duplicate line and task
+    And no declaration authority is combined
+
+  @SCN004 @regression
+  Scenario: Valid tasks retain bounded authority
+    Given every admitted task has one canonical File(s) declaration
+    When publication scope is bound
+    Then the allowed paths contain declared and spec-owned paths only
+    And non-admitted task metadata grants no authority
+
+  @SCN005 @regression
+  Scenario: Publication and authoring enforce the same invariant
+    Given write-spec is producing an Approved tasks.md
+    When publication validation evaluates the package
+    Then each admitted task must have exactly one canonical File(s) declaration
+    And missing, near-miss, and duplicate declarations use the located publication_scope_unproven contract
