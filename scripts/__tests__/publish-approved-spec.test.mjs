@@ -551,6 +551,38 @@ describe('publish-approved-spec', () => {
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
+  it.each(['commit-push', 'merge'].flatMap((command) => [
+    [command, 'bare level-two', '##'],
+    [command, 'bare level-three', '###'],
+  ]))('%s rejects metadata after a %s task boundary before side effects', (command, _name, boundary) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      boundary,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 4,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
 
   it.each(['commit-push', 'merge'])('%s rejects invalid File(s) before publication side effects', (command) => {
     const { root, env } = makeRepo();

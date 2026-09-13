@@ -928,7 +928,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       };
       continue;
     }
-    if (/^#{1,3}[ \t]+/.test(line)) {
+    if (/^#{1,3}(?:[ \t]+|$)/.test(line)) {
       finishTask();
       task = null;
       continue;

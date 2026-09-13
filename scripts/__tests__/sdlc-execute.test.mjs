@@ -2270,7 +2270,11 @@ describe('runExecute controller', () => {
       && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
   });
 
-  it('does not authorize metadata after a tab-delimited task boundary', () => {
+  it.each([
+    ['tab-delimited', '##\tNotes'],
+    ['bare level-two', '##'],
+    ['bare level-three', '###'],
+  ])('does not authorize metadata after a %s task boundary', (_name, boundary) => {
     const fixture = makeControllerFixture();
     const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
@@ -2278,7 +2282,7 @@ describe('runExecute controller', () => {
       '**Status**: Approved',
       '',
       '### T001: Create code',
-      '##\tNotes',
+      boundary,
       '**File(s)**: `src/a.ts`',
       '',
     ].join('\n'));

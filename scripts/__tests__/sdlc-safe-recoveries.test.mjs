@@ -488,10 +488,14 @@ describe('approved publication scope', () => {
     })).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
-  test('ends a task before a tab-delimited Markdown section heading', () => {
+  test.each([
+    ['tab-delimited', '##\tNotes'],
+    ['bare level-two', '##'],
+    ['bare level-three', '###'],
+  ])('ends a task before a %s Markdown section heading', (_name, boundary) => {
     expect(() => parseDeliveryTaskFileLines([
       '### T001: Create code',
-      '##\tNotes',
+      boundary,
       '**File(s)**: `outside.txt`',
     ].join('\n'), {
       spec: 'specs/42-feature/tasks.md',
