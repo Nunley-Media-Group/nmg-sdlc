@@ -13,6 +13,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - Reject admitted delivery tasks with missing, near-miss, or duplicate canonical `File(s)` declarations before spec publication or execute worker dispatch (#383).
+- Detect a singular recoverable `Files` task label during digest-bound publication upgrade and rewrite it to canonical `File(s)` without weakening fail-closed delivery parsing (#386).
 
 ## [3.21.3] - 2026-09-13
 
