@@ -2272,6 +2272,36 @@ describe('runExecute controller', () => {
   });
 
   it.each([
+    ['HTML comment', ['<!-- unmatched ` -->'], 6],
+    ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
+  ])('ignores backticks in a %s before a hidden multiline span without dispatch', (_name, prefix, line) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      ...prefix,
+      '``',
+      '## T001: Hidden task',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain(`line: ${line}`);
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
     ['tab-delimited', '##\tNotes'],
     ['bare level-two', '##'],
     ['bare level-three', '###'],

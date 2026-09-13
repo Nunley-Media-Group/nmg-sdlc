@@ -463,6 +463,27 @@ describe('approved publication scope', () => {
     }));
   });
 
+  test.each([
+    ['HTML comment', ['<!-- unmatched ` -->'], 4],
+    ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 6],
+  ])('ignores backticks in a %s when pairing a later multiline span', (_name, prefix, line) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      ...prefix,
+      '``',
+      '## T001: Hidden task',
+      '**File(s)**: `src/hidden.ts`',
+      '``',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line,
+    }));
+  });
+
   test('does not count hidden metadata as a duplicate declaration', () => {
     expect(parseDeliveryTaskFileLines([
       '# Tasks',

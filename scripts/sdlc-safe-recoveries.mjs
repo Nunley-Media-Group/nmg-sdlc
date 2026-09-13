@@ -811,6 +811,42 @@ function closesMarkdownFence(line, fence) {
   return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
 }
 
+function codeSpanSourceLines(lines) {
+  const visibleLines = [];
+  let fence = null;
+  let inComment = false;
+  for (const sourceLine of lines) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      visibleLines.push(' '.repeat(sourceLine.length));
+      continue;
+    }
+    const chars = [...sourceLine];
+    let offset = 0;
+    while (offset < sourceLine.length) {
+      if (inComment) {
+        const end = sourceLine.indexOf('-->', offset);
+        const limit = end === -1 ? sourceLine.length : end + 3;
+        chars.fill(' ', offset, limit);
+        offset = limit;
+        if (end === -1) break;
+        inComment = false;
+        continue;
+      }
+      const start = sourceLine.indexOf('<!--', offset);
+      if (start === -1) break;
+      chars.fill(' ', start, start + 4);
+      inComment = true;
+      offset = start + 4;
+    }
+    const visible = chars.join('');
+    fence = markdownFence(visible);
+    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
+  }
+  return visibleLines;
+}
+
+
 function escapedBacktick(line, offset) {
   let backslashes = 0;
   for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
@@ -902,7 +938,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
   const explicitTaskIds = taskIds != null;
   const acceptedTasks = new Set(taskIds ?? []);
   const sourceLines = String(content).split(/\r?\n/);
-  const codeSpanRoles = codeSpanDelimiters(sourceLines);
+  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
   const acceptedTaskLines = new Map();
   const expectedTaskCounts = new Map();
   for (const [index, line] of sourceLines.entries()) {
