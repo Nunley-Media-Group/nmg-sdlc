@@ -320,6 +320,54 @@ describe('approved publication scope', () => {
     }));
   });
 
+  test.each([
+    {
+      name: 'missing',
+      lines: ['# Tasks', '### T001: Create code', '', '**Type**: Modify'],
+      expected: { line: 2 },
+    },
+    {
+      name: 'near-miss',
+      lines: ['# Tasks', '### T001: Create code', '', '**Files**: `src/a.ts`'],
+      expected: { line: 4, entry: '**Files**: `src/a.ts`' },
+    },
+    {
+      name: 'singular near-miss',
+      lines: ['# Tasks', '### T001: Create code', '', '**File**: `src/a.ts`'],
+      expected: { line: 4, entry: '**File**: `src/a.ts`' },
+    },
+    {
+      name: 'duplicate',
+      lines: ['# Tasks', '### T001: Create code', '', '**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'],
+      expected: { line: 5, entry: '**File(s)**: `src/b.ts`' },
+    },
+  ])('rejects a $name declaration defect at the task location', ({ lines, expected }) => {
+    expect(() => parseDeliveryTaskFileLines(lines.join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-feature/tasks.md',
+      taskId: 'T001',
+      syntax: PUBLICATION_FILE_SYNTAX,
+      ...expected,
+    }));
+  });
+
+  test('accepts one canonical declaration for every admitted task and ignores other metadata', () => {
+    expect(parseDeliveryTaskFileLines([
+      '**Files**: `outside.txt`',
+      '### T001: Create code',
+      '**File(s)**: `src/a.ts`',
+      '### T002: Test code',
+      '**File(s)**: `tests/a.test.mjs`',
+      '### T003: Excluded task',
+      '**Files**: `excluded.txt`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001', 'T002'],
+    })).toEqual(['src/a.ts', 'tests/a.test.mjs']);
+  });
+
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
     expect(() => publicationFileEntries(declaration))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));

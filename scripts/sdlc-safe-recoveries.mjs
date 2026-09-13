@@ -763,7 +763,7 @@ function validPublicationPath(file) {
     && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 
-export const PUBLICATION_FILE_SYNTAX = 'Use repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
+export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
 
 export function publicationFileEntries(value) {
   const entries = [];
@@ -803,26 +803,74 @@ export function publicationFileEntries(value) {
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
   const acceptedTasks = taskIds == null ? null : new Set(taskIds);
   const entries = [];
-  let taskId = null;
-  for (const [index, line] of String(content).split(/\r?\n/).entries()) {
-    const heading = /^### (T\d+):/.exec(line);
-    if (heading) taskId = heading[1];
-    else if (/^#{1,3} /.test(line)) taskId = null;
-    if (!taskId || (acceptedTasks && !acceptedTasks.has(taskId))
-      || !/^\*\*File\(s\)\*\*:/.test(line)) continue;
-    const entry = line.slice(line.indexOf(':') + 1).trim();
-    try {
-      entries.push(...publicationFileEntries(entry));
-    } catch (error) {
+  let task = null;
+  const finishTask = () => {
+    if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) return;
+    const nearMiss = task.nearMisses[0];
+    if (nearMiss) {
       throw safeError('publication_scope_unproven', {
         spec,
-        taskId,
-        line: index + 1,
-        entry,
+        taskId: task.id,
+        line: nearMiss.line,
+        entry: nearMiss.entry,
         syntax: PUBLICATION_FILE_SYNTAX,
       });
     }
+    if (task.declarations.length !== 1) {
+      const duplicate = task.declarations[1];
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId: task.id,
+        line: duplicate?.line ?? task.line,
+        ...(duplicate ? { entry: duplicate.entry } : {}),
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+    const [declaration] = task.declarations;
+    try {
+      entries.push(...publicationFileEntries(declaration.value));
+    } catch {
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId: task.id,
+        line: declaration.line,
+        entry: declaration.value,
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+  };
+  for (const [index, line] of String(content).split(/\r?\n/).entries()) {
+    const heading = /^### (T\d+):/.exec(line);
+    if (heading) {
+      finishTask();
+      task = {
+        id: heading[1],
+        line: index + 1,
+        declarations: [],
+        nearMisses: [],
+      };
+      continue;
+    }
+    if (/^#{1,3} /.test(line)) {
+      finishTask();
+      task = null;
+      continue;
+    }
+    if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) continue;
+    const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
+    if (!metadata) continue;
+    const [, label, value] = metadata;
+    if (label === 'File(s)') {
+      task.declarations.push({
+        line: index + 1,
+        value: value.trim(),
+        entry: line.trim(),
+      });
+    } else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
+      task.nearMisses.push({ line: index + 1, entry: line.trim() });
+    }
   }
+  finishTask();
   return entries;
 }
 
