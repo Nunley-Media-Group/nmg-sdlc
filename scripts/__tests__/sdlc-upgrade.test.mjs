@@ -828,6 +828,7 @@ describe('publication File(s) upgrade', () => {
     const fixtures = {
       '43-missing': '### T001: Missing\n**Type**: Modify\n',
       '44-duplicate': '### T001: Duplicate\n**Files**: `src/a.ts`\n**Files**: `src/b.ts`\n',
+      '44-duplicate-canonical': '### T001: Duplicate canonical\n**File(s)**: `src/a.ts`\n**File(s)**: `src/b.ts`\n',
       '45-mixed': '### T001: Mixed\n**File(s)**: `src/a.ts`\n**Files**: `src/b.ts`\n',
       '46-unsupported': '### T001: Unsupported\n**File**: `src/a.ts`\n',
       '47-malformed': '### T001: Malformed\n**Files**: Create src/a.ts\n',
@@ -854,6 +855,7 @@ describe('publication File(s) upgrade', () => {
     expect(item.actionable).toBe(false);
     expect(item.packages.map(({ path: packagePath }) => packagePath)).toEqual([
       'specs/44-duplicate/tasks.md',
+      'specs/44-duplicate-canonical/tasks.md',
       'specs/45-mixed/tasks.md',
       'specs/46-unsupported/tasks.md',
       'specs/47-malformed/tasks.md',
