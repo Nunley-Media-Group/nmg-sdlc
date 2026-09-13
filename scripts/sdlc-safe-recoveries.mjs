@@ -823,7 +823,7 @@ function runCli(argv = process.argv.slice(2)) {
     || !['implement', 'fix1', 'fix2', 'verify'].includes(options.step)) return 2;
   let lease;
   try {
-    if (options.step === 'implement' && Object.hasOwn(options, 'expectedSubject')
+    if (options.step === 'implement'
       && !validImplementationSubject(options.expectedSubject, options.issue)) {
       throw safeError('publication_subject_unproven');
     }
