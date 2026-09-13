@@ -1,0 +1,59 @@
+**Issue**: #379
+**Date**: 2026-09-13
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/374-recover-bounded-automatic-delivery-stops-without-loops/
+
+# File: scripts/__tests__/sdlc-safe-recoveries.test.mjs
+#
+# Generated from: specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/requirements.md
+Feature: Reject non-canonical spec File(s) before worker dispatch
+  The publication File(s) parser previously rejected prose only after execute
+  dispatched the implement worker, and reported only publication_scope_unproven.
+  This was fixed by sharing one grammar, failing closed before panes and
+  spec-created, locating diagnostics, and rewriting recoverable existing
+  packages only through approved upgrade.
+
+  # --- Bug Is Fixed ---
+
+  @SCN001 @regression
+  Scenario: Invalid prose is rejected before workers
+    Given an Approved spec whose delivery task declares File(s) Create `src/a.ts`
+    When spec validation or execute controller preflight runs
+    Then the issue is not treated as executable
+    And no pane or worker is created
+    And the failure is publication_scope_unproven with spec path, task ID, line, exact invalid entry, and accepted syntax
+
+  @SCN002 @regression
+  Scenario: Canonical literal path binds
+    Given an Approved spec whose delivery task declares only File(s) `src/a.ts`
+    When publication scope is bound
+    Then the allowed-path set contains only that path plus spec-owned paths
+
+  @SCN003 @regression
+  Scenario: Bounded glob or directory for generated steps
+    Given a documented bounded repository-relative glob or directory declaration for generated BDD step files
+    When publication scope is bound
+    Then matching files under that declaration are authorized
+    And unrelated files remain unauthorized
+
+  @SCN004 @regression
+  Scenario: Write-spec cannot emit parser-rejected File(s)
+    Given /sdlc-write-spec producing an Approved tasks.md
+    When the installed publication File(s) parser reads every delivery-task File(s) line
+    Then every declaration is accepted by that parser
+
+  @SCN005 @regression
+  Scenario: No regression of valid declarations
+    Given currently valid quoted paths, comma/semicolon lists, globs, directories, and delivery-owner-only annotations
+    When the grammar is shared and the new gates run
+    Then those cases remain green
+    And authorization stays fail-closed
+
+  @SCN006 @regression
+  Scenario: Upgrade rewrites recoverable existing File(s)
+    Given an issue-owned tasks.md whose delivery File(s) is Create `src/a.ts`
+    When /sdlc-upgrade-project detects and the operator approves publication-files
+    Then the line is rewritten to File(s) `src/a.ts`
+    And the live parser still rejects the original prose without that rewrite
+    And mixed unsafe quoted spans remain findings without mutation
