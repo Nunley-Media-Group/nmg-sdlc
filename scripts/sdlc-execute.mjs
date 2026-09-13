@@ -32,7 +32,11 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
-import { consumeSafeRecovery, resolveRecoveryOwner } from './sdlc-safe-recoveries.mjs';
+import {
+  consumeSafeRecovery,
+  inspectPublicationScope,
+  resolveRecoveryOwner,
+} from './sdlc-safe-recoveries.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
 
 import {
@@ -89,7 +93,7 @@ const STEP_EXTRA_WORKFLOWS = {
   implement: ['simplify'],
 };
 const STEP_PANE_ENV_KEYS = Object.freeze({
-  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES', 'NMG_SDLC_SMOKE_OWNED']),
+  verify: Object.freeze(['NMG_SDLC_SMOKE_ISSUES', 'NMG_SDLC_SMOKE_OWNED', 'NMG_SDLC_SMOKE_RECOVERY']),
   deliver: Object.freeze(['NMG_SDLC_SMOKE_OWNED']),
 });
 
@@ -3204,6 +3208,22 @@ export function runExecute({
     let live = step
       ? issueAgents.find((agent) => String(agent?.name || '') === `s${issue}-${step}`)
       : null;
+    const dispatchesNewImplementation = ['start', 'implement'].includes(step)
+      && !live && !runState.failed && !runState.remediation;
+    if (dispatchesNewImplementation) {
+      const specRelative = isAbsolute(spec.dir)
+        ? relative(cwd, spec.dir).split('\\').join('/')
+        : spec.dir.split('\\').join('/');
+      try {
+        inspectPublicationScope({ cwd, issue, spec: specRelative, step: 'implement', run });
+      } catch (error) {
+        const lines = [error.reasonCode ?? error.message];
+        for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+          if (error[key] != null) lines.push(`${key}: ${error[key]}`);
+        }
+        return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
+      }
+    }
     if (step === 'deliver' && !live && issueAgents.length === 0
       && !existingAgents.some((agent) => agent.name === remAgentName(issue, step))
       && runState.delivery?.mergeabilityReverificationRequired) {
@@ -3718,6 +3738,22 @@ export function runExecute({
           });
         }
       }
+      if (step === 'implement') {
+        const specRelative = isAbsolute(spec.dir)
+          ? relative(cwd, spec.dir).split('\\').join('/')
+          : spec.dir.split('\\').join('/');
+        try {
+          inspectPublicationScope({ cwd, issue, spec: specRelative, step, run });
+        } catch (error) {
+          const lines = [error.reasonCode ?? error.message];
+          for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+            if (error[key] != null) lines.push(`${key}: ${error[key]}`);
+          }
+          return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
+        }
+      }
+
+
 
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
       const { width, height } = paneDimensions(layout);

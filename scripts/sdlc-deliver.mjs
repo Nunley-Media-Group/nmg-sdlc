@@ -463,12 +463,13 @@ function writeHandoff({
   };
 }
 
-function writeSmokeDeliveryProof({ cwd, env, fs, issue, pullRequest, headSha }) {
+function writeSmokeDeliveryProof({ cwd, env, fs, issue, runId, pullRequest, headSha }) {
   if (env.NMG_SDLC_SMOKE_OWNED !== '1') return;
   const directory = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'smoke-deliveries']);
   fs.writeFileSync(path.join(directory, `${issue}.json`), `${JSON.stringify({
     schemaVersion: 1,
     issue,
+    runId,
     pullRequest,
     headSha,
     recordedBeforeMerge: true,
@@ -1952,7 +1953,7 @@ function runDeliverUnlocked({
       if (recovery.consumed) {
         persistDelivery(namespace, cwd, { ...namespace.runState.delivery, mergeIssued: true });
         writeSmokeDeliveryProof({
-          cwd, env, fs, issue: issueNumber,
+          cwd, env, fs, issue: issueNumber, runId: namespace.runState.runId,
           pullRequest: namespace.runState.delivery.pullRequest, headSha: head,
         });
         try {

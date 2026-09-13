@@ -41,10 +41,8 @@ function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
 }
 
-function safeError(reasonCode) {
-  const error = new Error(reasonCode);
-  error.reasonCode = reasonCode;
-  return error;
+function safeError(reasonCode, details = {}) {
+  return Object.assign(new Error(reasonCode), { reasonCode, ...details });
 }
 
 function validSafeState(data) {
@@ -756,14 +754,18 @@ export function reconcileStagePublication({
 }
 
 function validPublicationPath(file) {
+  const firstGlob = typeof file === 'string' ? file.search(/[*?\[]/) : -1;
   return typeof file === 'string' && file.length > 0 && !isAbsolute(file)
-    && !file.includes('\\') && !file.includes('\0') && !file.startsWith(':')
+    && !file.includes('\\') && !file.includes('\0') && !/^[!:^]/.test(file)
     && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(file)
     && !file.split('/').some((part) => part === '..' || part === '.')
-    && file !== '.omp' && !file.startsWith('.omp/');
+    && file !== '.omp' && !file.startsWith('.omp/')
+    && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 
-function publicationFileEntries(value) {
+export const PUBLICATION_FILE_SYNTAX = 'Use repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
+
+export function publicationFileEntries(value) {
   const entries = [];
   let pathText = '';
   let notes = '';
@@ -798,6 +800,50 @@ function publicationFileEntries(value) {
   return entries;
 }
 
+export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
+  const acceptedTasks = taskIds == null ? null : new Set(taskIds);
+  const entries = [];
+  let taskId = null;
+  for (const [index, line] of String(content).split(/\r?\n/).entries()) {
+    const heading = /^### (T\d+):/.exec(line);
+    if (heading) taskId = heading[1];
+    else if (/^#{1,3} /.test(line)) taskId = null;
+    if (!taskId || (acceptedTasks && !acceptedTasks.has(taskId))
+      || !/^\*\*File\(s\)\*\*:/.test(line)) continue;
+    const entry = line.slice(line.indexOf(':') + 1).trim();
+    try {
+      entries.push(...publicationFileEntries(entry));
+    } catch (error) {
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId,
+        line: index + 1,
+        entry,
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+  }
+  return entries;
+}
+
+function observePublicationPaths(run, cwd, pattern) {
+  const paths = new Set();
+  const current = run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', pattern], { cwd });
+  if (!commandSucceeded(current)) throw safeError('publication_scope_unproven');
+  for (const file of String(current.stdout ?? '').split('\0').filter(Boolean)) paths.add(file);
+  const upstream = run('git', ['rev-parse', '--verify', '@{u}'], { cwd });
+  const revisions = commandSucceeded(upstream) ? ['@{u}..HEAD', 'HEAD'] : ['HEAD'];
+  for (const revision of revisions) {
+    const history = run('git', ['log', '--format=', '--name-only', '--no-renames', '-z', ...(revision === 'HEAD' ? ['-1'] : []), revision, '--', pattern], { cwd });
+    if (!commandSucceeded(history)) throw safeError('publication_scope_unproven');
+    for (const file of String(history.stdout ?? '').split('\0').filter(Boolean)) paths.add(file);
+  }
+  for (const file of paths) {
+    if (!validPublicationPath(file)) throw safeError('publication_scope_unproven');
+  }
+  return paths;
+}
+
 // Only task identifiers admitted by the existing live-scope adapter contribute
 // path authority. Callers cannot supply an asserted allowlist through the CLI.
 export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step, run = defaultRun } = {}) {
@@ -815,33 +861,31 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
     documents[file] = content;
   }
   if (step === 'verify') return [`${spec}/verification-report.md`];
-  const patterns = new Set([`${spec}/`]);
-  let active = false;
-  for (const line of documents['tasks.md'].split(/\r?\n/)) {
-    const heading = /^### (T\d+):/.exec(line);
-    if (heading) active = scope.delivery.tasks.includes(heading[1]);
-    else if (/^#{1,3} /.test(line)) active = false;
-    if (active && /^\*\*File\(s\)\*\*:/.test(line)) {
-      for (const declared of publicationFileEntries(line.slice(line.indexOf(':') + 1))) patterns.add(declared);
+  const declarations = parseDeliveryTaskFileLines(documents['tasks.md'], {
+    spec: `${spec}/tasks.md`,
+    taskIds: scope.delivery.tasks,
+  });
+  const verificationReport = `${spec}/verification-report.md`;
+  const paths = new Set(
+    ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
+      .map((file) => `${spec}/${file}`),
+  );
+  for (const file of observePublicationPaths(run, cwd, `${spec}/`)) {
+    if (file !== verificationReport) paths.add(file);
+  }
+  for (const declared of declarations) {
+    const expands = declared.endsWith('/') || /[*?\[]/.test(declared);
+    if (!expands && declared !== verificationReport) paths.add(declared);
+    const matches = observePublicationPaths(run, cwd, declared);
+    if (expands && matches.size === 0) {
+      throw safeError('publication_scope_unproven', {
+        spec: `${spec}/tasks.md`,
+        entry: declared,
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
     }
-  }
-  const result = run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...patterns], { cwd });
-  if (!commandSucceeded(result)) throw safeError('publication_scope_unproven');
-  // Literal files remain authorized when deleted; directory/glob entries are
-  // expanded by Git, using only the approved task text.
-  const paths = new Set([...patterns].filter((p) => !p.endsWith('/') && !/[*?\[]/.test(p)));
-  for (const file of String(result.stdout ?? '').split('\0').filter(Boolean)) {
-    if (!validPublicationPath(file)) throw safeError('publication_scope_unproven');
-    paths.add(file);
-  }
-  const upstream = run('git', ['rev-parse', '--verify', '@{u}'], { cwd });
-  const revisions = commandSucceeded(upstream) ? ['@{u}..HEAD', 'HEAD'] : ['HEAD'];
-  for (const revision of revisions) {
-    const history = run('git', ['log', '--format=', '--name-only', '--no-renames', '-z', ...(revision === 'HEAD' ? ['-1'] : []), revision, '--', ...patterns], { cwd });
-    if (!commandSucceeded(history)) throw safeError('publication_scope_unproven');
-    for (const file of String(history.stdout ?? '').split('\0').filter(Boolean)) {
-      if (!validPublicationPath(file)) throw safeError('publication_scope_unproven');
-      paths.add(file);
+    for (const file of matches) {
+      if (file !== verificationReport) paths.add(file);
     }
   }
   if (!paths.size) throw safeError('publication_scope_unproven');
@@ -896,6 +940,11 @@ function runCli(argv = process.argv.slice(2)) {
     return outcome.passed ? 0 : 1;
   } catch (error) {
     process.stderr.write(`${error.reasonCode ?? error.message}\n`);
+    if (error.reasonCode === 'publication_scope_unproven') {
+      for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+        if (error[key] != null) process.stderr.write(`${key}: ${error[key]}\n`);
+      }
+    }
     return 1;
   } finally {
     if (lease?.owned) releaseControllerLease(lease.lease);

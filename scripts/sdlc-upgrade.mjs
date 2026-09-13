@@ -28,6 +28,7 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
+import { publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -767,6 +768,153 @@ function applySteeringRuntime(root, item) {
   }
 }
 
+function recoverPublicationFileDeclaration(value) {
+  const tokens = [];
+  const tokenPattern = /`([^`]*)`(?:\s*(\([^()`]*\)))?/g;
+  let cursor = 0;
+  let match;
+  while ((match = tokenPattern.exec(value)) !== null) {
+    const between = value.slice(cursor, match.index);
+    if (tokens.length > 0) {
+      if (!/^\s*[,;]\s*$/.test(between)) return null;
+    } else if (
+      /[`()]/.test(between)
+      || /\b(?:and|or)\b/i.test(between)
+      || /[A-Za-z0-9_-][/.][A-Za-z0-9_*?[/-]/.test(between)
+    ) return null;
+    const quoted = `\`${match[1]}\``;
+    try {
+      if (publicationFileEntries(quoted).length !== 1) return null;
+      publicationFileEntries(`${quoted}${match[2] ? ` ${match[2]}` : ''}`);
+    } catch {
+      return null;
+    }
+    tokens.push(`${quoted}${match[2] ? ` ${match[2]}` : ''}`);
+    cursor = tokenPattern.lastIndex;
+  }
+  const suffix = value.slice(cursor);
+  if (!tokens.length || /[`()]/.test(suffix) || /\b(?:and|or)\b/i.test(suffix)
+    || /[A-Za-z0-9_-][/.][A-Za-z0-9_*?[/-]/.test(suffix)) return null;
+  return tokens.join(', ');
+}
+
+function publicationFilesUpgrade(root, specDirs) {
+  const packages = [];
+  for (const specDir of specDirs) {
+    if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
+    const relativePath = `${specDir.rel}/tasks.md`;
+    const source = safeRead(path.join(root, relativePath));
+    if (source == null) continue;
+    const rewrites = [];
+    const findings = [];
+    let activeTask = false;
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+      if (/^### T\d+:/.test(line)) activeTask = true;
+      else if (/^#{1,3} /.test(line)) activeTask = false;
+      if (!activeTask) continue;
+      const match = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
+      if (!match) continue;
+      try {
+        publicationFileEntries(match[2]);
+        continue;
+      } catch {}
+      const recovered = recoverPublicationFileDeclaration(match[2]);
+      const detail = { line: index + 1, entry: match[2] };
+      if (recovered !== null) {
+        rewrites.push({
+          ...detail,
+          before: line,
+          after: `${match[1]}${recovered}`,
+        });
+      } else {
+        findings.push(detail);
+      }
+    }
+    if (rewrites.length || findings.length) {
+      const projectedPaths = [...new Set(
+        (specDir.projectedRels ?? (specDir.projectedRel ? [specDir.projectedRel] : []))
+          .filter((projectedRel) => projectedRel !== specDir.rel)
+          .map((projectedRel) => `${projectedRel}/tasks.md`),
+      )];
+      packages.push({
+        path: relativePath,
+        ...(projectedPaths.length === 1 ? { projectedPath: projectedPaths[0] } : {}),
+        ...(projectedPaths.length > 1 ? { projectedPaths } : {}),
+        sourceDigest: createHash('sha256').update(source).digest('hex'),
+        rewrites,
+        findings,
+      });
+    }
+  }
+  if (!packages.length) return null;
+  const digest = createHash('sha256').update(JSON.stringify(packages)).digest('hex');
+  return {
+    id: `publication-files:${digest}`,
+    kind: 'publication-files',
+    description: 'Canonicalize recoverable delivery-task File(s) declarations; preserve unsafe declarations as findings.',
+    actionable: packages.some(({ rewrites }) => rewrites.length > 0),
+    packages,
+  };
+}
+
+function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
+  const candidates = new Map(
+    specDirs
+      .filter(({ name }) => /^[1-9]\d*-[a-z0-9-]+$/.test(name))
+      .map((specDir) => [specDir.rel, specDir]),
+  );
+  for (const item of upgradeItems) {
+    if (!item.actionable || !item.from) continue;
+    let projectedRels = [];
+    if (['directory-rename', 'epic-flatten'].includes(item.kind) && item.to) {
+      projectedRels = [item.to];
+    } else if (item.kind === 'cumulative-split') {
+      projectedRels = (item.issueNumbers ?? []).map((issue) => `specs/${issue}-${item.slug}`);
+    }
+    projectedRels = projectedRels.filter((projectedRel) => (
+      /^specs\/[1-9]\d*-[a-z0-9-]+$/.test(projectedRel)
+    ));
+    if (!projectedRels.length) continue;
+    const existing = candidates.get(item.from);
+    candidates.set(item.from, {
+      name: path.basename(projectedRels[0]),
+      full: path.join(root, item.from),
+      rel: item.from,
+      projectedRels: [...new Set([...(existing?.projectedRels ?? []), ...projectedRels])],
+    });
+  }
+  return [...candidates.values()];
+}
+
+function applyPublicationFiles(root, item) {
+  for (const plan of item.packages) {
+    const target = path.join(root, plan.path);
+    const source = safeRead(target);
+    if (source == null || createHash('sha256').update(source).digest('hex') !== plan.sourceDigest) {
+      const error = new Error('Publication File(s) changed after plan approval');
+      error.reasonCode = 'publication_files_plan_stale';
+      throw error;
+    }
+  }
+  for (const plan of item.packages) {
+    if (!plan.rewrites.length) continue;
+    const target = path.join(root, plan.path);
+    const source = safeRead(target);
+    const newline = source.includes('\r\n') ? '\r\n' : '\n';
+    const lines = source.split(/\r?\n/);
+    for (const rewrite of plan.rewrites) {
+      if (lines[rewrite.line - 1] !== rewrite.before) {
+        const error = new Error('Publication File(s) changed after plan approval');
+        error.reasonCode = 'publication_files_plan_stale';
+        throw error;
+      }
+      lines[rewrite.line - 1] = rewrite.after;
+    }
+    fs.writeFileSync(target, lines.join(newline));
+  }
+  return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -946,6 +1094,12 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       }
     }
   }
+  const publicationFiles = publicationFilesUpgrade(
+    rootAbs,
+    publicationUpgradeSpecDirs(rootAbs, specDirs, items),
+  );
+  if (publicationFiles) items.push(publicationFiles);
+
 
   // 9. Leftover spikes
   for (const adr of listSpikeAdrs(rootAbs)) {
@@ -1321,6 +1475,13 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   const approvedSet = new Set(approvedItemIds);
   const results = [];
   const approvedDependencyId = [...approvedSet].find((id) => id.startsWith('issue-dependencies:'));
+  const approvedPublicationId = [...approvedSet].find((id) => id.startsWith('publication-files:'));
+  const livePublicationItem = report.items.find((item) => item.kind === 'publication-files');
+  if (approvedPublicationId && livePublicationItem?.id !== approvedPublicationId) {
+    const error = new Error('Publication File(s) changed after plan approval');
+    error.reasonCode = 'publication_files_plan_stale';
+    throw error;
+  }
   const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
   if (approvedDependencyId && liveDependencyItem?.id !== approvedDependencyId) {
     const approvedEdges = decodeDependencyEdges(approvedDependencyId);
@@ -1346,15 +1507,18 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'cumulative-split': 3, 'directory-rename': 4, 'epic-flatten': 5, 'spike-flatten': 6, 'spike-remove': 6, 'spike-issue-form': 6, 'agents-spike-language': 6, 'frontmatter-fix': 7, 'v2-cleanup': 8, 'omp-sdlc-ignore': 9, 'issue-dependencies': 10, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'omp-sdlc-ignore': 10, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
+  const invalidPublicationIssues = new Set();
 
   for (const item of toApply) {
     let res;
     if (item.kind === 'steering-runtime') {
       res = applySteeringRuntime(rootAbs, item);
+    } else if (item.kind === 'publication-files') {
+      res = applyPublicationFiles(rootAbs, item);
     } else
     if (item.kind === 'directory-rename') {
       res = applyDirectoryRename(rootAbs, item);
@@ -1386,7 +1550,14 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     }
     results.push(res);
   }
-  const backfill = backfillSpecCreatedLabels(rootAbs, run);
+  const postTransformPublication = publicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
+  for (const publicationPackage of postTransformPublication?.packages ?? []) {
+    const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
+    if (issue) invalidPublicationIssues.add(Number(issue));
+  }
+  const backfill = backfillSpecCreatedLabels(rootAbs, run, {
+    excludeIssues: invalidPublicationIssues,
+  });
   results.push({
     id: 'spec-created-backfill',
     status: backfill.ok ? 'applied' : 'failed',

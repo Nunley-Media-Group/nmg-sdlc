@@ -38,10 +38,11 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     And unrelated files remain unauthorized
 
   @SCN004 @regression
-  Scenario: Write-spec cannot emit parser-rejected File(s)
-    Given /sdlc-write-spec producing an Approved tasks.md
+  Scenario: Write-spec and public documentation use the parser grammar
+    Given /sdlc-write-spec is producing an Approved tasks.md and a user consults README.md
     When the installed publication File(s) parser reads every delivery-task File(s) line
     Then every declaration is accepted by that parser
+    And README documents the canonical grammar, prose rejection, and pre-dispatch diagnostics
 
   @SCN005 @regression
   Scenario: No regression of valid declarations
@@ -57,3 +58,113 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     Then the line is rewritten to File(s) `src/a.ts`
     And the live parser still rejects the original prose without that rewrite
     And mixed unsafe quoted spans remain findings without mutation
+
+  @SCN007 @regression
+  Scenario: Initial nonzero smoke execute remains failed without exact proof
+    Given the registered smoke provider persisted its immutable original baseline and retained invocation outside the checkout
+    When the nested execute exits nonzero without exact same-run delivery proof
+    Then the provider remains failed
+    And it does not launch a replacement issue or clone
+
+  @SCN008 @regression
+  Scenario: Same outer run accepts exact controller-owned recovery
+    Given the original nested run later records same-issue and same-PR post-merge recovery at a final head
+    And the original verified head is an ancestor of that final head
+    And current verification, identity-bound recovery-session delivery, and delivery proof evidence match
+    When the same stable outer verification run reruns with only report evidence dirtiness changed
+    Then the original nonzero invocation passes from a new baseline-excluded exact-head merged PR and closed issue
+    And no replacement queue is launched
+
+  @SCN009 @regression
+  Scenario Outline: Recovered smoke evidence is fail closed
+    Given the original smoke invocation is retained after nonzero exit
+    When its <evidence> is missing, stale, malformed, or mismatched
+    Then recovery remains failed without a new clone or issue
+    Examples:
+      | evidence |
+      | nested run identity |
+      | issue or pull request identity |
+      | expected or final head ancestry |
+      | original closing-PR baseline |
+      | validation ID or config |
+      | verification artifact |
+      | recovery session handoff |
+
+  @SCN010 @regression
+  Scenario: Separate token authenticates nested recursion suppression
+    Given nested delivery proof generation retains NMG_SDLC_SMOKE_OWNED equal to 1
+    When the verify pane receives the provider-created recovery token
+    Then recursion suppression validates the token against the exact clone and nested run
+    And a bare or mismatched ownership environment fails
+
+  @SCN011 @regression
+  Scenario: Terminal proof is replayed without a retained clone
+    Given exact reconciliation persisted immutable cleanup-pending proof before deleting the clone
+    When cleanup succeeds and the same stable outer run invokes the provider again
+    Then the state is terminal-clean and the stored issue, PR, final head, and original baseline are revalidated remotely
+    And no clone, baseline, execute queue, or replacement issue is created
+    And cleanup failure remains incomplete and a rerun retries only cleanup
+
+  @SCN012 @regression
+  Scenario: Ordinary success binds proof to nested run identity
+    Given nested execute exits zero and cleanup may remove run.json
+    When smoke delivery proof is evaluated
+    Then every issue proof has one delivery-helper-authored run ID and exact PR and head
+    And a present invalid or mismatched run.json fails instead of falling back to proof-only identity
+
+  @SCN013 @regression
+  Scenario: Exact pre-store smoke failure upgrades into retained recovery
+    Given stable outer run #379 has no external recovery-store record
+    And its current verification JSON contains one failed repository.nmg-sdlc-smoke result for configured issue #109
+    And that result contains one allowlisted retained clone, one complete #109 baseline command, and one nonzero execute command
+    And the retained clone has no smoke-deliveries proof but has the failed root deliver handoff, exact nested run and expected head, current passed verification JSON artifact, matched passed recovery-session handoff, and consumed post_merge_observation
+    When the provider reruns for the same stable outer issue, project, spec, validation, config, and queue
+    Then it atomically seeds the failed recovery record
+    And it accepts only the baseline-excluded remote exact PR and head as MERGED with #109 CLOSED
+    And it does not clone, execute, or launch a replacement issue
+
+  @SCN014 @regression
+  Scenario Outline: Pre-store migration rejects ambiguity and tampering
+    Given stable outer run #379 has no external recovery-store record
+    And otherwise-valid Markdown verification cannot substitute for the nested JSON artifact
+    When its current outer verification JSON has <defect>
+    Then no recovery record is seeded
+    And no replacement clone, execute queue, or issue is launched
+    Examples:
+      | defect |
+      | duplicate retained-clone artifacts |
+      | incomplete or duplicate baseline commands |
+      | duplicate or mismatched execute evidence |
+      | mismatched validation config or issue queue |
+      | tampered outer artifact identity |
+
+  @SCN015 @regression
+  Scenario: Recovery-store lock cleanup belongs only to the owner
+    Given one smoke recovery writer holds the exclusive state lock
+    When another writer fails to acquire that lock
+    Then the owner's lock remains and a subsequent writer is still blocked
+    And after the owner releases and cleans up the lock the next atomic write succeeds
+
+  @SCN016 @regression
+  Scenario: Terminal proof advances across only the approved provider repair
+    Given the #379 terminal tombstone retains its original outer head, smoke baseline, and exact accepted PR proof
+    And the current request has the same run, project, spec, validation, config, and issue queue
+    When Git proves the stored outer head is an ancestor and every intervening path is an approved provider, test, spec, or changelog path
+    Then the provider revalidates the immutable baseline and exact remote merged PR head with the issue closed
+    And it preserves the original outer identity and records the current validation head separately without running or replacing smoke
+    And a later same-head replay reruns ancestry, changed-path, and remote proof validation
+
+  @SCN017 @regression
+  Scenario Outline: Terminal proof head advancement rejects changed authority
+    Given a terminal validation identity was previously recorded for an approved #379 provider repair
+    When a replay observes <defect>
+    Then terminal proof remains non-passing without running or replacing smoke
+    And the original outer identity, baseline, and accepted proof remain unchanged
+    Examples:
+      | defect |
+      | a non-ancestor current head |
+      | a controller path |
+      | a delivery path |
+      | a workflow path |
+      | an unapproved consumer-facing path |
+      | tampered same-head history |

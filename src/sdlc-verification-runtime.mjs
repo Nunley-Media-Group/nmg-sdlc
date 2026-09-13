@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
@@ -278,7 +278,7 @@ function setupIdentity(root, specDir, runtime) {
   try { currentSpecHash = specHash(specDir); } catch {}
   return { headSha, steeringHash: runtime?.steeringHash ?? null, specHash: currentSpecHash };
 }
-export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", signal, spawnCommand } = {}) {
+export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand } = {}) {
   const root = resolve(projectRoot);
   let runtime;
   try {
@@ -288,7 +288,18 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     for (const validation of runtime.validations) {
       const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
       if (!applicable) { results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null }); continue; }
-      const request = providerRequest({ schemaVersion: 1, validationId: validation.id, projectRoot: root, config: structuredClone(validation.config), identity: identity(root, specDir, runtime, validation) }, signal, spawnCommand);
+      const request = providerRequest({
+        schemaVersion: 1,
+        validationId: validation.id,
+        projectRoot: root,
+        config: structuredClone(validation.config),
+        identity: identity(root, specDir, runtime, validation),
+        verification: verificationRunId ? {
+          runId: verificationRunId,
+          issue: Number(issue),
+          specPath: relative(root, resolve(specDir)).split("\\").join("/"),
+        } : null,
+      }, signal, spawnCommand);
       let result;
       try {
         result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);

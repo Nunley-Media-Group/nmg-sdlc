@@ -1093,6 +1093,12 @@ describe('runExecute controller', () => {
       if (command === 'git' && args[0] === 'ls-files') {
         return { status: lsFilesStatus, stdout: trackedRuntime, stderr: '' };
       }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'log') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
       if (command === 'git' && args[0] === 'rm') {
         return { status: rmStatus, stdout: '', stderr: '' };
       }
@@ -2205,6 +2211,122 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it('rejects invalid publication File(s) before creating any fresh-run pane', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 6');
+    expect(result.stderr).toContain('entry: Create `src/a.ts`');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it('revalidates publication scope after start completes and before implement dispatch', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      if (paneId === 'pane-1') {
+        fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+          '**Issue**: #42',
+          '**Status**: Approved',
+          '',
+          '### T001: Create code',
+          '',
+          '**File(s)**: Create `src/a.ts`',
+          '',
+        ].join('\n'));
+      }
+      return paneClose(paneId);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start']);
+    expect(fixture.splits).toHaveLength(1);
+  });
+
+  it('rejects invalid publication File(s) before replacing stale implement ownership', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'implement',
+      completed: { 42: ['start'] },
+      failed: null,
+      workers: {
+        's42-implement': {
+          name: 's42-implement',
+          paneId: 'missing-implement-pane',
+          projectRoot: fs.realpathSync(fixture.cwd),
+          runId: 'test-run-id',
+          issue: 42,
+          step: 'implement',
+          branch: '42-ship-it',
+          head: 'a'.repeat(40),
+          promptDelivery: 'delivered',
+          promptDeliveryVersion: 2,
+        },
+      },
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('does not rerun implement publication validation when resuming a later stage', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: null,
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Legacy publication scope',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.stderr).not.toContain('publication_scope_unproven');
+    expect(fixture.starts[0].name).toBe('s42-verify');
+  });
+
   it('resumes an existing run issue list on empty args', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {
@@ -2961,12 +3083,18 @@ describe('runExecute controller', () => {
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
 
-  it('passes smoke ownership only to verification and delivery panes', () => {
+  it('passes smoke ownership to delivery and the separate recovery token only to verification', () => {
     const fixture = makeControllerFixture();
+    const token = `${'a'.repeat(64)}.${'b'.repeat(64)}`;
     const result = runExecute({
       args: '#42',
       cwd: fixture.cwd,
-      env: { ...env, NMG_SDLC_SMOKE_OWNED: '1', UNRELATED_SECRET: 'do-not-copy' },
+      env: {
+        ...env,
+        NMG_SDLC_SMOKE_OWNED: '1',
+        NMG_SDLC_SMOKE_RECOVERY: token,
+        UNRELATED_SECRET: 'do-not-copy',
+      },
       run: fixture.run,
       herdr: fixture.herdr,
     });
@@ -2975,7 +3103,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_OWNED: '1' },
+      environment: { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
     });
     expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
       direction: 'right',
@@ -2999,6 +3127,7 @@ describe('runExecute controller', () => {
     for (const { environment = {} } of fixture.splits) {
       expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_ISSUES');
       expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_OWNED');
+      expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_RECOVERY');
     }
   });
 
@@ -5343,6 +5472,15 @@ describe('runExecute controller', () => {
       if (input.name === 's42-implement') paneWasOpenDuringWait = fixture.closed.length === 0;
       return agentWait(input);
     };
+
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Legacy publication scope',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
 
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
 

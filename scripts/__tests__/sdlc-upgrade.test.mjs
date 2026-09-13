@@ -178,7 +178,17 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
       '',
     ].join('\n'));
     write(root, 'specs/feature-baz/design.md', '# Design\n\n**Issues**: #2, #6\n');
-    write(root, 'specs/feature-baz/tasks.md', '# Tasks\n\n**Issues**: #2, #6\n');
+    write(root, 'specs/feature-baz/tasks.md', [
+      '# Tasks',
+      '',
+      '**Issues**: #2, #6',
+      '',
+      '### T001: Change two',
+      '**File(s)**: Create `src/two.ts`',
+      '### T002: Change six',
+      '**File(s)**: Create `src/six.ts`',
+      '',
+    ].join('\n'));
     write(root, 'specs/feature-baz/feature.gherkin', [
       'Feature: Baz',
       '@SCN1',
@@ -193,20 +203,26 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
       schemaVersion: 1,
       issues: {
         '2': {
-          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: [], scenarios: ['SCN1'] },
+          owned: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: ['T001'], scenarios: ['SCN1'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
         '6': {
-          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: [], scenarios: ['SCN2'] },
+          owned: { acceptanceCriteria: ['AC2'], functionalRequirements: [], tasks: ['T002'], scenarios: ['SCN2'] },
           adopted: { acceptanceCriteria: [], functionalRequirements: [], tasks: [], scenarios: [] },
           regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] },
         },
       },
     }, null, 2));
 
-    const ids = detectUpgrade(root).items
-      .filter((item) => ['cumulative-split', 'directory-rename'].includes(item.kind))
+    const report = detectUpgrade(root);
+    const publication = report.items.find((item) => item.kind === 'publication-files');
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/feature-baz/tasks.md',
+      projectedPaths: ['specs/2-baz/tasks.md', 'specs/6-baz/tasks.md'],
+    }));
+    const ids = report.items
+      .filter((item) => ['publication-files', 'cumulative-split', 'directory-rename'].includes(item.kind))
       .map((item) => item.id);
     applyUpgrade(root, ids, noNetworkRun);
 
@@ -219,6 +235,10 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Two');
     expect(fs.readFileSync(path.join(root, 'specs/2-baz/feature.gherkin'), 'utf8')).not.toContain('Scenario: Six');
     expect(fs.readFileSync(path.join(root, 'specs/6-baz/feature.gherkin'), 'utf8')).toContain('Scenario: Six');
+    expect(fs.readFileSync(path.join(root, 'specs/2-baz/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/two.ts`');
+    expect(fs.readFileSync(path.join(root, 'specs/6-baz/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/six.ts`');
   });
 });
 
@@ -654,6 +674,255 @@ describe('managed current steering repair', () => {
 
     await expect(applySteeringPlan(root, item.plan)).rejects.toMatchObject({ reasonCode: 'steering_plan_stale' });
     expect(fs.readFileSync(manifestPath, 'utf8')).toBe(approvedManifest);
+  });
+});
+
+describe('publication File(s) upgrade', () => {
+  it('rewrites recoverable prose once and emits canonical declarations', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item).toMatchObject({
+      id: expect.stringMatching(/^publication-files:[0-9a-f]{64}$/),
+      actionable: true,
+      packages: [expect.objectContaining({
+        path: 'specs/42-add-x/tasks.md',
+        rewrites: [expect.objectContaining({ line: 6, entry: 'Create `src/a.ts`' })],
+      })],
+    });
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
+  it('preserves supported annotations and CRLF while canonicalizing', () => {
+    const root = makeRoot();
+    const source = [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '**File(s)**: Create `src/a.ts` (delivery-owner only)',
+      '',
+    ].join('\r\n');
+    write(root, 'specs/42-add-x/tasks.md', source);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+
+    const updated = fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8');
+    expect(updated).toContain('**File(s)**: `src/a.ts` (delivery-owner only)');
+    expect(updated.replaceAll('\r\n', '')).not.toContain('\n');
+  });
+
+  it.each([
+    'Create `src/a.ts` or `src/b.ts`',
+    'Create `src/a.ts` and src/b.ts',
+  ])('keeps ambiguous declaration as a finding: %s', (declaration) => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', `### T001: Create code\n**File(s)**: ${declaration}\n`);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.actionable).toBe(false);
+    expect(item.packages[0].rewrites).toEqual([]);
+    expect(item.packages[0].findings).toEqual([
+      expect.objectContaining({ entry: declaration }),
+    ]);
+  });
+
+  it('canonicalizes an unambiguous prose-prefixed path list', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', '### T001: Create code\n**File(s)**: Modify `src/a.ts`, `src/b.ts`\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.packages[0].findings).toEqual([]);
+    expect(item.packages[0].rewrites).toEqual([
+      expect.objectContaining({ after: '**File(s)**: `src/a.ts`, `src/b.ts`' }),
+    ]);
+  });
+
+  it('keeps mixed unsafe quotes and prose-only declarations as findings', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', [
+      '### T001: Unsafe quoted path',
+      '**File(s)**: Create `src/a.ts` and `../escape.ts`',
+      '### T002: Prose only',
+      '**File(s)**: Create src/b.ts',
+      '### T003: Quoted note is not authority',
+      '**File(s)**: Create `src/c.ts` (see `notes.txt`; not authority)',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.actionable).toBe(false);
+    expect(item.packages[0].rewrites).toEqual([]);
+    expect(item.packages[0].findings).toHaveLength(3);
+  });
+
+  it('rewrites a package at its approved directory-rename source before migration', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    const report = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false });
+    const rename = report.items.find(({ kind }) => kind === 'directory-rename');
+    const publication = report.items.find(({ kind }) => kind === 'publication-files');
+
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/feature-add-x/tasks.md',
+      projectedPath: 'specs/42-add-x/tasks.md',
+    }));
+    applyUpgrade(root, [rename.id, publication.id], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
+  it('rewrites a nested epic child at its approved source before flattening', () => {
+    const root = makeRoot();
+    write(root, 'specs/epic-parent/requirements.md', '**Issue**: #41\n**Status**: Approved\n');
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/epic-parent/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/epic-parent/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    write(root, 'specs/epic-parent/feature-add-x/epic-link.json', JSON.stringify({
+      schemaVersion: 1,
+      epicIssue: 41,
+      epicSpecPath: 'specs/epic-parent',
+      childIssue: 42,
+      childSpecPath: 'specs/epic-parent/feature-add-x',
+      outcomes: ['EO001'],
+    }, null, 2));
+    const report = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false });
+    const flatten = report.items.find(({ kind, from }) => (
+      kind === 'epic-flatten' && from === 'specs/epic-parent/feature-add-x'
+    ));
+    const publication = report.items.find(({ kind }) => kind === 'publication-files');
+
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/epic-parent/feature-add-x/tasks.md',
+      projectedPath: 'specs/42-add-x/tasks.md',
+    }));
+    applyUpgrade(root, [flatten.id, publication.id], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
+  it('does not backfill a transformed package with invalid publication declarations', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create src/a.ts\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'directory-rename');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [item.id], run, { includeIssueDependencies: false });
+
+    expect(fs.existsSync(path.join(root, 'specs/42-add-x/tasks.md'))).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
+  });
+
+  it('does not backfill spec-created while publication findings remain unapproved', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/42-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/42-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create src/a.ts\n');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [], run, { includeIssueDependencies: false });
+
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
+  });
+
+  it('does not backfill spec-created when an approved rewrite leaves findings', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/42-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/42-add-x/tasks.md', [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Recoverable',
+      '**File(s)**: Create `src/a.ts`',
+      '### T002: Unrecoverable',
+      '**File(s)**: Create src/b.ts',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: args[0] === 'issue' && args[1] === 'view' ? '{"number":42,"labels":[]}' : '', stderr: '' };
+    };
+
+    const result = applyUpgrade(root, [item.id], run, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(result.results).toContainEqual(expect.objectContaining({
+      id: 'spec-created-backfill',
+      skipped: [42],
+      labeled: [],
+    }));
+    expect(calls.some((call) => call.includes('--add-label'))).toBe(false);
+  });
+
+  it('rejects an approved rewrite when tasks change after detection', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', '### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    const changed = '### T001: Create code\n**File(s)**: Create `src/b.ts`\n';
+    write(root, 'specs/42-add-x/tasks.md', changed);
+
+    expect(() => applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8')).toBe(changed);
   });
 });
 

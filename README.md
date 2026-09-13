@@ -150,6 +150,10 @@ Every file declares singular `**Issue**: #42` and `**Status**: Draft` or `**Stat
 
 `specs/` is the current working-tree BDD archive. Load the active package first and only relevant neighbors. Superseded contracts remain in Git history. Legacy `feature-*`, `bug-*`, `epic-*`, and `.codex/specs/` layouts are upgrade inputs, not new-write formats. There is no epic type, cumulative issue-ownership manifest, or synthetic issue number for unowned rewrite behavior.
 
+Delivery-task `**File(s)**:` values are publication authorization, not prose. Use repository-relative paths as backtick-quoted entries (for example, `` `src/auth.ts` ``), separate multiple entries with commas or semicolons, and use only bounded repository-relative directory or glob entries when generated files require them. A glob must start with a non-magic repository-relative prefix such as `` `tests/generated/**/*.mjs` ``; repository-wide patterns such as `` `*` ``, `` `**` ``, and `` `**/*` `` are invalid. An optional parenthetical note may follow an entry. Do not prefix entries with instructions such as `Create` or `Modify`; the live parser does not mine paths from prose.
+
+Spec publication validates this grammar before Git staging or PR work. Execute validates it again, including requiring declared directories and globs to match files, before creating an implementation worker pane. A failure is `publication_scope_unproven` and reports the spec path, task ID, line number, exact invalid entry, and accepted syntax.
+
 ## Execute the approved work
 
 ```text
