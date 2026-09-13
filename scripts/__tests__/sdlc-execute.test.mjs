@@ -3083,12 +3083,18 @@ describe('runExecute controller', () => {
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
 
-  it('passes smoke ownership only to verification and delivery panes', () => {
+  it('passes smoke ownership to delivery and the separate recovery token only to verification', () => {
     const fixture = makeControllerFixture();
+    const token = `${'a'.repeat(64)}.${'b'.repeat(64)}`;
     const result = runExecute({
       args: '#42',
       cwd: fixture.cwd,
-      env: { ...env, NMG_SDLC_SMOKE_OWNED: '1', UNRELATED_SECRET: 'do-not-copy' },
+      env: {
+        ...env,
+        NMG_SDLC_SMOKE_OWNED: '1',
+        NMG_SDLC_SMOKE_RECOVERY: token,
+        UNRELATED_SECRET: 'do-not-copy',
+      },
       run: fixture.run,
       herdr: fixture.herdr,
     });
@@ -3097,7 +3103,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_OWNED: '1' },
+      environment: { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
     });
     expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
       direction: 'right',
@@ -3121,6 +3127,7 @@ describe('runExecute controller', () => {
     for (const { environment = {} } of fixture.splits) {
       expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_ISSUES');
       expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_OWNED');
+      expect(environment).not.toHaveProperty('NMG_SDLC_SMOKE_RECOVERY');
     }
   });
 

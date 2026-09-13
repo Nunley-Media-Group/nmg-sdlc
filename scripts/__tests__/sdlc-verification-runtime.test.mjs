@@ -232,7 +232,13 @@ describe('deterministic verification runtime', () => {
       { id: 'artifact.pass', provider: 'builtin.artifact', required: true, when: { kind: 'always' }, config: { path: 'evidence.json', checks: ['nonempty', 'json'] } },
       command('not.changed', 'process.exit(9)', true, { kind: 'changed_paths', include: ['src/**'] }),
     ]);
-    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    const artifact = await runSteeringValidations({
+      projectRoot: root,
+      issue: 42,
+      specDir: path.join(root, 'specs', '42-test'),
+      baseRef: 'HEAD',
+      verificationRunId: 'outer-verification-run',
+    });
     expect(artifact.ceiling).toBeNull();
     expect(artifact.coverage).toEqual({
       declared: 3,
@@ -244,6 +250,11 @@ describe('deterministic verification runtime', () => {
     });
     expect(artifact.results.map(({ effectiveStatus }) => effectiveStatus)).toEqual(['passed', 'passed', 'skipped']);
     expect(artifact.results[0].request.identity).toEqual(expect.objectContaining({ headSha: expect.stringMatching(/^[a-f0-9]{40}$/), treeState: 'clean', specHash: expect.stringMatching(/^sha256:/), steeringHash: expect.stringMatching(/^sha256:/), validationConfigHash: expect.stringMatching(/^sha256:/) }));
+    expect(artifact.results[0].request.verification).toEqual({
+      runId: 'outer-verification-run',
+      issue: 42,
+      specPath: 'specs/42-test',
+    });
     expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'verification', '42.json'))).toBe(true);
   });
 

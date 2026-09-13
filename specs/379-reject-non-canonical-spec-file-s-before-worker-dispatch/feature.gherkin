@@ -58,3 +58,56 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     Then the line is rewritten to File(s) `src/a.ts`
     And the live parser still rejects the original prose without that rewrite
     And mixed unsafe quoted spans remain findings without mutation
+
+  @SCN007 @regression
+  Scenario: Initial nonzero smoke execute remains failed without exact proof
+    Given the registered smoke provider persisted its immutable original baseline and retained invocation outside the checkout
+    When the nested execute exits nonzero without exact same-run delivery proof
+    Then the provider remains failed
+    And it does not launch a replacement issue or clone
+
+  @SCN008 @regression
+  Scenario: Same outer run accepts exact controller-owned recovery
+    Given the original nested run later records same-issue and same-PR post-merge recovery at a final head
+    And the original verified head is an ancestor of that final head
+    And current verification, identity-bound recovery-session delivery, and delivery proof evidence match
+    When the same stable outer verification run reruns with only report evidence dirtiness changed
+    Then the original nonzero invocation passes from a new baseline-excluded exact-head merged PR and closed issue
+    And no replacement queue is launched
+
+  @SCN009 @regression
+  Scenario Outline: Recovered smoke evidence is fail closed
+    Given the original smoke invocation is retained after nonzero exit
+    When its <evidence> is missing, stale, malformed, or mismatched
+    Then recovery remains failed without a new clone or issue
+    Examples:
+      | evidence |
+      | nested run identity |
+      | issue or pull request identity |
+      | expected or final head ancestry |
+      | original closing-PR baseline |
+      | validation ID or config |
+      | verification artifact |
+      | recovery session handoff |
+
+  @SCN010 @regression
+  Scenario: Separate token authenticates nested recursion suppression
+    Given nested delivery proof generation retains NMG_SDLC_SMOKE_OWNED equal to 1
+    When the verify pane receives the provider-created recovery token
+    Then recursion suppression validates the token against the exact clone and nested run
+    And a bare or mismatched ownership environment fails
+
+  @SCN011 @regression
+  Scenario: Terminal proof is replayed without a retained clone
+    Given exact reconciliation persisted an immutable terminal proof before deleting the clone
+    When the same stable outer run invokes the provider again
+    Then the stored issue, PR, final head, and original baseline are revalidated remotely
+    And no clone, baseline, execute queue, or replacement issue is created
+    And cleanup failure remains incomplete
+
+  @SCN012 @regression
+  Scenario: Ordinary success binds proof to nested run identity
+    Given nested execute exits zero and cleanup may remove run.json
+    When smoke delivery proof is evaluated
+    Then every issue proof has one delivery-helper-authored run ID and exact PR and head
+    And a present invalid or mismatched run.json fails instead of falling back to proof-only identity

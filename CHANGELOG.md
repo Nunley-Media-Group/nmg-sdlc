@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Reconcile a workflow-recovered smoke delivery against its original externalized run/config/issue/baseline/clone identity, verified-head ancestry, controller-owned session and delivery evidence, and bounded exact-head MERGED/CLOSED GitHub proof after a nested execute exits nonzero. Terminal reruns reuse immutable proof without replacement fixtures; missing or mismatched evidence and bare outer ownership bypasses still fail (#379).
+
 ## [3.21.2] - 2026-09-13
 
 ### Fixed

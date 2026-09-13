@@ -16,6 +16,7 @@
 | T002 | Publish + execute preflight gates | [ ] |
 | T003 | Authoring contract, public docs, templates, upgrade rewrite | [ ] |
 | T004 | Regression tests for AC1–AC6 | [ ] |
+| T005 | Verify recovered smoke delivery by exact invocation proof | [ ] |
 
 ---
 
@@ -73,6 +74,20 @@
 - [ ] Execute prose File(s) fixture records zero paneSplit calls
 - [ ] Upgrade apply of `Create \`src/a.ts\`` yields canonical quoted path and a second detect is empty
 
+### T005: Preserve proof-first smoke classification
+
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/sdlc-execute.mjs`, `scripts/sdlc-deliver.mjs`, `scripts/sdlc-verify-steering.mjs`, `src/sdlc-verification-runtime.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/sdlc-verification-runtime.test.mjs`, `CHANGELOG.md`
+**Type**: Modify
+**Depends**: T004
+**Acceptance**:
+- [ ] State is outside the checkout and keyed by stable outer run/project/spec/issue; validation/config/queue/baseline/clone identities are immutable and report dirtiness cannot change lookup
+- [ ] Nested verify receives `NMG_SDLC_SMOKE_OWNED=1` plus a separate validated recovery token; bare/mismatched ownership fails
+- [ ] Delivery proof carries exact nested runId/issue/PR/head; zero-exit accepts absent post-cleanup run.json but rejects present invalid/mismatched run state
+- [ ] Initial nonzero without exact proof remains failed; same-call exact proof or same-run later recovery continues only from the original baseline/clone/invocation
+- [ ] Recovered final head binds to the same run/issue/PR, consumed post-merge evidence, passed verified-head artifact, identity-bound recovery session, and expected-head ancestry before bounded remote MERGED/CLOSED proof
+- [ ] First success persists terminal proof before clone cleanup; cleanup failure is incomplete; terminal reruns validate remotely without clone/queue recreation
+- [ ] Missing, historical, unrelated, newly configured, non-ancestor, or tampered run/PR/head/baseline/config/terminal evidence never passes
+
 ---
 
 ## Validation Checklist
@@ -92,3 +107,4 @@ Before moving to IMPLEMENT phase:
 | #379 | 2026-09-13 | Initial defect report |
 | #379 | 2026-09-13 | Spec revised before delivery: authorized README grammar and pre-dispatch diagnostics documentation in T003 |
 | #379 | 2026-09-13 | Pre-delivery review1 scope amendment: authorized spec-created label backfill changes in T003 and clarified retained-worker, bounded-glob, upgrade annotation, ambiguity, invalid-package, and CRLF regressions without changing approved intent |
+| #379 | 2026-09-13 | Verification remediation added T005 for the proof-first mutable smoke gate |

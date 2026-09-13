@@ -63,6 +63,17 @@
 **And** a changed tree after approval fails `publication_files_plan_stale` without mutation
 **And** the live parser still rejects the original prose without upgrade
 
+### AC7: Recovered smoke delivery remains admissible without fixture replacement
+
+**Given** the registered smoke provider records an immutable closing-PR baseline, retained-clone identity, configured issue queue, validation/config identity, and nested controller run identity outside the identity-scanned checkout
+**And** that exact nested execute returns nonzero before controller-owned recovery completes
+**When** the same stable outer verification run evaluates the provider again, even if only report/evidence dirtiness changed
+**Then** it reuses the original clone and baseline without cloning, launching a replacement issue, or accepting `NMG_SDLC_SMOKE_OWNED` as an outer bypass
+**And** it requires the same nested run ID and issue/PR identity, the original expected verified head, a matching consumed `post_merge_observation`, current passed verification evidence, an identity-bound passed recovery-session delivery handoff when present, a delivery-helper-authored proof for the final head, expected-head ancestry to that final head, remote PR `MERGED`, issue `CLOSED`, and exclusion from the original baseline
+**And** first success persists an immutable terminal proof before removing the retained clone, while same-key terminal reruns revalidate that stored proof remotely without recreating the clone or queue
+**And** missing, stale, malformed, historical, unrelated, non-ancestor, config/issue/run/PR/head-mismatched, or manually claimed proof preserves the nonzero failure
+**And** ordinary zero-exit delivery remains valid when cleanup removed `run.json`, but a present invalid `run.json` fails closed and all smoke-delivery proofs bind to one exact nested run ID
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -76,6 +87,7 @@
 | FR7 | Deterministic regression coverage listed in the test plan | Must |
 | FR8 | Workflow, reference, and public README documentation state the canonical **File(s)** syntax and pre-dispatch failure behavior | Must |
 | FR9 | `/sdlc-upgrade-project` detects and, after approval, rewrites recoverable existing **File(s)** lines; unrecoverable lines are findings | Must |
+| FR10 | Persist smoke recovery state outside the identity-scanned checkout under a stable outer verification run/project/spec/issue key; bind immutable validation/config/queue/baseline/clone/nested-run evidence; reconcile nonzero recovery and idempotent terminal reruns only from exact controller-owned local evidence plus bounded remote MERGED/CLOSED proof; preserve ordinary zero-exit proof semantics and reject outer ownership bypass | Must |
 
 ## Out of Scope
 
@@ -91,3 +103,4 @@
 | #379 | 2026-09-13 | Initial defect report |
 | #379 | 2026-09-13 | Spec revised before delivery: clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |
 | #379 | 2026-09-13 | Pre-delivery review1 clarification: scope validation applies at new implement dispatch; bounded globs, unambiguous upgrade recovery, supported annotations, valid-package label backfill, and source line endings remain fail-closed or preserved as specified |
+| #379 | 2026-09-13 | Verification remediation: require proof-first smoke classification when execute exits nonzero after a workflow-owned recovery |

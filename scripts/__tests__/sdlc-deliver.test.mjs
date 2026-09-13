@@ -993,6 +993,7 @@ describe('sdlc delivery controller', () => {
     ))).toEqual({
       schemaVersion: 1,
       issue: 42,
+      runId: 'execute-run',
       pullRequest: 77,
       headSha: H1,
       recordedBeforeMerge: true,
