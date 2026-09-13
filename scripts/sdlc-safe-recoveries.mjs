@@ -763,7 +763,7 @@ function validPublicationPath(file) {
     && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 
-export const PUBLICATION_FILE_SYNTAX = 'Use repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
+export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
 
 export function publicationFileEntries(value) {
   const entries = [];
@@ -800,28 +800,261 @@ export function publicationFileEntries(value) {
   return entries;
 }
 
+function markdownFence(line) {
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesMarkdownFence(line, fence) {
+  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
+}
+
+function codeSpanSourceLines(lines) {
+  const visibleLines = [];
+  let fence = null;
+  let inComment = false;
+  for (const sourceLine of lines) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      visibleLines.push(' '.repeat(sourceLine.length));
+      continue;
+    }
+    const chars = sourceLine.split('');
+    let offset = 0;
+    while (offset < sourceLine.length) {
+      if (inComment) {
+        const end = sourceLine.indexOf('-->', offset);
+        const limit = end === -1 ? sourceLine.length : end + 3;
+        chars.fill(' ', offset, limit);
+        offset = limit;
+        if (end === -1) break;
+        inComment = false;
+        continue;
+      }
+      const start = sourceLine.indexOf('<!--', offset);
+      if (start === -1) break;
+      chars.fill(' ', start, start + 4);
+      inComment = true;
+      offset = start + 4;
+    }
+    const visible = chars.join('');
+    fence = markdownFence(visible);
+    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
+  }
+  return visibleLines;
+}
+
+
+function escapedBacktick(line, offset) {
+  let backslashes = 0;
+  for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
+function codeSpanDelimiters(lines) {
+  const roles = new Map();
+  const remaining = [];
+  const key = (line, offset) => `${line}:${offset}`;
+  for (const [lineIndex, line] of lines.entries()) {
+    const runs = [];
+    for (let offset = 0; offset < line.length;) {
+      if (line[offset] !== '`') {
+        offset += 1;
+        continue;
+      }
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      if (!escapedBacktick(line, offset)) runs.push({ line: lineIndex, offset, length: delimiter.length });
+      offset += delimiter.length;
+    }
+    if (!/^\*\*[^*]+\*\*:/.test(line)) {
+      remaining.push(...runs);
+      continue;
+    }
+    for (let index = 0; index < runs.length;) {
+      const opener = runs[index];
+      let close = index + 1;
+      while (close < runs.length && runs[close].length !== opener.length) close += 1;
+      if (close === runs.length) {
+        remaining.push(opener);
+        index += 1;
+        continue;
+      }
+      roles.set(key(opener.line, opener.offset), 'open');
+      roles.set(key(runs[close].line, runs[close].offset), 'close');
+      index = close + 1;
+    }
+  }
+  for (let index = 0; index < remaining.length;) {
+    const opener = remaining[index];
+    let close = index + 1;
+    while (close < remaining.length && remaining[close].length !== opener.length) close += 1;
+    if (close === remaining.length) {
+      index += 1;
+      continue;
+    }
+    roles.set(key(opener.line, opener.offset), 'open');
+    roles.set(key(remaining[close].line, remaining[close].offset), 'close');
+    index = close + 1;
+  }
+  return roles;
+}
+
+
+function stripHtmlComments(line, inComment, codeSpan, delimiterRole) {
+  let visible = '';
+  let offset = 0;
+  while (offset < line.length) {
+    if (inComment) {
+      const end = line.indexOf('-->', offset);
+      if (end === -1) return { line: visible, inComment: true, codeSpan };
+      inComment = false;
+      offset = end + 3;
+      continue;
+    }
+    if (line[offset] === '`') {
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      visible += delimiter;
+      const role = delimiterRole(offset);
+      if (codeSpan === 0 && role === 'open') codeSpan = delimiter.length;
+      else if (codeSpan === delimiter.length && role === 'close') codeSpan = 0;
+      offset += delimiter.length;
+      continue;
+    }
+    if (codeSpan > 0) {
+      visible += line[offset++];
+      continue;
+    }
+    if (line.startsWith('<!--', offset)) {
+      inComment = true;
+      offset += 4;
+      continue;
+    }
+    visible += line[offset++];
+  }
+  return { line: visible, inComment, codeSpan };
+}
+
+const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
+
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
-  const acceptedTasks = taskIds == null ? null : new Set(taskIds);
+  const explicitTaskIds = taskIds != null;
+  const acceptedTasks = new Set(taskIds ?? []);
+  const sourceLines = String(content).split(/\r?\n/);
+  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
+  const acceptedTaskLines = new Map();
+  const expectedTaskCounts = new Map();
+  for (const [index, line] of sourceLines.entries()) {
+    const taskId = DELIVERY_TASK_HEADING.exec(line)?.[1];
+    if (!taskId || (explicitTaskIds && !acceptedTasks.has(taskId))) continue;
+    acceptedTasks.add(taskId);
+    if (!acceptedTaskLines.has(taskId)) acceptedTaskLines.set(taskId, index + 1);
+    expectedTaskCounts.set(taskId, (expectedTaskCounts.get(taskId) ?? 0) + 1);
+  }
+  const validatedTaskCounts = new Map();
   const entries = [];
-  let taskId = null;
-  for (const [index, line] of String(content).split(/\r?\n/).entries()) {
-    const heading = /^### (T\d+):/.exec(line);
-    if (heading) taskId = heading[1];
-    else if (/^#{1,3} /.test(line)) taskId = null;
-    if (!taskId || (acceptedTasks && !acceptedTasks.has(taskId))
-      || !/^\*\*File\(s\)\*\*:/.test(line)) continue;
-    const entry = line.slice(line.indexOf(':') + 1).trim();
-    try {
-      entries.push(...publicationFileEntries(entry));
-    } catch (error) {
+  let fence = null;
+  let inHtmlComment = false;
+  let codeSpan = 0;
+  let task = null;
+  const finishTask = () => {
+    if (!task || !acceptedTasks.has(task.id)) return;
+    const nearMiss = task.nearMisses[0];
+    if (nearMiss) {
       throw safeError('publication_scope_unproven', {
         spec,
-        taskId,
-        line: index + 1,
-        entry,
+        taskId: task.id,
+        line: nearMiss.line,
+        entry: nearMiss.entry,
         syntax: PUBLICATION_FILE_SYNTAX,
       });
     }
+    if (task.declarations.length !== 1) {
+      const duplicate = task.declarations[1];
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId: task.id,
+        line: duplicate?.line ?? task.line,
+        ...(duplicate ? { entry: duplicate.entry } : {}),
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+    const [declaration] = task.declarations;
+    try {
+      entries.push(...publicationFileEntries(declaration.value));
+    } catch {
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId: task.id,
+        line: declaration.line,
+        entry: declaration.value,
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+    validatedTaskCounts.set(task.id, (validatedTaskCounts.get(task.id) ?? 0) + 1);
+  };
+  for (const [index, sourceLine] of sourceLines.entries()) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      continue;
+    }
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripHtmlComments(
+      sourceLine,
+      inHtmlComment,
+      codeSpan,
+      (offset) => codeSpanRoles.get(`${index}:${offset}`),
+    );
+    const line = stripped.line;
+    inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) continue;
+    fence = markdownFence(line);
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
+    const heading = DELIVERY_TASK_HEADING.exec(line);
+    if (heading) {
+      finishTask();
+      task = {
+        id: heading[1],
+        line: index + 1,
+        declarations: [],
+        nearMisses: [],
+      };
+      continue;
+    }
+    if (/^#{1,3}(?:[ \t]+|$)/.test(line)) {
+      finishTask();
+      task = null;
+      continue;
+    }
+    if (!task || !acceptedTasks.has(task.id)) continue;
+    const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
+    if (!metadata) continue;
+    const [, label, value] = metadata;
+    if (label === 'File(s)') {
+      task.declarations.push({
+        line: index + 1,
+        value: value.trim(),
+        entry: line.trim(),
+      });
+    } else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
+      task.nearMisses.push({ line: index + 1, entry: line.trim() });
+    }
+  }
+  finishTask();
+  for (const taskId of acceptedTasks) {
+    const expected = expectedTaskCounts.get(taskId) ?? 1;
+    if (validatedTaskCounts.get(taskId) === expected) continue;
+    throw safeError('publication_scope_unproven', {
+      spec,
+      taskId,
+      line: acceptedTaskLines.get(taskId),
+      syntax: PUBLICATION_FILE_SYNTAX,
+    });
   }
   return entries;
 }

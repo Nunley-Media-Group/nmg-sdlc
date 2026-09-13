@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject admitted delivery tasks with missing, near-miss, or duplicate canonical `File(s)` declarations before spec publication or execute worker dispatch (#383).
+
 ## [3.21.3] - 2026-09-13
 
 ### Fixed

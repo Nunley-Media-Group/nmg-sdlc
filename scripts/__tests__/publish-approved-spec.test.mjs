@@ -474,6 +474,31 @@ describe('publish-approved-spec', () => {
     expect(git(root, ['diff', '--cached', '--name-only']).trim()).toBe('README.md');
   });
 
+  it.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('commit-push accepts a valid declaration after an %s backtick', (_name, prose) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).toBe(0);
+    expect(parse(result)).toMatchObject({ ok: true });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+  });
+
   it('commit-push rejects an unapproved package', () => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
@@ -483,6 +508,174 @@ describe('publish-approved-spec', () => {
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
   });
+
+  it.each(['commit-push', 'merge'].flatMap((command) => [
+    [command, 'missing', ['**Type**: Modify'], { line: 4 }],
+    [command, 'near-miss', ['**Files**: `src/a.ts`'], { line: 6, entry: '**Files**: `src/a.ts`' }],
+    [command, 'duplicate', ['**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'], {
+      line: 7,
+      entry: '**File(s)**: `src/b.ts`',
+    }],
+  ]))('%s rejects a %s File(s) declaration before publication side effects', (command, _name, declaration, expected) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      ...declaration,
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      ...expected,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
+  it.each(['commit-push', 'merge'].flatMap((command) => [
+    [command, 'fenced', ['```text', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '```']],
+    [command, 'commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
+    [command, 'multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    [command, 'multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    [command, 'multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+  ]))('%s rejects a %s admitted task before publication side effects', (command, _name, hiddenTask) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      ...hiddenTask,
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 5,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
+  it.each(['commit-push', 'merge'].flatMap((command) => [
+    [command, 'HTML comment', ['<!-- unmatched ` -->'], 6],
+    [command, 'HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 6],
+    [command, 'tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
+  ]))('%s ignores backticks in a %s before a hidden multiline span', (command, _name, prefix, line) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      ...prefix,
+      '``',
+      '## T001: Hidden task',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
+  it.each(['commit-push', 'merge'])('%s rejects a declaration hidden by crossing multiline spans', (command) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 4,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
+  it.each(['commit-push', 'merge'].flatMap((command) => [
+    [command, 'bare level-two', '##'],
+    [command, 'bare level-three', '###'],
+  ]))('%s rejects metadata after a %s task boundary before side effects', (command, _name, boundary) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      boundary,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 4,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
 
   it.each(['commit-push', 'merge'])('%s rejects invalid File(s) before publication side effects', (command) => {
     const { root, env } = makeRepo();

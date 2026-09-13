@@ -2211,6 +2211,177 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
+  it.each([
+    ['missing', ['**Type**: Modify'], 'line: 4', '###'],
+    ['near-miss', ['**Files**: `src/a.ts`'], 'line: 6', '###'],
+    ['duplicate', ['**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'], 'line: 7', '###'],
+    ['level-two missing', ['**Type**: Modify'], 'line: 4', '##'],
+    ['level-two near-miss', ['**Files**: `src/a.ts`'], 'line: 6', '##'],
+    ['level-two duplicate', ['**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'], 'line: 7', '##'],
+  ])('rejects a %s publication declaration before creating any fresh-run pane', (_name, declaration, location, heading) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      `${heading} T001: Create code`,
+      '',
+      ...declaration,
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain(location);
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
+    ['fenced', ['```text', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '```']],
+    ['commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
+    ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    ['multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+  ])('rejects an admitted %s task hidden from publication parsing before dispatch', (_name, hiddenTask) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      ...hiddenTask,
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 5');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
+    ['HTML comment', ['<!-- unmatched ` -->'], 6],
+    ['HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 6],
+    ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
+  ])('ignores backticks in a %s before a hidden multiline span without dispatch', (_name, prefix, line) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      ...prefix,
+      '``',
+      '## T001: Hidden task',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain(`line: ${line}`);
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it('rejects a declaration hidden by crossing multiline spans before dispatch', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 4');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
+    ['tab-delimited', '##\tNotes'],
+    ['bare level-two', '##'],
+    ['bare level-three', '###'],
+  ])('does not authorize metadata after a %s task boundary', (_name, boundary) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      boundary,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 4');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('accepts a valid declaration after an %s backtick and dispatches normally', (_name, prose) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.stderr).not.toContain('publication_scope_unproven');
+    expect(fixture.splits.length).toBeGreaterThan(0);
+    expect(fixture.starts[0].name).toBe('s42-start');
+  });
+
   it('rejects invalid publication File(s) before creating any fresh-run pane', () => {
     const fixture = makeControllerFixture();
     const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');

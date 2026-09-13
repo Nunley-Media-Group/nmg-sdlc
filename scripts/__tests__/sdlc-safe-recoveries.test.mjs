@@ -300,6 +300,49 @@ describe('approved publication scope', () => {
     f.put(`${spec}/design.md`, `${header.replace('Approved', 'Draft')}Unapproved changes.\n`);
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
   });
+
+  test.each([
+    ['missing', '**Type**: Modify'],
+    ['near-miss', '**Files**: `src/code.mjs`'],
+    ['duplicate', '**File(s)**: `src/code.mjs`\n**File(s)**: `src/other.mjs`'],
+  ])('rejects an admitted level-two task with a %s declaration', (_name, declaration) => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}## T001: Apply changes\n\n${declaration}\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    expect(() => inspectPublicationScope({
+      cwd: f.root,
+      issue: 42,
+      step: 'implement',
+      spec,
+      run: f.run,
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+    }));
+  });
+
+  test('accepts one canonical declaration on an admitted level-two task', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}## T001: Apply changes\n\n**File(s)**: \`src/code.mjs\`\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    expect(inspectPublicationScope({
+      cwd: f.root,
+      issue: 42,
+      step: 'implement',
+      spec,
+      run: f.run,
+    })).toContain('src/code.mjs');
+  });
 });
 
   test('shares canonical parsing and reports the exact invalid task location', () => {
@@ -318,6 +361,215 @@ describe('approved publication scope', () => {
       entry: 'Create `src/a.ts`',
       syntax: PUBLICATION_FILE_SYNTAX,
     }));
+  });
+
+  test.each([
+    {
+      name: 'missing',
+      lines: ['# Tasks', '### T001: Create code', '', '**Type**: Modify'],
+      expected: { line: 2 },
+    },
+    {
+      name: 'near-miss',
+      lines: ['# Tasks', '### T001: Create code', '', '**Files**: `src/a.ts`'],
+      expected: { line: 4, entry: '**Files**: `src/a.ts`' },
+    },
+    {
+      name: 'singular near-miss',
+      lines: ['# Tasks', '### T001: Create code', '', '**File**: `src/a.ts`'],
+      expected: { line: 4, entry: '**File**: `src/a.ts`' },
+    },
+    {
+      name: 'duplicate',
+      lines: ['# Tasks', '### T001: Create code', '', '**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'],
+      expected: { line: 5, entry: '**File(s)**: `src/b.ts`' },
+    },
+    {
+      name: 'level-two missing',
+      lines: ['# Tasks', '## T001: Create code', '', '**Type**: Modify'],
+      expected: { line: 2 },
+    },
+    {
+      name: 'level-two near-miss',
+      lines: ['# Tasks', '## T001: Create code', '', '**Files**: `src/a.ts`'],
+      expected: { line: 4, entry: '**Files**: `src/a.ts`' },
+    },
+    {
+      name: 'level-two duplicate',
+      lines: ['# Tasks', '## T001: Create code', '', '**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'],
+      expected: { line: 5, entry: '**File(s)**: `src/b.ts`' },
+    },
+  ])('rejects a $name declaration defect at the task location', ({ lines, expected }) => {
+    expect(() => parseDeliveryTaskFileLines(lines.join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-feature/tasks.md',
+      taskId: 'T001',
+      syntax: PUBLICATION_FILE_SYNTAX,
+      ...expected,
+    }));
+  });
+
+  test('accepts one canonical declaration for every admitted task and ignores other metadata', () => {
+    expect(parseDeliveryTaskFileLines([
+      '**Files**: `outside.txt`',
+      '### T001: Create code',
+      '**File(s)**: `src/a.ts`',
+      '## T002: Test code',
+      '**File(s)**: `tests/a.test.mjs`',
+      '### T003: Excluded task',
+      '**Files**: `excluded.txt`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001', 'T002'],
+    })).toEqual(['src/a.ts', 'tests/a.test.mjs']);
+  });
+
+  test.each([
+    ['backtick fence', ['```text', '**File(s)**: `src/hidden.ts`', '```']],
+    ['tilde fence', ['~~~text', '**File(s)**: `src/hidden.ts`', '~~~']],
+    ['multiline HTML comment', ['<!--', '**File(s)**: `src/hidden.ts`', '-->']],
+  ])('ignores metadata inside a %s', (_name, hiddenDeclaration) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      ...hiddenDeclaration,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 2,
+    }));
+  });
+
+  test.each([
+    ['backtick fence', ['```text', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '```']],
+    ['HTML comment', ['<!--', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '-->']],
+    ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
+    ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
+    ['multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
+  ])('rejects an admitted task heading hidden inside a %s', (_name, hiddenTask) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      ...hiddenTask,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 3,
+    }));
+  });
+
+  test.each([
+    ['HTML comment', ['<!-- unmatched ` -->'], 4],
+    ['HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 4],
+    ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 6],
+  ])('ignores backticks in a %s when pairing a later multiline span', (_name, prefix, line) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      ...prefix,
+      '``',
+      '## T001: Hidden task',
+      '**File(s)**: `src/hidden.ts`',
+      '``',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line,
+    }));
+  });
+
+  test('pairs crossing multiline code-span delimiters in document order', () => {
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/hidden.ts`',
+      '``',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 1,
+    }));
+  });
+
+  test('does not count hidden metadata as a duplicate declaration', () => {
+    expect(parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      '<!--',
+      '**File(s)**: `src/hidden.ts`',
+      '-->',
+      '```text',
+      '**File(s)**: `src/also-hidden.ts`',
+      '```',
+      '**File(s)**: `src/visible.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toEqual(['src/visible.ts']);
+  });
+
+  test('parses visible File(s) text after an inline HTML comment', () => {
+    expect(parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      '**File(s)**: `src/a.ts` <!-- note -->; `src/b.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  test.each([
+    ['tab-delimited', '##\tNotes'],
+    ['bare level-two', '##'],
+    ['bare level-three', '###'],
+  ])('ends a task before a %s Markdown section heading', (_name, boundary) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      boundary,
+      '**File(s)**: `outside.txt`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 1,
+    }));
+  });
+
+  test('preserves HTML comment markers inside a code-quoted path', () => {
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      '**File(s)**: `src/<!--note-->`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toEqual(['src/<!--note-->']);
+  });
+
+  test.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('does not treat an %s backtick as a multiline code span', (_name, prose) => {
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toEqual(['src/a.ts']);
   });
 
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
@@ -359,12 +611,16 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
   });
 
+
   test('write-spec task template uses only the shared publication grammar', () => {
-    const entries = parseDeliveryTaskFileLines(fs.readFileSync(TASKS_TEMPLATE, 'utf8'), {
+    const renderedTemplate = fs.readFileSync(TASKS_TEMPLATE, 'utf8')
+      .replace(/^```(?:markdown)?\s*$/gm, '');
+    const entries = parseDeliveryTaskFileLines(renderedTemplate, {
       spec: 'workflows/write-spec/templates/tasks.md',
     });
     expect(entries.length).toBeGreaterThan(0);
   });
+
 
 describe('publication CLI lease ownership boundary', () => {
   const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
