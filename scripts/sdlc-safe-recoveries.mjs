@@ -823,18 +823,27 @@ function runCli(argv = process.argv.slice(2)) {
     || !['implement', 'fix1', 'fix2', 'verify'].includes(options.step)) return 2;
   let lease;
   try {
-    if (options.step === 'implement'
-      && !validImplementationSubject(options.expectedSubject, options.issue)) {
-      throw safeError('publication_subject_unproven');
-    }
     const cwd = process.cwd();
+    let status;
+    if (options.step === 'implement') {
+      const suppliedSubject = Object.hasOwn(options, 'expectedSubject');
+      if ((suppliedSubject || action === 'reconcile')
+        && !validImplementationSubject(options.expectedSubject, options.issue)) {
+        throw safeError('publication_subject_unproven');
+      }
+      if (action === 'bind' && !suppliedSubject) {
+        status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
+        if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
+        if (porcelainPaths(status.stdout).length) throw safeError('publication_subject_unproven');
+      }
+    }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${options.issue}-`)) throw safeError('publication_branch_mismatch');
     const allowedPaths = inspectPublicationScope({ ...options, cwd });
     const controllerRunId = lease.owned ? lease.lease.record.runId : lease.lease.runId;
     const ownerId = resolveRecoveryOwner({ ...options, cwd, controllerRunId });
-    const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
+    status ??= defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
     if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
     if (porcelainPaths(status.stdout).length) assertInitialStagePublication({ ...options, cwd, ownerId });
     let outcome = { passed: true, ownerId, allowedPaths };

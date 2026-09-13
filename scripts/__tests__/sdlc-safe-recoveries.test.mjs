@@ -374,8 +374,23 @@ describe('publication CLI lease ownership boundary', () => {
     expect(f.state().records).toEqual([]);
   });
 
-  test('rejects missing, wrong, and non-boundary issue identifiers before publication', () => {
+  test('accepts the clean subjectless initial implement bind', () => {
     const f = cliFixture();
+    f.git('add', '--', spec);
+    f.git('commit', '-m', 'docs: approve publication fixture #42');
+    f.git('push');
+    expect(f.git('status', '--porcelain=v1')).toBe('');
+
+    const initial = f.bind(runId, null);
+    expect({ status: initial.status, stderr: initial.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(initial.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
+      passed: true, ownerId: runId,
+    });
+  });
+
+  test('rejects dirty missing, wrong, and non-boundary issue identifiers before publication', () => {
+    const f = cliFixture();
+    expect(f.git('status', '--porcelain=v1')).not.toBe('');
     const head = f.git('rev-parse', 'HEAD');
     const upstream = f.git('rev-parse', '@{upstream}');
     for (const subject of [

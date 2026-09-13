@@ -111,12 +111,12 @@ describe('extension sdlc- commands', () => {
     const sourceController = JSON.stringify(sourcePath);
     const runtimeController = JSON.stringify(path.join(packageRoot, 'scripts', 'sdlc-safe-recoveries.mjs'));
 
-    expect(source).toContain(`node ${sourceController} bind --issue N --step implement`);
+    expect(source).toContain(`node ${sourceController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
     expect(source).toContain(`node ${sourceController} reconcile --issue N --step implement`);
     expect(source).not.toContain('/private/tmp/');
 
     const runtime = materializeControllerPaths(source, packageRoot);
-    expect(runtime).toContain(`node ${runtimeController} bind --issue N --step implement`);
+    expect(runtime).toContain(`node ${runtimeController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
     expect(runtime).toContain(`node ${runtimeController} reconcile --issue N --step implement`);
     expect(runtime).not.toContain(sourcePath);
   });

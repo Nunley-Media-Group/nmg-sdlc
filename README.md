@@ -168,7 +168,7 @@ Start from a clean tree. Resume may preserve partial work already on the target 
 | Stage | What must finish before advancement |
 |---|---|
 | `start` | Resolve the executable issue, establish its linked branch, update applicable project status |
-| `implement` | Complete approved tasks, simplify without changing behavior, verify, machine-check a conventional commit subject containing literal `#N` before Git publication, then commit and push; clean tree and upstream equality |
+| `implement` | Establish clean owner/path scope, complete approved tasks, simplify without changing behavior, verify, machine-check a conventional commit subject containing literal `#N` on the dirty pre-publication bind, then commit and push; clean tree and upstream equality |
 | `review1` | Review the branch against the resolved GitHub default ref and persist the review artifact |
 | `fix1` | Address that review; publish changes when needed |
 | `review2` | Repeat the review on the resulting implementation |

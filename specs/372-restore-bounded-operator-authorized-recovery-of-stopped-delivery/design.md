@@ -54,7 +54,7 @@ Status and stop output share authoritative classification: normal resumable run,
 ### Implementation subject preflight
 Choose the exact conventional implementation subject before staging. Pass it to the existing `bind` publication helper, which validates the conventional prefix and literal issue token before acquiring or persisting publication ownership. Only that validated subject may be committed and later supplied to `reconcile`. This moves discovery ahead of commit/push without adding a publication mechanism or changing recovery budgets.
 
-The initial pre-edit owner bind remains subject-free because no commit subject is needed at that boundary. The post-implementation bind requires `--subject`; clean existing publication remains verified by `reconcile`. Cancellation, process-loss, consumed recovery, checkpoint, and handoff behavior are unchanged, preserving AC3.
+The initial pre-edit owner bind remains subject-free because no commit subject is needed at that clean boundary. The post-implementation dirty bind requires `--subject`; clean existing publication remains verified by subject-bearing `reconcile`. Cancellation, process-loss, consumed recovery, checkpoint, and handoff behavior are unchanged, preserving AC3.
 
 ## Contract Precedence
 #372 adds the user's automatic bare-invocation transition to #369. It does not relax ordinary automatic retry counts or permit repeat recovery allowance for an unadvanced stage. Bare-command discovery replaces issue selection only for the exact incomplete branch; explicit issue execution retains its previous contract. All downstream publication and delivery checks remain unchanged.
