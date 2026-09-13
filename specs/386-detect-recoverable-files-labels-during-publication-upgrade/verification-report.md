@@ -3,7 +3,9 @@
 **Issue**: #386
 **Date**: 2026-09-13
 **Status**: Passed
-**Implementation Revision**: `6f781ab60e4fdc6a36653d66a16f84b97e5d5e2e`
+**Implementation Revision**: `1147d68b64e062843c58cabb2f8d9dcddd33d4b3`
+**Evidence Revision**: the containing documentation commit; its exact pushed Git identity is reported after publication because a commit cannot contain its own hash
+**Starting Head**: `d5121d060b6da8dc696e18caa8af178172fbc1ff`
 **Base Revision**: `e9f433749bce13f3c53d19b9ce2e814992863a3b`
 
 ## Scope
@@ -16,7 +18,7 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 |---|---|---|
 | AC1 | Passed | Focused detection emitted actionable `publication-files:02a552a7bd22d4b5807995605294d32cc87111862865f5f3e986e8ba041c5948` for the exact supported `Files` near miss. |
 | AC2 | Passed | The direct PathCast-shaped exercise planned rewrites at lines 5, 9, 13, and 17; apply changed those four label prefixes only; repeat detection returned zero publication actions. |
-| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing declarations, duplicate aliases, duplicate canonical declarations, mixed canonical/near-miss declarations, unsupported labels, malformed or ambiguous values, fenced declarations, HTML-comment declarations, or parser-visible/raw declaration mismatches. Visible unsafe file-like declarations remained located findings; explicit trailing, inline, and leading-hidden HTML-comment reproductions preserved source bytes exactly. |
+| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing declarations, duplicate aliases, duplicate canonical declarations, mixed canonical/near-miss declarations, unsupported labels, malformed or ambiguous values, fenced declarations, HTML-comment declarations, or parser-visible/raw declaration mismatches. Visible unsafe file-like declarations remained located findings with both parser-visible `entry` and original `rawEntry`; explicit trailing, inline, and leading-hidden HTML-comment reproductions approved and applied each non-actionable item and preserved source bytes exactly. |
 | AC4 | Passed | The unchanged delivery parser rejected the pre-state with `publication_scope_unproven` at T001 line 5 and accepted the post-state's complete 18-path set. |
 | AC5 | Passed | Existing canonical prose and annotation recovery regressions remained green; `CHANGELOG.md` records #386 under Unreleased Fixed. |
 
@@ -25,7 +27,7 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 | Path | Spec task | Behavior |
 |---|---|---|
 | `scripts/sdlc-upgrade.mjs` | T001 | Uses the fail-closed parser to validate each task-local candidate, rejects parser-visible/raw declaration differences, canonicalizes only exact singular `Files`, discards provisional rewrites when task authority remains unsafe, and preserves each original line separator during apply. |
-| `scripts/__tests__/sdlc-upgrade.test.mjs` | T002 | Proves the PathCast-shaped pre/post contract, exact changed labels and paths, repeat-run cleanup, unsafe declaration boundaries, HTML-comment refusal, and mixed-EOL byte recovery. |
+| `scripts/__tests__/sdlc-upgrade.test.mjs` | T002 | Proves the PathCast-shaped pre/post contract, exact changed labels and paths, repeat-run cleanup, unsafe declaration boundaries, HTML-comment refusal through the apply path, raw finding evidence, and mixed-EOL byte recovery. |
 | `CHANGELOG.md` | T003 | Records the pending issue-owned defect fix. |
 | `specs/386-detect-recoverable-files-labels-during-publication-upgrade/requirements.md` | Spec | Approved requirements and scope for #386. |
 | `specs/386-detect-recoverable-files-labels-during-publication-upgrade/design.md` | Spec | Root cause, parser reuse, safety invariants, and blast radius. |
@@ -84,7 +86,7 @@ The disposable root and exercise script were removed after output capture.
 
 ## Explicit Remediation Reproductions
 
-- HTML comments: trailing, inline-between-paths, and leading-hidden `**Files**:` declarations each produced `actionable: false`, zero rewrites, one located T001 line 2 finding, and byte-identical source after detection.
+- HTML comments: trailing, inline-between-paths, and leading-hidden `**Files**:` declarations each produced `actionable: false`, zero rewrites, and one located T001 line 2 finding retaining parser-visible `entry` plus original `rawEntry`. Approving and applying each item returned the publication item with `status: applied` but performed no write; source bytes remained exact.
 - Mixed EOL: the source separator sequence `CRLF, LF, CRLF, LF, CRLF, LF` remained identical after apply. The updated file equaled the original with only `**Files**:` changed to `**File(s)**:`, and reversing that label recovered the original bytes exactly.
 
 ## Steering Alignment
