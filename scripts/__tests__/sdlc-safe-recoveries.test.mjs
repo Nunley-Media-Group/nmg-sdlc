@@ -399,6 +399,10 @@ describe('publication CLI lease ownership boundary', () => {
       'fix: validate implementation subject before publication for #43',
       'fix: validate implementation subject before publication for #420',
       'not-a-conventional-subject #42',
+      ' fix: validate implementation subject before publication for #42',
+      'fix: validate implementation subject before publication for #42 ',
+      'fix: validate implementation subject before publication for #42\nbody',
+      'fix: validate implementation subject before publication for #42\rbody',
     ]) {
       const rejected = f.bind(runId, subject);
       expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({

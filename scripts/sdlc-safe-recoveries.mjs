@@ -377,7 +377,9 @@ function getExpectedSubject(step, issue) {
 
 function validImplementationSubject(subject, issue) {
   return typeof subject === 'string'
-    && /^(feat|fix|docs|chore)(\([^)]+\))?!?: .+/.test(subject)
+    && subject === subject.trim()
+    && !/[\r\n]/.test(subject)
+    && /^(feat|fix|docs|chore)(\([^)]+\))?!?: [^\r\n]+$/.test(subject)
     && new RegExp(`#${issue}(?!\\d)`).test(subject);
 }
 function readSessionRecoveryOwner({ projectRoot, sessionToken, issue, step, branch }) {

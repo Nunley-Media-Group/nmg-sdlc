@@ -101,7 +101,8 @@ function fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch }) {
     'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
   ], { cwd });
   const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
-  if (!defaultBranch || defaultBranch === expectedBranch) return { status: 0 };
+  if (!defaultBranch) return { status: 1, reasonCode: 'default_branch_unreadable' };
+  if (defaultBranch === expectedBranch) return { status: 0 };
   const defaultRef = `refs/remotes/origin/${defaultBranch}`;
   const fetched = run('git', [
     'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${defaultBranch}:${defaultRef}`,
@@ -172,16 +173,18 @@ export function startIssue({
     return fail(`Working tree is dirty and current branch is not ${expectedBranch}`, 'dirty_tree');
   }
 
+  let reusedBranch = currentBranch === expectedBranch;
   if (currentBranch !== expectedBranch) {
     let checkout;
     if (run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${expectedBranch}`], { cwd })?.status === 0) {
       checkout = run('git', ['checkout', expectedBranch], { cwd });
+      reusedBranch = true;
     } else {
       const tracked = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
       checkout = tracked.checkout;
-      if (tracked.remoteFound && checkout?.status === 0) {
-        checkout = fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch });
-      } else if (!tracked.remoteFound) {
+      if (tracked.remoteFound) {
+        reusedBranch = true;
+      } else {
         const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
         const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
         if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
@@ -190,13 +193,24 @@ export function startIssue({
         ], { cwd });
         const developedBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
         if (checkout?.status !== 0 || developedBranch !== expectedBranch) {
-          checkout = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch }).checkout;
+          const fallback = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
+          checkout = fallback.checkout;
+          reusedBranch = fallback.remoteFound && checkout?.status === 0;
         }
       }
     }
     const checkedOut = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
     if (checkout?.status !== 0 || checkedOut !== expectedBranch) {
       return fail(`Failed to check out ${expectedBranch}`, 'branch_checkout_failed');
+    }
+  }
+  if (reusedBranch) {
+    const refreshed = fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch });
+    if (refreshed?.reasonCode === 'default_branch_unreadable') {
+      return fail('Repository default branch is unreadable', refreshed.reasonCode);
+    }
+    if (refreshed?.status !== 0) {
+      return fail(`Failed to refresh ${expectedBranch}`, 'branch_checkout_failed');
     }
   }
 

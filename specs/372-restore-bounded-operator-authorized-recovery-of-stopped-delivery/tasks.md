@@ -7,7 +7,7 @@
 **Related Spec**: specs/369-detect-execute-remediation-loops-and-close-workers-on-cancel/
 
 ## Summary
-Five scoped tasks cover bare discovery/runtime repair, regressions, operator surface, pre-publication subject validation, and final validation.
+Six scoped tasks cover bare discovery/runtime repair, regressions, operator surface, pre-publication subject validation, integrated-branch refresh, and final validation.
 
 ### T001: Implement exact-branch bare recovery and durable loop protection
 **File(s)**: scripts/sdlc-execute.mjs; scripts/sdlc-status.mjs; scripts/sdlc-execute-supervisor.mjs (as needed); src/ (existing shared helpers as needed for one authoritative classifier)
@@ -42,7 +42,7 @@ Five scoped tasks cover bare discovery/runtime repair, regressions, operator sur
 ### T004: Verify and publish scoped implementation evidence
 **File(s)**: specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/verification-report.md; CHANGELOG.md; VERSION (delivery-owner only); package.json (delivery-owner only)
 **Type**: Modify
-**Depends**: T001, T002, T003, T005
+**Depends**: T001, T002, T003, T005, T006
 **Acceptance**:
 - [ ] Use the normal-workflow minimal remote smoke fixture when required by the verification stage; it is not a local filesystem allowlist entry.
 - [ ] Implementation is simplified and all implementation-owned checks pass with truthful evidence and clean commit/push/upstream equality.
@@ -63,14 +63,14 @@ Five scoped tasks cover bare discovery/runtime repair, regressions, operator sur
 ### T006: Refresh integrated remote spec branches before implementation
 **File(s)**: scripts/start-issue.mjs; scripts/__tests__/start-issue-controller.test.mjs; CHANGELOG.md; specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/requirements.md; specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/design.md; specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/tasks.md; specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/feature.gherkin
 **Type**: Modify
-**Depends**: T004
+**Depends**: T003
 **Acceptance**:
 - [ ] A reused canonical remote branch already contained by the fetched default branch fast-forwards locally to the exact default head before implementation.
 - [ ] Divergent implementation branches are preserved, and no force, reset, remote mutation, or conflict resolution occurs.
 - [ ] A real Git regression reproduces the stale integrated branch and proves the bounded refresh.
 
 ## Stage Ownership
-Implement completes T001-T003 and T005 plus its own simplification/tests/commit-push evidence. It does not impersonate review, verify or deliver. T004's downstream gates are completed by the controller's owning stages; their absence during implementation is not permission to loop, fabricate handoffs or open a PR from implement.
+Implement completes T001-T003, T005, and T006 plus its own simplification/tests/commit-push evidence. It does not impersonate review, verify or deliver. T004's downstream gates are completed by the controller's owning stages; their absence during implementation is not permission to loop, fabricate handoffs or open a PR from implement.
 
 ## Change History
 
