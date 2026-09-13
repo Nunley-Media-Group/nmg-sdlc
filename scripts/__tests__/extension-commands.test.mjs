@@ -104,14 +104,14 @@ describe('extension sdlc- commands', () => {
     }
   });
 
-  it('materializes both write-code publication commands from the plugin root', async () => {
-    const { materializeControllerPaths, packageRoot, workflowBody } = await import('../../src/sdlc-commands.mjs');
-    const rendered = materializeControllerPaths(workflowBody('write-code'), packageRoot);
-    const controller = JSON.stringify(path.join(repoRoot, 'scripts', 'sdlc-safe-recoveries.mjs'));
+  it('keeps both write-code publication commands source-safe before materialization', async () => {
+    const { workflowBody } = await import('../../src/sdlc-commands.mjs');
+    const source = workflowBody('write-code');
+    const controller = '"<plugin-root>/scripts/sdlc-safe-recoveries.mjs"';
 
-    expect(rendered).toContain(`node ${controller} bind --issue N --step implement`);
-    expect(rendered).toContain(`node ${controller} reconcile --issue N --step implement`);
-    expect(rendered).not.toContain('/Users/rnunley/');
+    expect(source).toContain(`node ${controller} bind --issue N --step implement`);
+    expect(source).toContain(`node ${controller} reconcile --issue N --step implement`);
+    expect(source).not.toContain('/Users/rnunley/');
   });
 
   it('package omp declares extensions and no skills key', () => {
