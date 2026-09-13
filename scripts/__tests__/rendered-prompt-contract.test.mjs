@@ -26,7 +26,7 @@ describe('rendered prompt contracts', () => {
   test('implement prompt separates clean owner binding from dirty subject preflight', () => {
     const prompt = workerPrompt({ step: 'implement', issue: 42 });
     expect(prompt).toContain('A clean subjectless bind establishes the approved owner/path scope before edits');
-    expect(prompt).toContain('literal issue identifier `#N`');
+    expect(prompt).toContain('for issue 42, `#42`');
     expect(prompt).toContain('--subject "<exact planned subject>"');
     expect(prompt).toContain('before any staging, commit, or push');
   });

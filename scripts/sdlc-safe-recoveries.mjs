@@ -62,6 +62,8 @@ function validOwner(o) {
     && Number.isSafeInteger(o.issue) && o.issue > 0
     && typeof o.branch === 'string' && o.branch.length > 0
     && typeof o.step === 'string' && o.step.length > 0
+    && (o.plannedSubject === undefined
+      || (o.step === 'implement' && validImplementationSubject(o.plannedSubject, o.issue)))
     && o.status === 'incomplete';
 }
 
@@ -301,7 +303,7 @@ function persistSafeState(state, root) {
   }
 }
 
-function upsertOwner(safe, ownerId, projectRoot, issue, branch, step) {
+function upsertOwner(safe, ownerId, projectRoot, issue, branch, step, plannedSubject) {
   const idx = safe.owners.findIndex((o) =>
     o.ownerId === ownerId &&
     o.projectRoot === projectRoot &&
@@ -315,6 +317,7 @@ function upsertOwner(safe, ownerId, projectRoot, issue, branch, step) {
     issue,
     branch,
     step,
+    ...(plannedSubject === undefined ? {} : { plannedSubject }),
     status: 'incomplete',
   };
   if (idx >= 0) {
@@ -448,6 +451,8 @@ export function resolveRecoveryOwner({
   sessionToken = null,
   controllerRunId = null,
   priorIncomplete = false,
+  expectedSubject,
+  bindSubject = false,
   run = defaultRun,
 } = {}) {
   const issueNumber = Number(issue);
@@ -524,12 +529,23 @@ export function resolveRecoveryOwner({
   }
 
   if (ownerId) {
+    const plannedSubject = matching[0].plannedSubject;
+    if (plannedSubject !== undefined && expectedSubject !== undefined && expectedSubject !== plannedSubject) {
+      throw safeError('publication_subject_unproven');
+    }
+    if (bindSubject && expectedSubject !== undefined && plannedSubject === undefined) {
+      upsertOwner(safe, ownerId, canonicalRoot, issueNumber, branch, step, expectedSubject);
+      persistSafeState(safe, cwd);
+    }
     return ownerId;
   }
 
   if (runOwner) {
     ownerId = runOwner;
-    upsertOwner(safe, ownerId, canonicalRoot, issueNumber, branch, step);
+    upsertOwner(
+      safe, ownerId, canonicalRoot, issueNumber, branch, step,
+      bindSubject ? expectedSubject : undefined,
+    );
     persistSafeState(safe, cwd);
     return ownerId;
   }
@@ -541,7 +557,10 @@ export function resolveRecoveryOwner({
 
   // First genuine new owner; persist before any recovery side effect.
   ownerId = randomUUID();
-  upsertOwner(safe, ownerId, canonicalRoot, issueNumber, branch, step);
+  upsertOwner(
+    safe, ownerId, canonicalRoot, issueNumber, branch, step,
+    bindSubject ? expectedSubject : undefined,
+  );
   persistSafeState(safe, cwd);
   return ownerId;
 }
@@ -843,38 +862,34 @@ function runCli(argv = process.argv.slice(2)) {
   let lease;
   try {
     const cwd = process.cwd();
-    let status;
-    if (options.step === 'implement') {
-      const suppliedSubject = Object.hasOwn(options, 'expectedSubject');
-      if ((suppliedSubject || action === 'reconcile')
-        && !validImplementationSubject(options.expectedSubject, options.issue)) {
-        throw safeError('publication_subject_unproven');
-      }
-      if (action === 'bind') {
-        status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
-        if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
-        if ((!suppliedSubject && porcelainPaths(status.stdout).length)
-          || (suppliedSubject && hasStagedNonRuntimeEntry(status.stdout))) {
-          throw safeError('publication_subject_unproven');
-        }
-      }
+    const suppliedSubject = Object.hasOwn(options, 'expectedSubject');
+    if (options.step === 'implement'
+      && (suppliedSubject || action === 'reconcile')
+      && !validImplementationSubject(options.expectedSubject, options.issue)) {
+      throw safeError('publication_subject_unproven');
     }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${options.issue}-`)) throw safeError('publication_branch_mismatch');
     const allowedPaths = inspectPublicationScope({ ...options, cwd });
-    const controllerRunId = lease.owned ? lease.lease.record.runId : lease.lease.runId;
-    const ownerId = resolveRecoveryOwner({ ...options, cwd, controllerRunId });
-    status ??= defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
+    const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
     if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
+    if (options.step === 'implement' && action === 'bind'
+      && ((!suppliedSubject && porcelainPaths(status.stdout).length)
+        || (suppliedSubject && hasStagedNonRuntimeEntry(status.stdout)))) {
+      throw safeError('publication_subject_unproven');
+    }
+    const controllerRunId = lease.owned ? lease.lease.record.runId : lease.lease.runId;
+    const ownerId = resolveRecoveryOwner({
+      ...options,
+      cwd,
+      controllerRunId,
+      bindSubject: options.step === 'implement' && action === 'bind' && suppliedSubject,
+    });
     if (porcelainPaths(status.stdout).length) assertInitialStagePublication({ ...options, cwd, ownerId });
     let outcome = { passed: true, ownerId, allowedPaths };
     if (action === 'reconcile') {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);
-      if (options.step === 'implement'
-        && !validImplementationSubject(expectedSubject, options.issue)) {
-        throw safeError('publication_subject_unproven');
-      }
       outcome = reconcileStagePublication({ ...options, cwd, ownerId, allowedPaths, expectedSubject });
     }
     process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify(outcome)}\n`);

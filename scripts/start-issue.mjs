@@ -103,13 +103,18 @@ function fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch }) {
   const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
   if (!defaultBranch) return { status: 1, reasonCode: 'default_branch_unreadable' };
   if (defaultBranch === expectedBranch) return { status: 0 };
+  const issueRef = `refs/remotes/origin/${expectedBranch}`;
+  const issueFetched = run('git', [
+    'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${expectedBranch}:${issueRef}`,
+  ], { cwd });
+  if (issueFetched?.status !== 0) return issueFetched;
   const defaultRef = `refs/remotes/origin/${defaultBranch}`;
-  const fetched = run('git', [
+  const defaultFetched = run('git', [
     'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${defaultBranch}:${defaultRef}`,
   ], { cwd });
-  if (fetched?.status !== 0) return fetched;
+  if (defaultFetched?.status !== 0) return defaultFetched;
   const integrated = run('git', [
-    'merge-base', '--is-ancestor', `origin/${expectedBranch}`, defaultRef,
+    'merge-base', '--is-ancestor', issueRef, defaultRef,
   ], { cwd });
   if (integrated?.status === 1) return { status: 0 };
   if (integrated?.status !== 0) return integrated;
