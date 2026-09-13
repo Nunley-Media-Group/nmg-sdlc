@@ -11,12 +11,16 @@ import {
   assertInitialStagePublication,
   consumeSafeRecovery,
   inspectPublicationScope,
+  parseDeliveryTaskFileLines,
+  PUBLICATION_FILE_SYNTAX,
+  publicationFileEntries,
   reconcileStagePublication,
   resolveRecoveryOwner,
 } from '../sdlc-safe-recoveries.mjs';
 
 const roots = [];
 const REPORT = 'specs/42-feature/verification-report.md';
+const TASKS_TEMPLATE = fileURLToPath(new URL('../../workflows/write-spec/templates/tasks.md', import.meta.url));
 const SUBJECT = 'docs: record verification for #42';
 const TOKEN1 = '11111111-1111-4111-8111-111111111111';
 const TOKEN2 = '22222222-2222-4222-8222-222222222222';
@@ -297,6 +301,43 @@ describe('approved publication scope', () => {
   });
 });
 
+  test('shares canonical parsing and reports the exact invalid task location', () => {
+    expect(publicationFileEntries('`src/a.ts`, tests/steps/; VERSION (delivery owner only)'))
+      .toEqual(['src/a.ts', 'tests/steps/']);
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+    ].join('\n'), { spec: 'specs/42-feature/tasks.md' })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-feature/tasks.md',
+      taskId: 'T001',
+      line: 4,
+      entry: 'Create `src/a.ts`',
+      syntax: PUBLICATION_FILE_SYNTAX,
+    }));
+  });
+
+  test('rejects a bounded declaration that expands to no files', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Generate steps\n`);
+    f.put(`${spec}/design.md`, `${header}Generate bounded steps.\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Generate steps\n\n**File(s)**: \`tests/generated/**/*.mjs\`\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Steps\n  Scenario: Generate steps\n`);
+    expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
+  });
+
+  test('write-spec task template uses only the shared publication grammar', () => {
+    const entries = parseDeliveryTaskFileLines(fs.readFileSync(TASKS_TEMPLATE, 'utf8'), {
+      spec: 'workflows/write-spec/templates/tasks.md',
+    });
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
 describe('publication CLI lease ownership boundary', () => {
   const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
   const spec = 'specs/42-feature';
@@ -478,7 +519,12 @@ describe('publication CLI lease ownership boundary', () => {
     const f = cliFixture();
     f.put(`${spec}/tasks.md`, `**Issue**: #42\n**Status**: Approved\n\n### T001: Changes\n\n**File(s)**: ${files}\n`);
     const result = f.bind();
-    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 1, stderr: 'publication_scope_unproven\n' });
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain(`spec: ${spec}/tasks.md`);
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain(`entry: ${files}`);
+    expect(result.stderr).toContain(`syntax: ${PUBLICATION_FILE_SYNTAX}`);
     expect(fs.existsSync(f.statePath)).toBe(false);
   });
 

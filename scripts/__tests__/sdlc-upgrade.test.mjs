@@ -657,6 +657,69 @@ describe('managed current steering repair', () => {
   });
 });
 
+describe('publication File(s) upgrade', () => {
+  it('rewrites recoverable prose once and emits canonical declarations', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item).toMatchObject({
+      id: expect.stringMatching(/^publication-files:[0-9a-f]{64}$/),
+      actionable: true,
+      packages: [expect.objectContaining({
+        path: 'specs/42-add-x/tasks.md',
+        rewrites: [expect.objectContaining({ line: 6, entry: 'Create `src/a.ts`' })],
+      })],
+    });
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
+  it('keeps mixed unsafe quotes and prose-only declarations as findings', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', [
+      '### T001: Unsafe quoted path',
+      '**File(s)**: Create `src/a.ts` and `../escape.ts`',
+      '### T002: Prose only',
+      '**File(s)**: Create src/b.ts',
+      '### T003: Quoted note is not authority',
+      '**File(s)**: Create `src/c.ts` (see `notes.txt`; not authority)',
+      '',
+    ].join('\n'));
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.actionable).toBe(false);
+    expect(item.packages[0].rewrites).toEqual([]);
+    expect(item.packages[0].findings).toHaveLength(3);
+  });
+
+  it('rejects an approved rewrite when tasks change after detection', () => {
+    const root = makeRoot();
+    write(root, 'specs/42-add-x/tasks.md', '### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    const changed = '### T001: Create code\n**File(s)**: Create `src/b.ts`\n';
+    write(root, 'specs/42-add-x/tasks.md', changed);
+
+    expect(() => applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8')).toBe(changed);
+  });
+});
+
 describe('managed steering migration', () => {
   it('uses the shared writer and removes legacy authority only after validation', () => {
     const root = makeRoot();

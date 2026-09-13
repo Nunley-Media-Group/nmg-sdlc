@@ -50,11 +50,11 @@ Keep one parser. Export it. Fail closed on prose in live bind/preflight/publish.
 | `scripts/sdlc-upgrade.mjs` | detect/apply `publication-files` | AC6 existing packages |
 | `workflows/write-spec/WORKFLOW.md` | Canonical File(s) contract | AC4 |
 | `workflows/write-spec/templates/tasks.md` | Valid example values | AC4 |
-| `workflows/upgrade-project/WORKFLOW.md` | Detector 12 | AC6 |
+| `README.md` | Document canonical grammar and pre-dispatch diagnostics | Public user-facing contract required by AGENTS.md and AC4 |
 
 ### Blast Radius
 
-- **Direct impact**: recoveries parser, execute preflight, publish helper, upgrade detect/apply, write-spec templates/workflow, upgrade-project workflow
+- **Direct impact**: recoveries parser, execute preflight, publish helper, upgrade detect/apply, write-spec templates/workflow, upgrade-project workflow, and README publication guidance
 - **Indirect impact**: write-code/verify bind still call inspectPublicationScope; valid specs unchanged; invalid existing specs become executable only after approved upgrade rewrite
 - **Risk level**: Medium — preflight and empty-glob tightening can fail previously “passed bind with spec-only paths” cases that declared empty globs; that is required fail-closed behavior
 
@@ -90,3 +90,10 @@ Before moving to TASKS phase:
 - [x] Blast radius is assessed
 - [x] Regression risks are documented with mitigations
 - [x] Fix follows existing project patterns (per `structure.md`)
+
+## Change History
+
+| Issue | Date | Summary |
+|---|---|---|
+| #379 | 2026-09-13 | Initial root-cause analysis and fix design |
+| #379 | 2026-09-13 | Added the public README grammar and pre-dispatch diagnostics obligation |

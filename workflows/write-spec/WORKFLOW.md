@@ -94,6 +94,8 @@ Every written file, including `feature.gherkin` and defect variants, must carry:
 
 Approval rewrites **Status** to Approved on all four files. Defect `tasks.md` and defect Gherkin use Draft | Approved only — never Planning / In Progress / Complete / In Review.
 
+Every task `**File(s)**:` declaration must use the shared publication grammar: repository-relative paths enclosed in backticks, with multiple entries separated by commas or semicolons. Bounded directory and glob entries are allowed. Optional parenthetical notes may follow an entry; use `(delivery-owner only)` only when that entry belongs exclusively to delivery. Never prefix entries with prose such as `Create`, join alternatives with `or`, or use placeholders such as `[varies]`. Before approval, ensure `publicationFileEntries` from `scripts/sdlc-safe-recoveries.mjs` accepts every complete declaration.
+
 Read these packaged templates at runtime, then fill them from the issue body, steering, and investigation (read `steering/*`; glob source for patterns):
 
 - `workflows/write-spec/templates/requirements.md`

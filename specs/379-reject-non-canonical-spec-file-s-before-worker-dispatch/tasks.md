@@ -14,7 +14,7 @@
 |------|-------------|--------|
 | T001 | Share parser, location errors, empty glob/dir | [ ] |
 | T002 | Publish + execute preflight gates | [ ] |
-| T003 | Write-spec contract, templates, upgrade rewrite | [ ] |
+| T003 | Authoring contract, public docs, templates, upgrade rewrite | [ ] |
 | T004 | Regression tests for AC1–AC6 | [ ] |
 
 ---
@@ -47,12 +47,13 @@
 
 **Notes**: Import inspect/parse from sdlc-safe-recoveries.mjs only.
 
-### T003: Authoring contract and upgrade rewrite
+### T003: Authoring contract, public documentation, and upgrade rewrite
 
-**File(s)**: `scripts/sdlc-upgrade.mjs`, `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/templates/tasks.md`, `workflows/upgrade-project/WORKFLOW.md`
+**File(s)**: `README.md`, `scripts/sdlc-upgrade.mjs`, `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/templates/tasks.md`, `workflows/upgrade-project/WORKFLOW.md`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
+- [ ] README states the canonical File(s) grammar, rejects prose-prefixed declarations, and documents the pre-dispatch diagnostic fields
 - [ ] Write-spec workflow forbids prose File(s) and requires the shared grammar
 - [ ] Every template `**File(s)**:` example value is accepted by `publicationFileEntries`
 - [ ] Upgrade detects `publication-files:<digest>` with exact rewrites; apply is stale-safe; mixed unsafe quotes are findings
@@ -83,3 +84,10 @@ Before moving to IMPLEMENT phase:
 - [x] Each task has verifiable acceptance criteria
 - [x] No scope creep beyond the defect
 - [x] File paths reference actual project structure (per `structure.md`)
+
+## Change History
+
+| Issue | Date | Summary |
+|---|---|---|
+| #379 | 2026-09-13 | Initial implementation task plan |
+| #379 | 2026-09-13 | Authorized README grammar and pre-dispatch diagnostics documentation in T003 |

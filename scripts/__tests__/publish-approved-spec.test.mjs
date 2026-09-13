@@ -448,6 +448,15 @@ describe('publish-approved-spec', () => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
     writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    fs.writeFileSync(path.join(root, 'specs', '42-add-x', 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: `src/not-yet-created.ts`',
+      '',
+    ].join('\n'));
     fs.writeFileSync(path.join(root, 'README.md'), 'changed\n');
     git(root, ['add', 'README.md']);
     const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
@@ -473,6 +482,36 @@ describe('publish-approved-spec', () => {
     const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
+  });
+
+  it.each(['commit-push', 'merge'])('%s rejects invalid File(s) before publication side effects', (command) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 6,
+      entry: 'Create `src/a.ts`',
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
   it('commit-push skips an identical tree and still pushes', () => {

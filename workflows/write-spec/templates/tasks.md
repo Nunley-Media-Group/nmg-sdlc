@@ -54,7 +54,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T001: [Database migration / Schema setup]
 
-**File(s)**: `{data-layer}/migrations/...` or `{data-layer}/schema/...`
+**File(s)**: `{data-layer}/migrations/...`, `{data-layer}/schema/...`
 **Type**: Create
 **Depends**: None
 **Acceptance**:
@@ -64,7 +64,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T002: [Type definitions / Interfaces]
 
-**File(s)**: `{data-layer}/types/...` or `{data-layer}/models/...`
+**File(s)**: `{data-layer}/types/...`, `{data-layer}/models/...`
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
@@ -78,7 +78,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T003: [Data access layer]
 
-**File(s)**: `{data-layer}/repositories/...` or `{data-layer}/data/...`
+**File(s)**: `{data-layer}/repositories/...`, `{data-layer}/data/...`
 **Type**: Create
 **Depends**: T001, T002
 **Acceptance**:
@@ -100,7 +100,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T005: [Request handler / Controller]
 
-**File(s)**: `{entry-layer}/controllers/...` or `{entry-layer}/handlers/...`
+**File(s)**: `{entry-layer}/controllers/...`, `{entry-layer}/handlers/...`
 **Type**: Create
 **Depends**: T004
 **Acceptance**:
@@ -147,7 +147,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T009: [State management]
 
-**File(s)**: `{presentation-layer}/state/...` or `{presentation-layer}/providers/...`
+**File(s)**: `{presentation-layer}/state/...`, `{presentation-layer}/providers/...`
 **Type**: Create
 **Depends**: T008
 **Acceptance**:
@@ -158,7 +158,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T010: [UI components]
 
-**File(s)**: `{presentation-layer}/components/...` or `{presentation-layer}/widgets/...`
+**File(s)**: `{presentation-layer}/components/...`, `{presentation-layer}/widgets/...`
 **Type**: Create
 **Depends**: T009
 **Acceptance**:
@@ -169,7 +169,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T011: [Screen / Page]
 
-**File(s)**: `{presentation-layer}/screens/...` or `{presentation-layer}/pages/...`
+**File(s)**: `{presentation-layer}/screens/...`, `{presentation-layer}/pages/...`
 **Type**: Create
 **Depends**: T010
 **Acceptance**:
@@ -193,7 +193,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T013: [State registration / DI wiring]
 
-**File(s)**: `{presentation-layer}/main...` or `{presentation-layer}/app...`
+**File(s)**: `{presentation-layer}/main...`, `{presentation-layer}/app...`
 **Type**: Modify
 **Depends**: T009
 **Acceptance**:
@@ -203,7 +203,7 @@ Map `{layer}/` placeholders to actual project paths using `structure.md`.
 
 ### T014: [Cross-feature integration]
 
-**File(s)**: [varies]
+**File(s)**: `path/to/cross-feature-files/...`
 **Type**: Modify
 **Depends**: T012, T013
 **Acceptance**:
@@ -343,7 +343,7 @@ Before moving to IMPLEMENT phase:
 
 ### T003: Verify No Regressions
 
-**File(s)**: [existing test files]
+**File(s)**: `path/to/existing-test-files/...`
 **Type**: Verify (no file changes)
 **Depends**: T001, T002
 **Acceptance**:

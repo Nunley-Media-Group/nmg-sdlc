@@ -38,10 +38,11 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     And unrelated files remain unauthorized
 
   @SCN004 @regression
-  Scenario: Write-spec cannot emit parser-rejected File(s)
-    Given /sdlc-write-spec producing an Approved tasks.md
+  Scenario: Write-spec and public documentation use the parser grammar
+    Given /sdlc-write-spec is producing an Approved tasks.md and a user consults README.md
     When the installed publication File(s) parser reads every delivery-task File(s) line
     Then every declaration is accepted by that parser
+    And README documents the canonical grammar, prose rejection, and pre-dispatch diagnostics
 
   @SCN005 @regression
   Scenario: No regression of valid declarations

@@ -32,6 +32,8 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 11. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
 
+12. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
+
 Read references/detection.md etc for details (update in tree).
 
 ## Ask ( <=3 total )

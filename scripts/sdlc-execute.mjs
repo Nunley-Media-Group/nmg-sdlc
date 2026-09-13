@@ -32,7 +32,11 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
-import { consumeSafeRecovery, resolveRecoveryOwner } from './sdlc-safe-recoveries.mjs';
+import {
+  consumeSafeRecovery,
+  inspectPublicationScope,
+  resolveRecoveryOwner,
+} from './sdlc-safe-recoveries.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
 
 import {
@@ -3195,6 +3199,18 @@ export function runExecute({
     if (!spec.approved) {
       output.push(`Run /sdlc-write-spec #${issue}`);
       return { status: 0, stdout: `${output.join('\n')}\n`, stderr: '' };
+    }
+    const specRelative = isAbsolute(spec.dir)
+      ? relative(cwd, spec.dir).split('\\').join('/')
+      : spec.dir.split('\\').join('/');
+    try {
+      inspectPublicationScope({ cwd, issue, spec: specRelative, step: 'implement', run });
+    } catch (error) {
+      const lines = [error.reasonCode ?? error.message];
+      for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+        if (error[key] != null) lines.push(`${key}: ${error[key]}`);
+      }
+      return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
     }
 
     runState.currentIssue = issue;

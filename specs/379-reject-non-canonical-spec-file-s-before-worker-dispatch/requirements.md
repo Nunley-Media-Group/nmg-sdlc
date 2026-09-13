@@ -42,11 +42,11 @@
 **When** publication scope is bound
 **Then** matching files under that declaration are authorized and unrelated files remain unauthorized
 
-### AC4: Write-spec cannot emit parser-rejected File(s)
+### AC4: Write-spec and public documentation use the parser grammar
 
-**Given** `/sdlc-write-spec` producing an Approved `tasks.md`
+**Given** `/sdlc-write-spec` producing an Approved `tasks.md` and a user consulting `README.md`
 **When** the installed publication File(s) parser reads every delivery-task **File(s)** line
-**Then** every declaration is accepted by that parser
+**Then** every declaration is accepted by that parser, and README concisely documents the canonical grammar, prose rejection, and pre-dispatch diagnostic behavior
 
 ### AC5: No regression of valid declarations
 
@@ -74,7 +74,7 @@
 | FR5 | `publication_scope_unproven` reports spec path, task ID, line, exact invalid entry, and accepted syntax | Must |
 | FR6 | Preserve compatibility with currently valid quoted paths, lists, globs/directories, and delivery-owner-only annotations | Must |
 | FR7 | Deterministic regression coverage listed in the test plan | Must |
-| FR8 | Workflow and reference docs state the canonical **File(s)** syntax | Must |
+| FR8 | Workflow, reference, and public README documentation state the canonical **File(s)** syntax and pre-dispatch failure behavior | Must |
 | FR9 | `/sdlc-upgrade-project` detects and, after approval, rewrites recoverable existing **File(s)** lines; unrecoverable lines are findings | Must |
 
 ## Out of Scope
@@ -89,3 +89,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #379 | 2026-09-13 | Initial defect report |
+| #379 | 2026-09-13 | Clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |

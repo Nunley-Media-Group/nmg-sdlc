@@ -1093,6 +1093,12 @@ describe('runExecute controller', () => {
       if (command === 'git' && args[0] === 'ls-files') {
         return { status: lsFilesStatus, stdout: trackedRuntime, stderr: '' };
       }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'log') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
       if (command === 'git' && args[0] === 'rm') {
         return { status: rmStatus, stdout: '', stderr: '' };
       }
@@ -2203,6 +2209,32 @@ describe('runExecute controller', () => {
 
     expect(result).toEqual({ status: 1, stdout: '', stderr: 'dependency_unreadable\n' });
     expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects invalid publication File(s) before creating any fresh-run pane', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '',
+      '**File(s)**: Create `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 6');
+    expect(result.stderr).toContain('entry: Create `src/a.ts`');
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
   });
 
   it('resumes an existing run issue list on empty args', () => {

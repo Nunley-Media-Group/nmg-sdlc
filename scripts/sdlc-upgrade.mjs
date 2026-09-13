@@ -28,6 +28,7 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
+import { publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -767,6 +768,97 @@ function applySteeringRuntime(root, item) {
   }
 }
 
+function publicationFilesUpgrade(root, specDirs) {
+  const packages = [];
+  for (const specDir of specDirs) {
+    if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
+    const relativePath = `${specDir.rel}/tasks.md`;
+    const source = safeRead(path.join(root, relativePath));
+    if (source == null) continue;
+    const rewrites = [];
+    const findings = [];
+    let activeTask = false;
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+      if (/^### T\d+:/.test(line)) activeTask = true;
+      else if (/^#{1,3} /.test(line)) activeTask = false;
+      if (!activeTask) continue;
+      const match = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
+      if (!match) continue;
+      try {
+        publicationFileEntries(match[2]);
+        continue;
+      } catch {}
+      const quoted = [...match[2].matchAll(/`([^`]*)`/g)];
+      const balanced = (match[2].match(/`/g) ?? []).length === quoted.length * 2;
+      const paths = [];
+      let safe = balanced && quoted.length > 0 && !/[()]/.test(match[2]);
+      for (const quote of quoted) {
+        try {
+          const parsed = publicationFileEntries(`\`${quote[1]}\``);
+          if (parsed.length !== 1) safe = false;
+          else paths.push(parsed[0]);
+        } catch {
+          safe = false;
+        }
+      }
+      const detail = { line: index + 1, entry: match[2] };
+      if (safe) {
+        rewrites.push({
+          ...detail,
+          before: line,
+          after: `${match[1]}${paths.map((entry) => `\`${entry}\``).join(', ')}`,
+        });
+      } else {
+        findings.push(detail);
+      }
+    }
+    if (rewrites.length || findings.length) {
+      packages.push({
+        path: relativePath,
+        sourceDigest: createHash('sha256').update(source).digest('hex'),
+        rewrites,
+        findings,
+      });
+    }
+  }
+  if (!packages.length) return null;
+  const digest = createHash('sha256').update(JSON.stringify(packages)).digest('hex');
+  return {
+    id: `publication-files:${digest}`,
+    kind: 'publication-files',
+    description: 'Canonicalize recoverable delivery-task File(s) declarations; preserve unsafe declarations as findings.',
+    actionable: packages.some(({ rewrites }) => rewrites.length > 0),
+    packages,
+  };
+}
+
+function applyPublicationFiles(root, item) {
+  for (const plan of item.packages) {
+    const target = path.join(root, plan.path);
+    const source = safeRead(target);
+    if (source == null || createHash('sha256').update(source).digest('hex') !== plan.sourceDigest) {
+      const error = new Error('Publication File(s) changed after plan approval');
+      error.reasonCode = 'publication_files_plan_stale';
+      throw error;
+    }
+  }
+  for (const plan of item.packages) {
+    if (!plan.rewrites.length) continue;
+    const target = path.join(root, plan.path);
+    const lines = safeRead(target).split(/\r?\n/);
+    for (const rewrite of plan.rewrites) {
+      if (lines[rewrite.line - 1] !== rewrite.before) {
+        const error = new Error('Publication File(s) changed after plan approval');
+        error.reasonCode = 'publication_files_plan_stale';
+        throw error;
+      }
+      lines[rewrite.line - 1] = rewrite.after;
+    }
+    fs.writeFileSync(target, lines.join('\n'));
+  }
+  return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -795,6 +887,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
 
   // Collect current spec state
   const specDirs = listSpecDirs(rootAbs);
+  const publicationFiles = publicationFilesUpgrade(rootAbs, specDirs);
+  if (publicationFiles) items.push(publicationFiles);
   const hasEpics = hasEpicArtifacts(rootAbs);
   const hasScopes = hasAnyIssueScope(rootAbs);
 
@@ -1321,6 +1415,13 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   const approvedSet = new Set(approvedItemIds);
   const results = [];
   const approvedDependencyId = [...approvedSet].find((id) => id.startsWith('issue-dependencies:'));
+  const approvedPublicationId = [...approvedSet].find((id) => id.startsWith('publication-files:'));
+  const livePublicationItem = report.items.find((item) => item.kind === 'publication-files');
+  if (approvedPublicationId && livePublicationItem?.id !== approvedPublicationId) {
+    const error = new Error('Publication File(s) changed after plan approval');
+    error.reasonCode = 'publication_files_plan_stale';
+    throw error;
+  }
   const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
   if (approvedDependencyId && liveDependencyItem?.id !== approvedDependencyId) {
     const approvedEdges = decodeDependencyEdges(approvedDependencyId);
@@ -1346,7 +1447,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'cumulative-split': 3, 'directory-rename': 4, 'epic-flatten': 5, 'spike-flatten': 6, 'spike-remove': 6, 'spike-issue-form': 6, 'agents-spike-language': 6, 'frontmatter-fix': 7, 'v2-cleanup': 8, 'omp-sdlc-ignore': 9, 'issue-dependencies': 10, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'omp-sdlc-ignore': 10, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -1355,6 +1456,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     let res;
     if (item.kind === 'steering-runtime') {
       res = applySteeringRuntime(rootAbs, item);
+    } else if (item.kind === 'publication-files') {
+      res = applyPublicationFiles(rootAbs, item);
     } else
     if (item.kind === 'directory-rename') {
       res = applyDirectoryRename(rootAbs, item);

@@ -6,12 +6,14 @@
  * Never force-push. Never git add -A. Spec PRs must not close the issue.
  */
 
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
 import { isSpecApproved, resolveSpecDir, specStatus } from './sdlc-execute.mjs';
 import { applySpecCreatedLabel, issueHasSpecCreatedLabel } from './spec-created-label.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { parseDeliveryTaskFileLines } from './sdlc-safe-recoveries.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -290,12 +292,29 @@ function prepare(argv) {
   ok({ branch: name });
 }
 
+function validatePublicationFiles(dir) {
+  try {
+    parseDeliveryTaskFileLines(readFileSync(join(process.cwd(), dir, 'tasks.md'), 'utf8'), {
+      spec: `${dir}/tasks.md`,
+    });
+  } catch (error) {
+    fail(error.reasonCode ?? 'publication_scope_unproven', {
+      spec: error.spec,
+      taskId: error.taskId,
+      line: error.line,
+      entry: error.entry,
+      syntax: error.syntax,
+    });
+  }
+}
+
 function commitPush(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
   if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
     fail('spec_not_approved');
   }
+  validatePublicationFiles(dir);
   ensureOnBranch(issueN, branch);
 
   const added = git(['add', '--', dir]);
@@ -344,6 +363,7 @@ function mergeSpec(argv) {
   if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
     fail('spec_not_approved');
   }
+  validatePublicationFiles(dir);
   ensureOnBranch(issueN, branch);
 
   const base = readDefaultBranch();
