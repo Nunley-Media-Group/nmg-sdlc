@@ -478,7 +478,7 @@ describe('execute CLI argument failures', () => {
   });
 });
 
-describe('bare CLI recovery', () => {
+posix('bare CLI recovery', () => {
   it('dispatches one legacy repair and never replays after failed recovery and a new commit', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bare-recovery-')));
     try {
@@ -530,17 +530,19 @@ if(a[0]==='pane'&&a[1]==='close'){fs.rmSync(p.join(runtime,'active'),{force:true
 if(a[0]==='notification')out('');
 throw Error('unexpected adapter command '+a.slice(0,2));`);
       const invoke = () => spawnSync(process.execPath, [EXECUTE, 'run'], {
-        cwd: root, encoding: 'utf8', timeout: 0,
+        cwd: root, encoding: 'utf8', timeout: 15_000,
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
           HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller' },
       });
       const first = invoke();
+      expect(first.error).toBeUndefined();
       expect({ status: first.status, error: first.error?.message, stderr: first.stderr }).toEqual({ status: 1, error: undefined, stderr: '' });
       expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
       expect(JSON.parse(fs.readFileSync(checkpointPath)).recoveries[0].source.attempt).toBe(13);
       expect(JSON.parse(fs.readFileSync(path.join(runtime, 'handoffs/42-implement.json'))).reasonCode).toBe('implementation_failed');
       git(root, ['commit', '--allow-empty', '-m', 'operator repair and plugin upgrade simulation']);
       const second = invoke();
+      expect(second.error).toBeUndefined();
       expect(second.status).toBe(1);
       expect(second.stdout).toContain('recovery-consumed');
       expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
