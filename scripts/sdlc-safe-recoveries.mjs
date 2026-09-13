@@ -814,6 +814,7 @@ function closesMarkdownFence(line, fence) {
 function stripHtmlComments(line, inComment) {
   let visible = '';
   let offset = 0;
+  let codeSpan = 0;
   while (offset < line.length) {
     if (inComment) {
       const end = line.indexOf('-->', offset);
@@ -822,23 +823,57 @@ function stripHtmlComments(line, inComment) {
       offset = end + 3;
       continue;
     }
-    const start = line.indexOf('<!--', offset);
-    if (start === -1) return { line: visible + line.slice(offset), inComment: false };
-    visible += line.slice(offset, start);
-    inComment = true;
-    offset = start + 4;
+    if (line[offset] === '`') {
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      visible += delimiter;
+      if (codeSpan === 0) codeSpan = delimiter.length;
+      else if (codeSpan === delimiter.length) codeSpan = 0;
+      offset += delimiter.length;
+      continue;
+    }
+    if (codeSpan > 0) {
+      visible += line[offset++];
+      continue;
+    }
+    if (line.startsWith('<!--', offset)) {
+      inComment = true;
+      offset += 4;
+      continue;
+    }
+    visible += line[offset++];
   }
   return { line: visible, inComment };
 }
 
+const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
+
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
   const acceptedTasks = taskIds == null ? null : new Set(taskIds);
+  const sourceLines = String(content).split(/\r?\n/);
+  const acceptedTaskLines = new Map();
+  if (acceptedTasks) {
+    for (const [index, line] of sourceLines.entries()) {
+      const taskId = DELIVERY_TASK_HEADING.exec(line)?.[1];
+      if (acceptedTasks.has(taskId) && !acceptedTaskLines.has(taskId)) {
+        acceptedTaskLines.set(taskId, index + 1);
+      }
+    }
+  }
+  const validatedTasks = new Set();
   const entries = [];
   let fence = null;
   let inHtmlComment = false;
   let task = null;
   const finishTask = () => {
     if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) return;
+    if (acceptedTasks && validatedTasks.has(task.id)) {
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId: task.id,
+        line: task.line,
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
     const nearMiss = task.nearMisses[0];
     if (nearMiss) {
       throw safeError('publication_scope_unproven', {
@@ -871,8 +906,9 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
         syntax: PUBLICATION_FILE_SYNTAX,
       });
     }
+    validatedTasks.add(task.id);
   };
-  for (const [index, sourceLine] of String(content).split(/\r?\n/).entries()) {
+  for (const [index, sourceLine] of sourceLines.entries()) {
     if (fence) {
       if (closesMarkdownFence(sourceLine, fence)) fence = null;
       continue;
@@ -882,7 +918,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
     inHtmlComment = stripped.inComment;
     fence = markdownFence(line);
     if (fence) continue;
-    const heading = /^### (T\d+):/.exec(line);
+    const heading = DELIVERY_TASK_HEADING.exec(line);
     if (heading) {
       finishTask();
       task = {
@@ -893,7 +929,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       };
       continue;
     }
-    if (/^#{1,3} /.test(line)) {
+    if (/^#{1,3}[ \t]+/.test(line)) {
       finishTask();
       task = null;
       continue;
@@ -913,6 +949,17 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
     }
   }
   finishTask();
+  if (acceptedTasks) {
+    for (const taskId of acceptedTasks) {
+      if (validatedTasks.has(taskId)) continue;
+      throw safeError('publication_scope_unproven', {
+        spec,
+        taskId,
+        line: acceptedTaskLines.get(taskId),
+        syntax: PUBLICATION_FILE_SYNTAX,
+      });
+    }
+  }
   return entries;
 }
 

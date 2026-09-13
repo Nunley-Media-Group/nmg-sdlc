@@ -300,6 +300,49 @@ describe('approved publication scope', () => {
     f.put(`${spec}/design.md`, `${header.replace('Approved', 'Draft')}Unapproved changes.\n`);
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
   });
+
+  test.each([
+    ['missing', '**Type**: Modify'],
+    ['near-miss', '**Files**: `src/code.mjs`'],
+    ['duplicate', '**File(s)**: `src/code.mjs`\n**File(s)**: `src/other.mjs`'],
+  ])('rejects an admitted level-two task with a %s declaration', (_name, declaration) => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}## T001: Apply changes\n\n${declaration}\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    expect(() => inspectPublicationScope({
+      cwd: f.root,
+      issue: 42,
+      step: 'implement',
+      spec,
+      run: f.run,
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+    }));
+  });
+
+  test('accepts one canonical declaration on an admitted level-two task', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}## T001: Apply changes\n\n**File(s)**: \`src/code.mjs\`\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    expect(inspectPublicationScope({
+      cwd: f.root,
+      issue: 42,
+      step: 'implement',
+      spec,
+      run: f.run,
+    })).toContain('src/code.mjs');
+  });
 });
 
   test('shares canonical parsing and reports the exact invalid task location', () => {
@@ -341,6 +384,21 @@ describe('approved publication scope', () => {
       lines: ['# Tasks', '### T001: Create code', '', '**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'],
       expected: { line: 5, entry: '**File(s)**: `src/b.ts`' },
     },
+    {
+      name: 'level-two missing',
+      lines: ['# Tasks', '## T001: Create code', '', '**Type**: Modify'],
+      expected: { line: 2 },
+    },
+    {
+      name: 'level-two near-miss',
+      lines: ['# Tasks', '## T001: Create code', '', '**Files**: `src/a.ts`'],
+      expected: { line: 4, entry: '**Files**: `src/a.ts`' },
+    },
+    {
+      name: 'level-two duplicate',
+      lines: ['# Tasks', '## T001: Create code', '', '**File(s)**: `src/a.ts`', '**File(s)**: `src/b.ts`'],
+      expected: { line: 5, entry: '**File(s)**: `src/b.ts`' },
+    },
   ])('rejects a $name declaration defect at the task location', ({ lines, expected }) => {
     expect(() => parseDeliveryTaskFileLines(lines.join('\n'), {
       spec: 'specs/42-feature/tasks.md',
@@ -358,7 +416,7 @@ describe('approved publication scope', () => {
       '**Files**: `outside.txt`',
       '### T001: Create code',
       '**File(s)**: `src/a.ts`',
-      '### T002: Test code',
+      '## T002: Test code',
       '**File(s)**: `tests/a.test.mjs`',
       '### T003: Excluded task',
       '**Files**: `excluded.txt`',
@@ -386,6 +444,23 @@ describe('approved publication scope', () => {
     }));
   });
 
+  test.each([
+    ['backtick fence', ['```text', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '```']],
+    ['HTML comment', ['<!--', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '-->']],
+  ])('rejects an admitted task heading hidden inside a %s', (_name, hiddenTask) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      ...hiddenTask,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 3,
+    }));
+  });
+
   test('does not count hidden metadata as a duplicate declaration', () => {
     expect(parseDeliveryTaskFileLines([
       '# Tasks',
@@ -410,6 +485,31 @@ describe('approved publication scope', () => {
     ].join('\n'), {
       spec: 'specs/42-feature/tasks.md',
     })).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  test('ends a task before a tab-delimited Markdown section heading', () => {
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      '##\tNotes',
+      '**File(s)**: `outside.txt`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 1,
+    }));
+  });
+
+  test('preserves HTML comment markers inside a code-quoted path', () => {
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      '**File(s)**: `src/<!--note-->`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toEqual(['src/<!--note-->']);
   });
 
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
