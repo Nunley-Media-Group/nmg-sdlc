@@ -441,6 +441,15 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
   });
 
+  test('write-spec task template uses only the shared publication grammar', () => {
+    const renderedTemplate = fs.readFileSync(TASKS_TEMPLATE, 'utf8')
+      .replace(/^```(?:markdown)?\s*$/gm, '');
+    const entries = parseDeliveryTaskFileLines(renderedTemplate, {
+      spec: 'workflows/write-spec/templates/tasks.md',
+    });
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
 
 describe('publication CLI lease ownership boundary', () => {
   const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
