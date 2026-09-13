@@ -3,7 +3,7 @@
 **Issue**: #386
 **Date**: 2026-09-13
 **Status**: Passed
-**Implementation Revision**: `19b1b8eb0eb7877142424ece25005dcdca46b892`
+**Implementation Revision**: `4a0e11425288d2b2e2a186a9a12e4d434d53b210`
 **Base Revision**: `e9f433749bce13f3c53d19b9ce2e814992863a3b`
 
 ## Scope
@@ -16,7 +16,7 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 |---|---|---|
 | AC1 | Passed | Focused detection emitted actionable `publication-files:02a552a7bd22d4b5807995605294d32cc87111862865f5f3e986e8ba041c5948` for the exact supported `Files` near miss. |
 | AC2 | Passed | The direct PathCast-shaped exercise planned rewrites at lines 5, 9, 13, and 17; apply changed those four label prefixes only; repeat detection returned zero publication actions. |
-| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing, duplicate, mixed canonical/near-miss, unsupported, malformed, ambiguous, fenced, or HTML-comment declarations. Visible unsafe file-like declarations remained findings. |
+| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing declarations, duplicate aliases, duplicate canonical declarations, mixed canonical/near-miss declarations, unsupported labels, malformed or ambiguous values, fenced declarations, or HTML-comment declarations. Visible unsafe file-like declarations remained located findings. |
 | AC4 | Passed | The unchanged delivery parser rejected the pre-state with `publication_scope_unproven` at T001 line 5 and accepted the post-state's complete 18-path set. |
 | AC5 | Passed | Existing canonical prose and annotation recovery regressions remained green; `CHANGELOG.md` records #386 under Unreleased Fixed. |
 
