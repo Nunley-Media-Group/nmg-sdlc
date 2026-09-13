@@ -99,11 +99,11 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
 
   @SCN011 @regression
   Scenario: Terminal proof is replayed without a retained clone
-    Given exact reconciliation persisted an immutable terminal proof before deleting the clone
-    When the same stable outer run invokes the provider again
-    Then the stored issue, PR, final head, and original baseline are revalidated remotely
+    Given exact reconciliation persisted immutable cleanup-pending proof before deleting the clone
+    When cleanup succeeds and the same stable outer run invokes the provider again
+    Then the state is terminal-clean and the stored issue, PR, final head, and original baseline are revalidated remotely
     And no clone, baseline, execute queue, or replacement issue is created
-    And cleanup failure remains incomplete
+    And cleanup failure remains incomplete and a rerun retries only cleanup
 
   @SCN012 @regression
   Scenario: Ordinary success binds proof to nested run identity

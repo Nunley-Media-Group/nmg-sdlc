@@ -582,6 +582,9 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     };
 
     expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(true);
+    writeSession('duplicate-match', 'nested-run', 'failed');
+    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(false);
+    fs.rmSync(path.join(sessions, 'duplicate-match'), { recursive: true, force: true });
     const matched = path.join(sessions, 'matched/handoffs/7-deliver.json');
     fs.writeFileSync(matched, fs.readFileSync(matched, 'utf8').replace('"passed"', '"failed"'));
     expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(false);
@@ -1033,15 +1036,47 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
   });
 
-  it('persists terminal proof before reporting clone cleanup failure', async () => {
+  it('accepts exact multi-issue nonzero proof when run.json names only the current delivery', async () => {
+    const fixture = harness({
+      config: { issues: [7, 9] },
+      runPresence: 'valid',
+      override: (program) => program === process.execPath ? result(1) : null,
+    });
+
+    const outcome = await fixture.provider(fixture.request);
+    expect(outcome.status).toBe('passed');
+    expect(outcome.evidence.filter((item) => item.kind === 'github')).toHaveLength(2);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+  });
+
+  it('retries only cleanup after terminal proof was persisted', async () => {
+    const fixture = harness();
+    fixture.rmSync
+      .mockImplementationOnce(() => { throw new Error('cleanup denied'); })
+      .mockImplementationOnce(() => undefined);
+
+    const first = await fixture.provider(fixture.request);
+    expect(first).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke cleanup_failed' });
+    expect(fixture.states.get(fixture.scope.recoveryKey).phase).toBe('cleanup_pending');
+
+    const second = await fixture.provider(fixture.request);
+    expect(second.status).toBe('passed');
+    expect(fixture.states.get(fixture.scope.recoveryKey).phase).toBe('terminal');
+    expect(fixture.rmSync).toHaveBeenCalledTimes(2);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cleanup pending across repeated cleanup failures without executing again', async () => {
     const fixture = harness();
     fixture.rmSync.mockImplementation(() => { throw new Error('cleanup denied'); });
 
-    const outcome = await fixture.provider(fixture.request);
-    expect(outcome).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke cleanup_failed' });
-    const terminal = fixture.states.get(fixture.scope.recoveryKey);
-    expect(terminal.phase).toBe('terminal');
-    expect(Array.isArray(terminal.accepted)).toBe(true);
+    expect((await fixture.provider(fixture.request)).status).toBe('incomplete');
+    expect((await fixture.provider(fixture.request)).status).toBe('incomplete');
+    expect(fixture.states.get(fixture.scope.recoveryKey).phase).toBe('cleanup_pending');
+    expect(fixture.rmSync).toHaveBeenCalledTimes(2);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
   });
 
   it.each([

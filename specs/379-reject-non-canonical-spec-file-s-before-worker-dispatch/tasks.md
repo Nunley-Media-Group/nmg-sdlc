@@ -85,7 +85,7 @@
 - [ ] Delivery proof carries exact nested runId/issue/PR/head; zero-exit accepts absent post-cleanup run.json but rejects present invalid/mismatched run state
 - [ ] Initial nonzero without exact proof remains failed; same-call exact proof or same-run later recovery continues only from the original baseline/clone/invocation
 - [ ] Recovered final head binds to the same run/issue/PR, consumed post-merge evidence, passed verified-head artifact, identity-bound recovery session, and expected-head ancestry before bounded remote MERGED/CLOSED proof
-- [ ] First success persists terminal proof before clone cleanup; cleanup failure is incomplete; terminal reruns validate remotely without clone/queue recreation
+- [ ] First success persists cleanup-pending proof before clone cleanup; cleanup failure is incomplete and retries only cleanup; terminal-clean reruns validate remotely without clone/queue recreation
 - [ ] Missing, historical, unrelated, newly configured, non-ancestor, or tampered run/PR/head/baseline/config/terminal evidence never passes
 
 ---

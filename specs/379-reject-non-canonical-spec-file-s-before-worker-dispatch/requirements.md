@@ -70,7 +70,7 @@
 **When** the same stable outer verification run evaluates the provider again, even if only report/evidence dirtiness changed
 **Then** it reuses the original clone and baseline without cloning, launching a replacement issue, or accepting `NMG_SDLC_SMOKE_OWNED` as an outer bypass
 **And** it requires the same nested run ID and issue/PR identity, the original expected verified head, a matching consumed `post_merge_observation`, current passed verification evidence, an identity-bound passed recovery-session delivery handoff when present, a delivery-helper-authored proof for the final head, expected-head ancestry to that final head, remote PR `MERGED`, issue `CLOSED`, and exclusion from the original baseline
-**And** first success persists an immutable terminal proof before removing the retained clone, while same-key terminal reruns revalidate that stored proof remotely without recreating the clone or queue
+**And** first success persists immutable accepted proof as cleanup-pending before removing the retained clone, advances to terminal-clean only after deletion succeeds, and makes same-key cleanup/terminal reruns revalidate stored proof remotely without recreating the clone or queue
 **And** missing, stale, malformed, historical, unrelated, non-ancestor, config/issue/run/PR/head-mismatched, or manually claimed proof preserves the nonzero failure
 **And** ordinary zero-exit delivery remains valid when cleanup removed `run.json`, but a present invalid `run.json` fails closed and all smoke-delivery proofs bind to one exact nested run ID
 

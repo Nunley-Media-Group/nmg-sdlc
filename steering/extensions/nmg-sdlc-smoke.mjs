@@ -422,10 +422,9 @@ function nestedRunIdentity(readFile, work, issues) {
     || resolve(run.projectRoot) !== resolve(work)
     || typeof run.runId !== "string" || !run.runId
     || !equal(run.issues, issues)
-    || issues.length !== 1
-    || run.currentIssue !== issues[0]
+    || !issues.includes(run.currentIssue)
     || run.currentStep !== "deliver"
-    || run.delivery?.issue !== issues[0]
+    || run.delivery?.issue !== run.currentIssue
     || !Number.isSafeInteger(run.delivery.pullRequest) || run.delivery.pullRequest <= 0
     || !SHA.test(run.delivery.expectedHead ?? "")
   ) return { presence: "invalid", runId: null, expected: [] };
@@ -435,6 +434,11 @@ function nestedRunIdentity(readFile, work, issues) {
     pullRequest: run.delivery.pullRequest,
     headSha: run.delivery.expectedHead.toLowerCase(),
   }];
+  for (const issue of issues) {
+    if (issue === run.delivery.issue) continue;
+    const proof = recordedDelivery(readFile, work, issue);
+    if (proof?.runId === run.runId) expected.push({ issue, ...proof });
+  }
   return { presence: "valid", runId: run.runId, expected };
 }
 
@@ -508,7 +512,7 @@ export function inspectRecoveredVerificationEvidence(readFile, work, recovered, 
     options: {
       expectedIssueNumber: recovered.issue,
       expectedSpecPath: specPath,
-      expectedHeadSha: recovered.headSha,
+      expectedHeadSha: immutable.headSha,
     },
   });
   if (readiness.implementationStatus !== "pass" || readiness.status === "unverifiable") return false;
@@ -519,7 +523,7 @@ export function inspectRecoveredVerificationEvidence(readFile, work, recovered, 
       expectedIssueNumber: recovered.issue,
       expectedSpecPath: specPath,
       expectedPullRequestNumber: recovered.pullRequest,
-      expectedHeadSha: recovered.headSha,
+      expectedHeadSha: immutable.headSha,
       deliveryAcceptanceCriteria: readiness.issueScope?.delivery?.acceptanceCriteria,
     },
   }).status === "satisfied";
@@ -556,16 +560,16 @@ export function inspectRecoveredDeliveryHandoff(
     ));
   }
   if (matched.length === 0) return !required;
-  return matched.filter((handoff) => (
-    handoff?.schemaVersion === 1
+  if (matched.length !== 1) return false;
+  const [handoff] = matched;
+  return handoff?.schemaVersion === 1
     && handoff.issue === expected.issue
     && handoff.step === "deliver"
     && handoff.status === "passed"
     && handoff.intervention === false
     && handoff.reasonCode === null
     && Array.isArray(handoff.artifacts)
-    && handoff.artifacts.includes(`https://github.com/${SMOKE_OWNER}/${SMOKE_NAME}/pull/${expected.pullRequest}`)
-  )).length === 1;
+    && handoff.artifacts.includes(`https://github.com/${SMOKE_OWNER}/${SMOKE_NAME}/pull/${expected.pullRequest}`);
 }
 
 async function retainedCloneIdentity(executeCommand, state, env, signal) {
@@ -748,23 +752,31 @@ export function createSmokeProvider({
           artifact: pr.url,
         });
       }
-      if (!terminal) {
-        try {
-          state = { ...state, phase: "terminal", accepted: expected };
+      try {
+        if (terminal) {
+          if (state.phase === "cleanup_pending") {
+            remove(work, { recursive: true, force: true });
+            state = { ...state, phase: "terminal" };
+            recoveryStore.write(scope.recoveryKey, state, { replace: true });
+          }
+        } else {
+          state = { ...state, phase: "cleanup_pending", accepted: expected };
           recoveryStore.write(scope.recoveryKey, state, { replace: true });
           remove(work, { recursive: true, force: true });
-        } catch (error) {
-          return retain("incomplete", "nmg-sdlc-smoke cleanup_failed", [
-            ...evidence,
-            commandEvidence("remove retained smoke clone", { error }),
-          ]);
+          state = { ...state, phase: "terminal" };
+          recoveryStore.write(scope.recoveryKey, state, { replace: true });
         }
+      } catch (error) {
+        return retain("incomplete", "nmg-sdlc-smoke cleanup_failed", [
+          ...evidence,
+          commandEvidence("remove retained smoke clone", { error }),
+        ]);
       }
       return envelope("passed", `nmg-sdlc-smoke delivered ${issues.map((issue) => `#${issue}`).join(", ")}`, identity, evidence);
     };
 
     if (state) {
-      if (state.phase === "terminal") {
+      if (["terminal", "cleanup_pending"].includes(state.phase)) {
         const evidence = [commandEvidence("terminal smoke delivery identity", {
           status: 0,
           stdout: JSON.stringify({
@@ -994,9 +1006,9 @@ export function createSmokeProvider({
         });
         if (exactProof.every(Boolean)
           && exactExpectedQueue(exactProof, issues, nested.runId)
-          && exactProof.every((proof) => equal(
-            nested.expected.find((entry) => entry.issue === proof.issue),
-            proof,
+          && nested.expected.every((expected) => equal(
+            exactProof.find((proof) => proof.issue === expected.issue),
+            expected,
           ))) {
           return verifyRemoteDelivery({
             expected: exactProof,
