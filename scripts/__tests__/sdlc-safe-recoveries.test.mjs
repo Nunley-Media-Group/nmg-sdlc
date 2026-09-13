@@ -402,6 +402,16 @@ describe('approved publication scope', () => {
     })).toEqual(['src/visible.ts']);
   });
 
+  test('parses visible File(s) text after an inline HTML comment', () => {
+    expect(parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      '**File(s)**: `src/a.ts` <!-- note -->; `src/b.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
     expect(() => publicationFileEntries(declaration))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));

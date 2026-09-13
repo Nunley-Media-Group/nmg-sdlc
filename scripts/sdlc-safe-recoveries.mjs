@@ -811,16 +811,24 @@ function closesMarkdownFence(line, fence) {
   return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
 }
 
-function advanceHtmlCommentState(line, inComment) {
+function stripHtmlComments(line, inComment) {
+  let visible = '';
   let offset = 0;
   while (offset < line.length) {
-    const token = inComment ? '-->' : '<!--';
-    const index = line.indexOf(token, offset);
-    if (index === -1) break;
-    inComment = !inComment;
-    offset = index + token.length;
+    if (inComment) {
+      const end = line.indexOf('-->', offset);
+      if (end === -1) return { line: visible, inComment: true };
+      inComment = false;
+      offset = end + 3;
+      continue;
+    }
+    const start = line.indexOf('<!--', offset);
+    if (start === -1) return { line: visible + line.slice(offset), inComment: false };
+    visible += line.slice(offset, start);
+    inComment = true;
+    offset = start + 4;
   }
-  return inComment;
+  return { line: visible, inComment };
 }
 
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
@@ -869,13 +877,9 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       if (closesMarkdownFence(sourceLine, fence)) fence = null;
       continue;
     }
-    if (inHtmlComment) {
-      inHtmlComment = advanceHtmlCommentState(sourceLine, true);
-      continue;
-    }
-    const commentStart = sourceLine.indexOf('<!--');
-    const line = commentStart === -1 ? sourceLine : sourceLine.slice(0, commentStart);
-    inHtmlComment = advanceHtmlCommentState(sourceLine, false);
+    const stripped = stripHtmlComments(sourceLine, inHtmlComment);
+    const line = stripped.line;
+    inHtmlComment = stripped.inComment;
     fence = markdownFence(line);
     if (fence) continue;
     const heading = /^### (T\d+):/.exec(line);
