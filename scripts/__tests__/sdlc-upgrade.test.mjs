@@ -1169,8 +1169,14 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     ]);
     expect(outcome.results).not.toContainEqual(expect.objectContaining({ id: 'spec-created-backfill' }));
     const updated = fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8');
+    expect(updated.match(/^\*\*File\(s\)\*\*:.*$/gm)).toEqual([
+      '**File(s)**: `api/src/services/ip-guardrails/types.ts` (Modify)',
+      '**File(s)**: `api/src/scripts/reconcile-miledar-ip-guardrails.ts` (Create)',
+      '**File(s)**: `api/src/__tests__/features/miledar_ip_guardrails.feature` (Create)',
+      '**File(s)**: `artifacts/issue-108/reconciliation.json` (Generate untracked)',
+    ]);
+    expect(updated).not.toMatch(/^\*\*Files\*\*:/m);
     expect(updated.replaceAll('**File(s)**:', '**Files**:')).toBe(beforeSelectedTasks);
-    expect(updated.match(/^\*\*File\(s\)\*\*:/gm)).toHaveLength(4);
     for (const [relativePath, source] of before) {
       expect(fs.readFileSync(path.join(root, relativePath))).toEqual(source);
     }
@@ -1290,7 +1296,11 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.readFileSync(path.join(root, 'unrelated.txt'))).toEqual(beforeUnrelated);
   });
 
-  it('rejects repeated CLI approval options without applying either value', () => {
+  it.each([
+    ['separate approval flags', (id) => ['--approve', id, '--approve', id]],
+    ['comma-separated approvals', (id) => ['--approve', `${id},${id}`]],
+    ['empty then valid approval flags', (id) => ['--approve', '', '--approve', id]],
+  ])('rejects %s without applying any approval', (_name, approvalArgs) => {
     const root = makeRoot();
     const selected = 'specs/42-cli-approval';
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
@@ -1306,10 +1316,7 @@ describe('package-scoped publication-only upgrade (#388)', () => {
       root,
       '--spec',
       selected,
-      '--approve',
-      report.item.id,
-      '--approve',
-      report.item.id,
+      ...approvalArgs(report.item.id),
     ], {
       encoding: 'utf8',
       shell: false,
@@ -1317,6 +1324,33 @@ describe('package-scoped publication-only upgrade (#388)', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('publication_files_approval_invalid');
+    expect(fs.readFileSync(tasksPath)).toEqual(before);
+  });
+
+  it('rejects an empty spec option even when followed by a valid selection', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-cli-selection';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const tasksPath = path.join(root, selected, 'tasks.md');
+    const before = fs.readFileSync(tasksPath);
+    const script = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
+
+    const result = spawnSync(process.execPath, [
+      script,
+      'detect-publication',
+      '--root',
+      root,
+      '--spec',
+      '',
+      '--spec',
+      selected,
+    ], {
+      encoding: 'utf8',
+      shell: false,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('publication_spec_selection_invalid');
     expect(fs.readFileSync(tasksPath)).toEqual(before);
   });
 });

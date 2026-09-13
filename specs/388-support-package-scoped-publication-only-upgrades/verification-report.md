@@ -25,10 +25,10 @@ The dedicated selected-package contract passed its focused Jest block and the co
 | AC1 | Pass | `detectPublicationUpgrade(root, { specDirs })` validates a non-empty explicit set and calls `publicationFilesUpgrade` only with validated selected packages. The fixture had three dirty packages; selected report contained only #108. |
 | AC2 | Pass | Approval hashing includes schema/mode, canonical real root, sorted selection, recursively inventoried regular-file SHA-256 digests, and exact package rewrites/findings. Reordered equivalent selections produced one id; different root/report/selection and added content were rejected. |
 | AC3 | Pass | `applyPublicationUpgrade` is a sibling to `applyUpgrade`, has no command runner, calls only selected detection and `applyPublicationFiles`, and returned only the publication id. Fake `gh` marker remained absent and no `spec-created-backfill` result appeared. |
-| AC4 | Pass | Focused cases rejected empty, duplicate, absolute/traversal/outside, missing, symlinked, incomplete, non-Approved, and issue-mismatched selections. Stale source, added inventory, foreign root, foreign selection, and foreign report failed before tasks mutation. A process-level CLI regression proved two `--approve` options fail `publication_files_approval_invalid` without applying either value. |
+| AC4 | Pass | Focused cases rejected empty, duplicate, absolute/traversal/outside, missing, symlinked, incomplete, non-Approved, and issue-mismatched selections. Stale source, added inventory, foreign root, foreign selection, and foreign report failed before tasks mutation. Process-level CLI regressions proved separate duplicate approvals, comma-separated multiple approvals, empty-plus-valid approval flags, and empty-plus-valid spec flags fail before writes. |
 | AC5 | Pass | Mixed-EOL regression changed only `**Files**:` to `**File(s)**:` while binary selected extras and unrelated bytes remained equal. Repeat selected detection returned `writeCount: 0` and `actionable: false`. |
-| AC6 | Pass | Unit and CLI fixture both converted T001-T004 exactly; CLI fixture recorded four canonical labels, two unselected rewrites plus one unselected finding, identical unselected SHA-256 hashes before/after, and no GitHub marker. |
-| AC7 | Pass | Exported APIs and `detect-publication` / `apply-publication` CLI are documented in README and the upgrade workflow/reference. Existing 45 upgrade tests plus 6 new cases passed without changing full `detect` / `apply`; repeated approval options accumulate and fail the exactly-one gate. |
+| AC6 | Pass | Unit assertions name all four expected canonical T001-T004 **File(s)** lines and reject every old `**Files**` label. The CLI fixture recorded four canonical labels, two unselected rewrites plus one unselected finding, identical unselected SHA-256 hashes before/after, and no GitHub marker. |
+| AC7 | Pass | Exported APIs and `detect-publication` / `apply-publication` CLI are documented with the portable `<plugin-root>` token in README and the upgrade workflow/reference. Existing 45 upgrade tests plus 9 selected-contract tests passed. Approval-option counts and malformed values are enforced only by `apply-publication`; legacy `apply` retains its prior last-option parsing behavior. |
 
 ## Task Completion
 
@@ -36,7 +36,7 @@ The dedicated selected-package contract passed its focused Jest block and the co
 |---|---|---|
 | T001 | Complete | Dedicated selection validation, report digest, selected detect/apply, byte inventory, and stale checks implemented in `scripts/sdlc-upgrade.mjs`. |
 | T002 | Complete | Repeatable `--spec` CLI commands and package-bounded `/sdlc-upgrade-project` workflow contract documented. |
-| T003 | Complete | Six high-value Jest cases plus disposable actual-source CLI fixture cover selection, side effects, staleness, invalid inputs, bytes/EOL, four-token repair, convergence, and duplicate approval options. |
+| T003 | Complete | Nine focused Jest cases plus the disposable actual-source CLI fixture cover selection, side effects, staleness, invalid inputs, bytes/EOL, exact four-token repair, convergence, repeated/comma-separated/empty approvals, and empty spec options. |
 | T004 | Complete | README and Unreleased changelog updated; plugin/current-spec/inventory/version/contribution surfaces verified below. |
 
 ## Exact Commands and Results
@@ -45,12 +45,13 @@ The dedicated selected-package contract passed its focused Jest block and the co
 |---|---|
 | `node --check scripts/__tests__/sdlc-upgrade.test.mjs` | Passed; malformed #388 block repaired and parsed cleanly before focused execution. |
 | `node --check scripts/sdlc-upgrade.mjs` | Passed. |
-| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand --testNamePattern "package-scoped publication-only upgrade"` | Passed after duplicate-approval remediation: 1 suite, 6 tests; 45 unrelated tests skipped by the focus filter. |
-| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand` | Passed after duplicate-approval remediation: 1 suite, 51 tests, 0 failures/skips. |
+| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand --testNamePattern "package-scoped publication-only upgrade"` | Passed after final compatibility remediation: 1 suite, 9 tests; 45 unrelated tests skipped by the focus filter. |
+| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand` | Passed after final compatibility remediation: 1 suite, 54 tests, 0 failures/skips. |
+| `cd scripts && npm test -- --runInBand` | Required `repository.tests` command passed: 55 suites passed, 1 skipped; 1,254 tests passed, 2 skipped; 56 suites and 1,256 tests total. |
 | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Passed: repository plugin surface valid. |
 | `node scripts/verify-current-specs.mjs` | Passed: 78 genuine issue specs, 16 required archive, 16 rewrite capabilities, 16 active workflow mappings, 1 deprecated stub. |
 | `node scripts/skill-inventory-audit.mjs --check` | Passed: 43 items mapped. |
-| `node -p "'VERSION=' + require('fs').readFileSync('VERSION','utf8').trim() + ' package=' + require('./package.json').version"` | Passed: `VERSION=3.21.3 package=3.21.3`; no implementation-time version bump. |
+| `node -e "const fs=require('node:fs'); const version=fs.readFileSync('VERSION','utf8').trim(); const packageVersion=require('./package.json').version; if(version!==packageVersion) process.exit(1); console.log('VERSION='+version+' package='+packageVersion)"` | Passed with enforced equality: `VERSION=3.21.3 package=3.21.3`; no implementation-time version bump. |
 | `node scripts/contribution-evidence.mjs --root . /tmp/nmg-sdlc-388-contribution-evidence.json` | Passed: `{"ok":true,"errors":[]}` for issue #388, the exact changed-path set, generated delivery body, and this report. |
 | `git diff --check` | Passed with no whitespace errors before the verification commit. |
 | `shasum -a 256 specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/verification-report.md` in the ambient `/Volumes/Fast Brick/source/repos/nmg-sdlc` checkout | Passed before and after work: `4f2fa5e99cab141cb5bc7d8817adcec329bc5afd9d0fc57121e420f66182cea6`; the pre-existing modified file remained byte-identical. |
@@ -91,6 +92,6 @@ The dedicated selected-package contract passed its focused Jest block and the co
 
 ## Deferred Delivery Gates and Risks
 
-- Independent review, full registered `repository.tests`, live `repository.nmg-sdlc-smoke`, PR publication, merge, release bump, and issue closure are intentionally outside this first-half assignment. They remain required at their later owning stages.
+- Independent review, live `repository.nmg-sdlc-smoke`, PR publication, merge, release bump, and issue closure are intentionally outside this first-half assignment. The required local `repository.tests` gate passed; the remaining stages stay owned by later delivery.
 - The selected contract binds the canonical absolute repository root by design. Moving an approved checkout requires a fresh detection and approval.
 - No unresolved defect was observed in the approved implementation scope.

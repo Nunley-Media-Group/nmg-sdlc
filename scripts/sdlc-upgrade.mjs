@@ -1862,23 +1862,34 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
 // CLI
 function parseArgv(argv) {
-  const args = { cmd: null, root: process.cwd(), approve: [], specDirs: [] };
+  const args = {
+    cmd: null,
+    root: process.cwd(),
+    approve: [],
+    approveOptionCount: 0,
+    approveMalformed: false,
+    specDirs: [],
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (['detect', 'apply', 'detect-publication', 'apply-publication'].includes(a)) args.cmd = a;
     else if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
     else if (a.startsWith('--root=')) args.root = a.split('=')[1];
     else if (a === '--approve' || a === '-a') {
-      const v = argv[++i] || '';
-      args.approve.push(...v.split(',').map((s) => s.trim()).filter(Boolean));
+      const value = argv[++i] ?? '';
+      const entries = value.split(',').map((entry) => entry.trim());
+      args.approveOptionCount += 1;
+      args.approveMalformed ||= entries.some((entry) => entry.length === 0);
+      args.approve = entries.filter(Boolean);
     } else if (a.startsWith('--approve=')) {
-      args.approve.push(...a.split('=')[1].split(',').map((s) => s.trim()).filter(Boolean));
+      const entries = a.slice('--approve='.length).split(',').map((entry) => entry.trim());
+      args.approveOptionCount += 1;
+      args.approveMalformed ||= entries.some((entry) => entry.length === 0);
+      args.approve = entries.filter(Boolean);
     } else if (a === '--spec' || a === '-s') {
-      const value = argv[++i];
-      if (value) args.specDirs.push(value);
+      args.specDirs.push(argv[++i] ?? '');
     } else if (a.startsWith('--spec=')) {
-      const value = a.slice('--spec='.length);
-      if (value) args.specDirs.push(value);
+      args.specDirs.push(a.slice('--spec='.length));
     }
   }
   return args;
@@ -1901,7 +1912,7 @@ if (isCliEntry(import.meta.url)) {
       const out = detectPublicationUpgrade(args.root, { specDirs: args.specDirs });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'apply-publication') {
-      if (args.approve.length !== 1) {
+      if (args.approveOptionCount !== 1 || args.approveMalformed || args.approve.length !== 1) {
         throw publicationContractError(
           'publication_files_approval_invalid',
           'apply-publication requires exactly one --approve publication-files:<sha256> id',

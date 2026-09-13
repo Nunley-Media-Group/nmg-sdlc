@@ -28,10 +28,10 @@ const selectedOutcome = applyPublicationUpgrade(projectRoot, selected.item.id, {
 CLI:
 
 ```
-node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
-node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--root <dir>]
-node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...]
-node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...] --approve publication-files:<digest>
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...] --approve publication-files:<digest>
 ```
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).

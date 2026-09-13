@@ -64,8 +64,8 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 - exact actions / file writes / deletes proposed
 
-- exact helper argv using the detector-returned controller path, for example `["node","/absolute/plugin/root/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
-- for package-bounded publication only, exact argv of the form `["node","/absolute/plugin/root/scripts/sdlc-upgrade.mjs","apply-publication","--root",".","--spec","specs/42-slug","--approve","publication-files:<approved-selection-digest>"]`
+- exact helper argv using the detector-returned controller path, for example `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- for package-bounded publication only, exact argv of the form `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply-publication","--root",".","--spec","specs/42-slug","--approve","publication-files:<approved-selection-digest>"]`
 
 ## After Propose
 
