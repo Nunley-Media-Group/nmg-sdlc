@@ -22,10 +22,10 @@ The existing publication item digest covers package rewrite/finding records and 
 
 Add a narrow sibling contract rather than overloading `includeIssueDependencies` or weakening `applyUpgrade()`:
 
-- `detectPublicationUpgrade(root, { specDirs })` validates and canonicalizes a non-empty explicit package set, inventories every regular file without following symlinks, calculates every source digest, detects publication rewrites/findings only within that set, and returns a `publication-only` report whose item digest includes schema/mode, canonical root, sorted selections, inventories, rewrites, and findings.
-- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that exact report, requires exact id equality and an actionable rewrite, validates every source byte/inventory again before any write, then delegates only to the existing byte-preserving publication line writer. It returns a selected post-detect report and never calls `applyUpgrade()`.
-- CLI commands `detect-publication` and `apply-publication` require repeatable `--spec <specs/N-slug>` flags. `apply-publication` additionally requires exactly one `--approve publication-files:<digest>` value.
-- Existing `detect`/`apply`, exports, and behavior remain unchanged.
+- `detectPublicationUpgrade(root, { specDirs })` rejects a root input whose final component or any ancestor is a symlink, validates a non-empty package set, inventories every regular file without following symlinks, calculates every source digest, detects publication rewrites/findings only within that set, and returns a `publication-only` report whose item digest includes schema/mode, exact root, sorted selections, inventories, rewrites, and findings.
+- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that exact report, requires exact id equality and an actionable rewrite, acquires a project-owned mutation lock, constructs and stages every output from exact byte snapshots, revalidates complete inventory and target identities immediately before commit, and atomically renames staged outputs. Any multi-target stage or commit failure restores every original byte. It never calls `applyUpgrade()`.
+- CLI commands `detect-publication` and `apply-publication` require exactly one command token and repeatable `--spec <specs/N-slug>` flags. They reject unknown options, unexpected positionals, duplicate singleton options, missing or option-like values, and extra command tokens before mutation. `apply-publication` additionally requires exactly one `--approve publication-files:<digest>` value.
+- Existing `detect`/`apply`, exports, parsing, and behavior remain unchanged.
 
 ### Selection validation
 
@@ -33,10 +33,11 @@ A selected package must:
 
 1. Be a repository-relative POSIX path exactly matching `specs/[1-9][0-9]*-[a-z0-9-]+`.
 2. Occur once after separator normalization; duplicates fail rather than deduplicate.
-3. Resolve as a real direct child directory of the repository's real `specs/` directory; the root, `specs/`, package directory, and inventoried entries must not traverse symlinks.
-4. Contain regular `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` files.
-5. Declare exactly one singular `**Issue**: #N` matching the directory number and `**Status**: Approved` in every required file.
-6. Inventory every regular file recursively in sorted repository-relative order. Unsupported entry types fail closed. Added, removed, renamed, or changed files after approval change the item digest.
+3. Use a caller-supplied repository root whose final component and every ancestor are symlink-free; the root input is not silently canonicalized to a different path.
+4. Resolve as a real direct child directory of the repository's plain `specs/` directory; the package path and inventoried entries must not traverse symlinks.
+5. Contain regular `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` files.
+6. Declare exactly one singular `**Issue**: #N` matching the directory number and `**Status**: Approved` in every required file.
+7. Inventory every regular file recursively in sorted repository-relative order. Unsupported entry types fail closed. Added, removed, renamed, or changed files after approval change the item digest.
 
 ### Approval envelope
 
@@ -44,15 +45,14 @@ The item remains `publication-files:<sha256>` for compatibility with approval pr
 
 - schema version and `publication-only` mode;
 - canonical real repository root;
-- sorted canonical selected directories;
-- for each selection, its sorted complete file inventory with SHA-256 digest;
-- the existing exact publication package record, including `tasks.md` source digest, projected-path absence, rewrites, and findings.
+- for each selection, its sorted complete file inventory with SHA-256 digest and stable regular-file lstat identity (`device`, `inode`, `mode`, `size`);
+- the existing exact publication package record, including `tasks.md` source digest and target identity, projected-path absence, rewrites, and findings.
 
 An item exists even when no rewrites/findings exist so the selected report remains explicit. `actionable` is true only when at least one rewrite exists. Repeated detection after apply therefore has the same validated selection but `writeCount: 0` and no actionable item.
 
-### Byte safety
+### Byte safety and transaction
 
-Reuse `applyPublicationFiles()` only after exact report equality. Its line array retains each original `\r\n`, `\n`, or no-final-newline separator. It replaces only the approved line payload. The selected inventory preflight occurs before the first write so no package can be partially updated due to stale authority.
+`publicationFilesUpgrade()` uses a reversible Latin-1 view only to run the ASCII publication grammar and build byte-bound rewrite records. Ordinary unambiguous ASCII `**Files**` plus payload canonicalization remains one compatible rewrite containing its final `after`; it is not split into intermediate report records. Duplicate or otherwise unchanged blocking parser results discard every tentative rewrite for that task and retain only the finding. When opaque bytes make payload mapping unsafe, the planner permits only an exact label-span rewrite over an otherwise valid payload and retains the payload finding. `applyPublicationFiles()` verifies each exact source Buffer and lstat identity, maps each approved change to a minimal ASCII byte span, and constructs output with untouched Buffer slices; it never rebuilds the declaration line. The transaction stages original and output buffers under a project-owned lock outside selected packages. After staging, `applyPublicationUpgrade()` reruns complete selection, inventory, digest, rewrite, target identity, and byte checks under that lock immediately before commit. Each original target inode moves into the owned staging area before its replacement. If any stage write or target rename fails, no commit starts or every moved original target is renamed back, restoring bytes and identity. Cleanup removes the lock/staging directory only when its ownership token matches; an unproven stale lock fails closed.
 
 ### Affected files
 

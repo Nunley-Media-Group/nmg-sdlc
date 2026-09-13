@@ -27,9 +27,10 @@
 **Acceptance**:
 - [ ] Export `detectPublicationUpgrade` and `applyPublicationUpgrade`
 - [ ] Require a non-empty explicit canonical selection of complete Approved singular issue-owned packages
-- [ ] Reject missing, outside, duplicate, symlinked, incomplete, wrongly named, issue-mismatched, and non-Approved selections with stable reason codes
-- [ ] Bind the item digest to canonical root, sorted selection, every selected regular-file digest, and exact rewrites/findings
-- [ ] Recompute exact authority before any write
+- [ ] Reject roots with a symlinked final component or ancestor and reject missing, outside, duplicate, symlinked, incomplete, wrongly named, issue-mismatched, and non-Approved selections with stable reason codes
+- [ ] Bind the item digest to exact root, sorted selection, every selected regular-file digest and lstat identity, and exact rewrites/findings
+- [ ] Hold a project-owned mutation lock across final complete-inventory, exact-byte, and target-identity revalidation plus commit
+- [ ] Build and stage every output from exact Buffer snapshots; restore every original byte and recoverable target identity after any multi-target write or rename failure
 - [ ] Apply only selected publication rewrites without calling full apply, dependencies, label backfill, GitHub, or another upgrade phase
 - [ ] Preserve existing `detectUpgrade` and `applyUpgrade` behavior
 
@@ -40,8 +41,9 @@
 **Depends**: T001
 **Acceptance**:
 - [ ] Add `detect-publication` and `apply-publication` commands with repeatable required `--spec` flags
-- [ ] Require one exact publication approval id for apply
-- [ ] CLI argument errors fail with stable diagnostics before mutation
+- [ ] Require exactly one command token and one exact publication approval id for apply
+- [ ] Reject unknown options, unexpected positionals, duplicate singleton options, missing or option-like values, extra command tokens, and other ambiguous forms before mutation
+- [ ] Preserve documented legacy detect/apply parsing semantics
 - [ ] `/sdlc-upgrade-project` uses this entry point whenever publication authorization is package-bounded
 - [ ] Workflow documentation distinguishes selected publication-only apply from full upgrade apply
 
@@ -53,9 +55,12 @@
 **Acceptance**:
 - [ ] Selected single-package apply leaves unselected rewrites/findings byte-identical
 - [ ] Selected apply causes no spec-created-label, dependency, or GitHub side effect
-- [ ] Stale source bytes, changed package inventory, different root/report/selection, and invalid selections fail before mutation
-- [ ] Mixed line endings and unrelated bytes are preserved
-- [ ] PathCast-like T001-T004 conversion changes exactly four selected tokens
+- [ ] Stale source bytes, changed package inventory or identity, different root/report/selection, and invalid selections fail before mutation
+- [ ] Symlinked root and symlinked ancestor paths fail with the stable root-symlink reason
+- [ ] Injected second selected write or rename failure leaves every target byte-identical
+- [ ] Invalid UTF-8 and mixed line endings survive exact Buffer surgery
+- [ ] Duplicate recoverable task declarations remain byte-identical and produce a blocking finding
+- [ ] PathCast-like T001-T004 conversion changes exactly four selected label tokens
 - [ ] Second selected detection reports zero writes
 - [ ] Existing aggregate tests remain green
 - [ ] Run a disposable installed-source fixture with multiple unrelated dirty packages

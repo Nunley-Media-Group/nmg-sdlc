@@ -43,6 +43,8 @@ Feature: Support package-scoped publication-only upgrades
       | a duplicate path |
       | an absolute or traversal path |
       | a path outside specs |
+      | a root whose final component is a symlink |
+      | a root with a symlinked ancestor |
       | a missing package |
       | a symlinked package |
       | an incomplete package |
@@ -51,25 +53,29 @@ Feature: Support package-scoped publication-only upgrades
       | a non-Approved package |
 
   @SCN005 @regression
-  Scenario Outline: Stale or foreign approval fails closed
-    Given an approved selected report
+  Scenario Outline: Stale, foreign, or interrupted approval fails closed
+    Given an approved selected report and a project-owned mutation lock
     When apply observes <change>
-    Then no file is mutated
+    Then no selected target remains mutated
+    And lock or staging artifacts are removed only when ownership is proven
     Examples:
       | change |
       | changed source bytes |
-      | added package content |
+      | added package content before final revalidation |
+      | duplicate task declarations |
       | a different selected package set |
       | a different repository root |
       | a different report id |
+      | an injected second selected stage write failure |
+      | an injected second selected commit rename failure |
 
   @SCN006 @regression
-  Scenario: Mixed line endings and unrelated bytes are preserved
-    Given a selected tasks file mixes CRLF and LF and unrelated files have known bytes
+  Scenario: Mixed line endings and arbitrary unrelated bytes are preserved
+    Given a selected tasks file mixes CRLF and LF and contains invalid UTF-8 byte 0xff
     When publication-only apply succeeds
     Then every original line separator remains in place
-    And only approved line payload bytes differ
-    And unrelated files remain byte-for-byte equal
+    And only approved ASCII declaration-label spans differ
+    And byte 0xff and all unrelated files remain byte-for-byte equal
 
   @SCN007 @regression
   Scenario: PathCast-shaped four-token repair converges
@@ -81,8 +87,9 @@ Feature: Support package-scoped publication-only upgrades
     And every unselected package remains unchanged
 
   @SCN008 @regression
-  Scenario: Workflow uses the dedicated native entry point
+  Scenario: Workflow uses an unambiguous dedicated native entry point
     Given package-bounded publication authority in /sdlc-upgrade-project
     When the workflow renders detection and apply commands
-    Then it uses detect-publication and apply-publication with explicit spec selections
-    And existing unbounded detect and apply commands remain supported
+    Then it uses detect-publication and apply-publication with exactly one command token and explicit spec selections
+    And ambiguous options values positionals and extra command tokens fail before mutation
+    And existing unbounded detect and apply commands retain their parsing semantics
