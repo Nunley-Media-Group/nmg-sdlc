@@ -144,3 +144,27 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     When another writer fails to acquire that lock
     Then the owner's lock remains and a subsequent writer is still blocked
     And after the owner releases and cleans up the lock the next atomic write succeeds
+
+  @SCN016 @regression
+  Scenario: Terminal proof advances across only the approved provider repair
+    Given the #379 terminal tombstone retains its original outer head, smoke baseline, and exact accepted PR proof
+    And the current request has the same run, project, spec, validation, config, and issue queue
+    When Git proves the stored outer head is an ancestor and every intervening path is an approved provider, test, spec, or changelog path
+    Then the provider revalidates the immutable baseline and exact remote merged PR head with the issue closed
+    And it preserves the original outer identity and records the current validation head separately without running or replacing smoke
+    And a later same-head replay reruns ancestry, changed-path, and remote proof validation
+
+  @SCN017 @regression
+  Scenario Outline: Terminal proof head advancement rejects changed authority
+    Given a terminal validation identity was previously recorded for an approved #379 provider repair
+    When a replay observes <defect>
+    Then terminal proof remains non-passing without running or replacing smoke
+    And the original outer identity, baseline, and accepted proof remain unchanged
+    Examples:
+      | defect |
+      | a non-ancestor current head |
+      | a controller path |
+      | a delivery path |
+      | a workflow path |
+      | an unapproved consumer-facing path |
+      | tampered same-head history |

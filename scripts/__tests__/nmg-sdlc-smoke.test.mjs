@@ -126,7 +126,7 @@ function harness(options = {}) {
   });
   const states = options.states ?? new Map();
   const recoveryStore = memoryRecoveryStore(states);
-  const scope = TEST_SCOPE;
+  const scope = options.scope ?? TEST_SCOPE;
   const provider = createSmokeProvider({
     runCommand,
     mkdtempSync,
@@ -1129,6 +1129,141 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
         { issue: 9, runId: 'nested-run', pullRequest: 9, headSha: fixture.deliveryHead(9) },
       ],
     });
+  });
+
+  it('revalidates terminal proof after an approved provider-only head advance', async () => {
+    const storedHead = 'a'.repeat(40);
+    const currentHead = 'b'.repeat(40);
+    const scope = {
+      ...TEST_SCOPE,
+      specPath: 'specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch',
+    };
+    const changedPaths = [
+      'CHANGELOG.md',
+      'scripts/__tests__/nmg-sdlc-smoke.test.mjs',
+      'steering/extensions/nmg-sdlc-smoke.mjs',
+      `${scope.specPath}/design.md`,
+      `${scope.specPath}/feature.gherkin`,
+      `${scope.specPath}/requirements.md`,
+      `${scope.specPath}/tasks.md`,
+    ];
+    const fixture = harness({
+      config: { issues: [7] },
+      scope,
+      override: (program, args) => {
+        if (program === 'git' && args[0] === 'merge-base') return result();
+        if (program === 'git' && args[0] === 'diff') return result(0, `${changedPaths.join('\0')}\0`);
+        return null;
+      },
+    });
+    expect((await fixture.provider(fixture.request)).status).toBe('passed');
+    const terminalBefore = structuredClone(fixture.states.get(scope.recoveryKey));
+    expect(terminalBefore.outerIdentity.headSha).toBe(storedHead);
+    const executeCalls = fixture.calls.filter((call) => call.program === process.execPath).length;
+    const remoteProofCalls = fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api').length;
+    fixture.request.identity = {
+      ...fixture.request.identity,
+      headSha: currentHead,
+      specHash: 'sha256:advanced-spec',
+      steeringHash: 'sha256:advanced-steering',
+    };
+
+    const advanced = await fixture.provider(fixture.request);
+
+    expect(advanced.status).toBe('passed');
+    const terminalAfter = fixture.states.get(scope.recoveryKey);
+    expect(terminalAfter.outerIdentity).toEqual(terminalBefore.outerIdentity);
+    expect(terminalAfter.accepted).toEqual(terminalBefore.accepted);
+    expect(terminalAfter.validationHead).toBe(currentHead);
+    expect(terminalAfter.validationIdentity).toEqual({
+      headSha: currentHead,
+      specHash: 'sha256:advanced-spec',
+      steeringHash: 'sha256:advanced-steering',
+      validationConfigHash: fixture.request.identity.validationConfigHash,
+    });
+    expect((await fixture.provider(fixture.request)).status).toBe('passed');
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(executeCalls);
+    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'merge-base')).toHaveLength(2);
+    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'diff')).toHaveLength(2);
+    expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')).toHaveLength(remoteProofCalls + 2);
+  });
+
+  it.each([
+    ['ancestry', 'scripts/__tests__/nmg-sdlc-smoke.test.mjs'],
+    ['changed path', 'scripts/sdlc-execute.mjs'],
+  ])('rejects a same-head terminal replay after %s evidence changes', async (tamper, replayPath) => {
+    const currentHead = 'b'.repeat(40);
+    const scope = {
+      ...TEST_SCOPE,
+      specPath: 'specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch',
+    };
+    let replay = false;
+    const fixture = harness({
+      config: { issues: [7] },
+      scope,
+      override: (program, args) => {
+        if (program === 'git' && args[0] === 'merge-base') {
+          return result(replay && tamper === 'ancestry' ? 1 : 0);
+        }
+        if (program === 'git' && args[0] === 'diff') {
+          const changedPath = replay ? replayPath : 'scripts/__tests__/nmg-sdlc-smoke.test.mjs';
+          return result(0, `${changedPath}\0`);
+        }
+      },
+    });
+    expect((await fixture.provider(fixture.request)).status).toBe('passed');
+    fixture.request.identity = {
+      ...fixture.request.identity,
+      headSha: currentHead,
+      specHash: 'sha256:advanced-spec',
+      steeringHash: 'sha256:advanced-steering',
+    };
+    expect((await fixture.provider(fixture.request)).status).toBe('passed');
+    const terminalAfterAdvance = structuredClone(fixture.states.get(scope.recoveryKey));
+    replay = true;
+
+    expect((await fixture.provider(fixture.request)).status).toBe('failed');
+    expect(fixture.states.get(scope.recoveryKey)).toEqual(terminalAfterAdvance);
+  });
+
+  it.each([
+    ['non-ancestor head', null, 1],
+    ['controller path', 'scripts/sdlc-execute.mjs', 0],
+    ['delivery path', 'scripts/sdlc-deliver.mjs', 0],
+    ['workflow path', 'workflows/verify-code/WORKFLOW.md', 0],
+    ['unapproved consumer-facing path', 'README.md', 0],
+  ])('rejects terminal proof advancement with %s', async (_case, changedPath, ancestryStatus) => {
+    const currentHead = 'b'.repeat(40);
+    const scope = {
+      ...TEST_SCOPE,
+      specPath: 'specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch',
+    };
+    const fixture = harness({
+      config: { issues: [7] },
+      scope,
+      override: (program, args) => {
+        if (program === 'git' && args[0] === 'merge-base') return result(ancestryStatus);
+        if (program === 'git' && args[0] === 'diff') return result(0, `${changedPath}\0`);
+        return null;
+      },
+    });
+    expect((await fixture.provider(fixture.request)).status).toBe('passed');
+    const terminalBefore = structuredClone(fixture.states.get(scope.recoveryKey));
+    const executeCalls = fixture.calls.filter((call) => call.program === process.execPath).length;
+    const remoteProofCalls = fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api').length;
+    fixture.request.identity = {
+      ...fixture.request.identity,
+      headSha: currentHead,
+      specHash: 'sha256:advanced-spec',
+      steeringHash: 'sha256:advanced-steering',
+    };
+
+    const rejected = await fixture.provider(fixture.request);
+
+    expect(rejected.status).toBe('failed');
+    expect(fixture.states.get(scope.recoveryKey)).toEqual(terminalBefore);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(executeCalls);
+    expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')).toHaveLength(remoteProofCalls);
   });
 
   it('upgrades the real #379/#109 pre-store failure layout and reconciles the retained invocation', async () => {

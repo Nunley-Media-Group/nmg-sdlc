@@ -25,6 +25,19 @@ const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
 const SMOKE_OWNER = "Nunley-Media-Group";
 const SMOKE_NAME = "nmg-sdlc-smoke";
 const SHA = /^[0-9a-f]{40}$/i;
+const TERMINAL_HEAD_ADVANCE = Object.freeze({
+  issue: 379,
+  specPath: "specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch",
+  allowedPaths: new Set([
+    "CHANGELOG.md",
+    "scripts/__tests__/nmg-sdlc-smoke.test.mjs",
+    "steering/extensions/nmg-sdlc-smoke.mjs",
+    "specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/design.md",
+    "specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/feature.gherkin",
+    "specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/requirements.md",
+    "specs/379-reject-non-canonical-spec-file-s-before-worker-dispatch/tasks.md",
+  ]),
+});
 const CLOSING_PRS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     issue(number:$number){
@@ -243,6 +256,68 @@ function sameOuterRequest(state, request) {
     && state.outerIdentity?.specHash === request.identity?.specHash
     && state.outerIdentity?.steeringHash === request.identity?.steeringHash
     && state.outerIdentity?.validationConfigHash === request.identity?.validationConfigHash;
+}
+
+function verificationIdentity(identity) {
+  return {
+    headSha: identity?.headSha,
+    specHash: identity?.specHash,
+    steeringHash: identity?.steeringHash,
+    validationConfigHash: identity?.validationConfigHash,
+  };
+}
+
+function sameTerminalAuthority(state, request) {
+  return state.validationId === request.validationId
+    && equal(state.validationConfig, canonical(request.config))
+    && state.outerIdentity?.validationConfigHash === request.identity?.validationConfigHash;
+}
+
+
+async function validateTerminalHeadAdvance(executeCommand, state, request, scope, env) {
+  const storedHead = state.outerIdentity?.headSha;
+  const currentHead = request.identity?.headSha;
+  const evidence = [];
+  const fail = (status, summary) => ({ status, summary, evidence });
+  if (
+    scope.issue !== TERMINAL_HEAD_ADVANCE.issue
+    || scope.specPath !== TERMINAL_HEAD_ADVANCE.specPath
+    || !SHA.test(storedHead ?? "")
+    || !SHA.test(currentHead ?? "")
+    || storedHead === currentHead
+  ) {
+    return fail("failed", "nmg-sdlc-smoke terminal head advancement rejected");
+  }
+  const ancestry = await executeCommand("git", [
+    "merge-base", "--is-ancestor", storedHead, currentHead,
+  ], { cwd: request.projectRoot, env, signal: request.signal });
+  evidence.push(commandEvidence("git merge-base --is-ancestor stored-validation-head current-head", ancestry, request.projectRoot));
+  if (environmentalFailure(ancestry)) {
+    return fail("incomplete", `nmg-sdlc-smoke terminal head ancestry ${ancestry.reasonCode}`);
+  }
+  if (ancestry.status !== 0) {
+    return fail("failed", "nmg-sdlc-smoke terminal head is not a descendant");
+  }
+  const changed = await executeCommand("git", [
+    "diff", "--name-only", "--no-renames", "-z", storedHead, currentHead, "--",
+  ], { cwd: request.projectRoot, env, signal: request.signal });
+  evidence.push(commandEvidence("git diff stored-validation-head current-head", changed, request.projectRoot));
+  if (environmentalFailure(changed)) {
+    return fail("incomplete", `nmg-sdlc-smoke terminal head diff ${changed.reasonCode}`);
+  }
+  const output = String(changed.stdout ?? "");
+  if (changed.status !== 0 || !output.endsWith("\0")) {
+    return fail("failed", "nmg-sdlc-smoke terminal head diff unavailable");
+  }
+  const paths = output.slice(0, -1).split("\0");
+  if (!paths.length || paths.some((path) => !TERMINAL_HEAD_ADVANCE.allowedPaths.has(path))) {
+    return fail("failed", "nmg-sdlc-smoke terminal head paths exceed approved recovery scope");
+  }
+  return {
+    status: "passed",
+    evidence,
+    validationIdentity: verificationIdentity(request.identity),
+  };
 }
 
 function digest(value) {
@@ -843,14 +918,29 @@ export function createSmokeProvider({
     } catch (error) {
       return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
     }
-    if (state && (
-      !sameOuterRequest(state, request)
-      || !equal(state.scope, scope)
-      || !equal(state.issues, issues)
-    )) {
+    let terminalValidationIdentity = null;
+    let terminalHeadEvidence = [];
+    if (state && (!equal(state.scope, scope) || !equal(state.issues, issues))) {
       return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
         ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
       ]);
+    }
+    if (state && !sameOuterRequest(state, request)) {
+      if (!["terminal", "cleanup_pending"].includes(state.phase)
+        || !sameTerminalAuthority(state, request)) {
+        return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
+          ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
+        ]);
+      }
+      const advancement = await validateTerminalHeadAdvance(executeCommand, state, request, scope, env);
+      terminalHeadEvidence = advancement.evidence;
+      if (advancement.status !== "passed") {
+        return envelope(advancement.status, advancement.summary, identity, [
+          ...terminalHeadEvidence,
+          ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
+        ]);
+      }
+      terminalValidationIdentity = advancement.validationIdentity;
     }
 
     const auth = await executeCommand("gh", ["auth", "status"], { env, signal: request.signal });
@@ -902,6 +992,7 @@ export function createSmokeProvider({
       evidence,
       recovered,
       terminal = false,
+      validationIdentity = null,
     }) => {
       for (const target of expected) {
         if (!terminal) {
@@ -959,11 +1050,21 @@ export function createSmokeProvider({
       }
       try {
         if (terminal) {
+          let terminalStateChanged = false;
           if (state.phase === "cleanup_pending") {
             remove(work, { recursive: true, force: true });
             state = { ...state, phase: "terminal" };
-            recoveryStore.write(scope.recoveryKey, state, { replace: true });
+            terminalStateChanged = true;
           }
+          if (validationIdentity) {
+            state = {
+              ...state,
+              validationHead: validationIdentity.headSha,
+              validationIdentity,
+            };
+            terminalStateChanged = true;
+          }
+          if (terminalStateChanged) recoveryStore.write(scope.recoveryKey, state, { replace: true });
         } else {
           state = { ...state, phase: "cleanup_pending", accepted: expected };
           recoveryStore.write(scope.recoveryKey, state, { replace: true });
@@ -982,15 +1083,20 @@ export function createSmokeProvider({
 
     if (state) {
       if (["terminal", "cleanup_pending"].includes(state.phase)) {
-        const evidence = [commandEvidence("terminal smoke delivery identity", {
-          status: 0,
-          stdout: JSON.stringify({
-            outerRunId: state.scope.runId,
-            nestedRunId: state.nestedRunId,
-            issues: state.issues,
-            accepted: state.accepted,
+        const evidence = [
+          ...terminalHeadEvidence,
+          commandEvidence("terminal smoke delivery identity", {
+            status: 0,
+            stdout: JSON.stringify({
+              outerRunId: state.scope.runId,
+              originalOuterHead: state.outerIdentity.headSha,
+              validationHead: terminalValidationIdentity?.headSha ?? state.validationHead ?? state.outerIdentity.headSha,
+              nestedRunId: state.nestedRunId,
+              issues: state.issues,
+              accepted: state.accepted,
+            }),
           }),
-        })];
+        ];
         if (!exactExpectedQueue(state.accepted, issues, state.nestedRunId)) {
           return retain("failed", "nmg-sdlc-smoke terminal recovery proof missing", evidence);
         }
@@ -1008,6 +1114,7 @@ export function createSmokeProvider({
           evidence,
           recovered: state.executeStatus !== 0,
           terminal: true,
+          validationIdentity: terminalValidationIdentity,
         });
       }
       const retained = await verifyRetainedClone(executeCommand, state, env, request.signal);

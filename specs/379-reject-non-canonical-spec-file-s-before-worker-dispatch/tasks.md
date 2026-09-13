@@ -91,6 +91,8 @@
 - [ ] The real #379/#109 pre-store layout reconciles without a `smoke-deliveries` file only after exact retained origin/ancestry, nested run/issue/PR/verified-head, current passed nested verification JSON (never Markdown fallback), recovery-session, consumed post-merge, expected-head ancestry, baseline exclusion, and remote MERGED/CLOSED checks
 - [ ] Duplicate clones or execute evidence, incomplete baselines, tampered identities/config/queue, Markdown prose, and unrelated history cannot seed state or launch replacement work
 - [ ] Recovery-store lock cleanup runs only for the invocation that acquired the exclusive lock; real contention preserves the owner lock, blocks another contender, and permits the next write after owner release
+- [ ] A terminal tombstone accepts a later #379 provider-fix head only when stored-head ancestry and every intervening provider/test/spec/changelog path pass; controller, delivery, workflow, consumer-facing, non-ancestor, malformed, and empty diffs fail
+- [ ] Repeated same-head terminal replays rerun ancestry/path checks, revalidate immutable remote proof, preserve original outer identity/proof, and retain current validation identity only as audit metadata
 
 ---
 
@@ -114,3 +116,4 @@ Before moving to IMPLEMENT phase:
 | #379 | 2026-09-13 | Verification remediation added T005 for the proof-first mutable smoke gate |
 | #379 | 2026-09-13 | Final remediation extended T005 to upgrade exact pre-store smoke failures from the current outer verification JSON |
 | #379 | 2026-09-13 | Recovery-store lock ownership remediation added to T005 with real contention coverage |
+| #379 | 2026-09-13 | Terminal-proof remediation added bounded provider-fix head advancement and repeated tamper checks |
