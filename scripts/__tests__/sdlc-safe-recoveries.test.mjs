@@ -325,6 +325,11 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
   });
 
+  test.each(['`!src/private/**`', '`^src/private/**`'])('rejects Git exclusion pathspec %s', (declaration) => {
+    expect(() => publicationFileEntries(declaration))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
+  });
+
   test('authorizes bounded glob matches without widening to unrelated files', () => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';

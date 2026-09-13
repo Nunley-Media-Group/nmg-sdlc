@@ -755,6 +755,61 @@ describe('publication File(s) upgrade', () => {
     expect(item.packages[0].findings).toHaveLength(3);
   });
 
+  it('rewrites a package at its approved directory-rename source before migration', () => {
+    const root = makeRoot();
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    const report = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false });
+    const rename = report.items.find(({ kind }) => kind === 'directory-rename');
+    const publication = report.items.find(({ kind }) => kind === 'publication-files');
+
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/feature-add-x/tasks.md',
+      projectedPath: 'specs/42-add-x/tasks.md',
+    }));
+    applyUpgrade(root, [rename.id, publication.id], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
+  it('rewrites a nested epic child at its approved source before flattening', () => {
+    const root = makeRoot();
+    write(root, 'specs/epic-parent/requirements.md', '**Issue**: #41\n**Status**: Approved\n');
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      write(root, `specs/epic-parent/feature-add-x/${name}`, '**Issue**: #42\n**Status**: Approved\n');
+    }
+    write(root, 'specs/epic-parent/feature-add-x/tasks.md', '**Issue**: #42\n**Status**: Approved\n\n### T001: Create code\n**File(s)**: Create `src/a.ts`\n');
+    write(root, 'specs/epic-parent/feature-add-x/epic-link.json', JSON.stringify({
+      schemaVersion: 1,
+      epicIssue: 41,
+      epicSpecPath: 'specs/epic-parent',
+      childIssue: 42,
+      childSpecPath: 'specs/epic-parent/feature-add-x',
+      outcomes: ['EO001'],
+    }, null, 2));
+    const report = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false });
+    const flatten = report.items.find(({ kind, from }) => (
+      kind === 'epic-flatten' && from === 'specs/epic-parent/feature-add-x'
+    ));
+    const publication = report.items.find(({ kind }) => kind === 'publication-files');
+
+    expect(publication.packages).toContainEqual(expect.objectContaining({
+      path: 'specs/epic-parent/feature-add-x/tasks.md',
+      projectedPath: 'specs/42-add-x/tasks.md',
+    }));
+    applyUpgrade(root, [flatten.id, publication.id], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
   it('does not backfill a transformed package with invalid publication declarations', () => {
     const root = makeRoot();
     for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {

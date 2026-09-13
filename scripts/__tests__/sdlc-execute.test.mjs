@@ -2237,6 +2237,33 @@ describe('runExecute controller', () => {
       && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
   });
 
+  it('revalidates publication scope after start completes and before implement dispatch', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    const paneClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      if (paneId === 'pane-1') {
+        fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+          '**Issue**: #42',
+          '**Status**: Approved',
+          '',
+          '### T001: Create code',
+          '',
+          '**File(s)**: Create `src/a.ts`',
+          '',
+        ].join('\n'));
+      }
+      return paneClose(paneId);
+    };
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start']);
+    expect(fixture.splits).toHaveLength(1);
+  });
+
   it('rejects invalid publication File(s) before replacing stale implement ownership', () => {
     const fixture = makeControllerFixture();
     seedRun(fixture.cwd, {

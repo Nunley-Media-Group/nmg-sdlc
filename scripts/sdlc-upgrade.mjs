@@ -833,6 +833,9 @@ function publicationFilesUpgrade(root, specDirs) {
     if (rewrites.length || findings.length) {
       packages.push({
         path: relativePath,
+        ...(specDir.projectedRel && specDir.projectedRel !== specDir.rel
+          ? { projectedPath: `${specDir.projectedRel}/tasks.md` }
+          : {}),
         sourceDigest: createHash('sha256').update(source).digest('hex'),
         rewrites,
         findings,
@@ -848,6 +851,26 @@ function publicationFilesUpgrade(root, specDirs) {
     actionable: packages.some(({ rewrites }) => rewrites.length > 0),
     packages,
   };
+}
+
+function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
+  const candidates = new Map(
+    specDirs
+      .filter(({ name }) => /^[1-9]\d*-[a-z0-9-]+$/.test(name))
+      .map((specDir) => [specDir.rel, specDir]),
+  );
+  for (const item of upgradeItems) {
+    if (!item.actionable || !item.from || !item.to
+      || !['directory-rename', 'epic-flatten'].includes(item.kind)
+      || !/^specs\/[1-9]\d*-[a-z0-9-]+$/.test(item.to)) continue;
+    candidates.set(item.from, {
+      name: path.basename(item.to),
+      full: path.join(root, item.from),
+      rel: item.from,
+      projectedRel: item.to,
+    });
+  }
+  return [...candidates.values()];
 }
 
 function applyPublicationFiles(root, item) {
@@ -907,8 +930,6 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
 
   // Collect current spec state
   const specDirs = listSpecDirs(rootAbs);
-  const publicationFiles = publicationFilesUpgrade(rootAbs, specDirs);
-  if (publicationFiles) items.push(publicationFiles);
   const hasEpics = hasEpicArtifacts(rootAbs);
   const hasScopes = hasAnyIssueScope(rootAbs);
 
@@ -1060,6 +1081,12 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       }
     }
   }
+  const publicationFiles = publicationFilesUpgrade(
+    rootAbs,
+    publicationUpgradeSpecDirs(rootAbs, specDirs, items),
+  );
+  if (publicationFiles) items.push(publicationFiles);
+
 
   // 9. Leftover spikes
   for (const adr of listSpikeAdrs(rootAbs)) {

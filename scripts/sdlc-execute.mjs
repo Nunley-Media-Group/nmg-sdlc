@@ -3738,6 +3738,21 @@ export function runExecute({
           });
         }
       }
+      if (step === 'implement') {
+        const specRelative = isAbsolute(spec.dir)
+          ? relative(cwd, spec.dir).split('\\').join('/')
+          : spec.dir.split('\\').join('/');
+        try {
+          inspectPublicationScope({ cwd, issue, spec: specRelative, step, run });
+        } catch (error) {
+          const lines = [error.reasonCode ?? error.message];
+          for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+            if (error[key] != null) lines.push(`${key}: ${error[key]}`);
+          }
+          return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
+        }
+      }
+
 
 
       const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);

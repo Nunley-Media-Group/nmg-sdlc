@@ -756,7 +756,7 @@ export function reconcileStagePublication({
 function validPublicationPath(file) {
   const firstGlob = typeof file === 'string' ? file.search(/[*?\[]/) : -1;
   return typeof file === 'string' && file.length > 0 && !isAbsolute(file)
-    && !file.includes('\\') && !file.includes('\0') && !file.startsWith(':')
+    && !file.includes('\\') && !file.includes('\0') && !/^[!:^]/.test(file)
     && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(file)
     && !file.split('/').some((part) => part === '..' || part === '.')
     && file !== '.omp' && !file.startsWith('.omp/')
