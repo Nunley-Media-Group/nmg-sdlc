@@ -398,6 +398,7 @@ describe('publication CLI lease ownership boundary', () => {
       'fix: validate implementation subject before publication',
       'fix: validate implementation subject before publication for #43',
       'fix: validate implementation subject before publication for #420',
+      'not-a-conventional-subject #42',
     ]) {
       const rejected = f.bind(runId, subject);
       expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
@@ -414,6 +415,23 @@ describe('publication CLI lease ownership boundary', () => {
     expect(JSON.parse(accepted.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
       passed: true, ownerId: runId,
     });
+  });
+
+  test('rejects an already-staged implement bind before publication', () => {
+    const f = cliFixture();
+    f.put('src/code.mjs', 'staged implementation\n');
+    f.git('add', '--', 'src/code.mjs');
+    const head = f.git('rev-parse', 'HEAD');
+    const upstream = f.git('rev-parse', '@{upstream}');
+
+    const rejected = f.bind(runId, 'fix: validate implementation subject before publication #42');
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+    });
+    expect(fs.existsSync(f.statePath)).toBe(false);
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('rev-parse', '@{upstream}')).toBe(upstream);
+    expect(f.git('diff', '--cached', '--name-only')).toBe('src/code.mjs');
   });
 
   test.each([

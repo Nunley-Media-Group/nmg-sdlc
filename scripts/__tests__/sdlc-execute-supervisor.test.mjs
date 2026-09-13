@@ -7,6 +7,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
+const SAFE_RECOVERIES = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
 const fixtures = [];
 const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -534,11 +535,36 @@ throw Error('unexpected adapter command '+a.slice(0,2));`);
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
           HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller' },
       });
+      const bind = (subject) => spawnSync(process.execPath, [
+        SAFE_RECOVERIES, 'bind', '--issue', '42', '--step', 'implement',
+        '--spec', 'specs/42-ship-it', ...(subject === null ? [] : ['--subject', subject]),
+        '--controller-run-id', 'bare-cli',
+      ], { cwd: root, encoding: 'utf8' });
+      const tasksPath = path.join(spec, 'tasks.md');
+      const approvedTasks = fs.readFileSync(tasksPath, 'utf8');
+      fs.appendFileSync(tasksPath, '\nimplementation change\n');
+      const publicationHead = git(root, ['rev-parse', 'HEAD']);
+      for (const subject of [null, 'fix: wrong issue #43']) {
+        const rejected = bind(subject);
+        expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+          status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+        });
+        expect(git(root, ['rev-parse', 'HEAD'])).toBe(publicationHead);
+        expect(git(root, ['diff', '--cached'])).toBe('');
+      }
+      const accepted = bind('fix: repair controlled recovery #42');
+      expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
+      expect(git(root, ['rev-parse', 'HEAD'])).toBe(publicationHead);
+      expect(git(root, ['diff', '--cached'])).toBe('');
+      fs.writeFileSync(tasksPath, approvedTasks);
       const first = invoke();
       expect(first.error).toBeUndefined();
       expect({ status: first.status, error: first.error?.message, stderr: first.stderr }).toEqual({ status: 1, error: undefined, stderr: '' });
       expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
-      expect(JSON.parse(fs.readFileSync(checkpointPath)).recoveries[0].source.attempt).toBe(13);
+      const firstCheckpoint = JSON.parse(fs.readFileSync(checkpointPath));
+      expect(firstCheckpoint.recoveries).toHaveLength(1);
+      expect(firstCheckpoint.recoveries[0].source.attempt).toBe(13);
+      const consumedRecovery = structuredClone(firstCheckpoint.recoveries[0]);
       expect(JSON.parse(fs.readFileSync(path.join(runtime, 'handoffs/42-implement.json'))).reasonCode).toBe('implementation_failed');
       git(root, ['commit', '--allow-empty', '-m', 'operator repair and plugin upgrade simulation']);
       const second = invoke();
@@ -546,6 +572,8 @@ throw Error('unexpected adapter command '+a.slice(0,2));`);
       expect(second.status).toBe(1);
       expect(second.stdout).toContain('recovery-consumed');
       expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
+      const secondCheckpoint = JSON.parse(fs.readFileSync(checkpointPath));
+      expect(secondCheckpoint.recoveries).toEqual([consumedRecovery]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -77,28 +77,45 @@ function validRecord(r) {
     && r.evidence && typeof r.evidence === 'object' && !Array.isArray(r.evidence);
 }
 
-function porcelainPaths(output) {
+function porcelainEntries(output) {
   const text = String(output ?? '');
   if (!text) return [];
   if (!text.endsWith('\0')) throw safeError('publication_state_unreadable');
-  const entries = text.slice(0, -1).split('\0');
-  const paths = [];
-  for (let index = 0; index < entries.length; index += 1) {
-    const record = entries[index];
+  const records = text.slice(0, -1).split('\0');
+  const entries = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
     if (!/^(?:[ MADRCUT]{2}|\?\?|!!) /.test(record) || record.startsWith('   ')) {
       throw safeError('publication_state_unreadable');
     }
     const status = record.slice(0, 2);
-    const p = record.slice(3);
-    if (!p || isAbsolute(p) || p.split('/').includes('..')) throw safeError('publication_state_unreadable');
-    if (p !== '.omp' && !p.startsWith('.omp/')) paths.push(p);
-    if (status.includes('R') || status.includes('C')) {
-      const source = entries[++index];
-      if (!source || isAbsolute(source) || source.split('/').includes('..')) throw safeError('publication_state_unreadable');
-      if (source !== '.omp' && !source.startsWith('.omp/')) paths.push(source);
+    const paths = [record.slice(3)];
+    if (!paths[0] || isAbsolute(paths[0]) || paths[0].split('/').includes('..')) {
+      throw safeError('publication_state_unreadable');
     }
+    if (status.includes('R') || status.includes('C')) {
+      const source = records[++index];
+      if (!source || isAbsolute(source) || source.split('/').includes('..')) {
+        throw safeError('publication_state_unreadable');
+      }
+      paths.push(source);
+    }
+    entries.push({ status, paths });
   }
-  return paths;
+  return entries;
+}
+
+function nonRuntimePath(path) {
+  return path !== '.omp' && !path.startsWith('.omp/');
+}
+
+function porcelainPaths(output) {
+  return porcelainEntries(output).flatMap(({ paths }) => paths.filter(nonRuntimePath));
+}
+
+function hasStagedNonRuntimeEntry(output) {
+  return porcelainEntries(output).some(({ status, paths }) =>
+    /[MADRCUT]/.test(status[0]) && paths.some(nonRuntimePath));
 }
 function lstatIfPresent(target) {
   try {
@@ -831,10 +848,13 @@ function runCli(argv = process.argv.slice(2)) {
         && !validImplementationSubject(options.expectedSubject, options.issue)) {
         throw safeError('publication_subject_unproven');
       }
-      if (action === 'bind' && !suppliedSubject) {
+      if (action === 'bind') {
         status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
         if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
-        if (porcelainPaths(status.stdout).length) throw safeError('publication_subject_unproven');
+        if ((!suppliedSubject && porcelainPaths(status.stdout).length)
+          || (suppliedSubject && hasStagedNonRuntimeEntry(status.stdout))) {
+          throw safeError('publication_subject_unproven');
+        }
       }
     }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
