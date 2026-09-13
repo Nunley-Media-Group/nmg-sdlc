@@ -1,0 +1,48 @@
+**Issue**: #386
+**Date**: 2026-09-13
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/383-reject-missing-near-miss-or-duplicate-delivery-file-declarations/
+
+# File: scripts/__tests__/sdlc-upgrade.test.mjs
+#
+# Generated from: specs/386-detect-recoverable-files-labels-during-publication-upgrade/requirements.md
+Feature: Canonicalize safely recoverable Files labels during publication upgrade
+  Upgrade may repair an exact singular label near miss without weakening delivery authority.
+
+  @SCN001 @regression
+  Scenario: Singular Files near miss is detected
+    Given an admitted task with one valid Files declaration and no canonical declaration
+    When publication upgrade detection runs without unrelated dependency collection
+    Then it emits a digest-bound rewrite to the exact File(s) label
+    And the validated declaration value is preserved
+
+  @SCN002 @regression
+  Scenario: PathCast-shaped package rewrites four labels only
+    Given admitted tasks T001 through T004 each have one recoverable Files declaration
+    When the detected publication action is approved and applied
+    Then exactly four labels become canonical
+    And all declared paths and unrelated bytes are unchanged
+    And repeat detection emits no publication rewrite
+
+  @SCN003 @regression
+  Scenario: Unsafe declaration states remain findings
+    Given a task has missing duplicate mixed ambiguous malformed hidden or unsupported declarations
+    When publication upgrade detection runs
+    Then no rewrite establishes publication authority for that task
+    And a visible file-like declaration is retained as a located finding
+
+  @SCN004 @regression
+  Scenario: Delivery parser stays fail closed until apply
+    Given the PathCast-shaped package uses Files labels
+    When the delivery parser evaluates the pre-state
+    Then publication_scope_unproven is returned
+    When the approved digest-bound rewrite is applied
+    Then the delivery parser accepts the complete intended path set only
+
+  @SCN005 @regression
+  Scenario: Existing canonical value recovery remains supported
+    Given a canonical File(s) declaration has an unambiguous recoverable value
+    When publication upgrade detection and apply run
+    Then the existing canonical value normalization is unchanged
+    And the Unreleased changelog records the issue-owned defect fix

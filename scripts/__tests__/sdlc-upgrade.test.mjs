@@ -8,6 +8,7 @@ import {
   detectIssueDependencyUpgrade,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
+import { parseDeliveryTaskFileLines } from '../sdlc-safe-recoveries.mjs';
 import { applySteeringPlan, createInitializePlan, steeringSourceDigest } from '../sdlc-steering.mjs';
 import { loadSteeringRuntime, projectPromptFragments } from '../../src/sdlc-steering-runtime.mjs';
 const temporaryRoots = [];
@@ -707,6 +708,84 @@ describe('publication File(s) upgrade', () => {
       .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
   });
 
+  it('repairs the PathCast #108 four-task shape without widening publication authority', () => {
+    const root = makeRoot();
+    const relativePath = 'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand/tasks.md';
+    const source = [
+      '**Issue**: #108',
+      '**Status**: Approved',
+      '',
+      '### T001: Inventory exact merged guardrail deliverables',
+      '**Files**: `api/src/services/ip-guardrails/types.ts` (Modify), `api/src/services/ip-guardrails/semantic.ts` (Modify), `api/src/services/ip-guardrails/service.ts` (Modify), `api/src/__tests__/unit/ip-guardrails/reconciliation.test.ts` (Create), `docs/release/miledar-ip-product-safety.md` (Modify)',
+      '**Type**: Create / Modify',
+      '',
+      '### T002: Bind every issue outcome bidirectionally',
+      '**Files**: `api/src/services/ip-guardrails/types.ts` (Modify), `api/src/services/ip-guardrails/semantic.ts` (Modify), `api/src/services/ip-guardrails/service.ts` (Modify), `api/src/scripts/capture-miledar-ip-evidence.ts` (Create), `api/src/scripts/reconcile-miledar-ip-guardrails.ts` (Create), `api/package.json` (Modify), `.github/workflows/miledar-ip-guardrails.yml` (Modify), `docs/release/miledar-ip-guardrails.json` (Modify), `api/src/__tests__/unit/ip-guardrails/reconciliation.test.ts` (Modify)',
+      '**Type**: Create / Modify / Test',
+      '',
+      '### T003: Implement cross-layer guardrail BDD',
+      '**Files**: `api/src/__tests__/features/miledar_ip_guardrails.feature` (Create), `api/src/__tests__/steps/miledar_ip_guardrails.steps.ts` (Create)',
+      '**Type**: Create',
+      '',
+      '### T004: Reconcile exact revision and live enforcement',
+      '**Files**: `api/.artifacts/miledar-ip-guardrails/evidence.json` (Download untracked), `artifacts/issue-108/merged-inputs.json` (Generate untracked), `artifacts/issue-108/hosted-check.json` (Generate untracked), `artifacts/issue-108/live-ruleset.json` (Generate untracked), `artifacts/issue-108/local-results.json` (Generate untracked), `artifacts/issue-108/reconciliation.json` (Generate untracked)',
+      '**Type**: Generate / Create / Verify',
+      '',
+    ].join('\n');
+    const taskIds = ['T001', 'T002', 'T003', 'T004'];
+    const intendedPaths = [
+      '.github/workflows/miledar-ip-guardrails.yml',
+      'api/.artifacts/miledar-ip-guardrails/evidence.json',
+      'api/package.json',
+      'api/src/__tests__/features/miledar_ip_guardrails.feature',
+      'api/src/__tests__/steps/miledar_ip_guardrails.steps.ts',
+      'api/src/__tests__/unit/ip-guardrails/reconciliation.test.ts',
+      'api/src/scripts/capture-miledar-ip-evidence.ts',
+      'api/src/scripts/reconcile-miledar-ip-guardrails.ts',
+      'api/src/services/ip-guardrails/semantic.ts',
+      'api/src/services/ip-guardrails/service.ts',
+      'api/src/services/ip-guardrails/types.ts',
+      'artifacts/issue-108/hosted-check.json',
+      'artifacts/issue-108/live-ruleset.json',
+      'artifacts/issue-108/local-results.json',
+      'artifacts/issue-108/merged-inputs.json',
+      'artifacts/issue-108/reconciliation.json',
+      'docs/release/miledar-ip-guardrails.json',
+      'docs/release/miledar-ip-product-safety.md',
+    ];
+    write(root, relativePath, source);
+
+    expect(() => parseDeliveryTaskFileLines(source, { spec: relativePath, taskIds }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', taskId: 'T001', line: 5 }));
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    expect(item).toMatchObject({
+      id: expect.stringMatching(/^publication-files:[0-9a-f]{64}$/),
+      actionable: true,
+      packages: [{
+        path: relativePath,
+        sourceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        findings: [],
+        rewrites: [
+          expect.objectContaining({ line: 5, before: expect.stringMatching(/^\*\*Files\*\*:/), after: expect.stringMatching(/^\*\*File\(s\)\*\*:/) }),
+          expect.objectContaining({ line: 9, before: expect.stringMatching(/^\*\*Files\*\*:/), after: expect.stringMatching(/^\*\*File\(s\)\*\*:/) }),
+          expect.objectContaining({ line: 13, before: expect.stringMatching(/^\*\*Files\*\*:/), after: expect.stringMatching(/^\*\*File\(s\)\*\*:/) }),
+          expect.objectContaining({ line: 17, before: expect.stringMatching(/^\*\*Files\*\*:/), after: expect.stringMatching(/^\*\*File\(s\)\*\*:/) }),
+        ],
+      }],
+    });
+
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    const updated = fs.readFileSync(path.join(root, relativePath), 'utf8');
+    expect(updated.replaceAll('**File(s)**:', '**Files**:')).toBe(source);
+    expect(updated.match(/^\*\*File\(s\)\*\*:/gm)).toHaveLength(4);
+    expect([...new Set(parseDeliveryTaskFileLines(updated, { spec: relativePath, taskIds }))].sort())
+      .toEqual(intendedPaths);
+    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
+      .not.toContainEqual(expect.objectContaining({ kind: 'publication-files' }));
+  });
+
   it('preserves supported annotations and CRLF while canonicalizing', () => {
     const root = makeRoot();
     const source = [
@@ -742,6 +821,46 @@ describe('publication File(s) upgrade', () => {
     expect(item.packages[0].findings).toEqual([
       expect.objectContaining({ entry: declaration }),
     ]);
+  });
+
+  it('never establishes authority from missing, duplicate, mixed, unsupported, malformed, or hidden declarations', () => {
+    const root = makeRoot();
+    const fixtures = {
+      '43-missing': '### T001: Missing\n**Type**: Modify\n',
+      '44-duplicate': '### T001: Duplicate\n**Files**: `src/a.ts`\n**Files**: `src/b.ts`\n',
+      '45-mixed': '### T001: Mixed\n**File(s)**: `src/a.ts`\n**Files**: `src/b.ts`\n',
+      '46-unsupported': '### T001: Unsupported\n**File**: `src/a.ts`\n',
+      '47-malformed': '### T001: Malformed\n**Files**: Create src/a.ts\n',
+      '48-ambiguous': '### T001: Ambiguous\n**Files**: Create `src/a.ts` or `src/b.ts`\n',
+      '49-hidden': [
+        '### T001: Valid',
+        '**File(s)**: `src/a.ts`',
+        '```markdown',
+        '**Files**: `src/hidden-fence.ts`',
+        '```',
+        '<!--',
+        '**Files**: `src/hidden-comment.ts`',
+        '-->',
+        '',
+      ].join('\n'),
+    };
+    for (const [name, contents] of Object.entries(fixtures)) {
+      write(root, `specs/${name}/tasks.md`, contents);
+    }
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item.actionable).toBe(false);
+    expect(item.packages.map(({ path: packagePath }) => packagePath)).toEqual([
+      'specs/44-duplicate/tasks.md',
+      'specs/45-mixed/tasks.md',
+      'specs/46-unsupported/tasks.md',
+      'specs/47-malformed/tasks.md',
+      'specs/48-ambiguous/tasks.md',
+    ]);
+    expect(item.packages.every(({ rewrites }) => rewrites.length === 0)).toBe(true);
+    expect(item.packages.every(({ findings }) => findings.length === 1)).toBe(true);
   });
 
   it('canonicalizes an unambiguous prose-prefixed path list', () => {

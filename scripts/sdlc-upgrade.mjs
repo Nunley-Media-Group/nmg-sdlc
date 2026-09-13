@@ -28,7 +28,7 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
-import { publicationFileEntries } from './sdlc-safe-recoveries.mjs';
+import { parseDeliveryTaskFileLines, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -798,6 +798,59 @@ function recoverPublicationFileDeclaration(value) {
   return tokens.join(', ');
 }
 
+function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
+  const candidateLines = [...sourceLines];
+  const rewrites = [];
+  for (let attempt = 0; attempt < sourceLines.length; attempt += 1) {
+    try {
+      parseDeliveryTaskFileLines(candidateLines.join('\n'), {
+        spec: relativePath,
+        taskIds: [taskId],
+      });
+      return { rewrites, findings: [] };
+    } catch (error) {
+      if (error?.reasonCode !== 'publication_scope_unproven' || error.taskId !== taskId) throw error;
+      const lineIndex = error.line - 1;
+      const line = candidateLines[lineIndex];
+      const nearMiss = /^(\*\*Files\*\*:\s*)(.*)$/.exec(line);
+      const canonical = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
+      let recovered = null;
+      let prefix = null;
+      if (nearMiss) {
+        prefix = nearMiss[1].replace('Files', 'File(s)');
+        try {
+          publicationFileEntries(nearMiss[2]);
+          recovered = nearMiss[2];
+        } catch {
+          recovered = recoverPublicationFileDeclaration(nearMiss[2]);
+        }
+      } else if (canonical && error.entry === canonical[2].trim()) {
+        prefix = canonical[1];
+        recovered = recoverPublicationFileDeclaration(canonical[2]);
+      }
+      if (recovered === null) {
+        return {
+          rewrites: [],
+          findings: error.entry == null ? [] : [{
+            line: error.line,
+            entry: error.entry,
+            taskId,
+          }],
+        };
+      }
+      const after = `${prefix}${recovered}`;
+      rewrites.push({
+        line: error.line,
+        entry: nearMiss?.[2] ?? canonical[2],
+        before: sourceLines[lineIndex],
+        after,
+      });
+      candidateLines[lineIndex] = after;
+    }
+  }
+  return { rewrites: [], findings: [] };
+}
+
 function publicationFilesUpgrade(root, specDirs) {
   const packages = [];
   for (const specDir of specDirs) {
@@ -805,30 +858,18 @@ function publicationFilesUpgrade(root, specDirs) {
     const relativePath = `${specDir.rel}/tasks.md`;
     const source = safeRead(path.join(root, relativePath));
     if (source == null) continue;
+    const sourceLines = source.split(/\r?\n/);
+    const taskIds = new Set();
+    for (const line of sourceLines) {
+      const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
+      if (taskId) taskIds.add(taskId);
+    }
     const rewrites = [];
     const findings = [];
-    let activeTask = false;
-    for (const [index, line] of source.split(/\r?\n/).entries()) {
-      if (/^### T\d+:/.test(line)) activeTask = true;
-      else if (/^#{1,3} /.test(line)) activeTask = false;
-      if (!activeTask) continue;
-      const match = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
-      if (!match) continue;
-      try {
-        publicationFileEntries(match[2]);
-        continue;
-      } catch {}
-      const recovered = recoverPublicationFileDeclaration(match[2]);
-      const detail = { line: index + 1, entry: match[2] };
-      if (recovered !== null) {
-        rewrites.push({
-          ...detail,
-          before: line,
-          after: `${match[1]}${recovered}`,
-        });
-      } else {
-        findings.push(detail);
-      }
+    for (const taskId of taskIds) {
+      const recovered = recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId);
+      rewrites.push(...recovered.rewrites);
+      findings.push(...recovered.findings);
     }
     if (rewrites.length || findings.length) {
       const projectedPaths = [...new Set(
