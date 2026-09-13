@@ -856,9 +856,15 @@ describe('publication File(s) upgrade', () => {
       packages: [{
         path: relativePath,
         rewrites: [],
-        findings: [expect.objectContaining({ line: 2, taskId: 'T001' })],
+        findings: [expect.objectContaining({
+          line: 2,
+          taskId: 'T001',
+          rawEntry: declaration,
+        })],
       }],
     });
+    const result = applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id }));
     expect(fs.readFileSync(path.join(root, relativePath), 'utf8')).toBe(source);
   });
 

@@ -819,6 +819,7 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
       const findings = error.entry == null ? [] : [{
         line: error.line,
         entry: error.entry,
+        ...(error.entry !== line.trim() ? { rawEntry: line.trim() } : {}),
         taskId,
       }];
       if (nearMiss) {
