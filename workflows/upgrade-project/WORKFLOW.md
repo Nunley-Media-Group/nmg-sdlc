@@ -34,6 +34,8 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 12. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
 
+When authorization is bounded to named issue-owned packages, do not use repository-wide `detect` or `apply`. Run `detect-publication --root <real-project-root> --spec specs/N-slug` with one repeatable `--spec` per explicitly authorized package. Present only that report's exact `publication-files:<digest>` item. Approved execution must run `apply-publication` with the same root, same complete `--spec` set, and exact approved id. This path applies only selected publication rewrites; it never runs dependency repair, `spec-created` backfill, or another upgrade phase. Missing, duplicate, outside, symlinked, incomplete, non-Approved, issue-mismatched, stale, or foreign selections fail closed.
+
 Read references/detection.md etc for details (update in tree).
 
 ## Ask ( <=3 total )
@@ -62,14 +64,15 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 - exact actions / file writes / deletes proposed
 
-- exact helper argv using the detector-returned ids, for example `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- exact helper argv using the detector-returned controller path, for example `["node","/absolute/plugin/root/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- for package-bounded publication only, exact argv of the form `["node","/absolute/plugin/root/scripts/sdlc-upgrade.mjs","apply-publication","--root",".","--spec","specs/42-slug","--approve","publication-files:<approved-selection-digest>"]`
 
 ## After Propose
 
 xd://propose the slug + "Upgrade plan for current layout/packaging"
 
 Approved plan execution runs the helper script with the chosen scope (the skill does not call it directly; the plan does).
-Approved apply always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt.
+Full `apply` always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt. Selected `apply-publication` never backfills labels or runs any other upgrade phase.
 
 ## Generated
 

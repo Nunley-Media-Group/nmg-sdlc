@@ -7,22 +7,44 @@ This reference documents the read-only detectors and apply contract implemented 
 ## Exported API
 
 ```js
-import { detectUpgrade, applyUpgrade } from '../scripts/sdlc-upgrade.mjs';
+import {
+  applyPublicationUpgrade,
+  applyUpgrade,
+  detectPublicationUpgrade,
+  detectUpgrade,
+} from '../scripts/sdlc-upgrade.mjs';
 
 const report = detectUpgrade(projectRoot);
-// report.items: array of { id, kind, description, ... }
+const outcome = applyUpgrade(projectRoot, approvedItemIds);
 
-const outcome = applyUpgrade(projectRoot, approvedItemIds); // ids subset of report item ids
+const selected = detectPublicationUpgrade(projectRoot, {
+  specDirs: ['specs/42-slug'],
+});
+const selectedOutcome = applyPublicationUpgrade(projectRoot, selected.item.id, {
+  specDirs: selected.specDirs,
+});
 ```
 
 CLI:
 
 ```
-node <plugin-root>/scripts/sdlc-upgrade.mjs detect [--root <dir>]
-node <plugin-root>/scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
+node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
+node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--root <dir>]
+node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...]
+node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug [--spec specs/M-slug ...] --approve publication-files:<digest>
 ```
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).
+
+## Selected publication-only contract
+
+Use the selected contract whenever publication authorization names fewer packages than the repository contains. `--spec` is repeatable and mandatory. Each value must name a unique direct `specs/{N}-{slug}/` package with all four required regular files; every required file must declare matching singular `**Issue**: #N` and `**Status**: Approved`. Symlinks, missing packages, traversal, duplicate selections, mismatched identity, and unsupported filesystem entries fail closed.
+
+Detection canonicalizes and sorts the selection, inventories every selected regular file recursively, and hashes a report envelope containing the canonical real root, exact selection, every file source digest, and exact publication rewrite/finding records. Approval is the returned `publication-files:<digest>`. Apply recomputes that envelope and rejects a different root, selection, report, file inventory, source byte, rewrite, or finding before mutation.
+
+`applyPublicationUpgrade` and `apply-publication` call only the publication line rewriter. They do not call `applyUpgrade`, issue-dependency mutation, `spec-created` label backfill, GitHub, or another detector/apply phase. Successful writes preserve each existing line ending and every byte outside approved line payloads. Repeated selected detection returns `writeCount: 0`.
+
+The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI remain the full-repository compatibility path.
 
 ## Detectors (all read-only; report actionable items)
 
@@ -87,6 +109,7 @@ node <plugin-root>/scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--roo
 - Update cross-spec `**Related Spec**` pointers that pointed at a renamed/removed source path.
 - Return structured outcome with per-id status (`applied`, `skipped:collision`, `skipped:unverifiable`, `failed`).
 - Idempotent: re-running detect+apply on same approved set after success reports already-current or already-clean.
+- Selected publication-only apply additionally requires exact root/selection/report equality and never executes full-upgrade post-processing or GitHub side effects.
 
 ## Reuse
 

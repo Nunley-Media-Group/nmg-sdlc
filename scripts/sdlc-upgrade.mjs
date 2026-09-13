@@ -6,8 +6,10 @@
  * Exports:
  *   detectUpgrade(root)
  *   applyUpgrade(root, approvedItemIds)
+ *   detectPublicationUpgrade(root, { specDirs })
+ *   applyPublicationUpgrade(root, approvedItemId, { specDirs })
  *
- * Detectors are read-only. apply only mutates for approved ids.
+ * Detectors are read-only. Apply mutates only explicitly approved authority.
  * Never mutates the caller's specs/ unless the caller passes a temp root.
  * Legacy body relations are migration evidence only.
  */
@@ -156,6 +158,162 @@ function listSpecDirs(root) {
       full: path.join(specsDir, d.name),
       rel: `specs/${d.name}`,
     }));
+}
+
+const ISSUE_SPEC_DIR_RE = /^specs\/([1-9]\d*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+
+function publicationContractError(reasonCode, message) {
+  const error = new Error(message);
+  error.reasonCode = reasonCode;
+  return error;
+}
+
+function lstatOrNull(target) {
+  try {
+    return fs.lstatSync(target);
+  } catch {
+    return null;
+  }
+}
+
+function requirePlainDirectory(target, reasonCode, message) {
+  const stat = lstatOrNull(target);
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+    throw publicationContractError(reasonCode, message);
+  }
+}
+
+function requireApprovedIssueFrontmatter(source, issue, relativePath) {
+  const issueLines = [...source.matchAll(/^\*\*(Issues?)\*\*:\s*(.*?)\s*$/gm)];
+  const statusLines = [...source.matchAll(/^\*\*Status\*\*:\s*(.*?)\s*$/gm)];
+  if (
+    issueLines.length !== 1
+    || issueLines[0][1] !== 'Issue'
+    || issueLines[0][2] !== `#${issue}`
+  ) {
+    throw publicationContractError(
+      'publication_spec_issue_invalid',
+      `${relativePath} must declare singular **Issue**: #${issue}`,
+    );
+  }
+  if (statusLines.length !== 1 || statusLines[0][1] !== 'Approved') {
+    throw publicationContractError(
+      'publication_spec_not_approved',
+      `${relativePath} must declare **Status**: Approved`,
+    );
+  }
+}
+
+function inventoryPublicationPackage(root, specDir) {
+  const packageFull = path.join(root, ...specDir.split('/'));
+  const files = [];
+  const visit = (directory, relativeDirectory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(directory, entry.name);
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      if (entry.isSymbolicLink()) {
+        throw publicationContractError(
+          'publication_spec_symlink',
+          `Selected spec package contains a symlink: ${relativePath}`,
+        );
+      }
+      if (entry.isDirectory()) {
+        visit(full, relativePath);
+      } else if (entry.isFile()) {
+        const bytes = fs.readFileSync(full);
+        files.push({
+          path: relativePath,
+          sourceDigest: createHash('sha256').update(bytes).digest('hex'),
+        });
+      } else {
+        throw publicationContractError(
+          'publication_spec_entry_invalid',
+          `Selected spec package contains an unsupported entry: ${relativePath}`,
+        );
+      }
+    }
+  };
+  visit(packageFull, specDir);
+  return files;
+}
+
+function validatePublicationSpecDirs(root, specDirs) {
+  if (!Array.isArray(specDirs) || specDirs.length === 0) {
+    throw publicationContractError(
+      'publication_spec_selection_required',
+      'Publication-only detection requires at least one explicit --spec selection',
+    );
+  }
+  const rootInput = path.resolve(root);
+  requirePlainDirectory(rootInput, 'publication_root_invalid', `Repository root is not a plain directory: ${rootInput}`);
+  const rootReal = fs.realpathSync.native(rootInput);
+  const specsFull = path.join(rootReal, 'specs');
+  requirePlainDirectory(specsFull, 'publication_specs_root_invalid', `Spec root is not a plain directory: ${specsFull}`);
+
+  const selected = [];
+  const seen = new Set();
+  for (const value of specDirs) {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw publicationContractError('publication_spec_selection_invalid', 'Selected spec directory must be a non-empty string');
+    }
+    const normalized = value.replaceAll('\\', '/');
+    const match = ISSUE_SPEC_DIR_RE.exec(normalized);
+    if (!match || path.isAbsolute(value) || normalized.includes('/../') || normalized.includes('/./')) {
+      throw publicationContractError(
+        'publication_spec_selection_invalid',
+        `Selected spec directory must match specs/{N}-{slug}: ${value}`,
+      );
+    }
+    if (seen.has(normalized)) {
+      throw publicationContractError(
+        'publication_spec_selection_duplicate',
+        `Selected spec directory is duplicated: ${normalized}`,
+      );
+    }
+    seen.add(normalized);
+    const packageFull = path.join(rootReal, ...normalized.split('/'));
+    const packageStat = lstatOrNull(packageFull);
+    if (packageStat?.isSymbolicLink()) {
+      throw publicationContractError(
+        'publication_spec_symlink',
+        `Selected spec package must not be a symlink: ${normalized}`,
+      );
+    }
+    requirePlainDirectory(
+      packageFull,
+      'publication_spec_missing',
+      `Selected spec package is missing or not a plain directory: ${normalized}`,
+    );
+    if (path.dirname(packageFull) !== specsFull || fs.realpathSync.native(packageFull) !== packageFull) {
+      throw publicationContractError(
+        'publication_spec_outside_root',
+        `Selected spec package is outside the canonical specs root: ${normalized}`,
+      );
+    }
+    for (const name of REQUIRED_SPEC_FILES) {
+      const relativePath = `${normalized}/${name}`;
+      const full = path.join(packageFull, name);
+      const stat = lstatOrNull(full);
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        throw publicationContractError(
+          'publication_spec_incomplete',
+          `Selected spec package requires a plain ${relativePath}`,
+        );
+      }
+      requireApprovedIssueFrontmatter(fs.readFileSync(full, 'utf8'), Number(match[1]), relativePath);
+    }
+    selected.push({
+      name: path.basename(normalized),
+      full: packageFull,
+      rel: normalized,
+      files: inventoryPublicationPackage(rootReal, normalized),
+    });
+  }
+  return {
+    root: rootReal,
+    selected: selected.sort((a, b) => a.rel.localeCompare(b.rel)),
+  };
 }
 
 function hasEpicArtifacts(root) {
@@ -957,6 +1115,83 @@ function applyPublicationFiles(root, item) {
   return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
 }
 
+function detectPublicationUpgrade(root, { specDirs } = {}) {
+  const validated = validatePublicationSpecDirs(root, specDirs);
+  const detected = publicationFilesUpgrade(validated.root, validated.selected);
+  const packages = detected?.packages ?? [];
+  const selections = validated.selected.map(({ rel, files }) => ({
+    path: rel,
+    files,
+  }));
+  const authority = {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: validated.root,
+    specDirs: selections.map(({ path: specDir }) => specDir),
+    selections,
+    packages,
+  };
+  const digest = createHash('sha256').update(JSON.stringify(authority)).digest('hex');
+  const item = {
+    id: `publication-files:${digest}`,
+    kind: 'publication-files',
+    description: 'Canonicalize recoverable delivery-task File(s) declarations only in the explicitly selected spec packages.',
+    actionable: packages.some(({ rewrites }) => rewrites.length > 0),
+    packages,
+  };
+  return {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: validated.root,
+    specDirs: authority.specDirs,
+    selections,
+    writeCount: packages.reduce((count, plan) => count + plan.rewrites.length, 0),
+    findingCount: packages.reduce((count, plan) => count + plan.findings.length, 0),
+    item,
+    items: [item],
+  };
+}
+
+function applyPublicationUpgrade(root, approvedItemId, { specDirs } = {}) {
+  if (
+    typeof approvedItemId !== 'string'
+    || !/^publication-files:[0-9a-f]{64}$/.test(approvedItemId)
+  ) {
+    throw publicationContractError(
+      'publication_files_approval_invalid',
+      'Publication-only apply requires one publication-files:<sha256> approval id',
+    );
+  }
+  const report = detectPublicationUpgrade(root, { specDirs });
+  if (report.item.id !== approvedItemId) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Selected publication report changed after plan approval',
+    );
+  }
+  const prewrite = detectPublicationUpgrade(report.root, { specDirs: report.specDirs });
+  if (prewrite.item.id !== approvedItemId) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Selected publication package bytes changed after plan approval',
+    );
+  }
+  const result = prewrite.writeCount === 0
+    ? { id: approvedItemId, status: 'already-current', packages: [] }
+    : applyPublicationFiles(report.root, prewrite.item);
+  const postDetect = detectPublicationUpgrade(report.root, { specDirs: report.specDirs });
+  return {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: report.root,
+    specDirs: report.specDirs,
+    applied: result.status === 'applied' ? [result] : [],
+    results: [result],
+    postDetect,
+  };
+}
+
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -1627,10 +1862,10 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
 // CLI
 function parseArgv(argv) {
-  const args = { cmd: null, root: process.cwd(), approve: [] };
+  const args = { cmd: null, root: process.cwd(), approve: [], specDirs: [] };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === 'detect' || a === 'apply') args.cmd = a;
+    if (['detect', 'apply', 'detect-publication', 'apply-publication'].includes(a)) args.cmd = a;
     else if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
     else if (a.startsWith('--root=')) args.root = a.split('=')[1];
     else if (a === '--approve' || a === '-a') {
@@ -1638,6 +1873,12 @@ function parseArgv(argv) {
       args.approve = v.split(',').map((s) => s.trim()).filter(Boolean);
     } else if (a.startsWith('--approve=')) {
       args.approve = a.split('=')[1].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (a === '--spec' || a === '-s') {
+      const value = argv[++i];
+      if (value) args.specDirs.push(value);
+    } else if (a.startsWith('--spec=')) {
+      const value = a.slice('--spec='.length);
+      if (value) args.specDirs.push(value);
     }
   }
   return args;
@@ -1646,7 +1887,7 @@ function parseArgv(argv) {
 if (isCliEntry(import.meta.url)) {
   const args = parseArgv(process.argv);
   if (!args.cmd) {
-    console.error('Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]');
+    console.error('Usage: node scripts/sdlc-upgrade.mjs <detect|apply|detect-publication|apply-publication> [--root <dir>] [--spec specs/N-slug ...] [--approve id1,id2]');
     process.exit(2);
   }
   try {
@@ -1656,6 +1897,18 @@ if (isCliEntry(import.meta.url)) {
     } else if (args.cmd === 'apply') {
       const out = applyUpgrade(args.root, args.approve, defaultRun);
       console.log(JSON.stringify(out, null, 2));
+    } else if (args.cmd === 'detect-publication') {
+      const out = detectPublicationUpgrade(args.root, { specDirs: args.specDirs });
+      console.log(JSON.stringify(out, null, 2));
+    } else if (args.cmd === 'apply-publication') {
+      if (args.approve.length !== 1) {
+        throw publicationContractError(
+          'publication_files_approval_invalid',
+          'apply-publication requires exactly one --approve publication-files:<sha256> id',
+        );
+      }
+      const out = applyPublicationUpgrade(args.root, args.approve[0], { specDirs: args.specDirs });
+      console.log(JSON.stringify(out, null, 2));
     }
   } catch (err) {
     console.error('ERROR', err);
@@ -1663,4 +1916,9 @@ if (isCliEntry(import.meta.url)) {
   }
 }
 
-export { detectUpgrade, applyUpgrade };
+export {
+  applyPublicationUpgrade,
+  applyUpgrade,
+  detectPublicationUpgrade,
+  detectUpgrade,
+};

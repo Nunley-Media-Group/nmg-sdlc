@@ -86,6 +86,8 @@ Interactive commands enter native `/plan`, use built-in questions for decisions 
 
 Upgrade audits and proposes migration groups. Each group requires approval. It handles obsolete steering runtimes, legacy spec layouts, official issue dependencies supported by migration evidence, managed repository assets, and obsolete plugin-owned artifacts. It preserves unrelated project content and ambiguous ownership rather than guessing.
 
+For package-bounded publication repair, the workflow uses the dedicated native contract: `node "/absolute/plugin/root/scripts/sdlc-upgrade.mjs" detect-publication --root PROJECT_ROOT --spec specs/N-slug`, followed only after approval by `apply-publication` with the same repeatable `--spec` set and returned `publication-files:<digest>`. The command path is the resolved installed plugin root, not the consumer repository. The digest binds the canonical root, exact selected package set, every selected package file and source digest, and exact rewrites/findings. This path changes only approved **File(s)** lines in selected packages; it never runs dependency repair, issue-label backfill, GitHub mutation, or another upgrade phase. Invalid, stale, changed, outside, duplicate, or foreign authority fails closed. Use repository-wide `detect` / `apply` only when the operator approved the full upgrade behavior.
+
 Onboarding/upgrade manage:
 
 - `steering/manifest.json`, runtime descriptors, and registered project context.

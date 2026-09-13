@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   applyIssueDependencyUpgrade,
+  applyPublicationUpgrade,
   applyUpgrade,
   detectIssueDependencyUpgrade,
+  detectPublicationUpgrade,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
 import { parseDeliveryTaskFileLines } from '../sdlc-safe-recoveries.mjs';
@@ -24,6 +26,19 @@ function write(root, relativePath, source) {
   const target = path.join(root, ...relativePath.split('/'));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, source);
+}
+
+function writeApprovedPackage(root, specDir, tasks, extras = {}) {
+  const issue = /^specs\/([1-9]\d*)-/.exec(specDir)?.[1];
+  if (!issue) throw new Error(`Invalid test spec directory: ${specDir}`);
+  const frontmatter = `**Issue**: #${issue}\n**Status**: Approved\n`;
+  write(root, `${specDir}/requirements.md`, `# Requirements\n\n${frontmatter}`);
+  write(root, `${specDir}/design.md`, `# Design\n\n${frontmatter}`);
+  write(root, `${specDir}/tasks.md`, `${frontmatter}\n${tasks}`);
+  write(root, `${specDir}/feature.gherkin`, `${frontmatter}\nFeature: Test\n`);
+  for (const [relativePath, source] of Object.entries(extras)) {
+    write(root, `${specDir}/${relativePath}`, source);
+  }
 }
 
 async function makeObsoleteCurrentSteering(root, { unknownKey = false } = {}) {
@@ -1089,6 +1104,188 @@ describe('publication File(s) upgrade', () => {
     expect(() => applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false }))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
     expect(fs.readFileSync(path.join(root, 'specs/42-add-x/tasks.md'), 'utf8')).toBe(changed);
+  });
+});
+
+describe('package-scoped publication-only upgrade (#388)', () => {
+  it('repairs exactly four selected PathCast-shaped tokens and leaves other packages byte-identical', () => {
+    const root = makeRoot();
+    const selected = 'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand';
+    const selectedTasks = [
+      '### T001: Inventory guardrails',
+      '**Files**: `api/src/services/ip-guardrails/types.ts` (Modify)',
+      '### T002: Bind outcomes',
+      '**Files**: `api/src/scripts/reconcile-miledar-ip-guardrails.ts` (Create)',
+      '### T003: Add BDD',
+      '**Files**: `api/src/__tests__/features/miledar_ip_guardrails.feature` (Create)',
+      '### T004: Reconcile evidence',
+      '**Files**: `artifacts/issue-108/reconciliation.json` (Generate untracked)',
+      '',
+    ].join('\n');
+    writeApprovedPackage(root, selected, selectedTasks, {
+      'verification-report.md': 'selected evidence\r\npreserve\n',
+    });
+    writeApprovedPackage(
+      root,
+      'specs/110-unrelated-rewrite',
+      '### T001: Other rewrite\n**Files**: `src/unrelated.ts`\n',
+    );
+    writeApprovedPackage(
+      root,
+      'specs/4-unrelated-finding',
+      '### T001: Unsafe\n**File(s)**: Create src/unsafe.ts\n',
+    );
+    const beforeSelectedTasks = fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8');
+    const unrelatedPaths = [
+      'specs/110-unrelated-rewrite/tasks.md',
+      'specs/4-unrelated-finding/tasks.md',
+      `${selected}/verification-report.md`,
+    ];
+    const before = new Map(unrelatedPaths.map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(root, relativePath)),
+    ]));
+    const fullPublication = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+    expect(fullPublication.packages).toHaveLength(3);
+
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    expect(report).toMatchObject({
+      mode: 'publication-only',
+      specDirs: [selected],
+      writeCount: 4,
+      findingCount: 0,
+      item: {
+        id: expect.stringMatching(/^publication-files:[0-9a-f]{64}$/),
+        actionable: true,
+        packages: [{ path: `${selected}/tasks.md` }],
+      },
+    });
+    const outcome = applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+    expect(outcome.results).toEqual([
+      expect.objectContaining({ id: report.item.id, status: 'applied', packages: [`${selected}/tasks.md`] }),
+    ]);
+    expect(outcome.results).not.toContainEqual(expect.objectContaining({ id: 'spec-created-backfill' }));
+    const updated = fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8');
+    expect(updated.replaceAll('**File(s)**:', '**Files**:')).toBe(beforeSelectedTasks);
+    expect(updated.match(/^\*\*File\(s\)\*\*:/gm)).toHaveLength(4);
+    for (const [relativePath, source] of before) {
+      expect(fs.readFileSync(path.join(root, relativePath))).toEqual(source);
+    }
+    const repeated = detectPublicationUpgrade(root, { specDirs: [selected] });
+    expect(repeated.writeCount).toBe(0);
+    expect(repeated.item.actionable).toBe(false);
+  });
+
+  it('binds root, sorted selection, complete inventory, rewrites, and findings into approval', () => {
+    const root = makeRoot();
+    writeApprovedPackage(root, 'specs/42-add-x', '### T001: Rewrite\n**Files**: `src/a.ts`\n', {
+      'notes/evidence.txt': 'bound bytes\n',
+    });
+    writeApprovedPackage(root, 'specs/43-add-y', '### T001: Finding\n**File(s)**: Create src/y.ts\n');
+
+    const first = detectPublicationUpgrade(root, {
+      specDirs: ['specs/43-add-y', 'specs/42-add-x'],
+    });
+    const reordered = detectPublicationUpgrade(root, {
+      specDirs: ['specs/42-add-x', 'specs/43-add-y'],
+    });
+
+    expect(first.item.id).toBe(reordered.item.id);
+    expect(first.specDirs).toEqual(['specs/42-add-x', 'specs/43-add-y']);
+    expect(first.selections[0].files).toContainEqual(expect.objectContaining({
+      path: 'specs/42-add-x/notes/evidence.txt',
+      sourceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+    }));
+    expect(first.writeCount).toBe(1);
+    expect(first.findingCount).toBe(1);
+  });
+
+  it('rejects stale bytes, extra package content, different roots, selections, and reports before mutation', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-add-x';
+    const tasks = '### T001: Rewrite\n**Files**: `src/a.ts`\n';
+    writeApprovedPackage(root, selected, tasks);
+    writeApprovedPackage(root, 'specs/43-add-y', '### T001: Rewrite\n**Files**: `src/y.ts`\n');
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const originalTasks = fs.readFileSync(path.join(root, selected, 'tasks.md'));
+
+    write(root, `${selected}/notes.txt`, 'added after approval\n');
+    expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    expect(fs.readFileSync(path.join(root, selected, 'tasks.md'))).toEqual(originalTasks);
+    fs.rmSync(path.join(root, selected, 'notes.txt'));
+
+    write(root, `${selected}/requirements.md`, '**Issue**: #42\n**Status**: Approved\nchanged\n');
+    expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    expect(fs.readFileSync(path.join(root, selected, 'tasks.md'))).toEqual(originalTasks);
+
+    writeApprovedPackage(root, selected, tasks);
+    expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: ['specs/43-add-y'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    const foreignId = `${report.item.id.slice(0, -1)}${report.item.id.endsWith('0') ? '1' : '0'}`;
+    expect(() => applyPublicationUpgrade(root, foreignId, { specDirs: [selected] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+
+    const otherRoot = makeRoot();
+    writeApprovedPackage(otherRoot, selected, tasks);
+    expect(() => applyPublicationUpgrade(otherRoot, report.item.id, { specDirs: [selected] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+  });
+
+  it('rejects invalid selected package authority with stable reason codes', () => {
+    const root = makeRoot();
+    writeApprovedPackage(root, 'specs/42-valid', '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    expect(() => detectPublicationUpgrade(root, { specDirs: [] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_selection_required' }));
+    expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/42-valid', 'specs\\42-valid'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_selection_duplicate' }));
+    for (const invalid of ['/tmp/specs/42-valid', '../specs/42-valid', 'outside/42-valid', 'specs/42-missing']) {
+      expect(() => detectPublicationUpgrade(root, { specDirs: [invalid] }))
+        .toThrow(expect.objectContaining({
+          reasonCode: invalid === 'specs/42-missing'
+            ? 'publication_spec_missing'
+            : 'publication_spec_selection_invalid',
+        }));
+    }
+
+    write(root, 'specs/43-incomplete/tasks.md', '**Issue**: #43\n**Status**: Approved\n');
+    expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/43-incomplete'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_incomplete' }));
+    writeApprovedPackage(root, 'specs/44-not-approved', '### T001: Valid\n**File(s)**: `src/a.ts`\n');
+    write(root, 'specs/44-not-approved/design.md', '**Issue**: #44\n**Status**: Draft\n');
+    expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/44-not-approved'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_not_approved' }));
+    writeApprovedPackage(root, 'specs/45-mismatch', '### T001: Valid\n**File(s)**: `src/a.ts`\n');
+    write(root, 'specs/45-mismatch/requirements.md', '**Issue**: #46\n**Status**: Approved\n');
+    expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/45-mismatch'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_issue_invalid' }));
+
+    const realPackage = path.join(root, 'specs', '42-valid');
+    fs.symlinkSync(realPackage, path.join(root, 'specs', '46-symlink'), 'junction');
+    expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/46-symlink'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_symlink' }));
+  });
+
+  it('preserves mixed EOL and every unrelated byte', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-mixed-eol';
+    const tasks = '### T001: Rewrite\r\n**Files**: `src/a.ts`\n**Type**: Modify\r\n';
+    writeApprovedPackage(root, selected, tasks, { 'raw.bin': Buffer.from([0, 13, 10, 255]) });
+    write(root, 'unrelated.txt', Buffer.from([255, 0, 13, 10]));
+    const beforeTasks = fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8');
+    const beforeRaw = fs.readFileSync(path.join(root, selected, 'raw.bin'));
+    const beforeUnrelated = fs.readFileSync(path.join(root, 'unrelated.txt'));
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+
+    applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+
+    const afterTasks = fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8');
+    expect(afterTasks).toBe(beforeTasks.replace('**Files**:', '**File(s)**:'));
+    expect(afterTasks.replace('**File(s)**:', '**Files**:')).toBe(beforeTasks);
+    expect(fs.readFileSync(path.join(root, selected, 'raw.bin'))).toEqual(beforeRaw);
+    expect(fs.readFileSync(path.join(root, 'unrelated.txt'))).toEqual(beforeUnrelated);
   });
 });
 
