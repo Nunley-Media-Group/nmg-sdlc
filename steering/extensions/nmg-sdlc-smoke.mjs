@@ -320,17 +320,19 @@ export function createSmokeRecoveryStore({ root = join(tmpdir(), "nmg-sdlc-smoke
     const lock = `${path}.lock`;
     const temporary = `${path}.${process.pid}.tmp`;
     let descriptor;
+    let lockAcquired = false;
     try {
       descriptor = openSync(lock, "wx");
+      lockAcquired = true;
       if (!replace && existsSync(path)) throw new Error("smoke recovery state already exists");
       writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
       renameSync(temporary, path);
     } finally {
-      if (descriptor !== undefined) {
-        closeSync(descriptor);
+      if (descriptor !== undefined) closeSync(descriptor);
+      try { unlinkSync(temporary); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+      if (lockAcquired) {
         try { unlinkSync(lock); } catch (error) { if (error?.code !== "ENOENT") throw error; }
       }
-      try { unlinkSync(temporary); } catch (error) { if (error?.code !== "ENOENT") throw error; }
     }
   };
   const remove = (key) => {

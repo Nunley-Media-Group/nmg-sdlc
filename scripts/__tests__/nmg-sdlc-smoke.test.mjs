@@ -632,15 +632,26 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     commandFixtures.push({ root: storeRoot, marker: path.join(storeRoot, 'absent-marker') });
     const key = 'c'.repeat(64);
     const lockPath = path.join(storeRoot, `${key}.json.lock`);
+    const releasePath = path.join(storeRoot, 'release-owner');
+    const moduleUrl = new URL('../../steering/extensions/nmg-sdlc-smoke.mjs', import.meta.url).href;
     const owner = spawn(process.execPath, ['-e', `
       const fs = require('node:fs');
-      const descriptor = fs.openSync(${JSON.stringify(lockPath)}, 'wx');
-      process.stdout.write('locked\\n');
-      process.stdin.once('data', () => {
-        fs.closeSync(descriptor);
-        fs.unlinkSync(${JSON.stringify(lockPath)});
+      (async () => {
+        const { createSmokeRecoveryStore } = await import(${JSON.stringify(moduleUrl)});
+        const store = createSmokeRecoveryStore({ root: ${JSON.stringify(storeRoot)} });
+        store.write(${JSON.stringify(key)}, {
+          toJSON() {
+            process.stdout.write('locked\\n');
+            const wait = new Int32Array(new SharedArrayBuffer(4));
+            while (!fs.existsSync(${JSON.stringify(releasePath)})) Atomics.wait(wait, 0, 0, 10);
+            return { schemaVersion: 1, recoveryKey: ${JSON.stringify(key)}, owner: true };
+          },
+        });
+      })().catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
       });
-    `], { stdio: ['pipe', 'pipe', 'inherit'] });
+    `], { stdio: ['ignore', 'pipe', 'inherit'] });
     await new Promise((resolve, reject) => {
       owner.once('error', reject);
       owner.stdout.once('data', resolve);
@@ -648,19 +659,21 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
 
     const firstContender = createSmokeRecoveryStore({ root: storeRoot });
     const secondContender = createSmokeRecoveryStore({ root: storeRoot });
-    const value = { schemaVersion: 1, recoveryKey: key };
+    const value = { schemaVersion: 1, recoveryKey: key, replacement: true };
     try {
       expect(() => firstContender.write(key, value)).toThrow(/EEXIST/);
       expect(fs.existsSync(lockPath)).toBe(true);
       expect(() => secondContender.write(key, value)).toThrow(/EEXIST/);
       expect(fs.existsSync(lockPath)).toBe(true);
     } finally {
-      owner.stdin.end('release');
-      await new Promise((resolve) => owner.once('exit', resolve));
+      const ownerExit = new Promise((resolve) => owner.once('exit', resolve));
+      fs.writeFileSync(releasePath, 'release');
+      expect(await ownerExit).toBe(0);
     }
 
     expect(fs.existsSync(lockPath)).toBe(false);
-    firstContender.write(key, value);
+    expect(firstContender.read(key)).toMatchObject({ owner: true });
+    firstContender.write(key, value, { replace: true });
     expect(firstContender.read(key)).toEqual(value);
     expect(fs.existsSync(lockPath)).toBe(false);
   });
