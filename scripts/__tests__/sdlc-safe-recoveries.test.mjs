@@ -448,6 +448,7 @@ describe('approved publication scope', () => {
     ['backtick fence', ['```text', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '```']],
     ['HTML comment', ['<!--', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '-->']],
     ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
+    ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
   ])('rejects an admitted task heading hidden inside a %s', (_name, hiddenTask) => {
     expect(() => parseDeliveryTaskFileLines([
       '# Tasks',
@@ -515,6 +516,20 @@ describe('approved publication scope', () => {
       spec: 'specs/42-feature/tasks.md',
       taskIds: ['T001'],
     })).toEqual(['src/<!--note-->']);
+  });
+
+  test.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('does not treat an %s backtick as a multiline code span', (_name, prose) => {
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toEqual(['src/a.ts']);
   });
 
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {

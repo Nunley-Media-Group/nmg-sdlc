@@ -474,6 +474,31 @@ describe('publish-approved-spec', () => {
     expect(git(root, ['diff', '--cached', '--name-only']).trim()).toBe('README.md');
   });
 
+  it.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('commit-push accepts a valid declaration after an %s backtick', (_name, prose) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).toBe(0);
+    expect(parse(result)).toMatchObject({ ok: true });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+  });
+
   it('commit-push rejects an unapproved package', () => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
@@ -524,6 +549,7 @@ describe('publish-approved-spec', () => {
     [command, 'fenced', ['```text', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '```']],
     [command, 'commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
     [command, 'multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    [command, 'multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ]))('%s rejects a %s admitted task before publication side effects', (command, _name, hiddenTask) => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);

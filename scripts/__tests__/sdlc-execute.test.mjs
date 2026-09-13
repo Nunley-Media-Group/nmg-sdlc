@@ -2247,6 +2247,7 @@ describe('runExecute controller', () => {
     ['fenced', ['```text', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '```']],
     ['commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
     ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ])('rejects an admitted %s task hidden from publication parsing before dispatch', (_name, hiddenTask) => {
     const fixture = makeControllerFixture();
     const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
@@ -2297,6 +2298,29 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
     expect(fixture.calls.some(([command, ...args]) => command === 'node'
       && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it.each([
+    ['unmatched', 'Prose with unmatched ` delimiter'],
+    ['escaped', 'Prose with escaped \\` delimiter'],
+  ])('accepts a valid declaration after an %s backtick and dispatches normally', (_name, prose) => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      prose,
+      '**File(s)**: `src/a.ts`',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.stderr).not.toContain('publication_scope_unproven');
+    expect(fixture.splits.length).toBeGreaterThan(0);
+    expect(fixture.starts[0].name).toBe('s42-start');
   });
 
   it('rejects invalid publication File(s) before creating any fresh-run pane', () => {
