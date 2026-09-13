@@ -324,6 +324,23 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
   });
 
+  test('authorizes bounded glob matches without widening to unrelated files', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Generate steps\n`);
+    f.put(`${spec}/design.md`, `${header}Generate bounded steps.\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Generate steps\n\n**File(s)**: \`tests/generated/*.mjs\`\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Steps\n  Scenario: Generate steps\n`);
+    f.put('tests/generated/step.mjs', 'export const step = true;\n');
+    f.put('tests/unrelated.mjs', 'export const unrelated = true;\n');
+
+    const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run });
+
+    expect(scope).toContain('tests/generated/step.mjs');
+    expect(scope).not.toContain('tests/unrelated.mjs');
+  });
+
   test('rejects a bounded declaration that expands to no files', () => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';
