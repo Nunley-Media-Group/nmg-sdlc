@@ -2248,6 +2248,7 @@ describe('runExecute controller', () => {
     ['commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
     ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
     ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    ['multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ])('rejects an admitted %s task hidden from publication parsing before dispatch', (_name, hiddenTask) => {
     const fixture = makeControllerFixture();
     const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
@@ -2273,6 +2274,7 @@ describe('runExecute controller', () => {
 
   it.each([
     ['HTML comment', ['<!-- unmatched ` -->'], 6],
+    ['HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 6],
     ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
   ])('ignores backticks in a %s before a hidden multiline span without dispatch', (_name, prefix, line) => {
     const fixture = makeControllerFixture();
@@ -2295,6 +2297,33 @@ describe('runExecute controller', () => {
     expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
     expect(result.stderr).toContain('taskId: T001');
     expect(result.stderr).toContain(`line: ${line}`);
+    expect(fixture.splits).toEqual([]);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.calls.some(([command, ...args]) => command === 'node'
+      && args.some((arg) => String(arg).includes('sdlc-safe-recoveries.mjs')))).toBe(false);
+  });
+
+  it('rejects a declaration hidden by crossing multiline spans before dispatch', () => {
+    const fixture = makeControllerFixture();
+    const specDir = path.join(fixture.cwd, 'specs', '42-ship-it');
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
+    expect(result.stderr).toContain('taskId: T001');
+    expect(result.stderr).toContain('line: 4');
     expect(fixture.splits).toEqual([]);
     expect(fixture.starts).toEqual([]);
     expect(fixture.calls.some(([command, ...args]) => command === 'node'

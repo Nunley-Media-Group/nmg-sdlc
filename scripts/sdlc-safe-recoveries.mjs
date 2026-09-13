@@ -821,7 +821,7 @@ function codeSpanSourceLines(lines) {
       visibleLines.push(' '.repeat(sourceLine.length));
       continue;
     }
-    const chars = [...sourceLine];
+    const chars = sourceLine.split('');
     let offset = 0;
     while (offset < sourceLine.length) {
       if (inComment) {
@@ -867,6 +867,10 @@ function codeSpanDelimiters(lines) {
       const delimiter = /^`+/.exec(line.slice(offset))[0];
       if (!escapedBacktick(line, offset)) runs.push({ line: lineIndex, offset, length: delimiter.length });
       offset += delimiter.length;
+    }
+    if (!/^\*\*[^*]+\*\*:/.test(line)) {
+      remaining.push(...runs);
+      continue;
     }
     for (let index = 0; index < runs.length;) {
       const opener = runs[index];

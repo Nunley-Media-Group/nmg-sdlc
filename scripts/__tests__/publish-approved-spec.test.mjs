@@ -550,6 +550,7 @@ describe('publish-approved-spec', () => {
     [command, 'commented', ['<!--', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '-->']],
     [command, 'multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
     [command, 'multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
+    [command, 'multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ]))('%s rejects a %s admitted task before publication side effects', (command, _name, hiddenTask) => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
@@ -579,6 +580,7 @@ describe('publish-approved-spec', () => {
 
   it.each(['commit-push', 'merge'].flatMap((command) => [
     [command, 'HTML comment', ['<!-- unmatched ` -->'], 6],
+    [command, 'HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 6],
     [command, 'tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
   ]))('%s ignores backticks in a %s before a hidden multiline span', (command, _name, prefix, line) => {
     const { root, env } = makeRepo();
@@ -606,6 +608,37 @@ describe('publish-approved-spec', () => {
       spec: 'specs/42-add-x/tasks.md',
       taskId: 'T001',
       line,
+    });
+    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+  });
+
+  it.each(['commit-push', 'merge'])('%s rejects a declaration hidden by crossing multiline spans', (command) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    const specDir = path.join(root, 'specs', '42-add-x');
+    writeApproved(specDir, 42);
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '',
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/a.ts`',
+      '``',
+      '',
+    ].join('\n'));
+
+    const result = run(root, [command, '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-add-x/tasks.md',
+      taskId: 'T001',
+      line: 4,
     });
     expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');

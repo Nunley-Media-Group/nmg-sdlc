@@ -449,6 +449,7 @@ describe('approved publication scope', () => {
     ['HTML comment', ['<!--', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '-->']],
     ['multiline code span', ['``', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
     ['multiline code span with opener content', ['``example', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
+    ['multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/hidden.ts`', '``']],
   ])('rejects an admitted task heading hidden inside a %s', (_name, hiddenTask) => {
     expect(() => parseDeliveryTaskFileLines([
       '# Tasks',
@@ -465,6 +466,7 @@ describe('approved publication scope', () => {
 
   test.each([
     ['HTML comment', ['<!-- unmatched ` -->'], 4],
+    ['HTML comment after astral prefix', ['😀<!-- unmatched ` -->'], 4],
     ['tilde fence', ['~~~text', 'unmatched `', '~~~'], 6],
   ])('ignores backticks in a %s when pairing a later multiline span', (_name, prefix, line) => {
     expect(() => parseDeliveryTaskFileLines([
@@ -481,6 +483,23 @@ describe('approved publication scope', () => {
       reasonCode: 'publication_scope_unproven',
       taskId: 'T001',
       line,
+    }));
+  });
+
+  test('pairs crossing multiline code-span delimiters in document order', () => {
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Create code',
+      '`` opener',
+      'inside old span `` then `` opener for new span',
+      '**File(s)**: `src/hidden.ts`',
+      '``',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      taskIds: ['T001'],
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 1,
     }));
   });
 
