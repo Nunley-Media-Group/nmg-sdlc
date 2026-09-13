@@ -800,9 +800,34 @@ export function publicationFileEntries(value) {
   return entries;
 }
 
+function markdownFence(line) {
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesMarkdownFence(line, fence) {
+  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
+}
+
+function advanceHtmlCommentState(line, inComment) {
+  let offset = 0;
+  while (offset < line.length) {
+    const token = inComment ? '-->' : '<!--';
+    const index = line.indexOf(token, offset);
+    if (index === -1) break;
+    inComment = !inComment;
+    offset = index + token.length;
+  }
+  return inComment;
+}
+
 export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
   const acceptedTasks = taskIds == null ? null : new Set(taskIds);
   const entries = [];
+  let fence = null;
+  let inHtmlComment = false;
   let task = null;
   const finishTask = () => {
     if (!task || (acceptedTasks && !acceptedTasks.has(task.id))) return;
@@ -839,7 +864,20 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       });
     }
   };
-  for (const [index, line] of String(content).split(/\r?\n/).entries()) {
+  for (const [index, sourceLine] of String(content).split(/\r?\n/).entries()) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      continue;
+    }
+    if (inHtmlComment) {
+      inHtmlComment = advanceHtmlCommentState(sourceLine, true);
+      continue;
+    }
+    const commentStart = sourceLine.indexOf('<!--');
+    const line = commentStart === -1 ? sourceLine : sourceLine.slice(0, commentStart);
+    inHtmlComment = advanceHtmlCommentState(sourceLine, false);
+    fence = markdownFence(line);
+    if (fence) continue;
     const heading = /^### (T\d+):/.exec(line);
     if (heading) {
       finishTask();

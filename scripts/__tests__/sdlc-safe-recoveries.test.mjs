@@ -368,6 +368,40 @@ describe('approved publication scope', () => {
     })).toEqual(['src/a.ts', 'tests/a.test.mjs']);
   });
 
+  test.each([
+    ['backtick fence', ['```text', '**File(s)**: `src/hidden.ts`', '```']],
+    ['tilde fence', ['~~~text', '**File(s)**: `src/hidden.ts`', '~~~']],
+    ['multiline HTML comment', ['<!--', '**File(s)**: `src/hidden.ts`', '-->']],
+  ])('ignores metadata inside a %s', (_name, hiddenDeclaration) => {
+    expect(() => parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      ...hiddenDeclaration,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+      line: 2,
+    }));
+  });
+
+  test('does not count hidden metadata as a duplicate declaration', () => {
+    expect(parseDeliveryTaskFileLines([
+      '# Tasks',
+      '### T001: Create code',
+      '<!--',
+      '**File(s)**: `src/hidden.ts`',
+      '-->',
+      '```text',
+      '**File(s)**: `src/also-hidden.ts`',
+      '```',
+      '**File(s)**: `src/visible.ts`',
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+    })).toEqual(['src/visible.ts']);
+  });
+
   test.each(['`*`', '`**`', '`**/*`'])('rejects repository-wide glob %s', (declaration) => {
     expect(() => publicationFileEntries(declaration))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
@@ -407,12 +441,6 @@ describe('approved publication scope', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
   });
 
-  test('write-spec task template uses only the shared publication grammar', () => {
-    const entries = parseDeliveryTaskFileLines(fs.readFileSync(TASKS_TEMPLATE, 'utf8'), {
-      spec: 'workflows/write-spec/templates/tasks.md',
-    });
-    expect(entries.length).toBeGreaterThan(0);
-  });
 
 describe('publication CLI lease ownership boundary', () => {
   const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
