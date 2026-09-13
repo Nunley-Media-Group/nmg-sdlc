@@ -3,12 +3,12 @@
 **Issue**: #386
 **Date**: 2026-09-13
 **Status**: Passed
-**Implementation Revision**: `4a0e11425288d2b2e2a186a9a12e4d434d53b210`
+**Implementation Revision**: `6f781ab60e4fdc6a36653d66a16f84b97e5d5e2e`
 **Base Revision**: `e9f433749bce13f3c53d19b9ce2e814992863a3b`
 
 ## Scope
 
-The singular Approved package is `specs/386-detect-recoverable-files-labels-during-publication-upgrade/`. The implementation changes only publication upgrade detection, focused regression coverage, and the issue-owned Unreleased changelog entry. `parseDeliveryTaskFileLines()` remains unchanged and is used as the fail-closed authority while constructing candidate rewrites.
+The singular Approved package is `specs/386-detect-recoverable-files-labels-during-publication-upgrade/`. The implementation changes only publication upgrade detection, focused regression coverage, and the issue-owned Unreleased changelog entry. `parseDeliveryTaskFileLines()` remains unchanged and is used as the fail-closed authority while constructing candidate rewrites. Remediation refuses a candidate when its parser-visible declaration differs from the raw declaration and applies approved rewrites without rebuilding or normalizing original line separators.
 
 ## Acceptance Results
 
@@ -16,7 +16,7 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 |---|---|---|
 | AC1 | Passed | Focused detection emitted actionable `publication-files:02a552a7bd22d4b5807995605294d32cc87111862865f5f3e986e8ba041c5948` for the exact supported `Files` near miss. |
 | AC2 | Passed | The direct PathCast-shaped exercise planned rewrites at lines 5, 9, 13, and 17; apply changed those four label prefixes only; repeat detection returned zero publication actions. |
-| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing declarations, duplicate aliases, duplicate canonical declarations, mixed canonical/near-miss declarations, unsupported labels, malformed or ambiguous values, fenced declarations, or HTML-comment declarations. Visible unsafe file-like declarations remained located findings. |
+| AC3 | Passed | The focused unsafe-boundary regression emitted no rewrites for missing declarations, duplicate aliases, duplicate canonical declarations, mixed canonical/near-miss declarations, unsupported labels, malformed or ambiguous values, fenced declarations, HTML-comment declarations, or parser-visible/raw declaration mismatches. Visible unsafe file-like declarations remained located findings; explicit trailing, inline, and leading-hidden HTML-comment reproductions preserved source bytes exactly. |
 | AC4 | Passed | The unchanged delivery parser rejected the pre-state with `publication_scope_unproven` at T001 line 5 and accepted the post-state's complete 18-path set. |
 | AC5 | Passed | Existing canonical prose and annotation recovery regressions remained green; `CHANGELOG.md` records #386 under Unreleased Fixed. |
 
@@ -24,8 +24,8 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 
 | Path | Spec task | Behavior |
 |---|---|---|
-| `scripts/sdlc-upgrade.mjs` | T001 | Uses the fail-closed parser to validate each task-local candidate, canonicalizes only exact singular `Files`, and discards provisional rewrites when task authority remains unsafe. |
-| `scripts/__tests__/sdlc-upgrade.test.mjs` | T002 | Proves the PathCast-shaped pre/post contract, exact changed labels and paths, repeat-run cleanup, and unsafe declaration boundaries. |
+| `scripts/sdlc-upgrade.mjs` | T001 | Uses the fail-closed parser to validate each task-local candidate, rejects parser-visible/raw declaration differences, canonicalizes only exact singular `Files`, discards provisional rewrites when task authority remains unsafe, and preserves each original line separator during apply. |
+| `scripts/__tests__/sdlc-upgrade.test.mjs` | T002 | Proves the PathCast-shaped pre/post contract, exact changed labels and paths, repeat-run cleanup, unsafe declaration boundaries, HTML-comment refusal, and mixed-EOL byte recovery. |
 | `CHANGELOG.md` | T003 | Records the pending issue-owned defect fix. |
 | `specs/386-detect-recoverable-files-labels-during-publication-upgrade/requirements.md` | Spec | Approved requirements and scope for #386. |
 | `specs/386-detect-recoverable-files-labels-during-publication-upgrade/design.md` | Spec | Root cause, parser reuse, safety invariants, and blast radius. |
@@ -35,13 +35,13 @@ The singular Approved package is `specs/386-detect-recoverable-files-labels-duri
 
 ## Command Evidence
 
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-upgrade.test.mjs` — passed: 1 suite, 41 tests, 0 failures.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-upgrade.test.mjs` — passed: 1 suite, 45 tests, 0 failures.
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs` — passed: 1 suite, 102 tests, 0 failures.
-- `cd scripts && npm test -- --runInBand` — passed at implementation revision: 55 suites passed, 1 suite skipped; 1241 tests passed, 2 tests skipped; exit 0.
+- `cd scripts && npm test -- --runInBand` — passed on the post-fix tree: 55 suites passed, 1 suite skipped; 1245 tests passed, 2 tests skipped; exit 0.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
 - `node scripts/skill-inventory-audit.mjs --check` — passed: clean, 43 items mapped.
 - `node scripts/verify-current-specs.mjs` — passed: 77 genuine issue specs, 16 required archive entries, 16 rewrite capabilities, 16 active workflow mappings, 1 deprecated stub.
-- `git diff --check origin/main...HEAD` — passed with no diagnostics at implementation revision.
+- `git diff --check origin/main...HEAD && git diff --check` — passed with no diagnostics.
 - `node scripts/contribution-evidence.mjs --root . /tmp/nmg-sdlc-386-contribution.json` — passed with `{"ok":true,"errors":[]}` using the exact eight-path pre-review evidence set.
 
 ## Direct PathCast-Shaped Exercise
@@ -81,6 +81,11 @@ A disposable local root reproduced the four task declarations from PathCast issu
   - `docs/release/miledar-ip-product-safety.md`
 
 The disposable root and exercise script were removed after output capture.
+
+## Explicit Remediation Reproductions
+
+- HTML comments: trailing, inline-between-paths, and leading-hidden `**Files**:` declarations each produced `actionable: false`, zero rewrites, one located T001 line 2 finding, and byte-identical source after detection.
+- Mixed EOL: the source separator sequence `CRLF, LF, CRLF, LF, CRLF, LF` remained identical after apply. The updated file equaled the original with only `**Files**:` changed to `**File(s)**:`, and reversing that label recovered the original bytes exactly.
 
 ## Steering Alignment
 
