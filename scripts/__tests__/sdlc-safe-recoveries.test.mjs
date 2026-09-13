@@ -317,9 +317,10 @@ describe('publication CLI lease ownership boundary', () => {
     f.put('.omp/sdlc/handoffs/42-implement.json', JSON.stringify({
       schemaVersion: 1, issue: 42, step: 'implement', status: 'failed', intervention: true,
     }));
-    const bind = (identity = runId) => spawnSync(process.execPath, [
+    const bind = (identity = runId, subject = null) => spawnSync(process.execPath, [
       script, 'bind', '--issue', '42', '--step', 'implement', '--spec', spec,
       '--controller-run-id', identity,
+      ...(subject === null ? [] : ['--subject', subject]),
     ], { cwd: f.root, encoding: 'utf8' });
     return { ...f, bind };
   }
@@ -371,6 +372,26 @@ describe('publication CLI lease ownership boundary', () => {
       expectedSubject: 'feat: add brackets #42', allowedPaths: publication.allowedPaths, run: f.run,
     })).toMatchObject({ passed: false });
     expect(f.state().records).toEqual([]);
+  });
+
+  test('rejects a missing issue identifier before publication and accepts the canonical subject', () => {
+    const f = cliFixture();
+    const head = f.git('rev-parse', 'HEAD');
+    const upstream = f.git('rev-parse', '@{upstream}');
+    const rejected = f.bind(runId, 'fix: validate implementation subject before publication');
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
+    });
+    expect(fs.existsSync(f.statePath)).toBe(false);
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('rev-parse', '@{upstream}')).toBe(upstream);
+    expect(f.git('diff', '--cached')).toBe('');
+
+    const accepted = f.bind(runId, 'fix: validate implementation subject before publication for #42');
+    expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(accepted.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
+      passed: true, ownerId: runId,
+    });
   });
 
   test.each([

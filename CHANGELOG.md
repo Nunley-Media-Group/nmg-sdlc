@@ -13,6 +13,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 ### Fixed
 
 - Restore isolated subprocess regression coverage for bare execute recovery: legacy attempt 13 consumes one durable repair dispatch, and a failed recovery cannot replay after a new commit (#372). Runtime behavior remains the implementation released in 3.21.1.
+- Validate the implementation commit subject, including its literal `#N` owner, before staging, commit, or push instead of discovering a contract mismatch only during publication reconciliation (#372).
 
 ## [3.21.1] - 2026-09-08
 

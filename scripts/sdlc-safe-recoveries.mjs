@@ -357,6 +357,12 @@ function getExpectedSubject(step, issue) {
   // implement: caller supplies conventional subject
   return null;
 }
+
+function validImplementationSubject(subject, issue) {
+  return typeof subject === 'string'
+    && /^(feat|fix|docs|chore)(\([^)]+\))?!?: .+/.test(subject)
+    && new RegExp(`#${issue}(?!\\d)`).test(subject);
+}
 function readSessionRecoveryOwner({ projectRoot, sessionToken, issue, step, branch }) {
   if (!SESSION_TOKEN.test(sessionToken)) throw safeError('invalid_session_token');
   const sessionsRoot = join(projectRoot, '.omp', 'sdlc', 'sessions');
@@ -817,6 +823,10 @@ function runCli(argv = process.argv.slice(2)) {
     || !['implement', 'fix1', 'fix2', 'verify'].includes(options.step)) return 2;
   let lease;
   try {
+    if (options.step === 'implement' && Object.hasOwn(options, 'expectedSubject')
+      && !validImplementationSubject(options.expectedSubject, options.issue)) {
+      throw safeError('publication_subject_unproven');
+    }
     const cwd = process.cwd();
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
@@ -830,8 +840,10 @@ function runCli(argv = process.argv.slice(2)) {
     let outcome = { passed: true, ownerId, allowedPaths };
     if (action === 'reconcile') {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);
-      if (options.step === 'implement' && (!/^(feat|fix|docs|chore)(\([^)]+\))?!?: .+/.test(expectedSubject ?? '')
-        || !new RegExp(`#${options.issue}(?!\\d)`).test(expectedSubject))) throw safeError('publication_subject_unproven');
+      if (options.step === 'implement'
+        && !validImplementationSubject(expectedSubject, options.issue)) {
+        throw safeError('publication_subject_unproven');
+      }
       outcome = reconcileStagePublication({ ...options, cwd, ownerId, allowedPaths, expectedSubject });
     }
     process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify(outcome)}\n`);

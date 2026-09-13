@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T18:29:27.296Z",
+  "generated_at": "2026-09-13T08:15:46.708Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -132,9 +132,9 @@
       "destination": "agents/spec-implementer.md:11"
     },
     {
-      "id": "b97c0a0e9aff",
+      "id": "f93407c05c24",
       "source_before": "agents/spec-implementer.md:13",
-      "normalized": "commit all non-runtime implementation changes with a conventional subject and pu",
+      "normalized": "commit all non-runtime implementation changes with a conventional subject contai",
       "destination": "agents/spec-implementer.md:13"
     },
     {

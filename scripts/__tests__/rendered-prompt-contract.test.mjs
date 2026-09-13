@@ -23,6 +23,13 @@ describe('rendered prompt contracts', () => {
     expect(prompt).toContain('Do not change generated artifacts.');
   });
 
+  test('implement prompt validates its issue-bearing subject before Git publication', () => {
+    const prompt = workerPrompt({ step: 'implement', issue: 42 });
+    expect(prompt).toContain('literal issue identifier `#N`');
+    expect(prompt).toContain('--subject "<exact planned subject>"');
+    expect(prompt).toContain('before any staging, commit, or push');
+  });
+
   test('deliver prompt routes every repeated controller result', () => {
     const prompt = workerPrompt({ step: 'deliver', issue: 42 });
     expect(prompt).toContain('Route every invocation, including every post-remediation rerun');
