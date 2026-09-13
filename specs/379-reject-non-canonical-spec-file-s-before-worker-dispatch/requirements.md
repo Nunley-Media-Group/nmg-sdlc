@@ -76,6 +76,7 @@
 **And** when that stable recovery key predates the external store, it may seed exactly once from only the current outer `.omp/sdlc/verification/<outerIssue>.json`: the artifact must contain one exact failed `repository.nmg-sdlc-smoke` result for the stable outer issue/project/spec, validation/config, and configured queue; exactly one allowlisted retained clone; one complete baseline command per issue; and exactly one nonzero nested execute command/status
 **And** the seeded legacy record is admissible without a `smoke-deliveries` proof only when the retained clone independently proves allowlisted origin and ancestry, exact nested run/issue/PR and immutable verified head, a current passed `.omp/sdlc/verification/<nestedIssue>.json` artifact, identity-bound passed recovery-session delivery, one matching consumed `post_merge_observation`, expected-head ancestry, and a new baseline-excluded remote exact-head merged PR with the issue closed; Markdown verification prose never substitutes for that JSON artifact
 **And** Markdown prose, unrelated verification files or history, duplicate clone/execute evidence, incomplete baseline evidence, and mismatched or tampered outer, validation, config, queue, clone, run, issue, PR, or head identity never seed recovery and never launch a replacement
+**And** an external recovery-store writer unlinks the exclusive lock only when that invocation acquired it; a losing `openSync(lock, "wx")` contender leaves the owner lock intact, later contenders remain blocked until owner release, and owner cleanup permits the next atomic write
 
 ## Functional Requirements
 
@@ -108,3 +109,4 @@
 | #379 | 2026-09-13 | Pre-delivery review1 clarification: scope validation applies at new implement dispatch; bounded globs, unambiguous upgrade recovery, supported annotations, valid-package label backfill, and source line endings remain fail-closed or preserved as specified |
 | #379 | 2026-09-13 | Verification remediation: require proof-first smoke classification when execute exits nonzero after a workflow-owned recovery |
 | #379 | 2026-09-13 | Final verification remediation: authorized a fail-closed, JSON-only upgrade of the exact pre-recovery-store smoke failure into the stable recovery store |
+| #379 | 2026-09-13 | Recovery-store concurrency remediation: exclusive lock cleanup is limited to the writer that acquired the lock |

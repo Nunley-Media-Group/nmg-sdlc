@@ -90,6 +90,7 @@
 - [ ] With no stable-key record, only the current outer verification JSON may seed recovery; it must exactly bind outer issue/project/spec, validation/config, queue, one allowlisted retained clone, complete per-issue baselines, and one nonzero execute command/status
 - [ ] The real #379/#109 pre-store layout reconciles without a `smoke-deliveries` file only after exact retained origin/ancestry, nested run/issue/PR/verified-head, current passed nested verification JSON (never Markdown fallback), recovery-session, consumed post-merge, expected-head ancestry, baseline exclusion, and remote MERGED/CLOSED checks
 - [ ] Duplicate clones or execute evidence, incomplete baselines, tampered identities/config/queue, Markdown prose, and unrelated history cannot seed state or launch replacement work
+- [ ] Recovery-store lock cleanup runs only for the invocation that acquired the exclusive lock; real contention preserves the owner lock, blocks another contender, and permits the next write after owner release
 
 ---
 
@@ -112,3 +113,4 @@ Before moving to IMPLEMENT phase:
 | #379 | 2026-09-13 | Pre-delivery review1 scope amendment: authorized spec-created label backfill changes in T003 and clarified retained-worker, bounded-glob, upgrade annotation, ambiguity, invalid-package, and CRLF regressions without changing approved intent |
 | #379 | 2026-09-13 | Verification remediation added T005 for the proof-first mutable smoke gate |
 | #379 | 2026-09-13 | Final remediation extended T005 to upgrade exact pre-store smoke failures from the current outer verification JSON |
+| #379 | 2026-09-13 | Recovery-store lock ownership remediation added to T005 with real contention coverage |

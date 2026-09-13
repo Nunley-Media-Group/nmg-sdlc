@@ -326,9 +326,11 @@ export function createSmokeRecoveryStore({ root = join(tmpdir(), "nmg-sdlc-smoke
       writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
       renameSync(temporary, path);
     } finally {
-      if (descriptor !== undefined) closeSync(descriptor);
+      if (descriptor !== undefined) {
+        closeSync(descriptor);
+        try { unlinkSync(lock); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+      }
       try { unlinkSync(temporary); } catch (error) { if (error?.code !== "ENOENT") throw error; }
-      try { unlinkSync(lock); } catch (error) { if (error?.code !== "ENOENT") throw error; }
     }
   };
   const remove = (key) => {

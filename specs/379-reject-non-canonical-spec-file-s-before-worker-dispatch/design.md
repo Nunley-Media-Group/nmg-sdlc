@@ -42,6 +42,8 @@ Keep one parser. Export it. Fail closed on prose in live bind/preflight/publish.
 
 For the one legacy boundary created before the external recovery store existed, inspect only the current outer verification JSON at the stable outer issue path. Treat a matching failed smoke result as migration input, not as delivery proof: require one retained-clone artifact under the platform temporary root, the matching clone-command artifact, one parseable baseline command per configured issue, and one exact queued execute command paired with a nonzero result status. Bind the current stable outer scope and request validation/config to that evidence, derive the nested run, immutable expected head, initial clone head, and queue from the retained clone, and create the failed store record with the store's exclusive atomic write.
 
+The exclusive recovery-store write owns its lock only after `openSync(lock, "wx")` succeeds. A contender that receives `EEXIST` may clean up only its own temporary path and must not unlink the current writer's lock; the owner retains the existing atomic write/rename and lock cleanup sequence.
+
 After that write, use the normal retained-invocation reconciliation. The legacy record alone may omit the later `smoke-deliveries` file because the old provider could not create it after an automatic-review stop; all stronger independent checks remain mandatory: allowlisted origin, initial-head ancestry, exact run/issue/PR, a current passed nested verification JSON artifact at the immutable expected head, one identity-bound passed recovery session, one consumed `post_merge_observation`, expected-to-final-head ancestry, original baseline exclusion, and remote exact PR/head/MERGED plus issue CLOSED. The ordinary recovery Markdown fallback is disabled for this migration. Any ambiguity or mismatch rejects migration before a replacement clone or queue can launch.
 
 ### Changes
@@ -79,6 +81,7 @@ After that write, use the normal retained-invocation reconciliation. The legacy 
 | Upgrade extracts unsafe paths | Low | Mixed invalid quoted spans → finding, no rewrite; live parser unchanged |
 | Nonzero smoke exit masks a completed recovered delivery | Med | Persist baseline/clone/run outside the checkout; for the pre-store boundary, admit only one exact failed outer verification JSON with complete command evidence; bind final proof to the original run/PR and expected-head ancestry; require verification/session/recovery evidence plus bounded MERGED/CLOSED observation; tombstone terminal result before clone cleanup |
 | Recovery state perturbs its own lookup identity | Med | Stable key uses explicit outer verification run plus real project/spec/issue; store remains outside checkout; regression recomputes identity and lookup before/after persistence |
+| A losing recovery writer removes the owner's lock | Med | Guard lock unlink with successful descriptor acquisition; contend with a real owner process and prove a second contender remains blocked until owner release |
 | Bare smoke ownership suppresses the outer gate | Low | Keep `NMG_SDLC_SMOKE_OWNED=1` only for proof generation and require a separate provider-created token validated against exact clone/run state |
 | Circular imports | Low | recoveries must not import execute or publish-approved-spec |
 

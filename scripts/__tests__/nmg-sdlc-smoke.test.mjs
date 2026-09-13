@@ -627,6 +627,44 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(path.relative(root, storeRoot).startsWith('..')).toBe(true);
   });
 
+  it('preserves another writer lock until its owner releases it', async () => {
+    const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-lock-'));
+    commandFixtures.push({ root: storeRoot, marker: path.join(storeRoot, 'absent-marker') });
+    const key = 'c'.repeat(64);
+    const lockPath = path.join(storeRoot, `${key}.json.lock`);
+    const owner = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      const descriptor = fs.openSync(${JSON.stringify(lockPath)}, 'wx');
+      process.stdout.write('locked\\n');
+      process.stdin.once('data', () => {
+        fs.closeSync(descriptor);
+        fs.unlinkSync(${JSON.stringify(lockPath)});
+      });
+    `], { stdio: ['pipe', 'pipe', 'inherit'] });
+    await new Promise((resolve, reject) => {
+      owner.once('error', reject);
+      owner.stdout.once('data', resolve);
+    });
+
+    const firstContender = createSmokeRecoveryStore({ root: storeRoot });
+    const secondContender = createSmokeRecoveryStore({ root: storeRoot });
+    const value = { schemaVersion: 1, recoveryKey: key };
+    try {
+      expect(() => firstContender.write(key, value)).toThrow(/EEXIST/);
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(() => secondContender.write(key, value)).toThrow(/EEXIST/);
+      expect(fs.existsSync(lockPath)).toBe(true);
+    } finally {
+      owner.stdin.end('release');
+      await new Promise((resolve) => owner.once('exit', resolve));
+    }
+
+    expect(fs.existsSync(lockPath)).toBe(false);
+    firstContender.write(key, value);
+    expect(firstContender.read(key)).toEqual(value);
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
   it('accepts only a current deterministic verification artifact on a recovered main checkout', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-verification-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });

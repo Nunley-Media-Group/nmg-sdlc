@@ -137,3 +137,10 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
       | duplicate or mismatched execute evidence |
       | mismatched validation config or issue queue |
       | tampered outer artifact identity |
+
+  @SCN015 @regression
+  Scenario: Recovery-store lock cleanup belongs only to the owner
+    Given one smoke recovery writer holds the exclusive state lock
+    When another writer fails to acquire that lock
+    Then the owner's lock remains and a subsequent writer is still blocked
+    And after the owner releases and cleans up the lock the next atomic write succeeds
