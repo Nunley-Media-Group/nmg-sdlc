@@ -64,3 +64,12 @@ Feature: Bare execute recovers the current incomplete delivery without looping
     And the existing publication helper rejects a subject missing that identifier before commit or push
     And the canonical issue-bearing subject passes the pre-publication check
     And cancellation and consumed-recovery behavior remain unchanged
+
+  @SCN008 @regression
+  Scenario: Integrated spec branch starts from current default
+    Given the canonical remote issue branch is already contained by the default branch
+    And the default branch advanced after spec publication
+    When the start worker reuses the remote issue branch
+    Then the local issue branch fast-forwards to the exact fetched default head
+    And the remote branch is not mutated
+    And a divergent implementation branch is never reset or force-updated

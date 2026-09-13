@@ -127,6 +127,12 @@ function fixture({
     if (command === 'git' && args[0] === 'checkout') {
       return { status: checkoutStatus, stdout: '', stderr: '' };
     }
+    if (command === 'git' && args[0] === 'merge-base') {
+      return { status: 1, stdout: '', stderr: '' };
+    }
+    if (command === 'git' && args[0] === 'merge') {
+      return { status: 0, stdout: '', stderr: '' };
+    }
     if (command === 'git' && args[0] === 'branch') {
       branchReads += 1;
       return { status: 0, stdout: `${branchReads === 1 ? branch : checkedOutBranch}\n`, stderr: '' };
@@ -373,6 +379,9 @@ describe('startIssue controller', () => {
       if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
         return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
       }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
       if (command === 'gh' && args[0] === 'repo') {
         return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
       }
@@ -491,6 +500,9 @@ describe('startIssue controller', () => {
       if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
         return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
       }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
       if (command === 'gh' && args[0] === 'repo') {
         return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
       }
@@ -531,6 +543,90 @@ describe('startIssue controller', () => {
     ]);
     expect(calls.some((call) => call.includes('--force') || call.includes('--reset'))).toBe(false);
     expect(calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
+  });
+
+  it('fast-forwards a fully integrated remote spec branch to current default', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-start-integrated-branch-'));
+    roots.push(root);
+    const remote = path.join(root, 'remote.git');
+    const seed = path.join(root, 'seed');
+    const cwd = path.join(root, 'clone');
+    fs.mkdirSync(seed);
+    runGit(root, ['init', '--bare', remote]);
+    runGit(seed, ['init', '-b', 'main']);
+    runGit(seed, ['config', 'user.name', 'Test']);
+    runGit(seed, ['config', 'user.email', 'test@example.com']);
+    fs.writeFileSync(path.join(seed, 'README.md'), 'main\n');
+    runGit(seed, ['add', 'README.md']);
+    runGit(seed, ['commit', '-m', 'main']);
+    runGit(seed, ['remote', 'add', 'origin', remote]);
+    runGit(seed, ['push', '-u', 'origin', 'main']);
+    runGit(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    runGit(seed, ['checkout', '-b', '42-ship-it']);
+    fs.writeFileSync(path.join(seed, 'spec.txt'), 'approved\n');
+    runGit(seed, ['add', 'spec.txt']);
+    runGit(seed, ['commit', '-m', 'spec']);
+    const specHead = runGit(seed, ['rev-parse', 'HEAD']).stdout.trim();
+    runGit(seed, ['push', '-u', 'origin', '42-ship-it']);
+    runGit(seed, ['checkout', 'main']);
+    runGit(seed, ['merge', '--no-ff', '-m', 'merge spec', '42-ship-it']);
+    fs.appendFileSync(path.join(seed, 'README.md'), 'later default work\n');
+    runGit(seed, ['commit', '-am', 'later default work']);
+    runGit(seed, ['push', 'origin', 'main']);
+    const defaultHead = runGit(seed, ['rev-parse', 'HEAD']).stdout.trim();
+    runGit(root, ['clone', '--single-branch', remote, cwd]);
+
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      if (command === 'git') return runGit(cwd, args);
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: 42, title: 'Ship It!', body: '', labels: [],
+            state: args.includes('number,title,body,labels,state') ? 'OPEN' : 'open',
+          }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner')) {
+        return { status: 0, stdout: '{"nameWithOwner":"nmg/repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo' && args.includes('defaultBranchRef')) {
+        return { status: 0, stdout: 'main\n', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'repo') {
+        return { status: 0, stdout: '{"owner":{"login":"nmg"},"name":"repo"}', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && args.includes('--paginate')) {
+        return { status: 0, stdout: '[[]]', stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'api' && /^repos\/nmg\/repo\/issues\/42$/.test(args[1] || '')) {
+        return {
+          status: 0,
+          stdout: '{"id":4200,"number":42,"state":"open","title":"Ship It!","repository_url":"https://api.github.com/repos/nmg/repo"}',
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'api') {
+        return {
+          status: 0,
+          stdout: '{"data":{"repository":{"issue":{"projectItems":{"nodes":[]}}}}}',
+          stderr: '',
+        };
+      }
+      throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+    };
+
+    const result = startIssue({ issue: 42, cwd, run });
+
+    expect(result.handoff.status).toBe('passed');
+    expect(runGit(cwd, ['branch', '--show-current']).stdout.trim()).toBe('42-ship-it');
+    expect(runGit(cwd, ['rev-parse', 'HEAD']).stdout.trim()).toBe(defaultHead);
+    expect(runGit(cwd, ['rev-parse', 'origin/42-ship-it']).stdout.trim()).toBe(specHead);
+    expect(calls).toContainEqual(['git', 'merge', '--ff-only', 'refs/remotes/origin/main']);
+    expect(calls.some((call) => call.includes('--force') || call.includes('--reset'))).toBe(false);
   });
 
 

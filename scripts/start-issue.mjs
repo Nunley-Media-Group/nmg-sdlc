@@ -96,6 +96,25 @@ function checkoutTrackedRemoteBranch({ run, cwd, expectedBranch }) {
   return { checkout, remoteFound: true };
 }
 
+function fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch }) {
+  const defaultResult = run('gh', [
+    'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
+  ], { cwd });
+  const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
+  if (!defaultBranch || defaultBranch === expectedBranch) return { status: 0 };
+  const defaultRef = `refs/remotes/origin/${defaultBranch}`;
+  const fetched = run('git', [
+    'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${defaultBranch}:${defaultRef}`,
+  ], { cwd });
+  if (fetched?.status !== 0) return fetched;
+  const integrated = run('git', [
+    'merge-base', '--is-ancestor', `origin/${expectedBranch}`, defaultRef,
+  ], { cwd });
+  if (integrated?.status === 1) return { status: 0 };
+  if (integrated?.status !== 0) return integrated;
+  return run('git', ['merge', '--ff-only', defaultRef], { cwd });
+}
+
 
 export function startIssue({
   issue,
@@ -160,7 +179,9 @@ export function startIssue({
     } else {
       const tracked = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
       checkout = tracked.checkout;
-      if (!tracked.remoteFound) {
+      if (tracked.remoteFound && checkout?.status === 0) {
+        checkout = fastForwardIntegratedRemoteBranch({ run, cwd, expectedBranch });
+      } else if (!tracked.remoteFound) {
         const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
         const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
         if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
