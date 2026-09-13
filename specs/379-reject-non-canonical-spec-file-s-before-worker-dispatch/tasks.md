@@ -89,5 +89,5 @@ Before moving to IMPLEMENT phase:
 
 | Issue | Date | Summary |
 |---|---|---|
-| #379 | 2026-09-13 | Initial implementation task plan |
-| #379 | 2026-09-13 | Authorized README grammar and pre-dispatch diagnostics documentation in T003 |
+| #379 | 2026-09-13 | Initial defect report |
+| #379 | 2026-09-13 | Spec revised before delivery: authorized README grammar and pre-dispatch diagnostics documentation in T003 |

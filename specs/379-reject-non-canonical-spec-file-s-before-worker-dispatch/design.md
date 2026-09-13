@@ -95,5 +95,5 @@ Before moving to TASKS phase:
 
 | Issue | Date | Summary |
 |---|---|---|
-| #379 | 2026-09-13 | Initial root-cause analysis and fix design |
-| #379 | 2026-09-13 | Added the public README grammar and pre-dispatch diagnostics obligation |
+| #379 | 2026-09-13 | Initial defect report |
+| #379 | 2026-09-13 | Spec revised before delivery: added the public README grammar and pre-dispatch diagnostics obligation |

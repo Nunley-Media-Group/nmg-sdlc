@@ -89,4 +89,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #379 | 2026-09-13 | Initial defect report |
-| #379 | 2026-09-13 | Clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |
+| #379 | 2026-09-13 | Spec revised before delivery: clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |
