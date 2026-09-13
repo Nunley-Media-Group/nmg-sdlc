@@ -807,6 +807,21 @@ describe('publication File(s) upgrade', () => {
     expect(updated.replaceAll('\r\n', '')).not.toContain('\n');
   });
 
+  it('preserves mixed line endings while changing only the approved label', () => {
+    const root = makeRoot();
+    const relativePath = 'specs/42-add-x/tasks.md';
+    const source = '**Issue**: #42\r\n**Status**: Approved\n\r\n### T001: Create code\n**Files**: `src/a.ts`\r\n**Type**: Modify\n';
+    write(root, relativePath, source);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+
+    const updated = fs.readFileSync(path.join(root, relativePath), 'utf8');
+    expect(updated).toBe(source.replace('**Files**:', '**File(s)**:'));
+    expect(updated.replace('**File(s)**:', '**Files**:')).toBe(source);
+  });
+
   it.each([
     'Create `src/a.ts` or `src/b.ts`',
     'Create `src/a.ts` and src/b.ts',
@@ -821,6 +836,30 @@ describe('publication File(s) upgrade', () => {
     expect(item.packages[0].findings).toEqual([
       expect.objectContaining({ entry: declaration }),
     ]);
+  });
+
+  it.each([
+    ['trailing', '**Files**: `src/a.ts` <!-- retain this note -->'],
+    ['inline', '**Files**: `src/a.ts` <!-- retain this note -->, `src/b.ts`'],
+    ['leading hidden', '<!-- retain this note -->**Files**: `src/a.ts`'],
+  ])('refuses a %s HTML-comment near miss without changing bytes', (_name, declaration) => {
+    const root = makeRoot();
+    const relativePath = 'specs/42-add-x/tasks.md';
+    const source = `### T001: Create code\n${declaration}\n`;
+    write(root, relativePath, source);
+
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    expect(item).toMatchObject({
+      actionable: false,
+      packages: [{
+        path: relativePath,
+        rewrites: [],
+        findings: [expect.objectContaining({ line: 2, taskId: 'T001' })],
+      }],
+    });
+    expect(fs.readFileSync(path.join(root, relativePath), 'utf8')).toBe(source);
   });
 
   it('never establishes authority from missing, duplicate, mixed, unsupported, malformed, or hidden declarations', () => {

@@ -816,7 +816,13 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
       const canonical = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
       let recovered = null;
       let prefix = null;
+      const findings = error.entry == null ? [] : [{
+        line: error.line,
+        entry: error.entry,
+        taskId,
+      }];
       if (nearMiss) {
+        if (error.entry !== line.trim()) return { rewrites: [], findings };
         prefix = nearMiss[1].replace('Files', 'File(s)');
         try {
           publicationFileEntries(nearMiss[2]);
@@ -828,16 +834,7 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
         prefix = canonical[1];
         recovered = recoverPublicationFileDeclaration(canonical[2]);
       }
-      if (recovered === null) {
-        return {
-          rewrites: [],
-          findings: error.entry == null ? [] : [{
-            line: error.line,
-            entry: error.entry,
-            taskId,
-          }],
-        };
-      }
+      if (recovered === null) return { rewrites: [], findings };
       const after = `${prefix}${recovered}`;
       rewrites.push({
         line: error.line,
@@ -941,17 +938,20 @@ function applyPublicationFiles(root, item) {
     if (!plan.rewrites.length) continue;
     const target = path.join(root, plan.path);
     const source = safeRead(target);
-    const newline = source.includes('\r\n') ? '\r\n' : '\n';
-    const lines = source.split(/\r?\n/);
+    const lines = source.split(/(?<=\n)/);
     for (const rewrite of plan.rewrites) {
-      if (lines[rewrite.line - 1] !== rewrite.before) {
+      const index = rewrite.line - 1;
+      const line = lines[index];
+      const newline = line.endsWith('\r\n') ? '\r\n' : line.endsWith('\n') ? '\n' : '';
+      const before = line.slice(0, line.length - newline.length);
+      if (before !== rewrite.before) {
         const error = new Error('Publication File(s) changed after plan approval');
         error.reasonCode = 'publication_files_plan_stale';
         throw error;
       }
-      lines[rewrite.line - 1] = rewrite.after;
+      lines[index] = `${rewrite.after}${newline}`;
     }
-    fs.writeFileSync(target, lines.join(newline));
+    fs.writeFileSync(target, lines.join(''));
   }
   return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
 }
