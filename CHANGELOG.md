@@ -10,11 +10,17 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.21.2] - 2026-09-13
+
 ### Fixed
 
 - Restore isolated subprocess regression coverage for bare execute recovery: legacy attempt 13 consumes one durable repair dispatch, and a failed recovery cannot replay after a new commit (#372). Runtime behavior remains the implementation released in 3.21.1.
 - Validate the implementation commit subject, including its literal `#N` owner, before staging, commit, or push instead of discovering a contract mismatch only during publication reconciliation (#372).
 - Fast-forward a reused canonical remote issue branch to current default only when its old head is proven fully integrated, preventing stale spec branches from creating avoidable delivery conflicts while preserving divergent implementation work (#372).
+
+### Changed
+
+- Complete bounded operator-authorized recovery of stopped delivery (#372)
 
 ## [3.21.1] - 2026-09-08
 
