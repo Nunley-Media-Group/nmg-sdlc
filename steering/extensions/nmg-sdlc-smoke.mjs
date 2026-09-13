@@ -474,7 +474,13 @@ function optionalPassedHandoff(readFile, work, expected, step) {
     && handoff.reasonCode === null;
 }
 
-export function inspectRecoveredVerificationEvidence(readFile, work, recovered, immutable) {
+export function inspectRecoveredVerificationEvidence(
+  readFile,
+  work,
+  recovered,
+  immutable,
+  { jsonOnly = false } = {},
+) {
   const artifact = readJsonFile(
     readFile,
     join(work, ".omp", "sdlc", "verification", `${recovered.issue}.json`),
@@ -490,6 +496,7 @@ export function inspectRecoveredVerificationEvidence(readFile, work, recovered, 
       !result.required || !result.applicable || result.effectiveStatus === "passed"
     ))
   ) return true;
+  if (jsonOnly) return false;
 
   let matches;
   try {
@@ -1044,7 +1051,9 @@ export function createSmokeProvider({
         }
         if (!verifyOptionalHandoff(readFile, work, recovered, "verify")
           || !verifyRecoveredDelivery(readFile, work, recovered, { required: true })
-          || !verifyCurrentEvidence(readFile, work, recovered, immutable)) {
+          || !verifyCurrentEvidence(readFile, work, recovered, immutable, {
+            jsonOnly: state.bootstrap?.kind === "legacy-verification-failure",
+          })) {
           return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
         }
         expected.push(recovered);

@@ -88,7 +88,7 @@
 - [ ] First success persists cleanup-pending proof before clone cleanup; cleanup failure is incomplete and retries only cleanup; terminal-clean reruns validate remotely without clone/queue recreation
 - [ ] Missing, historical, unrelated, newly configured, non-ancestor, or tampered run/PR/head/baseline/config/terminal evidence never passes
 - [ ] With no stable-key record, only the current outer verification JSON may seed recovery; it must exactly bind outer issue/project/spec, validation/config, queue, one allowlisted retained clone, complete per-issue baselines, and one nonzero execute command/status
-- [ ] The real #379/#109 pre-store layout reconciles without a `smoke-deliveries` file only after exact retained origin/ancestry, nested run/issue/PR/verified-head, recovery-session, consumed post-merge, expected-head ancestry, baseline exclusion, and remote MERGED/CLOSED checks
+- [ ] The real #379/#109 pre-store layout reconciles without a `smoke-deliveries` file only after exact retained origin/ancestry, nested run/issue/PR/verified-head, current passed nested verification JSON (never Markdown fallback), recovery-session, consumed post-merge, expected-head ancestry, baseline exclusion, and remote MERGED/CLOSED checks
 - [ ] Duplicate clones or execute evidence, incomplete baselines, tampered identities/config/queue, Markdown prose, and unrelated history cannot seed state or launch replacement work
 
 ---

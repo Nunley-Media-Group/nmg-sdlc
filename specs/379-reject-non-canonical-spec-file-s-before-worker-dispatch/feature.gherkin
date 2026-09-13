@@ -117,7 +117,7 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
     Given stable outer run #379 has no external recovery-store record
     And its current verification JSON contains one failed repository.nmg-sdlc-smoke result for configured issue #109
     And that result contains one allowlisted retained clone, one complete #109 baseline command, and one nonzero execute command
-    And the retained clone has no smoke-deliveries proof but has the failed root deliver handoff, exact nested run and expected head, current verified artifact, matched passed recovery-session handoff, and consumed post_merge_observation
+    And the retained clone has no smoke-deliveries proof but has the failed root deliver handoff, exact nested run and expected head, current passed verification JSON artifact, matched passed recovery-session handoff, and consumed post_merge_observation
     When the provider reruns for the same stable outer issue, project, spec, validation, config, and queue
     Then it atomically seeds the failed recovery record
     And it accepts only the baseline-excluded remote exact PR and head as MERGED with #109 CLOSED
@@ -126,6 +126,7 @@ Feature: Reject non-canonical spec File(s) before worker dispatch
   @SCN014 @regression
   Scenario Outline: Pre-store migration rejects ambiguity and tampering
     Given stable outer run #379 has no external recovery-store record
+    And otherwise-valid Markdown verification cannot substitute for the nested JSON artifact
     When its current outer verification JSON has <defect>
     Then no recovery record is seeded
     And no replacement clone, execute queue, or issue is launched

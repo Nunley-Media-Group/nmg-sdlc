@@ -1116,6 +1116,63 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fs.existsSync(fixture.cloneRoot)).toBe(false);
   });
 
+  it('rejects legacy recovery when only otherwise-valid Markdown verification remains', async () => {
+    const fixture = legacyBootstrapFixture((_artifact, { cloneRoot }) => {
+      fs.rmSync(path.join(cloneRoot, '.omp/sdlc/verification/109.json'));
+      const specPath = 'specs/109-fixture';
+      const directory = path.join(cloneRoot, specPath);
+      fs.mkdirSync(directory, { recursive: true });
+      const scope = {
+        issueNumber: 109,
+        specPath,
+        status: 'scoped',
+        delivery: {
+          acceptanceCriteria: [],
+          functionalRequirements: [],
+          tasks: [],
+          scenarios: [],
+        },
+        regression: {
+          acceptanceCriteria: [],
+          functionalRequirements: [],
+          scenarios: [],
+        },
+      };
+      fs.writeFileSync(
+        path.join(directory, 'verification-report.md'),
+        `# Verification Report\n\n### Implementation Status: Pass\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`,
+      );
+    });
+    const recovered = {
+      issue: 109,
+      runId: '85bad261-c3e2-4895-a2f9-a52a28a4decd',
+      pullRequest: 112,
+      headSha: '044365a'.padEnd(40, '0'),
+    };
+    const immutable = { ...recovered, headSha: '23f5f71'.padEnd(40, '0') };
+    expect(inspectRecoveredVerificationEvidence(
+      fs.readFileSync,
+      fixture.cloneRoot,
+      recovered,
+      immutable,
+    )).toBe(true);
+    expect(inspectRecoveredVerificationEvidence(
+      fs.readFileSync,
+      fixture.cloneRoot,
+      recovered,
+      immutable,
+      { jsonOnly: true },
+    )).toBe(false);
+
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke execute exited 1',
+    });
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ phase: 'failed' });
+    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+    expect(fs.existsSync(fixture.cloneRoot)).toBe(true);
+  });
+
   it.each([
     ['duplicate retained clones', (artifact) => {
       artifact.results[0].result.evidence.push({
