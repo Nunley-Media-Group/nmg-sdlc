@@ -17,6 +17,7 @@ import { applySteeringPlan, createInitializePlan, steeringSourceDigest } from '.
 import { loadSteeringRuntime, projectPromptFragments } from '../../src/sdlc-steering-runtime.mjs';
 const temporaryRoots = [];
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
+const upgradeScript = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
 
 function makeRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-upgrade-'));
@@ -1307,10 +1308,9 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
     const tasksPath = path.join(root, selected, 'tasks.md');
     const before = fs.readFileSync(tasksPath);
-    const script = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
 
     const result = spawnSync(process.execPath, [
-      script,
+      upgradeScript,
       'apply-publication',
       '--root',
       root,
@@ -1333,10 +1333,9 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
     const tasksPath = path.join(root, selected, 'tasks.md');
     const before = fs.readFileSync(tasksPath);
-    const script = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
 
     const result = spawnSync(process.execPath, [
-      script,
+      upgradeScript,
       'detect-publication',
       '--root',
       root,
