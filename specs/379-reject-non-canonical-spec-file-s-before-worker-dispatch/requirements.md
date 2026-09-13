@@ -73,6 +73,9 @@
 **And** first success persists immutable accepted proof as cleanup-pending before removing the retained clone, advances to terminal-clean only after deletion succeeds, and makes same-key cleanup/terminal reruns revalidate stored proof remotely without recreating the clone or queue
 **And** missing, stale, malformed, historical, unrelated, non-ancestor, config/issue/run/PR/head-mismatched, or manually claimed proof preserves the nonzero failure
 **And** ordinary zero-exit delivery remains valid when cleanup removed `run.json`, but a present invalid `run.json` fails closed and all smoke-delivery proofs bind to one exact nested run ID
+**And** when that stable recovery key predates the external store, it may seed exactly once from only the current outer `.omp/sdlc/verification/<outerIssue>.json`: the artifact must contain one exact failed `repository.nmg-sdlc-smoke` result for the stable outer issue/project/spec, validation/config, and configured queue; exactly one allowlisted retained clone; one complete baseline command per issue; and exactly one nonzero nested execute command/status
+**And** the seeded legacy record is admissible without a `smoke-deliveries` proof only when the retained clone independently proves allowlisted origin and ancestry, exact nested run/issue/PR and immutable verified head, identity-bound passed recovery-session delivery, one matching consumed `post_merge_observation`, expected-head ancestry, and a new baseline-excluded remote exact-head merged PR with the issue closed
+**And** Markdown prose, unrelated verification files or history, duplicate clone/execute evidence, incomplete baseline evidence, and mismatched or tampered outer, validation, config, queue, clone, run, issue, PR, or head identity never seed recovery and never launch a replacement
 
 ## Functional Requirements
 
@@ -87,7 +90,7 @@
 | FR7 | Deterministic regression coverage listed in the test plan | Must |
 | FR8 | Workflow, reference, and public README documentation state the canonical **File(s)** syntax and pre-dispatch failure behavior | Must |
 | FR9 | `/sdlc-upgrade-project` detects and, after approval, rewrites recoverable existing **File(s)** lines; unrecoverable lines are findings | Must |
-| FR10 | Persist smoke recovery state outside the identity-scanned checkout under a stable outer verification run/project/spec/issue key; bind immutable validation/config/queue/baseline/clone/nested-run evidence; reconcile nonzero recovery and idempotent terminal reruns only from exact controller-owned local evidence plus bounded remote MERGED/CLOSED proof; preserve ordinary zero-exit proof semantics and reject outer ownership bypass | Must |
+| FR10 | Persist smoke recovery state outside the identity-scanned checkout under a stable outer verification run/project/spec/issue key; bind immutable validation/config/queue/baseline/clone/nested-run evidence; reconcile nonzero recovery and idempotent terminal reruns only from exact controller-owned local evidence plus bounded remote MERGED/CLOSED proof; preserve ordinary zero-exit proof semantics and reject outer ownership bypass; when and only when the stable key has no record, atomically upgrade an exact pre-store failed smoke result from the current outer verification JSON and require all retained-clone, baseline, nested-run, recovery-session, post-merge, ancestry, and remote identity proofs without consulting Markdown or unrelated history | Must |
 
 ## Out of Scope
 
@@ -104,3 +107,4 @@
 | #379 | 2026-09-13 | Spec revised before delivery: clarified the user-facing README obligation for canonical grammar and pre-dispatch diagnostics |
 | #379 | 2026-09-13 | Pre-delivery review1 clarification: scope validation applies at new implement dispatch; bounded globs, unambiguous upgrade recovery, supported annotations, valid-package label backfill, and source line endings remain fail-closed or preserved as specified |
 | #379 | 2026-09-13 | Verification remediation: require proof-first smoke classification when execute exits nonzero after a workflow-owned recovery |
+| #379 | 2026-09-13 | Final verification remediation: authorized a fail-closed, JSON-only upgrade of the exact pre-recovery-store smoke failure into the stable recovery store |

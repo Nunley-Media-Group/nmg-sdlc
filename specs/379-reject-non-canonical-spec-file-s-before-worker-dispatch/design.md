@@ -40,6 +40,10 @@
 
 Keep one parser. Export it. Fail closed on prose in live bind/preflight/publish. Add location fields. Run syntax validation at commit-push/merge (no git expansion). Run full `inspectPublicationScope` (including empty glob/dir) in execute before any `paneSplit`. Teach write-spec to emit only canonical lines and make template examples valid. Add an upgrade detector that rewrites only when every backtick-quoted span is already a valid path; never teach the live parser to mine prose.
 
+For the one legacy boundary created before the external recovery store existed, inspect only the current outer verification JSON at the stable outer issue path. Treat a matching failed smoke result as migration input, not as delivery proof: require one retained-clone artifact under the platform temporary root, the matching clone-command artifact, one parseable baseline command per configured issue, and one exact queued execute command paired with a nonzero result status. Bind the current stable outer scope and request validation/config to that evidence, derive the nested run, immutable expected head, initial clone head, and queue from the retained clone, and create the failed store record with the store's exclusive atomic write.
+
+After that write, use the normal retained-invocation reconciliation. The legacy record alone may omit the later `smoke-deliveries` file because the old provider could not create it after an automatic-review stop; all stronger independent checks remain mandatory: allowlisted origin, initial-head ancestry, exact run/issue/PR, current verification at the immutable expected head, one identity-bound passed recovery session, one consumed `post_merge_observation`, expected-to-final-head ancestry, original baseline exclusion, and remote exact PR/head/MERGED plus issue CLOSED. Any ambiguity or mismatch rejects migration before a replacement clone or queue can launch.
+
 ### Changes
 
 | File | Change | Rationale |
@@ -56,6 +60,7 @@ Keep one parser. Export it. Fail closed on prose in live bind/preflight/publish.
 | `scripts/sdlc-deliver.mjs` | Include controller `runId` in the existing smoke-delivery proof | Durably bind proof to the exact nested controller after `run.json` cleanup |
 | `scripts/sdlc-verify-steering.mjs`, `src/sdlc-verification-runtime.mjs` | Carry a stable explicit outer verification run/issue/spec identity into provider requests | Key recovery outside the identity-scanned checkout without depending on mutable dirty identity |
 | `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/sdlc-verification-runtime.test.mjs` | Cover persistence identity stability, token propagation, exact recovery, terminal replay, cleanup, and tamper rejection | AC7 regression boundary |
+| `steering/extensions/nmg-sdlc-smoke.mjs` | Parse the exact pre-store failed outer verification envelope, atomically seed one failed record, and reconcile it through retained-clone/local/remote validators | Recover the real #379/#109 legacy invocation without trusting prose, unrelated history, or replacement work |
 
 ### Blast Radius
 
@@ -72,7 +77,7 @@ Keep one parser. Export it. Fail closed on prose in live bind/preflight/publish.
 | Valid quoted/list/glob/annotation cases break | Low | Keep existing inspectPublicationScope fixture; add explicit valid rows |
 | Empty glob now unproven while spec files exist | Med | Required by issue; test it; write-spec still allows undeclared-yet literals via parse-only publish |
 | Upgrade extracts unsafe paths | Low | Mixed invalid quoted spans → finding, no rewrite; live parser unchanged |
-| Nonzero smoke exit masks a completed recovered delivery | Med | Persist baseline/clone/run outside the checkout; bind final proof to original run/PR and expected-head ancestry; require verification/session/recovery evidence plus bounded MERGED/CLOSED observation; tombstone terminal result before clone cleanup |
+| Nonzero smoke exit masks a completed recovered delivery | Med | Persist baseline/clone/run outside the checkout; for the pre-store boundary, admit only one exact failed outer verification JSON with complete command evidence; bind final proof to the original run/PR and expected-head ancestry; require verification/session/recovery evidence plus bounded MERGED/CLOSED observation; tombstone terminal result before clone cleanup |
 | Recovery state perturbs its own lookup identity | Med | Stable key uses explicit outer verification run plus real project/spec/issue; store remains outside checkout; regression recomputes identity and lookup before/after persistence |
 | Bare smoke ownership suppresses the outer gate | Low | Keep `NMG_SDLC_SMOKE_OWNED=1` only for proof generation and require a separate provider-created token validated against exact clone/run state |
 | Circular imports | Low | recoveries must not import execute or publish-approved-spec |
@@ -107,3 +112,4 @@ Before moving to TASKS phase:
 | #379 | 2026-09-13 | Spec revised before delivery: added the public README grammar and pre-dispatch diagnostics obligation |
 | #379 | 2026-09-13 | Verification remediation aligned the mutable smoke provider with its registered proof-first nonzero-exit contract |
 | #379 | 2026-09-13 | Pre-delivery review1 clarification: place validation at new implement dispatch, require a non-magic glob prefix, preserve safe annotations and line endings, reject ambiguous recovery, and withhold label backfill from invalid packages |
+| #379 | 2026-09-13 | Final remediation added a one-time, fail-closed migration for the exact pre-recovery-store outer verification layout |

@@ -87,6 +87,9 @@
 - [ ] Recovered final head binds to the same run/issue/PR, consumed post-merge evidence, passed verified-head artifact, identity-bound recovery session, and expected-head ancestry before bounded remote MERGED/CLOSED proof
 - [ ] First success persists cleanup-pending proof before clone cleanup; cleanup failure is incomplete and retries only cleanup; terminal-clean reruns validate remotely without clone/queue recreation
 - [ ] Missing, historical, unrelated, newly configured, non-ancestor, or tampered run/PR/head/baseline/config/terminal evidence never passes
+- [ ] With no stable-key record, only the current outer verification JSON may seed recovery; it must exactly bind outer issue/project/spec, validation/config, queue, one allowlisted retained clone, complete per-issue baselines, and one nonzero execute command/status
+- [ ] The real #379/#109 pre-store layout reconciles without a `smoke-deliveries` file only after exact retained origin/ancestry, nested run/issue/PR/verified-head, recovery-session, consumed post-merge, expected-head ancestry, baseline exclusion, and remote MERGED/CLOSED checks
+- [ ] Duplicate clones or execute evidence, incomplete baselines, tampered identities/config/queue, Markdown prose, and unrelated history cannot seed state or launch replacement work
 
 ---
 
@@ -108,3 +111,4 @@ Before moving to IMPLEMENT phase:
 | #379 | 2026-09-13 | Spec revised before delivery: authorized README grammar and pre-dispatch diagnostics documentation in T003 |
 | #379 | 2026-09-13 | Pre-delivery review1 scope amendment: authorized spec-created label backfill changes in T003 and clarified retained-worker, bounded-glob, upgrade annotation, ambiguity, invalid-package, and CRLF regressions without changing approved intent |
 | #379 | 2026-09-13 | Verification remediation added T005 for the proof-first mutable smoke gate |
+| #379 | 2026-09-13 | Final remediation extended T005 to upgrade exact pre-store smoke failures from the current outer verification JSON |

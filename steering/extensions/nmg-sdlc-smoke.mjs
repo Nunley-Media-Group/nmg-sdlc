@@ -588,6 +588,168 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
     ? { status: "passed", evidence }
     : { status: "failed", summary: "nmg-sdlc-smoke retained clone identity mismatch", evidence };
 }
+
+function exactRealPath(value, expected) {
+  try {
+    return typeof value === "string" && realpathSync(value) === expected;
+  } catch {
+    return false;
+  }
+}
+
+function legacyClonePath(evidence) {
+  const retained = evidence.filter((item) => (
+    item?.kind === "artifact"
+    && item.summary === "retained smoke clone"
+  ));
+  if (retained.length !== 1) return null;
+  try {
+    const stat = lstatSync(retained[0].artifact);
+    const clone = realpathSync(retained[0].artifact);
+    const temporaryRoot = realpathSync(tmpdir());
+    if (
+      stat.isSymbolicLink()
+      || !stat.isDirectory()
+      || resolve(clone, "..") !== temporaryRoot
+      || !clone.slice(temporaryRoot.length + 1).startsWith("nmg-sdlc-smoke-")
+    ) return null;
+    return clone;
+  } catch {
+    return null;
+  }
+}
+
+export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pluginRoot }) {
+  const artifactPath = join(scope.projectRoot, ".omp", "sdlc", "verification", `${scope.issue}.json`);
+  let artifact;
+  try {
+    artifact = JSON.parse(readFile(artifactPath, "utf8"));
+  } catch (error) {
+    return { presence: error?.code === "ENOENT" ? "absent" : "invalid" };
+  }
+  const candidates = Array.isArray(artifact?.results)
+    ? artifact.results.filter((entry) => entry?.id === "repository.nmg-sdlc-smoke")
+    : [];
+  if (candidates.length === 0) return { presence: "absent" };
+  if (candidates.length !== 1) return { presence: "invalid" };
+  const [candidate] = candidates;
+  const failedRequest = candidate.request;
+  const failedResult = candidate.result;
+  const resultIdentity = failedResult?.identity;
+  if (
+    artifact?.schemaVersion !== 1
+    || artifact.issue !== scope.issue
+    || artifact.ceiling !== "Fail"
+    || artifact.coverage?.complete !== true
+    || candidate.provider !== "project.nmg-sdlc-smoke"
+    || candidate.required !== true
+    || candidate.applicable !== true
+    || candidate.effectiveStatus !== "failed"
+    || failedRequest?.schemaVersion !== 1
+    || failedRequest.validationId !== request.validationId
+    || failedRequest.verification !== undefined
+    || !exactRealPath(failedRequest.projectRoot, scope.projectRoot)
+    || !equal(failedRequest.config, request.config)
+    || !equal(resultIdentity, failedRequest.identity)
+    || failedResult?.schemaVersion !== 1
+    || failedResult.status !== "failed"
+    || !equal(artifact.identity, {
+      headSha: failedRequest.identity?.headSha,
+      steeringHash: failedRequest.identity?.steeringHash,
+      specHash: failedRequest.identity?.specHash,
+    })
+    || failedRequest.identity?.validationConfigHash !== request.identity?.validationConfigHash
+    || !Array.isArray(failedResult.evidence)
+  ) return { presence: "invalid" };
+
+  const statusMatch = String(failedResult.summary ?? "").match(/^nmg-sdlc-smoke execute exited ([1-9]\d*)$/);
+  const executeEvidence = failedResult.evidence.filter((item) => (
+    item?.kind === "command"
+    && item.summary === `sdlc-execute run ${issues.map((issue) => `#${issue}`).join(" ")}`
+  ));
+  const clonePath = legacyClonePath(failedResult.evidence);
+  const cloneEvidence = failedResult.evidence.filter((item) => (
+    item?.kind === "command"
+    && item.summary === `git clone --single-branch ${SMOKE_REPO}`
+  ));
+  if (
+    !statusMatch
+    || executeEvidence.length !== 1
+    || !clonePath
+    || cloneEvidence.length !== 1
+    || !exactRealPath(cloneEvidence[0].artifact, clonePath)
+    || !exactRealPath(executeEvidence[0].artifact, clonePath)
+  ) return { presence: "invalid" };
+
+  const baselines = [];
+  const baselineEvidence = failedResult.evidence.filter((item) => (
+    item?.kind === "command" && String(item.summary ?? "").startsWith("gh issue closing PR baseline ")
+  ));
+  if (baselineEvidence.length !== issues.length) return { presence: "invalid" };
+  for (const issue of issues) {
+    const matches = baselineEvidence.filter((item) => item.summary === `gh issue closing PR baseline ${issue}`);
+    const observed = matches.length === 1
+      ? closingIssue({ status: 0, stdout: matches[0].stdout })
+      : null;
+    if (
+      !observed
+      || observed.url !== `https://github.com/${SMOKE_OWNER}/${SMOKE_NAME}/issues/${issue}`
+    ) return { presence: "invalid" };
+    baselines.push(baselineState(issue, observed));
+  }
+
+  const nested = nestedRunIdentity(readFile, clonePath, issues);
+  const run = readJsonFile(readFile, join(clonePath, ".omp", "sdlc", "run.json"));
+  const rootDelivery = readJsonFile(
+    readFile,
+    join(clonePath, ".omp", "sdlc", "handoffs", `${run?.currentIssue}-deliver.json`),
+  );
+  if (
+    nested.presence !== "valid"
+    || !exactExpectedQueue(nested.expected, issues, nested.runId)
+    || !SHA.test(run?.head ?? "")
+    || run.issue !== run.currentIssue
+    || run.failed?.issue !== run.currentIssue
+    || run.failed?.step !== "deliver"
+    || run.failed?.reasonCode !== "automatic_review_unactionable"
+    || run.delivery?.status !== "expected"
+    || rootDelivery?.schemaVersion !== 1
+    || rootDelivery.issue !== run.currentIssue
+    || rootDelivery.step !== "deliver"
+    || rootDelivery.status !== "failed"
+    || rootDelivery.intervention !== true
+    || rootDelivery.reasonCode !== "automatic_review_unactionable"
+  ) return { presence: "invalid" };
+
+  return {
+    presence: "valid",
+    state: {
+      schemaVersion: 1,
+      recoveryKey: scope.recoveryKey,
+      scope,
+      outerIdentity: request.identity,
+      validationId: request.validationId,
+      pluginRoot,
+      clonePath,
+      cloneInitialHead: run.head.toLowerCase(),
+      issues,
+      baselines,
+      tokenSecret: randomBytes(32).toString("hex"),
+      phase: "failed",
+      executeStatus: Number(statusMatch[1]),
+      nestedRunId: nested.runId,
+      expected: nested.expected,
+      validationConfig: canonical(request.config),
+      bootstrap: {
+        kind: "legacy-verification-failure",
+        issue: scope.issue,
+        artifactDigest: digest(JSON.stringify(canonical(artifact))),
+        deliveryProofRequired: false,
+      },
+    },
+  };
+}
+
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
   mkdtempSync: createTemp = mkdtempSync,
@@ -692,6 +854,31 @@ export function createSmokeProvider({
       ]);
     }
 
+    if (!state) {
+      let legacy;
+      try {
+        legacy = inspectLegacySmokeFailure(readFile, {
+          request,
+          scope,
+          issues,
+          pluginRoot,
+        });
+      } catch {
+        legacy = { presence: "invalid" };
+      }
+      if (legacy.presence === "invalid") {
+        return envelope("failed", "nmg-sdlc-smoke legacy recovery evidence invalid", identity);
+      }
+      if (legacy.presence === "valid") {
+        try {
+          recoveryStore.write(scope.recoveryKey, legacy.state);
+          state = recoveryStore.read(scope.recoveryKey);
+        } catch (error) {
+          return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
+        }
+      }
+    }
+
     let work = state?.clonePath ?? null;
     const retain = (status, summary, evidence = []) => envelope(status, summary, identity, [
       ...evidence,
@@ -708,10 +895,17 @@ export function createSmokeProvider({
       for (const target of expected) {
         if (!terminal) {
           const delivery = recordedDelivery(readFile, work, target.issue);
-          if (!delivery
-            || delivery.runId !== target.runId
-            || delivery.pullRequest !== target.pullRequest
-            || delivery.headSha !== target.headSha) {
+          const legacyWithoutProof = recovered
+            && state.bootstrap?.kind === "legacy-verification-failure"
+            && state.bootstrap.issue === scope.issue
+            && /^[0-9a-f]{64}$/.test(state.bootstrap.artifactDigest ?? "")
+            && state.bootstrap.deliveryProofRequired === false;
+          if ((!delivery && !legacyWithoutProof)
+            || (delivery && (
+              delivery.runId !== target.runId
+              || delivery.pullRequest !== target.pullRequest
+              || delivery.headSha !== target.headSha
+            ))) {
             return retain("failed", recovered
               ? `nmg-sdlc-smoke execute exited ${state.executeStatus}`
               : `nmg-sdlc-smoke issue #${target.issue} missing invocation delivery proof`, evidence);
