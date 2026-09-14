@@ -954,9 +954,14 @@ const WRITABLE_OPERATIONS = new Map([
 ]);
 
 function declaredOperation(note, typeValue) {
-  const normalizedNote = note.trim().replace(/\s+/g, ' ').toLowerCase();
+  const rawNote = note.trim();
+  const normalizedNote = rawNote.replace(/\s+/g, ' ').toLowerCase();
   if (WRITABLE_OPERATIONS.has(normalizedNote)) return WRITABLE_OPERATIONS.get(normalizedNote);
-  if (normalizedNote && /^(?:download|generate)(?:\s+\S+)?$/i.test(note.trim())) {
+  if (normalizedNote && (
+    /^(?:download|generate)(?:\s+\S+)?$/i.test(rawNote)
+    || /^[A-Z][A-Za-z]*$/.test(rawNote)
+    || /^(?:create|modify|delete|remove)(?:\s*(?:\/|\bor\b)\s*\S+)+$/i.test(rawNote)
+  )) {
     throw safeError('publication_scope_unproven');
   }
   const operations = [...String(typeValue ?? '').matchAll(/\b(Create|Modify|Delete)\b/gi)]

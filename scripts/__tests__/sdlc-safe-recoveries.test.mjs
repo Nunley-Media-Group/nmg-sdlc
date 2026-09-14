@@ -808,13 +808,20 @@ describe('read-only owner-bound publication probe', () => {
     expect(operations).toHaveLength(2);
     expect(operations.flatMap((task) => task.operations).filter((item) => item.path === 'src/shared.mjs'))
       .toHaveLength(4);
-    expect(() => parseDeliveryTaskFileLines([
-      '### T001: Unsupported',
-      '**File(s)**: `src/shared.mjs` (Download tracked)',
-    ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
-      reasonCode: 'publication_scope_unproven',
-      taskId: 'T001',
-    }));
+    for (const note of ['Download tracked', 'Archive', 'Create / Modify']) {
+      expect(() => parseDeliveryTaskFileLines([
+        '### T001: Unsupported',
+        `**File(s)**: \`src/shared.mjs\` (${note})`,
+      ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
+        reasonCode: 'publication_scope_unproven',
+        taskId: 'T001',
+      }));
+    }
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Ordinary note',
+      '**File(s)**: `src/shared.mjs` (as needed)',
+      '**Type**: Modify',
+    ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Modify');
   });
 
   test('rejects missing or mismatched owner-bound inputs without creating state', () => {
