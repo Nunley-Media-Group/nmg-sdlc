@@ -30,7 +30,11 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
-import { parseDeliveryTaskFileLines, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
+import {
+  parseDeliveryTaskFileLines,
+  publicationFileEntries,
+  visitVisiblePublicationMarkdownLines,
+} from './sdlc-safe-recoveries.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -1145,185 +1149,26 @@ function recoverPublicationFileDeclaration(value) {
   return tokens.join(', ');
 }
 
-function publicationMarkdownFence(line) {
-  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
-  return { marker: match[1][0], length: match[1].length };
-}
-
-function closesPublicationMarkdownFence(line, fence) {
-  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
-  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
-}
-
-function publicationCodeSpanSourceLines(lines) {
-  const visibleLines = [];
-  let fence = null;
-  let inComment = false;
-  for (const sourceLine of lines) {
-    if (fence) {
-      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
-      visibleLines.push(' '.repeat(sourceLine.length));
-      continue;
-    }
-    const chars = sourceLine.split('');
-    let offset = 0;
-    while (offset < sourceLine.length) {
-      if (inComment) {
-        const end = sourceLine.indexOf('-->', offset);
-        const limit = end === -1 ? sourceLine.length : end + 3;
-        chars.fill(' ', offset, limit);
-        offset = limit;
-        if (end === -1) break;
-        inComment = false;
-        continue;
-      }
-      const start = sourceLine.indexOf('<!--', offset);
-      if (start === -1) break;
-      chars.fill(' ', start, start + 4);
-      inComment = true;
-      offset = start + 4;
-    }
-    const visible = chars.join('');
-    fence = publicationMarkdownFence(visible);
-    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
-  }
-  return visibleLines;
-}
-
-function publicationEscapedBacktick(line, offset) {
-  let backslashes = 0;
-  for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
-  return backslashes % 2 === 1;
-}
-
-function publicationCodeSpanDelimiters(lines) {
-  const roles = new Map();
-  const remaining = [];
-  const key = (line, offset) => `${line}:${offset}`;
-  for (const [lineIndex, line] of lines.entries()) {
-    const runs = [];
-    for (let offset = 0; offset < line.length;) {
-      if (line[offset] !== '`') {
-        offset += 1;
-        continue;
-      }
-      const delimiter = /^`+/.exec(line.slice(offset))[0];
-      if (!publicationEscapedBacktick(line, offset)) {
-        runs.push({ line: lineIndex, offset, length: delimiter.length });
-      }
-      offset += delimiter.length;
-    }
-    if (!/^\*\*[^*]+\*\*:/.test(line)) {
-      remaining.push(...runs);
-      continue;
-    }
-    for (let index = 0; index < runs.length;) {
-      const opener = runs[index];
-      let close = index + 1;
-      while (close < runs.length && runs[close].length !== opener.length) close += 1;
-      if (close === runs.length) {
-        remaining.push(opener);
-        index += 1;
-        continue;
-      }
-      roles.set(key(opener.line, opener.offset), 'open');
-      roles.set(key(runs[close].line, runs[close].offset), 'close');
-      index = close + 1;
-    }
-  }
-  for (let index = 0; index < remaining.length;) {
-    const opener = remaining[index];
-    let close = index + 1;
-    while (close < remaining.length && remaining[close].length !== opener.length) close += 1;
-    if (close === remaining.length) {
-      index += 1;
-      continue;
-    }
-    roles.set(key(opener.line, opener.offset), 'open');
-    roles.set(key(remaining[close].line, remaining[close].offset), 'close');
-    index = close + 1;
-  }
-  return roles;
-}
-
-function stripPublicationHtmlComments(line, inComment, codeSpan, delimiterRole) {
-  let visible = '';
-  let offset = 0;
-  while (offset < line.length) {
-    if (inComment) {
-      const end = line.indexOf('-->', offset);
-      if (end === -1) return { line: visible, inComment: true, codeSpan };
-      inComment = false;
-      offset = end + 3;
-      continue;
-    }
-    if (line[offset] === '`') {
-      const delimiter = /^`+/.exec(line.slice(offset))[0];
-      visible += delimiter;
-      const role = delimiterRole(offset);
-      if (codeSpan === 0 && role === 'open') codeSpan = delimiter.length;
-      else if (codeSpan === delimiter.length && role === 'close') codeSpan = 0;
-      offset += delimiter.length;
-      continue;
-    }
-    if (codeSpan > 0) {
-      visible += line[offset++];
-      continue;
-    }
-    if (line.startsWith('<!--', offset)) {
-      inComment = true;
-      offset += 4;
-      continue;
-    }
-    visible += line[offset++];
-  }
-  return { line: visible, inComment, codeSpan };
-}
+const PUBLICATION_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
 function publicationTaskVisibility(sourceLines) {
-  const visibleTaskIds = new Set();
+  const taskIds = new Set();
   const parserLines = [...sourceLines];
-  const codeSpanRoles = publicationCodeSpanDelimiters(
-    publicationCodeSpanSourceLines(sourceLines),
-  );
-  let fence = null;
-  let inHtmlComment = false;
-  let codeSpan = 0;
+  const visibleHeadings = new Set();
+  visitVisiblePublicationMarkdownLines(sourceLines, (index, line) => {
+    const taskId = PUBLICATION_TASK_HEADING.exec(line)?.[1];
+    if (!taskId) return;
+    taskIds.add(taskId);
+    visibleHeadings.add(index);
+  });
   for (const [index, sourceLine] of sourceLines.entries()) {
-    if (fence) {
-      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
-      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
-      continue;
-    }
-    const startsInCodeSpan = codeSpan > 0;
-    const stripped = stripPublicationHtmlComments(
-      sourceLine,
-      inHtmlComment,
-      codeSpan,
-      (offset) => codeSpanRoles.get(`${index}:${offset}`),
-    );
-    const line = stripped.line;
-    inHtmlComment = stripped.inComment;
-    codeSpan = stripped.codeSpan;
-    if (startsInCodeSpan) {
-      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
-      continue;
-    }
-    fence = publicationMarkdownFence(line);
-    if (fence) {
-      codeSpan = 0;
-      continue;
-    }
-    const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
-    if (taskId) {
-      visibleTaskIds.add(taskId);
-    } else if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) {
+    if (!visibleHeadings.has(index) && PUBLICATION_TASK_HEADING.test(sourceLine)) {
       parserLines[index] = '';
     }
   }
-  return { parserLines, taskIds: visibleTaskIds };
+  return { parserLines, taskIds };
 }
+
 
 
 function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {

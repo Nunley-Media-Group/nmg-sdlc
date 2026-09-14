@@ -1037,6 +1037,35 @@ function stripHtmlComments(line, inComment, codeSpan, delimiterRole) {
 
 const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
+export function visitVisiblePublicationMarkdownLines(sourceLines, visit) {
+  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
+  let fence = null;
+  let inHtmlComment = false;
+  let codeSpan = 0;
+  for (const [index, sourceLine] of sourceLines.entries()) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      continue;
+    }
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripHtmlComments(
+      sourceLine,
+      inHtmlComment,
+      codeSpan,
+      (offset) => codeSpanRoles.get(`${index}:${offset}`),
+    );
+    inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) continue;
+    fence = markdownFence(stripped.line);
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
+    visit(index, stripped.line);
+  }
+}
+
 const WRITABLE_OPERATIONS = new Map([
   ['create', 'Create'],
   ['modify', 'Modify'],
@@ -1121,7 +1150,6 @@ export function parseDeliveryTaskFileLines(content, {
   const explicitTaskIds = taskIds != null;
   const acceptedTasks = new Set(taskIds ?? []);
   const sourceLines = String(content).split(/\r?\n/);
-  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
   const acceptedTaskLines = new Map();
   const expectedTaskCounts = new Map();
   for (const [index, line] of sourceLines.entries()) {
@@ -1134,9 +1162,6 @@ export function parseDeliveryTaskFileLines(content, {
   const validatedTaskCounts = new Map();
   const entries = [];
   const taskOperations = [];
-  let fence = null;
-  let inHtmlComment = false;
-  let codeSpan = 0;
   let task = null;
   const locatedFailure = (taskValue, detail = {}) => safeError('publication_scope_unproven', {
     spec,
@@ -1205,27 +1230,7 @@ export function parseDeliveryTaskFileLines(content, {
     taskOperations.push({ taskId: task.id, operations });
     validatedTaskCounts.set(task.id, (validatedTaskCounts.get(task.id) ?? 0) + 1);
   };
-  for (const [index, sourceLine] of sourceLines.entries()) {
-    if (fence) {
-      if (closesMarkdownFence(sourceLine, fence)) fence = null;
-      continue;
-    }
-    const startsInCodeSpan = codeSpan > 0;
-    const stripped = stripHtmlComments(
-      sourceLine,
-      inHtmlComment,
-      codeSpan,
-      (offset) => codeSpanRoles.get(`${index}:${offset}`),
-    );
-    const line = stripped.line;
-    inHtmlComment = stripped.inComment;
-    codeSpan = stripped.codeSpan;
-    if (startsInCodeSpan) continue;
-    fence = markdownFence(line);
-    if (fence) {
-      codeSpan = 0;
-      continue;
-    }
+  visitVisiblePublicationMarkdownLines(sourceLines, (index, line) => {
     const heading = DELIVERY_TASK_HEADING.exec(line);
     if (heading) {
       finishTask();
@@ -1238,16 +1243,16 @@ export function parseDeliveryTaskFileLines(content, {
         readOnly: [],
         acquire: [],
       };
-      continue;
+      return;
     }
     if (/^#{1,3}(?:[ \t]+|$)/.test(line)) {
       finishTask();
       task = null;
-      continue;
+      return;
     }
-    if (!task || !acceptedTasks.has(task.id)) continue;
+    if (!task || !acceptedTasks.has(task.id)) return;
     const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
-    if (!metadata) continue;
+    if (!metadata) return;
     const [, label, value] = metadata;
     const detail = { line: index + 1, value: value.trim(), entry: line.trim() };
     if (label === 'File(s)') task.declarations.push(detail);
@@ -1257,7 +1262,7 @@ export function parseDeliveryTaskFileLines(content, {
     else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
       task.nearMisses.push(detail);
     }
-  }
+  });
   finishTask();
   for (const taskId of acceptedTasks) {
     const expected = expectedTaskCounts.get(taskId) ?? 1;
