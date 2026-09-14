@@ -853,10 +853,14 @@ function publicationFileDeclarations(value) {
   return declarations;
 }
 
+function isDeliveryOwnerOnly(note) {
+  return note.trim().toLowerCase().replace(/[\s-]+/g, ' ') === 'delivery owner only';
+}
+
 export function publicationFileEntries(value) {
   const entries = [];
   for (const { path, note } of publicationFileDeclarations(value)) {
-    if (/\bdelivery[- ]owner\s+only\b/i.test(note)) continue;
+    if (isDeliveryOwnerOnly(note)) continue;
     pathAnnotationOperation(note);
     entries.push(path);
   }
@@ -1128,7 +1132,7 @@ export function parseDeliveryTaskFileLines(content, {
     const operations = [];
     try {
       for (const item of declared) {
-        if (/\bdelivery[- ]owner\s+only\b/i.test(item.note)) continue;
+        if (isDeliveryOwnerOnly(item.note)) continue;
         if (!structured) {
           pathAnnotationOperation(item.note);
           entries.push(item.path);

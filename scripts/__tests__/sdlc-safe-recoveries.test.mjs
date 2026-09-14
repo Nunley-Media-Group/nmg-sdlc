@@ -310,6 +310,22 @@ describe('approved publication scope', () => {
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
   });
 
+  test('keeps an exact delivery-owner verification report outside implementation scope', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/code.mjs\` (Modify), \`${REPORT}\` (delivery-owner only)\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run });
+
+    expect(scope.allowedPaths).toContain('src/code.mjs');
+    expect(scope.allowedPaths).not.toContain(REPORT);
+    expect(scope.readOnlyPaths).not.toContain(REPORT);
+  });
+
   test.each([
     ['missing', '**Type**: Modify'],
     ['near-miss', '**Files**: `src/code.mjs`'],
@@ -368,6 +384,39 @@ describe('approved publication scope', () => {
       taskId: 'T001',
       line: 4,
       entry: 'Create `src/a.ts`',
+      syntax: PUBLICATION_FILE_SYNTAX,
+    }));
+  });
+
+  test.each([
+    'delivery-owner only',
+    'delivery owner only',
+    'DeLiVeRy-OWNER   OnLy',
+  ])('excludes the exact normalized delivery-owner annotation %s', (annotation) => {
+    expect(publicationFileEntries(`\`specs/42-feature/verification-report.md\` (${annotation})`))
+      .toEqual([]);
+  });
+
+  test.each([
+    'delivery-owner only, Archive',
+    'delivery-owner only Create',
+    'Archive delivery-owner only',
+  ])('rejects residual delivery-owner annotation text %s at the declaration location', (annotation) => {
+    const declaration = `\`specs/42-feature/verification-report.md\` (${annotation})`;
+    expect(() => publicationFileEntries(declaration))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Record delivery evidence',
+      `**File(s)**: ${declaration}`,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      structured: true,
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-feature/tasks.md',
+      taskId: 'T001',
+      line: 2,
+      entry: declaration,
       syntax: PUBLICATION_FILE_SYNTAX,
     }));
   });
