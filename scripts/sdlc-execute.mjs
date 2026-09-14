@@ -40,6 +40,7 @@ import {
   hasSafeRecoveryRecord,
   probePublicationScope,
   resolveRecoveryOwner,
+  expectedExecuteHandoffSlots,
 } from './sdlc-safe-recoveries.mjs';
 import { provePublicationLabelRepair } from './sdlc-upgrade.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
@@ -599,6 +600,7 @@ const SAFE_IGNORED_STATE_DIRECTORIES = new Set([
   'dist',
   'node_modules',
 ]);
+const RESERVED_WORKSPACE_ROOTS = new Set(['.omp', '.pi-glla', 'specs']);
 
 function fileIdentity(stat) {
   return {
@@ -743,11 +745,18 @@ function pathWithin(path, boundary) {
     || normalizedPath.startsWith(`${normalizedBoundary}/`);
 }
 
-function hasWorkspaceManifest(root, component) {
-  if (!/^[A-Za-z0-9._-]+$/.test(component)) return false;
+function hasWorkspaceManifest(root, component, protectedPaths) {
+  if (!/^[A-Za-z0-9._-]+$/.test(component)
+    || RESERVED_WORKSPACE_ROOTS.has(component)
+    || !protectedPaths.some((protectedPath) =>
+      protectedPath === component || protectedPath.startsWith(`${component}/`))) return false;
   const workspace = join(root, component);
-  const workspaceStat = lstatSync(workspace);
-  if (workspaceStat.isSymbolicLink() || !workspaceStat.isDirectory()) return false;
+  try {
+    const workspaceStat = lstatSync(workspace);
+    if (workspaceStat.isSymbolicLink() || !workspaceStat.isDirectory()) return false;
+  } catch {
+    return false;
+  }
   return ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
     .some((manifest) => {
       try {
@@ -759,15 +768,28 @@ function hasWorkspaceManifest(root, component) {
     });
 }
 
-function isIrrelevantIgnoredState(root, path, protectedPaths) {
+function isBoundedDsStorePath(root, path, protectedPaths) {
+  if (path === '.DS_Store') return true;
+  const components = path.split('/');
+  if (!hasWorkspaceManifest(root, components[0], protectedPaths)) return false;
+  if (components.length === 2 && components[1] === '.DS_Store') return true;
+  return components.length === 3
+    && ['android', 'ios'].includes(components[1])
+    && components[2] === '.DS_Store';
+}
+
+function isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthorityPaths) {
   if (protectedPaths.some((protectedPath) =>
     pathWithin(path, protectedPath) || pathWithin(protectedPath, path))) return false;
   const components = path.replace(/\/+$/, '').split('/');
-  const workspaceBound = components.length > 1 && hasWorkspaceManifest(root, components[0]);
+  const workspaceBound = components.length > 1
+    && hasWorkspaceManifest(root, components[0], workspaceAuthorityPaths);
+  const basename = components.at(-1);
+  if (basename === '.DS_Store') {
+    return isBoundedDsStorePath(root, path, workspaceAuthorityPaths);
+  }
   if (SAFE_IGNORED_STATE_DIRECTORIES.has(components[0])
     || (workspaceBound && SAFE_IGNORED_STATE_DIRECTORIES.has(components[1]))) return true;
-  const basename = components.at(-1);
-  if (basename === '.DS_Store') return true;
   if (path === '.claude/settings.local.json' || pathWithin(path, '.claude/worktrees')
     || path === '.vscode/settings.json' || pathWithin(path, '.worktrees')
     || /^\.[a-z0-9-]+-review(?:\/|$)/.test(path)) return true;
@@ -805,14 +827,12 @@ function isIrrelevantIgnoredState(root, path, protectedPaths) {
     && ['golden', 'goldens'].includes(components[2]) && components[3] === 'failures';
 }
 
-function knownControllerStatePath(relativePath, currentHandoffPath, allowOwnedLease) {
-  if ([RUN_FILE, `${RUN_DIR}/safe-recoveries.json`, OMP_CONTROLLER_CONFIG_FILE, currentHandoffPath]
+function knownControllerStatePath(relativePath, allowOwnedLease, expectedHandoffPaths) {
+  if ([RUN_FILE, `${RUN_DIR}/safe-recoveries.json`, OMP_CONTROLLER_CONFIG_FILE]
     .includes(relativePath)) return true;
   if (allowOwnedLease && relativePath === `${RUN_DIR}/controller.lock`) return true;
   const local = relativePath.slice(`${RUN_DIR}/`.length);
-  if (/^handoffs\/[1-9]\d*-(?:start|implement|review1|fix1|review2|fix2|verify|deliver)\.json$/.test(local)) {
-    return true;
-  }
+  if (local.startsWith('handoffs/')) return expectedHandoffPaths.has(relativePath);
   if (/^prompt-provenance\/(?:sdlc-[a-z0-9-]+|worker-(?:start|implement|review1|fix1|review2|fix2|verify|deliver))\.json$/.test(local)) {
     return true;
   }
@@ -822,7 +842,12 @@ function knownControllerStatePath(relativePath, currentHandoffPath, allowOwnedLe
   return /^verification\/[1-9]\d*\.json$/.test(local);
 }
 
-function assertKnownControllerState(root, currentHandoffPath, allowOwnedLease) {
+function assertKnownControllerState(root, allowOwnedLease, checkpoint) {
+  const safeState = parseBoundedJsonFile(root, `${RUN_DIR}/safe-recoveries.json`);
+  const expectedHandoffPaths = new Set(
+    [...expectedExecuteHandoffSlots(checkpoint, safeState)]
+      .map((slot) => `${HANDOFF_DIR}/${slot}.json`),
+  );
   const runtime = join(root, RUN_DIR);
   const pending = [[runtime, RUN_DIR]];
   while (pending.length > 0) {
@@ -839,8 +864,18 @@ function assertKnownControllerState(root, currentHandoffPath, allowOwnedLease) {
       if (stat.isDirectory()) {
         pending.push([target, relativePath]);
       } else if (!stat.isFile() || stat.size > 512 * 1024
-        || !knownControllerStatePath(relativePath, currentHandoffPath, allowOwnedLease)) {
+        || !knownControllerStatePath(relativePath, allowOwnedLease, expectedHandoffPaths)) {
         throw new Error('workflow_evidence_unproven');
+      } else if (relativePath.startsWith(`${HANDOFF_DIR}/`)) {
+        const slot = relativePath.slice(HANDOFF_DIR.length + 1, -'.json'.length);
+        const match = /^([1-9]\d*)-(start|implement|review1|fix1|review2|fix2|verify|deliver)$/
+          .exec(slot);
+        if (!match) throw new Error('workflow_evidence_unproven');
+        try {
+          readStrictHandoffSnapshot(root, relativePath, Number(match[1]), match[2]);
+        } catch {
+          throw new Error('workflow_evidence_unproven');
+        }
       }
     }
   }
@@ -1057,6 +1092,10 @@ export function inspectRepairedPublicationIntervention({
     ...probe.scope.readOnlyPaths,
     ...probe.scope.allowedPaths,
   ];
+  const workspaceAuthorityPaths = [
+    ...probe.scope.trackedWritablePaths,
+    ...probe.scope.readOnlyPaths,
+  ];
   const ignoredImplementationPaths = nulPathList(run('git', [
     'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
     ...new Set([
@@ -1065,17 +1104,20 @@ export function inspectRepairedPublicationIntervention({
     ]),
   ], { cwd: root }));
   if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+  assertKnownControllerState(root, allowOwnedLease, checkpoint);
   const ignoredPaths = status
     .filter(({ status: code }) => code === '!!')
     .flatMap(({ paths }) => paths);
   for (const ignoredPath of ignoredPaths) {
-    if (pathWithin(ignoredPath, RUN_DIR) || pathWithin(RUN_DIR, ignoredPath)) {
-      assertKnownControllerState(root, handoffPath, allowOwnedLease);
-      continue;
-    }
+    if (pathWithin(ignoredPath, RUN_DIR) || pathWithin(RUN_DIR, ignoredPath)) continue;
     if (TERMINAL_GOAL_EVIDENCE_PATHS.some((path) =>
       pathWithin(ignoredPath, path) || pathWithin(path, ignoredPath))
-      || !isIrrelevantIgnoredState(root, ignoredPath, protectedPaths)) {
+      || !isIrrelevantIgnoredState(
+        root,
+        ignoredPath,
+        protectedPaths,
+        workspaceAuthorityPaths,
+      )) {
       throw new Error('workflow_evidence_unproven');
     }
   }

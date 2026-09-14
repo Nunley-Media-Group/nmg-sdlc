@@ -112,7 +112,7 @@ function validOwner(o) {
     && typeof o.projectRoot === 'string' && o.projectRoot.length > 0
     && Number.isSafeInteger(o.issue) && o.issue > 0
     && typeof o.branch === 'string' && o.branch.length > 0
-    && typeof o.step === 'string' && o.step.length > 0
+    && VALID_STEPS.includes(o.step)
     && (o.plannedSubject === undefined
       || (o.step === 'implement' && validImplementationSubject(o.plannedSubject, o.issue)))
     && o.status === 'incomplete';
@@ -128,6 +128,43 @@ function validRecord(r) {
     && typeof r.consumedAt === 'string' && r.consumedAt.length > 0
     && r.disposition === 'consumed'
     && r.evidence && typeof r.evidence === 'object' && !Array.isArray(r.evidence);
+}
+
+export function expectedExecuteHandoffSlots(checkpoint, safeState) {
+  if (!validExecuteCheckpoint(checkpoint)
+    || !validSafeState(safeState)
+    || !safeState.owners.every(validOwner)) {
+    throw safeError('workflow_evidence_unproven');
+  }
+  const slots = new Set();
+  for (const issue of checkpoint.issues) {
+    for (const step of checkpoint.completed[String(issue)] ?? []) {
+      slots.add(`${issue}-${step}`);
+    }
+    if (issue === checkpoint.currentIssue) slots.add(`${issue}-${checkpoint.currentStep}`);
+  }
+  if (checkpoint.failed
+    && (checkpoint.failed.issue !== checkpoint.currentIssue
+      || checkpoint.failed.step !== checkpoint.currentStep)) {
+    throw safeError('workflow_evidence_unproven');
+  }
+  if (checkpoint.failed) slots.add(`${checkpoint.failed.issue}-${checkpoint.failed.step}`);
+
+  const historicalLastSteps = new Map();
+  for (const owner of safeState.owners) {
+    if (owner.projectRoot !== checkpoint.projectRoot
+      || checkpoint.issues.includes(owner.issue)
+      || owner.issue >= checkpoint.issue) continue;
+    const stepIndex = VALID_STEPS.indexOf(owner.step);
+    historicalLastSteps.set(
+      owner.issue,
+      Math.max(historicalLastSteps.get(owner.issue) ?? -1, stepIndex),
+    );
+  }
+  for (const [issue, lastStep] of historicalLastSteps) {
+    for (const step of VALID_STEPS.slice(0, lastStep + 1)) slots.add(`${issue}-${step}`);
+  }
+  return slots;
 }
 
 function porcelainEntries(output) {

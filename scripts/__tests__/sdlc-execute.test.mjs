@@ -36,7 +36,11 @@ import {
   releaseControllerLease,
 } from '../sdlc-controller-lease.mjs';
 import { startIssue } from '../start-issue.mjs';
-import { consumeSafeRecovery, resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
+import {
+  consumeSafeRecovery,
+  expectedExecuteHandoffSlots,
+  resolveRecoveryOwner,
+} from '../sdlc-safe-recoveries.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sdlc-execute.mjs');
@@ -1868,7 +1872,11 @@ describe('runExecute controller', () => {
     }
   }
 
-  function makeRepairedPublicationFixture({ repaired = true } = {}) {
+  function makeRepairedPublicationFixture({
+    repaired = true,
+    workspaceDecoy = null,
+    reservedWorkspaceDecoy = null,
+  } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-repaired-publication-'));
     roots.push(root);
     const branch = '108-establish-claim-specific-ip-and-product-safety-guardrails';
@@ -1915,6 +1923,9 @@ describe('runExecute controller', () => {
     put('.gitignore', '.omp/sdlc/\n');
     for (const relativePath of trackedPaths) put(relativePath, `tracked fixture ${relativePath}\n`);
     put('mobile/pubspec.yaml', 'name: pathcast_fixture\n');
+    if (workspaceDecoy === 'manifest') put('scratch/package.json', '{}\n');
+    if (workspaceDecoy === 'non-directory') put('scratch', 'not a directory\n');
+    if (reservedWorkspaceDecoy) put(`${reservedWorkspaceDecoy}/package.json`, '{}\n');
     const header = '**Issue**: #108\n**Status**: Approved\n\n';
     put(`${spec}/requirements.md`, `${header}### AC1: Preserve exact scope\n`);
     put(`${spec}/design.md`, `${header}Use structured scope.\n`);
@@ -2255,6 +2266,227 @@ describe('runExecute controller', () => {
     ignoredController.put('.omp/sdlc/arbitrary.json', '{}\n');
     expect(discoverRecovery({
       cwd: ignoredController.root, run: ignoredController.run, herdr: ignoredController.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+  });
+
+  it('admits .DS_Store only at bounded repository, workspace, and platform roots', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const admitted = [
+      '.DS_Store',
+      'api/.DS_Store',
+      'mobile/android/.DS_Store',
+      'mobile/ios/.DS_Store',
+    ];
+    fixture.put('.git/info/exclude', `${admitted.join('\n')}\n`);
+    for (const ignoredPath of admitted) fixture.put(ignoredPath, 'finder metadata\n');
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'loop-recovery-available' });
+  });
+
+  it.each([
+    'scratch/.DS_Store',
+    'src/.DS_Store',
+    'specs/.DS_Store',
+    '.omp/sdlc/.DS_Store',
+    'api/src/.DS_Store',
+    'api/.artifacts/.DS_Store',
+    'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand/.DS_Store',
+    '.cache/.DS_Store',
+    'api/node_modules/.DS_Store',
+    'mobile/scripts/__pycache__/.DS_Store',
+    '.worktrees/recovery/.DS_Store',
+  ])('blocks ignored .DS_Store outside exact bounded roots: %s', (ignoredPath) => {
+    const fixture = makeRepairedPublicationFixture();
+    fixture.put('.git/info/exclude', `${ignoredPath}\n`);
+    fixture.put(ignoredPath, 'finder metadata\n');
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+  });
+
+  it('does not let an out-of-scope manifest create a DS_Store workspace allowance', () => {
+    const fixture = makeRepairedPublicationFixture({ workspaceDecoy: 'manifest' });
+    fixture.put('.git/info/exclude', 'scratch/.DS_Store\n');
+    fixture.put('scratch/.DS_Store', 'finder metadata\n');
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'implementation_failed',
+      recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+    });
+  });
+
+  it.each(['.omp', '.pi-glla', 'specs', 'artifacts'])(
+    'does not let a manifest in reserved or evidence root %s admit DS_Store',
+    (reservedWorkspaceDecoy) => {
+      const fixture = makeRepairedPublicationFixture({ reservedWorkspaceDecoy });
+      const ignoredPath = `${reservedWorkspaceDecoy}/.DS_Store`;
+      fixture.put('.git/info/exclude', `${ignoredPath}\n`);
+      fixture.put(ignoredPath, 'finder metadata\n');
+      expect(discoverRecovery({
+        cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+      })).toMatchObject({
+        state: 'blocked',
+        reasonCode: 'implementation_failed',
+        recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+      });
+    },
+  );
+
+  it.each([
+    ['missing', null],
+    ['non-directory', 'non-directory'],
+  ])('classifies a %s workspace component as non-admissible without leaking lstat errors', (_name, workspaceDecoy) => {
+    const fixture = makeRepairedPublicationFixture({ workspaceDecoy });
+    const run = (command, args, options) => {
+      const result = fixture.run(command, args, options);
+      if (command !== 'git' || args[0] !== 'status' || result.status !== 0) return result;
+      const records = String(result.stdout ?? '').split('\0').filter(Boolean);
+      records.push('!! scratch/.DS_Store');
+      return { ...result, stdout: `${records.join('\0')}\0` };
+    };
+    expect(discoverRecovery({
+      cwd: fixture.root, run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'implementation_failed',
+      recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+    });
+  });
+
+  const validLifecycleHandoff = (issue, step, status = 'passed') => ({
+    schemaVersion: 1,
+    issue,
+    step,
+    status,
+    intervention: status !== 'passed',
+    summary: `${issue} ${step} lifecycle evidence`,
+    artifacts: [],
+    next: status === 'passed' ? VALID_STEPS[VALID_STEPS.indexOf(step) + 1] ?? null : null,
+    reasonCode: status === 'passed' ? null : 'controlled_failure',
+  });
+
+  it('rejects malformed owner steps and failed tuples outside the current lifecycle slot', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    const malformedOwner = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+    malformedOwner.owners[0].step = 'future';
+    expect(() => expectedExecuteHandoffSlots(checkpoint, malformedOwner))
+      .toThrow(expect.objectContaining({ reasonCode: 'workflow_evidence_unproven' }));
+
+    const unreachableFailure = structuredClone(checkpoint);
+    unreachableFailure.failed.step = 'review1';
+    expect(() => expectedExecuteHandoffSlots(
+      unreachableFailure,
+      fixture.readJson('.omp/sdlc/safe-recoveries.json'),
+    )).toThrow(expect.objectContaining({ reasonCode: 'workflow_evidence_unproven' }));
+  });
+
+  function addPathCastHistoricalHandoffs(fixture) {
+    const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+    for (const step of ['implement', 'review1', 'fix1', 'review2', 'fix2']) {
+      safe.owners.push({
+        ownerId: '3823cac9-a4d7-4bd8-be68-1c42d8e7478e',
+        projectRoot: fs.realpathSync(fixture.root),
+        issue: 107,
+        branch: '107-record-miledar-domain-ownership-and-legal-identity-guardrails',
+        step,
+        status: 'incomplete',
+      });
+    }
+    fixture.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe, null, 2)}\n`);
+    for (const step of VALID_STEPS.slice(0, VALID_STEPS.indexOf('fix2') + 1)) {
+      fixture.put(
+        `.omp/sdlc/handoffs/107-${step}.json`,
+        `${JSON.stringify(validLifecycleHandoff(
+          107,
+          step,
+          step === 'fix2' ? 'failed' : 'passed',
+        ))}\n`,
+      );
+    }
+    fixture.put(
+      '.omp/sdlc/handoffs/108-start.json',
+      `${JSON.stringify(validLifecycleHandoff(108, 'start'))}\n`,
+    );
+  }
+
+  it('preserves PathCast historical and current handoffs derived from lifecycle evidence', () => {
+    const fixture = makeRepairedPublicationFixture();
+    addPathCastHistoricalHandoffs(fixture);
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'loop-recovery-available' });
+  });
+
+  function withoutReportedRuntimeIgnore(fixture) {
+    return (command, args, options) => {
+      const result = fixture.run(command, args, options);
+      if (command !== 'git' || args[0] !== 'status' || result.status !== 0) return result;
+      const records = String(result.stdout ?? '').split('\0').filter(Boolean)
+        .filter((record) => !record.includes('.omp/sdlc'));
+      return { ...result, stdout: records.length > 0 ? `${records.join('\0')}\0` : '' };
+    };
+  }
+
+  it('validates clean or unreported runtime handoffs independently of ignore status', () => {
+    const admitted = makeRepairedPublicationFixture();
+    addPathCastHistoricalHandoffs(admitted);
+    expect(discoverRecovery({
+      cwd: admitted.root,
+      run: withoutReportedRuntimeIgnore(admitted),
+      herdr: admitted.herdr,
+    })).toMatchObject({ state: 'loop-recovery-available' });
+
+    const blocked = makeRepairedPublicationFixture();
+    blocked.put(
+      '.omp/sdlc/handoffs/999-implement.json',
+      `${JSON.stringify(validLifecycleHandoff(999, 'implement'))}\n`,
+    );
+    expect(discoverRecovery({
+      cwd: blocked.root,
+      run: withoutReportedRuntimeIgnore(blocked),
+      herdr: blocked.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'implementation_failed',
+      recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+    });
+  });
+
+  it.each([
+    ['unrelated issue', (f) => f.put(
+      '.omp/sdlc/handoffs/999-implement.json',
+      `${JSON.stringify(validLifecycleHandoff(999, 'implement'))}\n`,
+    )],
+    ['duplicate attempt', (f) => f.put(
+      '.omp/sdlc/handoffs/108-implement.attempt-2.json',
+      `${JSON.stringify(validLifecycleHandoff(108, 'implement'))}\n`,
+    )],
+    ['future step', (f) => f.put(
+      '.omp/sdlc/handoffs/108-review1.json',
+      `${JSON.stringify(validLifecycleHandoff(108, 'review1'))}\n`,
+    )],
+    ['mismatched payload', (f) => {
+      addPathCastHistoricalHandoffs(f);
+      f.put(
+        '.omp/sdlc/handoffs/107-review2.json',
+        `${JSON.stringify(validLifecycleHandoff(107, 'fix2'))}\n`,
+      );
+    }],
+    ['symlinked unrelated handoff', (f) => {
+      fs.symlinkSync(
+        '108-implement.json',
+        path.join(f.root, '.omp/sdlc/handoffs/999-implement.json'),
+      );
+    }],
+  ])('blocks %s handoff evidence outside the checkpoint lifecycle', (_name, mutate) => {
+    const fixture = makeRepairedPublicationFixture();
+    mutate(fixture);
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
     })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
   });
 
