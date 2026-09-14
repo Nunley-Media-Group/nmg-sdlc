@@ -53,6 +53,8 @@
 - [ ] Never call `consumeSafeRecovery`, append a recovery tuple, replace the invocation, or enter remediation
 - [ ] Start only standard `s${issue}-implement`
 - [ ] Preserve deterministic split/persist/start crash recovery and make successful start immediately non-offerable
+- [ ] Clear only ephemeral pending dispatch after a validated successful implement handoff so next-step and terminal checkpoint schemas remain valid
+- [ ] Retain the consumed safe-recovery record and immutable run recovery after successful completion
 
 ### T005: Add exact and adversarial fixtures
 
@@ -68,7 +70,7 @@
 
 ### T006: Document fail-closed same-invocation semantics
 
-**File(s)**: `CONTRIBUTING.md`, `workflows/execute/WORKFLOW.md`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`
+**File(s)**: `CONTRIBUTING.md`, `workflows/execute/WORKFLOW.md`, `workflows/execute/references/selection.md`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`
 **Type**: Modify
 **Depends**: T002, T003, T004, T005
 **Acceptance**:

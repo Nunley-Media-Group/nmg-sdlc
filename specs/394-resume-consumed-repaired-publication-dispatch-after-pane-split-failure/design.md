@@ -32,9 +32,9 @@ Add one optional run field for repaired-publication pending dispatch. Its closed
 - exact checkpoint HEAD and actual branch;
 - immutable handoff archive path and SHA-256 digest;
 - standard worker name and allocated pane id;
-- disposition `pending`, `starting`, `started`, or `stopped` with stable reason.
+- disposition `prepared`, `pending`, `starting`, `started`, or `stopped` with stable reason.
 
-The first consuming CAS appends the existing recovery tuple and persists `pending` before any `agentStart()`. No second record or tuple is permitted. Worker ownership and `started` disposition are persisted before prompt delivery through the existing standard worker path.
+After split and under-lease revalidation, the first CAS reserves the original invocation in one `prepared` dispatch before archive or safe-recovery mutation; `recoveries[]` is still unchanged. Immutable archive creation and safe-recovery consumption then use that invocation. The next CAS creates exactly one matching run recovery and marks the dispatch `pending` before any `agentStart()`. Process loss between the safe record and that CAS is validated from the prepared dispatch, consumed safe record, and immutable archive; same-invocation resume creates the absent run recovery in its next CAS, never a duplicate tuple or another allowance. Worker ownership and `started` disposition are persisted before prompt delivery through the existing standard worker path.
 
 ### Read-only consumed-dispatch discovery
 
@@ -45,7 +45,7 @@ Admission requires either:
 1. the grounded compatibility shape: current recovery tuple disposition stopped with `pane_split_failed`, no pending field, no workers, and no matching live pane/agent; or
 2. an exact pending-dispatch field for the same invocation whose disposition proves no worker start completed.
 
-The classifier reuses #392's owner-bound scope, publication projection, strict current handoff, task-only diff, terminal evidence, branch, HEAD, lock, and product-clean invariants. It additionally requires the incomplete owner; empty `workers`; no standard or remediation agent; no pending-pane presence; exact read-only archive bytes, path identity, and digest; and parameter-free invocation. It returns `consumed-dispatch-available`, never `loop-recovery-available`.
+The classifier reuses #392's owner-bound scope, publication projection, strict current handoff, task-only diff, terminal evidence, branch, HEAD, lock, and product-clean invariants. It additionally requires the incomplete owner; empty `workers`; no standard `s${issue}-implement` or remediation `r${issue}-implement` agent; no live pane matching the recorded consumed dispatch pane or either agent identity; exact read-only archive bytes, path identity, and digest; and parameter-free invocation. Unrelated sibling/user panes are tolerated. It returns `consumed-dispatch-available`, never `loop-recovery-available`.
 
 Any mismatch is blocking. A `started` disposition, durable worker ownership, matching live agent/pane, completed owner, explicit selector, or previously resumed marker makes the dispatch unavailable.
 
@@ -55,13 +55,16 @@ A bare parameter-free run carries the proven invocation id into the leased contr
 
 It then persists standard worker ownership and a non-offerable start disposition before invoking only `agentStart({ name: s${issue}-implement, kind: omp })`. Agent-start failure remains resumable only while no live agent exists and the owned pane can be proven unused. Successful start makes discovery unavailable before prompt activation, so process loss cannot produce duplicate dispatch.
 
+After the resumed implement worker produces a validated successful handoff, the controller removes the ephemeral pending-dispatch field before persisting the next step. The consumed safe-recovery record and immutable run recovery remain authoritative through terminal queue persistence.
+
 ### Crash and cleanup boundaries
 
 | Boundary | Durable result | Resume behavior |
 |----------|----------------|-----------------|
 | Split fails before consumption | Original available #392 state unchanged | Ordinary one-time recovery remains available |
-| Split succeeds, revalidation fails | No consumption; attempt-owned unused pane closed | Ordinary recovery remains available after cleanup |
-| Consumption/pending CAS succeeds, process exits | Exact invocation pending | `consumed-dispatch-available` |
+| Split succeeds and prepared CAS persists before archive/consume, process exits | Prepared dispatch retains the exact pane and invocation; safe record and run recovery remain absent | Ordinary repaired-publication recovery re-proves and reuses that prepared pane/invocation once |
+| Safe consumption succeeds before post-consumption CAS, process exits | Prepared dispatch and exact consumed safe record/archive bind the invocation; run recovery is absent | Reconcile exactly one matching run recovery in the next CAS, then dispatch; never duplicate |
+| Post-consumption CAS succeeds, process exits | Exact invocation pending with one consumed run recovery | `consumed-dispatch-available` |
 | Agent start fails after pending CAS | Same invocation stopped/pending; no worker process | Resume same invocation only |
 | Worker ownership/start disposition persists | Dispatch non-offerable | Existing worker/prompt recovery only |
 | Start succeeds, controller exits | Worker ownership remains authoritative | Never offer consumed dispatch again |

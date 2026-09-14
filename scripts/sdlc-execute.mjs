@@ -37,7 +37,7 @@ import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
 import {
   consumeSafeRecovery,
   inspectPublicationScope,
-  hasSafeRecoveryRecord,
+  getSafeRecoveryRecord,
   probePublicationScope,
   publicationPathDenied,
   resolveRecoveryOwner,
@@ -835,10 +835,16 @@ function isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthority
     && ['golden', 'goldens'].includes(components[2]) && components[3] === 'failures';
 }
 
-function knownControllerStatePath(relativePath, allowOwnedLease, expectedHandoffPaths) {
+function knownControllerStatePath(
+  relativePath,
+  allowOwnedLease,
+  expectedHandoffPaths,
+  allowedArchivePath = null,
+) {
   if ([RUN_FILE, `${RUN_DIR}/safe-recoveries.json`, OMP_CONTROLLER_CONFIG_FILE]
     .includes(relativePath)) return true;
   if (allowOwnedLease && relativePath === `${RUN_DIR}/controller.lock`) return true;
+  if (allowedArchivePath && relativePath === allowedArchivePath) return true;
   const local = relativePath.slice(`${RUN_DIR}/`.length);
   if (local.startsWith('handoffs/')) return expectedHandoffPaths.has(relativePath);
   if (/^prompt-provenance\/(?:sdlc-[a-z0-9-]+|worker-(?:start|implement|review1|fix1|review2|fix2|verify|deliver))\.json$/.test(local)) {
@@ -855,6 +861,7 @@ function assertKnownControllerState(
   allowOwnedLease,
   checkpoint,
   allowOwnerHandoffPaths = false,
+  allowedArchivePath = null,
 ) {
   const safeState = parseBoundedJsonFile(root, `${RUN_DIR}/safe-recoveries.json`);
   const expectedSlots = [...expectedExecuteHandoffSlots(checkpoint, safeState)];
@@ -886,7 +893,12 @@ function assertKnownControllerState(
       if (stat.isDirectory()) {
         pending.push([target, relativePath]);
       } else if (!stat.isFile() || stat.size > 512 * 1024
-        || !knownControllerStatePath(relativePath, allowOwnedLease, expectedHandoffPaths)) {
+        || !knownControllerStatePath(
+          relativePath,
+          allowOwnedLease,
+          expectedHandoffPaths,
+          allowedArchivePath,
+        )) {
         throw new Error('workflow_evidence_unproven');
       } else if (relativePath.startsWith(`${HANDOFF_DIR}/`)) {
         const slot = relativePath.slice(HANDOFF_DIR.length + 1, -'.json'.length);
@@ -1069,6 +1081,9 @@ export function inspectRepairedPublicationIntervention({
   handoff,
   run = defaultRun,
   allowOwnedLease = false,
+  consumedRecord = null,
+  allowedArchivePath = null,
+  allowMissingCheckpointRecovery = false,
 } = {}) {
   const root = realpathSync(cwd);
   if (!checkpoint || !validRunIdentity(checkpoint)
@@ -1136,17 +1151,32 @@ export function inspectRepairedPublicationIntervention({
   if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
     throw new Error('controller_lease_held');
   }
-  if (hasSafeRecoveryRecord({
+  const safeRecoveryRecord = getSafeRecoveryRecord({
     cwd: root,
     ownerId: probe.ownerId,
     issue: checkpoint.currentIssue,
     step: 'implement',
     class: REPAIRED_PUBLICATION_RECOVERY,
-  })) {
+  });
+  if (consumedRecord) {
+    if (!safeRecoveryRecord
+      || safeRecoveryRecord.invocationId !== consumedRecord.invocationId) {
+      throw new Error('recovery_invocation_mismatch');
+    }
+  } else if (safeRecoveryRecord) {
     throw new Error('recovery_consumed');
   }
-  if (checkpoint.recoveries?.some((entry) => entry.runId === checkpoint.runId
-    && entry.issue === checkpoint.currentIssue && entry.step === 'implement')) {
+  const checkpointRecovery = checkpoint.recoveries?.find((entry) =>
+    entry.runId === checkpoint.runId
+    && entry.issue === checkpoint.currentIssue
+    && entry.step === 'implement');
+  if (consumedRecord) {
+    if ((!checkpointRecovery && !allowMissingCheckpointRecovery)
+      || (checkpointRecovery
+        && checkpointRecovery.invocationId !== consumedRecord.invocationId)) {
+      throw new Error('recovery_invocation_mismatch');
+    }
+  } else if (checkpointRecovery) {
     throw new Error('recovery_consumed');
   }
   const status = porcelainStatusEntries(run('git', [
@@ -1173,7 +1203,13 @@ export function inspectRepairedPublicationIntervention({
     observedTrackedPaths: trackedPaths,
     protectedRoots: [tasksPath, specRelative, RUN_DIR, '.pi-glla'],
   });
-  assertKnownControllerState(root, allowOwnedLease, checkpoint);
+  assertKnownControllerState(
+    root,
+    allowOwnedLease,
+    checkpoint,
+    false,
+    consumedRecord?.evidence?.handoffArchive?.path ?? allowedArchivePath,
+  );
   const ignoredPaths = status
     .filter(({ status: code }) => code === '!!')
     .flatMap(({ paths }) => paths);
@@ -1201,6 +1237,20 @@ export function inspectRepairedPublicationIntervention({
     'publication_repair_unproven',
   ).bytes;
   const publication = provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath });
+  if (allowedArchivePath && existsSync(join(root, allowedArchivePath))) {
+    const expectedArchivePath = `${RUN_DIR}/history/repaired-publication/${checkpoint.currentIssue}-implement-${handoffSnapshot.digest}.json`;
+    const archive = readBoundedNoFollowFile(
+      root,
+      allowedArchivePath,
+      MAX_HANDOFF_BYTES,
+      'handoff_archive_unproven',
+    );
+    if (allowedArchivePath !== expectedArchivePath
+      || createHash('sha256').update(archive.bytes).digest('hex') !== handoffSnapshot.digest
+      || !archive.bytes.equals(handoffSnapshot.bytes)) {
+      throw new Error('handoff_archive_unproven');
+    }
+  }
   return {
     class: REPAIRED_PUBLICATION_RECOVERY,
     issue: checkpoint.currentIssue,
@@ -1218,6 +1268,233 @@ export function inspectRepairedPublicationIntervention({
     handoffIdentity: handoffSnapshot.identity,
     scope: probe.scope,
     discrepancies: probe.binding.discrepancies,
+  };
+}
+
+const CONSUMED_DISPATCH_DISPOSITIONS = new Set([
+  'prepared',
+  'pending',
+  'starting',
+  'started',
+  'stopped',
+]);
+const CONSUMED_DISPATCH_RESUME_REASONS = new Set([
+  'pane_split_failed',
+  'agent_start_failed',
+  'process_lost',
+]);
+
+function exactConsumedDispatch(dispatch, checkpoint, recovery) {
+  if (!dispatch || typeof dispatch !== 'object' || Array.isArray(dispatch)
+    || Object.keys(dispatch).some((key) => ![
+      'runId',
+      'invocationId',
+      'class',
+      'issue',
+      'step',
+      'head',
+      'branch',
+      'archive',
+      'paneId',
+      'agentName',
+      'disposition',
+      'reasonCode',
+    ].includes(key))
+    || dispatch.runId !== checkpoint.runId
+    || dispatch.invocationId !== recovery.invocationId
+    || dispatch.class !== REPAIRED_PUBLICATION_RECOVERY
+    || dispatch.issue !== checkpoint.currentIssue
+    || dispatch.step !== 'implement'
+    || dispatch.head !== checkpoint.head
+    || typeof dispatch.branch !== 'string' || !dispatch.branch
+    || !dispatch.archive || typeof dispatch.archive !== 'object'
+    || Object.keys(dispatch.archive).sort().join(',') !== 'digest,path'
+    || typeof dispatch.archive.path !== 'string' || !dispatch.archive.path
+    || !/^[0-9a-f]{64}$/.test(dispatch.archive.digest)
+    || typeof dispatch.paneId !== 'string' || !dispatch.paneId
+    || dispatch.agentName !== `s${checkpoint.currentIssue}-implement`
+    || !CONSUMED_DISPATCH_DISPOSITIONS.has(dispatch.disposition)
+    || (dispatch.reasonCode !== undefined
+      && (typeof dispatch.reasonCode !== 'string' || !dispatch.reasonCode))) {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  return dispatch;
+}
+
+function listHerdrPanes(herdr) {
+  const response = herdr.listPanes();
+  const parsed = parseCommandOutput(response);
+  const panes = Array.isArray(parsed) ? parsed : parsed?.result?.panes ?? parsed?.panes;
+  if (!commandSucceeded(response) || !Array.isArray(panes)) {
+    throw new Error('ownership_unreadable');
+  }
+  return panes;
+}
+
+function inspectDispatchPanes(herdr, issue, recordedPaneId = null, allowedPaneId = null) {
+  const panes = listHerdrPanes(herdr);
+  const forbiddenNames = new Set([`s${issue}-implement`, `r${issue}-implement`]);
+  for (const pane of panes) {
+    const paneId = String(pane?.pane_id ?? pane?.paneId ?? '');
+    if (!paneId) throw new Error('ownership_unreadable');
+    const identity = String(
+      pane?.agent_name ?? pane?.agentName ?? pane?.name ?? pane?.title ?? '',
+    );
+    const matchesDispatch = (recordedPaneId && paneId === String(recordedPaneId))
+      || forbiddenNames.has(identity);
+    if (matchesDispatch && (!allowedPaneId || paneId !== String(allowedPaneId))) {
+      throw new Error('retained_worker_mismatch');
+    }
+  }
+  return panes;
+}
+
+export function inspectConsumedRepairedPublicationDispatch({
+  cwd = process.cwd(),
+  checkpoint,
+  run = defaultRun,
+  herdr = defaultHerdr(run, cwd),
+  allowOwnedLease = false,
+  allowedPaneId = null,
+} = {}) {
+  const root = realpathSync(cwd);
+  if (!checkpoint || !validRunIdentity(checkpoint)
+    || checkpoint.projectRoot !== root
+    || checkpoint.currentStep !== 'implement'
+    || Object.keys(checkpoint.workers || {}).length !== 0) {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  const recoveries = (checkpoint.recoveries || []).filter((entry) =>
+    entry.runId === checkpoint.runId
+    && entry.issue === checkpoint.currentIssue
+    && entry.step === 'implement'
+    && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
+  if (recoveries.length > 1) throw new Error('consumed_dispatch_unproven');
+  const recovery = recoveries[0] ?? null;
+  const pending = checkpoint.consumedDispatch
+    ? exactConsumedDispatch(
+      checkpoint.consumedDispatch,
+      checkpoint,
+      recovery ?? { invocationId: checkpoint.consumedDispatch.invocationId },
+    )
+    : null;
+  const compatibleStopped = recovery && !pending
+    && recovery.disposition === 'stopped'
+    && recovery.reasonCode === 'pane_split_failed'
+    && checkpoint.failed?.issue === checkpoint.currentIssue
+    && checkpoint.failed?.step === 'implement'
+    && checkpoint.failed?.reasonCode === 'pane_split_failed';
+  const failedMatchesPending = !checkpoint.failed || (
+    checkpoint.failed.issue === checkpoint.currentIssue
+    && checkpoint.failed.step === 'implement'
+    && CONSUMED_DISPATCH_RESUME_REASONS.has(checkpoint.failed.reasonCode)
+  );
+  const resumablePending = pending && failedMatchesPending
+    && (
+      (pending.disposition === 'pending'
+        && (!pending.reasonCode
+          || CONSUMED_DISPATCH_RESUME_REASONS.has(pending.reasonCode)))
+      || (pending.disposition === 'stopped'
+        && CONSUMED_DISPATCH_RESUME_REASONS.has(pending.reasonCode)
+        && checkpoint.failed?.reasonCode === pending.reasonCode)
+    );
+  const record = getSafeRecoveryRecord({
+    cwd: root,
+    ownerId: checkpoint.runId,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    class: REPAIRED_PUBLICATION_RECOVERY,
+  });
+  if (!recovery && pending?.disposition === 'prepared' && !record) {
+    throw new Error('recovery_not_consumed');
+  }
+  const interruptedConsumption = !recovery
+    && pending?.disposition === 'prepared'
+    && checkpoint.failed?.issue === checkpoint.currentIssue
+    && checkpoint.failed?.step === 'implement'
+    && checkpoint.failed?.reasonCode === 'implementation_failed'
+    && record?.invocationId === pending.invocationId;
+  if (!compatibleStopped && !resumablePending && !interruptedConsumption) {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  const invocationId = recovery?.invocationId ?? pending.invocationId;
+  if (!record || record.invocationId !== invocationId) {
+    throw new Error('recovery_invocation_mismatch');
+  }
+  const archive = recovery?.source?.handoffArchive ?? record.evidence?.handoffArchive;
+  if (!archive || record.evidence?.handoffArchive?.path !== archive.path
+    || record.evidence?.handoffArchive?.digest !== archive.digest
+    || (pending && (pending.archive.path !== archive.path
+      || pending.archive.digest !== archive.digest))
+    || archive.path !== `${RUN_DIR}/history/repaired-publication/${checkpoint.currentIssue}-implement-${archive.digest}.json`
+    || !/^[0-9a-f]{64}$/.test(archive.digest)) {
+    throw new Error('handoff_archive_unproven');
+  }
+  const archived = readBoundedNoFollowFile(
+    root,
+    archive.path,
+    MAX_HANDOFF_BYTES,
+    'handoff_archive_unproven',
+  );
+  if (createHash('sha256').update(archived.bytes).digest('hex') !== archive.digest) {
+    throw new Error('handoff_archive_unproven');
+  }
+  const sourceFailure = recovery?.failure ?? checkpoint.failed;
+  if (!sourceFailure
+    || sourceFailure.issue !== checkpoint.currentIssue
+    || sourceFailure.step !== 'implement'
+    || sourceFailure.reasonCode !== 'implementation_failed') {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  const normalizedFailure = {
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    reasonCode: 'implementation_failed',
+  };
+  const proof = inspectRepairedPublicationIntervention({
+    cwd: root,
+    checkpoint: {
+      ...structuredClone(checkpoint),
+      failed: normalizedFailure,
+    },
+    run,
+    allowMissingCheckpointRecovery: !recovery,
+    allowOwnedLease,
+    consumedRecord: record,
+  });
+  const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  if (proof.handoffDigest !== archive.digest
+    || proof.ownerId !== checkpoint.runId
+    || record.evidence?.head !== proof.head
+    || record.evidence?.branch !== proof.branch
+    || record.evidence?.tasksPath !== proof.tasksPath
+    || !sameJson(record.evidence?.publication, proof.publication)
+    || !sameJson(record.evidence?.workflowEvidencePaths, proof.workflowEvidencePaths)
+    || !sameJson(record.evidence?.discrepancies, proof.discrepancies)
+    || (recovery && (recovery.source?.tasksPath !== proof.tasksPath
+      || !sameJson(recovery.source?.publication, proof.publication)
+      || !sameJson(recovery.handoff, proof.handoff)))
+    || (pending && (pending.head !== proof.head || pending.branch !== proof.branch))
+    || !archived.bytes.equals(
+      readStrictHandoffSnapshot(root, proof.handoffPath, proof.issue, proof.step).bytes,
+    )) {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  inspectRecoveryWorkers(checkpoint, herdr);
+  inspectDispatchPanes(
+    herdr,
+    checkpoint.currentIssue,
+    pending?.paneId ?? null,
+    allowedPaneId,
+  );
+  return {
+    ...proof,
+    failure: structuredClone(normalizedFailure),
+    invocationId,
+    archive: structuredClone(archive),
+    recovery: recovery ? structuredClone(recovery) : null,
+    record,
+    pending: pending ? structuredClone(pending) : null,
   };
 }
 
@@ -1446,10 +1723,48 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       data.currentIssue, data.currentStep,
     );
     const handoff = handoffResult.handoff;
+    const recovery = data.recoveries?.find((entry) => entry.runId === data.runId
+      && entry.issue === data.currentIssue && entry.step === data.currentStep);
     let repairedPublication = null;
     let exclusiveResume = null;
     let repairedPublicationError = null;
-    if (data.currentStep === 'implement' && data.failed?.reasonCode === 'implementation_failed') {
+    let consumedDispatch = null;
+    if (data.currentStep === 'implement'
+      && (recovery?.source?.class === REPAIRED_PUBLICATION_RECOVERY
+        || data.consumedDispatch?.class === REPAIRED_PUBLICATION_RECOVERY)) {
+      try {
+        consumedDispatch = inspectConsumedRepairedPublicationDispatch({
+          cwd,
+          checkpoint: data,
+          run,
+          herdr,
+        });
+      } catch (error) {
+        if (!recovery && data.consumedDispatch?.disposition === 'prepared'
+          && error?.message === 'recovery_not_consumed') {
+          try {
+            repairedPublication = inspectRepairedPublicationIntervention({
+              cwd,
+              checkpoint: data,
+              handoff,
+              run,
+              allowedArchivePath: data.consumedDispatch.archive?.path,
+            });
+          } catch (proofError) {
+            return blocked(
+              'implementation_failed',
+              proofError?.message || 'repaired_intervention_unproven',
+            );
+          }
+        } else {
+          return blocked(
+            data.failed?.reasonCode || 'recovery_consumed',
+            error?.message || 'consumed_dispatch_unproven',
+          );
+        }
+      }
+    } else if (data.currentStep === 'implement'
+      && data.failed?.reasonCode === 'implementation_failed') {
       if (!handoff) return blocked('implementation_failed', handoffResult.reasonCode);
       if (handoff.status === 'failed' && handoff.intervention === true
         && handoff.reasonCode === 'implementation_failed') {
@@ -1477,7 +1792,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
         }
       }
     }
-    if (!repairedPublication && !exclusiveResume && (
+    if (!repairedPublication && !exclusiveResume && !consumedDispatch && (
       (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
       || handoff?.intervention || handoff?.status === 'blocked'
     )) {
@@ -1495,8 +1810,6 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     if (['retained_worker_mismatch', 'ownership_unreadable'].includes(data.failed?.reasonCode)) {
       return blocked(data.failed.reasonCode);
     }
-    const recovery = data.recoveries?.find((entry) => entry.runId === data.runId
-      && entry.issue === data.currentIssue && entry.step === data.currentStep);
     const remediation = data.remediation?.issue === data.currentIssue
       && data.remediation.step === data.currentStep ? data.remediation : null;
     const exhausted = remediation && (remediation.reasonCode === 'remediation_loop'
@@ -1512,9 +1825,10 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       && ownership.present.some((worker) => worker.issue === data.currentIssue && worker.step === data.currentStep)) {
       return blocked('retained_worker_mismatch');
     }
-    const state = recovery ? 'recovery-consumed'
-      : exhausted || repairedPublication || exclusiveResume ? 'loop-recovery-available'
-        : 'resumable';
+    const state = consumedDispatch ? 'consumed-dispatch-available'
+      : recovery ? 'recovery-consumed'
+        : exhausted || repairedPublication || exclusiveResume ? 'loop-recovery-available'
+          : 'resumable';
     return {
       state, issues: data.issues, runId: data.runId, branch: linked,
       issue: data.currentIssue, step: data.currentStep,
@@ -1541,9 +1855,24 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           discrepancies: exclusiveResume.discrepancies,
         },
       } : {}),
-      action: recovery
-        ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
-        : 'Run /sdlc-execute with no parameters to resume this exact queue.',
+      ...(consumedDispatch ? {
+        recoveryClass: consumedDispatch.class,
+        consumedDispatchInvocationId: consumedDispatch.invocationId,
+        recoveryEvidence: {
+          ownerId: consumedDispatch.ownerId,
+          head: consumedDispatch.head,
+          tasksPath: consumedDispatch.tasksPath,
+          publication: consumedDispatch.publication,
+          handoffArchive: consumedDispatch.archive,
+          workflowEvidencePaths: consumedDispatch.workflowEvidencePaths,
+          discrepancies: consumedDispatch.discrepancies,
+        },
+      } : {}),
+      action: consumedDispatch
+        ? 'Run /sdlc-execute with no parameters to resume this exact consumed dispatch.'
+        : recovery
+          ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
+          : 'Run /sdlc-execute with no parameters to resume this exact queue.',
     };
   } catch {
     return blocked('checkpoint_unreadable');
@@ -1577,6 +1906,32 @@ function validRunIdentity(runData) {
     && Number.isSafeInteger(runData.revision)
     && runData.revision > 0;
 }
+function validConsumedDispatchState(runData) {
+  if (runData.consumedDispatch === undefined) return true;
+  const recoveries = (runData.recoveries || []).filter((entry) =>
+    entry.runId === runData.runId
+    && entry.issue === runData.currentIssue
+    && entry.step === 'implement'
+    && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
+  if (recoveries.length !== 1) {
+    if (runData.consumedDispatch?.disposition !== 'prepared') return false;
+    try {
+      exactConsumedDispatch(runData.consumedDispatch, runData, {
+        invocationId: runData.consumedDispatch.invocationId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    exactConsumedDispatch(runData.consumedDispatch, runData, recoveries[0]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function validPromptDeliveryStates(runData) {
   if (runData.workers === undefined) return true;
   if (!runData.workers || typeof runData.workers !== 'object' || Array.isArray(runData.workers)) return false;
@@ -1640,6 +1995,7 @@ export function writeRunAt(
     || expectedRevision < 0
     || !validRunIdentity(runData)
     || !validPromptDeliveryStates(runData)
+    || !validConsumedDispatchState(runData)
     || runData.revision !== expectedRevision + 1
     || (expectedHead !== null && !/^[0-9a-f]{40}$/.test(expectedHead))
   ) {
@@ -3134,7 +3490,23 @@ export function runExecute({
   let recoveryStep = null;
   let recoveryBranch = null;
   let repairedRecoveryClass = null;
+  let consumedDispatchInvocationId = null;
   const bareRecovery = parsedArgs.defaultBacklog && !parsedArgs.recoverStale && !parsedArgs.retainWorker;
+  const explicitConsumedDispatch = !parsedArgs.defaultBacklog && (
+    existingRun?.consumedDispatch?.class === REPAIRED_PUBLICATION_RECOVERY
+    || existingRun?.recoveries?.some((entry) =>
+      entry?.source?.class === REPAIRED_PUBLICATION_RECOVERY
+      && entry.runId === existingRun.runId
+      && entry.issue === existingRun.currentIssue
+      && entry.step === existingRun.currentStep)
+  );
+  if (explicitConsumedDispatch) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: 'consumed_dispatch_requires_parameter_free\n',
+    };
+  }
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
     if (discovery.state === 'blocked') {
@@ -3146,6 +3518,7 @@ export function runExecute({
       recoveryStep = discovery.step;
       recoveryBranch = discovery.branch;
       repairedRecoveryClass = discovery.recoveryClass ?? null;
+      consumedDispatchInvocationId = discovery.consumedDispatchInvocationId ?? null;
     } else {
       let specified;
       try {
@@ -3509,8 +3882,40 @@ export function runExecute({
   }
   const resumedPromptActivations = new Set();
   let recoveryDispatch = null;
+  let preparedRecoveryPane = null;
+
+  function allocateStandardPane(step) {
+    const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
+    const { width, height } = paneDimensions(layout);
+    const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+    const environment = stepPaneEnvironment(step, env, runState.runId);
+    const split = herdrApi.paneSplit({
+      direction,
+      cwd,
+      ...(environment ? { environment } : {}),
+    });
+    const paneId = splitPaneId(split);
+    return paneId && commandSucceeded(split) ? paneId : null;
+  }
+  function clearConsumedDispatchAfterPassedStep(issue, step) {
+    const dispatch = runState.consumedDispatch;
+    if (!dispatch || step !== 'implement' || dispatch.issue !== issue) return;
+    const recoveries = (runState.recoveries || []).filter((entry) =>
+      entry.runId === runState.runId
+      && entry.issue === issue
+      && entry.step === step
+      && entry.invocationId === dispatch.invocationId
+      && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
+    if (dispatch.disposition !== 'started' || recoveries.length !== 1) {
+      throw new Error('consumed_dispatch_unproven');
+    }
+    exactConsumedDispatch(dispatch, runState, recoveries[0]);
+    delete runState.consumedDispatch;
+  }
+
   if (repairedRecoveryClass) {
-    let proof;
+    let allocatedPaneId = null;
+    let consumed = false;
     try {
       if (!bareRecovery || ![
         REPAIRED_PUBLICATION_RECOVERY,
@@ -3526,68 +3931,232 @@ export function runExecute({
       const issue = runState.currentIssue;
       const step = runState.currentStep;
       const checkpointHead = runState.head;
-      const inspect = repairedRecoveryClass === REPAIRED_PUBLICATION_RECOVERY
-        ? inspectRepairedPublicationIntervention
-        : inspectExclusiveImplementResume;
-      proof = inspect({
-        cwd,
-        checkpoint: runState,
-        run,
-        allowOwnedLease: true,
-      });
-      const archivedHandoff = archiveFailedHandoff(cwd, proof);
-      const consumed = consumeSafeRecovery({
-        cwd,
-        ownerId: proof.ownerId,
-        issue,
-        step,
-        class: proof.class,
-        evidence: {
-          head: proof.head,
-          branch: proof.branch,
-          tasksPath: proof.tasksPath,
-          publication: proof.publication,
-          publicationPaths: proof.publicationPaths,
-          workflowEvidencePaths: proof.workflowEvidencePaths,
-          handoffArchive: archivedHandoff,
-          checkpointHead,
-          currentHead: proof.head,
-          discrepancies: proof.discrepancies,
-        },
-      });
-      if (!consumed.consumed) throw new Error('recovery_consumed');
-      runState.recoveries ||= [];
-      runState.recoveries.push({
-        runId: runState.runId,
-        issue,
-        step,
-        invocationId: consumed.record.invocationId,
-        consumedAt: consumed.record.consumedAt,
-        source: {
+      if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
+        const proof = inspectExclusiveImplementResume({
+          cwd,
+          checkpoint: runState,
+          run,
+          allowOwnedLease: true,
+        });
+        const archivedHandoff = archiveFailedHandoff(cwd, proof);
+        const consumedResult = consumeSafeRecovery({
+          cwd,
+          ownerId: proof.ownerId,
+          issue,
+          step,
           class: proof.class,
-          tasksPath: proof.tasksPath,
-          publication: proof.publication,
-          publicationPaths: proof.publicationPaths,
-          workflowEvidencePaths: proof.workflowEvidencePaths,
-          handoffArchive: archivedHandoff,
-          checkpointHead,
-          currentHead: proof.head,
-          branch: proof.branch,
-        },
-        failure: structuredClone(runState.failed),
-        handoff: proof.handoff,
-        disposition: 'consumed',
-      });
-      runState.head = proof.head;
+          evidence: {
+            head: proof.head,
+            branch: proof.branch,
+            tasksPath: proof.tasksPath,
+            publication: proof.publication,
+            publicationPaths: proof.publicationPaths,
+            workflowEvidencePaths: proof.workflowEvidencePaths,
+            handoffArchive: archivedHandoff,
+            checkpointHead,
+            currentHead: proof.head,
+            discrepancies: proof.discrepancies,
+          },
+        });
+        if (!consumedResult.consumed) throw new Error('recovery_consumed');
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: consumedResult.record.invocationId,
+          consumedAt: consumedResult.record.consumedAt,
+          source: {
+            class: proof.class,
+            tasksPath: proof.tasksPath,
+            publication: proof.publication,
+            publicationPaths: proof.publicationPaths,
+            workflowEvidencePaths: proof.workflowEvidencePaths,
+            handoffArchive: archivedHandoff,
+            checkpointHead,
+            currentHead: proof.head,
+            branch: proof.branch,
+          },
+          failure: structuredClone(runState.failed),
+          handoff: proof.handoff,
+          disposition: 'consumed',
+        });
+        runState.head = proof.head;
+      } else {
+      const resumingConsumedDispatch = typeof consumedDispatchInvocationId === 'string'
+        && consumedDispatchInvocationId.length > 0;
+      const prepared = runState.consumedDispatch;
+      const proveRecovery = () => {
+        if (resumingConsumedDispatch) {
+          const consumedProof = inspectConsumedRepairedPublicationDispatch({
+            cwd,
+            checkpoint: runState,
+            run,
+            herdr: herdrApi,
+            allowOwnedLease: true,
+            allowedPaneId: allocatedPaneId,
+          });
+          if (consumedProof.invocationId !== consumedDispatchInvocationId) {
+            throw new Error('recovery_invocation_mismatch');
+          }
+          return consumedProof;
+        }
+        return inspectRepairedPublicationIntervention({
+          cwd,
+          checkpoint: runState,
+          run,
+          allowOwnedLease: true,
+          allowedArchivePath: prepared?.archive?.path,
+        });
+      };
+      let proof = proveRecovery();
+      let preparedPanePresent = false;
+      if (!resumingConsumedDispatch && prepared) {
+        exactConsumedDispatch(prepared, runState, { invocationId: prepared.invocationId });
+        inspectRecoveryWorkers(runState, herdrApi);
+        const panes = inspectDispatchPanes(
+          herdrApi,
+          issue,
+          prepared.paneId,
+          prepared.paneId,
+        );
+        preparedPanePresent = panes.some((pane) =>
+          String(pane.pane_id ?? pane.paneId) === prepared.paneId);
+        const expectedArchivePath = `${RUN_DIR}/history/repaired-publication/${issue}-implement-${proof.handoffDigest}.json`;
+        if (prepared.branch !== proof.branch
+          || prepared.archive.path !== expectedArchivePath
+          || prepared.archive.digest !== proof.handoffDigest) {
+          throw new Error('consumed_dispatch_unproven');
+        }
+      }
+
+      allocatedPaneId = preparedPanePresent
+        ? prepared.paneId
+        : allocateStandardPane(step);
+      if (!allocatedPaneId) throw new Error('pane_split_failed');
+      proof = proveRecovery();
+      const agentName = `s${issue}-${step}`;
+      const archive = resumingConsumedDispatch
+        ? proof.archive
+        : {
+          path: `${RUN_DIR}/history/repaired-publication/${issue}-implement-${proof.handoffDigest}.json`,
+          digest: proof.handoffDigest,
+        };
+      const invocationId = resumingConsumedDispatch
+        ? proof.invocationId
+        : runState.consumedDispatch?.invocationId ?? randomUUID();
+      runState.consumedDispatch = {
+        runId: runState.runId,
+        invocationId,
+        class: REPAIRED_PUBLICATION_RECOVERY,
+        issue,
+        step,
+        head: proof.head,
+        branch: proof.branch,
+        archive,
+        paneId: allocatedPaneId,
+        agentName,
+        disposition: resumingConsumedDispatch ? 'pending' : 'prepared',
+      };
+
+      if (resumingConsumedDispatch) {
+        runState.recoveries ||= [];
+        const matchingRecoveries = runState.recoveries.filter((entry) =>
+          entry.runId === runState.runId
+          && entry.issue === issue
+          && entry.step === step
+          && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
+        if (matchingRecoveries.length > 1
+          || (matchingRecoveries.length === 1
+            && matchingRecoveries[0].invocationId !== invocationId)) {
+          throw new Error('recovery_invocation_mismatch');
+        }
+        const recovery = matchingRecoveries[0] ?? {
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId,
+          source: {
+            class: proof.class,
+            tasksPath: proof.tasksPath,
+            publication: proof.publication,
+            handoffArchive: proof.archive,
+          },
+          failure: structuredClone(runState.failed),
+          handoff: proof.handoff,
+          disposition: 'consumed',
+        };
+        if (matchingRecoveries.length === 0) runState.recoveries.push(recovery);
+        recovery.consumedAt = proof.record.consumedAt;
+        recovery.disposition = 'consumed';
+        delete recovery.reasonCode;
+        delete recovery.stoppedAt;
+      } else {
+        persistRunState(runState, cwd);
+        const archivedHandoff = archiveFailedHandoff(cwd, proof);
+        if (archivedHandoff.path !== archive.path || archivedHandoff.digest !== archive.digest) {
+          throw new Error('handoff_archive_failed');
+        }
+        const consumedResult = consumeSafeRecovery({
+          cwd,
+          ownerId: proof.ownerId,
+          issue,
+          step,
+          class: proof.class,
+          invocationId,
+          evidence: {
+            head: proof.head,
+            branch: proof.branch,
+            tasksPath: proof.tasksPath,
+            publication: proof.publication,
+            workflowEvidencePaths: proof.workflowEvidencePaths,
+            handoffArchive: archivedHandoff,
+            discrepancies: proof.discrepancies,
+          },
+        });
+        if (!consumedResult.consumed) throw new Error('recovery_consumed');
+        consumed = true;
+        runState.recoveries ||= [];
+        if (runState.recoveries.some((entry) =>
+          entry.runId === runState.runId && entry.issue === issue && entry.step === step)) {
+          throw new Error('recovery_consumed');
+        }
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: consumedResult.record.invocationId,
+          consumedAt: consumedResult.record.consumedAt,
+          source: {
+            class: proof.class,
+            tasksPath: proof.tasksPath,
+            publication: proof.publication,
+            handoffArchive: archivedHandoff,
+          },
+          failure: structuredClone(runState.failed),
+          handoff: proof.handoff,
+          disposition: 'consumed',
+        });
+        runState.consumedDispatch.disposition = 'pending';
+      }
+      }
       runState.failed = null;
       delete runState.remediation;
       persistRunStateWithHeadCas(runState, cwd, checkpointHead);
       recoveryDispatch = `${issue}:${step}`;
+      preparedRecoveryPane = { issue, step, paneId: allocatedPaneId, agentName };
     } catch (error) {
+      let reasonCode = error?.reasonCode || error?.message || 'repaired_intervention_unproven';
+      if (allocatedPaneId && !preparedRecoveryPane
+        && !closePane(herdrApi, allocatedPaneId)) {
+        reasonCode = 'pane_close_failed';
+        releaseLeaseInFinally = false;
+      }
       return {
         status: 1,
         stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
-        stderr: `${error?.reasonCode || error?.message || 'safe_recovery_unproven'}\n`,
+        stderr: `${reasonCode}\n`,
+        ...(consumed ? { consumedDispatch: true } : {}),
       };
     }
   }
@@ -4348,6 +4917,7 @@ export function runExecute({
           }
           delete runState.workers[name];
         }
+        clearConsumedDispatchAfterPassedStep(issue, step);
         runState.completed[String(issue)].push(step);
         step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;
@@ -4683,6 +5253,7 @@ export function runExecute({
               });
             }
             delete runState.workers[agentName];
+            clearConsumedDispatchAfterPassedStep(issue, step);
             runState.completed[String(issue)].push(step);
             step = nextStep(runState.completed[String(issue)]);
             runState.currentStep = step;
@@ -4803,26 +5374,40 @@ export function runExecute({
 
 
 
-      const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
-      const { width, height } = paneDimensions(layout);
-      const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
-      const environment = stepPaneEnvironment(step, env, runState.runId);
-      const split = herdrApi.paneSplit({
-        direction,
-        cwd,
-        ...(environment ? { environment } : {}),
-      });
-      const paneId = splitPaneId(split);
       const agentName = `s${issue}-${step}`;
       const handoffPath = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-      if (!paneId || !commandSucceeded(split)) {
-        return stop({
-          issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
-          runState, cwd, herdr: herdrApi, output,
+      const consumedRecoveryWorker = recoveryDispatch === `${issue}:${step}`
+        && runState.consumedDispatch?.issue === issue
+        && runState.consumedDispatch?.step === step;
+      let paneId;
+      if (preparedRecoveryPane
+        && preparedRecoveryPane.issue === issue
+        && preparedRecoveryPane.step === step
+        && preparedRecoveryPane.agentName === agentName) {
+        paneId = preparedRecoveryPane.paneId;
+        preparedRecoveryPane = null;
+      } else {
+        const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
+        const { width, height } = paneDimensions(layout);
+        const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+        const environment = stepPaneEnvironment(step, env, runState.runId);
+        const split = herdrApi.paneSplit({
+          direction,
+          cwd,
+          ...(environment ? { environment } : {}),
         });
+        paneId = splitPaneId(split);
+        if (!paneId || !commandSucceeded(split)) {
+          return stop({
+            issue, step, paneId: paneId || 'unknown', agentName, reasonCode: 'pane_split_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
       }
       createdPanes.add(paneId);
-      if (!['review1', 'review2'].includes(step)) rmSync(handoffPath, { force: true });
+      if (!['review1', 'review2'].includes(step) && !consumedRecoveryWorker) {
+        rmSync(handoffPath, { force: true });
+      }
 
       const ownership = workerOwnership({
         runState, issue, step, agentName, paneId, cwd, run,
@@ -4869,6 +5454,10 @@ export function runExecute({
       });
 
       runState.workers[agentName] = ownership;
+      if (consumedRecoveryWorker) {
+        runState.consumedDispatch.disposition = 'starting';
+        delete runState.consumedDispatch.reasonCode;
+      }
       persistRunState(runState, cwd);
       let started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       if (!commandSucceeded(started)) {
@@ -4876,11 +5465,21 @@ export function runExecute({
         started = herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' });
       }
       if (!commandSucceeded(started)) {
+        if (consumedRecoveryWorker) {
+          runState.consumedDispatch.disposition = 'stopped';
+          runState.consumedDispatch.reasonCode = 'agent_start_failed';
+        }
         return stop({
           issue, step, paneId, agentName, reasonCode: 'agent_start_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      if (consumedRecoveryWorker) {
+        runState.consumedDispatch.disposition = 'started';
+        delete runState.consumedDispatch.reasonCode;
+        persistRunState(runState, cwd);
+      }
+      if (consumedRecoveryWorker) rmSync(handoffPath, { force: true });
 
       let state = null;
       let handoffResult;
@@ -4979,6 +5578,7 @@ export function runExecute({
         });
       }
       delete runState.workers[agentName];
+      clearConsumedDispatchAfterPassedStep(issue, step);
       runState.completed[String(issue)].push(step);
       step = nextStep(runState.completed[String(issue)]);
       runState.currentStep = step;
