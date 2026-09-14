@@ -4,7 +4,7 @@
 **Author**: NMG
 **Related Spec**: specs/392-recover-repaired-publication-interventions-before-implementation/
 
-# File: scripts/__tests__/sdlc-execute.test.mjs
+# File: scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-execute-supervisor.test.mjs
 # Generated from: specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/requirements.md
 
 Feature: Resume consumed repaired-publication dispatch after pane split failure
@@ -25,6 +25,18 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
     Then one CAS reserves the original invocation and exact prepared dispatch without a run recovery
     And the next CAS creates exactly one matching run recovery and marks dispatch pending before agent start
     And same-invocation crash-gap resume creates only the absent tuple, never a duplicate or allowance
+
+  @AC8 @SCN009
+  Scenario Outline: Every current recovery tuple is validated before class filtering
+    Given the current run, issue, and implement step contain <tuple-set>
+    When repaired-publication recovery classification runs
+    Then every current tuple is validated before recovery class selection
+    And consumed dispatch remains unavailable without mutation
+
+    Examples:
+      | tuple-set |
+      | a wrong-class tuple |
+      | an additional recovery tuple |
 
   @AC3 @SCN003
   Scenario: Grounded revision-fourteen state is discoverable
@@ -65,6 +77,35 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
       | agent start failure after consumption |
       | successful start before prompt activation |
 
+  @AC5 @SCN013
+  Scenario Outline: Supervised hard loss retains same-invocation authority
+    Given repaired-publication dispatch reaches <boundary>
+    When the real execute controller receives SIGKILL under its detached supervisor
+    Then the original implementation failure remains unchanged
+    And only the exact attempt-owned unused pane is closed
+    And durable state remains resumable as the same invocation
+
+    Examples:
+      | boundary |
+      | prepared CAS |
+      | safe consumption before run-recovery tuple CAS |
+      | pending CAS before worker ownership persistence |
+
+  @AC5 @SCN010
+  Scenario: Prompt-path worker loss remains resumable
+    Given the consumed dispatch is pending on the standard prompt path
+    When exact worker observation proves the process was lost
+    Then the same dispatch persists process_lost
+    And no new invocation, recovery tuple, or allowance is created
+
+  @AC6 @SCN011
+  Scenario: Malformed controller layout fails before mutation
+    Given repaired-publication recovery is available under lease
+    And the actual controller layout is malformed
+    When standard pane preflight runs
+    Then pane_split_failed is reported before pane split or consumption
+    And recovery, archive, task, handoff, run, and product bytes remain unchanged
+
   @AC6 @SCN007
   Scenario Outline: Unsafe consumed dispatches stay blocked
     Given an otherwise exact consumed-dispatch fixture with <defect>
@@ -86,10 +127,21 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
       | duplicate resume |
       | controller lock |
       | explicit selector |
-
+      | wrong-class recovery tuple |
+      | additional current recovery tuple |
   @AC7 @SCN008
   Scenario: Existing recoveries and generated surfaces remain stable
     Given existing repaired-publication and safe-recovery fixtures plus public workflow surfaces
     When focused, full, command-sync, plugin, current-spec, inventory, contribution, version, and diff checks run
     Then only exact same-invocation consumed-dispatch resumption changes behavior
     And every existing recovery class and one-time consumption rule remains unchanged
+
+  @AC9 @SCN012
+  Scenario: Final report evidence is exact without self-reference
+    Given external review identifies its reviewer or tool, exact command or invocation, and scoped paths
+    And it completes against the exact pre-report implementation SHA and tree
+    When verification writes and commits the final report
+    Then the report records that identity, scope, reviewed parent, outcome, and every finding or explicit no-findings result
+    And the reviewed implementation SHA is the direct parent of the final report commit
+    And Git reports the final report commit SHA after commit
+    And the report does not embed its own commit SHA
