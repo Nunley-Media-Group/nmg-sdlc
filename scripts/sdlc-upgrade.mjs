@@ -6,13 +6,15 @@
  * Exports:
  *   detectUpgrade(root)
  *   applyUpgrade(root, approvedItemIds)
+ *   detectPublicationUpgrade(root, { specDirs })
+ *   applyPublicationUpgrade(root, approvedItemId, { specDirs })
  *
- * Detectors are read-only. apply only mutates for approved ids.
+ * Detectors are read-only. Apply mutates only explicitly approved authority.
  * Never mutates the caller's specs/ unless the caller passes a temp root.
  * Legacy body relations are migration evidence only.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,6 +50,14 @@ const V2_GITIGNORE_ENTRIES = new Set(V2_CLEANUP_FILES);
 function safeRead(p) {
   try {
     return fs.readFileSync(p, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function safeReadBuffer(p) {
+  try {
+    return fs.readFileSync(p);
   } catch {
     return null;
   }
@@ -156,6 +166,343 @@ function listSpecDirs(root) {
       full: path.join(specsDir, d.name),
       rel: `specs/${d.name}`,
     }));
+}
+
+const ISSUE_SPEC_DIR_RE = /^specs\/([1-9]\d*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+
+function publicationContractError(reasonCode, message) {
+  const error = new Error(message);
+  error.reasonCode = reasonCode;
+  return error;
+}
+
+function lstatOrNull(target) {
+  try {
+    return fs.lstatSync(target);
+  } catch {
+    return null;
+  }
+}
+
+function publicationLstatOrNull(target) {
+  try {
+    return fs.lstatSync(target, { bigint: true });
+  } catch {
+    return null;
+  }
+}
+
+function publicationFstat(descriptor) {
+  return fs.fstatSync(descriptor, { bigint: true });
+}
+
+function rejectSymlinkedPath(target) {
+  const raw = String(target);
+  const absolute = path.isAbsolute(raw)
+    ? raw
+    : `${process.cwd()}${path.sep}${raw}`;
+  const parsed = path.parse(absolute);
+  let cursor = parsed.root;
+  for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    if (component === '.') continue;
+    if (component === '..') {
+      cursor = path.dirname(cursor);
+      continue;
+    }
+    cursor = path.join(cursor, component);
+    const stat = lstatOrNull(cursor);
+    if (!stat) continue;
+    if (stat.isSymbolicLink()) {
+      throw publicationContractError(
+        'publication_root_symlink',
+        `Repository root input traverses a symlink: ${cursor}`,
+      );
+    }
+  }
+}
+
+function requirePlainDirectory(target, reasonCode, message) {
+  const stat = lstatOrNull(target);
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+    throw publicationContractError(reasonCode, message);
+  }
+}
+
+function publicationFileIdentity(stat) {
+  return {
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    mode: String(stat.mode),
+    size: String(stat.size),
+    mtimeNs: stat.mtimeNs === undefined ? String(stat.mtimeMs) : String(stat.mtimeNs),
+    ctimeNs: stat.ctimeNs === undefined ? String(stat.ctimeMs) : String(stat.ctimeNs),
+  };
+}
+
+function samePublicationIdentity(stat, identity) {
+  if (!stat || stat.isSymbolicLink() || !identity) return false;
+  const observed = publicationFileIdentity(stat);
+  return observed.device === identity.device
+    && observed.inode === identity.inode
+    && observed.mode === identity.mode
+    && observed.size === identity.size
+    && observed.mtimeNs === identity.mtimeNs
+    && observed.ctimeNs === identity.ctimeNs;
+}
+
+function samePublicationFileIdentity(stat, identity) {
+  return Boolean(stat?.isFile()) && samePublicationIdentity(stat, identity);
+}
+function comparePublicationPaths(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function publicationDirectoryEntryType(entry) {
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
+  if (entry.isSymbolicLink()) return 'symlink';
+  if (entry.isBlockDevice()) return 'block';
+  if (entry.isCharacterDevice()) return 'character';
+  if (entry.isFIFO()) return 'fifo';
+  if (entry.isSocket()) return 'socket';
+  return 'unknown';
+}
+
+function publicationDirectoryEntries(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => comparePublicationPaths(left.name, right.name));
+}
+
+function publicationDirectoryListing(entries) {
+  return entries.map((entry) => ({
+    name: entry.name,
+    type: publicationDirectoryEntryType(entry),
+  }));
+}
+
+function samePublicationDirectoryListing(left, right) {
+  return JSON.stringify(publicationDirectoryListing(left))
+    === JSON.stringify(publicationDirectoryListing(right));
+}
+
+
+function requireApprovedIssueFrontmatter(source, issueDigits, relativePath) {
+  const issueLines = [...source.matchAll(/^\*\*(Issues?)\*\*:\s*(.*?)\s*$/gm)];
+  const statusLines = [...source.matchAll(/^\*\*Status\*\*:\s*(.*?)\s*$/gm)];
+  if (
+    issueLines.length !== 1
+    || issueLines[0][1] !== 'Issue'
+    || issueLines[0][2] !== `#${issueDigits}`
+  ) {
+    throw publicationContractError(
+      'publication_spec_issue_invalid',
+      `${relativePath} must declare singular **Issue**: #${issueDigits}`,
+    );
+  }
+  if (statusLines.length !== 1 || statusLines[0][1] !== 'Approved') {
+    throw publicationContractError(
+      'publication_spec_not_approved',
+      `${relativePath} must declare **Status**: Approved`,
+    );
+  }
+}
+
+function inventoryPublicationPackage(root, specDir) {
+  const packageFull = path.join(root, ...specDir.split('/'));
+  const files = [];
+  const directories = [];
+  const sources = new Map();
+  const visit = (directory, relativeDirectory, expectedIdentity) => {
+    const directoryStat = publicationLstatOrNull(directory);
+    if (
+      !directoryStat?.isDirectory()
+      || directoryStat.isSymbolicLink()
+      || (expectedIdentity && !samePublicationIdentity(directoryStat, expectedIdentity))
+    ) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed: ${relativeDirectory}`,
+      );
+    }
+    const directoryIdentity = publicationFileIdentity(directoryStat);
+    const entries = publicationDirectoryEntries(directory);
+    if (!samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed while listing: ${relativeDirectory}`,
+      );
+    }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name);
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      const before = publicationLstatOrNull(full);
+      if (before?.isSymbolicLink()) {
+        throw publicationContractError(
+          'publication_spec_symlink',
+          `Selected spec package contains a symlink: ${relativePath}`,
+        );
+      }
+      if (entry.isDirectory() && before?.isDirectory()) {
+        visit(full, relativePath, publicationFileIdentity(before));
+      } else if (entry.isFile() && before?.isFile()) {
+        let descriptor;
+        try {
+          descriptor = fs.openSync(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+          const opened = publicationFstat(descriptor);
+          const identity = publicationFileIdentity(before);
+          if (!samePublicationFileIdentity(opened, identity)) {
+            throw publicationContractError(
+              'publication_spec_entry_invalid',
+              `Selected spec package entry identity changed: ${relativePath}`,
+            );
+          }
+          const bytes = fs.readFileSync(descriptor);
+          const after = publicationLstatOrNull(full);
+          if (!samePublicationFileIdentity(after, identity)) {
+            throw publicationContractError(
+              'publication_spec_entry_invalid',
+              `Selected spec package entry identity changed: ${relativePath}`,
+            );
+          }
+          files.push({
+            path: relativePath,
+            sourceDigest: createHash('sha256').update(bytes).digest('hex'),
+            identity,
+          });
+          sources.set(relativePath, bytes);
+        } catch (error) {
+          if (error?.reasonCode === 'publication_spec_entry_invalid') throw error;
+          throw publicationContractError(
+            'publication_spec_entry_invalid',
+            `Selected spec package entry could not be validated: ${relativePath}: ${error.message}`,
+          );
+        } finally {
+          if (descriptor !== undefined) fs.closeSync(descriptor);
+        }
+      } else {
+        throw publicationContractError(
+          'publication_spec_entry_invalid',
+          `Selected spec package entry identity changed: ${relativePath}`,
+        );
+      }
+    }
+    if (!samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed after traversal: ${relativeDirectory}`,
+      );
+    }
+    const finalEntries = publicationDirectoryEntries(directory);
+    const finalListing = publicationDirectoryListing(finalEntries);
+    if (
+      !samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)
+      || !samePublicationDirectoryListing(entries, finalEntries)
+    ) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory listing changed during traversal: ${relativeDirectory}`,
+      );
+    }
+    directories.push({
+      path: relativeDirectory,
+      identity: directoryIdentity,
+      listing: finalListing,
+    });
+  };
+  const packageIdentity = publicationLstatOrNull(packageFull);
+  visit(packageFull, specDir, packageIdentity && publicationFileIdentity(packageIdentity));
+  return {
+    files: files.sort((left, right) => comparePublicationPaths(left.path, right.path)),
+    directories: directories.sort((left, right) => comparePublicationPaths(left.path, right.path)),
+    sources,
+  };
+}
+
+function validatePublicationSpecDirs(root, specDirs) {
+  if (!Array.isArray(specDirs) || specDirs.length === 0) {
+    throw publicationContractError(
+      'publication_spec_selection_required',
+      'Publication-only detection requires exactly one explicit --spec selection',
+    );
+  }
+  if (specDirs.length !== 1) {
+    throw publicationContractError(
+      'publication_spec_selection_multiple',
+      'Publication-only detection accepts exactly one --spec selection',
+    );
+  }
+  rejectSymlinkedPath(root);
+  const rootInput = path.resolve(root);
+  requirePlainDirectory(rootInput, 'publication_root_invalid', `Repository root is not a plain directory: ${rootInput}`);
+  const rootReal = fs.realpathSync.native(rootInput);
+  const specsFull = path.join(rootReal, 'specs');
+  requirePlainDirectory(specsFull, 'publication_specs_root_invalid', `Spec root is not a plain directory: ${specsFull}`);
+
+  const selected = [];
+  const seen = new Set();
+  for (const value of specDirs) {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw publicationContractError('publication_spec_selection_invalid', 'Selected spec directory must be a non-empty string');
+    }
+    const normalized = value.replaceAll('\\', '/');
+    const match = ISSUE_SPEC_DIR_RE.exec(normalized);
+    if (!match || path.isAbsolute(value) || normalized.includes('/../') || normalized.includes('/./')) {
+      throw publicationContractError(
+        'publication_spec_selection_invalid',
+        `Selected spec directory must match specs/{N}-{slug}: ${value}`,
+      );
+    }
+    if (seen.has(normalized)) {
+      throw publicationContractError(
+        'publication_spec_selection_duplicate',
+        `Selected spec directory is duplicated: ${normalized}`,
+      );
+    }
+    seen.add(normalized);
+    const packageFull = path.join(rootReal, ...normalized.split('/'));
+    const packageStat = lstatOrNull(packageFull);
+    if (packageStat?.isSymbolicLink()) {
+      throw publicationContractError(
+        'publication_spec_symlink',
+        `Selected spec package must not be a symlink: ${normalized}`,
+      );
+    }
+    requirePlainDirectory(
+      packageFull,
+      'publication_spec_missing',
+      `Selected spec package is missing or not a plain directory: ${normalized}`,
+    );
+    if (path.dirname(packageFull) !== specsFull || fs.realpathSync.native(packageFull) !== packageFull) {
+      throw publicationContractError(
+        'publication_spec_outside_root',
+        `Selected spec package is outside the canonical specs root: ${normalized}`,
+      );
+    }
+    const inventory = inventoryPublicationPackage(rootReal, normalized);
+    for (const name of REQUIRED_SPEC_FILES) {
+      const relativePath = `${normalized}/${name}`;
+      const source = inventory.sources.get(relativePath);
+      if (!source) {
+        throw publicationContractError(
+          'publication_spec_incomplete',
+          `Selected spec package requires a plain ${relativePath}`,
+        );
+      }
+      requireApprovedIssueFrontmatter(source.toString('utf8'), match[1], relativePath);
+    }
+    selected.push({
+      name: path.basename(normalized),
+      full: packageFull,
+      rel: normalized,
+      files: inventory.files,
+      directories: inventory.directories,
+      sources: inventory.sources,
+    });
+  }
+  return {
+    root: rootReal,
+    selected: selected.sort((a, b) => comparePublicationPaths(a.rel, b.rel)),
+  };
 }
 
 function hasEpicArtifacts(root) {
@@ -798,6 +1145,187 @@ function recoverPublicationFileDeclaration(value) {
   return tokens.join(', ');
 }
 
+function publicationMarkdownFence(line) {
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesPublicationMarkdownFence(line, fence) {
+  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
+}
+
+function publicationCodeSpanSourceLines(lines) {
+  const visibleLines = [];
+  let fence = null;
+  let inComment = false;
+  for (const sourceLine of lines) {
+    if (fence) {
+      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
+      visibleLines.push(' '.repeat(sourceLine.length));
+      continue;
+    }
+    const chars = sourceLine.split('');
+    let offset = 0;
+    while (offset < sourceLine.length) {
+      if (inComment) {
+        const end = sourceLine.indexOf('-->', offset);
+        const limit = end === -1 ? sourceLine.length : end + 3;
+        chars.fill(' ', offset, limit);
+        offset = limit;
+        if (end === -1) break;
+        inComment = false;
+        continue;
+      }
+      const start = sourceLine.indexOf('<!--', offset);
+      if (start === -1) break;
+      chars.fill(' ', start, start + 4);
+      inComment = true;
+      offset = start + 4;
+    }
+    const visible = chars.join('');
+    fence = publicationMarkdownFence(visible);
+    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
+  }
+  return visibleLines;
+}
+
+function publicationEscapedBacktick(line, offset) {
+  let backslashes = 0;
+  for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
+function publicationCodeSpanDelimiters(lines) {
+  const roles = new Map();
+  const remaining = [];
+  const key = (line, offset) => `${line}:${offset}`;
+  for (const [lineIndex, line] of lines.entries()) {
+    const runs = [];
+    for (let offset = 0; offset < line.length;) {
+      if (line[offset] !== '`') {
+        offset += 1;
+        continue;
+      }
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      if (!publicationEscapedBacktick(line, offset)) {
+        runs.push({ line: lineIndex, offset, length: delimiter.length });
+      }
+      offset += delimiter.length;
+    }
+    if (!/^\*\*[^*]+\*\*:/.test(line)) {
+      remaining.push(...runs);
+      continue;
+    }
+    for (let index = 0; index < runs.length;) {
+      const opener = runs[index];
+      let close = index + 1;
+      while (close < runs.length && runs[close].length !== opener.length) close += 1;
+      if (close === runs.length) {
+        remaining.push(opener);
+        index += 1;
+        continue;
+      }
+      roles.set(key(opener.line, opener.offset), 'open');
+      roles.set(key(runs[close].line, runs[close].offset), 'close');
+      index = close + 1;
+    }
+  }
+  for (let index = 0; index < remaining.length;) {
+    const opener = remaining[index];
+    let close = index + 1;
+    while (close < remaining.length && remaining[close].length !== opener.length) close += 1;
+    if (close === remaining.length) {
+      index += 1;
+      continue;
+    }
+    roles.set(key(opener.line, opener.offset), 'open');
+    roles.set(key(remaining[close].line, remaining[close].offset), 'close');
+    index = close + 1;
+  }
+  return roles;
+}
+
+function stripPublicationHtmlComments(line, inComment, codeSpan, delimiterRole) {
+  let visible = '';
+  let offset = 0;
+  while (offset < line.length) {
+    if (inComment) {
+      const end = line.indexOf('-->', offset);
+      if (end === -1) return { line: visible, inComment: true, codeSpan };
+      inComment = false;
+      offset = end + 3;
+      continue;
+    }
+    if (line[offset] === '`') {
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      visible += delimiter;
+      const role = delimiterRole(offset);
+      if (codeSpan === 0 && role === 'open') codeSpan = delimiter.length;
+      else if (codeSpan === delimiter.length && role === 'close') codeSpan = 0;
+      offset += delimiter.length;
+      continue;
+    }
+    if (codeSpan > 0) {
+      visible += line[offset++];
+      continue;
+    }
+    if (line.startsWith('<!--', offset)) {
+      inComment = true;
+      offset += 4;
+      continue;
+    }
+    visible += line[offset++];
+  }
+  return { line: visible, inComment, codeSpan };
+}
+
+function publicationTaskVisibility(sourceLines) {
+  const visibleTaskIds = new Set();
+  const parserLines = [...sourceLines];
+  const codeSpanRoles = publicationCodeSpanDelimiters(
+    publicationCodeSpanSourceLines(sourceLines),
+  );
+  let fence = null;
+  let inHtmlComment = false;
+  let codeSpan = 0;
+  for (const [index, sourceLine] of sourceLines.entries()) {
+    if (fence) {
+      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
+      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
+      continue;
+    }
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripPublicationHtmlComments(
+      sourceLine,
+      inHtmlComment,
+      codeSpan,
+      (offset) => codeSpanRoles.get(`${index}:${offset}`),
+    );
+    const line = stripped.line;
+    inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) {
+      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
+      continue;
+    }
+    fence = publicationMarkdownFence(line);
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
+    const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
+    if (taskId) {
+      visibleTaskIds.add(taskId);
+    } else if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) {
+      parserLines[index] = '';
+    }
+  }
+  return { parserLines, taskIds: visibleTaskIds };
+}
+
+
 function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
   const candidateLines = [...sourceLines];
   const rewrites = [];
@@ -816,6 +1344,7 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
       const canonical = /^(\*\*File\(s\)\*\*:\s*)(.*)$/.exec(line);
       let recovered = null;
       let prefix = null;
+      let labelOnlyForOpaqueBytes = false;
       const findings = error.entry == null ? [] : [{
         line: error.line,
         entry: error.entry,
@@ -825,47 +1354,69 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
       if (nearMiss) {
         if (error.entry !== line.trim()) return { rewrites: [], findings };
         prefix = nearMiss[1].replace('Files', 'File(s)');
-        try {
-          publicationFileEntries(nearMiss[2]);
-          recovered = nearMiss[2];
-        } catch {
-          recovered = recoverPublicationFileDeclaration(nearMiss[2]);
+        if (/[^\x00-\x7f]/.test(nearMiss[2])) {
+          const asciiPayload = nearMiss[2].replace(/[^\x00-\x7f]+/g, '');
+          try {
+            publicationFileEntries(asciiPayload);
+            recovered = nearMiss[2];
+            labelOnlyForOpaqueBytes = true;
+          } catch {
+            return { rewrites: [], findings };
+          }
+        } else {
+          try {
+            publicationFileEntries(nearMiss[2]);
+            recovered = nearMiss[2];
+          } catch {
+            recovered = recoverPublicationFileDeclaration(nearMiss[2]);
+          }
         }
       } else if (canonical && error.entry === canonical[2].trim()) {
+        if (/[^\x00-\x7f]/.test(line)) return { rewrites: [], findings };
         prefix = canonical[1];
         recovered = recoverPublicationFileDeclaration(canonical[2]);
       }
       if (recovered === null) return { rewrites: [], findings };
       const after = `${prefix}${recovered}`;
+      if (after === line) return { rewrites: [], findings };
       rewrites.push({
         line: error.line,
         entry: nearMiss?.[2] ?? canonical[2],
-        before: sourceLines[lineIndex],
+        before: line,
         after,
       });
+      if (labelOnlyForOpaqueBytes) return { rewrites, findings };
       candidateLines[lineIndex] = after;
     }
   }
   return { rewrites: [], findings: [] };
 }
 
-function publicationFilesUpgrade(root, specDirs) {
+function publicationFilesUpgrade(specDirs) {
   const packages = [];
   for (const specDir of specDirs) {
     if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
     const relativePath = `${specDir.rel}/tasks.md`;
-    const source = safeRead(path.join(root, relativePath));
-    if (source == null) continue;
-    const sourceLines = source.split(/\r?\n/);
-    const taskIds = new Set();
-    for (const line of sourceLines) {
-      const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
-      if (taskId) taskIds.add(taskId);
+    const sourceBytes = specDir.sources?.get(relativePath);
+    if (sourceBytes == null) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Descriptor-bound publication source is missing: ${relativePath}`,
+      );
     }
+    // Latin-1 is a reversible byte view. The publication grammar is ASCII, so
+    // parsing and rewriting this view cannot normalize unrelated invalid UTF-8.
+    const source = sourceBytes.toString('latin1');
+    const sourceLines = source.split(/\r?\n/);
+    const visibility = publicationTaskVisibility(sourceLines);
     const rewrites = [];
     const findings = [];
-    for (const taskId of taskIds) {
-      const recovered = recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId);
+    for (const taskId of visibility.taskIds) {
+      const recovered = recoverTaskPublicationDeclarations(
+        visibility.parserLines,
+        relativePath,
+        taskId,
+      );
       rewrites.push(...recovered.rewrites);
       findings.push(...recovered.findings);
     }
@@ -879,7 +1430,7 @@ function publicationFilesUpgrade(root, specDirs) {
         path: relativePath,
         ...(projectedPaths.length === 1 ? { projectedPath: projectedPaths[0] } : {}),
         ...(projectedPaths.length > 1 ? { projectedPaths } : {}),
-        sourceDigest: createHash('sha256').update(source).digest('hex'),
+        sourceDigest: createHash('sha256').update(sourceBytes).digest('hex'),
         rewrites,
         findings,
       });
@@ -894,6 +1445,21 @@ function publicationFilesUpgrade(root, specDirs) {
     actionable: packages.some(({ rewrites }) => rewrites.length > 0),
     packages,
   };
+}
+
+function legacyPublicationFilesUpgrade(root, specDirs) {
+  const sourced = [];
+  for (const specDir of specDirs) {
+    if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
+    const relativePath = `${specDir.rel}/tasks.md`;
+    const sourceBytes = safeReadBuffer(path.join(root, relativePath));
+    if (sourceBytes == null) continue;
+    sourced.push({
+      ...specDir,
+      sources: new Map([[relativePath, sourceBytes]]),
+    });
+  }
+  return publicationFilesUpgrade(sourced);
 }
 
 function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
@@ -925,37 +1491,496 @@ function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
   return [...candidates.values()];
 }
 
-function applyPublicationFiles(root, item) {
-  for (const plan of item.packages) {
-    const target = path.join(root, plan.path);
-    const source = safeRead(target);
-    if (source == null || createHash('sha256').update(source).digest('hex') !== plan.sourceDigest) {
-      const error = new Error('Publication File(s) changed after plan approval');
-      error.reasonCode = 'publication_files_plan_stale';
-      throw error;
+function durableCreateFile(target, bytes, mode = 0o600) {
+  const flags = fs.constants.O_WRONLY
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  const descriptor = fs.openSync(target, flags, mode);
+  try {
+    const stat = publicationFstat(descriptor);
+    if (!stat.isFile()) throw new Error(`Publication artifact is not a regular file: ${target}`);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fchmodSync(descriptor, mode);
+    fs.fsyncSync(descriptor);
+    return publicationFileIdentity(publicationFstat(descriptor));
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function withPublicationMutationLock(root, action) {
+  const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
+  const token = randomUUID();
+  const ownerBytes = Buffer.from(`${JSON.stringify({ token, pid: process.pid })}\n`);
+  const flags = fs.constants.O_WRONLY
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  let descriptor;
+  let lockIdentity;
+  const matchesOwnedLock = () => {
+    if (!lockIdentity) return false;
+    const before = publicationLstatOrNull(lockPath);
+    if (!samePublicationFileIdentity(before, lockIdentity)) return false;
+    let current;
+    try {
+      current = fs.openSync(lockPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+      const opened = publicationFstat(current);
+      if (!samePublicationFileIdentity(opened, lockIdentity)) return false;
+      const currentBytes = fs.readFileSync(current);
+      const after = publicationLstatOrNull(lockPath);
+      return currentBytes.equals(ownerBytes) && samePublicationFileIdentity(after, lockIdentity);
+    } catch {
+      return false;
+    } finally {
+      if (current !== undefined) fs.closeSync(current);
+    }
+  };
+  try {
+    descriptor = fs.openSync(lockPath, flags, 0o600);
+    lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
+    fs.writeFileSync(descriptor, ownerBytes);
+    fs.fchmodSync(descriptor, 0o600);
+    fs.fsyncSync(descriptor);
+    lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
+  } catch (error) {
+    if (descriptor !== undefined) {
+      try {
+        lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
+      } catch {
+        // Preserve the last proven identity.
+      }
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      if (matchesOwnedLock()) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (cleanupError) {
+          const failure = publicationContractError(
+            'publication_lock_setup_failed',
+            `Publication lock setup failed and exact owned lock cleanup failed: ${cleanupError.message}`,
+          );
+          failure.state = 'lock_setup_failed';
+          failure.applied = false;
+          failure.transactionId = token;
+          failure.primaryError = String(error.message ?? error);
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+      } else {
+        const failure = publicationContractError(
+          'publication_lock_setup_failed',
+          `Publication lock owner write failed and exact ownership is unproven: ${error.message}`,
+        );
+        failure.state = 'lock_setup_failed';
+        failure.applied = false;
+        failure.transactionId = token;
+        failure.retainPublicationLock = true;
+        throw failure;
+      }
+    }
+    if (error?.code === 'EEXIST') {
+      throw publicationContractError(
+        'publication_mutation_locked',
+        'Another publication mutation owns the project lock',
+      );
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+
+  const ownsLock = matchesOwnedLock;
+  const cleanupFailure = (applied, primaryError, error) => {
+    const failure = publicationContractError(
+      'publication_files_cleanup_failed',
+      `${applied ? 'Publication changes were applied, but' : 'Publication changes were not applied and'} lock cleanup failed: ${error.message}`,
+    );
+    failure.state = applied ? 'applied_cleanup_failed' : 'cleanup_failed';
+    failure.applied = applied;
+    failure.transactionId = token;
+    failure.primaryError = primaryError ? String(primaryError.message ?? primaryError) : null;
+    failure.cleanupError = String(error.message ?? error);
+    failure.retainPublicationLock = true;
+    return failure;
+  };
+
+  let outcome;
+  let primaryError = null;
+  try {
+    outcome = action({ token, matchesOwnedLock });
+  } catch (error) {
+    if (error?.retainPublicationLock) throw error;
+    primaryError = error;
+  }
+
+  try {
+    if (!ownsLock()) throw new Error('Publication lock ownership changed before cleanup');
+    fs.unlinkSync(lockPath);
+  } catch (error) {
+    throw cleanupFailure(Boolean(outcome?.applied || primaryError?.applied), primaryError, error);
+  }
+  if (primaryError) throw primaryError;
+  return outcome;
+}
+function splitBufferLines(source) {
+  const lines = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === 0x0a) {
+      lines.push(source.subarray(start, index + 1));
+      start = index + 1;
     }
   }
-  for (const plan of item.packages) {
-    if (!plan.rewrites.length) continue;
-    const target = path.join(root, plan.path);
-    const source = safeRead(target);
-    const lines = source.split(/(?<=\n)/);
-    for (const rewrite of plan.rewrites) {
-      const index = rewrite.line - 1;
-      const line = lines[index];
-      const newline = line.endsWith('\r\n') ? '\r\n' : line.endsWith('\n') ? '\n' : '';
-      const before = line.slice(0, line.length - newline.length);
-      if (before !== rewrite.before) {
-        const error = new Error('Publication File(s) changed after plan approval');
-        error.reasonCode = 'publication_files_plan_stale';
+  if (start < source.length || source.length === 0) lines.push(source.subarray(start));
+  return lines;
+}
+
+function applyPublicationBufferRewrite(line, rewrite) {
+  const newlineLength = line.length >= 2 && line.at(-2) === 0x0d && line.at(-1) === 0x0a
+    ? 2
+    : line.at(-1) === 0x0a ? 1 : 0;
+  const content = line.subarray(0, line.length - newlineLength);
+  const newline = line.subarray(line.length - newlineLength);
+  const before = Buffer.from(rewrite.before, 'latin1');
+  const after = Buffer.from(rewrite.after, 'latin1');
+  if (!content.equals(before)) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Publication File(s) changed after plan approval',
+    );
+  }
+
+  let prefixLength = 0;
+  while (
+    prefixLength < before.length
+    && prefixLength < after.length
+    && before[prefixLength] === after[prefixLength]
+  ) prefixLength += 1;
+  let suffixLength = 0;
+  while (
+    suffixLength < before.length - prefixLength
+    && suffixLength < after.length - prefixLength
+    && before[before.length - 1 - suffixLength] === after[after.length - 1 - suffixLength]
+  ) suffixLength += 1;
+  const beforeSpan = before.subarray(prefixLength, before.length - suffixLength);
+  const afterSpan = after.subarray(prefixLength, after.length - suffixLength);
+  if ([...beforeSpan, ...afterSpan].some((byte) => byte > 0x7f)) {
+    throw publicationContractError(
+      'publication_files_span_ambiguous',
+      'Publication rewrite cannot map an exact ASCII byte span',
+    );
+  }
+  return Buffer.concat([
+    content.subarray(0, prefixLength),
+    afterSpan,
+    content.subarray(content.length - suffixLength),
+    newline,
+  ]);
+}
+
+function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes, expectedDigest } = {}) {
+  const before = publicationLstatOrNull(target);
+  if (!before?.isFile() || before.isSymbolicLink()) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Publication File(s) changed after plan approval',
+    );
+  }
+  let descriptor;
+  try {
+    descriptor = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const opened = publicationFstat(descriptor);
+    const beforeIdentity = publicationFileIdentity(before);
+    if (
+      !samePublicationFileIdentity(opened, beforeIdentity)
+      || (expectedIdentity && !samePublicationFileIdentity(opened, expectedIdentity))
+    ) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        'Publication File(s) changed after plan approval',
+      );
+    }
+    const source = fs.readFileSync(descriptor);
+    const after = publicationLstatOrNull(target);
+    if (
+      !samePublicationFileIdentity(after, beforeIdentity)
+      || (expectedBytes && !source.equals(expectedBytes))
+      || (expectedDigest && createHash('sha256').update(source).digest('hex') !== expectedDigest)
+    ) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        'Publication File(s) changed after plan approval',
+      );
+    }
+    return {
+      source,
+      mode: Number(opened.mode),
+      identity: publicationFileIdentity(opened),
+    };
+  } catch (error) {
+    if (error?.reasonCode === 'publication_files_plan_stale') throw error;
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      `Publication File(s) could not be validated: ${error.message}`,
+    );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+
+function publicationOutputSnapshot(root, plan) {
+  const target = path.join(root, plan.path);
+  const snapshot = readPublicationTargetSnapshot(target, {
+    expectedIdentity: plan.targetIdentity,
+    expectedDigest: plan.sourceDigest,
+  });
+  const source = snapshot.source;
+  const lines = splitBufferLines(source);
+  for (const rewrite of plan.rewrites) {
+    const index = rewrite.line - 1;
+    if (!lines[index]) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        'Publication File(s) changed after plan approval',
+      );
+    }
+    lines[index] = applyPublicationBufferRewrite(lines[index], rewrite);
+  }
+  return {
+    target,
+    source,
+    output: Buffer.concat(lines),
+    mode: snapshot.mode,
+    identity: snapshot.identity,
+  };
+}
+
+function applyPublicationFiles(root, item) {
+  const plans = item.packages.filter(({ rewrites }) => rewrites.length > 0);
+  for (const plan of plans) {
+    const output = publicationOutputSnapshot(root, plan);
+    fs.writeFileSync(output.target, output.output, { mode: output.mode });
+    fs.chmodSync(output.target, output.mode);
+  }
+  return {
+    id: item.id,
+    status: 'applied',
+    packages: item.packages.map(({ path: packagePath }) => packagePath),
+  };
+}
+
+function applySinglePublicationFile(root, item, { revalidate } = {}) {
+  const plans = item.packages.filter(({ rewrites }) => rewrites.length > 0);
+  if (plans.length !== 1) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Single-package publication apply requires exactly one actionable tasks file',
+    );
+  }
+  return withPublicationMutationLock(root, ({ token, matchesOwnedLock }) => {
+    const output = publicationOutputSnapshot(root, plans[0]);
+    const stagedPath = path.join(root, `.nmg-sdlc-publication.${token}.staged`);
+    let stagedIdentity;
+    try {
+      stagedIdentity = durableCreateFile(stagedPath, output.output, output.mode);
+      revalidate?.();
+      readPublicationTargetSnapshot(output.target, {
+        expectedIdentity: output.identity,
+        expectedBytes: output.source,
+      });
+      try {
+        readPublicationTargetSnapshot(stagedPath, {
+          expectedIdentity: stagedIdentity,
+          expectedBytes: output.output,
+        });
+      } catch (error) {
+        error.state = 'plan_stale';
+        error.applied = false;
+        error.stagedPath = stagedPath;
+        error.transactionId = token;
+        error.retainPublicationLock = true;
         throw error;
       }
-      lines[index] = `${rewrite.after}${newline}`;
+      if (!matchesOwnedLock()) {
+        const failure = publicationContractError(
+          'publication_files_plan_stale',
+          'Publication lock ownership changed immediately before commit',
+        );
+        failure.state = 'plan_stale';
+        failure.applied = false;
+        failure.stagedPath = stagedPath;
+        failure.transactionId = token;
+        failure.retainPublicationLock = true;
+        throw failure;
+      }
+      try {
+        fs.renameSync(stagedPath, output.target);
+      } catch (error) {
+        const failure = publicationContractError(
+          'publication_files_commit_failed',
+          `Publication rename failed before mutation: ${error.message}`,
+        );
+        failure.state = 'commit_failed';
+        failure.applied = false;
+        throw failure;
+      }
+      return {
+        id: item.id,
+        status: 'applied',
+        applied: true,
+        packages: [plans[0].path],
+      };
+    } catch (error) {
+      if (error?.retainPublicationLock) throw error;
+      const stagedStat = publicationLstatOrNull(stagedPath);
+      if (stagedStat) {
+        if (!samePublicationFileIdentity(stagedStat, stagedIdentity)) {
+          const failure = publicationContractError(
+            'publication_files_cleanup_failed',
+            'Publication staged artifact ownership changed before cleanup',
+          );
+          failure.state = 'cleanup_failed';
+          failure.applied = false;
+          failure.stagedPath = stagedPath;
+          failure.transactionId = token;
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+        try {
+          fs.unlinkSync(stagedPath);
+        } catch (cleanupFailure) {
+          const failure = publicationContractError(
+            'publication_files_cleanup_failed',
+            `Publication staged artifact cleanup failed: ${cleanupFailure.message}`,
+          );
+          failure.state = 'cleanup_failed';
+          failure.applied = false;
+          failure.stagedPath = stagedPath;
+          failure.transactionId = token;
+          failure.primaryError = String(error.message ?? error);
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+      }
+      throw error;
     }
-    fs.writeFileSync(target, lines.join(''));
-  }
-  return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
+  });
 }
+
+function detectPublicationUpgrade(root, { specDirs } = {}) {
+  const validated = validatePublicationSpecDirs(root, specDirs);
+  const detected = publicationFilesUpgrade(validated.selected);
+  const selections = validated.selected.map(({ rel, files, directories }) => ({
+    path: rel,
+    files,
+    directories,
+  }));
+  const selectedInventory = selections
+    .flatMap(({ files }) => files)
+    .sort((left, right) => comparePublicationPaths(left.path, right.path));
+  const selectedDirectories = selections
+    .flatMap(({ directories }) => directories)
+    .sort((left, right) => comparePublicationPaths(left.path, right.path));
+  const selectedFiles = new Map(selectedInventory.map((file) => [file.path, file]));
+  const packages = (detected?.packages ?? []).map((plan) => {
+    const targetIdentity = selectedFiles.get(plan.path)?.identity;
+    if (!targetIdentity) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        `Selected publication target identity is missing: ${plan.path}`,
+      );
+    }
+    return { ...plan, targetIdentity };
+  });
+  const selection = selections[0];
+  const authority = {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: validated.root,
+    specDir: selection.path,
+    inventory: selectedInventory,
+    directories: selectedDirectories,
+    package: packages[0] ?? null,
+  };
+  const digest = createHash('sha256').update(JSON.stringify(authority)).digest('hex');
+  const item = {
+    id: `publication-files:${digest}`,
+    kind: 'publication-files',
+    description: 'Canonicalize recoverable delivery-task File(s) declarations only in one explicitly selected spec package.',
+    actionable: packages.some(({ rewrites }) => rewrites.length > 0),
+    packages,
+  };
+  return {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: validated.root,
+    specDirs: [authority.specDir],
+    selections,
+    selectedInventory,
+    selectedDirectories,
+    writeCount: packages.reduce((count, plan) => count + plan.rewrites.length, 0),
+    findingCount: packages.reduce((count, plan) => count + plan.findings.length, 0),
+    item,
+    items: [item],
+  };
+}
+
+function applyPublicationUpgrade(root, approvedItemId, { specDirs } = {}) {
+  if (
+    typeof approvedItemId !== 'string'
+    || !/^publication-files:[0-9a-f]{64}$/.test(approvedItemId)
+  ) {
+    throw publicationContractError(
+      'publication_files_approval_invalid',
+      'Publication-only apply requires one publication-files:<sha256> approval id',
+    );
+  }
+  const report = detectPublicationUpgrade(root, { specDirs });
+  if (report.item.id !== approvedItemId) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Selected publication report changed after plan approval',
+    );
+  }
+  const result = report.writeCount === 0
+    ? { id: approvedItemId, status: 'already-current', packages: [] }
+    : applySinglePublicationFile(report.root, report.item, {
+      revalidate: () => {
+        let finalReport;
+        try {
+          finalReport = detectPublicationUpgrade(report.root, { specDirs: report.specDirs });
+        } catch (error) {
+          throw publicationContractError(
+            'publication_files_plan_stale',
+            `Selected publication target became invalid before commit: ${error.reasonCode ?? error.message}`,
+          );
+        }
+        if (
+          finalReport.item.id !== approvedItemId
+          || JSON.stringify(finalReport.selectedDirectories) !== JSON.stringify(report.selectedDirectories)
+        ) {
+          throw publicationContractError(
+            'publication_files_plan_stale',
+            'Selected publication package inventory or identity changed before commit',
+          );
+        }
+      },
+    });
+  const postDetect = detectPublicationUpgrade(report.root, { specDirs: report.specDirs });
+  return {
+    schemaVersion: 1,
+    mode: 'publication-only',
+    root: report.root,
+    specDirs: report.specDirs,
+    applied: result.status === 'applied' ? [result] : [],
+    results: [result],
+    postDetect,
+  };
+}
+
 
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
@@ -1136,7 +2161,7 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       }
     }
   }
-  const publicationFiles = publicationFilesUpgrade(
+  const publicationFiles = legacyPublicationFilesUpgrade(
     rootAbs,
     publicationUpgradeSpecDirs(rootAbs, specDirs, items),
   );
@@ -1592,7 +2617,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     }
     results.push(res);
   }
-  const postTransformPublication = publicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
+  const postTransformPublication = legacyPublicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
   for (const publicationPackage of postTransformPublication?.packages ?? []) {
     const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
     if (issue) invalidPublicationIssues.add(Number(issue));
@@ -1626,41 +2651,197 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 }
 
 // CLI
+const UPGRADE_COMMANDS = new Set(['detect', 'apply', 'detect-publication', 'apply-publication']);
+const PUBLICATION_COMMANDS = new Set(['detect-publication', 'apply-publication']);
+const LEGACY_UPGRADE_COMMANDS = new Set(['detect', 'apply']);
+const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s']);
+
+function resolveUpgradeCommand(argv) {
+  const tokens = argv.slice(2);
+  let legacyCommand = null;
+  let publicationCommand = null;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (LEGACY_UPGRADE_COMMANDS.has(token)) {
+      legacyCommand = token;
+    } else if (PUBLICATION_COMMANDS.has(token)) {
+      publicationCommand = token;
+    } else if (CLI_VALUE_OPTIONS.has(token)) {
+      index += 1;
+    }
+  }
+  return legacyCommand ?? publicationCommand;
+}
+
+
+function validatePublicationCli(argv, resolvedCommand) {
+  if (!PUBLICATION_COMMANDS.has(resolvedCommand)) return;
+  const tokens = argv.slice(2);
+  const commands = [];
+  const legacyValueOptions = CLI_VALUE_OPTIONS;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (UPGRADE_COMMANDS.has(token)) {
+      commands.push({ token, index });
+    } else if (legacyValueOptions.has(token)) {
+      index += 1;
+    }
+  }
+  if (commands.length !== 1 || commands[0].token !== resolvedCommand) {
+    throw publicationContractError(
+      'publication_cli_invalid',
+      'Publication commands require exactly one command token',
+    );
+  }
+
+  const command = commands[0];
+  const aliases = new Map([
+    ['--root', 'root'],
+    ['-r', 'root'],
+    ['--spec', 'spec'],
+    ['-s', 'spec'],
+    ['--approve', 'approve'],
+    ['-a', 'approve'],
+  ]);
+  const allowed = command.token === 'apply-publication'
+    ? new Set(['root', 'spec', 'approve'])
+    : new Set(['root', 'spec']);
+  const counts = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (index === command.index) continue;
+    const token = tokens[index];
+    let option = aliases.get(token);
+    let value;
+    if (option) {
+      value = tokens[++index];
+    } else {
+      const match = /^(--root|--spec|--approve)=(.*)$/.exec(token);
+      option = match ? aliases.get(match[1]) : null;
+      value = match?.[2];
+    }
+    const malformedValue = typeof value !== 'string'
+      || value.length === 0
+      || value.startsWith('-')
+      || UPGRADE_COMMANDS.has(value);
+    if (allowed.has(option) && option === 'approve' && malformedValue) {
+      throw publicationContractError(
+        'publication_files_approval_invalid',
+        'apply-publication requires exactly one --approve publication-files:<sha256> id',
+      );
+    }
+    if (
+      !option
+      || !allowed.has(option)
+      || malformedValue
+    ) {
+      throw publicationContractError(
+        'publication_cli_invalid',
+        `Unknown, unexpected, or malformed publication argument: ${token}`,
+      );
+    }
+    counts.set(option, (counts.get(option) ?? 0) + 1);
+    if (counts.get(option) > 1) {
+      throw publicationContractError(
+        option === 'approve' ? 'publication_files_approval_invalid' : 'publication_cli_invalid',
+        `Publication option may occur only once: ${token}`,
+      );
+    }
+  }
+  if (counts.get('spec') !== 1) {
+    throw publicationContractError(
+      'publication_cli_invalid',
+      'Publication commands require exactly one --spec option',
+    );
+  }
+  if (command.token === 'apply-publication' && counts.get('approve') !== 1) {
+    throw publicationContractError(
+      'publication_files_approval_invalid',
+      'apply-publication requires exactly one --approve publication-files:<sha256> id',
+    );
+  }
+}
+
 function parseArgv(argv) {
-  const args = { cmd: null, root: process.cwd(), approve: [] };
+  const args = {
+    cmd: resolveUpgradeCommand(argv),
+    root: process.cwd(),
+    approve: [],
+    approveOptionCount: 0,
+    approveMalformed: false,
+    specDirs: [],
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === 'detect' || a === 'apply') args.cmd = a;
-    else if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
+    if (UPGRADE_COMMANDS.has(a)) continue;
+    if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
     else if (a.startsWith('--root=')) args.root = a.split('=')[1];
     else if (a === '--approve' || a === '-a') {
-      const v = argv[++i] || '';
-      args.approve = v.split(',').map((s) => s.trim()).filter(Boolean);
+      const value = argv[++i] ?? '';
+      const entries = value.split(',').map((entry) => entry.trim());
+      args.approveOptionCount += 1;
+      args.approveMalformed ||= entries.some((entry) => entry.length === 0);
+      args.approve = entries.filter(Boolean);
     } else if (a.startsWith('--approve=')) {
-      args.approve = a.split('=')[1].split(',').map((s) => s.trim()).filter(Boolean);
+      const entries = a.slice('--approve='.length).split(',').map((entry) => entry.trim());
+      args.approveOptionCount += 1;
+      args.approveMalformed ||= entries.some((entry) => entry.length === 0);
+      args.approve = entries.filter(Boolean);
+    } else if (a === '--spec' || a === '-s') {
+      args.specDirs.push(argv[++i] ?? '');
+    } else if (a.startsWith('--spec=')) {
+      args.specDirs.push(a.slice('--spec='.length));
     }
   }
   return args;
 }
 
 if (isCliEntry(import.meta.url)) {
-  const args = parseArgv(process.argv);
-  if (!args.cmd) {
-    console.error('Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]');
-    process.exit(2);
-  }
   try {
+    const args = parseArgv(process.argv);
+    validatePublicationCli(process.argv, args.cmd);
+    if (!args.cmd) {
+      console.error([
+        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]',
+        'Usage: node scripts/sdlc-upgrade.mjs detect-publication --root <dir> --spec specs/N-slug',
+        'Usage: node scripts/sdlc-upgrade.mjs apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>',
+      ].join('\n'));
+      process.exit(2);
+    }
     if (args.cmd === 'detect') {
       const out = detectUpgrade(args.root, { run: defaultRun });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'apply') {
       const out = applyUpgrade(args.root, args.approve, defaultRun);
       console.log(JSON.stringify(out, null, 2));
+    } else if (args.cmd === 'detect-publication') {
+      const out = detectPublicationUpgrade(args.root, { specDirs: args.specDirs });
+      console.log(JSON.stringify(out, null, 2));
+    } else if (args.cmd === 'apply-publication') {
+      if (args.approveOptionCount !== 1 || args.approveMalformed || args.approve.length !== 1) {
+        throw publicationContractError(
+          'publication_files_approval_invalid',
+          'apply-publication requires exactly one --approve publication-files:<sha256> id',
+        );
+      }
+      const out = applyPublicationUpgrade(args.root, args.approve[0], { specDirs: args.specDirs });
+      console.log(JSON.stringify(out, null, 2));
     }
   } catch (err) {
-    console.error('ERROR', err);
+    const details = err?.reasonCode ? {
+      reasonCode: err.reasonCode,
+      state: err.state ?? null,
+      applied: err.applied ?? null,
+      transactionId: err.transactionId ?? null,
+      message: String(err.message ?? err),
+    } : { message: String(err?.message ?? err) };
+    console.error('ERROR', JSON.stringify(details));
     process.exit(1);
   }
 }
 
-export { detectUpgrade, applyUpgrade };
+export {
+  applyPublicationUpgrade,
+  applyUpgrade,
+  detectPublicationUpgrade,
+  detectUpgrade,
+};

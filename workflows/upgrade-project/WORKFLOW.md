@@ -34,6 +34,8 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 12. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
 
+When authorization is bounded to one issue-owned package, do not use repository-wide `detect` or `apply`. Run `detect-publication --root <real-project-root> --spec specs/N-slug`, then `apply-publication` with that same single spec and exact approved id. Resolve with the pre-#388 legacy command set first: if `detect` or `apply` resolves, publication-command positional tokens remain ignored; strict publication parsing applies only when no legacy command resolves. Apply uses one exclusive fsynced root lock and one fsynced root stage. Authorized nmg-sdlc invocations honor the lock. Under that cooperative model every inventory directory is identity-bound around its captured deterministic listing, and selected planning uses the descriptor-carried tasks Buffer. The uninterrupted final boundary completes descriptor-bound authority and exact approval equality, then proves target, stage, and lock through descriptor identity/exact-byte checks before immediate atomic rename. Every observed pre-boundary change fails closed. Node has no portable identity-conditional rename or unlink; non-target inventory mutation after authority completion, and non-cooperative same-credential mutation after a target, stage, or lock proof inside the immediately following pathname syscall gap, are undefined external interference outside this contract. Failed lock cleanup after commit reports `applied: true` and retains validated evidence. No dependencies, backfill, GitHub, or other phase runs.
+
 Read references/detection.md etc for details (update in tree).
 
 ## Ask ( <=3 total )
@@ -62,14 +64,15 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 - exact actions / file writes / deletes proposed
 
-- exact helper argv using the detector-returned ids, for example `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- exact helper argv using the detector-returned controller path, for example `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply","--root",".","--approve","issue-dependencies:<approved-graph-digest>,..."]`
+- for package-bounded publication only, exact argv of the form `["node","<plugin-root>/scripts/sdlc-upgrade.mjs","apply-publication","--root",".","--spec","specs/42-slug","--approve","publication-files:<approved-selection-digest>"]`
 
 ## After Propose
 
 xd://propose the slug + "Upgrade plan for current layout/packaging"
 
 Approved plan execution runs the helper script with the chosen scope (the skill does not call it directly; the plan does).
-Approved apply always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt.
+Full `apply` always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt. Selected `apply-publication` never backfills labels or runs any other upgrade phase.
 
 ## Generated
 

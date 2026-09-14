@@ -7,22 +7,46 @@ This reference documents the read-only detectors and apply contract implemented 
 ## Exported API
 
 ```js
-import { detectUpgrade, applyUpgrade } from '../scripts/sdlc-upgrade.mjs';
+import {
+  applyPublicationUpgrade,
+  applyUpgrade,
+  detectPublicationUpgrade,
+  detectUpgrade,
+} from '../scripts/sdlc-upgrade.mjs';
 
 const report = detectUpgrade(projectRoot);
-// report.items: array of { id, kind, description, ... }
+const outcome = applyUpgrade(projectRoot, approvedItemIds);
 
-const outcome = applyUpgrade(projectRoot, approvedItemIds); // ids subset of report item ids
+const selected = detectPublicationUpgrade(projectRoot, {
+  specDirs: ['specs/42-slug'],
+});
+const selectedOutcome = applyPublicationUpgrade(projectRoot, selected.item.id, {
+  specDirs: selected.specDirs,
+});
 ```
 
 CLI:
 
 ```
-node <plugin-root>/scripts/sdlc-upgrade.mjs detect [--root <dir>]
-node <plugin-root>/scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>
 ```
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).
+
+## Selected publication-only contract
+
+Use the selected contract only for exactly one explicitly authorized issue package. Resolve the CLI with the pre-#388 legacy command set and option-value consumption first. If any legacy `detect` or `apply` command resolves, publication-command tokens in positional locations remain ignored; only when no legacy command resolves may `detect-publication` or `apply-publication` select strict parsing. A resolved publication command requires exactly one command token and one `--spec specs/N-slug`. Command-named option values remain compatible. The package must contain four regular Approved files whose exact issue digit strings match its directory. Caller root, specs root, package, and inventory must not traverse symlinks.
+
+Detection hashes canonical root/package, complete directly sorted inventory with digests/high-resolution identities, stable recursive directory listings, and the exact rewrite/finding plan built from the descriptor-carried tasks Buffer. Apply creates one exclusive fsynced regular root lock containing token/pid bytes and one exclusive fsynced root stage. Authorized nmg-sdlc invocations honor the lock. The uninterrupted final boundary first reruns complete descriptor-bound authority and exact approval-id equality, then proves final target identity/bytes, staged identity/exact output bytes, and lock identity/exact owner bytes before immediate atomic rename. Each file proof uses pre-open lstat, one `O_RDONLY | O_NOFOLLOW` descriptor where supported, descriptor fstat/exact bytes, and post-read path identity; without `O_NOFOLLOW`, that chain supplies the cooperative proof. Every observed pre-boundary change fails closed. Successful rename defines `applied: true`; a later cleanup failure retains validated lock evidence.
+
+Node has no portable identity-conditional pathname rename or unlink. Mutation of non-target inventory after the completed authority rerun, and non-cooperative same-credential mutation or replacement after a target, stage, or lock final proof inside the immediately following pathname syscall gap, are undefined external interference outside this contract.
+
+`applyPublicationUpgrade` and `apply-publication` call only the publication line rewriter. Task discovery applies declaration-validation visibility to Markdown-fenced and HTML-commented headings. Minimal approved ASCII Buffer slices preserve invalid UTF-8 and line endings; repeated detection returns `writeCount: 0`. They do not call general apply, dependencies, label backfill, GitHub, or another phase.
+
+The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI remain the full-repository compatibility path.
 
 ## Detectors (all read-only; report actionable items)
 
@@ -87,6 +111,7 @@ node <plugin-root>/scripts/sdlc-upgrade.mjs apply --approve <id1,id2,...> [--roo
 - Update cross-spec `**Related Spec**` pointers that pointed at a renamed/removed source path.
 - Return structured outcome with per-id status (`applied`, `skipped:collision`, `skipped:unverifiable`, `failed`).
 - Idempotent: re-running detect+apply on same approved set after success reports already-current or already-clean.
+- Selected publication-only apply additionally requires exact root/selection/report equality and never executes full-upgrade post-processing or GitHub side effects.
 
 ## Reuse
 
