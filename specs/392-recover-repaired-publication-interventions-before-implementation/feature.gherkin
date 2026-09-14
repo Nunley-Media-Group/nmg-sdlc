@@ -16,6 +16,7 @@ Feature: Recover repaired publication interventions before implementation
     Given a failed implement run and intervention handoff bind one exact current head and incomplete owner
     And the actual owner branch differs only from the explicitly stale recorded run branch
     And the current read-only owner-bound probe returns nonempty canonical allowed paths
+    And every controller handoff filename and payload issue and step derive from the current checkpoint queue and lifecycle
     When bare recovery discovery proves every repaired-publication invariant
     Then discovery returns the existing one-time recovery tuple and resume action for implement
 
@@ -33,7 +34,7 @@ Feature: Recover repaired publication interventions before implementation
     Given no implementation path is dirty and the only untracked files form the bounded terminal goal-ledger evidence set
     When repaired intervention discovery classifies the worktree
     Then the related regular files, identities, event sequence, shutdown reason, and byte bounds are proven
-    And recovery does not ignore arbitrary untracked or ignored paths by basename
+    And recovery blocks basename-only ignored files such as nested .DS_Store unless they occupy an exact documented bounded location
 
   @AC4 @SCN004
   Scenario: Bare run consumes and dispatches implement once
@@ -62,6 +63,7 @@ Feature: Recover repaired publication interventions before implementation
       | wrong issue or step |
       | wrong run or owner |
       | malformed handoff |
+      | unrelated valid-looking controller handoff |
       | claimed implementation artifact |
       | missing or empty scope probe |
       | controller lock |
@@ -69,6 +71,7 @@ Feature: Recover repaired publication interventions before implementation
       | complete owner |
       | arbitrary untracked path |
       | partial or live goal-ledger evidence |
+      | nested .DS_Store outside a documented bounded location |
 
   @AC6 @SCN006
   Scenario: Existing recoveries retain their behavior

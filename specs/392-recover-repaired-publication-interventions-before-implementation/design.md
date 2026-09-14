@@ -22,6 +22,8 @@ Expose a pure helper from `scripts/sdlc-upgrade.mjs` that receives the selected 
 
 No duplicate publication parser or looser regular-expression detector is introduced.
 
+The existing shared publication lexer and recovery-record API in `scripts/sdlc-safe-recoveries.mjs` is part of this implementation surface. The upgrade proof and execute classifier consume that shared API rather than introducing a second lexer or recovery-record contract.
+
 ### Read-only intervention classification
 
 A helper owned by `scripts/sdlc-execute.mjs` returns either a proven tuple or a stable blocking reason. It runs only for the exact current `implement` failure whose run and handoff both report `implementation_failed`, with `status: failed`, `intervention: true`, `next: null`, and strict handoff identity.
@@ -31,11 +33,11 @@ It requires:
 1. Valid run identity, current issue/step, next-step position, canonical root, and exact checkout HEAD equal to `run.head`.
 2. Actual issue branch plus one incomplete safe-recovery owner whose owner id equals the run id. `probePublicationScope()` supplies this proof and may report only the explicit branch discrepancy defined by #390.
 3. Exact singular Approved spec resolution and nonempty structured `scope.allowedPaths`.
-4. Handoff artifacts forming a subset of paths derived from the selected task document, current handoff, run checkpoint, and safe-recovery checkpoint. Product/output paths are therefore never inferred from prose.
+4. Handoff artifacts forming a subset of paths derived from the selected task document, current handoff, run checkpoint, and safe-recovery checkpoint. Every controller handoff filename and payload issue/step must derive from the current checkpoint queue/lifecycle; an unrelated handoff remains blocking even when it is otherwise valid-looking. Product/output paths are therefore never inferred from prose.
 5. Git status and diff parsed as NUL-delimited records. No staged entries; the only tracked difference from run HEAD is the selected task document; no `allowedPaths` entry appears in tracked, staged, or untracked state.
 6. Byte-exact publication proof and zero current selected detection.
 7. No controller lock and no matching `repaired_publication_intervention` record.
-8. A closed untracked evidence set. The only accepted current OMP goal-ledger evidence is the exact structurally related terminal-session trio: `.pi-glla/session-owner.json`, `.pi-glla/owner.json`, and `.pi-glla/active.jsonl`. All must be bounded regular non-symlink files; owner/session pid and instance identity must agree; the JSONL event stream must be bounded and end in the same terminal shutdown reason/time. Any partial set, extra `.pi-glla` member, live/nonterminal session, or other untracked/ignored file fails closed.
+8. A closed untracked evidence set. The only accepted current OMP goal-ledger evidence is the exact structurally related terminal-session trio: `.pi-glla/session-owner.json`, `.pi-glla/owner.json`, and `.pi-glla/active.jsonl`. All must be bounded regular non-symlink files at those documented locations; owner/session pid and instance identity must agree; the JSONL event stream must be bounded and end in the same terminal shutdown reason/time. Any partial set, extra `.pi-glla` member, live/nonterminal session, other untracked/ignored file, or basename-only ignored file such as a nested `.DS_Store` outside an exact documented bounded location fails closed.
 
 The structural contract, not a basename match, authorizes preservation. Empty untracked state is also valid.
 
@@ -57,12 +59,13 @@ The failed handoff is never rewritten or deleted. A second discovery sees either
 |-----------|--------|
 | Run/head/root/issue/step mismatch | Existing checkpoint identity or branch blocker |
 | Missing, malformed, or mismatched handoff | `implementation_failed` remains blocked |
+| Controller handoff filename or payload issue/step not derived from current checkpoint queue/lifecycle | `implementation_failed` remains blocked |
 | Probe missing, empty, or rejected | Stable probe reason; no mutation |
 | Unsupported or non-byte-exact task edit | `implementation_failed` remains blocked |
 | Current detector not converged | `implementation_failed` remains blocked |
 | Any staged or extra tracked change | `implementation_failed` remains blocked |
 | Any allowed implementation path dirty or untracked | `implementation_failed` remains blocked |
-| Arbitrary, partial, live, oversized, symlinked, or structurally invalid workflow evidence | `implementation_failed` remains blocked |
+| Arbitrary, partial, live, oversized, symlinked, structurally invalid workflow evidence, or basename-only ignored file outside an exact documented bounded location | `implementation_failed` remains blocked |
 | Controller lock | `controller_lease_held` |
 | Prior matching record or run recovery | Recovery is consumed; no dispatch |
 | CAS or safe-recovery persistence race | Existing persistence failure; no renewed allowance |
@@ -71,7 +74,7 @@ The failed handoff is never rewritten or deleted. A second discovery sees either
 
 1. Unit coverage for publication projection, mixed line endings, unsupported payload rewrites, unrelated-byte changes, and current non-convergence.
 2. Exact consumer-like real-Git fixture using the existing canonical T001-T004 task text, four preimage labels, stale run branch, exact head, unique owner, 18/12/6 probe scope, preserved failed handoff, and structurally valid terminal `.pi-glla` evidence.
-3. Adversarial table coverage for every AC5 boundary and byte-identical failure-state assertions.
+3. Adversarial table coverage for every AC5 boundary, including unrelated valid-looking controller handoffs and nested `.DS_Store`-style ignored files outside documented bounds, with byte-identical failure-state assertions.
 4. Discovery-to-bare-run exercise with controlled Herdr worker completion, proving only implement dispatch and one-time consumption without product implementation.
 5. Existing focused recovery/execute, full relevant suites, plugin/current-spec/43-inventory/contribution/version/diff checks, and disposable exact-state exercise.
 
@@ -95,3 +98,4 @@ All paths are canonical repository-relative paths. Git output is NUL-delimited a
 | Issue | Date | Summary |
 |-------|------|---------|
 | #392 | 2026-09-14 | Initial approved design |
+| #392 | 2026-09-14 | Approved amendment: shared recovery API scope and stricter handoff/ignored-file bounds |

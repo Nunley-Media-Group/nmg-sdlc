@@ -29,7 +29,7 @@
 
 **Given** a failed run, failed intervention handoff, and one incomplete recovery owner bind the same issue, implement step, run id, canonical project root, exact current HEAD, and actual owner branch
 **And** an explicitly surfaced stale run branch is the only permitted branch discrepancy
-**And** handoff artifacts are limited to the exact issue task document and derived controller/handoff evidence paths and claim no implementation output
+**And** handoff artifacts are limited to the exact issue task document and derived controller/handoff evidence paths, with each controller handoff filename and payload issue/step derived from the current checkpoint queue/lifecycle, and claim no implementation output
 **When** parameter-free bare recovery discovery runs
 **Then** it continues only if the current owner-bound probe passes with a nonempty canonical `allowedPaths`
 **And** it returns the existing one-time recovery tuple/action only after every remaining publication, worktree, evidence, lock, and consumption invariant passes
@@ -48,8 +48,8 @@
 **Given** the owner-bound probe returns tracked writable and explicitly untracked evidence paths
 **When** discovery inspects Git state
 **Then** none of those allowed implementation paths is modified, staged, or untracked and no other tracked path differs from run HEAD
-**And** arbitrary untracked or ignored files block recovery
-**And** preserved untracked workflow/failure evidence is accepted only through a closed structural ownership/evidence contract with exact paths, regular-file bounds, schema relations, and terminal session evidence
+**And** arbitrary untracked or ignored files block recovery, including basename-only ignored files such as nested `.DS_Store`, unless the file occupies an exact documented bounded location
+**And** preserved untracked workflow/failure evidence is accepted only through a closed structural ownership/evidence contract with exact documented paths, regular-file bounds, schema relations, and terminal session evidence
 **And** no controller lock exists, no matching prior recovery record exists, and the matching owner remains incomplete
 
 ### AC4: Consume and dispatch exactly once
@@ -62,7 +62,7 @@
 
 ### AC5: Reject adversarial states
 
-**Given** any changed product path, arbitrary spec edit, unsupported publication rewrite, byte mismatch, staged change, wrong head, issue, step, run, root, branch, or owner, malformed handoff, claimed implementation output, empty or failed probe, controller lock, prior recovery record, complete owner, or unproven untracked path
+**Given** any changed product path, arbitrary spec edit, unsupported publication rewrite, byte mismatch, staged change, wrong head, issue, step, run, root, branch, or owner, malformed handoff, controller handoff whose filename or payload issue/step is unrelated to the current checkpoint queue/lifecycle, claimed implementation output, empty or failed probe, controller lock, prior recovery record, complete owner, unproven untracked path, or basename-only ignored file outside an exact documented bounded location
 **When** discovery runs
 **Then** it remains blocked with stable structured evidence and performs no mutation
 
@@ -80,7 +80,7 @@
 | FR1 | Add a generic read-only repaired-publication classifier; do not parse handoff prose or special-case a repository, issue, branch, or evidence basename | Must |
 | FR2 | Reuse #388 detector output for selected rewrite authority and exact byte reconstruction | Must |
 | FR3 | Reuse #390 owner-bound probe for issue/run/owner/branch/scope binding | Must |
-| FR4 | Require exact HEAD, task-only unstaged tracked state, no allowed implementation changes, and a closed structurally validated workflow-evidence set | Must |
+| FR4 | Require exact HEAD, task-only unstaged tracked state, no allowed implementation changes, controller handoffs whose filenames and payload issue/step derive from the current checkpoint queue/lifecycle, and a closed structurally validated workflow-evidence set that authorizes ignored files only at exact documented bounded locations | Must |
 | FR5 | Consume one durable recovery record and one existing checkpoint recovery tuple under current lease/CAS semantics | Must |
 | FR6 | Preserve failed handoff/history and dispatch only implement | Must |
 | FR7 | Add exact consumer-like positive coverage, adversarial negatives, existing-loop/stale regressions, and a disposable controlled-worker exercise | Must |
@@ -101,3 +101,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #392 | 2026-09-14 | Initial approved defect report |
+| #392 | 2026-09-14 | Approved amendment: shared recovery API scope and stricter handoff/ignored-file bounds |

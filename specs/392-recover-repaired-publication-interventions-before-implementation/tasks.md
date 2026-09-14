@@ -10,7 +10,7 @@
 
 ### T001: Prove canonical publication repair bytes
 
-**File(s)**: `scripts/sdlc-upgrade.mjs`, `scripts/__tests__/sdlc-upgrade.test.mjs`
+**File(s)**: `scripts/sdlc-upgrade.mjs`, `scripts/sdlc-safe-recoveries.mjs`, `scripts/__tests__/sdlc-upgrade.test.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
@@ -22,14 +22,14 @@
 
 ### T002: Classify and consume repaired interventions
 
-**File(s)**: `scripts/sdlc-execute.mjs`
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/sdlc-safe-recoveries.mjs`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
 - [ ] Bind failed run, strict handoff, exact HEAD, actual branch, one incomplete owner, and nonempty #390 scope without prose parsing
-- [ ] Restrict artifacts to derived task/controller/handoff evidence and reject claimed implementation output
+- [ ] Restrict artifacts to derived task/controller/handoff evidence; require every controller handoff filename and payload issue/step to derive from the current checkpoint queue/lifecycle; reject unrelated valid-looking handoffs and claimed implementation output
 - [ ] Require task-only unstaged tracked state, no dirty allowed path, no lock, no prior record, and exact publication proof
-- [ ] Structurally validate only the closed terminal goal-ledger evidence set; reject every arbitrary or partial untracked path
+- [ ] Structurally validate only the closed terminal goal-ledger evidence set; reject every arbitrary or partial untracked path and every basename-only ignored file such as nested `.DS_Store` outside an exact documented bounded location
 - [ ] Re-prove after lease acquisition, consume one durable recovery, persist one checkpoint recovery tuple with CAS, preserve failed evidence, and dispatch only implement
 - [ ] Repeat discovery never offers the consumed recovery
 
@@ -42,12 +42,12 @@
 - [ ] Exact consumer-like fixture uses four canonicalized labels, stale run branch, matching exact head/owner/run, 18/12/6 scope, failed intervention handoff, and terminal goal-ledger evidence
 - [ ] Discovery transitions blocked before repair, available after repair, and consumed after bare run
 - [ ] Controlled Herdr boundary completes only implement and never executes product implementation
-- [ ] Changed product/spec bytes, wrong identities, malformed handoff, prior record, probe failure, staging, locks, and arbitrary untracked evidence remain blocked without mutation
+- [ ] Changed product/spec bytes, wrong identities, malformed or unrelated valid-looking controller handoffs, prior record, probe failure, staging, locks, arbitrary untracked evidence, and basename-only ignored files outside exact documented bounded locations remain blocked without mutation
 - [ ] Existing loop, stale lease, retained worker, and consumed recovery behavior remains covered
 
 ### T004: Document bounded recovery behavior
 
-**File(s)**: `CONTRIBUTING.md`, `workflows/execute/WORKFLOW.md`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`
+**File(s)**: `CONTRIBUTING.md`, `workflows/execute/WORKFLOW.md`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`, `specs/392-recover-repaired-publication-interventions-before-implementation/verification-report.md` (delivery-owner only)
 **Type**: Modify
 **Depends**: T001, T002, T003
 **Acceptance**:
@@ -55,6 +55,7 @@
 - [ ] Execute workflow documents parameter-free discovery, under-lease revalidation, one-time consumption, preserved failure history, and implement-only dispatch
 - [ ] Generated execute command remains byte-identical to the workflow renderer
 - [ ] Docs state the byte, scope, staged/tracked/untracked, ownership/evidence, lock, and prior-record fail-closed boundaries
+- [ ] Verification report creation or modification remains delivery-owner-only and outside worker implementation authority
 - [ ] Unreleased changelog records the defect fix without changing VERSION or package version
 
 ## Traceability
@@ -73,3 +74,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #392 | 2026-09-14 | Initial approved task plan |
+| #392 | 2026-09-14 | Approved amendment: shared recovery API scope, delivery-owner report, and stricter acceptance bounds |
