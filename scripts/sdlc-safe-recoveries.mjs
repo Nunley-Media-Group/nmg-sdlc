@@ -112,7 +112,7 @@ function validOwner(o) {
     && typeof o.projectRoot === 'string' && o.projectRoot.length > 0
     && Number.isSafeInteger(o.issue) && o.issue > 0
     && typeof o.branch === 'string' && o.branch.length > 0
-    && typeof o.step === 'string' && o.step.length > 0
+    && VALID_STEPS.includes(o.step)
     && (o.plannedSubject === undefined
       || (o.step === 'implement' && validImplementationSubject(o.plannedSubject, o.issue)))
     && o.status === 'incomplete';
@@ -128,6 +128,43 @@ function validRecord(r) {
     && typeof r.consumedAt === 'string' && r.consumedAt.length > 0
     && r.disposition === 'consumed'
     && r.evidence && typeof r.evidence === 'object' && !Array.isArray(r.evidence);
+}
+
+export function expectedExecuteHandoffSlots(checkpoint, safeState) {
+  if (!validExecuteCheckpoint(checkpoint)
+    || !validSafeState(safeState)
+    || !safeState.owners.every(validOwner)) {
+    throw safeError('workflow_evidence_unproven');
+  }
+  const slots = new Set();
+  for (const issue of checkpoint.issues) {
+    for (const step of checkpoint.completed[String(issue)] ?? []) {
+      slots.add(`${issue}-${step}`);
+    }
+    if (issue === checkpoint.currentIssue) slots.add(`${issue}-${checkpoint.currentStep}`);
+  }
+  if (checkpoint.failed
+    && (checkpoint.failed.issue !== checkpoint.currentIssue
+      || checkpoint.failed.step !== checkpoint.currentStep)) {
+    throw safeError('workflow_evidence_unproven');
+  }
+  if (checkpoint.failed) slots.add(`${checkpoint.failed.issue}-${checkpoint.failed.step}`);
+
+  const historicalLastSteps = new Map();
+  for (const owner of safeState.owners) {
+    if (owner.projectRoot !== checkpoint.projectRoot
+      || checkpoint.issues.includes(owner.issue)
+      || owner.issue >= checkpoint.issue) continue;
+    const stepIndex = VALID_STEPS.indexOf(owner.step);
+    historicalLastSteps.set(
+      owner.issue,
+      Math.max(historicalLastSteps.get(owner.issue) ?? -1, stepIndex),
+    );
+  }
+  for (const [issue, lastStep] of historicalLastSteps) {
+    for (const step of VALID_STEPS.slice(0, lastStep + 1)) slots.add(`${issue}-${step}`);
+  }
+  return slots;
 }
 
 function porcelainEntries(output) {
@@ -625,6 +662,38 @@ export function assertRecoveryOwner({ cwd = process.cwd(), ownerId, issue, step,
   return matches[0].ownerId;
 }
 
+export function hasSafeRecoveryRecord({
+  cwd = process.cwd(),
+  ownerId,
+  issue,
+  step,
+  class: className,
+} = {}) {
+  const issueNumber = Number(issue);
+  if (typeof ownerId !== 'string' || !ownerId
+    || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
+    || !VALID_STEPS.includes(step)
+    || typeof className !== 'string' || !className) {
+    throw safeError('invalid_recovery_params');
+  }
+  const canonicalRoot = realpathSync(cwd);
+  const safe = readSafeRecoveries(canonicalRoot);
+  const owners = safe?.owners.filter((owner) =>
+    owner.ownerId === ownerId
+    && owner.projectRoot === canonicalRoot
+    && owner.issue === issueNumber
+    && owner.step === step
+    && owner.status === 'incomplete') ?? [];
+  if (owners.length !== 1) {
+    throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
+  }
+  return safe.records.some((entry) =>
+    entry.class === className
+    && entry.runId === ownerId
+    && entry.issue === issueNumber
+    && entry.step === step);
+}
+
 export function consumeSafeRecovery({
   cwd = process.cwd(),
   ownerId,
@@ -1005,6 +1074,35 @@ function stripHtmlComments(line, inComment, codeSpan, delimiterRole) {
 
 const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
+export function visitVisiblePublicationMarkdownLines(sourceLines, visit) {
+  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
+  let fence = null;
+  let inHtmlComment = false;
+  let codeSpan = 0;
+  for (const [index, sourceLine] of sourceLines.entries()) {
+    if (fence) {
+      if (closesMarkdownFence(sourceLine, fence)) fence = null;
+      continue;
+    }
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripHtmlComments(
+      sourceLine,
+      inHtmlComment,
+      codeSpan,
+      (offset) => codeSpanRoles.get(`${index}:${offset}`),
+    );
+    inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) continue;
+    fence = markdownFence(stripped.line);
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
+    visit(index, stripped.line);
+  }
+}
+
 const WRITABLE_OPERATIONS = new Map([
   ['create', 'Create'],
   ['modify', 'Modify'],
@@ -1089,7 +1187,6 @@ export function parseDeliveryTaskFileLines(content, {
   const explicitTaskIds = taskIds != null;
   const acceptedTasks = new Set(taskIds ?? []);
   const sourceLines = String(content).split(/\r?\n/);
-  const codeSpanRoles = codeSpanDelimiters(codeSpanSourceLines(sourceLines));
   const acceptedTaskLines = new Map();
   const expectedTaskCounts = new Map();
   for (const [index, line] of sourceLines.entries()) {
@@ -1102,9 +1199,6 @@ export function parseDeliveryTaskFileLines(content, {
   const validatedTaskCounts = new Map();
   const entries = [];
   const taskOperations = [];
-  let fence = null;
-  let inHtmlComment = false;
-  let codeSpan = 0;
   let task = null;
   const locatedFailure = (taskValue, detail = {}) => safeError('publication_scope_unproven', {
     spec,
@@ -1173,27 +1267,7 @@ export function parseDeliveryTaskFileLines(content, {
     taskOperations.push({ taskId: task.id, operations });
     validatedTaskCounts.set(task.id, (validatedTaskCounts.get(task.id) ?? 0) + 1);
   };
-  for (const [index, sourceLine] of sourceLines.entries()) {
-    if (fence) {
-      if (closesMarkdownFence(sourceLine, fence)) fence = null;
-      continue;
-    }
-    const startsInCodeSpan = codeSpan > 0;
-    const stripped = stripHtmlComments(
-      sourceLine,
-      inHtmlComment,
-      codeSpan,
-      (offset) => codeSpanRoles.get(`${index}:${offset}`),
-    );
-    const line = stripped.line;
-    inHtmlComment = stripped.inComment;
-    codeSpan = stripped.codeSpan;
-    if (startsInCodeSpan) continue;
-    fence = markdownFence(line);
-    if (fence) {
-      codeSpan = 0;
-      continue;
-    }
+  visitVisiblePublicationMarkdownLines(sourceLines, (index, line) => {
     const heading = DELIVERY_TASK_HEADING.exec(line);
     if (heading) {
       finishTask();
@@ -1206,16 +1280,16 @@ export function parseDeliveryTaskFileLines(content, {
         readOnly: [],
         acquire: [],
       };
-      continue;
+      return;
     }
     if (/^#{1,3}(?:[ \t]+|$)/.test(line)) {
       finishTask();
       task = null;
-      continue;
+      return;
     }
-    if (!task || !acceptedTasks.has(task.id)) continue;
+    if (!task || !acceptedTasks.has(task.id)) return;
     const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
-    if (!metadata) continue;
+    if (!metadata) return;
     const [, label, value] = metadata;
     const detail = { line: index + 1, value: value.trim(), entry: line.trim() };
     if (label === 'File(s)') task.declarations.push(detail);
@@ -1225,7 +1299,7 @@ export function parseDeliveryTaskFileLines(content, {
     else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
       task.nearMisses.push(detail);
     }
-  }
+  });
   finishTask();
   for (const taskId of acceptedTasks) {
     const expected = expectedTaskCounts.get(taskId) ?? 1;

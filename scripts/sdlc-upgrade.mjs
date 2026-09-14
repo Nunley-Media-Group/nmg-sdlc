@@ -30,7 +30,11 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
-import { parseDeliveryTaskFileLines, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
+import {
+  parseDeliveryTaskFileLines,
+  publicationFileEntries,
+  visitVisiblePublicationMarkdownLines,
+} from './sdlc-safe-recoveries.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -1145,185 +1149,26 @@ function recoverPublicationFileDeclaration(value) {
   return tokens.join(', ');
 }
 
-function publicationMarkdownFence(line) {
-  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
-  return { marker: match[1][0], length: match[1].length };
-}
-
-function closesPublicationMarkdownFence(line, fence) {
-  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
-  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
-}
-
-function publicationCodeSpanSourceLines(lines) {
-  const visibleLines = [];
-  let fence = null;
-  let inComment = false;
-  for (const sourceLine of lines) {
-    if (fence) {
-      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
-      visibleLines.push(' '.repeat(sourceLine.length));
-      continue;
-    }
-    const chars = sourceLine.split('');
-    let offset = 0;
-    while (offset < sourceLine.length) {
-      if (inComment) {
-        const end = sourceLine.indexOf('-->', offset);
-        const limit = end === -1 ? sourceLine.length : end + 3;
-        chars.fill(' ', offset, limit);
-        offset = limit;
-        if (end === -1) break;
-        inComment = false;
-        continue;
-      }
-      const start = sourceLine.indexOf('<!--', offset);
-      if (start === -1) break;
-      chars.fill(' ', start, start + 4);
-      inComment = true;
-      offset = start + 4;
-    }
-    const visible = chars.join('');
-    fence = publicationMarkdownFence(visible);
-    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
-  }
-  return visibleLines;
-}
-
-function publicationEscapedBacktick(line, offset) {
-  let backslashes = 0;
-  for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
-  return backslashes % 2 === 1;
-}
-
-function publicationCodeSpanDelimiters(lines) {
-  const roles = new Map();
-  const remaining = [];
-  const key = (line, offset) => `${line}:${offset}`;
-  for (const [lineIndex, line] of lines.entries()) {
-    const runs = [];
-    for (let offset = 0; offset < line.length;) {
-      if (line[offset] !== '`') {
-        offset += 1;
-        continue;
-      }
-      const delimiter = /^`+/.exec(line.slice(offset))[0];
-      if (!publicationEscapedBacktick(line, offset)) {
-        runs.push({ line: lineIndex, offset, length: delimiter.length });
-      }
-      offset += delimiter.length;
-    }
-    if (!/^\*\*[^*]+\*\*:/.test(line)) {
-      remaining.push(...runs);
-      continue;
-    }
-    for (let index = 0; index < runs.length;) {
-      const opener = runs[index];
-      let close = index + 1;
-      while (close < runs.length && runs[close].length !== opener.length) close += 1;
-      if (close === runs.length) {
-        remaining.push(opener);
-        index += 1;
-        continue;
-      }
-      roles.set(key(opener.line, opener.offset), 'open');
-      roles.set(key(runs[close].line, runs[close].offset), 'close');
-      index = close + 1;
-    }
-  }
-  for (let index = 0; index < remaining.length;) {
-    const opener = remaining[index];
-    let close = index + 1;
-    while (close < remaining.length && remaining[close].length !== opener.length) close += 1;
-    if (close === remaining.length) {
-      index += 1;
-      continue;
-    }
-    roles.set(key(opener.line, opener.offset), 'open');
-    roles.set(key(remaining[close].line, remaining[close].offset), 'close');
-    index = close + 1;
-  }
-  return roles;
-}
-
-function stripPublicationHtmlComments(line, inComment, codeSpan, delimiterRole) {
-  let visible = '';
-  let offset = 0;
-  while (offset < line.length) {
-    if (inComment) {
-      const end = line.indexOf('-->', offset);
-      if (end === -1) return { line: visible, inComment: true, codeSpan };
-      inComment = false;
-      offset = end + 3;
-      continue;
-    }
-    if (line[offset] === '`') {
-      const delimiter = /^`+/.exec(line.slice(offset))[0];
-      visible += delimiter;
-      const role = delimiterRole(offset);
-      if (codeSpan === 0 && role === 'open') codeSpan = delimiter.length;
-      else if (codeSpan === delimiter.length && role === 'close') codeSpan = 0;
-      offset += delimiter.length;
-      continue;
-    }
-    if (codeSpan > 0) {
-      visible += line[offset++];
-      continue;
-    }
-    if (line.startsWith('<!--', offset)) {
-      inComment = true;
-      offset += 4;
-      continue;
-    }
-    visible += line[offset++];
-  }
-  return { line: visible, inComment, codeSpan };
-}
+const PUBLICATION_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
 function publicationTaskVisibility(sourceLines) {
-  const visibleTaskIds = new Set();
+  const taskIds = new Set();
   const parserLines = [...sourceLines];
-  const codeSpanRoles = publicationCodeSpanDelimiters(
-    publicationCodeSpanSourceLines(sourceLines),
-  );
-  let fence = null;
-  let inHtmlComment = false;
-  let codeSpan = 0;
+  const visibleHeadings = new Set();
+  visitVisiblePublicationMarkdownLines(sourceLines, (index, line) => {
+    const taskId = PUBLICATION_TASK_HEADING.exec(line)?.[1];
+    if (!taskId) return;
+    taskIds.add(taskId);
+    visibleHeadings.add(index);
+  });
   for (const [index, sourceLine] of sourceLines.entries()) {
-    if (fence) {
-      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
-      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
-      continue;
-    }
-    const startsInCodeSpan = codeSpan > 0;
-    const stripped = stripPublicationHtmlComments(
-      sourceLine,
-      inHtmlComment,
-      codeSpan,
-      (offset) => codeSpanRoles.get(`${index}:${offset}`),
-    );
-    const line = stripped.line;
-    inHtmlComment = stripped.inComment;
-    codeSpan = stripped.codeSpan;
-    if (startsInCodeSpan) {
-      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
-      continue;
-    }
-    fence = publicationMarkdownFence(line);
-    if (fence) {
-      codeSpan = 0;
-      continue;
-    }
-    const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
-    if (taskId) {
-      visibleTaskIds.add(taskId);
-    } else if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) {
+    if (!visibleHeadings.has(index) && PUBLICATION_TASK_HEADING.test(sourceLine)) {
       parserLines[index] = '';
     }
   }
-  return { parserLines, taskIds: visibleTaskIds };
+  return { parserLines, taskIds };
 }
+
 
 
 function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
@@ -1407,7 +1252,8 @@ function publicationFilesUpgrade(specDirs) {
     // Latin-1 is a reversible byte view. The publication grammar is ASCII, so
     // parsing and rewriting this view cannot normalize unrelated invalid UTF-8.
     const source = sourceBytes.toString('latin1');
-    const sourceLines = source.split(/\r?\n/);
+    const segments = publicationLineSegments(source);
+    const sourceLines = segments.map(({ content }) => content);
     const visibility = publicationTaskVisibility(sourceLines);
     const rewrites = [];
     const findings = [];
@@ -1444,6 +1290,91 @@ function publicationFilesUpgrade(specDirs) {
     description: 'Canonicalize recoverable delivery-task File(s) declarations; preserve unsafe declarations as findings.',
     actionable: packages.some(({ rewrites }) => rewrites.length > 0),
     packages,
+  };
+}
+
+function publicationLineSegments(source) {
+  const segments = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '\r' && source[index] !== '\n') continue;
+    const width = source[index] === '\r' && source[index + 1] === '\n' ? 2 : 1;
+    segments.push({ content: source.slice(start, index), ending: source.slice(index, index + width) });
+    index += width - 1;
+    start = index + 1;
+  }
+  segments.push({ content: source.slice(start), ending: '' });
+  return segments;
+}
+
+export function provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath } = {}) {
+  if (!Buffer.isBuffer(beforeBytes) || !Buffer.isBuffer(currentBytes)
+    || typeof tasksPath !== 'string') {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Publication repair proof requires before/current Buffers and one task path',
+    );
+  }
+  const match = /^specs\/([1-9]\d*-[a-z0-9-]+)\/tasks\.md$/.exec(tasksPath);
+  if (!match) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Publication repair proof requires one canonical issue task path',
+    );
+  }
+  const selected = (bytes) => publicationFilesUpgrade([{
+    name: match[1],
+    rel: `specs/${match[1]}`,
+    sources: new Map([[tasksPath, bytes]]),
+  }]);
+  const detected = selected(beforeBytes);
+  const publication = detected?.packages?.find(({ path }) => path === tasksPath);
+  if (!publication || publication.findings.length > 0 || publication.rewrites.length === 0) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Run-head task bytes are not a supported publication-label repair',
+    );
+  }
+  const source = beforeBytes.toString('latin1');
+  const segments = publicationLineSegments(source);
+  const byLine = new Map();
+  for (const rewrite of publication.rewrites) {
+    const nearMiss = /^(\*\*Files\*\*:\s*)(.*)$/.exec(rewrite.before);
+    if (!nearMiss
+      || rewrite.after !== `${nearMiss[1].replace('Files', 'File(s)')}${nearMiss[2]}`
+      || byLine.has(rewrite.line)) {
+      throw publicationContractError(
+        'publication_repair_unproven',
+        'Publication repair changed more than the canonical label token',
+      );
+    }
+    byLine.set(rewrite.line, rewrite);
+  }
+  for (const [line, rewrite] of byLine) {
+    const segment = segments[line - 1];
+    if (!segment || segment.content !== rewrite.before) {
+      throw publicationContractError(
+        'publication_repair_unproven',
+        'Publication repair line evidence does not match run-head bytes',
+      );
+    }
+    segment.content = rewrite.after;
+  }
+  const projected = Buffer.from(
+    segments.map(({ content, ending }) => `${content}${ending}`).join(''),
+    'latin1',
+  );
+  if (!projected.equals(currentBytes) || selected(currentBytes) !== null) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Current task bytes are not the exact converged publication-label repair',
+    );
+  }
+  return {
+    tasksPath,
+    rewriteCount: publication.rewrites.length,
+    beforeDigest: createHash('sha256').update(beforeBytes).digest('hex'),
+    currentDigest: createHash('sha256').update(currentBytes).digest('hex'),
   };
 }
 
@@ -1624,25 +1555,15 @@ function withPublicationMutationLock(root, action) {
   if (primaryError) throw primaryError;
   return outcome;
 }
-function splitBufferLines(source) {
-  const lines = [];
-  let start = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    if (source[index] === 0x0a) {
-      lines.push(source.subarray(start, index + 1));
-      start = index + 1;
-    }
-  }
-  if (start < source.length || source.length === 0) lines.push(source.subarray(start));
-  return lines;
+function splitPublicationBufferSegments(source) {
+  return publicationLineSegments(source.toString('latin1')).map(({ content, ending }) => ({
+    content: Buffer.from(content, 'latin1'),
+    ending: Buffer.from(ending, 'latin1'),
+  }));
 }
 
-function applyPublicationBufferRewrite(line, rewrite) {
-  const newlineLength = line.length >= 2 && line.at(-2) === 0x0d && line.at(-1) === 0x0a
-    ? 2
-    : line.at(-1) === 0x0a ? 1 : 0;
-  const content = line.subarray(0, line.length - newlineLength);
-  const newline = line.subarray(line.length - newlineLength);
+function applyPublicationBufferRewrite(segment, rewrite) {
+  const { content, ending } = segment;
   const before = Buffer.from(rewrite.before, 'latin1');
   const after = Buffer.from(rewrite.after, 'latin1');
   if (!content.equals(before)) {
@@ -1672,12 +1593,14 @@ function applyPublicationBufferRewrite(line, rewrite) {
       'Publication rewrite cannot map an exact ASCII byte span',
     );
   }
-  return Buffer.concat([
-    content.subarray(0, prefixLength),
-    afterSpan,
-    content.subarray(content.length - suffixLength),
-    newline,
-  ]);
+  return {
+    content: Buffer.concat([
+      content.subarray(0, prefixLength),
+      afterSpan,
+      content.subarray(content.length - suffixLength),
+    ]),
+    ending,
+  };
 }
 
 function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes, expectedDigest } = {}) {
@@ -1738,7 +1661,7 @@ function publicationOutputSnapshot(root, plan) {
     expectedDigest: plan.sourceDigest,
   });
   const source = snapshot.source;
-  const lines = splitBufferLines(source);
+  const lines = splitPublicationBufferSegments(source);
   for (const rewrite of plan.rewrites) {
     const index = rewrite.line - 1;
     if (!lines[index]) {
@@ -1752,7 +1675,7 @@ function publicationOutputSnapshot(root, plan) {
   return {
     target,
     source,
-    output: Buffer.concat(lines),
+    output: Buffer.concat(lines.flatMap(({ content, ending }) => [content, ending])),
     mode: snapshot.mode,
     identity: snapshot.identity,
   };
