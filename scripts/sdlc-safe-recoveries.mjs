@@ -964,11 +964,16 @@ function declaredOperation(note, typeValue) {
   )) {
     throw safeError('publication_scope_unproven');
   }
-  const operations = [...String(typeValue ?? '').matchAll(/\b(Create|Modify|Delete)\b/gi)]
+  const typeText = String(typeValue ?? '').trim();
+  if (!typeText) return 'Modify';
+  const operations = [...typeText.matchAll(/\b(Create|Modify|Delete)\b/gi)]
     .map((match) => WRITABLE_OPERATIONS.get(match[1].toLowerCase()));
+  const residue = typeText
+    .replace(/\b(?:Create|Modify|Delete|or)\b/gi, '')
+    .replace(/[\/|,\s]+/g, '');
   const unique = [...new Set(operations)];
-  if (unique.length > 1) throw safeError('publication_scope_unproven');
-  return unique[0] ?? 'Modify';
+  if (residue || unique.length !== 1) throw safeError('publication_scope_unproven');
+  return unique[0];
 }
 
 function readOnlyFileEntries(value) {

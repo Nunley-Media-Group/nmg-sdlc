@@ -822,6 +822,19 @@ describe('read-only owner-bound publication probe', () => {
       '**File(s)**: `src/shared.mjs` (as needed)',
       '**Type**: Modify',
     ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Modify');
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Unsupported task type',
+      '**File(s)**: `src/shared.mjs`',
+      '**Type**: Archive',
+    ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+    }));
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Explicit path override',
+      '**File(s)**: `src/shared.mjs` (Create)',
+      '**Type**: Archive',
+    ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Create');
   });
 
   test('rejects missing or mismatched owner-bound inputs without creating state', () => {
