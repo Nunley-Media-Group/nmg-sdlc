@@ -1293,6 +1293,14 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(() => detectPublicationUpgrade(path.join(ancestorLink, 'repository'), {
       specDirs: ['specs/42-valid'],
     })).toThrow(expect.objectContaining({ reasonCode: 'publication_root_symlink' }));
+    const lexicalLink = path.join(root, 'lexical-link');
+    fs.symlinkSync(root, lexicalLink, 'junction');
+    const lexicalTraversal = `${root}${path.sep}lexical-link${path.sep}..`;
+    expect(() => detectPublicationUpgrade(lexicalTraversal, { specDirs: ['specs/42-valid'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_root_symlink' }));
+    const missingThenSymlink = `${ancestorRoot}${path.sep}missing${path.sep}..${path.sep}linked-parent${path.sep}repository`;
+    expect(() => detectPublicationUpgrade(missingThenSymlink, { specDirs: ['specs/42-valid'] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_root_symlink' }));
   });
 
   it.each(['write', 'rename'])('restores every selected original after an injected second %s failure', (failureKind) => {
@@ -1431,6 +1439,30 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.readFileSync(path.join(lockPath, 'owner.json'))).toEqual(owner);
   });
 
+  it('cleans a self-owned lock when owner metadata creation fails', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-owner-write-failure';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const tasksPath = path.join(root, selected, 'tasks.md');
+    const before = fs.readFileSync(tasksPath);
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const originalWrite = fs.writeFileSync.bind(fs);
+    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((target, ...args) => {
+      if (String(target).endsWith(`${path.sep}owner.json`)) {
+        throw Object.assign(new Error('injected owner metadata failure'), { code: 'EIO' });
+      }
+      return originalWrite(target, ...args);
+    });
+    try {
+      expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
+        .toThrow('injected owner metadata failure');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(fs.readFileSync(tasksPath)).toEqual(before);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
+  });
+
   it('keeps duplicate recoverable declarations byte-identical as a blocking finding', () => {
     const root = makeRoot();
     const selected = 'specs/42-duplicate-declarations';
@@ -1494,9 +1526,9 @@ describe('package-scoped publication-only upgrade (#388)', () => {
   });
 
   it.each([
-    ['separate approval flags', (id) => ['--approve', id, '--approve', id], 'publication_cli_invalid'],
+    ['separate approval flags', (id) => ['--approve', id, '--approve', id], 'publication_files_approval_invalid'],
     ['comma-separated approvals', (id) => ['--approve', `${id},${id}`], 'publication_files_approval_invalid'],
-    ['empty then valid approval flags', (id) => ['--approve', '', '--approve', id], 'publication_cli_invalid'],
+    ['empty then valid approval flags', (id) => ['--approve', '', '--approve', id], 'publication_files_approval_invalid'],
   ])('rejects %s without applying any approval', (_name, approvalArgs, reasonCode) => {
     const root = makeRoot();
     const selected = 'specs/42-cli-approval';

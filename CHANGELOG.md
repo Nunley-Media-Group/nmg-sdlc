@@ -14,7 +14,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 - Reject admitted delivery tasks with missing, near-miss, or duplicate canonical `File(s)` declarations before spec publication or execute worker dispatch (#383).
 - Detect a singular recoverable `Files` task label during digest-bound publication upgrade and rewrite it to canonical `File(s)` without weakening fail-closed delivery parsing (#386).
-- Support digest-bound package-scoped publication-only detection and atomic apply with symlink-free roots, strict unambiguous CLI parsing, invalid-UTF-8 byte preservation, final locked inventory revalidation, and rollback without unrelated upgrade phases or GitHub label backfill (#388).
+- Support digest-bound package-scoped publication-only detection and atomic apply with raw symlink-free root traversal, strict unambiguous CLI parsing, invalid-UTF-8 byte preservation, final locked identity revalidation, self-owned setup cleanup, and rollback without unrelated upgrade phases or GitHub label backfill (#388).
 
 ## [3.21.3] - 2026-09-13
 

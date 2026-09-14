@@ -45,6 +45,7 @@ Feature: Support package-scoped publication-only upgrades
       | a path outside specs |
       | a root whose final component is a symlink |
       | a root with a symlinked ancestor |
+      | a symlink hidden lexically before dot-dot |
       | a missing package |
       | a symlinked package |
       | an incomplete package |
@@ -67,6 +68,7 @@ Feature: Support package-scoped publication-only upgrades
       | a different repository root |
       | a different report id |
       | an injected second selected stage write failure |
+      | self-owned lock metadata creation failure |
       | an injected second selected commit rename failure |
 
   @SCN006 @regression

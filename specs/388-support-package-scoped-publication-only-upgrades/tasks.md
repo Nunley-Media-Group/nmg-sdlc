@@ -56,8 +56,9 @@
 - [ ] Selected single-package apply leaves unselected rewrites/findings byte-identical
 - [ ] Selected apply causes no spec-created-label, dependency, or GitHub side effect
 - [ ] Stale source bytes, changed package inventory or identity, different root/report/selection, and invalid selections fail before mutation
-- [ ] Symlinked root and symlinked ancestor paths fail with the stable root-symlink reason
+- [ ] Symlinked root, symlinked ancestor, and symlink-before-`..` spellings fail with the stable root-symlink reason
 - [ ] Injected second selected write or rename failure leaves every target byte-identical
+- [ ] Owner-metadata setup failure removes only its provably self-created lock; a foreign lock remains untouched
 - [ ] Invalid UTF-8 and mixed line endings survive exact Buffer surgery
 - [ ] Duplicate recoverable task declarations remain byte-identical and produce a blocking finding
 - [ ] PathCast-like T001-T004 conversion changes exactly four selected label tokens

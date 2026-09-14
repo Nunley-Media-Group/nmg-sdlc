@@ -186,13 +186,21 @@ function lstatOrNull(target) {
 }
 
 function rejectSymlinkedPath(target) {
-  const absolute = path.resolve(target);
+  const raw = String(target);
+  const absolute = path.isAbsolute(raw)
+    ? raw
+    : `${process.cwd()}${path.sep}${raw}`;
   const parsed = path.parse(absolute);
   let cursor = parsed.root;
   for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    if (component === '.') continue;
+    if (component === '..') {
+      cursor = path.dirname(cursor);
+      continue;
+    }
     cursor = path.join(cursor, component);
     const stat = lstatOrNull(cursor);
-    if (!stat) break;
+    if (!stat) continue;
     if (stat.isSymbolicLink()) {
       throw publicationContractError(
         'publication_root_symlink',
@@ -298,8 +306,8 @@ function validatePublicationSpecDirs(root, specDirs) {
       'Publication-only detection requires at least one explicit --spec selection',
     );
   }
+  rejectSymlinkedPath(root);
   const rootInput = path.resolve(root);
-  rejectSymlinkedPath(rootInput);
   requirePlainDirectory(rootInput, 'publication_root_invalid', `Repository root is not a plain directory: ${rootInput}`);
   const rootReal = fs.realpathSync.native(rootInput);
   const specsFull = path.join(rootReal, 'specs');
@@ -1159,11 +1167,16 @@ function withPublicationMutationLock(root, action) {
   const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
   const ownerPath = path.join(lockPath, 'owner.json');
   const token = randomUUID();
-  let created = false;
+  let createdIdentity = null;
+  let ownerWritten = false;
   try {
     try {
       fs.mkdirSync(lockPath, { mode: 0o700 });
-      created = true;
+      const stat = fs.lstatSync(lockPath);
+      createdIdentity = {
+        device: String(stat.dev),
+        inode: String(stat.ino),
+      };
     } catch (error) {
       if (error?.code === 'EEXIST') {
         throw publicationContractError(
@@ -1178,16 +1191,25 @@ function withPublicationMutationLock(root, action) {
       flag: 'wx',
       mode: 0o600,
     });
+    ownerWritten = true;
     return action({ lockPath, token });
   } finally {
-    if (created) {
+    if (createdIdentity) {
       let ownsLock = false;
       try {
         const stat = fs.lstatSync(lockPath);
-        const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
-        ownsLock = stat.isDirectory() && !stat.isSymbolicLink() && owner.token === token;
+        const sameCreatedDirectory = stat.isDirectory()
+          && !stat.isSymbolicLink()
+          && String(stat.dev) === createdIdentity.device
+          && String(stat.ino) === createdIdentity.inode;
+        if (sameCreatedDirectory && !ownerWritten) {
+          ownsLock = true;
+        } else if (sameCreatedDirectory) {
+          const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
+          ownsLock = owner.token === token;
+        }
       } catch {
-        // A lock without this invocation's token is not ours to clean.
+        // A different or unreadable lock is not ours to clean.
       }
       if (ownsLock) fs.rmSync(lockPath, { recursive: true, force: true });
     }
@@ -2174,13 +2196,20 @@ function validatePublicationCli(argv) {
       option = match ? aliases.get(match[1]) : null;
       value = match?.[2];
     }
+    const malformedValue = typeof value !== 'string'
+      || value.length === 0
+      || value.startsWith('-')
+      || UPGRADE_COMMANDS.has(value);
+    if (allowed.has(option) && option === 'approve' && malformedValue) {
+      throw publicationContractError(
+        'publication_files_approval_invalid',
+        'apply-publication requires exactly one --approve publication-files:<sha256> id',
+      );
+    }
     if (
       !option
       || !allowed.has(option)
-      || typeof value !== 'string'
-      || value.length === 0
-      || value.startsWith('-')
-      || UPGRADE_COMMANDS.has(value)
+      || malformedValue
     ) {
       throw publicationContractError(
         'publication_cli_invalid',
@@ -2190,7 +2219,7 @@ function validatePublicationCli(argv) {
     counts.set(option, (counts.get(option) ?? 0) + 1);
     if (option !== 'spec' && counts.get(option) > 1) {
       throw publicationContractError(
-        'publication_cli_invalid',
+        option === 'approve' ? 'publication_files_approval_invalid' : 'publication_cli_invalid',
         `Publication option may occur only once: ${token}`,
       );
     }

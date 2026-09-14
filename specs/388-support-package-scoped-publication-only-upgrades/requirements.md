@@ -48,7 +48,7 @@
 ### AC4: Invalid or stale authority fails closed
 
 **Given** a missing, outside-root, duplicate, incomplete, wrongly named, issue-mismatched, non-Approved, or otherwise non-spec selection
-**Or** a root whose final component or any ancestor traverses a symlink
+**Or** a root whose final component or any raw lexical ancestor—including one later collapsed by `..`—traverses a symlink
 **Or** an approval from a different root, selection, or report
 **Or** selected package bytes, inventory, target identity, or duplicate task declarations changed after approval or during staging
 **When** detection or apply runs
