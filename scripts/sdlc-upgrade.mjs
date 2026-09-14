@@ -236,18 +236,21 @@ function samePublicationFileIdentity(stat, identity) {
     && stat.mode === identity.mode
     && stat.size === identity.size;
 }
+function comparePublicationPaths(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
-function requireApprovedIssueFrontmatter(source, issue, relativePath) {
+function requireApprovedIssueFrontmatter(source, issueDigits, relativePath) {
   const issueLines = [...source.matchAll(/^\*\*(Issues?)\*\*:\s*(.*?)\s*$/gm)];
   const statusLines = [...source.matchAll(/^\*\*Status\*\*:\s*(.*?)\s*$/gm)];
   if (
     issueLines.length !== 1
     || issueLines[0][1] !== 'Issue'
-    || issueLines[0][2] !== `#${issue}`
+    || issueLines[0][2] !== `#${issueDigits}`
   ) {
     throw publicationContractError(
       'publication_spec_issue_invalid',
-      `${relativePath} must declare singular **Issue**: #${issue}`,
+      `${relativePath} must declare singular **Issue**: #${issueDigits}`,
     );
   }
   if (statusLines.length !== 1 || statusLines[0][1] !== 'Approved') {
@@ -262,7 +265,7 @@ function inventoryPublicationPackage(root, specDir) {
   const packageFull = path.join(root, ...specDir.split('/'));
   const files = [];
   const visit = (directory, relativeDirectory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const full = path.join(directory, entry.name);
       const relativePath = `${relativeDirectory}/${entry.name}`;
       if (entry.isSymbolicLink()) {
@@ -296,14 +299,20 @@ function inventoryPublicationPackage(root, specDir) {
     }
   };
   visit(packageFull, specDir);
-  return files;
+  return files.sort((left, right) => comparePublicationPaths(left.path, right.path));
 }
 
 function validatePublicationSpecDirs(root, specDirs) {
   if (!Array.isArray(specDirs) || specDirs.length === 0) {
     throw publicationContractError(
       'publication_spec_selection_required',
-      'Publication-only detection requires at least one explicit --spec selection',
+      'Publication-only detection requires exactly one explicit --spec selection',
+    );
+  }
+  if (specDirs.length !== 1) {
+    throw publicationContractError(
+      'publication_spec_selection_multiple',
+      'Publication-only detection accepts exactly one --spec selection',
     );
   }
   rejectSymlinkedPath(root);
@@ -363,7 +372,7 @@ function validatePublicationSpecDirs(root, specDirs) {
           `Selected spec package requires a plain ${relativePath}`,
         );
       }
-      requireApprovedIssueFrontmatter(fs.readFileSync(full, 'utf8'), Number(match[1]), relativePath);
+      requireApprovedIssueFrontmatter(fs.readFileSync(full, 'utf8'), match[1], relativePath);
     }
     selected.push({
       name: path.basename(normalized),
@@ -374,7 +383,7 @@ function validatePublicationSpecDirs(root, specDirs) {
   }
   return {
     root: rootReal,
-    selected: selected.sort((a, b) => a.rel.localeCompare(b.rel)),
+    selected: selected.sort((a, b) => comparePublicationPaths(a.rel, b.rel)),
   };
 }
 
@@ -1163,59 +1172,139 @@ function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
   return [...candidates.values()];
 }
 
-function withPublicationMutationLock(root, action) {
-  const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
-  const ownerPath = path.join(lockPath, 'owner.json');
-  const token = randomUUID();
-  let createdIdentity = null;
-  let ownerWritten = false;
+function durableCreateFile(target, bytes, mode = 0o600) {
+  const flags = fs.constants.O_WRONLY
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  const descriptor = fs.openSync(target, flags, mode);
   try {
-    try {
-      fs.mkdirSync(lockPath, { mode: 0o700 });
-      const stat = fs.lstatSync(lockPath);
-      createdIdentity = {
-        device: String(stat.dev),
-        inode: String(stat.ino),
-      };
-    } catch (error) {
-      if (error?.code === 'EEXIST') {
-        throw publicationContractError(
-          'publication_mutation_locked',
-          'Another publication mutation owns the project lock',
-        );
-      }
-      throw error;
-    }
-    fs.writeFileSync(ownerPath, `${JSON.stringify({ token, pid: process.pid })}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-    ownerWritten = true;
-    return action({ lockPath, token });
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error(`Publication artifact is not a regular file: ${target}`);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fchmodSync(descriptor, mode);
+    fs.fsyncSync(descriptor);
+    return publicationFileIdentity(fs.fstatSync(descriptor));
   } finally {
-    if (createdIdentity) {
-      let ownsLock = false;
-      try {
-        const stat = fs.lstatSync(lockPath);
-        const sameCreatedDirectory = stat.isDirectory()
-          && !stat.isSymbolicLink()
-          && String(stat.dev) === createdIdentity.device
-          && String(stat.ino) === createdIdentity.inode;
-        if (sameCreatedDirectory && !ownerWritten) {
-          ownsLock = true;
-        } else if (sameCreatedDirectory) {
-          const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
-          ownsLock = owner.token === token;
-        }
-      } catch {
-        // A different or unreadable lock is not ours to clean.
-      }
-      if (ownsLock) fs.rmSync(lockPath, { recursive: true, force: true });
-    }
+    fs.closeSync(descriptor);
   }
 }
 
+function withPublicationMutationLock(root, action) {
+  const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
+  const token = randomUUID();
+  const ownerBytes = Buffer.from(`${JSON.stringify({ token, pid: process.pid })}\n`);
+  const flags = fs.constants.O_WRONLY
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  let descriptor;
+  let lockIdentity;
+  const matchesOwnedLock = () => {
+    if (!lockIdentity) return false;
+    const before = lstatOrNull(lockPath);
+    if (!samePublicationFileIdentity(before, lockIdentity)) return false;
+    let current;
+    try {
+      current = fs.openSync(lockPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+      const opened = fs.fstatSync(current);
+      if (!samePublicationFileIdentity(opened, lockIdentity)) return false;
+      const currentBytes = fs.readFileSync(current);
+      const after = lstatOrNull(lockPath);
+      return samePublicationFileIdentity(after, lockIdentity) && currentBytes.equals(ownerBytes);
+    } catch {
+      return false;
+    } finally {
+      if (current !== undefined) fs.closeSync(current);
+    }
+  };
+  try {
+    descriptor = fs.openSync(lockPath, flags, 0o600);
+    lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+    fs.writeFileSync(descriptor, ownerBytes);
+    fs.fchmodSync(descriptor, 0o600);
+    fs.fsyncSync(descriptor);
+    lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+  } catch (error) {
+    if (descriptor !== undefined) {
+      try {
+        lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+      } catch {
+        // Preserve the last proven identity.
+      }
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      if (matchesOwnedLock()) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (cleanupError) {
+          const failure = publicationContractError(
+            'publication_lock_setup_failed',
+            `Publication lock setup failed and exact owned lock cleanup failed: ${cleanupError.message}`,
+          );
+          failure.state = 'lock_setup_failed';
+          failure.applied = false;
+          failure.transactionId = token;
+          failure.primaryError = String(error.message ?? error);
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+      } else {
+        const failure = publicationContractError(
+          'publication_lock_setup_failed',
+          `Publication lock owner write failed and exact ownership is unproven: ${error.message}`,
+        );
+        failure.state = 'lock_setup_failed';
+        failure.applied = false;
+        failure.transactionId = token;
+        failure.retainPublicationLock = true;
+        throw failure;
+      }
+    }
+    if (error?.code === 'EEXIST') {
+      throw publicationContractError(
+        'publication_mutation_locked',
+        'Another publication mutation owns the project lock',
+      );
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+
+  const ownsLock = matchesOwnedLock;
+  const cleanupFailure = (applied, primaryError, error) => {
+    const failure = publicationContractError(
+      'publication_files_cleanup_failed',
+      `${applied ? 'Publication changes were applied, but' : 'Publication changes were not applied and'} lock cleanup failed: ${error.message}`,
+    );
+    failure.state = applied ? 'applied_cleanup_failed' : 'cleanup_failed';
+    failure.applied = applied;
+    failure.transactionId = token;
+    failure.primaryError = primaryError ? String(primaryError.message ?? primaryError) : null;
+    failure.cleanupError = String(error.message ?? error);
+    failure.retainPublicationLock = true;
+    return failure;
+  };
+
+  let outcome;
+  let primaryError = null;
+  try {
+    outcome = action({ token });
+  } catch (error) {
+    if (error?.retainPublicationLock) throw error;
+    primaryError = error;
+  }
+
+  try {
+    if (!ownsLock()) throw new Error('Publication lock ownership changed before cleanup');
+    fs.unlinkSync(lockPath);
+  } catch (error) {
+    throw cleanupFailure(Boolean(outcome?.applied || primaryError?.applied), primaryError, error);
+  }
+  if (primaryError) throw primaryError;
+  return outcome;
+}
 function splitBufferLines(source) {
   const lines = [];
   let start = 0;
@@ -1308,25 +1397,35 @@ function publicationOutputSnapshot(root, plan) {
   };
 }
 
-function applyPublicationFiles(root, item, { revalidate } = {}) {
-  return withPublicationMutationLock(root, ({ lockPath }) => {
-    const outputs = item.packages
-      .filter(({ rewrites }) => rewrites.length > 0)
-      .map((plan) => publicationOutputSnapshot(root, plan));
-    for (const [index, output] of outputs.entries()) {
-      output.snapshotPath = path.join(lockPath, `${index}.snapshot`);
-      output.originalPath = path.join(lockPath, `${index}.original`);
-      output.stagedPath = path.join(lockPath, `${index}.staged`);
-      fs.writeFileSync(output.snapshotPath, output.source, { flag: 'wx', mode: output.mode });
-      fs.chmodSync(output.snapshotPath, output.mode);
-      fs.writeFileSync(output.stagedPath, output.output, { flag: 'wx', mode: output.mode });
-      fs.chmodSync(output.stagedPath, output.mode);
-    }
+function applyPublicationFiles(root, item) {
+  const plans = item.packages.filter(({ rewrites }) => rewrites.length > 0);
+  for (const plan of plans) {
+    const output = publicationOutputSnapshot(root, plan);
+    fs.writeFileSync(output.target, output.output, { mode: output.mode });
+    fs.chmodSync(output.target, output.mode);
+  }
+  return {
+    id: item.id,
+    status: 'applied',
+    packages: item.packages.map(({ path: packagePath }) => packagePath),
+  };
+}
 
-    // This is the last complete inventory and identity check before the
-    // cooperative project lock's commit boundary.
-    revalidate?.();
-    for (const output of outputs) {
+function applySinglePublicationFile(root, item, { revalidate } = {}) {
+  const plans = item.packages.filter(({ rewrites }) => rewrites.length > 0);
+  if (plans.length !== 1) {
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      'Single-package publication apply requires exactly one actionable tasks file',
+    );
+  }
+  return withPublicationMutationLock(root, ({ token }) => {
+    const output = publicationOutputSnapshot(root, plans[0]);
+    const stagedPath = path.join(root, `.nmg-sdlc-publication.${token}.staged`);
+    let stagedIdentity;
+    try {
+      stagedIdentity = durableCreateFile(stagedPath, output.output, output.mode);
+      revalidate?.();
       const liveStat = lstatOrNull(output.target);
       const liveBytes = safeReadBuffer(output.target);
       if (!samePublicationFileIdentity(liveStat, output.identity) || !liveBytes?.equals(output.source)) {
@@ -1335,47 +1434,77 @@ function applyPublicationFiles(root, item, { revalidate } = {}) {
           'Publication target identity or bytes changed immediately before commit',
         );
       }
-    }
-
-    try {
-      for (const output of outputs) {
-        fs.renameSync(output.target, output.originalPath);
-        fs.renameSync(output.stagedPath, output.target);
+      const stagedBytes = safeReadBuffer(stagedPath);
+      const stagedStat = lstatOrNull(stagedPath);
+      if (!samePublicationFileIdentity(stagedStat, stagedIdentity)) {
+        const failure = publicationContractError(
+          'publication_files_plan_stale',
+          'Publication staged artifact identity changed before commit',
+        );
+        failure.state = 'plan_stale';
+        failure.applied = false;
+        failure.stagedPath = stagedPath;
+        failure.transactionId = token;
+        failure.retainPublicationLock = true;
+        throw failure;
       }
-    } catch (commitError) {
-      const rollbackErrors = [];
-      for (const output of outputs) {
-        const currentStat = lstatOrNull(output.target);
-        const current = safeReadBuffer(output.target);
-        if (samePublicationFileIdentity(currentStat, output.identity) && current?.equals(output.source)) continue;
-        const originalStat = lstatOrNull(output.originalPath);
-        const original = safeReadBuffer(output.originalPath);
-        try {
-          if (!samePublicationFileIdentity(originalStat, output.identity) || !original?.equals(output.source)) {
-            throw new Error('Original publication target identity is unavailable');
-          }
-          fs.renameSync(output.originalPath, output.target);
-        } catch (rollbackError) {
-          try {
-            fs.writeFileSync(output.target, output.source);
-            fs.chmodSync(output.target, output.mode);
-          } catch (fallbackError) {
-            rollbackErrors.push(fallbackError, rollbackError);
-          }
-        }
-      }
-      if (rollbackErrors.length > 0) {
+      if (!stagedBytes?.equals(output.output)) {
         throw publicationContractError(
-          'publication_files_rollback_failed',
-          `Publication commit failed and original bytes could not be restored: ${commitError.message}`,
+          'publication_files_plan_stale',
+          'Publication staged artifact bytes changed before commit',
         );
       }
-      throw publicationContractError(
-        'publication_files_commit_failed',
-        `Publication commit failed; every target was restored: ${commitError.message}`,
-      );
+      try {
+        fs.renameSync(stagedPath, output.target);
+      } catch (error) {
+        const failure = publicationContractError(
+          'publication_files_commit_failed',
+          `Publication rename failed before mutation: ${error.message}`,
+        );
+        failure.state = 'commit_failed';
+        failure.applied = false;
+        throw failure;
+      }
+      return {
+        id: item.id,
+        status: 'applied',
+        applied: true,
+        packages: [plans[0].path],
+      };
+    } catch (error) {
+      if (error?.retainPublicationLock) throw error;
+      const stagedStat = lstatOrNull(stagedPath);
+      if (stagedStat) {
+        if (!samePublicationFileIdentity(stagedStat, stagedIdentity)) {
+          const failure = publicationContractError(
+            'publication_files_cleanup_failed',
+            'Publication staged artifact ownership changed before cleanup',
+          );
+          failure.state = 'cleanup_failed';
+          failure.applied = false;
+          failure.stagedPath = stagedPath;
+          failure.transactionId = token;
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+        try {
+          fs.unlinkSync(stagedPath);
+        } catch (cleanupFailure) {
+          const failure = publicationContractError(
+            'publication_files_cleanup_failed',
+            `Publication staged artifact cleanup failed: ${cleanupFailure.message}`,
+          );
+          failure.state = 'cleanup_failed';
+          failure.applied = false;
+          failure.stagedPath = stagedPath;
+          failure.transactionId = token;
+          failure.primaryError = String(error.message ?? error);
+          failure.retainPublicationLock = true;
+          throw failure;
+        }
+      }
+      throw error;
     }
-    return { id: item.id, status: 'applied', packages: item.packages.map(({ path: packagePath }) => packagePath) };
   });
 }
 
@@ -1386,9 +1515,10 @@ function detectPublicationUpgrade(root, { specDirs } = {}) {
     path: rel,
     files,
   }));
-  const selectedFiles = new Map(
-    selections.flatMap(({ files }) => files.map((file) => [file.path, file])),
-  );
+  const selectedInventory = selections
+    .flatMap(({ files }) => files)
+    .sort((left, right) => comparePublicationPaths(left.path, right.path));
+  const selectedFiles = new Map(selectedInventory.map((file) => [file.path, file]));
   const packages = (detected?.packages ?? []).map((plan) => {
     const targetIdentity = selectedFiles.get(plan.path)?.identity;
     if (!targetIdentity) {
@@ -1399,19 +1529,20 @@ function detectPublicationUpgrade(root, { specDirs } = {}) {
     }
     return { ...plan, targetIdentity };
   });
+  const selection = selections[0];
   const authority = {
     schemaVersion: 1,
     mode: 'publication-only',
     root: validated.root,
-    specDirs: selections.map(({ path: specDir }) => specDir),
-    selections,
-    packages,
+    specDir: selection.path,
+    inventory: selectedInventory,
+    package: packages[0] ?? null,
   };
   const digest = createHash('sha256').update(JSON.stringify(authority)).digest('hex');
   const item = {
     id: `publication-files:${digest}`,
     kind: 'publication-files',
-    description: 'Canonicalize recoverable delivery-task File(s) declarations only in the explicitly selected spec packages.',
+    description: 'Canonicalize recoverable delivery-task File(s) declarations only in one explicitly selected spec package.',
     actionable: packages.some(({ rewrites }) => rewrites.length > 0),
     packages,
   };
@@ -1419,8 +1550,9 @@ function detectPublicationUpgrade(root, { specDirs } = {}) {
     schemaVersion: 1,
     mode: 'publication-only',
     root: validated.root,
-    specDirs: authority.specDirs,
+    specDirs: [authority.specDir],
     selections,
+    selectedInventory,
     writeCount: packages.reduce((count, plan) => count + plan.rewrites.length, 0),
     findingCount: packages.reduce((count, plan) => count + plan.findings.length, 0),
     item,
@@ -1447,7 +1579,7 @@ function applyPublicationUpgrade(root, approvedItemId, { specDirs } = {}) {
   }
   const result = report.writeCount === 0
     ? { id: approvedItemId, status: 'already-current', packages: [] }
-    : applyPublicationFiles(report.root, report.item, {
+    : applySinglePublicationFile(report.root, report.item, {
       revalidate: () => {
         let finalReport;
         try {
@@ -2217,12 +2349,18 @@ function validatePublicationCli(argv) {
       );
     }
     counts.set(option, (counts.get(option) ?? 0) + 1);
-    if (option !== 'spec' && counts.get(option) > 1) {
+    if (counts.get(option) > 1) {
       throw publicationContractError(
         option === 'approve' ? 'publication_files_approval_invalid' : 'publication_cli_invalid',
         `Publication option may occur only once: ${token}`,
       );
     }
+  }
+  if (counts.get('spec') !== 1) {
+    throw publicationContractError(
+      'publication_cli_invalid',
+      'Publication commands require exactly one --spec option',
+    );
   }
   if (command.token === 'apply-publication' && counts.get('approve') !== 1) {
     throw publicationContractError(
@@ -2271,7 +2409,11 @@ if (isCliEntry(import.meta.url)) {
     validatePublicationCli(process.argv);
     const args = parseArgv(process.argv);
     if (!args.cmd) {
-      console.error('Usage: node scripts/sdlc-upgrade.mjs <detect|apply|detect-publication|apply-publication> [--root <dir>] [--spec specs/N-slug ...] [--approve id1,id2]');
+      console.error([
+        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]',
+        'Usage: node scripts/sdlc-upgrade.mjs detect-publication --root <dir> --spec specs/N-slug',
+        'Usage: node scripts/sdlc-upgrade.mjs apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>',
+      ].join('\n'));
       process.exit(2);
     }
     if (args.cmd === 'detect') {
@@ -2294,7 +2436,14 @@ if (isCliEntry(import.meta.url)) {
       console.log(JSON.stringify(out, null, 2));
     }
   } catch (err) {
-    console.error('ERROR', err);
+    const details = err?.reasonCode ? {
+      reasonCode: err.reasonCode,
+      state: err.state ?? null,
+      applied: err.applied ?? null,
+      transactionId: err.transactionId ?? null,
+      message: String(err.message ?? err),
+    } : { message: String(err?.message ?? err) };
+    console.error('ERROR', JSON.stringify(details));
     process.exit(1);
   }
 }

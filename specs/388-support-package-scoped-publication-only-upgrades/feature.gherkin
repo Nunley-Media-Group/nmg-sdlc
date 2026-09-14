@@ -12,18 +12,18 @@ Feature: Support package-scoped publication-only upgrades
   must not inherit the full repository upgrade's unrelated mutations.
 
   @SCN001 @regression
-  Scenario: Detect only the explicitly selected package
+  Scenario: Detect exactly one explicitly selected package
     Given several spec packages contain publication rewrites or findings
-    When publication-only detection selects one valid package
+    When publication-only detection receives exactly one valid package
     Then the report includes only that package
-    And disabling issue-dependency lookup is not used as package selection
+    And zero repeated or multiple selections fail before detection
 
   @SCN002 @regression
-  Scenario: Approval binds exact root selection report and bytes
-    Given a selected publication-only report
+  Scenario: Approval binds exact single-package authority
+    Given one selected publication-only package
     When its approval id is calculated
-    Then it binds the canonical root and sorted selected package set
-    And it binds every selected regular-file digest and exact rewrite and finding
+    Then it binds canonical root package and complete locale-independent inventory
+    And it binds exact-string issue digits, regular-file digests/identities, and exact rewrite/finding content
 
   @SCN003 @regression
   Scenario: Apply performs only selected publication writes
@@ -54,22 +54,24 @@ Feature: Support package-scoped publication-only upgrades
       | a non-Approved package |
 
   @SCN005 @regression
-  Scenario Outline: Stale, foreign, or interrupted approval fails closed
-    Given an approved selected report and a project-owned mutation lock
+  Scenario Outline: Stale foreign or interrupted apply fails closed
+    Given an approved single-package report and exclusive root lock
     When apply observes <change>
-    Then no selected target remains mutated
-    And lock or staging artifacts are removed only when ownership is proven
+    Then unapproved bytes never install
+    And foreign lock or staged identities are never overwritten or deleted
     Examples:
       | change |
       | changed source bytes |
-      | added package content before final revalidation |
+      | added package content after staging |
+      | same-byte target identity replacement |
+      | staged identity replacement |
+      | staged byte mutation |
       | duplicate task declarations |
-      | a different selected package set |
-      | a different repository root |
-      | a different report id |
-      | an injected second selected stage write failure |
-      | self-owned lock metadata creation failure |
-      | an injected second selected commit rename failure |
+      | a different package root or report id |
+      | a pre-existing foreign lock |
+      | a partial or wrong-byte owner write |
+      | a same-token foreign lock replacement |
+      | an atomic rename failure |
 
   @SCN006 @regression
   Scenario: Mixed line endings and arbitrary unrelated bytes are preserved
@@ -92,6 +94,14 @@ Feature: Support package-scoped publication-only upgrades
   Scenario: Workflow uses an unambiguous dedicated native entry point
     Given package-bounded publication authority in /sdlc-upgrade-project
     When the workflow renders detection and apply commands
-    Then it uses detect-publication and apply-publication with exactly one command token and explicit spec selections
-    And ambiguous options values positionals and extra command tokens fail before mutation
+    Then it uses detect-publication and apply-publication with exactly one command token and one spec option
+    And repeated specs ambiguous options values positionals and extra commands fail before mutation
     And existing unbounded detect and apply commands retain their parsing semantics
+
+  @SCN009 @regression
+  Scenario: Applied cleanup failure remains truthful
+    Given the one staged tasks output has atomically replaced its target
+    When exact owned lock unlink returns EACCES
+    Then the stable outcome is publication_files_cleanup_failed
+    And state is applied_cleanup_failed with applied true
+    And the valid root lock remains as ownership evidence

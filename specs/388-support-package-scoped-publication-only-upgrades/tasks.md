@@ -1,4 +1,4 @@
-# Tasks: Support package-scoped publication-only upgrades
+# Tasks: Support single-package publication-only upgrades
 
 **Issue**: #388
 **Date**: 2026-09-13
@@ -12,27 +12,27 @@
 
 | Task | Description | Status |
 |------|-------------|--------|
-| T001 | Implement selected publication authority | [ ] |
-| T002 | Expose CLI and workflow contract | [ ] |
-| T003 | Add focused regressions and fixture exercise | [ ] |
-| T004 | Update public and contribution evidence | [ ] |
+| T001 | Implement single-package publication authority | [x] |
+| T002 | Expose CLI and workflow contract | [x] |
+| T003 | Add focused regressions and actual-source fixture exercise | [x] |
+| T004 | Update public and contribution evidence | [x] |
 
 ---
 
-### T001: Implement selected publication authority
+### T001: Implement single-package publication authority
 
 **File(s)**: `scripts/sdlc-upgrade.mjs`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:
-- [ ] Export `detectPublicationUpgrade` and `applyPublicationUpgrade`
-- [ ] Require a non-empty explicit canonical selection of complete Approved singular issue-owned packages
-- [ ] Reject roots with a symlinked final component or ancestor and reject missing, outside, duplicate, symlinked, incomplete, wrongly named, issue-mismatched, and non-Approved selections with stable reason codes
-- [ ] Bind the item digest to exact root, sorted selection, every selected regular-file digest and lstat identity, and exact rewrites/findings
-- [ ] Hold a project-owned mutation lock across final complete-inventory, exact-byte, and target-identity revalidation plus commit
-- [ ] Build and stage every output from exact Buffer snapshots; restore every original byte and recoverable target identity after any multi-target write or rename failure
-- [ ] Apply only selected publication rewrites without calling full apply, dependencies, label backfill, GitHub, or another upgrade phase
-- [ ] Preserve existing `detectUpgrade` and `applyUpgrade` behavior
+- [x] Export `detectPublicationUpgrade` and `applyPublicationUpgrade`
+- [x] Require exactly one complete Approved singular issue-owned package and compare issue digits exactly
+- [x] Reject symlinked roots and invalid, repeated, multiple, stale, or ambiguous selections with stable reasons
+- [x] Bind exact root/package, complete sorted inventory/digests/identities, and rewrite/finding plan
+- [x] Acquire one exclusive fsynced regular root lock whose deletion requires pre-open, descriptor, and post-read identity plus exact-byte proof
+- [x] Stage one exact Buffer output at repository root, fsync, revalidate full authority plus target/stage, and atomically rename
+- [x] Report post-rename cleanup failure with `applied: true` while retaining lock evidence
+- [x] Preserve existing `detectUpgrade` and `applyUpgrade` behavior
 
 ### T002: Expose CLI and workflow contract
 
@@ -40,31 +40,31 @@
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- [ ] Add `detect-publication` and `apply-publication` commands with repeatable required `--spec` flags
-- [ ] Require exactly one command token and one exact publication approval id for apply
-- [ ] Reject unknown options, unexpected positionals, duplicate singleton options, missing or option-like values, extra command tokens, and other ambiguous forms before mutation
-- [ ] Preserve documented legacy detect/apply parsing semantics
-- [ ] `/sdlc-upgrade-project` uses this entry point whenever publication authorization is package-bounded
-- [ ] Workflow documentation distinguishes selected publication-only apply from full upgrade apply
+- [x] Add `detect-publication` and `apply-publication` commands requiring exactly one `--spec`
+- [x] Require exactly one command token and one exact publication approval id for apply
+- [x] Reject repeated specs, unknown options, unexpected positionals, duplicate singleton options, missing/option-like values, and extra commands before mutation
+- [x] Emit stable structured `reasonCode`, `state`, and `applied` fields for transaction failures
+- [x] `/sdlc-upgrade-project` uses this entry point whenever publication authorization is package-bounded
+- [x] Workflow documentation distinguishes selected publication-only apply from full upgrade apply
 
-### T003: Add focused regressions and fixture exercise
+### T003: Add focused regressions and actual-source fixture exercise
 
 **File(s)**: `scripts/__tests__/sdlc-upgrade.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
-- [ ] Selected single-package apply leaves unselected rewrites/findings byte-identical
-- [ ] Selected apply causes no spec-created-label, dependency, or GitHub side effect
-- [ ] Stale source bytes, changed package inventory or identity, different root/report/selection, and invalid selections fail before mutation
-- [ ] Symlinked root, symlinked ancestor, and symlink-before-`..` spellings fail with the stable root-symlink reason
-- [ ] Injected second selected write or rename failure leaves every target byte-identical
-- [ ] Owner-metadata setup failure removes only its provably self-created lock; a foreign lock remains untouched
-- [ ] Invalid UTF-8 and mixed line endings survive exact Buffer surgery
-- [ ] Duplicate recoverable task declarations remain byte-identical and produce a blocking finding
-- [ ] PathCast-like T001-T004 conversion changes exactly four selected label tokens
-- [ ] Second selected detection reports zero writes
-- [ ] Existing aggregate tests remain green
-- [ ] Run a disposable installed-source fixture with multiple unrelated dirty packages
+- [x] Selected single-package apply leaves unselected rewrites/findings byte-identical
+- [x] Selected apply causes no spec-created-label, dependency, or GitHub side effect
+- [x] Stale source bytes, changed package inventory/identity, different root/report/package, and invalid selections fail before mutation
+- [x] Symlinked root, symlinked ancestor, and symlink-before-`..` spellings fail with the stable root-symlink reason
+- [x] Stage replacement and byte mutation never install unapproved bytes
+- [x] Atomic rename failure leaves original target bytes and identity untouched
+- [x] Pre-existing, symlinked, and same-token replacement locks receive zero writes/deletes
+- [x] Partial and wrong-byte owner setup failures retain unproven lock evidence
+- [x] Post-commit lock unlink failure reports `applied: true` and retains valid owner bytes
+- [x] Complete inventory order is locale-independent and large issue digits compare exactly
+- [x] Invalid UTF-8, mixed line endings, duplicate findings, strict CLI, and legacy parsing remain covered
+- [x] Run a disposable actual-source fixture with unrelated dirty packages; do not install
 
 ### T004: Update public and contribution evidence
 
@@ -72,10 +72,10 @@
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
-- [ ] README documents selected detect/approve/apply commands and safety boundary
-- [ ] Unreleased changelog records the defect fix without a version bump
-- [ ] Verification report records exact focused commands, outcomes, changed paths, steering alignment, and remaining risks
-- [ ] Plugin surface, current-spec archive, skill inventory, version synchronization, and contribution evidence checks pass
+- [x] README documents selected detect/approve/apply commands and safety boundary
+- [x] Unreleased changelog records the defect fix without a version bump
+- [x] Verification report records exact focused commands, outcomes, changed paths, steering alignment, and remaining risks
+- [x] Plugin surface, current-spec archive, skill inventory, version synchronization, and contribution evidence checks pass
 
 ---
 
@@ -90,4 +90,4 @@
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #388 | 2026-09-13 | Initial approved task plan |
+| #388 | 2026-09-13 | Approved single-package task plan completed with verified actual-source evidence |

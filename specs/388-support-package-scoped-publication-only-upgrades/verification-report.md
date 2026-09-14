@@ -1,78 +1,77 @@
-# Verification Report: Support package-scoped publication-only upgrades
+# Verification Report: Support single-package publication-only upgrades
 
 **Date**: 2026-09-13
 **Issue**: #388
-**Reviewer**: Independent-review remediation verification
-**Scope**: Approved specification, implementation, independent findings, focused/full changed-surface tests, and disposable installed-source exercise; no delivery
+**Reviewer**: Independent-rereview remediation verification
+**Scope**: Approved single-package contract, implementation, adversarial regressions, full repository gates, and disposable actual-source CLI exercise; no delivery
 
-## Implementation Status: Pass after independent-review remediation
+## Implementation Status: Pass
 
-The dedicated selected-package contract now holds a project-owned lock across final inventory/identity revalidation and a staged multi-target commit, restores original bytes on injected write/rename failure, rejects symlinked root components, performs Buffer-slice ASCII rewrites without normalizing invalid UTF-8, and rejects ambiguous publication CLI forms before mutation. A final PathCast-shaped actual-source CLI fixture converted exactly four selected labels, retained same-line byte `0xff`, left unrelated dirty packages unchanged, invoked no fake `gh`, and converged to zero writes.
+The rereview initially exposed failure modes in a multi-package transaction. The approved contract was then narrowed to the actual workflow need: exactly one issue-owned package and one `tasks.md` target. This deletes multi-target rollback, original-inode staging, lock-directory cleanup, and recovery-record machinery. Dedicated apply now performs one fsynced root-stage write and one atomic rename under one identity-bound root lock file.
 
 ## Issue Scope
 
-- Active issue: #388
-- Spec: `specs/388-support-package-scoped-publication-only-upgrades`
-- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10]; tasks [T001, T002, T003, T004]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008]
-- Regression: existing unbounded `detectUpgrade()` / `applyUpgrade()` behavior and the prior publication detector suite
+- Baseline head: `25e9f199e68513e1c6adad89305ef7791ecf4491`
+- Active issue/spec: #388 / `specs/388-support-package-scoped-publication-only-upgrades`
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10]; tasks [T001, T002, T003, T004]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008, SCN009]
+- Regression: unbounded `detectUpgrade()` / `applyUpgrade()`, publication grammar/report compatibility, and legacy command parsing
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":388,"specPath":"specs/388-support-package-scoped-publication-only-upgrades","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10"],"tasks":["T001","T002","T003","T004"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":388,"specPath":"specs/388-support-package-scoped-publication-only-upgrades","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10"],"tasks":["T001","T002","T003","T004"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Acceptance Criteria Verification
 
 | AC | Status | Evidence |
 |---|---|---|
-| AC1 | Pass | `detectPublicationUpgrade(root, { specDirs })` still validates a non-empty explicit set and scopes publication inspection to that set. The fixture had selected #108 plus two unrelated dirty packages; only #108 entered the selected report. |
-| AC2 | Pass | Approval hashing binds exact symlink-free root, sorted selection, recursively inventoried regular-file SHA-256 digests, stable `device`/`inode`/`mode`/`size` identities, target identity, and exact rewrite/finding records. Apply holds `.nmg-sdlc-publication.lock` while staging and rerunning the complete report immediately before commit. |
-| AC3 | Pass | `applyPublicationUpgrade` stages exact original/output Buffers before rename and moves each original target inode into owned staging during commit. Injected second staged-write failure committed nothing; injected second target-rename failure rolled every moved inode back. Both selected originals compared byte- and inode-identical and the owned lock was removed. No dependency, backfill, GitHub, or other apply phase is reachable. |
-| AC4 | Pass | Root-final-component, ancestor, raw symlink-before-`..`, and missing-component/`..`/symlink spellings fail with `publication_root_symlink`; lexical inspection continues past a missing component before `path.resolve`. Existing invalid/stale cases remain covered. Staging-time inventory addition and same-byte inode replacement fail with `publication_files_plan_stale` before target commit. A staged-rename failure safely restores a temporarily absent target. Foreign lock bytes remain untouched, while injected owner-metadata creation failure removes the exact self-created lock directory by its captured device/inode. |
-| AC5 | Pass | Reversible grammar inspection plus minimal Buffer-slice writes preserve every byte outside approved ASCII spans. The regression places raw `0xff` on the first rewritten declaration line and compares the entire output to an expected Buffer formed only by the four label replacements. Repeat detection reports zero writes. |
-| AC6 | Pass | Focused and disposable tests name T001-T004 and prove exactly four `**Files**` → `**File(s)**` replacements while unrelated package hashes remain identical. The disposable same-line `0xff` also remains present. |
-| AC7 | Pass | New publication commands require exactly one command token and reject unknown options, positionals, duplicate singleton options, missing/option-like values, and extra commands before mutation. A process test proves legacy `detect` still ignores its historically ignored positional/unknown-option forms. Raw bytes in current README/workflow/reference contain portable `<plugin-root>` tokens. |
+| AC1 | Pass | API and CLI require exactly one `--spec`; zero, repeated, or multiple selections fail before detection/apply. Unselected rewrite/finding packages remain byte-identical. |
+| AC2 | Pass | Approval hashes canonical root/package, the complete directly sorted inventory, SHA-256 digests, regular-file lstat identities, exact-string issue digits, and exact rewrite/finding plan. Nested `a.txt` versus `a/child` ordering is explicit. |
+| AC3 | Pass | Dedicated apply creates one exclusive fsynced root stage, reruns full detection, validates target/stage bytes and identities, and performs one atomic rename. `O_NOFOLLOW` is defense in depth; lstat/descriptor/lstat proof is portable. No dependency, backfill, GitHub, or other phase is reachable. |
+| AC4 | Pass | Raw symlink traversal, stale inventory/target, same-byte identity swap, stage replacement/mutation, pre-existing or symlinked lock, partial/wrong owner bytes, and same-token replacement inode fail closed. Atomic rename failure leaves original bytes/inode unchanged. |
+| AC5 | Pass | Minimal ASCII Buffer spans preserve mixed EOL and invalid byte `0xff`; duplicate declarations remain byte-identical blocking findings. |
+| AC6 | Pass | Focused and disposable PathCast-shaped fixtures convert exactly four labels, preserve unrelated package hashes, and converge from four writes to zero. |
+| AC7 | Pass | Publication CLI requires one command token, one spec, and one apply approval; ambiguous syntax fails before mutation while legacy command-looking values remain compatible. |
 
-## Task Completion
+## Finding Disposition
 
-| Task | Status | Evidence |
-|---|---|---|
-| T001 | Complete | Added symlink-component rejection, exact-byte plus lstat-identity inventory, required target-identity binding in every selected write plan, project mutation lock, staged snapshots, final under-lock revalidation, minimal ASCII Buffer splices, original-inode staging, and multi-target rollback in `scripts/sdlc-upgrade.mjs`. |
-| T002 | Complete | Added strict parsing only for `detect-publication` / `apply-publication`; updated the workflow contract and detector reference with transaction, byte, identity, and root boundaries. |
-| T003 | Complete | Twenty-five focused regressions cover the original selected contract plus second-write/rename rollback, final staged inventory drift, same-byte inode replacement, temporarily missing-target rollback, raw lexical symlink traversal, foreign and setup-failed lock ownership, duplicate-declaration blocking, same-line invalid UTF-8, seven ambiguous argv forms, stable approval diagnostics, and legacy parser compatibility. The disposable actual-source CLI exercise covers PathCast plus unrelated packages. |
-| T004 | Complete | Updated README, Unreleased changelog, Approved spec, scenarios, and this evidence. Required plugin/current-spec/inventory/version/contribution surfaces are recorded below. |
+1. **HIGH total rollback failure** — eliminated by the approved single-target cutover. No original target is moved before commit; failed atomic rename leaves it untouched. Multi-target rollback/recovery code and tests were deleted.
+2. **HIGH identity restoration / cross-platform rollback** — eliminated with the same design. One staged-to-target rename either succeeds or reports `publication_files_commit_failed` with `applied: false`; no byte-copy or inode-restoration claim remains.
+3. **HIGH lock setup race** — remediated by one exclusive regular root lock file. Portable ownership requires matching lstat identity before open, descriptor identity, exact owner bytes, and matching lstat after read; `O_NOFOLLOW` is supplemental. Partial/wrong bytes and pre-existing/symlinked locks remain untouched.
+4. **MEDIUM successful-commit cleanup failure** — remediated. The outcome is set by the successful rename; lock unlink failure reports `publication_files_cleanup_failed`, `state: applied_cleanup_failed`, `applied: true`, and retains exact token/pid owner bytes.
+5. **MEDIUM inventory sorting** — remediated by collecting the complete single-package inventory and sorting repository-relative paths with direct `<`/`>` comparison.
+6. **MEDIUM issue identity** — remediated inside `scripts/sdlc-upgrade.mjs` only; directory/frontmatter digits compare as exact strings, including values above $2^{53}$.
+7. **Follow-up stage/lock ownership blockers** — remediated by exact stage byte/identity checks immediately before rename and exact lock inode/mode/size plus owner-byte proof before unlink. Same-token replacement locks receive zero writes/deletes.
+
+## Lock and Stage Shape
+
+- Lock: `<root>/.nmg-sdlc-publication.lock`, regular file, mode `0600`, exclusive creation, fsynced token/pid JSON; pre-open/descriptor/post-read identity and exact bytes gate deletion, with `O_NOFOLLOW` where available.
+- Stage: `<root>/.nmg-sdlc-publication.<token>.staged`, exclusive regular file, target mode, exact output Buffer, fsynced and directly revalidated before rename.
+- Success: atomic stage-to-`tasks.md` rename, then exact lock identity/bytes verification and unlink.
+- Pre-rename failure: original target remains untouched; exact owned stage is removed. A replaced stage is preserved with the lock.
+- Post-rename cleanup failure: structured `applied: true`; the valid lock file remains ownership evidence. There is intentionally no recovery record or rollback transaction.
 
 ## Exact Commands and Results
 
 | Command | Result |
 |---|---|
-| `node --check scripts/sdlc-upgrade.mjs && node --check scripts/__tests__/sdlc-upgrade.test.mjs` | Passed after final Buffer-slice remediation. |
-| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand --testNamePattern "package-scoped publication-only upgrade"` | Passed: 1 suite, 25 tests; 45 unrelated tests skipped by the focus filter. |
-| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand` | Passed: 1 suite, 70 tests, 0 failures/skips. |
-| `cd scripts && npm test -- --runInBand` | Passed final required `repository.tests`: 55 suites passed, 1 skipped; 1,270 tests passed, 2 skipped; 56 suites and 1,272 tests total. |
-| `node scripts/verify-plugin-surface.mjs --root . --label repository` | Passed: repository plugin surface valid. |
+| `node --check scripts/sdlc-upgrade.mjs && node --check scripts/__tests__/sdlc-upgrade.test.mjs` | Passed. |
+| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand --testNamePattern "package-scoped publication-only upgrade"` | Passed: 1 suite, 33 focused tests; 45 unrelated tests skipped. |
+| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand --testNamePattern "repairs exactly four|binds one complete|revalidates complete|staged|atomic rename|lock|safe-integer|single-spec|duplicate spec|sorts the complete|rejects an ambiguous"` | Passed: 1 suite, 24 requested-boundary probes; 54 unrelated tests skipped. Multi-target rollback has no probe because that subsystem was deleted by the approved single-target cutover. |
+| `cd scripts && node --experimental-vm-modules node_modules/jest/bin/jest.js __tests__/sdlc-upgrade.test.mjs --runInBand` | Passed: 1 suite, 78 tests. |
+| `cd scripts && npm test -- --runInBand` | Passed: 55 suites passed, 1 skipped; 1,278 tests passed, 2 skipped; 56 suites and 1,280 tests total. |
+| `node scripts/verify-plugin-surface.mjs --root . --label repository` | Passed. |
 | `node scripts/verify-current-specs.mjs` | Passed: 78 genuine issue specs, 16 required archive, 16 rewrite capabilities, 16 active workflow mappings, 1 deprecated stub. |
 | `node scripts/skill-inventory-audit.mjs --check` | Passed: 43 items mapped. |
-| Raw-byte Python inspection of README, upgrade workflow, and detector reference | Rejected LOW rendered-path claim: literal portable token counts were 1, 2, and 4 respectively; `/Users/rnunley` byte count was zero in all three files. |
-| `node -e "const fs=require('node:fs'); const version=fs.readFileSync('VERSION','utf8').trim(); const packageVersion=require('./package.json').version; if(version!==packageVersion) process.exit(1); console.log('VERSION='+version+' package='+packageVersion)"` | Passed: `VERSION=3.21.3 package=3.21.3`; no implementation-time version bump. |
-| `node scripts/contribution-evidence.mjs --root . /tmp/nmg-sdlc-388-contribution-evidence.json` | Passed: `{"ok":true,"errors":[]}` for issue #388, the exact 11 changed paths, generated delivery body, and final report. |
-| `git diff --check` | Passed with no whitespace errors after final evidence updates. |
+| Version synchronization probe | Passed: `VERSION=3.21.3 package=3.21.3`; no implementation-time bump. |
+| Raw documentation byte probe | Passed: portable `<plugin-root>` counts 1/2/4 and personal-path counts 0/0/0 across README/workflow/detector reference. |
+| `node scripts/contribution-evidence.mjs --root . <input.json>` | Passed: `{"ok":true,"errors":[]}` for the exact 11 changed paths and #388 report. |
+| `git diff --check` | Passed after final evidence update. |
 
-## Disposable Installed-Source CLI Exercise
+## Disposable Actual-Source Exercise
 
-- Fixture: `/private/var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-388-pathcast-advisory-jt0js6k7`
-- Source entry point: current checkout `scripts/sdlc-upgrade.mjs`
-- Selected package: `specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand`
-- Unselected dirty packages: `specs/110-unrelated-rewrite` and `specs/4-unrelated-finding`
-- Approval: `publication-files:49213d1286b7f4128afb030c54f861ac3e5bd6c37f2b345a9c3e8c62f4e473f6`
-- Result: selected writes `4 -> 0`; selected exact output equaled the original Buffer with only four label replacements; raw `0xff` on T001's declaration line remained; the owned lock was absent afterward.
-- Unselected #110 SHA-256 before/after: `cf0a6e1d6850d7fd18c899c443b5f0c5c97d3db03f52690a7c1ffb05542a9541`
-- Unselected #4 SHA-256 before/after: `62e01ca2a527b57e0224c303032f8222bbad881bdc1a58774d89ad96c5df5c95`
-- Result ids contained only the approved publication id; `spec-created-backfill` and fake `gh` marker were absent.
-
-## Steering and Contribution Alignment
-
-- Product: exact package authority now includes a cooperative project mutation boundary, rollback, same-line opaque-byte preservation, and strict no-mutation argument rejection.
-- Technical: zero-dependency Node ESM, exact Buffer snapshots/slices, atomic same-filesystem rename, stable reason codes, lstat-based symlink-component rejection, and ownership-token cleanup.
-- Structure: runtime behavior remains in `scripts/`; workflow detail remains in `workflows/upgrade-project/references/`; public discoverability remains in README; no PathCast-specific production branch or second mutation convention was added.
-- Contribution: issue #388, singular Approved spec package, exact changed paths, behavior evidence, commands, and outcomes are connected in this report.
+- Source: current checkout `scripts/sdlc-upgrade.mjs`; fixture was a disposed real temporary directory and did not install the plugin.
+- Selected: `specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand`.
+- Unselected dirty packages: `specs/110-unrelated-rewrite`, `specs/4-unrelated-finding`.
+- Approval: `publication-files:9ec3ec7fcf3710b3b9121757504bca1bf54b8a4eb36000c05d3dd1227b69d09f`.
+- Observed: writes `4 -> 0`; four canonical labels; unrelated SHA-256 values unchanged; result ids contained only the approved publication id; lock and root-stage files absent after success.
 
 ## Changed Paths
 
@@ -88,12 +87,9 @@ The dedicated selected-package contract now holds a project-owned lock across fi
 - `specs/388-support-package-scoped-publication-only-upgrades/feature.gherkin`
 - `specs/388-support-package-scoped-publication-only-upgrades/verification-report.md`
 
-## Independent Finding Disposition and Remaining Risks
+## Residual Risks
 
-- HIGH partial mutation / final identity drift: **remediated** by digest-bound regular-file lstat identities and required selected target identities, owned lock, all-output staging, final complete report plus direct target-byte/identity revalidation, original-inode staging, and rollback. Persistent storage failure that also defeats both original-inode rollback and fallback write is surfaced as `publication_files_rollback_failed`; software cannot guarantee restoration when the filesystem rejects every restore operation.
-- MEDIUM symlinked caller root: **remediated** with stable `publication_root_symlink` for final-component, ancestor, and symlink-before-`..` lexical traversal.
-- MEDIUM invalid UTF-8 and duplicate-declaration preservation: **remediated** with exact Buffer-slice edits, same-line `0xff` whole-buffer comparison, and fail-closed duplicate finding with byte-identical output.
-- MEDIUM ambiguous publication CLI: **remediated** before mutation while legacy parsing—including command-looking option values—remains unchanged. Malformed or duplicate apply approval values retain `publication_files_approval_invalid`; unrelated syntax uses `publication_cli_invalid`.
-- LOW personal installation paths: **rejected** for the current rendered-doc sources. Raw byte counts prove seven literal portable `<plugin-root>` tokens and zero `/Users/rnunley` bytes across README, `WORKFLOW.md`, and `v3-detectors.md`; the display renderer materializes those tokens when presenting content.
-- Workflow-bundle validator was not applicable because this repository uses `WORKFLOW.md`, not an Agent Skill `SKILL.md`; plugin surface and the 43-item inventory are the owning validations and both pass.
-- Live smoke, PR publication, push, merge, release bump, installation, and issue closure remain outside this remediation assignment.
+- The root lock is cooperative; a process that ignores it can still race between final checks and rename. Exact target/stage validation minimizes but cannot remove that filesystem race.
+- Root staging assumes the repository root and selected package share a filesystem. A nested mount makes rename fail before target mutation with `publication_files_commit_failed`.
+- A replaced staged file or failed post-commit lock unlink intentionally requires operator inspection/removal; automation does not guess foreign ownership.
+- PR publication, push, merge, installation, live smoke, release bump, and issue closure remain outside this assignment.

@@ -22,37 +22,36 @@ The existing publication item digest covers package rewrite/finding records and 
 
 Add a narrow sibling contract rather than overloading `includeIssueDependencies` or weakening `applyUpgrade()`:
 
-- `detectPublicationUpgrade(root, { specDirs })` rejects a root input whose final component or any ancestor is a symlink, validates a non-empty package set, inventories every regular file without following symlinks, calculates every source digest, detects publication rewrites/findings only within that set, and returns a `publication-only` report whose item digest includes schema/mode, exact root, sorted selections, inventories, rewrites, and findings.
-- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that exact report, requires exact id equality and an actionable rewrite, acquires a project-owned mutation lock, constructs and stages every output from exact byte snapshots, revalidates complete inventory and target identities immediately before commit, and atomically renames staged outputs. Any multi-target stage or commit failure restores every original byte. It never calls `applyUpgrade()`.
-- CLI commands `detect-publication` and `apply-publication` require exactly one command token and repeatable `--spec <specs/N-slug>` flags. They reject unknown options, unexpected positionals, duplicate singleton options, missing or option-like values, and extra command tokens before mutation. `apply-publication` additionally requires exactly one `--approve publication-files:<digest>` value.
-- Existing `detect`/`apply`, exports, parsing, and behavior remain unchanged.
+- `detectPublicationUpgrade(root, { specDirs })` requires exactly one package, rejects symlinked caller-root components, inventories every regular file without following symlinks, sorts repository-relative paths with a locale-independent comparator, compares issue digits as exact strings, and hashes exact root/package/inventory/rewrite/finding authority.
+- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that report, acquires one exclusive fsynced root lock file, creates one unique exclusive root stage, uses `O_NOFOLLOW` where available plus regular-file identity validation, writes/fsyncs the Buffer, reruns the report, revalidates target/stage, then performs one atomic rename. It never calls `applyUpgrade()`.
+- CLI commands `detect-publication` and `apply-publication` require exactly one command token and exactly one `--spec <specs/N-slug>`. Repeated specs, ambiguous arguments, and malformed approval fail before mutation. Structured transaction errors expose stable `reasonCode`, `state`, and `applied`.
+- Existing unbounded `detect`/`apply`, exports, parsing, and behavior remain unchanged.
 
 ### Selection validation
 
-A selected package must:
+The single selected package must:
 
-1. Be a repository-relative POSIX path exactly matching `specs/[1-9][0-9]*-[a-z0-9-]+`.
-2. Occur once after separator normalization; duplicates fail rather than deduplicate.
-3. Use a caller-supplied repository root whose final component and every lexically traversed ancestor are symlink-free; raw `.`/`..` spelling is inspected before normalization, and missing intermediate components do not stop inspection of later surviving components, so a symlink cannot disappear through `path.resolve()` or `realpathSync()`.
-4. Resolve as a real direct child directory of the repository's plain `specs/` directory; the package path and inventoried entries must not traverse symlinks.
-5. Contain regular `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin` files.
-6. Declare exactly one singular `**Issue**: #N` matching the directory number and `**Status**: Approved` in every required file.
-7. Inventory every regular file recursively in sorted repository-relative order. Unsupported entry types fail closed. Added, removed, renamed, or changed files after approval change the item digest.
+1. Be one repository-relative POSIX path exactly matching `specs/[1-9][0-9]*-[a-z0-9-]+`; zero, repeated, or multiple values fail.
+2. Use a caller root whose final component and every lexically traversed ancestor are symlink-free, including raw paths with `..`.
+3. Resolve as a real direct child of the repository's plain `specs/` directory without symlink traversal.
+4. Contain regular `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`.
+5. Declare one singular `**Issue**: #N` whose digit string exactly matches the directory prefix, plus `**Status**: Approved`, in every required file.
+6. Inventory every regular file recursively and sort paths with `a.path < b.path ? -1 : a.path > b.path ? 1 : 0`.
 
 ### Approval envelope
 
 The item remains `publication-files:<sha256>` for compatibility with approval presentation. The hashed canonical JSON contains:
 
 - schema version and `publication-only` mode;
-- canonical real repository root;
-- for each selection, its sorted complete file inventory with SHA-256 digest and stable regular-file lstat identity (`device`, `inode`, `mode`, `size`);
-- the existing exact publication package record, including `tasks.md` source digest and target identity, projected-path absence, rewrites, and findings.
+- canonical real repository root and the one exact package path;
+- the package's complete sorted file inventory with SHA-256 digest and stable regular-file lstat identity (`device`, `inode`, `mode`, `size`);
+- the exact `tasks.md` source digest/identity and compatible rewrite/finding plan.
 
 An item exists even when no rewrites/findings exist so the selected report remains explicit. `actionable` is true only when at least one rewrite exists. Repeated detection after apply therefore has the same validated selection but `writeCount: 0` and no actionable item.
 
 ### Byte safety and transaction
 
-`publicationFilesUpgrade()` uses a reversible Latin-1 view only to run the ASCII publication grammar and build byte-bound rewrite records. Ordinary unambiguous ASCII `**Files**` plus payload canonicalization remains one compatible rewrite containing its final `after`; it is not split into intermediate report records. Duplicate or otherwise unchanged blocking parser results discard every tentative rewrite for that task and retain only the finding. When opaque bytes make payload mapping unsafe, the planner permits only an exact label-span rewrite over an otherwise valid payload and retains the payload finding. `applyPublicationFiles()` verifies each exact source Buffer and lstat identity, maps each approved change to a minimal ASCII byte span, and constructs output with untouched Buffer slices; it never rebuilds the declaration line. The transaction stages original and output buffers under a project-owned lock outside selected packages. After staging, `applyPublicationUpgrade()` reruns complete selection, inventory, digest, rewrite, target identity, and byte checks under that lock immediately before commit. Each original target inode moves into the owned staging area before its replacement. If any stage write or target rename fails, no commit starts or every moved original target is renamed back, restoring bytes and identity. Cleanup requires the exact created lock-directory device/inode and, after owner metadata exists, its token. Failure while creating owner metadata therefore removes the provably self-created empty lock without touching an existing or replaced lock.
+`publicationFilesUpgrade()` retains its compatible report shape and reversible Latin-1 grammar view. `applySinglePublicationFile()` constructs the final output with minimal ASCII Buffer slices. The root lock is one regular `.nmg-sdlc-publication.lock` file created `O_EXCL`, written with token/pid JSON, fsynced, and bound to exact identity/bytes. `O_NOFOLLOW` is used where available, but ownership never depends on it: cleanup requires matching regular-file lstat before open, matching opened-descriptor identity, exact bytes, and matching lstat again after read. Existing, symlinked, or replaced locks—including same-token copies on another inode—are never read through, overwritten, or deleted. Partial/wrong owner bytes remain unproven. The staged output is one unique root file created exclusive and fsynced, with the same regular-file safeguards. Under the lock, apply reruns complete detection and verifies target source/identity plus stage output/identity immediately before atomic rename. Stage replacement is retained; byte mutation is rejected. Rename failure leaves the original untouched. After rename, outcome is `applied: true`; failed exact lock unlink preserves that state and the lock as evidence.
 
 ### Affected files
 
@@ -70,12 +69,12 @@ An item exists even when no rewrites/findings exist so the selected report remai
 
 | Risk | Likelihood | Mitigation |
 |------|------------|------------|
-| Package validation rejects legitimate issue packages | Medium | Require only repository's documented four files/frontmatter; test extra regular files as bound inventory rather than rejection |
-| Report ids vary by selection ordering | Low | Normalize separators and sort before hashing |
+| Package validation rejects legitimate issue packages | Medium | Require only the documented four files/frontmatter and exactly one explicit package |
+| Report ids vary by platform locale | Low | Sort the complete single-package inventory with direct string comparison |
 | Symlink escapes expose outside bytes | Low | Reject symlinked roots, specs directories, package paths, and recursive entries |
-| A stale package partially writes | Low | Recompute whole selected report and verify every source digest before the first write |
-| Dedicated apply accidentally reaches GitHub | Low | Separate function with no `run` argument; test injected/full-path backfill remains untouched and no command runner is called |
-| Existing aggregate behavior changes | Low | Leave full detect/apply path in place and retain existing tests |
+| Stale or tampered bytes install | Low | Recompute full authority and directly verify target/stage identity and bytes before atomic rename |
+| Lock ownership is spoofed | Low | Require exact regular-file identity and full owner bytes before unlink |
+| Commit succeeds but cleanup fails | Low | Report `applied: true` and retain the valid root lock as evidence |
 
 ## Alternatives Considered
 

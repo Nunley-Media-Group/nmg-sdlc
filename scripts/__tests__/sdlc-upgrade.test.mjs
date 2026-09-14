@@ -1186,31 +1186,37 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(repeated.item.actionable).toBe(false);
   });
 
-  it('binds root, sorted selection, complete inventory, rewrites, and findings into approval', () => {
+  it('binds one complete deterministic inventory, rewrites, and findings into approval', () => {
     const root = makeRoot();
-    writeApprovedPackage(root, 'specs/42-add-x', '### T001: Rewrite\n**Files**: `src/a.ts`\n', {
+    const selected = 'specs/42-add-x';
+    writeApprovedPackage(root, selected, [
+      '### T001: Rewrite',
+      '**Files**: `src/a.ts`',
+      '### T002: Finding',
+      '**File(s)**: Create src/y.ts',
+      '',
+    ].join('\n'), {
       'notes/evidence.txt': 'bound bytes\n',
-    });
-    writeApprovedPackage(root, 'specs/43-add-y', '### T001: Finding\n**File(s)**: Create src/y.ts\n');
-
-    const first = detectPublicationUpgrade(root, {
-      specDirs: ['specs/43-add-y', 'specs/42-add-x'],
-    });
-    const reordered = detectPublicationUpgrade(root, {
-      specDirs: ['specs/42-add-x', 'specs/43-add-y'],
+      'a.txt': 'flat\n',
+      'a/child': 'nested\n',
     });
 
-    expect(first.item.id).toBe(reordered.item.id);
-    expect(first.specDirs).toEqual(['specs/42-add-x', 'specs/43-add-y']);
-    expect(first.selections[0].files).toContainEqual(expect.objectContaining({
-      path: 'specs/42-add-x/notes/evidence.txt',
-      sourceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-    }));
-    const tasksIdentity = first.selections[0].files
-      .find(({ path: filePath }) => filePath === 'specs/42-add-x/tasks.md').identity;
-    expect(first.item.packages[0].targetIdentity).toEqual(tasksIdentity);
-    expect(first.writeCount).toBe(1);
-    expect(first.findingCount).toBe(1);
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    expect(report.specDirs).toEqual([selected]);
+    expect(report.selectedInventory.map(({ path: filePath }) => filePath)).toEqual([
+      `${selected}/a.txt`,
+      `${selected}/a/child`,
+      `${selected}/design.md`,
+      `${selected}/feature.gherkin`,
+      `${selected}/notes/evidence.txt`,
+      `${selected}/requirements.md`,
+      `${selected}/tasks.md`,
+    ]);
+    const tasksIdentity = report.selectedInventory
+      .find(({ path: filePath }) => filePath === `${selected}/tasks.md`).identity;
+    expect(report.item.packages[0].targetIdentity).toEqual(tasksIdentity);
+    expect(report.writeCount).toBe(1);
+    expect(report.findingCount).toBe(1);
   });
 
   it('rejects stale bytes, extra package content, different roots, selections, and reports before mutation', () => {
@@ -1252,7 +1258,7 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(() => detectPublicationUpgrade(root, { specDirs: [] }))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_selection_required' }));
     expect(() => detectPublicationUpgrade(root, { specDirs: ['specs/42-valid', 'specs\\42-valid'] }))
-      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_selection_duplicate' }));
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_selection_multiple' }));
     for (const invalid of ['/tmp/specs/42-valid', '../specs/42-valid', 'outside/42-valid', 'specs/42-missing']) {
       expect(() => detectPublicationUpgrade(root, { specDirs: [invalid] }))
         .toThrow(expect.objectContaining({
@@ -1303,43 +1309,6 @@ describe('package-scoped publication-only upgrade (#388)', () => {
       .toThrow(expect.objectContaining({ reasonCode: 'publication_root_symlink' }));
   });
 
-  it.each(['write', 'rename'])('restores every selected original after an injected second %s failure', (failureKind) => {
-    const root = makeRoot();
-    const selections = ['specs/42-first', 'specs/43-second'];
-    for (const [index, selected] of selections.entries()) {
-      writeApprovedPackage(root, selected, `### T001: Rewrite\n**Files**: \`src/${index}.ts\`\n`);
-    }
-    const tasksPaths = selections.map((selected) => path.join(root, selected, 'tasks.md'));
-    const originals = tasksPaths.map((target) => fs.readFileSync(target));
-    const originalIdentities = tasksPaths.map((target) => fs.lstatSync(target).ino);
-    const report = detectPublicationUpgrade(root, { specDirs: selections });
-    const method = failureKind === 'write' ? 'writeFileSync' : 'renameSync';
-    const originalMethod = fs[method].bind(fs);
-    let selectedOperationCount = 0;
-    const spy = jest.spyOn(fs, method).mockImplementation((...args) => {
-      const selectedOperation = String(args[0]).endsWith('.staged');
-      if (selectedOperation && ++selectedOperationCount === 2) {
-        throw Object.assign(new Error(`injected second ${failureKind} failure`), { code: 'EIO' });
-      }
-      return originalMethod(...args);
-    });
-    try {
-      if (failureKind === 'rename') {
-        expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: selections }))
-          .toThrow(expect.objectContaining({ reasonCode: 'publication_files_commit_failed' }));
-      } else {
-        expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: selections }))
-          .toThrow('injected second write failure');
-      }
-    } finally {
-      spy.mockRestore();
-    }
-    for (const [index, target] of tasksPaths.entries()) {
-      expect(fs.readFileSync(target)).toEqual(originals[index]);
-      expect(fs.lstatSync(target).ino).toBe(originalIdentities[index]);
-    }
-    expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
-  });
 
   it('revalidates complete selected inventory after staging and preserves targets on change', () => {
     const root = makeRoot();
@@ -1349,14 +1318,15 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const before = fs.readFileSync(tasksPath);
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
     const originalWrite = fs.writeFileSync.bind(fs);
+    const originalOpen = fs.openSync.bind(fs);
     let injected = false;
-    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((target, ...args) => {
-      const result = originalWrite(target, ...args);
+    const spy = jest.spyOn(fs, 'openSync').mockImplementation((target, ...args) => {
+      const descriptor = originalOpen(target, ...args);
       if (!injected && String(target).endsWith('.staged')) {
         injected = true;
         originalWrite(path.join(root, selected, 'late-file.bin'), Buffer.from([0xff]));
       }
-      return result;
+      return descriptor;
     });
     try {
       expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
@@ -1376,16 +1346,17 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const beforeIdentity = fs.lstatSync(tasksPath).ino;
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
     const originalWrite = fs.writeFileSync.bind(fs);
+    const originalOpen = fs.openSync.bind(fs);
     let injected = false;
-    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((target, ...args) => {
-      const result = originalWrite(target, ...args);
+    const spy = jest.spyOn(fs, 'openSync').mockImplementation((target, ...args) => {
+      const descriptor = originalOpen(target, ...args);
       if (!injected && String(target).endsWith('.staged')) {
         injected = true;
         const replacement = path.join(root, 'same-bytes-replacement');
         originalWrite(replacement, before);
         fs.renameSync(replacement, tasksPath);
       }
-      return result;
+      return descriptor;
     });
     try {
       expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
@@ -1398,9 +1369,59 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
   });
 
-  it('restores a temporarily missing target after staged rename failure', () => {
+  it.each(['replacement', 'byte mutation'])(
+    'rejects staged %s before installing unapproved bytes',
+    (mutation) => {
+      const root = makeRoot();
+      const selected = `specs/42-stage-${mutation.replace(' ', '-')}`;
+      writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+      const tasksPath = path.join(root, selected, 'tasks.md');
+      const before = fs.readFileSync(tasksPath);
+      const beforeIdentity = fs.lstatSync(tasksPath).ino;
+      const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+      const originalRead = fs.readFileSync.bind(fs);
+      const originalWrite = fs.writeFileSync.bind(fs);
+      let injected = false;
+      let stagedPath;
+      const spy = jest.spyOn(fs, 'readFileSync').mockImplementation((target, ...args) => {
+        if (!injected && String(target).endsWith('.staged')) {
+          injected = true;
+          stagedPath = String(target);
+          const malicious = Buffer.alloc(originalRead(target).length, 0x78);
+          if (mutation === 'replacement') {
+            fs.unlinkSync(target);
+            originalWrite(target, malicious);
+          } else {
+            originalWrite(target, malicious);
+          }
+        }
+        return originalRead(target, ...args);
+      });
+      let failure;
+      try {
+        applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+      } catch (error) {
+        failure = error;
+      } finally {
+        spy.mockRestore();
+      }
+      expect(failure).toMatchObject({ reasonCode: 'publication_files_plan_stale' });
+      expect(failure.applied ?? false).toBe(false);
+      expect(fs.readFileSync(tasksPath)).toEqual(before);
+      expect(fs.lstatSync(tasksPath).ino).toBe(beforeIdentity);
+      if (mutation === 'replacement') {
+        expect(fs.existsSync(stagedPath)).toBe(true);
+        expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(true);
+      } else {
+        expect(fs.existsSync(stagedPath)).toBe(false);
+        expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
+      }
+    },
+  );
+
+  it('leaves the original target byte- and identity-equal when atomic rename fails', () => {
     const root = makeRoot();
-    const selected = 'specs/42-missing-during-commit';
+    const selected = 'specs/42-rename-failure';
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
     const tasksPath = path.join(root, selected, 'tasks.md');
     const before = fs.readFileSync(tasksPath);
@@ -1409,14 +1430,18 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const originalRename = fs.renameSync.bind(fs);
     const spy = jest.spyOn(fs, 'renameSync').mockImplementation((source, target) => {
       if (String(source).endsWith('.staged')) {
-        expect(fs.existsSync(tasksPath)).toBe(false);
-        throw Object.assign(new Error('injected missing-target rename failure'), { code: 'EIO' });
+        expect(fs.existsSync(tasksPath)).toBe(true);
+        throw Object.assign(new Error('injected atomic rename failure'), { code: 'EACCES' });
       }
       return originalRename(source, target);
     });
     try {
       expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
-        .toThrow(expect.objectContaining({ reasonCode: 'publication_files_commit_failed' }));
+        .toThrow(expect.objectContaining({
+          reasonCode: 'publication_files_commit_failed',
+          state: 'commit_failed',
+          applied: false,
+        }));
     } finally {
       spy.mockRestore();
     }
@@ -1425,42 +1450,197 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
   });
 
-  it('does not remove a publication lock whose ownership is unproven', () => {
+  it('does not overwrite or remove a pre-existing foreign lock file', () => {
     const root = makeRoot();
     const selected = 'specs/42-locked';
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
     const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
-    fs.mkdirSync(lockPath);
-    const owner = Buffer.from('{"token":"another-owner"}\n');
-    fs.writeFileSync(path.join(lockPath, 'owner.json'), owner);
+    const foreign = Buffer.from('{"token":"another-owner"}\n');
+    fs.writeFileSync(lockPath, foreign);
     expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
       .toThrow(expect.objectContaining({ reasonCode: 'publication_mutation_locked' }));
-    expect(fs.readFileSync(path.join(lockPath, 'owner.json'))).toEqual(owner);
+    expect(fs.readFileSync(lockPath)).toEqual(foreign);
   });
 
-  it('cleans a self-owned lock when owner metadata creation fails', () => {
+  it('never follows or mutates a symlinked foreign lock target', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-symlinked-lock';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
+    const externalPath = path.join(root, 'foreign-lock-target');
+    const foreign = Buffer.from('foreign lock target\n');
+    fs.writeFileSync(externalPath, foreign);
+    fs.symlinkSync(externalPath, lockPath);
+    const originalOpen = fs.openSync.bind(fs);
+    const lockOpens = [];
+    const spy = jest.spyOn(fs, 'openSync').mockImplementation((target, ...args) => {
+      if (target === lockPath) lockOpens.push(args[0]);
+      return originalOpen(target, ...args);
+    });
+    try {
+      expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
+        .toThrow(expect.objectContaining({ reasonCode: 'publication_mutation_locked' }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lockOpens).toHaveLength(1);
+    expect(fs.lstatSync(lockPath).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(externalPath)).toEqual(foreign);
+  });
+
+  it.each([
+    ['partial', (data) => data.subarray(0, Math.max(1, Math.floor(data.length / 2)))],
+    ['wrong-byte', () => Buffer.from('foreign-partial-lock\n')],
+  ])('retains a %s lock when owner writing fails before exact bytes exist', (_name, injectedBytes) => {
     const root = makeRoot();
     const selected = 'specs/42-owner-write-failure';
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
     const tasksPath = path.join(root, selected, 'tasks.md');
     const before = fs.readFileSync(tasksPath);
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
     const originalWrite = fs.writeFileSync.bind(fs);
-    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((target, ...args) => {
-      if (String(target).endsWith(`${path.sep}owner.json`)) {
+    let retained;
+    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((target, data, ...args) => {
+      if (typeof target === 'number' && String(data).startsWith('{"token":"')) {
+        retained = injectedBytes(Buffer.from(data));
+        originalWrite(target, retained, ...args);
         throw Object.assign(new Error('injected owner metadata failure'), { code: 'EIO' });
       }
-      return originalWrite(target, ...args);
+      return originalWrite(target, data, ...args);
     });
     try {
       expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
-        .toThrow('injected owner metadata failure');
+        .toThrow(expect.objectContaining({
+          reasonCode: 'publication_lock_setup_failed',
+          state: 'lock_setup_failed',
+          applied: false,
+        }));
     } finally {
       spy.mockRestore();
     }
     expect(fs.readFileSync(tasksPath)).toEqual(before);
-    expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
+    expect(fs.readFileSync(lockPath)).toEqual(retained);
+  });
+
+  it('reports applied=true and retains the lock when post-commit unlink fails', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-cleanup-failure';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const target = path.join(root, selected, 'tasks.md');
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
+    const originalUnlink = fs.unlinkSync.bind(fs);
+    const spy = jest.spyOn(fs, 'unlinkSync').mockImplementation((candidate, ...args) => {
+      if (candidate === lockPath) {
+        throw Object.assign(new Error('injected cleanup EACCES'), { code: 'EACCES' });
+      }
+      return originalUnlink(candidate, ...args);
+    });
+    let failure;
+    try {
+      applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+    } catch (error) {
+      failure = error;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(failure).toMatchObject({
+      reasonCode: 'publication_files_cleanup_failed',
+      state: 'applied_cleanup_failed',
+      applied: true,
+      retainPublicationLock: true,
+    });
+    expect(fs.readFileSync(target, 'utf8')).toContain('**File(s)**: `src/a.ts`');
+    expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')))
+      .toEqual(expect.objectContaining({ token: failure.transactionId }));
+  });
+
+  it('performs no writes or deletes after same-token foreign lock replacement', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-foreign-owner-replacement';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const target = path.join(root, selected, 'tasks.md');
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const lockPath = path.join(root, '.nmg-sdlc-publication.lock');
+    const originalWrite = fs.writeFileSync.bind(fs);
+    const originalRename = fs.renameSync.bind(fs);
+    const originalUnlink = fs.unlinkSync.bind(fs);
+    let replaced = false;
+    let writesAfterReplacement = 0;
+    let deletesAfterReplacement = 0;
+    let foreignLock;
+    const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation((...args) => {
+      if (replaced) writesAfterReplacement += 1;
+      return originalWrite(...args);
+    });
+    const unlinkSpy = jest.spyOn(fs, 'unlinkSync').mockImplementation((...args) => {
+      if (replaced) deletesAfterReplacement += 1;
+      return originalUnlink(...args);
+    });
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      const result = originalRename(source, destination);
+      if (!replaced && String(source).endsWith('.staged')) {
+        foreignLock = fs.readFileSync(lockPath);
+        originalUnlink(lockPath);
+        originalWrite(lockPath, foreignLock);
+        replaced = true;
+      }
+      return result;
+    });
+    let failure;
+    try {
+      applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+    } catch (error) {
+      failure = error;
+    } finally {
+      renameSpy.mockRestore();
+      unlinkSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
+    expect(failure).toMatchObject({
+      reasonCode: 'publication_files_cleanup_failed',
+      state: 'applied_cleanup_failed',
+      applied: true,
+    });
+    expect(failure.cleanupError).toContain('ownership changed');
+    expect(writesAfterReplacement).toBe(0);
+    expect(deletesAfterReplacement).toBe(0);
+    expect(fs.readFileSync(lockPath)).toEqual(foreignLock);
+    expect(fs.readFileSync(target, 'utf8')).toContain('**File(s)**: `src/a.ts`');
+  });
+
+  it('sorts the complete recursive inventory globally with a locale-independent comparator', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-inventory-order';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n', {
+      'a.txt': 'flat\n',
+      'a/child': 'nested\n',
+    });
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    expect(report.selections[0].files.map((file) => file.path)).toEqual([
+      `${selected}/a.txt`,
+      `${selected}/a/child`,
+      `${selected}/design.md`,
+      `${selected}/feature.gherkin`,
+      `${selected}/requirements.md`,
+      `${selected}/tasks.md`,
+    ]);
+  });
+
+  it('compares issue digits exactly beyond Number safe-integer precision', () => {
+    const root = makeRoot();
+    const selected = 'specs/9007199254740993-large-issue';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    write(
+      root,
+      `${selected}/requirements.md`,
+      '# Requirements\n\n**Issue**: #9007199254740992\n**Status**: Approved\n',
+    );
+    expect(() => detectPublicationUpgrade(root, { specDirs: [selected] }))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_spec_issue_invalid' }));
   });
 
   it('keeps duplicate recoverable declarations byte-identical as a blocking finding', () => {
@@ -1523,6 +1703,22 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(after).toEqual(expected);
     expect(after.filter((byte) => byte === 0xff)).toHaveLength(1);
     expect(report.writeCount).toBe(4);
+  });
+
+  it('prints only exact single-spec publication usage', () => {
+    const result = spawnSync(process.execPath, [upgradeScript], {
+      encoding: 'utf8',
+      shell: false,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(
+      'detect-publication --root <dir> --spec specs/N-slug',
+    );
+    expect(result.stderr).toContain(
+      'apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>',
+    );
+    expect(result.stderr).not.toContain('[--spec');
+    expect(result.stderr).not.toContain('specs/N-slug ...');
   });
 
   it.each([
@@ -1589,6 +1785,7 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     ['option-like value', ['--spec', '--unknown']],
     ['extra legacy command token', ['detect']],
     ['extra publication command token', ['detect-publication']],
+    ['duplicate spec option', ['--spec', 'SELECTED']],
   ])('rejects an ambiguous %s before process-level mutation', (_name, extraArgs) => {
     const root = makeRoot();
     const selected = 'specs/42-cli-ambiguous';
@@ -1596,7 +1793,9 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const report = detectPublicationUpgrade(root, { specDirs: [selected] });
     const tasksPath = path.join(root, selected, 'tasks.md');
     const before = fs.readFileSync(tasksPath);
-    const args = extraArgs.map((value) => (value === 'ROOT' ? root : value));
+    const args = extraArgs.map((value) => (
+      value === 'ROOT' ? root : value === 'SELECTED' ? selected : value
+    ));
     const result = spawnSync(process.execPath, [
       upgradeScript,
       'apply-publication',
