@@ -8,6 +8,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   discoverRecovery,
+  inspectConsumedRepairedPublicationDispatch,
+  exactConsumedDispatch,
+  restoreArchivedHandoff,
   inspectRepairedPublicationIntervention,
   parseArgs,
   VALID_STEPS,
@@ -2809,6 +2812,32 @@ describe('runExecute controller', () => {
     ))).toBe(false);
   });
 
+  it.each([
+    ['failed layout command', { status: 1, stderr: 'layout unavailable' }],
+    ['missing width', { result: { height: 40 } }],
+    ['zero width', { result: { width: 0, height: 40 } }],
+    ['infinite height', { result: { width: 120, height: Number.POSITIVE_INFINITY } }],
+    ['string dimensions', { result: { width: '120', height: '40' } }],
+  ])('rejects %s before pane split or recovery mutation', (_name, layout) => {
+    const fixture = makeRepairedPublicationFixture();
+    const before = fixture.snapshot();
+    fixture.herdr.paneLayout = (paneId) => {
+      fixture.layouts.push(paneId);
+      return layout;
+    };
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result).toMatchObject({ status: 1, stderr: 'pane_split_failed\n' });
+    expect(fixture.layouts).toEqual([env.HERDR_PANE_ID]);
+    expect(fixture.splits).toHaveLength(0);
+    expect(fixture.closed).toHaveLength(0);
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.snapshot()).toEqual(before);
+  });
+
   it('discovers the exact revision-14 consumed pane-split dispatch without mutation', () => {
     const fixture = makeRepairedPublicationFixture();
     const grounded = groundConsumedDispatch(fixture);
@@ -2933,6 +2962,370 @@ describe('runExecute controller', () => {
       state: 'consumed-dispatch-available',
       consumedDispatchInvocationId: checkpoint.consumedDispatch.invocationId,
     });
+  });
+
+  it('stops and re-offers only a proven pre-work consumed dispatch after start presence is absent', () => {
+    const fixture = makeRepairedPublicationFixture();
+    fixture.herdr.listAgents = () => [];
+    fixture.herdr.agentPrompt = () => ({ status: 0 });
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s108-implement']);
+    expect(fixture.closed).toEqual(['pane-1']);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.workers).toEqual({});
+    expect(checkpoint.failed).toEqual({
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'process_lost',
+    });
+    expect(checkpoint.consumedDispatch).toMatchObject({
+      disposition: 'stopped',
+      reasonCode: 'process_lost',
+      agentName: 's108-implement',
+    });
+    expect(checkpoint.recoveries).toEqual([
+      expect.objectContaining({
+        invocationId: checkpoint.consumedDispatch.invocationId,
+        disposition: 'stopped',
+        reasonCode: 'process_lost',
+      }),
+    ]);
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'consumed-dispatch-available',
+      consumedDispatchInvocationId: checkpoint.consumedDispatch.invocationId,
+    });
+  });
+
+  it.each(['controller_cancelled', 'process_lost'])(
+    'discovers a consumed started dispatch orphaned by %s without a live handoff',
+    (reasonCode) => {
+      const fixture = makeRepairedPublicationFixture();
+      const grounded = groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.failed = { issue: 108, step: 'implement', reasonCode };
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+      fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+      const before = fixture.snapshot();
+
+      expect(discoverRecovery({
+        cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+      })).toMatchObject({
+        state: 'consumed-dispatch-available',
+        reasonCode,
+        consumedDispatchInvocationId: grounded.invocationId,
+      });
+      expect(fixture.snapshot()).toEqual(before);
+    },
+  );
+
+  it.each([
+    ['prepared with reason', 'prepared', 'process_lost', true],
+    ['prepared with own undefined reason', 'prepared', undefined, true],
+    ['starting with reason', 'starting', 'process_lost', true],
+    ['started with reason', 'started', 'process_lost', true],
+    ['pending with unsupported reason', 'pending', 'controller_cancelled', true],
+    ['pending with own undefined reason', 'pending', undefined, true],
+    ['stopped without reason', 'stopped', undefined, false],
+    ['stopped with unsupported reason', 'stopped', 'controller_cancelled', true],
+  ])('directly rejects consumed dispatch schema: %s', (
+    _name,
+    disposition,
+    reasonCode,
+    ownReasonCode,
+  ) => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'pending' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    const dispatch = structuredClone(checkpoint.consumedDispatch);
+    dispatch.disposition = disposition;
+    if (ownReasonCode) dispatch.reasonCode = reasonCode;
+    else delete dispatch.reasonCode;
+
+    expect(() => exactConsumedDispatch(
+      dispatch,
+      checkpoint,
+      checkpoint.recoveries[0].invocationId,
+    )).toThrow('consumed_dispatch_unproven');
+  });
+
+  it('restores an already-correct archived handoff idempotently', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const livePath = path.join(fixture.root, fixture.handoffPath);
+    const archiveBytes = fs.readFileSync(path.join(fixture.root, grounded.archive.path));
+    fs.rmSync(livePath);
+    const proof = {
+      restoreLiveHandoff: true,
+      archive: grounded.archive,
+      handoffPath: fixture.handoffPath,
+      issue: 108,
+      step: 'implement',
+    };
+
+    const first = restoreArchivedHandoff(fixture.root, proof);
+    expect(first).toMatchObject({ digest: grounded.archive.digest });
+    expect(first.bytes.equals(archiveBytes)).toBe(true);
+    expect(fs.readFileSync(livePath).equals(archiveBytes)).toBe(true);
+    const second = restoreArchivedHandoff(fixture.root, proof);
+    expect(second).toMatchObject({ digest: grounded.archive.digest });
+    expect(second.bytes.equals(archiveBytes)).toBe(true);
+    expect(fs.readFileSync(livePath).equals(archiveBytes)).toBe(true);
+  });
+
+  it('preserves an existing exact archive handoff during pending resume', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, { pendingDisposition: 'pending' });
+    const archiveBytes = fs.readFileSync(path.join(fixture.root, grounded.archive.path));
+    let replacementBytes;
+    fixture.herdr.agentPrompt = ({ name }) => {
+      if (name !== 's108-implement') {
+        return { status: 1, stderr: 'stop after pending restore proof' };
+      }
+      expect(fs.readFileSync(path.join(
+        fixture.root,
+        fixture.handoffPath,
+      )).equals(archiveBytes)).toBe(true);
+      replacementBytes = Buffer.from(`${JSON.stringify({
+        schemaVersion: 1,
+        issue: 108,
+        step: 'implement',
+        status: 'passed',
+        intervention: false,
+        summary: 'Pending resume replaced restored archive.',
+        artifacts: [],
+        next: 'review1',
+        reasonCode: null,
+      })}\n`);
+      fixture.put(fixture.handoffPath, replacementBytes);
+      return { status: 0 };
+    };
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fs.readFileSync(path.join(
+      fixture.root,
+      fixture.handoffPath,
+    )).equals(replacementBytes)).toBe(true);
+    expect(fixture.readJson('.omp/sdlc/run.json').completed['108']).toContain('implement');
+  });
+
+  it('rejects a mismatched existing live handoff without overwriting it', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const livePath = path.join(fixture.root, fixture.handoffPath);
+    const mismatched = Buffer.from(`${JSON.stringify({
+      schemaVersion: 1,
+      issue: 108,
+      step: 'implement',
+      status: 'passed',
+      intervention: false,
+      summary: 'Different worker handoff.',
+      artifacts: [],
+      next: 'review1',
+      reasonCode: null,
+    })}\n`);
+    fs.writeFileSync(livePath, mismatched);
+
+    expect(() => restoreArchivedHandoff(fixture.root, {
+      restoreLiveHandoff: true,
+      archive: grounded.archive,
+      handoffPath: fixture.handoffPath,
+      issue: 108,
+      step: 'implement',
+    })).toThrow('handoff_restore_failed');
+    expect(fs.readFileSync(livePath).equals(mismatched)).toBe(true);
+  });
+
+  it('ignores restored archive bytes and accepts a distinct passed worker handoff', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    checkpoint.failed = { issue: 108, step: 'implement', reasonCode: 'controller_cancelled' };
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+    const safeBefore = fs.readFileSync(path.join(
+      fixture.root,
+      '.omp/sdlc/safe-recoveries.json',
+    ));
+    const archiveBytes = fs.readFileSync(path.join(fixture.root, grounded.archive.path));
+    let restoredBeforePrompt = false;
+    let passedBytes;
+    fixture.herdr.agentPrompt = ({ name }) => {
+      if (name !== 's108-implement') {
+        return { status: 1, stderr: 'stop after restored implement proof' };
+      }
+      const liveBytes = fs.readFileSync(path.join(fixture.root, fixture.handoffPath));
+      expect(liveBytes.equals(archiveBytes)).toBe(true);
+      expect(createHash('sha256').update(liveBytes).digest('hex')).toBe(grounded.archive.digest);
+      restoredBeforePrompt = true;
+      passedBytes = Buffer.from(`${JSON.stringify({
+        schemaVersion: 1,
+        issue: 108,
+        step: 'implement',
+        status: 'passed',
+        intervention: false,
+        summary: 'Distinct resumed worker handoff.',
+        artifacts: [],
+        next: 'review1',
+        reasonCode: null,
+      })}\n`);
+      fixture.put(fixture.handoffPath, passedBytes);
+      return { status: 0 };
+    };
+    let consumeCalls = 0;
+    const consumeSafeRecoveryFn = (input) => {
+      consumeCalls += 1;
+      return consumeSafeRecovery(input);
+    };
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.root,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+      consumeSafeRecoveryFn,
+    });
+    expect(consumeCalls).toBe(0);
+
+    expect(result.status).toBe(1);
+    expect(restoredBeforePrompt).toBe(true);
+    expect(fixture.starts.filter(({ name }) => name === 's108-implement')).toEqual([
+      expect.objectContaining({ name: 's108-implement', paneId: 'pane-1' }),
+    ]);
+    expect(fs.readFileSync(path.join(
+      fixture.root,
+      '.omp/sdlc/safe-recoveries.json',
+    ))).toEqual(safeBefore);
+    const liveBytes = fs.readFileSync(path.join(fixture.root, fixture.handoffPath));
+    expect(liveBytes.equals(archiveBytes)).toBe(false);
+    expect(liveBytes.equals(passedBytes)).toBe(true);
+    const resumed = fixture.readJson('.omp/sdlc/run.json');
+    expect(resumed.failed).toMatchObject({ issue: 108, step: 'review1' });
+    expect(resumed.completed['108']).toContain('implement');
+    expect(resumed).not.toHaveProperty('consumedDispatch');
+    expect(resumed.recoveries).toHaveLength(1);
+    expect(resumed.recoveries[0].invocationId).toBe(grounded.invocationId);
+  });
+
+  it('removes an unchanged restored handoff when prompt delivery fails', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    checkpoint.failed = { issue: 108, step: 'implement', reasonCode: 'controller_cancelled' };
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+    fixture.herdr.agentPrompt = () => ({ status: 1, stderr: 'controlled prompt failure' });
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    expect(result.status).toBe(1);
+    expect(fs.existsSync(path.join(fixture.root, fixture.handoffPath))).toBe(false);
+  });
+
+
+  it.each(['agent start failure', 'thrown prompt failure'])(
+    'removes unchanged restored bytes after %s',
+    (failure) => {
+      const fixture = makeRepairedPublicationFixture();
+      groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.failed = {
+        issue: 108,
+        step: 'implement',
+        reasonCode: 'controller_cancelled',
+      };
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+      fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+      if (failure === 'agent start failure') {
+        fixture.herdr.agentStart = () => ({ status: 1, stderr: 'controlled start failure' });
+      } else {
+        fixture.herdr.agentPrompt = () => {
+          throw new Error('controlled non-stall prompt failure');
+        };
+      }
+
+      const result = runExecute({
+        args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+      });
+
+      expect(result.status).toBe(1);
+      expect(fs.existsSync(path.join(fixture.root, fixture.handoffPath))).toBe(false);
+    },
+  );
+
+
+  it('does not infer an orphaned started dispatch without a controller-loss reason', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+    expect(() => inspectConsumedRepairedPublicationDispatch({
+      cwd: fixture.root,
+      checkpoint: fixture.readJson('.omp/sdlc/run.json'),
+      run: fixture.run,
+      herdr: fixture.herdr,
+    })).toThrow('consumed_dispatch_unproven');
+
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      recoveryEvidenceReasonCode: 'consumed_dispatch_unproven',
+    });
+  });
+
+  it('keeps a cancelled started dispatch blocked while its live handoff remains', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    checkpoint.failed = {
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'controller_cancelled',
+    };
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      recoveryEvidenceReasonCode: 'consumed_dispatch_unproven',
+    });
+  });
+
+  it('keeps a cancelled started dispatch blocked after failed pane cleanup', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'started' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    checkpoint.failed = {
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'controller_cancelled',
+      cleanupReasonCode: 'pane_close_failed',
+    };
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    fs.rmSync(path.join(fixture.root, fixture.handoffPath));
+    const before = fixture.snapshot();
+
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'controller_cancelled',
+      recoveryEvidenceReasonCode: 'consumed_dispatch_unproven',
+    });
+    expect(fixture.snapshot()).toEqual(before);
   });
 
   it('resumes an exact pending dispatch without consuming or appending again', () => {
@@ -3253,6 +3646,33 @@ describe('runExecute controller', () => {
       '.omp/sdlc/safe-recoveries.json',
     ))).toEqual(safeBefore);
     expect(fixture.starts).toHaveLength(startsBefore);
+  });
+
+  it('blocks an exact additional wrong-class current tuple before allocation or mutation', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundConsumedDispatch(fixture, { pendingDisposition: 'pending' });
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    const wrongClass = structuredClone(checkpoint.recoveries[0]);
+    wrongClass.invocationId = 'wrong-class-invocation';
+    wrongClass.source.class = 'mergeability_defect';
+    checkpoint.recoveries.push(wrongClass);
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    const before = fixture.snapshot();
+
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      recoveryEvidenceReasonCode: 'recovery_tuple_unproven',
+    });
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    expect(result).toMatchObject({ status: 1, stderr: 'recovery_tuple_unproven\n' });
+    expect(fixture.snapshot()).toEqual(before);
+    expect(fixture.splits).toHaveLength(0);
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.closed).toHaveLength(0);
   });
 
   it('blocks consumed dispatch while any controller lease exists', () => {

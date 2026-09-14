@@ -98,6 +98,51 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
     Then the same dispatch persists process_lost
     And no new invocation, recovery tuple, or allowance is created
 
+
+  @AC5 @SCN014
+  Scenario Outline: Started dispatch orphaned by controller loss remains resumable
+    Given the exact consumed dispatch is started and its original failed handoff is archived
+    And workers are empty, its recorded pane and matching agents are absent, and no live implement handoff exists
+    When recovery discovery observes <reason>
+    Then it returns consumed-dispatch-available for the same invocation
+    And the next parameter-free run starts only s108-implement without consuming or appending recovery again
+
+    Examples:
+      | reason |
+      | controller_cancelled |
+      | process_lost |
+
+  @AC4 @SCN015
+  Scenario: Orphan resumption distinguishes restored archive from worker result
+    Given an exact controller-loss-orphaned started dispatch has no live implement handoff
+    When the same consumed invocation resumes
+    Then the live implement handoff exists before worker prompt with bytes and digest equal to the immutable archive
+    And activation ignores those failed archive bytes until the worker writes a distinct valid passed handoff
+    And execute accepts the distinct passed handoff without another safe consumption or recovery tuple
+    And start or prompt failure removes only unchanged restored archive bytes
+
+  @AC4 @SCN017
+  Scenario: Archived handoff restoration is idempotent and non-overwriting
+    Given the exact archive-backed live handoff has already been restored
+    When restore repeats
+    Then exact byte and digest equality succeeds without rewrite
+    And a mismatched existing live handoff fails without overwrite
+
+  @AC6 @SCN016
+  Scenario Outline: Consumed dispatch disposition and reason form a closed schema
+    Given an otherwise exact consumed dispatch has <pairing>
+    When exact consumed-dispatch validation runs directly
+    Then it rejects consumed_dispatch_unproven
+
+    Examples:
+      | pairing |
+      | prepared with a reason |
+      | starting with a reason |
+      | started with a reason |
+      | pending with an unsupported reason |
+      | stopped without a reason |
+      | stopped with an unsupported reason |
+
   @AC6 @SCN011
   Scenario: Malformed controller layout fails before mutation
     Given repaired-publication recovery is available under lease

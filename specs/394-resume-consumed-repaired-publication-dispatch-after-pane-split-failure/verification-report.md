@@ -6,7 +6,9 @@
 **Spec**: `specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/`
 **Branch**: `fix/394-consumed-dispatch-resumption`
 **Base**: `38ba70d4d07ac52112b28198e7684c282dc3ecbd`
-**Verified implementation head**: `43efcc809c7fedbad9114dd4f66b3bec9245cabf`
+**Prior verified implementation head**: `43efcc809c7fedbad9114dd4f66b3bec9245cabf`
+**Amendment verified base head**: `27a3be91fc157b36aa453faeac0daa78eb01a5ed`
+**Amendment verification target**: current uncommitted #394 working tree over that base
 
 ## Acceptance Results
 
@@ -14,10 +16,10 @@
 |---|---|---|
 | AC1 | Pass | Standard pane geometry is read from `HERDR_PANE_ID`; split occurs before archive, safe consumption, pending state, or recovery tuple. The controlled split-failure fixture leaves run, safe recovery, handoff, task, product, and workflow evidence unchanged. |
 | AC2 | Pass | After successful split and revalidation, checkpoint CAS persists only the exact `prepared` dispatch. Archive creation and `consumeSafeRecovery()` follow. The post-consumption CAS appends one consumed run recovery and marks dispatch `pending`; the exact no-run-tuple crash gap reconciles one tuple without another safe consumption or duplicate. |
-| AC3 | Pass | Revision-14 issue-108 fixture returns `consumed-dispatch-available` only for the exact consumed invocation/archive/run/head/branch/owner/handoff/task state. Recorded or identity-matching `s108-implement`/`r108-implement` panes and agents block; unrelated sibling/user panes remain admissible. |
-| AC4 | Pass | Bare parameter-free execution resumes the same invocation, starts only `s108-implement`, does not call safe consumption again, and does not append a duplicate run recovery. Explicit selectors return `consumed_dispatch_requires_parameter_free` before lease, dependency, pane, or state mutation. Durable start makes repeat discovery unavailable. |
-| AC5 | Pass | Tests cover split failure, split-success/pre-consume process loss with exact prepared pane/invocation reuse, safe-consumed/no-run-tuple loss, pending resumption, agent-start failure, successful start, validated implement success, next-step persistence, and terminal schema persistence. Only attempt-owned or exact prepared unused panes are closed/reused. |
-| AC6 | Pass | Adversarial coverage blocks non-pane stops, missing/mutated consumed archives, noncanonical prepared archive paths even when absent, run/HEAD/actual or dispatch branch drift, mismatched safe-record evidence, wrong/complete owner, changed handoff/task/product/worktree, existing worker/recorded pane/matching agent, wrong invocation, missing or duplicate incompatible recovery, a `passed` recovery paired with pending dispatch, ambiguous `starting`, controller lock, and explicit selector without mutation. |
+| AC3 | Pass | Revision-14 issue-108 fixtures return `consumed-dispatch-available` only for the exact consumed invocation/archive/run/head/branch/owner/task state. The controller-loss amendment also accepts the archived failed handoff when an exact `started` dispatch has `controller_cancelled` or `process_lost`, empty workers, and no recorded pane, matching agent, or live handoff. Live ownership and unrelated failure reasons remain blocked. |
+| AC4 | Pass | Bare parameter-free execution resumes the same invocation, restores the live implement handoff from the exact archived bytes before worker prompt, preserves it through consumed worker start, starts only `s108-implement`, does not call safe consumption again, and does not append a duplicate run recovery. Explicit selectors return `consumed_dispatch_requires_parameter_free` before lease, dependency, pane, or state mutation. |
+| AC5 | Pass | Tests cover split failure, split-success/pre-consume process loss with exact prepared pane/invocation reuse, safe-consumed/no-run-tuple loss, pending resumption, agent-start failure, prompt-path process loss, byte-identical controller-loss-orphaned started resumption, successful start, validated implement success, next-step persistence, and terminal schema persistence. Only attempt-owned or exact prepared unused panes are closed/reused. |
+| AC6 | Pass | Adversarial coverage blocks non-pane stops, missing/mutated archives, run/HEAD/branch/owner/handoff/task/product drift, live ownership or handoff, cleanup diagnostics, wrong invocation, duplicate or wrong-class recovery, locks, and explicit selectors. Direct schema tests reject reasons on `prepared`/`starting`/`started`, unsupported `pending` reasons, and missing or unsupported `stopped` reasons. |
 | AC7 | Pass | Focused execute/safe-recovery and full Jest suites pass, including every existing #392 fixture and recovery class. Command, plugin, current-spec, inventory, contribution, version, and diff checks pass. |
 
 ## State Machine
@@ -29,13 +31,13 @@
 5. `pending` — exact safe record and one run recovery exist; no worker/agent or recorded dispatch pane is live.
 6. `starting` — worker ownership and non-offerable start disposition persisted before `agentStart`.
 7. `stopped` — `agent_start_failed`, `process_lost`, or compatible `pane_split_failed` remains resumable only when every exact proof still holds and matching ownership is absent.
-8. `started` — immediately non-offerable; repeat discovery cannot duplicate dispatch.
+8. `started` — non-offerable while worker ownership, pane, agent, live handoff, or cleanup diagnostic exists. Exact `controller_cancelled`/`process_lost` with a consumed recovery and all five absent may re-prove the original failed handoff from the immutable archive; bare resume restores those exact bytes to the live handoff before prompting the same invocation.
 9. Successful implement handoff — ephemeral `consumedDispatch` is removed before next-step/terminal persistence; immutable safe-recovery record, run recovery, archive, and invocation remain.
 
 ## Commands and Outcomes
 
-- Focused execute and safe recovery: 2 suites passed; 497 tests passed.
-- Full Jest: 55 suites passed, 1 suite skipped; 1,397 tests passed and 2 skipped (1,399 total).
+- Prior focused execute and safe recovery: 2 suites passed; 497 tests passed.
+- Prior full Jest: 55 suites passed, 1 suite skipped; 1,397 tests passed and 2 skipped (1,399 total).
 - Focused archive crash states: pre-consume prepared recovery, post-consume missing archive, and canonical first consumption — 3 tests passed.
 - Command synchronization: `scripts/__tests__/extension-commands.test.mjs` — 6 tests passed.
 - Contribution contracts: `scripts/__tests__/contribution-gate-contract.test.mjs` and `scripts/__tests__/exercise-contribution-gate.test.mjs` — 35 tests passed.
@@ -46,8 +48,10 @@
 - `node --check scripts/sdlc-execute.mjs` and `node --check scripts/__tests__/sdlc-execute.test.mjs` — passed.
 - `git diff --check 38ba70d4d07ac52112b28198e7684c282dc3ecbd` and `git diff --check` — passed.
 - Task declaration comparison — every changed implementation, test, documentation, workflow, command, and verification-report path is declared; no undeclared path.
+- Prior controller-loss amendment full Jest: 55 suites passed, 1 suite skipped; 1,413 tests passed and 2 skipped (1,415 total).
+- Final corrected AC4 full Jest from `scripts/` using `npm test -- --runInBand`: 55 suites passed, 1 suite skipped; 1,427 tests passed and 2 skipped (1,429 total). Direct tests prove an absent archive-backed handoff is restored, a second identical restore succeeds, a pending resume accepts an already-identical live file without rewrite, and a mismatched existing live file fails without overwrite. Activation tracks the exact restored `Buffer`, ignores only byte-identical archive content, accepts a distinct valid passed worker handoff, completes implement, and enters later review without a stale restored-state dereference. Central stop cleanup and the outer catch remove only exact unchanged restored bytes across pre-start, agent-start, prompt-return, thrown-prompt, activation, and final-stop failures; replacement bytes are never deleted. The consumed safe-recovery injection records zero calls, safe-recovery bytes remain identical, and exactly one original recovery tuple remains.
 
-The repository had no local `scripts/node_modules`; verification used the already-installed Jest 29 dependency tree from the adjacent read-only nmg-sdlc checkout with the candidate repository supplied as Jest `rootDir`. No install or other-checkout mutation occurred.
+The original verification used an adjacent read-only Jest 29 dependency tree because this checkout had no local `scripts/node_modules`. Amendment verification installed the declared `scripts/package.json` development dependencies locally with `npm install --ignore-scripts --no-audit --no-fund`; `scripts/package-lock.json` remained byte-identical.
 
 ## Changed Paths
 

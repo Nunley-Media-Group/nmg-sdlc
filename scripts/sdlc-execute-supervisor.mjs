@@ -12,7 +12,15 @@ import {
   readControllerLease,
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
-import { VALID_STEPS, defaultHerdr, parseArgs, readRun, runExecute, writeRun } from './sdlc-execute.mjs';
+import {
+  VALID_STEPS,
+  defaultHerdr,
+  inspectInterruptedRepairedPublicationDispatch,
+  parseArgs,
+  readRun,
+  runExecute,
+  writeRun,
+} from './sdlc-execute.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const BRIDGE_PORT = 'SDLC_EXECUTE_BRIDGE_PORT';
@@ -70,6 +78,60 @@ function sendMessage(target, message) {
   });
 }
 
+function parsedHerdrPanes(herdr) {
+  const response = herdr.listPanes();
+  if (response?.status !== 0) throw new Error('ownership_unreadable');
+  let parsed;
+  try {
+    parsed = typeof response.stdout === 'string' ? JSON.parse(response.stdout) : response;
+  } catch {
+    throw new Error('ownership_unreadable');
+  }
+  const panes = Array.isArray(parsed) ? parsed : parsed?.result?.panes ?? parsed?.panes;
+  if (!Array.isArray(panes)) throw new Error('ownership_unreadable');
+  return panes;
+}
+
+function cleanupInterruptedConsumedDispatch({
+  controllerPid,
+  root,
+  runState,
+  herdr,
+  reasonCode,
+}) {
+  if (reasonCode !== 'controller_process_lost' || !runState.consumedDispatch) return false;
+  const dispatch = runState.consumedDispatch;
+  if (!['prepared', 'pending'].includes(dispatch.disposition)
+    || Object.keys(runState.workers || {}).length !== 0) {
+    return false;
+  }
+  const classified = inspectInterruptedRepairedPublicationDispatch({
+    cwd: root,
+    checkpoint: runState,
+    herdr,
+    ownedLeasePid: controllerPid,
+  });
+  const panes = parsedHerdrPanes(herdr);
+  const ownedPane = panes.find((pane) =>
+    String(pane?.pane_id ?? pane?.paneId ?? '') === dispatch.paneId);
+  if (ownedPane && herdr.paneClose(dispatch.paneId).status !== 0) {
+    throw new Error('pane_close_failed');
+  }
+  if (classified.stage === 'consumed') {
+    if (dispatch.disposition !== 'pending') throw new Error('controller_cleanup_ownership_mismatch');
+    dispatch.reasonCode = 'process_lost';
+    runState.failed = {
+      issue: runState.currentIssue,
+      step: runState.currentStep,
+      reasonCode: 'process_lost',
+    };
+  }
+  const expectedRevision = runState.revision;
+  runState.revision += 1;
+  writeRun(runState, root, expectedRevision);
+  return true;
+}
+
 function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
   const lease = readControllerLease(cwd);
   // Cancellation before acquisition, or after normal release, owns no checkpoint.
@@ -88,6 +150,18 @@ function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
     cwd: root, encoding: 'utf8', ...options,
   });
   const herdr = defaultHerdr(run, root);
+  if (!retainWorker && cleanupInterruptedConsumedDispatch({
+    controllerPid,
+    root,
+    runState,
+    herdr,
+    reasonCode,
+  })) {
+    if (!releaseControllerLease({ path, serialized })) {
+      throw new Error('controller_lease_release_failed');
+    }
+    return;
+  }
   let checkout = null;
   if (retainWorker) {
     const branch = run('git', ['branch', '--show-current']);
