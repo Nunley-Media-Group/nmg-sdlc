@@ -1454,9 +1454,7 @@ function runCli(argv = process.argv.slice(2)) {
   try {
     const cwd = process.cwd();
     const suppliedSubject = Object.hasOwn(options, 'expectedSubject');
-    if (options.step === 'implement'
-      && (suppliedSubject || action === 'reconcile')
-      && !validImplementationSubject(options.expectedSubject, options.issue)) {
+    if (options.step === 'implement' && !validImplementationSubject(options.expectedSubject, options.issue)) {
       throw safeError('publication_subject_unproven');
     }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });

@@ -104,19 +104,21 @@ describe('extension sdlc- commands', () => {
     }
   });
 
-  it('keeps both write-code publication commands source-safe before materialization', async () => {
+  it('keeps probe and publication commands source-safe before materialization', async () => {
     const { materializeControllerPaths, packageRoot, workflowBody } = await import('../../src/sdlc-commands.mjs');
     const source = workflowBody('write-code');
     const sourcePath = ['<plugin', '-root>/scripts/sdlc-safe-recoveries.mjs'].join('');
     const sourceController = JSON.stringify(sourcePath);
     const runtimeController = JSON.stringify(path.join(packageRoot, 'scripts', 'sdlc-safe-recoveries.mjs'));
 
-    expect(source).toContain(`node ${sourceController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
+    expect(source).toContain(`node ${sourceController} probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R`);
+    expect(source).toContain(`node ${sourceController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R] --subject "<exact planned subject>"`);
     expect(source).toContain(`node ${sourceController} reconcile --issue N --step implement`);
     expect(source).not.toContain('/private/tmp/');
 
     const runtime = materializeControllerPaths(source, packageRoot);
-    expect(runtime).toContain(`node ${runtimeController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
+    expect(runtime).toContain(`node ${runtimeController} probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R`);
+    expect(runtime).toContain(`node ${runtimeController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R] --subject "<exact planned subject>"`);
     expect(runtime).toContain(`node ${runtimeController} reconcile --issue N --step implement`);
     expect(runtime).not.toContain(sourcePath);
   });

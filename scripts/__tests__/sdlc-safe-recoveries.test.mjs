@@ -1052,18 +1052,18 @@ describe('publication CLI lease ownership boundary', () => {
     expect(f.state().records).toEqual([]);
   });
 
-  test('accepts the clean subjectless initial implement bind', () => {
+  test('rejects a subjectless implement bind even when the worktree is clean', () => {
     const f = cliFixture();
     f.git('add', '--', spec);
     f.git('commit', '-m', 'docs: approve publication fixture #42');
     f.git('push');
     expect(f.git('status', '--porcelain=v1')).toBe('');
 
-    const initial = f.bind(runId, null);
-    expect({ status: initial.status, stderr: initial.stderr }).toEqual({ status: 0, stderr: '' });
-    expect(JSON.parse(initial.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
-      passed: true, ownerId: runId,
+    const rejected = f.bind(runId, null);
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
     });
+    expect(fs.existsSync(f.statePath)).toBe(false);
   });
 
   test('rejects dirty missing, wrong, and non-boundary issue identifiers before publication', () => {

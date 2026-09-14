@@ -24,6 +24,7 @@
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-apply-review.test.mjs` — passed, 17 tests.
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-deliver.test.mjs` — passed, 116 tests.
 - Four affected suites — passed, 534 tests total.
+- `cd scripts && npm test -- --runInBand` — passed: 55 suites passed, one suite skipped; 1,298 tests passed and two skipped (1,300 total).
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs -t "reports exact PathCast 18/12/6 scope"` — passed, one disposable real-Git PathCast-state copy exercise; 105 unrelated tests skipped by name filter.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
 - `node scripts/verify-current-specs.mjs` — passed: 79 genuine issue specs, 16 required archive specs, 16 rewrite capabilities, 16 active workflow mappings, one deprecated stub.
@@ -33,6 +34,16 @@
 - Active #390 structured scope inspection — passed with 12 tracked, zero untracked, 12 allowed, four read-only spec inputs, and four task records.
 - Changed JavaScript syntax checks and `git diff --check` — passed.
 - Temporary `scripts/node_modules` dependency link was removed after the focused suites.
+
+## Failed Required Check Remediation
+
+- GitHub Actions run `34811188311`, job `103872706457`, failed at head `cd5eb7f4867286e065c71b2fa30c519fe2ca9b24`: three suites failed, 1,295 tests passed, and two were skipped.
+- `extension-commands.test.mjs` still required the removed pre-edit subjectless `bind` command instead of the new pre-edit `probe` plus subject-bound publication `bind`.
+- `rendered-prompt-contract.test.mjs` still required the obsolete sentence `A clean subjectless bind establishes the approved owner/path scope before edits`.
+- `sdlc-execute-supervisor.test.mjs` expected a missing-subject bind to report `publication_subject_unproven`, but its empty task fixture now failed the stricter scope parser first with `publication_scope_unproven`.
+- Root cause: the #390 clean cutover migrated runtime/workflow behavior and focused suites but did not migrate three repository-wide contracts. The CLI also still allowed a clean subjectless implement bind, leaving an obsolete path inconsistent with the subject-bound publication workflow.
+- Remediation: implement `bind` now rejects every missing or invalid implement subject before lease or scope work; its regression covers a clean worktree and no safe-recovery state write. The supervisor fixture now uses a canonical task declaration and dirties only its task-authorized implementation path. Extension and rendered-prompt contracts now assert pre-edit `probe`, publication `bind --subject`, and reconciliation.
+- Exact failed-suite rerun — passed: three suites and 30 tests.
 
 ## Independent-Review Findings
 

@@ -488,12 +488,15 @@ posix('bare CLI recovery', () => {
       fs.mkdirSync(bin, { recursive: true });
       const spec = path.join(root, 'specs/42-ship-it');
       fs.mkdirSync(spec, { recursive: true });
-      for (const file of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
+      for (const file of ['requirements.md', 'design.md', 'feature.gherkin']) {
         fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
       }
+      fs.writeFileSync(path.join(spec, 'tasks.md'), '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n');
+      fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'src/code.mjs'), 'approved implementation\n');
       fs.writeFileSync(path.join(root, '.gitignore'), '.omp/sdlc/\n');
       git(root, ['init', '-b', '42-ship-it']);
-      git(root, ['add', '.gitignore', 'specs']);
+      git(root, ['add', '.gitignore', 'specs', 'src']);
       git(root, ['commit', '-m', 'recovery fixture']);
       const checkpointPath = path.join(runtime, 'run.json');
       fs.writeFileSync(checkpointPath, JSON.stringify({
@@ -540,9 +543,9 @@ throw Error('unexpected adapter command '+a.slice(0,2));`);
         '--spec', 'specs/42-ship-it', ...(subject === null ? [] : ['--subject', subject]),
         '--controller-run-id', 'bare-cli',
       ], { cwd: root, encoding: 'utf8' });
-      const tasksPath = path.join(spec, 'tasks.md');
-      const approvedTasks = fs.readFileSync(tasksPath, 'utf8');
-      fs.appendFileSync(tasksPath, '\nimplementation change\n');
+      const implementationPath = path.join(root, 'src/code.mjs');
+      const approvedImplementation = fs.readFileSync(implementationPath, 'utf8');
+      fs.appendFileSync(implementationPath, 'implementation change\n');
       const publicationHead = git(root, ['rev-parse', 'HEAD']);
       for (const subject of [null, 'fix: wrong issue #43']) {
         const rejected = bind(subject);
@@ -556,7 +559,7 @@ throw Error('unexpected adapter command '+a.slice(0,2));`);
       expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
       expect(git(root, ['rev-parse', 'HEAD'])).toBe(publicationHead);
       expect(git(root, ['diff', '--cached'])).toBe('');
-      fs.writeFileSync(tasksPath, approvedTasks);
+      fs.writeFileSync(implementationPath, approvedImplementation);
       const first = invoke();
       expect(first.error).toBeUndefined();
       expect({ status: first.status, error: first.error?.message, stderr: first.stderr }).toEqual({ status: 1, error: undefined, stderr: '' });
