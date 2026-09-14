@@ -1237,18 +1237,22 @@ export function inspectRepairedPublicationIntervention({
     'publication_repair_unproven',
   ).bytes;
   const publication = provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath });
-  if (allowedArchivePath && existsSync(join(root, allowedArchivePath))) {
+  if (allowedArchivePath) {
     const expectedArchivePath = `${RUN_DIR}/history/repaired-publication/${checkpoint.currentIssue}-implement-${handoffSnapshot.digest}.json`;
-    const archive = readBoundedNoFollowFile(
-      root,
-      allowedArchivePath,
-      MAX_HANDOFF_BYTES,
-      'handoff_archive_unproven',
-    );
-    if (allowedArchivePath !== expectedArchivePath
-      || createHash('sha256').update(archive.bytes).digest('hex') !== handoffSnapshot.digest
-      || !archive.bytes.equals(handoffSnapshot.bytes)) {
+    if (allowedArchivePath !== expectedArchivePath) {
       throw new Error('handoff_archive_unproven');
+    }
+    if (existsSync(join(root, allowedArchivePath))) {
+      const archive = readBoundedNoFollowFile(
+        root,
+        allowedArchivePath,
+        MAX_HANDOFF_BYTES,
+        'handoff_archive_unproven',
+      );
+      if (createHash('sha256').update(archive.bytes).digest('hex') !== handoffSnapshot.digest
+        || !archive.bytes.equals(handoffSnapshot.bytes)) {
+        throw new Error('handoff_archive_unproven');
+      }
     }
   }
   return {
@@ -1392,10 +1396,13 @@ export function inspectConsumedRepairedPublicationDispatch({
   const resumablePending = pending && failedMatchesPending
     && (
       (pending.disposition === 'pending'
+        && recovery?.disposition === 'consumed'
         && (!pending.reasonCode
           || CONSUMED_DISPATCH_RESUME_REASONS.has(pending.reasonCode)))
       || (pending.disposition === 'stopped'
+        && recovery?.disposition === 'stopped'
         && CONSUMED_DISPATCH_RESUME_REASONS.has(pending.reasonCode)
+        && recovery.reasonCode === pending.reasonCode
         && checkpoint.failed?.reasonCode === pending.reasonCode)
     );
   const record = getSafeRecoveryRecord({
