@@ -38,8 +38,7 @@ After split and under-lease revalidation, the first CAS reserves the original in
 
 ### Read-only consumed-dispatch discovery
 
-Parameter-free discovery first preserves ordinary #392 classification. If that proof reports consumed, it may classify a stranded dispatch only when the exact consumed safe-recovery record, checkpoint recovery tuple, immutable archive, and run identity agree.
-
+Parameter-free discovery first validates every current recovery tuple for the same run, issue, and step against the closed recovery schema and exact run/issue/step identities. This occurs before recovery-class filtering: a malformed, wrong-class, incompatible, or additional tuple blocks classification rather than being ignored. Only after the complete tuple set passes does ordinary #392 classification proceed. If that proof reports consumed, discovery may classify a stranded dispatch only when the exact consumed safe-recovery record, checkpoint recovery tuple, immutable archive, and run identity agree.
 Admission requires either:
 
 1. the grounded compatibility shape: current recovery tuple disposition stopped with `pane_split_failed`, no pending field, no workers, and no matching live pane/agent; or
@@ -51,34 +50,40 @@ Any mismatch is blocking. A `started` disposition, durable worker ownership, mat
 
 ### Same-invocation resumption
 
-A bare parameter-free run carries the proven invocation id into the leased controller boundary. It repeats the full classifier, preflights and allocates a fresh standard pane from the actual controller pane, and CAS-updates the pending record for that same invocation. It does not archive again, call `consumeSafeRecovery()`, append `recoveries[]`, clear or replace failure evidence, or enter remediation.
+A bare parameter-free run carries the proven invocation id into the leased controller boundary. It repeats the full classifier, preflights the current controller layout, and only after valid geometry allocates a fresh standard pane. Malformed or unreadable layout fails before `paneSplit()`, archive creation, or consumption. The controller then CAS-updates the pending record for that same invocation. It does not archive again, call `consumeSafeRecovery()`, append `recoveries[]`, clear or replace failure evidence, or enter remediation.
 
-It then persists standard worker ownership and a non-offerable start disposition before invoking only `agentStart({ name: s${issue}-implement, kind: omp })`. Agent-start failure remains resumable only while no live agent exists and the owned pane can be proven unused. Successful start makes discovery unavailable before prompt activation, so process loss cannot produce duplicate dispatch.
+It then persists standard worker ownership and a non-offerable start disposition before invoking only `agentStart({ name: s${issue}-implement, kind: omp })`. Agent-start failure remains resumable only while no live agent exists and the owned pane can be proven unused. Successful start makes discovery unavailable before prompt activation, so process loss cannot produce duplicate dispatch. If the standard prompt path proves the worker disappeared, the controller persists `process_lost` on the same consumed dispatch and preserves same-invocation resumption.
 
 After the resumed implement worker produces a validated successful handoff, the controller removes the ephemeral pending-dispatch field before persisting the next step. The consumed safe-recovery record and immutable run recovery remain authoritative through terminal queue persistence.
 
-### Crash and cleanup boundaries
+### Crash, supervisor, and cleanup boundaries
 
 | Boundary | Durable result | Resume behavior |
 |----------|----------------|-----------------|
+| Layout is malformed or unreadable | Original available #392 state unchanged; no split attempted | Fail `pane_split_failed` before consumption |
 | Split fails before consumption | Original available #392 state unchanged | Ordinary one-time recovery remains available |
-| Split succeeds and prepared CAS persists before archive/consume, process exits | Prepared dispatch retains the exact pane and invocation; safe record and run recovery remain absent | Ordinary repaired-publication recovery re-proves and reuses that prepared pane/invocation once |
-| Safe consumption succeeds before post-consumption CAS, process exits | Prepared dispatch and exact consumed safe record/archive bind the invocation; run recovery is absent | Reconcile exactly one matching run recovery in the next CAS, then dispatch; never duplicate |
-| Post-consumption CAS succeeds, process exits | Exact invocation pending with one consumed run recovery | `consumed-dispatch-available` |
+| Split succeeds and prepared CAS persists before archive/consume, process exits or is killed | Prepared dispatch retains the exact pane and invocation; safe record and run recovery remain absent | Supervisor closes only that attempt-owned unused pane; ordinary repaired-publication recovery re-proves the invocation |
+| Safe consumption succeeds before post-consumption CAS, process exits or is killed | Prepared dispatch and exact consumed safe record/archive bind the invocation; run recovery is absent | Supervisor preserves original `implementation_failed`; next CAS reconciles exactly one matching run recovery, then dispatches |
+| Post-consumption pending CAS succeeds before worker persistence, process exits or is killed | Exact invocation pending with one consumed run recovery and an exact attempt-owned unused pane | Supervisor closes only that pane and leaves `consumed-dispatch-available` |
 | Agent start fails after pending CAS | Same invocation stopped/pending; no worker process | Resume same invocation only |
+| Prompt path proves worker loss | Same invocation persists `process_lost` | Resume same invocation only; never consume or append again |
 | Worker ownership/start disposition persists | Dispatch non-offerable | Existing worker/prompt recovery only |
 | Start succeeds, controller exits | Worker ownership remains authoritative | Never offer consumed dispatch again |
 
-Cleanup never infers ownership from a pane id alone. It closes only a pane created by the current attempt and proven to have no associated worker/agent. Immutable archives, safe-recovery records, checkpoint tuples, and failure evidence are never removed.
+The detached `scripts/sdlc-execute-supervisor.mjs` cleanup path is consumed-dispatch-aware. On controller hard loss, including `SIGKILL`, it preserves the original implementation failure and all consumed authority. It may close and remove only the pane/worker entry whose exact name, pane id, run, issue, step, and attempt ownership prove it belongs to the interrupted attempt and has no live agent. Prepared, crash-gap, and pending state remain resumable under the same invocation.
 
 ## Failure Modes
 
 | Condition | Result |
 |-----------|--------|
-| Controller layout unreadable or split fails | `pane_split_failed`; no consumption |
+| Controller layout malformed or unreadable | `pane_split_failed` before split or consumption |
+| Pane split fails | `pane_split_failed`; no consumption |
 | First-time under-lease revalidation fails after split | Close attempt-owned unused pane; no consumption |
 | Pending CAS races or fails | Existing CAS failure; no agent start |
 | Agent start fails after consumption | Same invocation remains pending/stopped and resumable |
+| Standard prompt path proves worker absence | Persist same-dispatch `process_lost`; remain resumable |
+| Supervisor observes controller hard loss | Preserve original implementation failure and same-invocation state; close only exact attempt-owned unused pane |
+| Any current run/issue/step recovery tuple is malformed, wrong-class, incompatible, or additional | Block before class filtering |
 | Archive missing, mutable, symlinked, identity-changed, or digest-mismatched | Consumed dispatch blocked |
 | Run/head/branch/owner/handoff/task/scope/worktree drift | Consumed dispatch blocked |
 | Existing worker, pane, agent, lock, completed owner, started disposition, or explicit selector | Consumed dispatch blocked |
@@ -87,10 +92,19 @@ Cleanup never infers ownership from a pane id alone. It closes only a pane creat
 ## Verification Strategy
 
 1. Exact real-Git fixture models revision 14, issue 108 `implement`, invocation `571f27fa-bc11-4778-9034-b1b992e85638`, immutable archive, stopped `pane_split_failed`, incomplete owner, empty workers, absent pane/agent, and unchanged product paths.
-2. Controlled Herdr fixtures prove split failure occurs before archive/consumption, start failure persists the same invocation, pending discovery/resume allocates from the actual main pane, and only `s108-implement` starts.
-3. Repeat discovery after durable start is unavailable.
-4. Adversarial table coverage mutates archive, run, HEAD, branch, owner, handoff, task, worktree/product state, invocation, disposition, workers, pane/agent presence, lock, and selector while asserting byte-identical blocked state.
-5. Existing #392, safe recovery, execute, command synchronization, plugin/current-spec, inventory, contribution, version, and full Jest checks remain green.
+2. Controlled Herdr fixtures prove malformed layout fails before split/consumption, split failure occurs before archive/consumption, start failure persists the same invocation, pending discovery/resume allocates from the actual main pane, prompt-path disappearance persists `process_lost`, and only `s108-implement` starts.
+3. Real supervised-process fixtures send `SIGKILL` at prepared CAS, after safe consumption before run-tuple CAS, and after pending CAS before worker persistence; each proves original implementation failure, exact attempt-owned pane cleanup, and same-invocation resumability.
+4. Tuple-set coverage proves every current run/issue/step recovery tuple is validated before class filtering and wrong-class or additional tuples block without mutation.
+5. Repeat discovery after durable start is unavailable.
+6. Adversarial table coverage mutates archive, run, HEAD, branch, owner, handoff, task, worktree/product state, invocation, disposition, workers, pane/agent presence, lock, selector, and recovery tuples while asserting byte-identical blocked state.
+7. Existing #392, safe recovery, execute, supervisor, command synchronization, plugin/current-spec, inventory, contribution, version, and full Jest checks remain green.
+8. The final verification report records the bounded external review evidence defined below. Git output after committing the report supplies its exact commit SHA; the report does not claim its own SHA.
+
+### Final external review evidence
+
+External review is bounded to the final-report evidence gate; it does not authorize review remediation, delivery, push, PR, or merge work. The report records the reviewer or tool identity, exact review command or invocation, exact scoped paths, the reviewed pre-report implementation SHA and tree, outcome, and every finding or an explicit no-findings result. The reviewed SHA must be the direct parent of the final report commit. It can therefore be embedded in the report; the report commit's own SHA cannot.
+
+After the report commit, Git supplies the exact report commit SHA as external delivery evidence. That post-commit value is reported outside the committed report, preventing a self-referential identity claim.
 
 ## Security and Portability
 
@@ -113,3 +127,4 @@ All durable paths remain canonical repository-relative paths. Archive reads use 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #394 | 2026-09-14 | Initial approved design |
+| #394 | 2026-09-14 | Approved amendment for supervisor hard-loss cleanup, tuple validation, crash fixtures, and final review evidence |
