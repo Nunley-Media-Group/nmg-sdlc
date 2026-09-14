@@ -23,10 +23,9 @@ describe('rendered prompt contracts', () => {
     expect(prompt).toContain('Do not change generated artifacts.');
   });
 
-  test('implement prompt separates read-only probing from subject-bound publication', () => {
+  test('implement prompt separates clean owner binding from dirty subject preflight', () => {
     const prompt = workerPrompt({ step: 'implement', issue: 42 });
-    expect(prompt).toContain('run the native read-only owner-bound scope probe');
-    expect(prompt).toContain('without acquiring the controller lock');
+    expect(prompt).toContain('A clean subjectless bind establishes the approved owner/path scope before edits');
     expect(prompt).toContain('for issue 42, `#42`');
     expect(prompt).toContain('--subject "<exact planned subject>"');
     expect(prompt).toContain('before any staging, commit, or push');
