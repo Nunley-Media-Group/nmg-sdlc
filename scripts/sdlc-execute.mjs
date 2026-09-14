@@ -1288,7 +1288,7 @@ const CONSUMED_DISPATCH_RESUME_REASONS = new Set([
   'process_lost',
 ]);
 
-function exactConsumedDispatch(dispatch, checkpoint, recovery) {
+function exactConsumedDispatch(dispatch, checkpoint, invocationId) {
   if (!dispatch || typeof dispatch !== 'object' || Array.isArray(dispatch)
     || Object.keys(dispatch).some((key) => ![
       'runId',
@@ -1305,7 +1305,7 @@ function exactConsumedDispatch(dispatch, checkpoint, recovery) {
       'reasonCode',
     ].includes(key))
     || dispatch.runId !== checkpoint.runId
-    || dispatch.invocationId !== recovery.invocationId
+    || dispatch.invocationId !== invocationId
     || dispatch.class !== REPAIRED_PUBLICATION_RECOVERY
     || dispatch.issue !== checkpoint.currentIssue
     || dispatch.step !== 'implement'
@@ -1379,7 +1379,7 @@ export function inspectConsumedRepairedPublicationDispatch({
     ? exactConsumedDispatch(
       checkpoint.consumedDispatch,
       checkpoint,
-      recovery ?? { invocationId: checkpoint.consumedDispatch.invocationId },
+      recovery?.invocationId ?? checkpoint.consumedDispatch.invocationId,
     )
     : null;
   const compatibleStopped = recovery && !pending
@@ -1923,16 +1923,18 @@ function validConsumedDispatchState(runData) {
   if (recoveries.length !== 1) {
     if (runData.consumedDispatch?.disposition !== 'prepared') return false;
     try {
-      exactConsumedDispatch(runData.consumedDispatch, runData, {
-        invocationId: runData.consumedDispatch.invocationId,
-      });
+      exactConsumedDispatch(
+        runData.consumedDispatch,
+        runData,
+        runData.consumedDispatch.invocationId,
+      );
       return true;
     } catch {
       return false;
     }
   }
   try {
-    exactConsumedDispatch(runData.consumedDispatch, runData, recoveries[0]);
+    exactConsumedDispatch(runData.consumedDispatch, runData, recoveries[0].invocationId);
     return true;
   } catch {
     return false;
@@ -3916,7 +3918,7 @@ export function runExecute({
     if (dispatch.disposition !== 'started' || recoveries.length !== 1) {
       throw new Error('consumed_dispatch_unproven');
     }
-    exactConsumedDispatch(dispatch, runState, recoveries[0]);
+    exactConsumedDispatch(dispatch, runState, recoveries[0].invocationId);
     delete runState.consumedDispatch;
   }
 
@@ -4019,7 +4021,7 @@ export function runExecute({
       let proof = proveRecovery();
       let preparedPanePresent = false;
       if (!resumingConsumedDispatch && prepared) {
-        exactConsumedDispatch(prepared, runState, { invocationId: prepared.invocationId });
+        exactConsumedDispatch(prepared, runState, prepared.invocationId);
         inspectRecoveryWorkers(runState, herdrApi);
         const panes = inspectDispatchPanes(
           herdrApi,
