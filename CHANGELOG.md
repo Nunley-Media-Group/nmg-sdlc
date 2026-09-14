@@ -15,6 +15,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Reject admitted delivery tasks with missing, near-miss, or duplicate canonical `File(s)` declarations before spec publication or execute worker dispatch (#383).
 - Detect a singular recoverable `Files` task label during digest-bound publication upgrade and rewrite it to canonical `File(s)` without weakening fail-closed delivery parsing (#386).
 - Support digest-bound single-package publication-only detection/apply with exactly one spec, legacy-first command resolution, descriptor-bound files and stable directory listings, descriptor-carried task planning, high-resolution identities, exact large issue digits, hidden-task visibility, byte-preserving rewrites, fsynced root staging, final authority/target/stage/lock ordering, cooperative exclusive locking, one atomic rename, and truthful applied cleanup failure—without unrelated upgrade phases, GitHub label backfill, native dependencies, or impossible identity-conditional pathname guarantees (#388).
+- Add a native read-only owner-bound implementation scope probe, separate spec/read-only inputs from tracked and explicitly untracked mutation authority, surface stale run/actual/owner branch disagreement, and migrate publication consumers to structured `scope.allowedPaths` without controller locks or recovery writes (#390).
 
 ## [3.21.3] - 2026-09-13
 

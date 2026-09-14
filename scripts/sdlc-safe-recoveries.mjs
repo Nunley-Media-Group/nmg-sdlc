@@ -765,8 +765,8 @@ function validPublicationPath(file) {
 
 export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
 
-export function publicationFileEntries(value) {
-  const entries = [];
+function publicationFileDeclarations(value) {
+  const declarations = [];
   let pathText = '';
   let notes = '';
   let parentheses = 0;
@@ -779,7 +779,7 @@ export function publicationFileEntries(value) {
       || (!match[1] && !/[/.]/.test(declared) && !/^[A-Z][A-Z0-9_-]*$/.test(declared))) {
       throw safeError('publication_scope_unproven');
     }
-    if (!/\bdelivery[- ]owner\s+only\b/i.test(notes)) entries.push(declared);
+    declarations.push({ path: declared, note: notes.trim() });
     pathText = '';
     notes = '';
   };
@@ -797,7 +797,13 @@ export function publicationFileEntries(value) {
   }
   if (quoted || parentheses !== 0) throw safeError('publication_scope_unproven');
   finish();
-  return entries;
+  return declarations;
+}
+
+export function publicationFileEntries(value) {
+  return publicationFileDeclarations(value)
+    .filter(({ note }) => !/\bdelivery[- ]owner\s+only\b/i.test(note))
+    .map(({ path }) => path);
 }
 
 function markdownFence(line) {
@@ -938,7 +944,61 @@ function stripHtmlComments(line, inComment, codeSpan, delimiterRole) {
 
 const DELIVERY_TASK_HEADING = /^#{2,3}[ \t]+(T0*[1-9]\d*):/;
 
-export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds } = {}) {
+const WRITABLE_OPERATIONS = new Map([
+  ['create', 'Create'],
+  ['modify', 'Modify'],
+  ['delete', 'Delete'],
+  ['remove', 'Delete'],
+  ['download untracked', 'Download untracked'],
+  ['generate untracked', 'Generate untracked'],
+]);
+
+function declaredOperation(note, typeValue) {
+  const normalizedNote = note.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (WRITABLE_OPERATIONS.has(normalizedNote)) return WRITABLE_OPERATIONS.get(normalizedNote);
+  if (normalizedNote && /^(?:download|generate)(?:\s+\S+)?$/i.test(note.trim())) {
+    throw safeError('publication_scope_unproven');
+  }
+  const operations = [...String(typeValue ?? '').matchAll(/\b(Create|Modify|Delete)\b/gi)]
+    .map((match) => WRITABLE_OPERATIONS.get(match[1].toLowerCase()));
+  const unique = [...new Set(operations)];
+  if (unique.length > 1) throw safeError('publication_scope_unproven');
+  return unique[0] ?? 'Modify';
+}
+
+function readOnlyFileEntries(value) {
+  const entries = [];
+  for (const match of String(value).matchAll(/`([^`]+)`/g)) {
+    if (validPublicationPath(match[1])) entries.push(match[1]);
+  }
+  if (entries.length) return entries;
+  try {
+    return publicationFileEntries(value);
+  } catch {
+    return [];
+  }
+}
+
+function acquireInputEntries(value) {
+  const command = String(value).replace(/^`|`$/g, '');
+  if (!/\s--[a-z][a-z-]*\s/i.test(command)) return readOnlyFileEntries(value);
+  const entries = [];
+  for (const match of command.matchAll(/--([a-z][a-z-]*)\s+(?:"([^"]+)"|'([^']+)'|([^\s`]+))/gi)) {
+    const [, flag, doubleQuoted, singleQuoted, plain] = match;
+    if (/^(?:output|output-dir)$/.test(flag)) continue;
+    const candidate = doubleQuoted ?? singleQuoted ?? plain;
+    if (!candidate.includes('$') && validPublicationPath(candidate) && candidate.includes('/')) {
+      entries.push(candidate);
+    }
+  }
+  return entries;
+}
+
+export function parseDeliveryTaskFileLines(content, {
+  spec = 'tasks.md',
+  taskIds,
+  structured = false,
+} = {}) {
   const explicitTaskIds = taskIds != null;
   const acceptedTasks = new Set(taskIds ?? []);
   const sourceLines = String(content).split(/\r?\n/);
@@ -954,44 +1014,73 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
   }
   const validatedTaskCounts = new Map();
   const entries = [];
+  const taskOperations = [];
   let fence = null;
   let inHtmlComment = false;
   let codeSpan = 0;
   let task = null;
+  const locatedFailure = (taskValue, detail = {}) => safeError('publication_scope_unproven', {
+    spec,
+    taskId: taskValue.id,
+    line: detail.line ?? taskValue.line,
+    ...(detail.entry ? { entry: detail.entry } : {}),
+    syntax: PUBLICATION_FILE_SYNTAX,
+  });
   const finishTask = () => {
     if (!task || !acceptedTasks.has(task.id)) return;
     const nearMiss = task.nearMisses[0];
-    if (nearMiss) {
-      throw safeError('publication_scope_unproven', {
-        spec,
-        taskId: task.id,
-        line: nearMiss.line,
-        entry: nearMiss.entry,
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
-    }
+    if (nearMiss) throw locatedFailure(task, nearMiss);
     if (task.declarations.length !== 1) {
       const duplicate = task.declarations[1];
-      throw safeError('publication_scope_unproven', {
-        spec,
-        taskId: task.id,
-        line: duplicate?.line ?? task.line,
-        ...(duplicate ? { entry: duplicate.entry } : {}),
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
+      throw locatedFailure(task, duplicate ?? {});
     }
+    if (structured && task.types.length > 1) throw locatedFailure(task, task.types[1]);
     const [declaration] = task.declarations;
+    let declared;
     try {
-      entries.push(...publicationFileEntries(declaration.value));
+      declared = publicationFileDeclarations(declaration.value);
     } catch {
-      throw safeError('publication_scope_unproven', {
-        spec,
-        taskId: task.id,
-        line: declaration.line,
-        entry: declaration.value,
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
+      throw locatedFailure(task, { line: declaration.line, entry: declaration.value });
     }
+    const operations = [];
+    try {
+      for (const item of declared) {
+        if (/\bdelivery[- ]owner\s+only\b/i.test(item.note)) continue;
+        entries.push(item.path);
+        if (!structured) continue;
+        const operation = declaredOperation(item.note, task.types[0]?.value);
+        operations.push({
+          path: item.path,
+          operation,
+          provenance: {
+            label: 'File(s)',
+            line: declaration.line,
+            declaration: declaration.value,
+          },
+        });
+      }
+    } catch {
+      throw locatedFailure(task, { line: declaration.line, entry: declaration.value });
+    }
+    for (const input of task.readOnly) {
+      for (const path of readOnlyFileEntries(input.value)) {
+        operations.push({
+          path,
+          operation: 'Read-only',
+          provenance: { label: 'Read-only', line: input.line, declaration: input.value },
+        });
+      }
+    }
+    for (const input of task.acquire) {
+      for (const path of acquireInputEntries(input.value)) {
+        operations.push({
+          path,
+          operation: 'Acquire',
+          provenance: { label: 'Acquire', line: input.line, declaration: input.value },
+        });
+      }
+    }
+    taskOperations.push({ taskId: task.id, operations });
     validatedTaskCounts.set(task.id, (validatedTaskCounts.get(task.id) ?? 0) + 1);
   };
   for (const [index, sourceLine] of sourceLines.entries()) {
@@ -1023,6 +1112,9 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
         line: index + 1,
         declarations: [],
         nearMisses: [],
+        types: [],
+        readOnly: [],
+        acquire: [],
       };
       continue;
     }
@@ -1035,14 +1127,13 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
     const metadata = /^\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
     if (!metadata) continue;
     const [, label, value] = metadata;
-    if (label === 'File(s)') {
-      task.declarations.push({
-        line: index + 1,
-        value: value.trim(),
-        entry: line.trim(),
-      });
-    } else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
-      task.nearMisses.push({ line: index + 1, entry: line.trim() });
+    const detail = { line: index + 1, value: value.trim(), entry: line.trim() };
+    if (label === 'File(s)') task.declarations.push(detail);
+    else if (label === 'Type') task.types.push(detail);
+    else if (label === 'Read-only') task.readOnly.push(detail);
+    else if (label === 'Acquire') task.acquire.push(detail);
+    else if (['file', 'files'].includes(label.replace(/[^A-Za-z]/g, '').toLowerCase())) {
+      task.nearMisses.push(detail);
     }
   }
   finishTask();
@@ -1056,7 +1147,7 @@ export function parseDeliveryTaskFileLines(content, { spec = 'tasks.md', taskIds
       syntax: PUBLICATION_FILE_SYNTAX,
     });
   }
-  return entries;
+  return structured ? taskOperations : entries;
 }
 
 function observePublicationPaths(run, cwd, pattern) {
@@ -1077,52 +1168,174 @@ function observePublicationPaths(run, cwd, pattern) {
   return paths;
 }
 
-// Only task identifiers admitted by the existing live-scope adapter contribute
-// path authority. Callers cannot supply an asserted allowlist through the CLI.
+// Only task identifiers admitted by the live-scope adapter contribute path
+// authority. Approved spec documents are inputs, never implementation writes.
 export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step, run = defaultRun } = {}) {
   const issueNumber = Number(issue);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
     || !['implement', 'fix1', 'fix2', 'verify'].includes(step)
     || !new RegExp(`^specs/${issueNumber}-[^/\\\\]+$`).test(spec ?? '')) throw safeError('spec_not_approved');
-  const scope = inspectIssueSpecScope({ projectRoot: cwd, issueNumber, specPath: spec });
-  if (!['scoped', 'implicit_single_issue'].includes(scope.status)) throw safeError('spec_not_approved');
+  const issueScope = inspectIssueSpecScope({ projectRoot: cwd, issueNumber, specPath: spec });
+  if (!['scoped', 'implicit_single_issue'].includes(issueScope.status)) throw safeError('spec_not_approved');
   const documents = {};
-  for (const file of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
-    const content = readFileSync(join(cwd, spec, file), 'utf8');
+  const specInputs = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
+    .map((file) => `${spec}/${file}`);
+  for (const [index, path] of specInputs.entries()) {
+    const content = readFileSync(join(cwd, path), 'utf8');
     if (!/^\*\*Status\*\*:\s*Approved\s*$/m.test(content)
       || !new RegExp(`^\\*\\*Issue\\*\\*:\\s*#${issueNumber}\\s*$`, 'm').test(content)) throw safeError('spec_not_approved');
-    documents[file] = content;
+    documents[['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'][index]] = content;
   }
-  if (step === 'verify') return [`${spec}/verification-report.md`];
-  const declarations = parseDeliveryTaskFileLines(documents['tasks.md'], {
+  if (step === 'verify') {
+    const report = `${spec}/verification-report.md`;
+    return {
+      trackedWritablePaths: [report],
+      untrackedEvidencePaths: [],
+      taskOperations: [],
+      readOnlyPaths: specInputs.sort(),
+      allowedPaths: [report],
+    };
+  }
+  const taskOperations = parseDeliveryTaskFileLines(documents['tasks.md'], {
     spec: `${spec}/tasks.md`,
-    taskIds: scope.delivery.tasks,
+    taskIds: issueScope.delivery.tasks,
+    structured: true,
   });
   const verificationReport = `${spec}/verification-report.md`;
-  const paths = new Set(
-    ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
-      .map((file) => `${spec}/${file}`),
-  );
-  for (const file of observePublicationPaths(run, cwd, `${spec}/`)) {
-    if (file !== verificationReport) paths.add(file);
-  }
-  for (const declared of declarations) {
-    const expands = declared.endsWith('/') || /[*?\[]/.test(declared);
-    if (!expands && declared !== verificationReport) paths.add(declared);
-    const matches = observePublicationPaths(run, cwd, declared);
-    if (expands && matches.size === 0) {
-      throw safeError('publication_scope_unproven', {
-        spec: `${spec}/tasks.md`,
-        entry: declared,
-        syntax: PUBLICATION_FILE_SYNTAX,
-      });
+  const tracked = new Set();
+  const untracked = new Set();
+  const readOnly = new Set(specInputs);
+  for (const task of taskOperations) {
+    for (const operation of task.operations) {
+      if (['Read-only', 'Acquire'].includes(operation.operation)) {
+        readOnly.add(operation.path);
+        continue;
+      }
+      if (operation.path === 'specs' || operation.path.startsWith('specs/')) {
+        readOnly.add(operation.path);
+        continue;
+      }
+      const target = ['Download untracked', 'Generate untracked'].includes(operation.operation)
+        ? untracked
+        : tracked;
+      const expands = operation.path.endsWith('/') || /[*?\[]/.test(operation.path);
+      if (!expands) target.add(operation.path);
+      const matches = observePublicationPaths(run, cwd, operation.path);
+      if (expands && matches.size === 0) {
+        throw safeError('publication_scope_unproven', {
+          spec: `${spec}/tasks.md`,
+          taskId: task.taskId,
+          entry: operation.path,
+          syntax: PUBLICATION_FILE_SYNTAX,
+        });
+      }
+      for (const file of matches) {
+        if (file !== verificationReport) target.add(file);
+      }
     }
-    for (const file of matches) {
-      if (file !== verificationReport) paths.add(file);
-    }
   }
-  if (!paths.size) throw safeError('publication_scope_unproven');
-  return [...paths].sort();
+  for (const path of tracked) {
+    if (untracked.has(path)) throw safeError('publication_scope_unproven', {
+      spec: `${spec}/tasks.md`,
+      entry: path,
+      syntax: PUBLICATION_FILE_SYNTAX,
+    });
+  }
+  const allowed = new Set([...tracked, ...untracked]);
+  for (const path of allowed) readOnly.delete(path);
+  if (!allowed.size) throw safeError('publication_scope_unproven');
+  return {
+    trackedWritablePaths: [...tracked].sort(),
+    untrackedEvidencePaths: [...untracked].sort(),
+    taskOperations,
+    readOnlyPaths: [...readOnly].sort(),
+    allowedPaths: [...allowed].sort(),
+  };
+}
+
+export function probePublicationScope({
+  cwd = process.cwd(),
+  issue,
+  spec,
+  step,
+  controllerRunId,
+  run = defaultRun,
+} = {}) {
+  const issueNumber = Number(issue);
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
+    || step !== 'implement' || typeof controllerRunId !== 'string' || !controllerRunId) {
+    throw safeError('invalid_recovery_params');
+  }
+  const canonicalRoot = realpathSync(cwd);
+  const branchResult = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: canonicalRoot });
+  if (!commandSucceeded(branchResult)) throw safeError('recovery_owner_unreadable');
+  const actualBranch = String(branchResult.stdout ?? '').trim();
+  if (!actualBranch || actualBranch === 'HEAD') throw safeError('recovery_owner_unreadable');
+  if (!actualBranch.startsWith(`${issueNumber}-`)) throw safeError('publication_branch_mismatch');
+
+  const runPath = join(canonicalRoot, '.omp', 'sdlc', 'run.json');
+  const runStat = lstatIfPresent(runPath);
+  if (!runStat || runStat.isSymbolicLink() || !runStat.isFile()) throw safeError('unsafe_recovery_owner_path');
+  let runData;
+  try {
+    runData = JSON.parse(readFileSync(runPath, 'utf8'));
+  } catch {
+    throw safeError('recovery_owner_unreadable');
+  }
+  if (!runData || runData.schemaVersion !== 1 || runData.runId !== controllerRunId
+    || runData.projectRoot !== canonicalRoot
+    || !Array.isArray(runData.issues) || !runData.issues.includes(issueNumber)
+    || runData.currentIssue !== issueNumber || runData.currentStep !== step
+    || typeof runData.branch !== 'string' || !runData.branch) {
+    throw safeError('recovery_owner_ambiguous');
+  }
+
+  const safe = readSafeRecoveries(canonicalRoot);
+  if (!safe) throw safeError('recovery_owner_missing');
+  const tupleOwners = safe.owners.filter((owner) =>
+    owner.projectRoot === canonicalRoot
+    && owner.issue === issueNumber
+    && owner.branch === actualBranch
+    && owner.step === step
+    && owner.status === 'incomplete');
+  if (tupleOwners.length !== 1 || tupleOwners[0].ownerId !== controllerRunId) {
+    throw safeError(tupleOwners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
+  }
+  const owner = tupleOwners[0];
+  const discrepancies = [];
+  if (runData.branch !== actualBranch || runData.branch !== owner.branch) {
+    discrepancies.push({
+      field: 'branch',
+      run: runData.branch,
+      actual: actualBranch,
+      owner: owner.branch,
+    });
+  }
+  const scope = inspectPublicationScope({
+    cwd: canonicalRoot,
+    issue: issueNumber,
+    spec,
+    step,
+    run,
+  });
+  return {
+    passed: true,
+    ownerId: owner.ownerId,
+    binding: {
+      actualBranch,
+      run: {
+        runId: runData.runId,
+        projectRoot: runData.projectRoot,
+        branch: runData.branch,
+        issue: runData.issue ?? null,
+        currentIssue: runData.currentIssue,
+        currentStep: runData.currentStep,
+      },
+      recoveryOwner: { ...owner },
+      discrepancies,
+    },
+    scope,
+  };
 }
 
 function runCli(argv = process.argv.slice(2)) {
@@ -1134,8 +1347,25 @@ function runCli(argv = process.argv.slice(2)) {
     if (!key || Object.hasOwn(options, key) || !argv[index + 1]) return 2;
     options[key] = argv[index + 1];
   }
-  if (!['bind', 'reconcile'].includes(action) || !/^[1-9]\d*$/.test(options.issue ?? '')
+  if (!['probe', 'bind', 'reconcile'].includes(action) || !/^[1-9]\d*$/.test(options.issue ?? '')
     || !['implement', 'fix1', 'fix2', 'verify'].includes(options.step)) return 2;
+  if (action === 'probe') {
+    const exactKeys = ['controllerRunId', 'issue', 'spec', 'step'];
+    if (options.step !== 'implement' || Object.keys(options).sort().join(',') !== exactKeys.join(',')) return 2;
+    try {
+      const outcome = probePublicationScope({ ...options, cwd: process.cwd() });
+      process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify(outcome)}\n`);
+      return 0;
+    } catch (error) {
+      process.stderr.write(`${error.reasonCode ?? error.message}\n`);
+      if (error.reasonCode === 'publication_scope_unproven') {
+        for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
+          if (error[key] != null) process.stderr.write(`${key}: ${error[key]}\n`);
+        }
+      }
+      return 1;
+    }
+  }
   let lease;
   try {
     const cwd = process.cwd();
@@ -1148,7 +1378,8 @@ function runCli(argv = process.argv.slice(2)) {
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${options.issue}-`)) throw safeError('publication_branch_mismatch');
-    const allowedPaths = inspectPublicationScope({ ...options, cwd });
+    const scope = inspectPublicationScope({ ...options, cwd });
+    const allowedPaths = scope.allowedPaths;
     const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
     if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
     if (options.step === 'implement' && action === 'bind'
@@ -1164,10 +1395,14 @@ function runCli(argv = process.argv.slice(2)) {
       bindSubject: options.step === 'implement' && action === 'bind' && suppliedSubject,
     });
     if (porcelainPaths(status.stdout).length) assertInitialStagePublication({ ...options, cwd, ownerId });
-    let outcome = { passed: true, ownerId, allowedPaths };
+    let outcome = { passed: true, ownerId, scope };
     if (action === 'reconcile') {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);
-      outcome = reconcileStagePublication({ ...options, cwd, ownerId, allowedPaths, expectedSubject });
+      outcome = {
+        ...reconcileStagePublication({ ...options, cwd, ownerId, allowedPaths, expectedSubject }),
+        ownerId,
+        scope,
+      };
     }
     process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify(outcome)}\n`);
     return outcome.passed ? 0 : 1;

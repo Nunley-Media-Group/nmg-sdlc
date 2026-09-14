@@ -34,13 +34,13 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
 
 If spec resolution fails any check, produce the failed handoff and stop before any edit.
 
-Before implementation edits, reports, or commits, bind the durable stage owner under the controller lease:
+Before implementation edits, reports, or commits, run the native read-only owner-bound scope probe:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]
+node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-safe-recoveries.mjs" probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R
 ```
 
-Use the exact controller run id from the worker header; omit the bracketed option only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. A clean subjectless bind establishes the approved owner/path scope before edits. The helper validates the approved spec and live delivery-task scope; it persists the incomplete project/issue/branch/stage owner without creating execute `run.json`. A fresh lease or session never grants a new owner. Any owner/scope failure stops before edits with an intervention handoff.
+Use the exact controller run id from the worker header; it is required for this probe. Require `NMG_SDLC_PUBLICATION` with `passed:true`, then use only `scope.allowedPaths` as mutation authority. The helper validates the exact singular Approved spec, actual Git branch, active run identity/state, and unique matching incomplete recovery owner without acquiring the controller lock or writing run, handoff, recovery, spec, product, or `.pi-glla` state. Treat `binding.discrepancies` as visible evidence; never repair or silently trust a stale checkpoint branch. Any owner/scope failure stops before edits with an intervention handoff.
 
 ## Execute Tasks in Order
 
@@ -83,7 +83,7 @@ If this worker prompt includes the appended `# Simplify` workflow, execute that 
 
 Complete this boundary before writing a passed handoff:
 
-1. Choose the exact implementation commit subject before staging. It must use `feat:`, `fix:`, `docs:`, or `chore:` (optionally with a conventional scope/breaking marker), describe the change, and contain the concrete requested issue identifier (for issue {{issue}}, `#{{issue}}`; `#N` denotes this issue-number form). Run the same `bind` command again after tasks and simplification, adding `--subject "<exact planned subject>"`, to obtain the current approved `allowedPaths` and machine-check the subject. Invoke the helper with a program-and-argument array; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`; failure stops before any staging, commit, or push.
+1. Choose the exact implementation commit subject before staging. It must use `feat:`, `fix:`, `docs:`, or `chore:` (optionally with a conventional scope/breaking marker), describe the change, and contain the concrete requested issue identifier (for issue {{issue}}, `#{{issue}}`; `#N` denotes this issue-number form). Run the state-changing `bind` command after tasks and simplification, adding `--subject "<exact planned subject>"`, to revalidate the current structured scope and machine-check the subject. Invoke the helper with a program-and-argument array; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true` and use only `scope.allowedPaths`; failure stops before any staging, commit, or push.
 2. When approved non-runtime changes exist, stage those exact paths, verify the staged diff is non-empty, and commit once using the exact machine-checked subject from step 1. Use literal Git pathspecs and avoid restaging already-staged deleted rename sources. Read the current branch and upstream: the branch must start with `N-`; run `git push -u origin HEAD` only for this newly created commit with no upstream, otherwise `git push`. This normal first publication does not consume a recovery allowance. Preserve a failed push's commit and proceed to outcome reconciliation below; never repeat a manual push.
 3. If the non-runtime worktree was already clean, do not commit or push directly. Do not rename, amend, or create a commit to satisfy the check.
 4. Read the exact existing stage subject with `git log -1 --format=%s HEAD`. It must equal the subject machine-checked in step 1 whenever this invocation created the commit. For clean existing publication and every first-push outcome, run `node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" reconcile --issue N --step implement --spec specs/N-SLUG --subject "<exact stage subject>" [--controller-run-id R]`. Use an argument-array process invocation; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`. The helper acknowledges only exact upstream HEAD with expected stage subject and approved path proof, or consumes one `stage_publication` record before pushing known clean-ahead commits without a duplicate commit or force. Divergent, dirty, unknown-subject/scope, changed consumed evidence, and exhausted allowance remain stopped.
