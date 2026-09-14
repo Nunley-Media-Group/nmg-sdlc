@@ -10,10 +10,12 @@
  */
 
 import {
+  chmodSync,
   closeSync,
   constants as FS_CONSTANTS,
   copyFileSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -385,23 +387,22 @@ export function validateHandoff(input) {
 }
 
 function readExpectedHandoff(handoffPath, issue, step) {
+  let root;
   try {
+    root = resolve(dirname(handoffPath), '../../..');
     if (['review1', 'review2'].includes(step)) {
-      const cwd = resolve(dirname(handoffPath), '../../..');
-      handoffPath = join(cwd, resolveReviewArtifacts({ cwd, issue, step }).handoffPath);
+      handoffPath = join(root, resolveReviewArtifacts({ cwd: root, issue, step }).handoffPath);
     }
-  } catch {
-    return { handoff: null, reasonCode: 'invalid_handoff' };
-  }
-  if (!existsSync(handoffPath)) {
-    return { handoff: null, reasonCode: 'missing_handoff' };
-  }
-  try {
-    const handoff = validateHandoff(handoffPath);
-    if (handoff.issue !== issue || handoff.step !== step) {
+    const absolutePath = resolve(handoffPath);
+    const relativePath = relative(root, absolutePath).split('\\').join('/');
+    try {
+      lstatSync(absolutePath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { handoff: null, reasonCode: 'missing_handoff' };
       return { handoff: null, reasonCode: 'invalid_handoff' };
     }
-    return { handoff, reasonCode: null };
+    const snapshot = readStrictHandoffSnapshot(root, relativePath, issue, step);
+    return { handoff: snapshot.handoff, reasonCode: null };
   } catch {
     return { handoff: null, reasonCode: 'invalid_handoff' };
   }
@@ -587,6 +588,263 @@ const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
   '.pi-glla/session-owner.json',
 ]);
 const MAX_GOAL_EVIDENCE_BYTES = 256 * 1024;
+const MAX_HANDOFF_BYTES = 256 * 1024;
+const SAFE_IGNORED_STATE_DIRECTORIES = new Set([
+  '.cache',
+  '.dart_tool',
+  '.pub-cache',
+  'DerivedData',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+]);
+
+function fileIdentity(stat) {
+  return {
+    dev: Number(stat.dev),
+    ino: Number(stat.ino),
+    mode: Number(stat.mode),
+    size: Number(stat.size),
+    mtimeMs: Number(stat.mtimeMs),
+    ctimeMs: Number(stat.ctimeMs),
+  };
+}
+
+function sameFileIdentity(stat, identity) {
+  return stat && identity && Object.entries(identity).every(([key, value]) => Number(stat[key]) === value);
+}
+
+function assertNoSymlinkParents(root, relativePath, reasonCode) {
+  const normalized = relativePath.split('\\').join('/');
+  if (!normalized || isAbsolute(normalized) || normalized.split('/').includes('..')) {
+    throw new Error(reasonCode);
+  }
+  let current = root;
+  for (const component of normalized.split('/').slice(0, -1)) {
+    current = join(current, component);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch {
+      throw new Error(reasonCode);
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(reasonCode);
+  }
+}
+
+function readBoundedNoFollowFile(root, relativePath, maxBytes, reasonCode) {
+  assertNoSymlinkParents(root, relativePath, reasonCode);
+  const target = join(root, relativePath);
+  let descriptor;
+  try {
+    const before = lstatSync(target);
+    if (before.isSymbolicLink() || !before.isFile() || before.size <= 0 || before.size > maxBytes) {
+      throw new Error(reasonCode);
+    }
+    const identity = fileIdentity(before);
+    descriptor = openSync(target, FS_CONSTANTS.O_RDONLY | (FS_CONSTANTS.O_NOFOLLOW ?? 0));
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile() || !sameFileIdentity(opened, identity)) throw new Error(reasonCode);
+    const bytes = readFileSync(descriptor);
+    const afterDescriptor = fstatSync(descriptor);
+    const afterPath = lstatSync(target);
+    if (bytes.length !== identity.size
+      || !sameFileIdentity(afterDescriptor, identity)
+      || !sameFileIdentity(afterPath, identity)
+      || afterPath.isSymbolicLink() || !afterPath.isFile()) {
+      throw new Error(reasonCode);
+    }
+    return { bytes, identity };
+  } catch (error) {
+    if (error?.message === reasonCode) throw error;
+    throw new Error(reasonCode);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function readStrictHandoffSnapshot(root, handoffPath, issue, step) {
+  const snapshot = readBoundedNoFollowFile(
+    root,
+    handoffPath,
+    MAX_HANDOFF_BYTES,
+    'invalid_handoff',
+  );
+  let handoff;
+  try {
+    handoff = validateHandoff(JSON.parse(snapshot.bytes.toString('utf8')));
+  } catch {
+    throw new Error('invalid_handoff');
+  }
+  if (handoff.issue !== issue || handoff.step !== step) throw new Error('invalid_handoff');
+  return {
+    ...snapshot,
+    handoff,
+    digest: createHash('sha256').update(snapshot.bytes).digest('hex'),
+  };
+}
+function ensureControllerHistoryDirectory(root, relativeDirectory) {
+  let current = root;
+  for (const component of relativeDirectory.split('/')) {
+    current = join(current, component);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('unsafe_history_path');
+    } catch (error) {
+      if (error?.message === 'unsafe_history_path') throw error;
+      if (error?.code !== 'ENOENT') throw new Error('unsafe_history_path');
+      try {
+        mkdirSync(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if (mkdirError?.code !== 'EEXIST') throw new Error('unsafe_history_path');
+      }
+      const created = lstatSync(current);
+      if (created.isSymbolicLink() || !created.isDirectory()) throw new Error('unsafe_history_path');
+    }
+  }
+}
+
+function archiveFailedHandoff(root, proof) {
+  const current = readStrictHandoffSnapshot(root, proof.handoffPath, proof.issue, proof.step);
+  if (current.digest !== proof.handoffDigest
+    || !Object.entries(proof.handoffIdentity).every(
+      ([key, value]) => current.identity[key] === value,
+    )) {
+    throw new Error('invalid_handoff');
+  }
+  const historyDirectory = `${RUN_DIR}/history/repaired-publication`;
+  ensureControllerHistoryDirectory(root, historyDirectory);
+  const archivePath = `${historyDirectory}/${proof.issue}-implement-${proof.handoffDigest}.json`;
+  const target = join(root, archivePath);
+  try {
+    writeFileSync(target, current.bytes, { flag: 'wx', mode: 0o444 });
+    chmodSync(target, 0o444);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw new Error('handoff_archive_failed');
+  }
+  const archived = readBoundedNoFollowFile(
+    root,
+    archivePath,
+    MAX_HANDOFF_BYTES,
+    'handoff_archive_failed',
+  );
+  if (!archived.bytes.equals(current.bytes)
+    || createHash('sha256').update(archived.bytes).digest('hex') !== proof.handoffDigest) {
+    throw new Error('handoff_archive_failed');
+  }
+  return { path: archivePath, digest: proof.handoffDigest };
+}
+
+function pathWithin(path, boundary) {
+  const normalizedPath = path.replace(/\/+$/, '');
+  const normalizedBoundary = boundary.replace(/\/+$/, '');
+  return normalizedPath === normalizedBoundary
+    || normalizedPath.startsWith(`${normalizedBoundary}/`);
+}
+
+function hasWorkspaceManifest(root, component) {
+  if (!/^[A-Za-z0-9._-]+$/.test(component)) return false;
+  const workspace = join(root, component);
+  const workspaceStat = lstatSync(workspace);
+  if (workspaceStat.isSymbolicLink() || !workspaceStat.isDirectory()) return false;
+  return ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+    .some((manifest) => {
+      try {
+        const stat = lstatSync(join(workspace, manifest));
+        return stat.isFile() && !stat.isSymbolicLink();
+      } catch {
+        return false;
+      }
+    });
+}
+
+function isIrrelevantIgnoredState(root, path, protectedPaths) {
+  if (protectedPaths.some((protectedPath) =>
+    pathWithin(path, protectedPath) || pathWithin(protectedPath, path))) return false;
+  const components = path.replace(/\/+$/, '').split('/');
+  const workspaceBound = components.length > 1 && hasWorkspaceManifest(root, components[0]);
+  if (SAFE_IGNORED_STATE_DIRECTORIES.has(components[0])
+    || (workspaceBound && SAFE_IGNORED_STATE_DIRECTORIES.has(components[1]))) return true;
+  const basename = components.at(-1);
+  if (basename === '.DS_Store') return true;
+  if (path === '.claude/settings.local.json' || pathWithin(path, '.claude/worktrees')
+    || path === '.vscode/settings.json' || pathWithin(path, '.worktrees')
+    || /^\.[a-z0-9-]+-review(?:\/|$)/.test(path)) return true;
+  if (workspaceBound && (
+    /^\.env(?:\.|$)/.test(basename)
+    || /\.(?:iml|jks|log|pid|pyc|tsbuildinfo)$/.test(basename)
+    || ['.flutter-plugins-dependencies', '.integration_test_output', 'devtools_options.yaml']
+      .includes(basename)
+    || (components[1] === 'charts' && basename === 'values-local.yaml')
+    || (components[1] === 'android' && [
+      'GeneratedPluginRegistrant.java',
+      'gradle-wrapper.jar',
+      'gradlew',
+      'gradlew.bat',
+      'key.properties',
+      'local.properties',
+    ].includes(basename))
+    || (components[1] === 'ios' && [
+      'Env.xcconfig',
+      'Flutter.podspec',
+      'Generated.xcconfig',
+      'flutter_export_environment.sh',
+      'GeneratedPluginRegistrant.h',
+      'GeneratedPluginRegistrant.m',
+    ].includes(basename))
+  )) return true;
+  if (components.includes('__pycache__')) return true;
+  if (workspaceBound && components.length > 2
+    && components[1] === 'android' && components[2] === '.gradle') return true;
+  if (workspaceBound && components.length > 2 && components[1] === 'ios'
+    && ['.symlinks', 'Pods'].includes(components[2])) return true;
+  if (workspaceBound && components.length > 3 && components[1] === 'ios'
+    && components[2] === 'Flutter' && components[3] === 'ephemeral') return true;
+  return workspaceBound && components.length > 3 && components[1] === 'test'
+    && ['golden', 'goldens'].includes(components[2]) && components[3] === 'failures';
+}
+
+function knownControllerStatePath(relativePath, currentHandoffPath, allowOwnedLease) {
+  if ([RUN_FILE, `${RUN_DIR}/safe-recoveries.json`, OMP_CONTROLLER_CONFIG_FILE, currentHandoffPath]
+    .includes(relativePath)) return true;
+  if (allowOwnedLease && relativePath === `${RUN_DIR}/controller.lock`) return true;
+  const local = relativePath.slice(`${RUN_DIR}/`.length);
+  if (/^handoffs\/[1-9]\d*-(?:start|implement|review1|fix1|review2|fix2|verify|deliver)\.json$/.test(local)) {
+    return true;
+  }
+  if (/^prompt-provenance\/(?:sdlc-[a-z0-9-]+|worker-(?:start|implement|review1|fix1|review2|fix2|verify|deliver))\.json$/.test(local)) {
+    return true;
+  }
+  if (/^reviews\/[1-9]\d*-(?:review[12]\.md|review[12]-reviewer-[1-9]\d*\.(?:access\.jsonl|assignment\.json)|review[12]\.slices\.json|fix[12]\.publication\.json)$/.test(local)) {
+    return true;
+  }
+  return /^verification\/[1-9]\d*\.json$/.test(local);
+}
+
+function assertKnownControllerState(root, currentHandoffPath, allowOwnedLease) {
+  const runtime = join(root, RUN_DIR);
+  const pending = [[runtime, RUN_DIR]];
+  while (pending.length > 0) {
+    const [directory, relativeDirectory] = pending.pop();
+    const directoryStat = lstatSync(directory);
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      throw new Error('workflow_evidence_unproven');
+    }
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      const target = join(directory, entry.name);
+      const stat = lstatSync(target);
+      if (stat.isSymbolicLink()) throw new Error('workflow_evidence_unproven');
+      if (stat.isDirectory()) {
+        pending.push([target, relativePath]);
+      } else if (!stat.isFile() || stat.size > 512 * 1024
+        || !knownControllerStatePath(relativePath, currentHandoffPath, allowOwnedLease)) {
+        throw new Error('workflow_evidence_unproven');
+      }
+    }
+  }
+}
 
 function resultBytes(result) {
   if (!commandSucceeded(result)) throw new Error('publication_repair_unproven');
@@ -626,14 +884,13 @@ function porcelainStatusEntries(result) {
 }
 
 function parseBoundedJsonFile(root, relativePath) {
-  const target = join(root, relativePath);
-  const stat = lstatSync(target);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0
-    || stat.size > MAX_GOAL_EVIDENCE_BYTES) {
-    throw new Error('workflow_evidence_unproven');
-  }
   try {
-    return JSON.parse(readFileSync(target, 'utf8'));
+    return JSON.parse(readBoundedNoFollowFile(
+      root,
+      relativePath,
+      MAX_GOAL_EVIDENCE_BYTES,
+      'workflow_evidence_unproven',
+    ).bytes.toString('utf8'));
   } catch {
     throw new Error('workflow_evidence_unproven');
   }
@@ -654,16 +911,16 @@ function proveTerminalGoalEvidence(root, untrackedPaths) {
   }
   const session = parseBoundedJsonFile(root, '.pi-glla/session-owner.json');
   const owner = parseBoundedJsonFile(root, '.pi-glla/owner.json');
-  const activeFile = join(root, '.pi-glla/active.jsonl');
-  const activeStat = lstatSync(activeFile);
-  if (!activeStat.isFile() || activeStat.isSymbolicLink() || activeStat.size <= 0
-    || activeStat.size > MAX_GOAL_EVIDENCE_BYTES) {
-    throw new Error('workflow_evidence_unproven');
-  }
-  const activeLines = readFileSync(activeFile, 'utf8').split(/\r?\n/).filter(Boolean);
   let active;
   try {
-    active = activeLines.map((line) => JSON.parse(line));
+    const activeBytes = readBoundedNoFollowFile(
+      root,
+      '.pi-glla/active.jsonl',
+      MAX_GOAL_EVIDENCE_BYTES,
+      'workflow_evidence_unproven',
+    ).bytes;
+    active = activeBytes.toString('utf8').split(/\r\n|\r|\n/).filter(Boolean)
+      .map((line) => JSON.parse(line));
   } catch {
     throw new Error('workflow_evidence_unproven');
   }
@@ -708,10 +965,7 @@ export function inspectRepairedPublicationIntervention({
     || checkpoint.failed?.reasonCode !== 'implementation_failed'
     || Object.keys(checkpoint.workers || {}).length !== 0
     || (checkpoint.absentWorkers || []).some((worker) =>
-      worker.issue === checkpoint.currentIssue && worker.step === 'implement')
-    || !handoff || handoff.issue !== checkpoint.currentIssue || handoff.step !== 'implement'
-    || handoff.status !== 'failed' || handoff.intervention !== true
-    || handoff.reasonCode !== 'implementation_failed' || handoff.next !== null) {
+      worker.issue === checkpoint.currentIssue && worker.step === 'implement')) {
     throw new Error('repaired_intervention_unproven');
   }
   const checkout = currentCheckout(root, run);
@@ -723,6 +977,17 @@ export function inspectRepairedPublicationIntervention({
     : spec.dir.split('\\').join('/');
   const tasksPath = `${specRelative}/tasks.md`;
   const handoffPath = `${HANDOFF_DIR}/${checkpoint.currentIssue}-implement.json`;
+  const handoffSnapshot = readStrictHandoffSnapshot(
+    root,
+    handoffPath,
+    checkpoint.currentIssue,
+    'implement',
+  );
+  handoff = handoffSnapshot.handoff;
+  if (handoff.status !== 'failed' || handoff.intervention !== true
+    || handoff.reasonCode !== 'implementation_failed' || handoff.next !== null) {
+    throw new Error('repaired_intervention_unproven');
+  }
   const permittedArtifacts = new Set([
     tasksPath,
     handoffPath,
@@ -767,42 +1032,64 @@ export function inspectRepairedPublicationIntervention({
     throw new Error('recovery_consumed');
   }
   const status = porcelainStatusEntries(run('git', [
-    'status', '--porcelain=v1', '-z', '--untracked-files=all',
+    'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
   ], { cwd: root }));
   if (status.some(({ status: code }) => /[MADRCUT]/.test(code[0]))) {
     throw new Error('staged_changes_unproven');
   }
   const trackedPaths = status
-    .filter(({ status: code }) => code !== '??')
+    .filter(({ status: code }) => !['??', '!!'].includes(code))
     .flatMap(({ paths }) => paths)
     .sort();
   if (trackedPaths.length !== 1 || trackedPaths[0] !== tasksPath) {
     throw new Error('tracked_changes_unproven');
   }
-  const untrackedPaths = status
+  const ordinaryUntrackedPaths = status
     .filter(({ status: code }) => code === '??')
     .flatMap(({ paths }) => paths);
-  const workflowEvidencePaths = proveTerminalGoalEvidence(root, untrackedPaths);
-  const changedFromHead = nulPathList(run('git', [
-    'diff', '--name-only', '-z', checkpoint.head, '--',
+  const protectedPaths = [
+    tasksPath,
+    specRelative,
+    RUN_DIR,
+    '.pi-glla',
+    ...probe.scope.trackedWritablePaths,
+    ...probe.scope.untrackedEvidencePaths,
+    ...probe.scope.readOnlyPaths,
+    ...probe.scope.allowedPaths,
+  ];
+  const ignoredImplementationPaths = nulPathList(run('git', [
+    'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
+    ...new Set([
+      ...probe.scope.trackedWritablePaths,
+      ...probe.scope.untrackedEvidencePaths,
+    ]),
   ], { cwd: root }));
-  if (changedFromHead.length !== 1 || changedFromHead[0] !== tasksPath) {
-    throw new Error('tracked_changes_unproven');
+  if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+  const ignoredPaths = status
+    .filter(({ status: code }) => code === '!!')
+    .flatMap(({ paths }) => paths);
+  for (const ignoredPath of ignoredPaths) {
+    if (pathWithin(ignoredPath, RUN_DIR) || pathWithin(RUN_DIR, ignoredPath)) {
+      assertKnownControllerState(root, handoffPath, allowOwnedLease);
+      continue;
+    }
+    if (TERMINAL_GOAL_EVIDENCE_PATHS.some((path) =>
+      pathWithin(ignoredPath, path) || pathWithin(path, ignoredPath))
+      || !isIrrelevantIgnoredState(root, ignoredPath, protectedPaths)) {
+      throw new Error('workflow_evidence_unproven');
+    }
   }
-  if (nulPathList(run('git', ['diff', '--cached', '--name-only', '-z', '--'], { cwd: root })).length) {
-    throw new Error('staged_changes_unproven');
-  }
-  const ignoredTrackedState = porcelainStatusEntries(run('git', [
-    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
-    '--', ...probe.scope.trackedWritablePaths,
-  ], { cwd: root }));
-  if (ignoredTrackedState.length > 0) throw new Error('implementation_paths_dirty');
+  const workflowEvidencePaths = proveTerminalGoalEvidence(root, ordinaryUntrackedPaths);
   const beforeBytes = resultBytes(run('git', [
     'show', `${checkpoint.head}:${tasksPath}`,
   ], { cwd: root, encoding: null }));
-  const currentBytes = readFileSync(join(root, tasksPath));
+  const currentBytes = readBoundedNoFollowFile(
+    root,
+    tasksPath,
+    4 * 1024 * 1024,
+    'publication_repair_unproven',
+  ).bytes;
   const publication = provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath });
-  const handoffBytes = readFileSync(join(root, handoffPath));
   return {
     class: REPAIRED_PUBLICATION_RECOVERY,
     issue: checkpoint.currentIssue,
@@ -815,7 +1102,9 @@ export function inspectRepairedPublicationIntervention({
     publication,
     workflowEvidencePaths,
     handoff: structuredClone(handoff),
-    handoffDigest: createHash('sha256').update(handoffBytes).digest('hex'),
+    handoffPath,
+    handoffDigest: handoffSnapshot.digest,
+    handoffIdentity: handoffSnapshot.identity,
     scope: probe.scope,
     discrepancies: probe.binding.discrepancies,
   };
@@ -2478,6 +2767,7 @@ export function runExecute({
   let existingRun = existingCheckpoint.data;
   let issues = parsedArgs.issues;
   let recoveryIssue = null;
+  let recoveryStep = null;
   let recoveryBranch = null;
   let repairedRecoveryClass = null;
   const bareRecovery = parsedArgs.defaultBacklog && !parsedArgs.recoverStale && !parsedArgs.retainWorker;
@@ -2489,6 +2779,7 @@ export function runExecute({
     if (discovery.issues) {
       issues = discovery.issues;
       recoveryIssue = discovery.issue;
+      recoveryStep = discovery.step;
       recoveryBranch = discovery.branch;
       repairedRecoveryClass = discovery.recoveryClass ?? null;
     } else {
@@ -2837,23 +3128,25 @@ export function runExecute({
   const resumedPromptActivations = new Set();
   let recoveryDispatch = null;
   if (repairedRecoveryClass) {
-    const issue = runState.currentIssue;
-    const step = runState.currentStep;
-    const handoffResult = readExpectedHandoff(
-      join(cwd, HANDOFF_DIR, `${issue}-${step}.json`), issue, step,
-    );
     let proof;
     try {
       if (!bareRecovery || repairedRecoveryClass !== REPAIRED_PUBLICATION_RECOVERY) {
         throw new Error('repaired_intervention_unproven');
       }
+      runState = latestMatchingRunState(runState, cwd);
+      if (runState.currentIssue !== recoveryIssue || runState.currentStep !== recoveryStep
+        || recoveryStep !== 'implement') {
+        throw new Error('checkpoint_identity_mismatch');
+      }
+      const issue = runState.currentIssue;
+      const step = runState.currentStep;
       proof = inspectRepairedPublicationIntervention({
         cwd,
         checkpoint: runState,
-        handoff: handoffResult.handoff,
         run,
         allowOwnedLease: true,
       });
+      const archivedHandoff = archiveFailedHandoff(cwd, proof);
       const consumed = consumeSafeRecovery({
         cwd,
         ownerId: proof.ownerId,
@@ -2866,8 +3159,7 @@ export function runExecute({
           tasksPath: proof.tasksPath,
           publication: proof.publication,
           workflowEvidencePaths: proof.workflowEvidencePaths,
-          handoff: proof.handoff,
-          handoffDigest: proof.handoffDigest,
+          handoffArchive: archivedHandoff,
           discrepancies: proof.discrepancies,
         },
       });
@@ -2883,32 +3175,14 @@ export function runExecute({
           class: proof.class,
           tasksPath: proof.tasksPath,
           publication: proof.publication,
-          handoffDigest: proof.handoffDigest,
+          handoffArchive: archivedHandoff,
         },
         failure: structuredClone(runState.failed),
         handoff: proof.handoff,
         disposition: 'consumed',
       });
-      runState.remediation = {
-        issue,
-        step,
-        attempt: 1,
-        completedAttempts: 0,
-        status: 'active',
-        reasonCode: proof.handoff.reasonCode,
-        summary: proof.handoff.summary,
-        artifacts: [...proof.handoff.artifacts],
-        closedWorker: null,
-        remWorker: null,
-        history: [{
-          attempt: 0,
-          reasonCode: proof.handoff.reasonCode,
-          artifacts: [...proof.handoff.artifacts],
-          closedName: null,
-          closedPaneId: null,
-          at: consumed.record.consumedAt,
-        }],
-      };
+      runState.failed = null;
+      delete runState.remediation;
       persistRunState(runState, cwd);
       recoveryDispatch = `${issue}:${step}`;
     } catch (error) {
@@ -3960,7 +4234,8 @@ export function runExecute({
               handoff,
             })
             : null;
-        if (isRemediableFailedHandoff({ step, state, handoff }) && !remediation) {
+        if (isRemediableFailedHandoff({ step, state, handoff }) && !remediation
+          && recoveryDispatch !== `${issue}:${step}`) {
           const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
           if (remResult.result) return remResult.result;
           if (Number.isInteger(remResult.status)) return remResult;
@@ -4287,7 +4562,8 @@ export function runExecute({
         });
       }
       const { handoff } = handoffResult;
-      if (isRemediableFailedHandoff({ step, state, handoff })) {
+      if (isRemediableFailedHandoff({ step, state, handoff })
+        && recoveryDispatch !== `${issue}:${step}`) {
         const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });
         if (remResult.result) return remResult.result;
         if (Number.isInteger(remResult.status)) return remResult;

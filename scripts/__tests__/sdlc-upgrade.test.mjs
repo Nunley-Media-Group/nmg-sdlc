@@ -842,6 +842,39 @@ describe('publication File(s) upgrade', () => {
   });
 
   it.each([
+    ['pure CR', '\r'],
+    ['mixed CR, LF, and CRLF', null],
+  ])('preserves %s separators through detection, application, and proof', (_name, separator) => {
+    const root = makeRoot();
+    const relativePath = 'specs/42-add-x/tasks.md';
+    const lines = [
+      '**Issue**: #42',
+      '**Status**: Approved',
+      '### T001: Create code',
+      '**Files**: `src/a.ts`',
+      '**Type**: Modify',
+      '',
+    ];
+    const source = separator
+      ? lines.join(separator)
+      : `${lines[0]}\r${lines[1]}\n${lines[2]}\r\n${lines[3]}\r${lines[4]}\n`;
+    write(root, relativePath, source);
+    const item = detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false })
+      .items.find(({ kind }) => kind === 'publication-files');
+
+    applyUpgrade(root, [item.id], noNetworkRun, { includeIssueDependencies: false });
+
+    const current = fs.readFileSync(path.join(root, relativePath));
+    const expected = Buffer.from(source.replace('**Files**:', '**File(s)**:'));
+    expect(current).toEqual(expected);
+    expect(provePublicationLabelRepair({
+      beforeBytes: Buffer.from(source),
+      currentBytes: current,
+      tasksPath: relativePath,
+    })).toMatchObject({ rewriteCount: 1 });
+  });
+
+  it.each([
     'Create `src/a.ts` or `src/b.ts`',
     'Create `src/a.ts` and src/b.ts',
   ])('keeps ambiguous declaration as a finding: %s', (declaration) => {

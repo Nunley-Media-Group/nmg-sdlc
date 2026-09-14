@@ -1252,7 +1252,8 @@ function publicationFilesUpgrade(specDirs) {
     // Latin-1 is a reversible byte view. The publication grammar is ASCII, so
     // parsing and rewriting this view cannot normalize unrelated invalid UTF-8.
     const source = sourceBytes.toString('latin1');
-    const sourceLines = source.split(/\r?\n/);
+    const segments = publicationLineSegments(source);
+    const sourceLines = segments.map(({ content }) => content);
     const visibility = publicationTaskVisibility(sourceLines);
     const rewrites = [];
     const findings = [];
@@ -1554,25 +1555,15 @@ function withPublicationMutationLock(root, action) {
   if (primaryError) throw primaryError;
   return outcome;
 }
-function splitBufferLines(source) {
-  const lines = [];
-  let start = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    if (source[index] === 0x0a) {
-      lines.push(source.subarray(start, index + 1));
-      start = index + 1;
-    }
-  }
-  if (start < source.length || source.length === 0) lines.push(source.subarray(start));
-  return lines;
+function splitPublicationBufferSegments(source) {
+  return publicationLineSegments(source.toString('latin1')).map(({ content, ending }) => ({
+    content: Buffer.from(content, 'latin1'),
+    ending: Buffer.from(ending, 'latin1'),
+  }));
 }
 
-function applyPublicationBufferRewrite(line, rewrite) {
-  const newlineLength = line.length >= 2 && line.at(-2) === 0x0d && line.at(-1) === 0x0a
-    ? 2
-    : line.at(-1) === 0x0a ? 1 : 0;
-  const content = line.subarray(0, line.length - newlineLength);
-  const newline = line.subarray(line.length - newlineLength);
+function applyPublicationBufferRewrite(segment, rewrite) {
+  const { content, ending } = segment;
   const before = Buffer.from(rewrite.before, 'latin1');
   const after = Buffer.from(rewrite.after, 'latin1');
   if (!content.equals(before)) {
@@ -1602,12 +1593,14 @@ function applyPublicationBufferRewrite(line, rewrite) {
       'Publication rewrite cannot map an exact ASCII byte span',
     );
   }
-  return Buffer.concat([
-    content.subarray(0, prefixLength),
-    afterSpan,
-    content.subarray(content.length - suffixLength),
-    newline,
-  ]);
+  return {
+    content: Buffer.concat([
+      content.subarray(0, prefixLength),
+      afterSpan,
+      content.subarray(content.length - suffixLength),
+    ]),
+    ending,
+  };
 }
 
 function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes, expectedDigest } = {}) {
@@ -1668,7 +1661,7 @@ function publicationOutputSnapshot(root, plan) {
     expectedDigest: plan.sourceDigest,
   });
   const source = snapshot.source;
-  const lines = splitBufferLines(source);
+  const lines = splitPublicationBufferSegments(source);
   for (const rewrite of plan.rewrites) {
     const index = rewrite.line - 1;
     if (!lines[index]) {
@@ -1682,7 +1675,7 @@ function publicationOutputSnapshot(root, plan) {
   return {
     target,
     source,
-    output: Buffer.concat(lines),
+    output: Buffer.concat(lines.flatMap(({ content, ending }) => [content, ending])),
     mode: snapshot.mode,
     identity: snapshot.identity,
   };

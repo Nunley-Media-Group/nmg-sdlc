@@ -1914,6 +1914,7 @@ describe('runExecute controller', () => {
     git('config', 'commit.gpgsign', 'false');
     put('.gitignore', '.omp/sdlc/\n');
     for (const relativePath of trackedPaths) put(relativePath, `tracked fixture ${relativePath}\n`);
+    put('mobile/pubspec.yaml', 'name: pathcast_fixture\n');
     const header = '**Issue**: #108\n**Status**: Approved\n\n';
     put(`${spec}/requirements.md`, `${header}### AC1: Preserve exact scope\n`);
     put(`${spec}/design.md`, `${header}Use structured scope.\n`);
@@ -2025,13 +2026,13 @@ describe('runExecute controller', () => {
         return { status: 0 };
       },
       agentPrompt: ({ name }) => {
-        expect(name).toBe('r108-implement');
+        expect(name).toBe('s108-implement');
         put(handoffPath, `${JSON.stringify({
           schemaVersion: 1,
           issue: 108,
           step: 'implement',
           status: 'failed',
-          intervention: true,
+          intervention: false,
           summary: 'Controlled worker boundary stopped before product implementation.',
           artifacts: [],
           next: null,
@@ -2196,6 +2197,15 @@ describe('runExecute controller', () => {
     }],
     ['arbitrary untracked file', (f) => f.put('scratch.txt', 'unowned\n')],
     ['partial goal evidence', (f) => fs.rmSync(path.join(f.root, '.pi-glla/owner.json'))],
+    ['symlink goal evidence', (f) => {
+      const ownerPath = path.join(f.root, '.pi-glla/owner.json');
+      fs.rmSync(ownerPath);
+      fs.symlinkSync('session-owner.json', ownerPath);
+    }],
+    ['extra ignored goal evidence', (f) => {
+      f.put('.git/info/exclude', '.pi-glla/\n');
+      f.put('.pi-glla/extra.json', '{}\n');
+    }],
     ['dirty allowed untracked evidence', (f) => f.put(f.evidencePaths[1], 'unimplemented\n')],
   ])('keeps repaired intervention blocked for %s without discovery mutation', (_name, mutate) => {
     const fixture = makeRepairedPublicationFixture();
@@ -2205,6 +2215,92 @@ describe('runExecute controller', () => {
       cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
     }).state).toBe('blocked');
     expect(fixture.snapshot()).toEqual(before);
+  });
+
+  it('admits only irrelevant ignored cache/build state and blocks ignored implementation authority', () => {
+    const recoverable = makeRepairedPublicationFixture();
+    recoverable.put('.git/info/exclude', [
+      'api/node_modules/',
+      'mobile/build/',
+      '',
+    ].join('\n'));
+    recoverable.put('api/node_modules/example/package.json', '{}\n');
+    recoverable.put('mobile/build/intermediates/cache.bin', 'cache\n');
+    expect(discoverRecovery({
+      cwd: recoverable.root, run: recoverable.run, herdr: recoverable.herdr,
+    })).toMatchObject({ state: 'loop-recovery-available' });
+
+    const ignoredEvidence = makeRepairedPublicationFixture();
+    ignoredEvidence.put('.git/info/exclude', `${ignoredEvidence.evidencePaths[0]}\n`);
+    ignoredEvidence.put(ignoredEvidence.evidencePaths[0], '{}\n');
+    expect(discoverRecovery({
+      cwd: ignoredEvidence.root, run: ignoredEvidence.run, herdr: ignoredEvidence.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+
+    const ignoredProduct = makeRepairedPublicationFixture();
+    ignoredProduct.put('.git/info/exclude', 'src/ignored-product.ts\n');
+    ignoredProduct.put('src/ignored-product.ts', 'unowned product\n');
+    expect(discoverRecovery({
+      cwd: ignoredProduct.root, run: ignoredProduct.run, herdr: ignoredProduct.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+
+    const ignoredBuildSource = makeRepairedPublicationFixture();
+    ignoredBuildSource.put('.git/info/exclude', 'src/build/\n');
+    ignoredBuildSource.put('src/build/ignored-product.ts', 'unowned product\n');
+    expect(discoverRecovery({
+      cwd: ignoredBuildSource.root, run: ignoredBuildSource.run, herdr: ignoredBuildSource.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+
+    const ignoredController = makeRepairedPublicationFixture();
+    ignoredController.put('.omp/sdlc/arbitrary.json', '{}\n');
+    expect(discoverRecovery({
+      cwd: ignoredController.root, run: ignoredController.run, herdr: ignoredController.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+  });
+
+  it('blocks partial ignored terminal evidence', () => {
+    const fixture = makeRepairedPublicationFixture();
+    fixture.put('.git/info/exclude', '.pi-glla/\n');
+    fs.rmSync(path.join(fixture.root, '.pi-glla/owner.json'));
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+  });
+
+  it.each([
+    ['symlink handoff', (f) => {
+      fs.rmSync(path.join(f.root, f.handoffPath));
+      fs.symlinkSync(path.join(f.root, f.tasksPath), path.join(f.root, f.handoffPath));
+    }],
+    ['nonregular handoff', (f) => {
+      fs.rmSync(path.join(f.root, f.handoffPath));
+      fs.mkdirSync(path.join(f.root, f.handoffPath));
+    }],
+    ['oversize handoff', (f) => f.put(f.handoffPath, Buffer.alloc(256 * 1024 + 1, 0x20))],
+    ['symlinked handoff parent', (f) => {
+      const runtime = path.join(f.root, '.omp/sdlc');
+      fs.renameSync(path.join(runtime, 'handoffs'), path.join(runtime, 'handoffs-real'));
+      fs.symlinkSync('handoffs-real', path.join(runtime, 'handoffs'));
+    }],
+  ])('blocks %s before repaired-publication dispatch', (_name, mutate) => {
+
+    const fixture = makeRepairedPublicationFixture();
+    const runBytes = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'));
+    const safeBytes = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/safe-recoveries.json'));
+    mutate(fixture);
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
+    expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'))).toEqual(runBytes);
+    expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(safeBytes);
+    expect(fixture.starts).toHaveLength(0);
+  });
+  it('blocks a complete terminal trio when Git classifies it as ignored', () => {
+    const fixture = makeRepairedPublicationFixture();
+    fixture.put('.git/info/exclude', '.pi-glla/\n');
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({ state: 'blocked', reasonCode: 'implementation_failed' });
   });
 
   it('blocks repaired intervention while any controller lease exists', () => {
@@ -2227,12 +2323,40 @@ describe('runExecute controller', () => {
     }
   });
 
+  it('re-reads the checkpoint under lease before consuming repaired recovery', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const safeBefore = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/safe-recoveries.json'));
+    let changed = false;
+    const racingRun = (command, args, options) => {
+      if (!changed && command === 'git'
+        && fs.existsSync(path.join(fixture.root, '.omp/sdlc/controller.lock'))) {
+        changed = true;
+        const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+        checkpoint.currentStep = 'verify';
+        checkpoint.failed = { issue: 108, step: 'verify', reasonCode: 'verification_failed' };
+        fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+      }
+      return fixture.run(command, args, options);
+    };
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: racingRun, herdr: fixture.herdr,
+    });
+
+    expect(result).toMatchObject({ status: 1, stderr: 'checkpoint_identity_mismatch\n' });
+    expect(fixture.starts).toHaveLength(0);
+    expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(safeBefore);
+    expect(fs.existsSync(path.join(
+      fixture.root,
+      '.omp/sdlc/history/repaired-publication',
+    ))).toBe(false);
+  });
+
   it('bare run consumes repaired publication recovery once and dispatches only implement', () => {
     const fixture = makeRepairedPublicationFixture();
-    const originalHandoff = fixture.readJson(fixture.handoffPath);
-    const originalDigest = createHash('sha256')
-      .update(fs.readFileSync(path.join(fixture.root, fixture.handoffPath)))
-      .digest('hex');
+    const originalHandoffBytes = fs.readFileSync(path.join(fixture.root, fixture.handoffPath));
+    const originalHandoff = JSON.parse(originalHandoffBytes);
+    const originalDigest = createHash('sha256').update(originalHandoffBytes).digest('hex');
     const result = runExecute({
       args: '',
       cwd: fixture.root,
@@ -2241,8 +2365,9 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
     expect(result.status).toBe(1);
-    expect(fixture.starts.map(({ name }) => name)).toEqual(['r108-implement']);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s108-implement']);
     const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+    const archive = safe.records[0].evidence.handoffArchive;
     expect(safe.records).toEqual([
       expect.objectContaining({
         class: 'repaired_publication_intervention',
@@ -2251,12 +2376,18 @@ describe('runExecute controller', () => {
         step: 'implement',
         disposition: 'consumed',
         evidence: expect.objectContaining({
-          handoff: originalHandoff,
-          handoffDigest: originalDigest,
+          handoffArchive: {
+            path: expect.stringMatching(/^\.omp\/sdlc\/history\/repaired-publication\/108-implement-[0-9a-f]{64}\.json$/),
+            digest: originalDigest,
+          },
           publication: expect.objectContaining({ rewriteCount: 4 }),
         }),
       }),
     ]);
+    expect(fs.readFileSync(path.join(fixture.root, archive.path))).toEqual(originalHandoffBytes);
+    expect(createHash('sha256').update(
+      fs.readFileSync(path.join(fixture.root, archive.path)),
+    ).digest('hex')).toBe(archive.digest);
     const checkpoint = fixture.readJson('.omp/sdlc/run.json');
     expect(checkpoint.recoveries).toEqual([
       expect.objectContaining({
@@ -2265,12 +2396,12 @@ describe('runExecute controller', () => {
         step: 'implement',
         disposition: 'stopped',
         handoff: originalHandoff,
+        source: expect.objectContaining({ handoffArchive: archive }),
       }),
     ]);
-    expect(checkpoint.remediation.history[0]).toMatchObject({
-      attempt: 0,
-      reasonCode: 'implementation_failed',
-      artifacts: originalHandoff.artifacts,
+    expect(checkpoint.remediation).toBeUndefined();
+    expect(fixture.readJson(fixture.handoffPath)).toMatchObject({
+      reasonCode: 'controlled_boundary',
     });
     expect(discoverRecovery({
       cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
