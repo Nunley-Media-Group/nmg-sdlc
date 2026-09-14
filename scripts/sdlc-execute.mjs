@@ -1768,8 +1768,10 @@ export function discoverRecovery({
     let repairedPublication = null;
     let consumedDispatch = null;
     if (data.currentStep === 'implement'
-      && (recovery?.source?.class === REPAIRED_PUBLICATION_RECOVERY
-        || data.consumedDispatch?.class === REPAIRED_PUBLICATION_RECOVERY)) {
+      && (data.consumedDispatch?.class === REPAIRED_PUBLICATION_RECOVERY
+        || (recovery?.source?.class === REPAIRED_PUBLICATION_RECOVERY
+          && recovery.disposition === 'stopped'
+          && recovery.reasonCode === 'pane_split_failed'))) {
       try {
         consumedDispatch = inspectConsumedRepairedPublicationDispatch({
           cwd,
@@ -3290,6 +3292,84 @@ function validatedPassedWorkerHandoff(cwd, issue, step, run = defaultRun) {
   return handoff;
 }
 
+function isFreshConsumedDispatchIntervention({
+  issue,
+  step,
+  paneId,
+  agentName,
+  workerState,
+  handoff,
+  runState,
+  cwd,
+}) {
+  const dispatch = runState.consumedDispatch;
+  const recorded = runState.workers?.[agentName];
+  if (!dispatch
+    || dispatch.disposition !== 'started'
+    || step !== 'implement'
+    || agentName !== `s${issue}-implement`
+    || dispatch.issue !== issue
+    || dispatch.paneId !== paneId
+    || dispatch.agentName !== agentName
+    || !['idle', 'done'].includes(workerState)
+    || handoff?.status !== 'failed'
+    || handoff.intervention !== true
+    || handoff.reasonCode !== 'implementation_failed'
+    || handoff.next !== null
+    || recorded?.paneId !== paneId
+    || recorded.name !== agentName
+    || recorded.projectRoot !== runState.projectRoot
+    || recorded.runId !== runState.runId
+    || recorded.issue !== issue
+    || recorded.step !== step) {
+    return false;
+  }
+  const recoveries = (runState.recoveries || []).filter((entry) =>
+    entry.runId === runState.runId
+    && entry.issue === issue
+    && entry.step === step
+    && entry.invocationId === dispatch.invocationId
+    && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
+  if (recoveries.length !== 1 || recoveries[0].disposition !== 'consumed') return false;
+  const archive = recoveries[0].source?.handoffArchive;
+  try {
+    const record = getSafeRecoveryRecord({
+      cwd,
+      ownerId: runState.runId,
+      issue,
+      step,
+      class: REPAIRED_PUBLICATION_RECOVERY,
+    });
+    if (!archive
+      || archive.path !== dispatch.archive.path
+      || archive.digest !== dispatch.archive.digest
+      || record?.invocationId !== dispatch.invocationId
+      || record.evidence?.handoffArchive?.path !== archive.path
+      || record.evidence?.handoffArchive?.digest !== archive.digest) {
+      return false;
+    }
+    exactConsumedDispatch(dispatch, runState, recoveries[0].invocationId);
+    const archived = readBoundedNoFollowFile(
+      cwd,
+      archive.path,
+      MAX_HANDOFF_BYTES,
+      'handoff_archive_unproven',
+    );
+    if (createHash('sha256').update(archived.bytes).digest('hex') !== archive.digest) {
+      return false;
+    }
+    const snapshot = readStrictHandoffSnapshot(
+      cwd,
+      `${HANDOFF_DIR}/${issue}-${step}.json`,
+      issue,
+      step,
+    );
+    return snapshot.digest !== archive.digest;
+  } catch {
+    return false;
+  }
+}
+
 function stopResult({
   issue,
   step,
@@ -3302,6 +3382,8 @@ function stopResult({
   herdr,
   output,
   retainWorker = false,
+  workerState = null,
+  handoff = null,
 }) {
   const recorded = runState.workers?.[agentName];
   const owned = recorded?.paneId === paneId
@@ -3310,6 +3392,16 @@ function stopResult({
     && recorded.runId === runState.runId
     && recorded.issue === issue
     && recorded.step === step;
+  const settlesConsumedDispatch = isFreshConsumedDispatchIntervention({
+    issue,
+    step,
+    paneId,
+    agentName,
+    workerState,
+    handoff,
+    runState,
+    cwd,
+  });
   const consumedProcessLoss = reasonCode === 'process_lost' && runState.consumedDispatch
     ? proveConsumedPreWorkProcessLoss({
       runState, issue, step, paneId, agentName, cwd, herdr,
@@ -3336,6 +3428,7 @@ function stopResult({
     if (closePane(herdr, paneId)) {
       delete runState.workers[agentName];
       disposition = 'closed';
+      if (settlesConsumedDispatch) delete runState.consumedDispatch;
     } else {
       reasonCode = 'pane_close_failed';
     }
@@ -5223,6 +5316,8 @@ export function runExecute({
                 cwd,
                 herdr: herdrApi,
                 output,
+                workerState: state,
+                handoff,
               });
             }
             if (!closePane(herdrApi, paneId)) {
@@ -5575,8 +5670,17 @@ export function runExecute({
       }
       if (!['idle', 'done'].includes(state) || handoff.status !== 'passed' || handoff.intervention) {
         return stop({
-          issue, step, paneId, agentName, reasonCode: handoff.reasonCode || handoff.status || state || 'worker_failed',
-          runState, cwd, herdr: herdrApi, output,
+          issue,
+          step,
+          paneId,
+          agentName,
+          reasonCode: handoff.reasonCode || handoff.status || state || 'worker_failed',
+          runState,
+          cwd,
+          herdr: herdrApi,
+          output,
+          workerState: state,
+          handoff,
         });
       }
 

@@ -1,0 +1,59 @@
+**Issue**: #395
+**Date**: 2026-09-14
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/
+
+# File: scripts/__tests__/sdlc-execute-supervisor.test.mjs
+# Generated from: specs/395-classify-failed-consumed-dispatch-worker-after-post-resume-cleanup/requirements.md
+
+Feature: Classify failed consumed-dispatch worker after post-resume cleanup
+  A resumed consumed invocation must stop owning recovery classification after its
+  fresh failed worker and proven-owned pane are fully settled.
+
+  @AC1 @AC6 @SCN001
+  Scenario: Fresh resumed implementation failure settles ephemeral dispatch state
+    Given a consumed repaired-publication dispatch starts the standard implement worker
+    And the fresh worker returns a strict failed implementation intervention handoff
+    When the proven-owned terminal worker pane closes and the worker entry is removed
+    Then consumedDispatch is removed in the persisted transition
+    And the fresh ordinary failure and handoff remain available for classification
+
+  @AC2 @SCN002
+  Scenario: Settlement preserves one-time recovery authority
+    Given the consumed dispatch binds one original recovery tuple, safe-recovery record, and archived source handoff
+    When the fresh resumed worker failure settles
+    Then the tuple, record, archive identity, digest, source evidence, and stopped disposition remain unchanged
+    And no invocation is replayed and no recovery or allowance is appended or minted
+
+  @AC3 @AC6 @SCN003
+  Scenario: Parameter-free discovery uses the ordinary amended-spec path
+    Given fresh failure settlement removed the stale ephemeral dispatch marker
+    And a singular Approved specification amendment now satisfies ordinary intervention proof
+    When parameter-free recovery discovery runs
+    Then discovery classifies the fresh failure through the ordinary approved intervention path
+    And it does not offer the old consumed invocation or require a run checkpoint edit
+
+  @AC4 @SCN004
+  Scenario Outline: Unsettled consumed dispatch remains fail-closed
+    Given an otherwise matching resumed consumed dispatch with <defect>
+    When the failure path and parameter-free discovery run
+    Then consumedDispatch remains authoritative and blocked
+    And no recovery authority or evidence is changed
+
+    Examples:
+      | defect |
+      | missing handoff |
+      | malformed handoff |
+      | archived source handoff replayed as fresh |
+      | wrong issue step worker or pane identity |
+      | active worker |
+      | live pane after incomplete cleanup |
+      | pane close failure |
+
+  @AC5 @SCN005
+  Scenario: Existing consumed-dispatch states keep their behavior
+    Given prepared, pending, stopped-resumable, started-live, repeated, and successful fixtures from issue 394
+    When their supervisor and discovery paths run
+    Then one-time same-invocation behavior remains unchanged
+    And only proven fresh failed-intervention settlement enters ordinary classification

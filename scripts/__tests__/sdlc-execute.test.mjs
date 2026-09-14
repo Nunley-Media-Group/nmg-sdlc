@@ -3424,6 +3424,206 @@ describe('runExecute controller', () => {
     expect(persisted.currentStep).toBeNull();
   });
 
+  it('settles a fresh failed consumed-dispatch worker into ordinary intervention discovery', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, {
+      pendingDisposition: 'pending',
+      reasonCode: 'agent_start_failed',
+    });
+    const recoveryBefore = fixture.readJson('.omp/sdlc/run.json').recoveries[0];
+    const safeBefore = fs.readFileSync(path.join(
+      fixture.root,
+      '.omp/sdlc/safe-recoveries.json',
+    ));
+    const archiveBefore = fs.readFileSync(path.join(fixture.root, grounded.archive.path));
+    fixture.herdr.agentPrompt = ({ name }) => {
+      if (name !== 's108-implement') return { status: 1, stderr: 'unexpected worker' };
+      fixture.put(fixture.handoffPath, `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 108,
+        step: 'implement',
+        status: 'failed',
+        intervention: true,
+        summary: 'Fresh resumed implementation requires an approved scope amendment.',
+        artifacts: [],
+        next: null,
+        reasonCode: 'implementation_failed',
+      })}\n`);
+      return { status: 0 };
+    };
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    expect(fixture.starts.filter(({ name }) => name === 's108-implement')).toHaveLength(1);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.revision).toBeGreaterThanOrEqual(16);
+    expect(checkpoint.workers).toEqual({});
+    expect(checkpoint.failed).toEqual({
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'implementation_failed',
+    });
+    expect(checkpoint).not.toHaveProperty('consumedDispatch');
+    expect(checkpoint.recoveries).toHaveLength(1);
+    expect(checkpoint.recoveries[0]).toMatchObject({
+      runId: recoveryBefore.runId,
+      issue: recoveryBefore.issue,
+      step: recoveryBefore.step,
+      invocationId: recoveryBefore.invocationId,
+      source: recoveryBefore.source,
+      failure: recoveryBefore.failure,
+      handoff: recoveryBefore.handoff,
+      disposition: 'stopped',
+      reasonCode: 'implementation_failed',
+    });
+    expect(fs.readFileSync(path.join(
+      fixture.root,
+      '.omp/sdlc/safe-recoveries.json',
+    ))).toEqual(safeBefore);
+    expect(fs.readFileSync(path.join(fixture.root, grounded.archive.path))).toEqual(archiveBefore);
+    const discovery = discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    });
+    expect(discovery).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'implementation_failed',
+    });
+    expect(discovery.recoveryEvidenceReasonCode).not.toBe('consumed_dispatch_unproven');
+
+    const beforeRepeat = fixture.snapshot();
+    const startsBeforeRepeat = fixture.starts.length;
+    expect(runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      status: 1,
+      stderr: expect.stringContaining('implementation_failed'),
+    });
+    expect(fixture.snapshot()).toEqual(beforeRepeat);
+    expect(fixture.starts).toHaveLength(startsBeforeRepeat);
+  });
+
+  it('retains consumed dispatch when fresh failed-worker pane cleanup fails', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, {
+      pendingDisposition: 'pending',
+
+      reasonCode: 'agent_start_failed',
+    });
+    fixture.herdr.agentPrompt = () => {
+      fixture.put(fixture.handoffPath, `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 108,
+        step: 'implement',
+        status: 'failed',
+        intervention: true,
+        summary: 'Fresh resumed implementation failed.',
+        artifacts: [],
+        next: null,
+        reasonCode: 'implementation_failed',
+      })}\n`);
+      return { status: 0 };
+    };
+    fixture.herdr.paneClose = () => ({ status: 1, stderr: 'controlled close failure' });
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.workers['s108-implement']).toBeDefined();
+    expect(checkpoint.consumedDispatch).toMatchObject({
+      invocationId: grounded.invocationId,
+      disposition: 'started',
+      agentName: 's108-implement',
+    });
+    expect(checkpoint.failed).toMatchObject({
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'pane_close_failed',
+    });
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    }).state).toBe('blocked');
+  });
+  it('does not settle a consumed dispatch from the unchanged archived source handoff', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, {
+      pendingDisposition: 'pending',
+      reasonCode: 'agent_start_failed',
+    });
+    fixture.herdr.agentPrompt = () => {
+      fixture.put(fixture.handoffPath, grounded.handoffBytes);
+      return { status: 0 };
+    };
+
+    const result = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(1);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.workers).toEqual({});
+    expect(checkpoint.consumedDispatch).toMatchObject({
+      invocationId: grounded.invocationId,
+      disposition: 'started',
+      agentName: 's108-implement',
+    });
+    expect(checkpoint.failed).toMatchObject({
+      issue: 108,
+      step: 'implement',
+      reasonCode: 'missing_handoff',
+    });
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      recoveryEvidenceReasonCode: 'consumed_dispatch_unproven',
+    });
+  });
+
+  it.each([
+    ['missing', (fixture, archive) => fs.rmSync(path.join(fixture.root, archive.path))],
+    ['mutated', (fixture, archive) => fixture.put(archive.path, 'mutated archive\n')],
+  ])('does not settle when the original handoff archive is %s after dispatch', (_name, mutate) => {
+    const fixture = makeRepairedPublicationFixture();
+    const grounded = groundConsumedDispatch(fixture, {
+      pendingDisposition: 'pending',
+      reasonCode: 'agent_start_failed',
+    });
+    fixture.herdr.agentPrompt = () => {
+      mutate(fixture, grounded.archive);
+      fixture.put(fixture.handoffPath, `${JSON.stringify({
+        schemaVersion: 1,
+        issue: 108,
+        step: 'implement',
+        status: 'failed',
+        intervention: true,
+        summary: 'Fresh resumed implementation failed after archive drift.',
+        artifacts: [],
+        next: null,
+        reasonCode: 'implementation_failed',
+      })}\n`);
+      return { status: 0 };
+    };
+
+    expect(runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    }).status).toBe(1);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.workers).toEqual({});
+    expect(checkpoint.consumedDispatch).toMatchObject({
+      invocationId: grounded.invocationId,
+      disposition: 'started',
+    });
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    }).state).toBe('blocked');
+  });
+
   it('reconciles the real post-consumption CAS gap without duplicate recovery', () => {
     const fixture = makeRepairedPublicationFixture();
     const grounded = groundConsumedDispatch(fixture, {

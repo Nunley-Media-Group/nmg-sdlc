@@ -218,6 +218,8 @@ After split and revalidation, one checkpoint CAS reserves the original invocatio
 
 Validated resumed implement success clears only the ephemeral pending-dispatch field before advancing. The consumed safe-recovery record, checkpoint recovery, immutable archive, and invocation identity remain durable through terminal queue persistence.
 
+A resumed implement worker that produces a fresh, strict `implementation_failed` intervention is no longer part of the old consumed dispatch after its terminal state and exact dispatch/worker/pane identity are proven and the owned pane closes successfully. That settlement removes only the ephemeral dispatch marker; the immutable archive, source evidence, safe-recovery record, invocation, and recovery tuple identity remain. Parameter-free discovery then classifies the fresh failure through the ordinary intervention path instead of replaying the old invocation. A malformed or archived-source handoff, identity mismatch, live worker or pane, or cleanup failure preserves the marker and stays blocked.
+
 ### Stage sequence
 
 | Stage | What must finish before advancement |

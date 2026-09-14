@@ -54,6 +54,8 @@ Consumed repaired-publication dispatch is not a second recovery allowance. Alloc
 
 On a validated successful resumed implement handoff, clear only ephemeral pending-dispatch state before next-step persistence. Preserve the consumed safe-recovery record, checkpoint recovery, immutable archive, and invocation identity through terminal persistence.
 
+A fresh failed intervention returned by a resumed consumed-dispatch implement worker becomes ordinary intervention evidence only after strict handoff freshness, terminal worker state, exact dispatch/worker/pane identity, and successful owned-pane cleanup are proven. Remove only the ephemeral dispatch marker. Preserve the archive, source evidence, safe-recovery record, invocation, and recovery tuple identity; never replay or mint authority. Any malformed or archived-source handoff, identity mismatch, live worker or pane, or cleanup failure retains consumed-dispatch classification and fails closed.
+
 Pull requests should reference the executable issue and spec, include a practical test plan, and close only that issue. The only issue-less implementation path is the validated repository-rewrite exception below. Delivery continues through exact-head merge and issue closure when an executable issue exists. Human-reviewer comments remain human-owned; eligible automated-review threads use the state-based review-loop contract.
 
 Legacy backlog correction and layout modernization belong to `/sdlc-upgrade-project`. Its audit is read-only and proposes repairs only on explicit per-group approval; ambiguous ownership is preserved for an explicit decision. Unrelated issues, specs, and Project items remain untouched.
