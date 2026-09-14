@@ -5,7 +5,7 @@ Read only when `/sdlc-execute` receives no issue tokens after removing optional 
 Before selection, run `node "<plugin-root>/scripts/sdlc-execute.mjs" discover-recovery` in the current project. All controller operands in this section are materialized from the active plugin installation; never substitute another recovery installation or the consumer checkout.
 
 - If the helper fails, returns unreadable output or reports `blocked`, print its evidence and action, then stop. Do not open a picker or select another issue.
-- For `resumable`, `loop-recovery-available` or `recovery-consumed`, invoke `node "<plugin-root>/scripts/sdlc-execute.mjs" run` once without issue tokens, forwarding only flags already supplied by the user. The controller revalidates identity and ownership, settles genuine passed handoffs, and refuses a consumed unsuccessful recovery without replay. Do not ask for a token, reason, flag or confirmation. Pass the result through and stop.
+- For `resumable`, `loop-recovery-available`, `consumed-dispatch-available` or `recovery-consumed`, invoke `node "<plugin-root>/scripts/sdlc-execute.mjs" run` once without issue tokens, forwarding only flags already supplied by the user. The controller revalidates identity and ownership; `consumed-dispatch-available` resumes only the exact pending consumed invocation without another allowance or recovery tuple, while other consumed unsuccessful recoveries remain non-replayable. Do not ask for a token, reason, flag or confirmation. Pass the result through and stop.
 - Only `absent` or `completed` falls through to the selection steps below. Completed delivery is not reopened.
 
 1. Run `node "<plugin-root>/scripts/sdlc-execute.mjs" list-specified`.

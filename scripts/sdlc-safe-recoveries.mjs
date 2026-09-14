@@ -694,6 +694,40 @@ export function hasSafeRecoveryRecord({
     && entry.step === step);
 }
 
+export function getSafeRecoveryRecord({
+  cwd = process.cwd(),
+  ownerId,
+  issue,
+  step,
+  class: className,
+} = {}) {
+  const issueNumber = Number(issue);
+  if (typeof ownerId !== 'string' || !ownerId
+    || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
+    || !VALID_STEPS.includes(step)
+    || typeof className !== 'string' || !className) {
+    throw safeError('invalid_recovery_params');
+  }
+  const canonicalRoot = realpathSync(cwd);
+  const safe = readSafeRecoveries(canonicalRoot);
+  const owners = safe?.owners.filter((owner) =>
+    owner.ownerId === ownerId
+    && owner.projectRoot === canonicalRoot
+    && owner.issue === issueNumber
+    && owner.step === step
+    && owner.status === 'incomplete') ?? [];
+  if (owners.length !== 1) {
+    throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
+  }
+  const records = safe.records.filter((entry) =>
+    entry.class === className
+    && entry.runId === ownerId
+    && entry.issue === issueNumber
+    && entry.step === step);
+  if (records.length > 1) throw safeError('recovery_record_ambiguous');
+  return records.length === 1 ? structuredClone(records[0]) : null;
+}
+
 export function consumeSafeRecovery({
   cwd = process.cwd(),
   ownerId,
@@ -701,6 +735,7 @@ export function consumeSafeRecovery({
   step,
   class: className,
   evidence = {},
+  invocationId,
   now = () => new Date().toISOString(),
 } = {}) {
   const issueNumber = Number(issue);
@@ -709,6 +744,7 @@ export function consumeSafeRecovery({
     || !className || typeof className !== 'string' || className.length === 0
     || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
     || !VALID_STEPS.includes(step)
+    || (invocationId !== undefined && (typeof invocationId !== 'string' || !invocationId))
     || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)
     || typeof now !== 'function'
   ) {
@@ -739,6 +775,9 @@ export function consumeSafeRecovery({
     r.step === step
   );
   if (existing) {
+    if (invocationId !== undefined && existing.invocationId !== invocationId) {
+      throw safeError('recovery_invocation_mismatch');
+    }
     return { consumed: false, record: existing };
   }
 
@@ -747,7 +786,7 @@ export function consumeSafeRecovery({
     runId: ownerId,
     issue: issueNumber,
     step,
-    invocationId: randomUUID(),
+    invocationId: invocationId ?? randomUUID(),
     consumedAt: now(),
     disposition: 'consumed',
     evidence: { ...evidence },

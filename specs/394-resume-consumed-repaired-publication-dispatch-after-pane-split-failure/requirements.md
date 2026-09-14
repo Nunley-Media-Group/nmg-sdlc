@@ -37,15 +37,16 @@ The grounded consumer state is PathCast run revision 14 at issue 108 `implement`
 ### AC2: Persist exact pending dispatch before start
 
 **Given** a standard worker pane was allocated and repaired-publication recovery is ready to consume
-**When** the failed handoff is archived and the existing invocation is consumed
-**Then** one checkpoint CAS persists an exact pending dispatch binding run id, invocation id, recovery class, issue, step, HEAD, branch, archive path and digest, pane id, and standard worker name before agent start
-**And** the existing recovery tuple is appended once and no new recovery allowance is created
+**When** the controller crosses the archive and consumption boundary
+**Then** a checkpoint CAS first reserves the original invocation with the exact prepared dispatch identity and no recovery tuple
+**And** after immutable archive creation and safe-recovery consumption, the next CAS creates exactly one matching run recovery and marks the dispatch pending before agent start
+**And** same-invocation resume reconciles an absent tuple only at that crash boundary and never creates a duplicate or a new recovery allowance
 
 ### AC3: Discover only the stranded consumed dispatch
 
 **Given** a consumed repaired-publication invocation whose owner is incomplete and whose run has empty workers
 **When** parameter-free discovery evaluates the stopped `pane_split_failed` disposition or an exact pending dispatch
-**Then** it returns distinct state `consumed-dispatch-available` only after exact archive/hash, run/head/branch/owner/handoff/task/worktree, absent worker/pane/lock, and no-drift proof
+**Then** it returns distinct state `consumed-dispatch-available` only after exact archive/hash, run/head/branch/owner/handoff/task/worktree, absent recorded dispatch pane and matching standard/remediation agent identities, absent lock, and no-drift proof; unrelated sibling/user panes do not block
 **And** ordinary loop recovery is not offered
 
 ### AC4: Resume the same invocation exactly once
@@ -55,6 +56,7 @@ The grounded consumer state is PathCast run revision 14 at issue 108 `implement`
 **Then** it re-proves the consumed dispatch, updates its disposition through checkpoint CAS, starts only `s${issue}-implement`, and activates the existing standard prompt path
 **And** it does not call `consumeSafeRecovery`, append `recoveries[]`, create a new invocation, or select remediation
 **And** after start, repeat discovery cannot offer the dispatch again
+**And** a validated successful implement handoff clears only the ephemeral pending-dispatch field before next-step or terminal persistence while retaining immutable safe-recovery and run-recovery evidence
 
 ### AC5: Preserve deterministic crash boundaries
 

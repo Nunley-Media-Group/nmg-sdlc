@@ -21,9 +21,10 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
   @AC2 @SCN002
   Scenario: Consumption persists an exact pending dispatch
     Given a standard implement pane was allocated successfully
-    When repaired-publication recovery is archived and consumed
-    Then one CAS persists the original invocation and exact dispatch identity before agent start
-    And one existing recovery tuple is appended without a new allowance
+    When repaired-publication recovery crosses archive and consumption
+    Then one CAS reserves the original invocation and exact prepared dispatch without a run recovery
+    And the next CAS creates exactly one matching run recovery and marks dispatch pending before agent start
+    And same-invocation crash-gap resume creates only the absent tuple, never a duplicate or allowance
 
   @AC3 @SCN003
   Scenario: Grounded revision-fourteen state is discoverable
@@ -47,6 +48,8 @@ Feature: Resume consumed repaired-publication dispatch after pane split failure
     When discovery repeats before or after prompt activation
     Then consumed dispatch is unavailable
     And no duplicate worker or invocation is created
+    And validated implement completion clears only ephemeral pending dispatch before next-step or terminal persistence
+    And immutable safe-recovery and run-recovery evidence remains
 
   @AC5 @SCN006
   Scenario Outline: Crash boundaries retain deterministic authority
