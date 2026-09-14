@@ -918,19 +918,41 @@ describe('read-only owner-bound publication probe', () => {
       { ...valid, completed: null },
       { ...valid, completed: {} },
       { ...valid, completed: { 109: [] } },
+      { ...valid, completed: { 108: ['review1', 'start'] } },
+      { ...valid, completed: { 108: ['start', 'review1'] } },
+      { ...valid, completed: { 108: ['start', 'implement'] } },
+      { ...valid, completed: { 108: ['start', 'start'] } },
+      {
+        ...valid,
+        completed: {
+          108: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver', 'start'],
+        },
+      },
+      {
+        ...valid,
+        issues: [108, 109],
+        completed: { 108: ['start'], 109: ['review1', 'start'] },
+      },
       { ...valid, failed: {} },
       { ...valid, workers: [] },
       { ...valid, workers: { broken: { name: 'broken' } } },
     ];
     for (const checkpoint of invalidCheckpoints) {
       fs.writeFileSync(runPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
+      const calls = [];
+      const run = (command, args, options) => {
+        calls.push([command, ...args]);
+        return spawnSync(command, args, { encoding: 'utf8', ...options });
+      };
       expect(() => probePublicationScope({
         cwd: f.root,
         issue: 108,
         step: 'implement',
         spec: 'specs/not-approved',
         controllerRunId: runId,
+        run,
       })).toThrow('recovery_owner_ambiguous');
+      expect(calls).toEqual([['git', 'rev-parse', '--abbrev-ref', 'HEAD']]);
       expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(safeBytes);
     }
   });

@@ -73,8 +73,8 @@ function validExecuteCheckpoint(runData) {
     || !Object.entries(runData.completed).every(([issue, steps]) =>
       runData.issues.map(String).includes(issue)
       && Array.isArray(steps)
-      && new Set(steps).size === steps.length
-      && steps.every((step) => VALID_STEPS.includes(step)))
+      && steps.length <= VALID_STEPS.length
+      && steps.every((step, index) => step === VALID_STEPS[index]))
     || nextExecuteStep(runData.completed[String(runData.currentIssue)] ?? []) !== runData.currentStep
     || !(runData.failed === null || (objectRecord(runData.failed)
       && Number.isSafeInteger(runData.failed.issue) && runData.issues.includes(runData.failed.issue)
