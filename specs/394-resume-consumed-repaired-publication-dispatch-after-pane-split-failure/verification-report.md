@@ -6,7 +6,7 @@
 **Spec**: `specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/`
 **Branch**: `fix/394-consumed-dispatch-resumption`
 **Base**: `38ba70d4d07ac52112b28198e7684c282dc3ecbd`
-**Verified implementation head**: `86a6fbd556cf0466fd9ae2814b5438ca128e7a24`
+**Verified implementation head**: `5aaea63c76bb560a7d3c4d8419d16b8059d59eb7`
 
 ## Acceptance Results
 
@@ -17,7 +17,7 @@
 | AC3 | Pass | Revision-14 issue-108 fixture returns `consumed-dispatch-available` only for the exact consumed invocation/archive/run/head/branch/owner/handoff/task state. Recorded or identity-matching `s108-implement`/`r108-implement` panes and agents block; unrelated sibling/user panes remain admissible. |
 | AC4 | Pass | Bare parameter-free execution resumes the same invocation, starts only `s108-implement`, does not call safe consumption again, and does not append a duplicate run recovery. Explicit selectors return `consumed_dispatch_requires_parameter_free` before lease, dependency, pane, or state mutation. Durable start makes repeat discovery unavailable. |
 | AC5 | Pass | Tests cover split failure, split-success/pre-consume process loss with exact prepared pane/invocation reuse, safe-consumed/no-run-tuple loss, pending resumption, agent-start failure, successful start, validated implement success, next-step persistence, and terminal schema persistence. Only attempt-owned or exact prepared unused panes are closed/reused. |
-| AC6 | Pass | Adversarial coverage blocks non-pane stops, missing/mutated archive, run/HEAD/actual or dispatch branch drift, wrong/complete owner, changed handoff/task/product/worktree, existing worker/recorded pane/matching agent, wrong invocation, missing or duplicate incompatible recovery, ambiguous `starting`, controller lock, and explicit selector without mutation. |
+| AC6 | Pass | Adversarial coverage blocks non-pane stops, missing/mutated consumed archives, noncanonical prepared archive paths even when absent, run/HEAD/actual or dispatch branch drift, mismatched safe-record evidence, wrong/complete owner, changed handoff/task/product/worktree, existing worker/recorded pane/matching agent, wrong invocation, missing or duplicate incompatible recovery, a `passed` recovery paired with pending dispatch, ambiguous `starting`, controller lock, and explicit selector without mutation. |
 | AC7 | Pass | Focused execute/safe-recovery and full Jest suites pass, including every existing #392 fixture and recovery class. Command, plugin, current-spec, inventory, contribution, version, and diff checks pass. |
 
 ## State Machine
@@ -34,8 +34,9 @@
 
 ## Commands and Outcomes
 
-- Focused execute and safe recovery: 2 suites passed; 495 tests passed.
-- Full Jest: 55 suites passed, 1 suite skipped; 1,395 tests passed and 2 skipped (1,397 total).
+- Focused execute and safe recovery: 2 suites passed; 497 tests passed.
+- Full Jest: 55 suites passed, 1 suite skipped; 1,397 tests passed and 2 skipped (1,399 total).
+- Focused archive crash states: pre-consume prepared recovery, post-consume missing archive, and canonical first consumption — 3 tests passed.
 - Command synchronization: `scripts/__tests__/extension-commands.test.mjs` — 6 tests passed.
 - Contribution contracts: `scripts/__tests__/contribution-gate-contract.test.mjs` and `scripts/__tests__/exercise-contribution-gate.test.mjs` — 35 tests passed.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
@@ -69,6 +70,8 @@ The repository had no local `scripts/node_modules`; verification used the alread
 
 - `454bb4cb99bcb1ca9734b71aa181578bc827d1dd` — `docs: approve spec for #394`
 - `86a6fbd556cf0466fd9ae2814b5438ca128e7a24` — `fix: resume consumed dispatch for #394`
+- `fba4f238a68212a69e05b5e2ecec0e94a0863676` — `docs: record verification for #394`
+- `5aaea63c76bb560a7d3c4d8419d16b8059d59eb7` — `fix: harden consumed dispatch admission for #394`
 
 ## Residual Risk
 
