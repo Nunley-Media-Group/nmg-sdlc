@@ -960,7 +960,7 @@ function declaredOperation(note, typeValue) {
   if (normalizedNote && (
     /^(?:download|generate)(?:\s+\S+)?$/i.test(rawNote)
     || /^[A-Z][A-Za-z]*$/.test(rawNote)
-    || /^(?:create|modify|delete|remove)(?:\s*(?:\/|\bor\b)\s*\S+)+$/i.test(rawNote)
+    || /^(?:create|modify|delete|remove)(?:\s*(?:\/|\||\bor\b)\s*\S+)+$/i.test(rawNote)
   )) {
     throw safeError('publication_scope_unproven');
   }

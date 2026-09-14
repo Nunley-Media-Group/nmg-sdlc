@@ -808,7 +808,7 @@ describe('read-only owner-bound publication probe', () => {
     expect(operations).toHaveLength(2);
     expect(operations.flatMap((task) => task.operations).filter((item) => item.path === 'src/shared.mjs'))
       .toHaveLength(4);
-    for (const note of ['Download tracked', 'Archive', 'Create / Modify']) {
+    for (const note of ['Download tracked', 'Archive', 'Create / Modify', 'Create | Modify']) {
       expect(() => parseDeliveryTaskFileLines([
         '### T001: Unsupported',
         `**File(s)**: \`src/shared.mjs\` (${note})`,
