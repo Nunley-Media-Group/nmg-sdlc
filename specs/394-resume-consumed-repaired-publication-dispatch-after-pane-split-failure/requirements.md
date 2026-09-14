@@ -52,18 +52,21 @@ The grounded consumer state is PathCast run revision 14 at issue 108 `implement`
 ### AC3: Discover only the stranded consumed dispatch
 
 **Given** a consumed repaired-publication invocation whose owner is incomplete and whose run has empty workers
-**When** parameter-free discovery evaluates the stopped `pane_split_failed` disposition or an exact pending dispatch
-**Then** it returns distinct state `consumed-dispatch-available` only after exact archive/hash, run/head/branch/owner/handoff/task/worktree, absent recorded dispatch pane and matching standard/remediation agent identities, absent lock, and no-drift proof; unrelated sibling/user panes do not block
+**When** parameter-free discovery evaluates the stopped `pane_split_failed` disposition, an exact pending/stopped dispatch, or an exact controller-loss-orphaned `started` dispatch
+**Then** it returns distinct state `consumed-dispatch-available` only after exact archive/hash, run/head/branch/owner/handoff-or-archive/task/worktree, absent recorded dispatch pane and matching standard/remediation agent identities, absent cleanup failure and lock, and no-drift proof; a `started` dispatch additionally requires empty workers, absent live handoff, a consumed recovery, and `controller_cancelled` or `process_lost`, while unrelated sibling/user panes do not block
 **And** ordinary loop recovery is not offered
 
 ### AC4: Resume the same invocation exactly once
 
 **Given** discovery returns `consumed-dispatch-available`
 **When** the next parameter-free bare run acquires its lease and preflights geometry and a standard pane from the actual controller pane
-**Then** it re-proves the consumed dispatch, updates its disposition through checkpoint CAS, starts only `s${issue}-implement`, and activates the existing standard prompt path
+**Then** it re-proves the consumed dispatch, idempotently restores the live failed implement handoff byte-for-byte from the immutable archive before worker prompt, ignores those exact archive bytes until the worker replaces them with a distinct handoff, updates disposition through checkpoint CAS, starts only `s${issue}-implement`, and does not delete the restored handoff on the active path
 **And** it does not call `consumeSafeRecovery`, append `recoveries[]`, create a new invocation, or select remediation
 **And** after start, repeat discovery cannot offer the dispatch again
 **And** a validated successful implement handoff clears only the ephemeral pending-dispatch field before next-step or terminal persistence while retaining immutable safe-recovery and run-recovery evidence
+**And** the consumed-dispatch schema rejects reasons on `prepared`, `starting`, or `started`, restricts optional `pending` reasons to `pane_split_failed`, `agent_start_failed`, or `process_lost`, and requires one of those reasons for `stopped`
+**And** an already-correct restored live handoff is accepted without rewrite, while mismatched, symlinked, or unreadable live state fails without overwrite
+**And** start or prompt failure before replacement removes only the exact attempt-restored archive bytes so later discovery is not poisoned
 
 ### AC5: Preserve deterministic crash and supervisor-loss boundaries
 
@@ -71,7 +74,7 @@ The grounded consumer state is PathCast run revision 14 at issue 108 `implement`
 **When** the detached execute supervisor observes controller hard loss, including `SIGKILL`
 **Then** durable state unambiguously identifies either an unconsumed recovery or the exact same pending consumed dispatch
 **And** the supervisor preserves the original `implementation_failed` evidence, closes only the exact attempt-owned pane proven unused, and leaves the same invocation resumable
-**And** worker disappearance on the standard prompt path persists the consumed dispatch as `process_lost` rather than creating a new invocation or allowance
+**And** worker disappearance on the standard prompt path persists the consumed dispatch as `process_lost`; an already `started` dispatch left with empty workers, absent pane/agents, absent live handoff, and `controller_cancelled` or `process_lost` may be re-proven solely from its exact immutable archive and resumed as the same invocation rather than creating a new invocation or allowance
 **And** cleanup never deletes consumed authority, immutable history, active worker ownership, or failure evidence
 
 ### AC6: Reject every mismatch and alternate entry
@@ -110,7 +113,7 @@ The grounded consumer state is PathCast run revision 14 at issue 108 `implement`
 | FR8 | Add exact positive, adversarial, and real supervised `SIGKILL` fixtures and synchronize public/contributor/workflow/changelog surfaces without a version bump | Must |
 | FR9 | Validate every current recovery tuple matching the run, issue, and step before recovery-class filtering; block wrong-class, malformed, incompatible, or additional tuples | Must |
 | FR10 | Make supervisor hard-loss cleanup preserve original implementation failure, remove only exact attempt-owned unused panes, and retain resumable same-invocation state | Must |
-| FR11 | Persist prompt-path worker loss as `process_lost` on the same consumed dispatch | Must |
+| FR11 | Persist prompt-path worker disappearance as `process_lost`, and admit an orphaned `started` dispatch only for exact `controller_cancelled`/`process_lost`, empty-worker, absent-pane/agent/live-handoff state whose immutable archive and all original proofs remain intact | Must |
 | FR12 | Bind bounded external review evidence to its reviewer/tool, exact command or invocation, pre-report parent SHA/tree, scoped paths, outcome, and findings; report the final report commit SHA only from Git after commit | Must |
 
 ## Out of Scope

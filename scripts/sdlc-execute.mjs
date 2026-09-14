@@ -388,7 +388,7 @@ export function validateHandoff(input) {
   return data;
 }
 
-function readExpectedHandoff(handoffPath, issue, step) {
+function readExpectedHandoff(handoffPath, issue, step, ignoredBytes = null) {
   let root;
   try {
     root = resolve(dirname(handoffPath), '../../..');
@@ -404,16 +404,26 @@ function readExpectedHandoff(handoffPath, issue, step) {
       return { handoff: null, reasonCode: 'invalid_handoff' };
     }
     const snapshot = readStrictHandoffSnapshot(root, relativePath, issue, step);
+    if (ignoredBytes && snapshot.bytes.equals(ignoredBytes)) {
+      return { handoff: null, reasonCode: 'missing_handoff' };
+    }
     return { handoff: snapshot.handoff, reasonCode: null };
   } catch {
     return { handoff: null, reasonCode: 'invalid_handoff' };
   }
 }
 
-function observeExpectedHandoff(herdr, handoffPath, issue, step, agentName) {
+function observeExpectedHandoff(
+  herdr,
+  handoffPath,
+  issue,
+  step,
+  agentName,
+  ignoredBytes = null,
+) {
   let terminalObservation = false;
   for (;;) {
-    const result = readExpectedHandoff(handoffPath, issue, step);
+    const result = readExpectedHandoff(handoffPath, issue, step, ignoredBytes);
     if (result.handoff) return result;
     const state = observedAgentState(herdr, agentName);
     if (!state) return { handoff: null, reasonCode: 'process_lost' };
@@ -744,6 +754,67 @@ function archiveFailedHandoff(root, proof) {
     throw new Error('handoff_archive_failed');
   }
   return { path: archivePath, digest: proof.handoffDigest };
+}
+
+
+
+export function restoreArchivedHandoff(root, proof) {
+  if (!proof.restoreLiveHandoff) return null;
+  const archived = readBoundedNoFollowFile(
+    root,
+    proof.archive.path,
+    MAX_HANDOFF_BYTES,
+    'handoff_restore_failed',
+  );
+  if (createHash('sha256').update(archived.bytes).digest('hex') !== proof.archive.digest) {
+    throw new Error('handoff_restore_failed');
+  }
+  assertNoSymlinkParents(root, proof.handoffPath, 'handoff_restore_failed');
+  const target = join(root, proof.handoffPath);
+  if (!existsSync(target)) {
+    try {
+      writeFileSync(target, archived.bytes, { flag: 'wx', mode: 0o600 });
+    } catch {
+      throw new Error('handoff_restore_failed');
+    }
+  }
+  let restored;
+  try {
+    restored = readStrictHandoffSnapshot(root, proof.handoffPath, proof.issue, proof.step);
+  } catch {
+    throw new Error('handoff_restore_failed');
+  }
+  if (!restored.bytes.equals(archived.bytes) || restored.digest !== proof.archive.digest) {
+    throw new Error('handoff_restore_failed');
+  }
+  return {
+    bytes: Buffer.from(archived.bytes),
+    digest: proof.archive.digest,
+    handoffPath: target,
+  };
+}
+
+function removeExactRestoredHandoff(root, handoffPath, restored) {
+  if (!restored) return false;
+  try {
+    const relativePath = relative(root, handoffPath).split('\\').join('/');
+    const snapshot = readBoundedNoFollowFile(
+      root,
+      relativePath,
+      MAX_HANDOFF_BYTES,
+      'handoff_restore_cleanup_failed',
+    );
+    if (!snapshot.bytes.equals(restored.bytes)
+      || createHash('sha256').update(snapshot.bytes).digest('hex') !== restored.digest) {
+      return false;
+    }
+    const current = lstatSync(handoffPath);
+    if (!sameFileIdentity(current, snapshot.identity)) return false;
+    unlinkSync(handoffPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function pathWithin(path, boundary) {
@@ -1081,9 +1152,11 @@ export function inspectRepairedPublicationIntervention({
   handoff,
   run = defaultRun,
   allowOwnedLease = false,
+  ownedLeasePid = process.pid,
   consumedRecord = null,
   allowedArchivePath = null,
   allowMissingCheckpointRecovery = false,
+  allowArchivedHandoff = false,
 } = {}) {
   const root = realpathSync(cwd);
   if (!checkpoint || !validRunIdentity(checkpoint)
@@ -1106,9 +1179,12 @@ export function inspectRepairedPublicationIntervention({
     : spec.dir.split('\\').join('/');
   const tasksPath = `${specRelative}/tasks.md`;
   const handoffPath = `${HANDOFF_DIR}/${checkpoint.currentIssue}-implement.json`;
+  const consumedArchivePath = consumedRecord?.evidence?.handoffArchive?.path;
   const handoffSnapshot = readStrictHandoffSnapshot(
     root,
-    handoffPath,
+    allowArchivedHandoff && !existsSync(join(root, handoffPath)) && consumedArchivePath
+      ? consumedArchivePath
+      : handoffPath,
     checkpoint.currentIssue,
     'implement',
   );
@@ -1148,7 +1224,9 @@ export function inspectRepairedPublicationIntervention({
     throw new Error('publication_scope_unproven');
   }
   const lease = readControllerLease(root);
-  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+  if (lease && !(allowOwnedLease
+    && lease.runId === checkpoint.runId
+    && lease.pid === ownedLeasePid)) {
     throw new Error('controller_lease_held');
   }
   const safeRecoveryRecord = getSafeRecoveryRecord({
@@ -1166,10 +1244,10 @@ export function inspectRepairedPublicationIntervention({
   } else if (safeRecoveryRecord) {
     throw new Error('recovery_consumed');
   }
-  const checkpointRecovery = checkpoint.recoveries?.find((entry) =>
-    entry.runId === checkpoint.runId
-    && entry.issue === checkpoint.currentIssue
-    && entry.step === 'implement');
+  const checkpointRecoveries = repairedPublicationRecoveryTuples(checkpoint, {
+    allowZero: !consumedRecord || allowMissingCheckpointRecovery,
+  });
+  const checkpointRecovery = checkpointRecoveries[0] ?? null;
   if (consumedRecord) {
     if ((!checkpointRecovery && !allowMissingCheckpointRecovery)
       || (checkpointRecovery
@@ -1287,8 +1365,88 @@ const CONSUMED_DISPATCH_RESUME_REASONS = new Set([
   'agent_start_failed',
   'process_lost',
 ]);
+const CONSUMED_STARTED_ORPHAN_REASONS = new Set([
+  'controller_cancelled',
+  'process_lost',
+]);
 
-function exactConsumedDispatch(dispatch, checkpoint, invocationId) {
+const RECOVERY_TUPLE_KEYS = new Set([
+  'runId',
+  'issue',
+  'step',
+  'invocationId',
+  'consumedAt',
+  'source',
+  'failure',
+  'handoff',
+  'disposition',
+  'reasonCode',
+  'stoppedAt',
+  'evidence',
+]);
+const RECOVERY_SOURCE_KEYS = new Set([
+  'class',
+  'tasksPath',
+  'publication',
+  'handoffArchive',
+]);
+
+function currentRecoveryTuples(checkpoint) {
+  if (checkpoint.recoveries === undefined) return [];
+  if (!Array.isArray(checkpoint.recoveries)) throw new Error('recovery_tuple_unproven');
+  return checkpoint.recoveries.filter((entry) =>
+    entry?.runId === checkpoint.runId
+    && entry?.issue === checkpoint.currentIssue
+    && entry?.step === checkpoint.currentStep);
+}
+
+function exactRepairedPublicationRecoveryTuple(entry, checkpoint) {
+  const source = entry?.source;
+  const stopped = entry?.disposition === 'stopped';
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+    || Object.keys(entry).some((key) => !RECOVERY_TUPLE_KEYS.has(key))
+    || entry.runId !== checkpoint.runId
+    || entry.issue !== checkpoint.currentIssue
+    || entry.step !== 'implement'
+    || typeof entry.invocationId !== 'string' || !entry.invocationId
+    || typeof entry.consumedAt !== 'string' || !entry.consumedAt
+    || !source || typeof source !== 'object' || Array.isArray(source)
+    || Object.keys(source).some((key) => !RECOVERY_SOURCE_KEYS.has(key))
+    || source.class !== REPAIRED_PUBLICATION_RECOVERY
+    || typeof source.tasksPath !== 'string' || !source.tasksPath
+    || !source.publication || typeof source.publication !== 'object'
+    || Array.isArray(source.publication)
+    || !source.handoffArchive || typeof source.handoffArchive !== 'object'
+    || Object.keys(source.handoffArchive).sort().join(',') !== 'digest,path'
+    || typeof source.handoffArchive.path !== 'string' || !source.handoffArchive.path
+    || !/^[0-9a-f]{64}$/.test(source.handoffArchive.digest)
+    || !entry.failure || typeof entry.failure !== 'object' || Array.isArray(entry.failure)
+    || !entry.handoff || typeof entry.handoff !== 'object' || Array.isArray(entry.handoff)
+    || !['consumed', 'stopped'].includes(entry.disposition)
+    || (stopped && (
+      typeof entry.reasonCode !== 'string' || !entry.reasonCode
+      || typeof entry.stoppedAt !== 'string' || !entry.stoppedAt
+    ))
+    || (!stopped && (entry.reasonCode !== undefined || entry.stoppedAt !== undefined))
+    || (entry.evidence !== undefined
+      && (!entry.evidence || typeof entry.evidence !== 'object' || Array.isArray(entry.evidence)))) {
+    throw new Error('recovery_tuple_unproven');
+  }
+  return entry;
+}
+
+function repairedPublicationRecoveryTuples(checkpoint, { allowZero = false } = {}) {
+  const tuples = currentRecoveryTuples(checkpoint);
+  if (tuples.length > 1 || (!allowZero && tuples.length !== 1)) {
+    throw new Error('recovery_tuple_unproven');
+  }
+  for (const tuple of tuples) exactRepairedPublicationRecoveryTuple(tuple, checkpoint);
+  return tuples;
+}
+
+
+export function exactConsumedDispatch(dispatch, checkpoint, invocationId) {
+  const hasReasonCode = Object.hasOwn(dispatch ?? {}, 'reasonCode');
   if (!dispatch || typeof dispatch !== 'object' || Array.isArray(dispatch)
     || Object.keys(dispatch).some((key) => ![
       'runId',
@@ -1318,8 +1476,13 @@ function exactConsumedDispatch(dispatch, checkpoint, invocationId) {
     || typeof dispatch.paneId !== 'string' || !dispatch.paneId
     || dispatch.agentName !== `s${checkpoint.currentIssue}-implement`
     || !CONSUMED_DISPATCH_DISPOSITIONS.has(dispatch.disposition)
-    || (dispatch.reasonCode !== undefined
-      && (typeof dispatch.reasonCode !== 'string' || !dispatch.reasonCode))) {
+    || (['prepared', 'starting', 'started'].includes(dispatch.disposition)
+      && hasReasonCode)
+    || (dispatch.disposition === 'pending'
+      && hasReasonCode
+      && !CONSUMED_DISPATCH_RESUME_REASONS.has(dispatch.reasonCode))
+    || (dispatch.disposition === 'stopped'
+      && !CONSUMED_DISPATCH_RESUME_REASONS.has(dispatch.reasonCode))) {
     throw new Error('consumed_dispatch_unproven');
   }
   return dispatch;
@@ -1359,6 +1522,7 @@ export function inspectConsumedRepairedPublicationDispatch({
   run = defaultRun,
   herdr = defaultHerdr(run, cwd),
   allowOwnedLease = false,
+  ownedLeasePid = process.pid,
   allowedPaneId = null,
 } = {}) {
   const root = realpathSync(cwd);
@@ -1368,12 +1532,13 @@ export function inspectConsumedRepairedPublicationDispatch({
     || Object.keys(checkpoint.workers || {}).length !== 0) {
     throw new Error('consumed_dispatch_unproven');
   }
-  const recoveries = (checkpoint.recoveries || []).filter((entry) =>
-    entry.runId === checkpoint.runId
-    && entry.issue === checkpoint.currentIssue
-    && entry.step === 'implement'
-    && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
-  if (recoveries.length > 1) throw new Error('consumed_dispatch_unproven');
+  const allowRecoveryGap = checkpoint.consumedDispatch?.disposition === 'prepared';
+  const recoveries = repairedPublicationRecoveryTuples(checkpoint, {
+    allowZero: allowRecoveryGap,
+  });
+  if (allowRecoveryGap && recoveries.length !== 0) {
+    throw new Error('recovery_tuple_unproven');
+  }
   const recovery = recoveries[0] ?? null;
   const pending = checkpoint.consumedDispatch
     ? exactConsumedDispatch(
@@ -1405,6 +1570,27 @@ export function inspectConsumedRepairedPublicationDispatch({
         && recovery.reasonCode === pending.reasonCode
         && checkpoint.failed?.reasonCode === pending.reasonCode)
     );
+  const orphanedStarted = pending
+    && pending.disposition === 'started'
+    && pending.reasonCode === undefined
+    && recovery?.disposition === 'consumed'
+    && checkpoint.failed?.issue === checkpoint.currentIssue
+    && checkpoint.failed?.step === 'implement'
+    && checkpoint.failed?.cleanupReasonCode === undefined
+    && CONSUMED_STARTED_ORPHAN_REASONS.has(checkpoint.failed?.reasonCode)
+    && !existsSync(join(
+      root,
+      HANDOFF_DIR,
+      `${checkpoint.currentIssue}-implement.json`,
+    ));
+  const archivedProcessLoss = resumablePending
+    && pending?.disposition === 'stopped'
+    && pending.reasonCode === 'process_lost'
+    && !existsSync(join(
+      root,
+      HANDOFF_DIR,
+      `${checkpoint.currentIssue}-implement.json`,
+    ));
   const record = getSafeRecoveryRecord({
     cwd: root,
     ownerId: checkpoint.runId,
@@ -1421,7 +1607,8 @@ export function inspectConsumedRepairedPublicationDispatch({
     && checkpoint.failed?.step === 'implement'
     && checkpoint.failed?.reasonCode === 'implementation_failed'
     && record?.invocationId === pending.invocationId;
-  if (!compatibleStopped && !resumablePending && !interruptedConsumption) {
+  if (!compatibleStopped && !resumablePending && !interruptedConsumption
+    && !orphanedStarted) {
     throw new Error('consumed_dispatch_unproven');
   }
   const invocationId = recovery?.invocationId ?? pending.invocationId;
@@ -1464,12 +1651,19 @@ export function inspectConsumedRepairedPublicationDispatch({
       ...structuredClone(checkpoint),
       failed: normalizedFailure,
     },
-    run,
+    allowArchivedHandoff: orphanedStarted || archivedProcessLoss,
     allowMissingCheckpointRecovery: !recovery,
     allowOwnedLease,
+    ownedLeasePid,
     consumedRecord: record,
   });
   const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  let liveHandoffMatchesArchive = false;
+  if (existsSync(join(root, proof.handoffPath))) {
+    liveHandoffMatchesArchive = archived.bytes.equals(
+      readStrictHandoffSnapshot(root, proof.handoffPath, proof.issue, proof.step).bytes,
+    );
+  }
   if (proof.handoffDigest !== archive.digest
     || proof.ownerId !== checkpoint.runId
     || record.evidence?.head !== proof.head
@@ -1482,9 +1676,7 @@ export function inspectConsumedRepairedPublicationDispatch({
       || !sameJson(recovery.source?.publication, proof.publication)
       || !sameJson(recovery.handoff, proof.handoff)))
     || (pending && (pending.head !== proof.head || pending.branch !== proof.branch))
-    || !archived.bytes.equals(
-      readStrictHandoffSnapshot(root, proof.handoffPath, proof.issue, proof.step).bytes,
-    )) {
+    || (existsSync(join(root, proof.handoffPath)) && !liveHandoffMatchesArchive)) {
     throw new Error('consumed_dispatch_unproven');
   }
   inspectRecoveryWorkers(checkpoint, herdr);
@@ -1501,8 +1693,70 @@ export function inspectConsumedRepairedPublicationDispatch({
     archive: structuredClone(archive),
     recovery: recovery ? structuredClone(recovery) : null,
     record,
+    restoreLiveHandoff: orphanedStarted || liveHandoffMatchesArchive,
     pending: pending ? structuredClone(pending) : null,
   };
+}
+
+export function inspectInterruptedRepairedPublicationDispatch({
+  cwd = process.cwd(),
+  checkpoint,
+  run = defaultRun,
+  herdr = defaultHerdr(run, cwd),
+  ownedLeasePid,
+} = {}) {
+  const dispatch = checkpoint?.consumedDispatch;
+  if (!dispatch || dispatch.disposition !== 'prepared') {
+    const proof = inspectConsumedRepairedPublicationDispatch({
+      cwd,
+      checkpoint,
+      run,
+      herdr,
+      allowOwnedLease: true,
+      ownedLeasePid,
+      allowedPaneId: dispatch?.paneId ?? null,
+    });
+    return { stage: 'consumed', proof };
+  }
+  const tuples = repairedPublicationRecoveryTuples(checkpoint, { allowZero: true });
+  if (tuples.length !== 0) throw new Error('recovery_tuple_unproven');
+  exactConsumedDispatch(dispatch, checkpoint, dispatch.invocationId);
+  const record = getSafeRecoveryRecord({
+    cwd,
+    ownerId: checkpoint.runId,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    class: REPAIRED_PUBLICATION_RECOVERY,
+  });
+  if (record) {
+    const proof = inspectConsumedRepairedPublicationDispatch({
+      cwd,
+      checkpoint,
+      run,
+      herdr,
+      allowOwnedLease: true,
+      ownedLeasePid,
+      allowedPaneId: dispatch.paneId,
+    });
+    return { stage: 'consumed-gap', proof };
+  }
+  const proof = inspectRepairedPublicationIntervention({
+    cwd,
+    checkpoint,
+    run,
+    allowOwnedLease: true,
+    ownedLeasePid,
+    allowedArchivePath: dispatch.archive.path,
+  });
+  const expectedArchivePath = `${RUN_DIR}/history/repaired-publication/${checkpoint.currentIssue}-implement-${proof.handoffDigest}.json`;
+  if (dispatch.branch !== proof.branch
+    || dispatch.archive.path !== expectedArchivePath
+    || dispatch.archive.digest !== proof.handoffDigest) {
+    throw new Error('consumed_dispatch_unproven');
+  }
+  inspectRecoveryWorkers(checkpoint, herdr);
+  inspectDispatchPanes(herdr, checkpoint.currentIssue, dispatch.paneId, dispatch.paneId);
+  return { stage: 'prepared', proof };
 }
 
 export function inspectExclusiveImplementResume({
@@ -1730,8 +1984,17 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       data.currentIssue, data.currentStep,
     );
     const handoff = handoffResult.handoff;
-    const recovery = data.recoveries?.find((entry) => entry.runId === data.runId
-      && entry.issue === data.currentIssue && entry.step === data.currentStep);
+    const recoveries = currentRecoveryTuples(data);
+    const recovery = recoveries[0] ?? null;
+    if (data.currentStep === 'implement'
+      && data.failed?.reasonCode === 'implementation_failed'
+      && (handoff?.intervention || data.consumedDispatch)) {
+      try {
+        repairedPublicationRecoveryTuples(data, { allowZero: true });
+      } catch (error) {
+        return blocked('implementation_failed', error.message);
+      }
+    }
     let repairedPublication = null;
     let exclusiveResume = null;
     let repairedPublicationError = null;
@@ -1915,26 +2178,15 @@ function validRunIdentity(runData) {
 }
 function validConsumedDispatchState(runData) {
   if (runData.consumedDispatch === undefined) return true;
-  const recoveries = (runData.recoveries || []).filter((entry) =>
-    entry.runId === runData.runId
-    && entry.issue === runData.currentIssue
-    && entry.step === 'implement'
-    && entry.source?.class === REPAIRED_PUBLICATION_RECOVERY);
-  if (recoveries.length !== 1) {
-    if (runData.consumedDispatch?.disposition !== 'prepared') return false;
-    try {
-      exactConsumedDispatch(
-        runData.consumedDispatch,
-        runData,
-        runData.consumedDispatch.invocationId,
-      );
-      return true;
-    } catch {
-      return false;
-    }
-  }
   try {
-    exactConsumedDispatch(runData.consumedDispatch, runData, recoveries[0].invocationId);
+    const prepared = runData.consumedDispatch?.disposition === 'prepared';
+    const recoveries = repairedPublicationRecoveryTuples(runData, { allowZero: prepared });
+    if (prepared && recoveries.length !== 0) return false;
+    exactConsumedDispatch(
+      runData.consumedDispatch,
+      runData,
+      recoveries[0]?.invocationId ?? runData.consumedDispatch.invocationId,
+    );
     return true;
   } catch {
     return false;
@@ -2524,6 +2776,19 @@ function waitForDeliveryObservationRetry() {
   const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   Atomics.wait(signal, 0, 0, 1_000);
 }
+function pauseAtTestCrashBoundary(env, _cwd, boundary) {
+  if (env?.NODE_ENV !== 'test'
+    || env.NMG_SDLC_TEST_CRASH_BOUNDARY !== boundary
+    || typeof env.NMG_SDLC_TEST_CRASH_MARKER !== 'string'
+    || !env.NMG_SDLC_TEST_CRASH_MARKER) {
+    return;
+  }
+  writeFileSync(env.NMG_SDLC_TEST_CRASH_MARKER, `${JSON.stringify({
+    boundary,
+    pid: process.pid,
+  })}\n`, { flag: 'wx' });
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)), 0, 0);
+}
 function ensureControllerOmpConfig(cwd) {
   const root = realpathSync(cwd);
   const configPath = resolve(root, OMP_CONTROLLER_CONFIG_FILE);
@@ -2631,7 +2896,7 @@ function observedAgentState(herdr, name) {
 
 function firstNumericProperty(value, key) {
   if (!value || typeof value !== 'object') return null;
-  if (Number.isFinite(Number(value[key]))) return Number(value[key]);
+  if (typeof value[key] === 'number' && Number.isFinite(value[key])) return value[key];
   for (const child of Object.values(value)) {
     const found = firstNumericProperty(child, key);
     if (found !== null) return found;
@@ -2645,6 +2910,13 @@ function paneDimensions(value) {
     width: firstNumericProperty(parsed?.result, 'width') ?? firstNumericProperty(parsed, 'width'),
     height: firstNumericProperty(parsed?.result, 'height') ?? firstNumericProperty(parsed, 'height'),
   };
+}
+
+function standardPaneDirection(layout) {
+  if (!commandSucceeded(layout)) return null;
+  const { width, height } = paneDimensions(layout);
+  if (!(width > 0) || !(height > 0)) return null;
+  return width >= height ? 'right' : 'down';
 }
 
 function splitPaneId(value) {
@@ -2728,10 +3000,16 @@ function awaitInitialPromptActivation(
   agentName,
   paneId,
   exhaustedReason = 'prompt_pending',
+  ignoredHandoffBytes = null,
 ) {
   const retries = 60;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const result = readExpectedHandoff(handoffPath, issue, step);
+    const result = readExpectedHandoff(
+      handoffPath,
+      issue,
+      step,
+      ignoredHandoffBytes,
+    );
     if (result.handoff) return { result };
     const state = observedAgentState(herdr, agentName);
     if (['working', 'blocked'].includes(state)) return { state };
@@ -2759,9 +3037,15 @@ function deliverGeneratedPromptOnce({
   prompt,
   start,
   handoffPath,
+  issue,
+  step,
+  ignoredHandoffBytes = null,
 }) {
+  const hasReplacementHandoff = () => ignoredHandoffBytes
+    ? Boolean(readExpectedHandoff(handoffPath, issue, step, ignoredHandoffBytes).handoff)
+    : existsSync(handoffPath);
   const finishStalledPrompt = (prompted) => {
-    if (existsSync(handoffPath) || promptDeliveryGuaranteed(prompted)) {
+    if (hasReplacementHandoff() || promptDeliveryGuaranteed(prompted)) {
       return { delivered: true, state: null };
     }
     try {
@@ -2796,7 +3080,7 @@ function deliverGeneratedPromptOnce({
   const deliveryIsProven = (delivery) => {
     if (!delivery.delivered) return false;
     if (delivery.proven || workerPresence(herdr, agentName, paneId) === 'present') return true;
-    if (existsSync(handoffPath) || promptDeliveryGuaranteed(delivery.prompted)) return true;
+    if (hasReplacementHandoff() || promptDeliveryGuaranteed(delivery.prompted)) return true;
     try {
       return hasPastedWorkerPrompt(herdr, agentName, prompt)
         || appearsWorking(herdr, agentName);
@@ -2830,7 +3114,7 @@ function deliverGeneratedPromptOnce({
   if (prePromptFailure) return prePromptFailure;
 
   let delivery = dispatch();
-  if (existsSync(handoffPath)) {
+  if (hasReplacementHandoff()) {
     return { delivered: true, state: null, proven: true };
   }
   if (delivery.reasonCode || deliveryIsProven(delivery)) return delivery;
@@ -3219,7 +3503,42 @@ function hasUnclosedOwnedWorkers(runState) {
   );
 }
 
-
+function proveConsumedPreWorkProcessLoss({
+  runState,
+  issue,
+  step,
+  paneId,
+  agentName,
+  cwd,
+  herdr,
+}) {
+  const dispatch = runState.consumedDispatch;
+  const worker = runState.workers?.[agentName];
+  const controllerLossWithoutWorker = worker === undefined
+    && Object.keys(runState.workers || {}).length === 0
+    && runState.failed?.issue === issue
+    && runState.failed?.step === step
+    && runState.failed?.cleanupReasonCode === undefined
+    && CONSUMED_STARTED_ORPHAN_REASONS.has(runState.failed?.reasonCode);
+  try {
+    const [recovery] = repairedPublicationRecoveryTuples(runState);
+    exactConsumedDispatch(dispatch, runState, recovery.invocationId);
+    if (dispatch.disposition !== 'started'
+      || dispatch.issue !== issue
+      || dispatch.step !== step
+      || dispatch.paneId !== paneId
+      || dispatch.agentName !== agentName
+      || recovery.disposition !== 'consumed'
+      || (worker?.promptDelivery !== 'pending' && !controllerLossWithoutWorker)
+      || existsSync(join(cwd, HANDOFF_DIR, `${issue}-${step}.json`))
+      || workerPresence(herdr, agentName, paneId) !== 'absent') {
+      return null;
+    }
+    return { recovery, controllerLossWithoutWorker };
+  } catch {
+    return null;
+  }
+}
 
 function workerOwnership({ runState, issue, step, agentName, paneId, cwd, run }) {
   const checkout = currentCheckout(cwd, run);
@@ -3305,6 +3624,17 @@ function stopResult({
     && recorded.runId === runState.runId
     && recorded.issue === issue
     && recorded.step === step;
+  const consumedProcessLoss = reasonCode === 'process_lost' && runState.consumedDispatch
+    ? proveConsumedPreWorkProcessLoss({
+      runState, issue, step, paneId, agentName, cwd, herdr,
+    })
+    : null;
+  if (reasonCode === 'process_lost'
+    && runState.consumedDispatch?.disposition === 'started'
+    && !consumedProcessLoss) {
+    output.push('blocked: consumed_dispatch_unproven. Resolve the persisted worker ownership before execution.');
+    return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
+  }
   let disposition = 'left open';
   if (owned && (retainWorker || reasonCode === 'prompt_pending')) {
     const checkout = currentCheckout(cwd, run);
@@ -3323,6 +3653,11 @@ function stopResult({
     } else {
       reasonCode = 'pane_close_failed';
     }
+  }
+  if (consumedProcessLoss
+    && (disposition === 'closed' || consumedProcessLoss.controllerLossWithoutWorker)) {
+    runState.consumedDispatch.disposition = 'stopped';
+    runState.consumedDispatch.reasonCode = 'process_lost';
   }
   const sentence = `Stopped on #${issue} ${step}. Worker pane ${paneId} agent ${agentName} ${disposition}.`;
   try {
@@ -3462,6 +3797,7 @@ export function runExecute({
   installSignalHandlers = false,
   processApi = process,
   waitForDeliveryRetry = waitForDeliveryObservationRetry,
+  consumeSafeRecoveryFn = consumeSafeRecovery,
 } = {}) {
   const output = [];
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
@@ -3519,6 +3855,9 @@ export function runExecute({
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
     if (discovery.state === 'blocked') {
+      if (discovery.recoveryEvidenceReasonCode === 'recovery_tuple_unproven') {
+        return { status: 1, stdout: '', stderr: 'recovery_tuple_unproven\n' };
+      }
       return { status: 1, stdout: '', stderr: `${discovery.reasonCode}: ${discovery.action}\n` };
     }
     if (discovery.issues) {
@@ -3776,6 +4115,13 @@ export function runExecute({
   }
   const stop = (input) => {
     try {
+      if (restoredConsumedHandoff?.handoffPath) {
+        removeExactRestoredHandoff(
+          cwd,
+          restoredConsumedHandoff.handoffPath,
+          restoredConsumedHandoff,
+        );
+      }
       const result = stopResult({
         ...input,
         run,
@@ -3815,6 +4161,7 @@ export function runExecute({
     agentName,
     paneId,
     promptDelivered = false,
+    ignoredHandoffBytes = null,
   }) {
     if (worker.promptDelivery !== 'activating') {
       persistPromptDelivery(worker, 'activating');
@@ -3822,6 +4169,7 @@ export function runExecute({
     const activation = awaitInitialPromptActivation(
       herdrApi, handoffPath, issue, step, agentName, paneId,
       promptDelivered ? 'missing_handoff' : 'prompt_pending',
+      ignoredHandoffBytes,
     );
     if (activation.result?.handoff || ['working', 'blocked'].includes(activation.state)) {
       persistPromptDelivery(worker, 'delivered');
@@ -3892,11 +4240,12 @@ export function runExecute({
   const resumedPromptActivations = new Set();
   let recoveryDispatch = null;
   let preparedRecoveryPane = null;
+  let restoredConsumedHandoff = null;
 
   function allocateStandardPane(step) {
     const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
-    const { width, height } = paneDimensions(layout);
-    const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+    const direction = standardPaneDirection(layout);
+    if (!direction) return null;
     const environment = stepPaneEnvironment(step, env, runState.runId);
     const split = herdrApi.paneSplit({
       direction,
@@ -3920,6 +4269,7 @@ export function runExecute({
     }
     exactConsumedDispatch(dispatch, runState, recoveries[0].invocationId);
     delete runState.consumedDispatch;
+    restoredConsumedHandoff = null;
   }
 
   if (repairedRecoveryClass) {
@@ -4054,6 +4404,7 @@ export function runExecute({
       const invocationId = resumingConsumedDispatch
         ? proof.invocationId
         : runState.consumedDispatch?.invocationId ?? randomUUID();
+      restoredConsumedHandoff = restoreArchivedHandoff(cwd, proof);
       runState.consumedDispatch = {
         runId: runState.runId,
         invocationId,
@@ -4102,11 +4453,12 @@ export function runExecute({
         delete recovery.stoppedAt;
       } else {
         persistRunState(runState, cwd);
+        pauseAtTestCrashBoundary(env, cwd, 'prepared');
         const archivedHandoff = archiveFailedHandoff(cwd, proof);
         if (archivedHandoff.path !== archive.path || archivedHandoff.digest !== archive.digest) {
           throw new Error('handoff_archive_failed');
         }
-        const consumedResult = consumeSafeRecovery({
+        const consumedResult = consumeSafeRecoveryFn({
           cwd,
           ownerId: proof.ownerId,
           issue,
@@ -4125,6 +4477,7 @@ export function runExecute({
         });
         if (!consumedResult.consumed) throw new Error('recovery_consumed');
         consumed = true;
+        pauseAtTestCrashBoundary(env, cwd, 'consumed');
         runState.recoveries ||= [];
         if (runState.recoveries.some((entry) =>
           entry.runId === runState.runId && entry.issue === issue && entry.step === step)) {
@@ -4152,6 +4505,7 @@ export function runExecute({
       runState.failed = null;
       delete runState.remediation;
       persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+      pauseAtTestCrashBoundary(env, cwd, 'pending');
       recoveryDispatch = `${issue}:${step}`;
       preparedRecoveryPane = { issue, step, paneId: allocatedPaneId, agentName };
     } catch (error) {
@@ -4514,8 +4868,13 @@ export function runExecute({
       } else {
         if (recoveryDispatch === `${issue}:${step}`) recoveryDispatch = null;
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
-        const { width, height } = paneDimensions(layout);
-        const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+        const direction = standardPaneDirection(layout);
+        if (!direction) {
+          return stop({
+            issue, step, paneId: 'unknown', agentName, reasonCode: 'pane_split_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
         const environment = stepPaneEnvironment(step, env, runState.runId);
         const split = herdrApi.paneSplit({
           direction,
@@ -5377,6 +5736,13 @@ export function runExecute({
           for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {
             if (error[key] != null) lines.push(`${key}: ${error[key]}`);
           }
+          if (restoredConsumedHandoff?.handoffPath) {
+            removeExactRestoredHandoff(
+              cwd,
+              restoredConsumedHandoff.handoffPath,
+              restoredConsumedHandoff,
+            );
+          }
           return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: `${lines.join('\n')}\n` };
         }
       }
@@ -5397,8 +5763,13 @@ export function runExecute({
         preparedRecoveryPane = null;
       } else {
         const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
-        const { width, height } = paneDimensions(layout);
-        const direction = width !== null && height !== null && width >= height ? 'right' : 'down';
+        const direction = standardPaneDirection(layout);
+        if (!direction) {
+          return stop({
+            issue, step, paneId: 'unknown', agentName, reasonCode: 'pane_split_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
         const environment = stepPaneEnvironment(step, env, runState.runId);
         const split = herdrApi.paneSplit({
           direction,
@@ -5488,7 +5859,12 @@ export function runExecute({
         delete runState.consumedDispatch.reasonCode;
         persistRunState(runState, cwd);
       }
-      if (consumedRecoveryWorker) rmSync(handoffPath, { force: true });
+      if (consumedRecoveryWorker && !restoredConsumedHandoff) {
+        rmSync(handoffPath, { force: true });
+      }
+      const ignoredHandoffBytes = consumedRecoveryWorker && restoredConsumedHandoff
+        ? restoredConsumedHandoff.bytes
+        : null;
 
       let state = null;
       let handoffResult;
@@ -5520,7 +5896,12 @@ export function runExecute({
           paneId,
           prompt,
           handoffPath,
-          start: () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
+          issue,
+          step,
+          ignoredHandoffBytes,
+          start: consumedRecoveryWorker
+            ? null
+            : () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
         });
         if (!delivered.delivered) {
           return stop({
@@ -5536,6 +5917,7 @@ export function runExecute({
           agentName,
           paneId,
           promptDelivered: true,
+          ignoredHandoffBytes,
         });
         if (activation.result) {
           if (!activation.result.handoff) {
@@ -5554,7 +5936,12 @@ export function runExecute({
           }
           runState = latestMatchingRunState(runState, cwd);
           handoffResult = observeExpectedHandoff(
-            herdrApi, handoffPath, issue, step, agentName,
+            herdrApi,
+            handoffPath,
+            issue,
+            step,
+            agentName,
+            ignoredHandoffBytes,
           );
         }
       }
@@ -5611,6 +5998,13 @@ export function runExecute({
   cleanupCompletedRun(runState, cwd);
   return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
   } catch (error) {
+    if (restoredConsumedHandoff?.handoffPath) {
+      removeExactRestoredHandoff(
+        cwd,
+        restoredConsumedHandoff.handoffPath,
+        restoredConsumedHandoff,
+      );
+    }
     if (runState?.workers && validRunIdentity(runState)) {
       let changed = false;
       for (const [name, worker] of Object.entries(runState.workers)) {

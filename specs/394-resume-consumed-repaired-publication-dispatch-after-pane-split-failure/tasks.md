@@ -52,7 +52,9 @@
 - [ ] Persist exact pending/start disposition by CAS before agent start
 - [ ] Never call `consumeSafeRecovery`, append a recovery tuple, replace the invocation, or enter remediation
 - [ ] Start only standard `s${issue}-implement`
-- [ ] Preserve deterministic split/persist/start crash recovery and make successful start immediately non-offerable
+- [ ] Make successful start immediately non-offerable while ownership or output remains; recover only the exact empty-worker, absent-pane/agent/live-handoff `controller_cancelled`/`process_lost` orphan as the same invocation
+- [ ] Idempotently restore the absent or already-identical live implement handoff from exact archive bytes, ignore it through activation until replacement, and clean unchanged restored bytes on start/prompt failure
+- [ ] Enforce the closed disposition-to-reason schema directly for prepared, pending, starting, started, and stopped
 - [ ] Clear only ephemeral pending dispatch after a validated successful implement handoff so next-step and terminal checkpoint schemas remain valid
 - [ ] Retain the consumed safe-recovery record and immutable run recovery after successful completion
 - [ ] Validate all current run/issue/step recovery tuples before class filtering and block wrong-class or additional tuples
@@ -73,7 +75,8 @@
 - [ ] Preserve all existing #392 and other recovery fixtures
 - [ ] Use real supervised processes and `SIGKILL` at prepared CAS, post-safe-consume/pre-run-tuple CAS, and pending-CAS/pre-worker-persist boundaries
 - [ ] At each hard-loss boundary assert original implementation failure is preserved, only the exact attempt-owned unused pane is closed, and the same invocation remains resumable
-- [ ] Cover prompt-path `process_lost`, malformed layout before any split/consume call, and wrong-class/additional current recovery tuples
+- [ ] Cover prompt-path `process_lost`, orphaned `started` controller loss with no live handoff and no duplicate recovery, malformed layout before any split/consume call, and wrong-class/additional current recovery tuples
+- [ ] Directly test idempotent identical restore and non-overwriting mismatch rejection; prove a distinct passed worker handoff replaces and is not confused with the restored archive, with no safe re-consumption or recovery append
 
 ### T006: Document fail-closed same-invocation semantics
 
