@@ -156,6 +156,45 @@ Each admitted delivery task must contain exactly one canonical `**File(s)**:` de
 
 Spec publication validates this grammar and the exactly-one invariant before Git staging or PR work. Execute validates both again, including requiring declared directories and globs to match files, before creating an implementation worker pane. Missing, near-miss, duplicate, and malformed declarations fail with `publication_scope_unproven`, reporting the spec path, task ID, relevant line number, exact offending declaration when available, and accepted syntax.
 
+### Read-only implementation scope probe
+
+An execute-owned implementation worker inspects its owner and mutation authority before editing:
+
+```text
+node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" probe --issue 42 --step implement --spec specs/42-add-user-auth --controller-run-id RUN_ID
+```
+
+`probe` accepts exactly those four options. It derives the attached Git branch, reads the active execute checkpoint and unique matching incomplete safe-recovery owner, and validates the exact singular Approved spec. It does not acquire the controller lock, create or consume recovery state, or write run, handoff, spec, product, or `.pi-glla` files. Missing or ambiguous issue, step, run, owner, or branch identity fails closed. A stale `run.json.branch` is reported in `binding.discrepancies`; the probe never repairs it or silently substitutes it for the actual/owner branch.
+
+Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
+
+```json
+{
+  "passed": true,
+  "ownerId": "RUN_ID",
+  "binding": {
+    "actualBranch": "42-add-user-auth",
+    "run": {},
+    "recoveryOwner": {},
+    "discrepancies": []
+  },
+  "scope": {
+    "trackedWritablePaths": ["src/auth.ts"],
+    "untrackedEvidencePaths": ["artifacts/42/result.json"],
+    "taskOperations": [],
+    "readOnlyPaths": [
+      "specs/42-add-user-auth/design.md",
+      "specs/42-add-user-auth/feature.gherkin",
+      "specs/42-add-user-auth/requirements.md",
+      "specs/42-add-user-auth/tasks.md"
+    ],
+    "allowedPaths": ["artifacts/42/result.json", "src/auth.ts"]
+  }
+}
+```
+
+`taskOperations` carries each task-relative operation and its `File(s)`, `Read-only`, or `Acquire` source line. `Create`, `Modify`, and `Delete` are tracked delivery authority; only explicit `Download untracked` and `Generate untracked` annotations create untracked evidence authority. Consumers must use only `scope.allowedPaths` for mutation. Approved spec documents and exclusively read-only inputs never enter writable authority. The later `bind` and `reconcile` publication actions remain state-changing and use the same structured scope.
+
 ## Execute the approved work
 
 ```text

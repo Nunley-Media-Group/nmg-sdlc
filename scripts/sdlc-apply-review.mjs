@@ -88,7 +88,7 @@ function runApplyReviewUnlocked({
     if (!specRoot) return fail('Approved review-fix scope is unavailable', 'spec_not_approved');
     allowedPaths = inspectPublicationScope({
       cwd, issue: issueNumber, step, spec: `specs/${specRoot.split(/[\\/]/).at(-1)}`, run,
-    });
+    }).allowedPaths;
   } catch (error) {
     return fail(`Review-fix scope is unavailable: ${error.message}`, error.reasonCode ?? 'spec_not_approved');
   }

@@ -3744,6 +3744,18 @@ export function runExecute({
           : spec.dir.split('\\').join('/');
         try {
           inspectPublicationScope({ cwd, issue, spec: specRelative, step, run });
+          const checkout = currentCheckout(cwd, run);
+          if (!checkout || !checkout.branch.startsWith(`${issue}-`)) {
+            throw Object.assign(new Error('publication_branch_mismatch'), { reasonCode: 'publication_branch_mismatch' });
+          }
+          resolveRecoveryOwner({
+            cwd,
+            issue,
+            step,
+            branch: checkout.branch,
+            controllerRunId: runState.runId,
+            run,
+          });
         } catch (error) {
           const lines = [error.reasonCode ?? error.message];
           for (const key of ['spec', 'taskId', 'line', 'entry', 'syntax']) {

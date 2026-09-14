@@ -147,7 +147,10 @@ function writeApproved(dir, issueN, extra = {}) {
     '',
   ].filter((line) => line !== null).join('\n');
   for (const name of extra.files ?? ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
-    fs.writeFileSync(path.join(dir, name), body);
+    const content = name === 'tasks.md' && extra.body === undefined
+      ? `${body}### T001: Exercise controller fixture\n\n**File(s)**: \`README.md\`\n**Type**: Modify\n`
+      : body;
+    fs.writeFileSync(path.join(dir, name), content);
   }
 }
 
@@ -1033,6 +1036,7 @@ describe('runExecute controller', () => {
     const pendingAgentStartStatuses = [...agentStartStatuses];
     let remPromptCount = 0;
     let agentLost = false;
+    let currentBranch = branch;
     const paneEnvironments = new Map();
     const reviewEnvironments = new Map();
 
@@ -1104,10 +1108,10 @@ describe('runExecute controller', () => {
       }
       if (command === 'git' && args[0] === 'status') return { status: 0, stdout: dirty, stderr: '' };
       if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
-        return { status: 0, stdout: `${branch}\n`, stderr: '' };
+        return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
       }
       if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
-        return { status: 0, stdout: `${branch}\n`, stderr: '' };
+        return { status: 0, stdout: `${currentBranch}\n`, stderr: '' };
       }
       if (command === 'git' && args[0] === 'merge-base') {
         if (args[1] === '--is-ancestor') return { status: 1, stdout: '', stderr: '' };
@@ -1245,6 +1249,11 @@ describe('runExecute controller', () => {
             ? handoffContent(handoff, { isRem, step })
             : JSON.stringify(handoff);
           fs.writeFileSync(path.join(handoffDir, `${workerIssue}-${step}.json`), `${content}\n`);
+          if (status === 'passed' && step === 'start') {
+            const specBranch = fs.readdirSync(path.join(cwd, 'specs'))
+              .find((name) => name.startsWith(`${workerIssue}-`));
+            if (specBranch) currentBranch = specBranch;
+          }
         }
         return { status: promptStatus };
       },
@@ -3209,6 +3218,13 @@ describe('runExecute controller', () => {
     expect(fixture.closed).toEqual([
       'pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7', 'pane-8',
     ]);
+    const recoveryState = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'), 'utf8'));
+    expect(recoveryState.owners).toContainEqual(expect.objectContaining({
+      issue: 42,
+      branch: '42-ship-it',
+      step: 'implement',
+      status: 'incomplete',
+    }));
     expect([...fixture.reviewEnvironments.keys()]).toEqual([
       's42-review1-reviewer-1', 's42-review2-reviewer-1',
     ]);

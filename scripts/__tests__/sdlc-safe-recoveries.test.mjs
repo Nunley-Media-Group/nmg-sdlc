@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import {
   consumeSafeRecovery,
   inspectPublicationScope,
   parseDeliveryTaskFileLines,
+  probePublicationScope,
   PUBLICATION_FILE_SYNTAX,
   publicationFileEntries,
   reconcileStagePublication,
@@ -21,6 +23,7 @@ import {
 const roots = [];
 const REPORT = 'specs/42-feature/verification-report.md';
 const TASKS_TEMPLATE = fileURLToPath(new URL('../../workflows/write-spec/templates/tasks.md', import.meta.url));
+const PATHCAST_TASKS = fileURLToPath(new URL('../__fixtures__/pathcast-108-publication-scope/tasks.md', import.meta.url));
 const SUBJECT = 'docs: record verification for #42';
 const TOKEN1 = '11111111-1111-4111-8111-111111111111';
 const TOKEN2 = '22222222-2222-4222-8222-222222222222';
@@ -287,18 +290,40 @@ describe('approved publication scope', () => {
     const spec = 'specs/42-feature';
     f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
     f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
-    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (remove), \`${REPORT}\`\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (Delete), \`${REPORT}\`, \`${spec}/design.md\`, \`specs/other/input.md\`\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
     f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n    Given approved tasks\n    When changes publish\n    Then only approved paths publish\n`);
     f.put('unrelated.txt', 'not authorized\n');
     const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run });
-    expect(scope).toContain('src/code.mjs');
-    expect(scope).toContain('deleted.txt');
-    expect(scope).not.toContain('unrelated.txt');
-    expect(scope).not.toContain('skill://skill-creator');
-    expect(inspectPublicationScope({ cwd: f.root, issue: 42, step: 'verify', spec, run: f.run })).toEqual([REPORT]);
-    expect(scope).not.toContain(REPORT);
+    expect(scope.allowedPaths).toContain('src/code.mjs');
+    expect(scope.allowedPaths).toContain('deleted.txt');
+    expect(scope.allowedPaths).not.toContain('unrelated.txt');
+    expect(scope.allowedPaths).not.toContain('skill://skill-creator');
+    expect(inspectPublicationScope({ cwd: f.root, issue: 42, step: 'verify', spec, run: f.run }).allowedPaths).toEqual([REPORT]);
+    expect(scope.allowedPaths).not.toContain(REPORT);
+    expect(scope.allowedPaths.some((file) => file === 'specs' || file.startsWith('specs/'))).toBe(false);
+    expect(scope.readOnlyPaths).toEqual(expect.arrayContaining([
+      REPORT,
+      `${spec}/design.md`,
+      'specs/other/input.md',
+    ]));
     f.put(`${spec}/design.md`, `${header.replace('Approved', 'Draft')}Unapproved changes.\n`);
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
+  });
+
+  test('keeps an exact delivery-owner verification report outside implementation scope', () => {
+    const f = fixture();
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    const spec = 'specs/42-feature';
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/code.mjs\` (Modify), \`${REPORT}\` (delivery-owner only)\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+
+    const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run });
+
+    expect(scope.allowedPaths).toContain('src/code.mjs');
+    expect(scope.allowedPaths).not.toContain(REPORT);
+    expect(scope.readOnlyPaths).not.toContain(REPORT);
   });
 
   test.each([
@@ -341,7 +366,7 @@ describe('approved publication scope', () => {
       step: 'implement',
       spec,
       run: f.run,
-    })).toContain('src/code.mjs');
+    }).allowedPaths).toContain('src/code.mjs');
   });
 });
 
@@ -359,6 +384,39 @@ describe('approved publication scope', () => {
       taskId: 'T001',
       line: 4,
       entry: 'Create `src/a.ts`',
+      syntax: PUBLICATION_FILE_SYNTAX,
+    }));
+  });
+
+  test.each([
+    'delivery-owner only',
+    'delivery owner only',
+    'DeLiVeRy-OWNER   OnLy',
+  ])('excludes the exact normalized delivery-owner annotation %s', (annotation) => {
+    expect(publicationFileEntries(`\`specs/42-feature/verification-report.md\` (${annotation})`))
+      .toEqual([]);
+  });
+
+  test.each([
+    'delivery-owner only, Archive',
+    'delivery-owner only Create',
+    'Archive delivery-owner only',
+  ])('rejects residual delivery-owner annotation text %s at the declaration location', (annotation) => {
+    const declaration = `\`specs/42-feature/verification-report.md\` (${annotation})`;
+    expect(() => publicationFileEntries(declaration))
+      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven' }));
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Record delivery evidence',
+      `**File(s)**: ${declaration}`,
+    ].join('\n'), {
+      spec: 'specs/42-feature/tasks.md',
+      structured: true,
+    })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      spec: 'specs/42-feature/tasks.md',
+      taskId: 'T001',
+      line: 2,
+      entry: declaration,
       syntax: PUBLICATION_FILE_SYNTAX,
     }));
   });
@@ -595,8 +653,8 @@ describe('approved publication scope', () => {
 
     const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run });
 
-    expect(scope).toContain('tests/generated/step.mjs');
-    expect(scope).not.toContain('tests/unrelated.mjs');
+    expect(scope.allowedPaths).toContain('tests/generated/step.mjs');
+    expect(scope.allowedPaths).not.toContain('tests/unrelated.mjs');
   });
 
   test('rejects a bounded declaration that expands to no files', () => {
@@ -621,6 +679,347 @@ describe('approved publication scope', () => {
     expect(entries.length).toBeGreaterThan(0);
   });
 
+
+describe('read-only owner-bound publication probe', () => {
+  const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
+  const branch = '108-establish-claim-specific-ip-and-product-safety-guardrails';
+  const runId = '5045d7eb-1038-49d7-9d81-d17ba22e7a62';
+  const spec = 'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand';
+  const trackedPaths = [
+    '.github/workflows/miledar-ip-guardrails.yml',
+    'api/package.json',
+    'api/src/__tests__/features/miledar_ip_guardrails.feature',
+    'api/src/__tests__/steps/miledar_ip_guardrails.steps.ts',
+    'api/src/__tests__/unit/ip-guardrails/reconciliation.test.ts',
+    'api/src/scripts/capture-miledar-ip-evidence.ts',
+    'api/src/scripts/reconcile-miledar-ip-guardrails.ts',
+    'api/src/services/ip-guardrails/semantic.ts',
+    'api/src/services/ip-guardrails/service.ts',
+    'api/src/services/ip-guardrails/types.ts',
+    'docs/release/miledar-ip-guardrails.json',
+    'docs/release/miledar-ip-product-safety.md',
+  ].sort();
+  const evidencePaths = [
+    'api/.artifacts/miledar-ip-guardrails/evidence.json',
+    'artifacts/issue-108/hosted-check.json',
+    'artifacts/issue-108/live-ruleset.json',
+    'artifacts/issue-108/local-results.json',
+    'artifacts/issue-108/merged-inputs.json',
+    'artifacts/issue-108/reconciliation.json',
+  ].sort();
+
+  function pathCastFixture() {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-pathcast-scope-'));
+    roots.push(base);
+    const root = path.join(base, 'work');
+    fs.mkdirSync(root);
+    const git = (...args) => {
+      const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    git('init', '-b', branch);
+    git('config', 'user.name', 'Scope fixture');
+    git('config', 'user.email', 'scope@example.test');
+    git('config', 'commit.gpgsign', 'false');
+    const put = (file, body) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), body);
+    };
+    put('.gitignore', '.omp/\n');
+    for (const file of trackedPaths) put(file, `tracked fixture ${file}\n`);
+    const header = '**Issue**: #108\n**Status**: Approved\n\n';
+    put(`${spec}/requirements.md`, `${header}### AC1: Preserve exact scope\n`);
+    put(`${spec}/design.md`, `${header}Use structured scope.\n`);
+    put(`${spec}/tasks.md`, fs.readFileSync(PATHCAST_TASKS));
+    put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Preserve exact scope\n`);
+    put('steering/product.md', 'product authority\n');
+    put('.pi-glla/state.json', '{\"state\":\"unchanged\"}\n');
+    git('add', '.');
+    git('commit', '-m', 'chore: create PathCast scope fixture');
+    put('.omp/sdlc/run.json', `${JSON.stringify({
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(root),
+      runId,
+      issue: 108,
+      branch: 'main',
+      head: git('rev-parse', 'HEAD'),
+      issues: [108],
+      revision: 1,
+      currentIssue: 108,
+      currentStep: 'implement',
+      completed: { 108: ['start'] },
+      failed: null,
+      workers: {},
+    }, null, 2)}\n`);
+    put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify({
+      schemaVersion: 1,
+      revision: 1,
+      owners: [{
+        ownerId: runId,
+        projectRoot: fs.realpathSync(root),
+        issue: 108,
+        branch,
+        step: 'implement',
+        status: 'incomplete',
+      }],
+      records: [],
+    }, null, 2)}\n`);
+    put('.omp/sdlc/handoffs/108-implement.json', '{\"status\":\"failed\"}\n');
+    return { root, git };
+  }
+
+  test('reports exact PathCast 18/12/6 scope and preserves all observed bytes', () => {
+    const f = pathCastFixture();
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')))
+      .toMatchObject({ currentIssue: 108, currentStep: 'implement', completed: { 108: ['start'] } });
+    const protectedPaths = [
+      '.omp/sdlc/controller.lock',
+      '.omp/sdlc/run.json',
+      '.omp/sdlc/safe-recoveries.json',
+      '.omp/sdlc/handoffs/108-implement.json',
+      '.pi-glla/state.json',
+      'steering/product.md',
+      ...['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'].map((file) => `${spec}/${file}`),
+    ];
+    const snapshot = () => Object.fromEntries(protectedPaths.map((file) => {
+      const absolute = path.join(f.root, file);
+      if (!fs.existsSync(absolute)) return [file, null];
+      const bytes = fs.readFileSync(absolute);
+      return [file, { bytes: bytes.toString('base64'), sha256: createHash('sha256').update(bytes).digest('hex') }];
+    }));
+    const before = snapshot();
+    const calls = [];
+    const run = (command, args, options) => {
+      calls.push([command, ...args]);
+      return spawnSync(command, args, { encoding: 'utf8', ...options });
+    };
+
+    const result = probePublicationScope({
+      cwd: f.root,
+      issue: 108,
+      step: 'implement',
+      spec,
+      controllerRunId: runId,
+      run,
+    });
+
+    expect(result.ownerId).toBe(runId);
+    expect(result.binding.actualBranch).toBe(branch);
+    expect(result.binding.discrepancies).toEqual([
+      { field: 'branch', run: 'main', actual: branch, owner: branch },
+    ]);
+    expect(Object.keys(result.scope)).toEqual([
+      'trackedWritablePaths',
+      'untrackedEvidencePaths',
+      'taskOperations',
+      'readOnlyPaths',
+      'allowedPaths',
+    ]);
+    expect(result.scope.trackedWritablePaths).toEqual(trackedPaths);
+    expect(result.scope.untrackedEvidencePaths).toEqual(evidencePaths);
+    expect(result.scope.taskOperations.find(({ taskId }) => taskId === 'T004').operations)
+      .toContainEqual(expect.objectContaining({
+        path: 'api/.artifacts/miledar-ip-guardrails/evidence.json',
+        operation: 'Acquire',
+      }));
+    expect(result.scope.allowedPaths).toEqual([...trackedPaths, ...evidencePaths].sort());
+    expect(result.scope.taskOperations).toHaveLength(4);
+    expect(result.scope.readOnlyPaths).toEqual(expect.arrayContaining([
+      `${spec}/requirements.md`,
+      `${spec}/design.md`,
+      `${spec}/tasks.md`,
+      `${spec}/feature.gherkin`,
+      'docs/release/miledar-ip-guardrails.schema.json',
+    ]));
+    expect(result.scope.allowedPaths.some((file) => file.startsWith(`${spec}/`))).toBe(false);
+    expect(snapshot()).toEqual(before);
+    expect(calls.some((call) => ['add', 'commit', 'push'].includes(call[1]))).toBe(false);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/controller.lock'))).toBe(false);
+
+    const cli = spawnSync(process.execPath, [
+      script,
+      'probe',
+      '--issue', '108',
+      '--step', 'implement',
+      '--spec', spec,
+      '--controller-run-id', runId,
+    ], { cwd: f.root, encoding: 'utf8' });
+    expect({ status: cli.status, stderr: cli.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(cli.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, '')).scope.allowedPaths)
+      .toEqual(result.scope.allowedPaths);
+    expect(snapshot()).toEqual(before);
+  });
+
+  test('keeps task-relative duplicate provenance while writable authority wins', () => {
+    const operations = parseDeliveryTaskFileLines([
+      '### T001: Read then create',
+      '**Read-only**: `src/shared.mjs`',
+      '**File(s)**: `src/shared.mjs` (Create)',
+      '**Type**: Create',
+      '### T002: Modify again',
+      '**File(s)**: `src/shared.mjs` (Modify), `src/shared.mjs` (Modify)',
+      '**Type**: Modify',
+    ].join('\n'), { structured: true });
+    expect(operations).toHaveLength(2);
+    expect(operations.flatMap((task) => task.operations).filter((item) => item.path === 'src/shared.mjs'))
+      .toHaveLength(4);
+    for (const note of [
+      'Download tracked',
+      'Archive',
+      'archive',
+      'Rename',
+      'MOVE',
+      'delete recursively',
+      'Create / Modify',
+      'Create | Modify',
+      'Create or Modify',
+      'Create, Modify',
+      'Modify/Delete',
+      'Generate',
+    ]) {
+      expect(() => parseDeliveryTaskFileLines([
+        '### T001: Unsupported',
+        `**File(s)**: \`src/shared.mjs\` (${note})`,
+      ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
+        reasonCode: 'publication_scope_unproven',
+        taskId: 'T001',
+        line: 2,
+      }));
+    }
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Ordinary note',
+      '**File(s)**: `src/shared.mjs` (as needed)',
+      '**Type**: Modify',
+    ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Modify');
+    expect(() => parseDeliveryTaskFileLines([
+      '### T001: Unsupported task type',
+      '**File(s)**: `src/shared.mjs`',
+      '**Type**: Archive',
+    ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
+      reasonCode: 'publication_scope_unproven',
+      taskId: 'T001',
+    }));
+    expect(parseDeliveryTaskFileLines([
+      '### T001: Explicit path override',
+      '**File(s)**: `src/shared.mjs` (Create)',
+      '**Type**: Archive',
+    ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Create');
+    const acquireOperations = parseDeliveryTaskFileLines([
+      '### T001: Acquire root input',
+      '**Acquire**: `tool --input README.md --repo owner/repository --candidate HEAD --output generated.json`',
+      '**File(s)**: `src/shared.mjs`',
+      '**Type**: Modify',
+    ].join('\n'), { structured: true })[0].operations
+      .filter(({ operation }) => operation === 'Acquire');
+    expect(acquireOperations).toEqual([
+      expect.objectContaining({ path: 'README.md', operation: 'Acquire' }),
+    ]);
+  });
+
+  test('rejects incomplete execute checkpoints before owner selection or scope authority', () => {
+    const f = pathCastFixture();
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    const valid = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    const safeBytes = fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'));
+    const exactReviewedFixture = {
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(f.root),
+      runId,
+      issue: 108,
+      branch: 'main',
+      issues: [108],
+      currentIssue: 108,
+      currentStep: 'implement',
+    };
+    const without = (field) => {
+      const checkpoint = structuredClone(valid);
+      delete checkpoint[field];
+      return checkpoint;
+    };
+    const invalidCheckpoints = [
+      exactReviewedFixture,
+      ...[
+        'schemaVersion',
+        'projectRoot',
+        'runId',
+        'issue',
+        'branch',
+        'head',
+        'issues',
+        'revision',
+        'currentIssue',
+        'currentStep',
+        'completed',
+        'failed',
+        'workers',
+      ].map(without),
+      { ...valid, schemaVersion: 2 },
+      { ...valid, projectRoot: `${valid.projectRoot}-other` },
+      { ...valid, runId: '' },
+      { ...valid, issue: 109 },
+      { ...valid, issues: [108, 108] },
+      { ...valid, currentIssue: 109 },
+      { ...valid, currentStep: null },
+      { ...valid, head: valid.head.slice(0, 39) },
+      { ...valid, revision: 0 },
+      { ...valid, branch: 42 },
+      { ...valid, completed: null },
+      { ...valid, completed: {} },
+      { ...valid, completed: { 109: [] } },
+      { ...valid, completed: { 108: ['review1', 'start'] } },
+      { ...valid, completed: { 108: ['start', 'review1'] } },
+      { ...valid, completed: { 108: ['start', 'implement'] } },
+      { ...valid, completed: { 108: ['start', 'start'] } },
+      {
+        ...valid,
+        completed: {
+          108: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver', 'start'],
+        },
+      },
+      {
+        ...valid,
+        issues: [108, 109],
+        completed: { 108: ['start'], 109: ['review1', 'start'] },
+      },
+      { ...valid, failed: {} },
+      { ...valid, workers: [] },
+      { ...valid, workers: { broken: { name: 'broken' } } },
+    ];
+    for (const checkpoint of invalidCheckpoints) {
+      fs.writeFileSync(runPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
+      const calls = [];
+      const run = (command, args, options) => {
+        calls.push([command, ...args]);
+        return spawnSync(command, args, { encoding: 'utf8', ...options });
+      };
+      expect(() => probePublicationScope({
+        cwd: f.root,
+        issue: 108,
+        step: 'implement',
+        spec: 'specs/not-approved',
+        controllerRunId: runId,
+        run,
+      })).toThrow('recovery_owner_ambiguous');
+      expect(calls).toEqual([['git', 'rev-parse', '--abbrev-ref', 'HEAD']]);
+      expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(safeBytes);
+    }
+  });
+
+  test('rejects missing or mismatched owner-bound inputs without creating state', () => {
+    const f = pathCastFixture();
+    const recovery = fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'));
+    expect(() => probePublicationScope({
+      cwd: f.root,
+      issue: 108,
+      step: 'implement',
+      spec,
+      controllerRunId: 'foreign-run',
+    })).toThrow('recovery_owner_ambiguous');
+    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(recovery);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/controller.lock'))).toBe(false);
+  });
+});
 
 describe('publication CLI lease ownership boundary', () => {
   const script = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
@@ -676,7 +1075,7 @@ describe('publication CLI lease ownership boundary', () => {
 
 ### T004: Preserve quoted declarations
 
-**File(s)**: \`src/code.mjs\` (see \`notes.txt\`; not authority), \`deleted.txt\` (remove)
+**File(s)**: \`src/code.mjs\` (see \`notes.txt\`; not authority), \`deleted.txt\` (Delete)
 **Notes**: \`prose.txt\`
 
 ### T000: Not an admitted task identifier
@@ -691,30 +1090,29 @@ describe('publication CLI lease ownership boundary', () => {
     const result = f.bind();
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
     const publication = JSON.parse(result.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''));
-    expect(publication.allowedPaths).toEqual([
+    expect(publication.scope.allowedPaths).toEqual([
       'CHANGELOG.md', 'README.md', 'deleted.txt', 'src/code.mjs', 'src/nmg_sdlc_smoke/cli.py',
-      ...['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md'].map((file) => `${spec}/${file}`),
       'tests/features/add_nmg_smoke_brackets_flag.feature', 'tests/features/steps/test_brackets_steps.py',
     ].sort());
     expect(reconcileStagePublication({
       cwd: f.root, issue: 42, step: 'implement', ownerId: runId,
-      expectedSubject: 'feat: add brackets #42', allowedPaths: publication.allowedPaths, run: f.run,
+      expectedSubject: 'feat: add brackets #42', allowedPaths: publication.scope.allowedPaths, run: f.run,
     })).toMatchObject({ passed: false });
     expect(f.state().records).toEqual([]);
   });
 
-  test('accepts the clean subjectless initial implement bind', () => {
+  test('rejects a subjectless implement bind even when the worktree is clean', () => {
     const f = cliFixture();
     f.git('add', '--', spec);
     f.git('commit', '-m', 'docs: approve publication fixture #42');
     f.git('push');
     expect(f.git('status', '--porcelain=v1')).toBe('');
 
-    const initial = f.bind(runId, null);
-    expect({ status: initial.status, stderr: initial.stderr }).toEqual({ status: 0, stderr: '' });
-    expect(JSON.parse(initial.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''))).toMatchObject({
-      passed: true, ownerId: runId,
+    const rejected = f.bind(runId, null);
+    expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
+      status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
     });
+    expect(fs.existsSync(f.statePath)).toBe(false);
   });
 
   test('rejects dirty missing, wrong, and non-boundary issue identifiers before publication', () => {

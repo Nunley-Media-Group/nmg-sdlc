@@ -1853,7 +1853,7 @@ function runDeliverUnlocked({
       if (classified.reasonCode === 'mergeability_defect') {
         const allowedPaths = inspectPublicationScope({
           cwd, issue: issueNumber, step: 'implement', spec: spec.relative, run,
-        });
+        }).allowedPaths;
         return reconcileMergeability({ context, run, branch, observed, allowedPaths });
       }
       const automaticReview = ['changes_requested', 'review_threads_unresolved', 'automatic_review_unactionable'].includes(classified.reasonCode);
