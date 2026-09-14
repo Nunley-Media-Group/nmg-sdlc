@@ -32,7 +32,7 @@
 
 ### T003: Prove exact PathCast and fail-closed behavior
 
-**File(s)**: `scripts/__fixtures__/pathcast-108-publication-scope/tasks.md` (Create), `scripts/__tests__/sdlc-safe-recoveries.test.mjs` (Modify), `scripts/__tests__/sdlc-execute.test.mjs` (Modify), `scripts/__tests__/sdlc-apply-review.test.mjs` (Modify), `scripts/__tests__/sdlc-deliver.test.mjs` (Modify)
+**File(s)**: `scripts/__fixtures__/pathcast-108-publication-scope/tasks.md` (Create), `scripts/__tests__/sdlc-safe-recoveries.test.mjs` (Modify), `scripts/__tests__/sdlc-execute.test.mjs` (Modify), `scripts/__tests__/sdlc-execute-supervisor.test.mjs` (Modify), `scripts/__tests__/sdlc-apply-review.test.mjs` (Modify), `scripts/__tests__/sdlc-deliver.test.mjs` (Modify)
 **Type**: Create or Modify
 **Depends**: T001, T002
 **Acceptance**:
@@ -41,10 +41,12 @@
 - [ ] Before/after hashes and bytes prove no lock, recovery, run, handoff, spec, product, or `.pi-glla` write
 - [ ] Parser covers read-only-then-writable, duplicate operations, Create-then-Modify, and unsupported/missing/duplicate declaration failures
 - [ ] Existing scope consumers remain covered
+- [ ] Supervisor valid-subject bind fixture declares canonical `File(s): src/code.mjs (Modify)` and dirties `src/code.mjs`; subjectless and wrong-issue rejection assertions remain intact
+- [ ] No authority is added for extension-command or rendered-prompt tests; their expectations are satisfied through the T004-authorized workflow
 
 ### T004: Document workflow and release evidence
 
-**File(s)**: `workflows/write-code/WORKFLOW.md`, `README.md`, `CHANGELOG.md`
+**File(s)**: `workflows/write-code/WORKFLOW.md`, `README.md`, `CHANGELOG.md`, `specs/390-read-only-owner-bound-implementation-scope-probe/verification-report.md` (delivery-owner only)
 **Type**: Modify
 **Depends**: T001, T002, T003
 **Acceptance**:
@@ -52,6 +54,7 @@
 - [ ] Public docs show CLI/API arguments, structured JSON, `scope.allowedPaths`, discrepancies, and no-write guarantee
 - [ ] Unreleased changelog records the bug fix without changing VERSION or package version
 - [ ] Skill bundle validation, focused suites, disposable exercise, plugin current/stability/surface, contribution evidence, version sync, and diff checks pass
+- [ ] Verification evidence is delivery-owned and never enters implementation `allowedPaths`
 
 ## Traceability
 
@@ -70,3 +73,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #390 | 2026-09-13 | Initial approved tasks |
+| #390 | 2026-09-14 | Authorized the canonical supervisor bind fixture correction and delivery-owned verification evidence |

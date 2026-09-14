@@ -74,6 +74,9 @@
 **When** repository checks run
 **Then** README and write-code workflow document the read-only probe, owner-bound arguments, structured JSON, discrepancy behavior, and later state-changing bind boundary
 **And** changelog, plugin surface, current/stability checks, contribution evidence, version synchronization, focused tests, disposable PathCast exercise, and diff hygiene pass
+**And** the full-CI supervisor valid-subject bind fixture declares canonical `File(s): src/code.mjs (Modify)`, dirties `src/code.mjs`, and preserves subjectless and wrong-issue rejection assertions
+**And** extension-command and rendered-prompt tests receive no new implementation authority because their expectations are satisfied through the authorized write-code workflow
+**And** the verification report is delivery-owner evidence and never enters implementation `allowedPaths`
 
 ## Functional Requirements
 
@@ -88,6 +91,8 @@
 | FR7 | Migrate every scope consumer to `.allowedPaths`; retain no flat-list or spec-seeding path | Must |
 | FR8 | Prove exact PathCast 18/12/6 behavior and byte-identical probe state in a disposable Git fixture | Must |
 | FR9 | Update public/workflow/changelog surfaces without an implementation-time version bump | Must |
+| FR10 | Correct only the obsolete supervisor valid-subject fixture with canonical task authority and a dirty authorized implementation file while preserving its rejection cases | Must |
+| FR11 | Keep verification-report evidence delivery-owner only and outside implementation `allowedPaths`; authorize no additional extension-command or rendered-prompt test path | Must |
 
 ## Out of Scope
 
@@ -102,3 +107,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #390 | 2026-09-13 | Initial approved defect report |
+| #390 | 2026-09-14 | Added the full-CI supervisor fixture remediation and explicit delivery-owned evidence boundary |

@@ -79,6 +79,12 @@ The execute controller remains the owner-creation boundary. Before an implement 
 - Bind/reconcile pass only structured `scope.allowedPaths` to publication checks.
 - Parse-only spec and upgrade consumers retain `parseDeliveryTaskFileLines()` because they validate canonical path grammar rather than mutation authorization.
 
+### Full-CI fixture and evidence ownership
+
+The obsolete valid-subject fixture in `scripts/__tests__/sdlc-execute-supervisor.test.mjs` must model the fail-closed contract rather than bypass it: its empty task body becomes canonical `File(s): src/code.mjs (Modify)` authority and the fixture dirties `src/code.mjs` before bind. Its subjectless and wrong-issue rejection assertions remain unchanged. This is the only newly authorized test path; extension-command and rendered-prompt expectations are corrected through the already authorized `workflows/write-code/WORKFLOW.md`.
+
+`verification-report.md` is declared `delivery-owner only`. It may record required evidence without entering worker `scope.allowedPaths`; the implementation worker's writable boundary remains exactly the operation-bearing T001-T004 paths.
+
 ## Failure Modes
 
 | Condition | Result |
@@ -99,6 +105,8 @@ The execute controller remains the owner-creation boundary. Before an implement 
 2. Disposable real Git exercise using the exact PathCast T001-T004 task text and stale branch state.
 3. Plugin surface, current/stability, contribution evidence, version synchronization, and `git diff --check`.
 4. Workflow bundle validation through the resolved `skill-creator` validator.
+5. Full-CI supervisor coverage proving valid-subject bind succeeds only with canonical task authority and a dirty authorized implementation path, while subjectless and wrong-issue binds still fail.
+6. Delivery verification that the verification report remains outside implementation `allowedPaths`.
 
 ## Security and Portability
 
@@ -119,3 +127,4 @@ All filesystem paths stay repository-relative and are validated through the exis
 | Issue | Date | Summary |
 |-------|------|---------|
 | #390 | 2026-09-13 | Initial approved design |
+| #390 | 2026-09-14 | Added canonical full-CI fixture remediation and delivery-owned evidence isolation |
