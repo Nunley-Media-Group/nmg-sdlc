@@ -835,6 +835,16 @@ describe('read-only owner-bound publication probe', () => {
       '**File(s)**: `src/shared.mjs` (Create)',
       '**Type**: Archive',
     ].join('\n'), { structured: true })[0].operations[0].operation).toBe('Create');
+    const acquireOperations = parseDeliveryTaskFileLines([
+      '### T001: Acquire root input',
+      '**Acquire**: `tool --input README.md --repo owner/repository --candidate HEAD --output generated.json`',
+      '**File(s)**: `src/shared.mjs`',
+      '**Type**: Modify',
+    ].join('\n'), { structured: true })[0].operations
+      .filter(({ operation }) => operation === 'Acquire');
+    expect(acquireOperations).toEqual([
+      expect.objectContaining({ path: 'README.md', operation: 'Acquire' }),
+    ]);
   });
 
   test('rejects missing or mismatched owner-bound inputs without creating state', () => {

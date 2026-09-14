@@ -994,12 +994,13 @@ function acquireInputEntries(value) {
   if (!/\s--[a-z][a-z-]*\s/i.test(command)) return readOnlyFileEntries(value);
   const entries = [];
   for (const match of command.matchAll(/--([a-z][a-z-]*)\s+(?:"([^"]+)"|'([^']+)'|([^\s`]+))/gi)) {
-    const [, flag, doubleQuoted, singleQuoted, plain] = match;
-    if (/^(?:output|output-dir)$/.test(flag)) continue;
+    const [, rawFlag, doubleQuoted, singleQuoted, plain] = match;
+    const flag = rawFlag.toLowerCase();
+    if (/^(?:output|output-dir)$/.test(flag)
+      || /^(?:branch|candidate|commit|format|issue|ref|repo|repository|sha)$/.test(flag)) continue;
     const candidate = doubleQuoted ?? singleQuoted ?? plain;
-    if (!candidate.includes('$') && validPublicationPath(candidate) && candidate.includes('/')) {
-      entries.push(candidate);
-    }
+    const pathShaped = /[/.]/.test(candidate) || /^[A-Z][A-Z0-9_-]*$/.test(candidate);
+    if (!candidate.includes('$') && pathShaped && validPublicationPath(candidate)) entries.push(candidate);
   }
   return entries;
 }
