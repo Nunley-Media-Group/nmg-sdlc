@@ -1,0 +1,92 @@
+**Issue**: #394
+**Date**: 2026-09-14
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/392-recover-repaired-publication-interventions-before-implementation/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/requirements.md
+
+Feature: Resume consumed repaired-publication dispatch after pane split failure
+  A one-time repaired-publication recovery remains consumed while its exact unfinished
+  dispatch can resume once through parameter-free execute.
+
+  @AC1 @SCN001
+  Scenario: Pane split fails before first consumption
+    Given bare run has re-proven an available repaired-publication recovery
+    When standard pane allocation from the actual controller pane fails
+    Then no archive, recovery record, checkpoint tuple, pending dispatch, or worker is created
+    And no product or failure-evidence byte changes
+
+  @AC2 @SCN002
+  Scenario: Consumption persists an exact pending dispatch
+    Given a standard implement pane was allocated successfully
+    When repaired-publication recovery is archived and consumed
+    Then one CAS persists the original invocation and exact dispatch identity before agent start
+    And one existing recovery tuple is appended without a new allowance
+
+  @AC3 @SCN003
+  Scenario: Grounded revision-fourteen state is discoverable
+    Given revision 14 stopped at issue 108 implement with pane_split_failed
+    And invocation 571f27fa-bc11-4778-9034-b1b992e85638 is consumed with exact immutable archive proof
+    And the owner is incomplete, workers are empty, no matching pane or agent exists, and product state is clean
+    When parameter-free recovery discovery runs
+    Then it returns consumed-dispatch-available for that same invocation
+    And it does not offer ordinary loop recovery
+
+  @AC4 @SCN004
+  Scenario: Pending dispatch resumes the same invocation
+    Given discovery offers one exact consumed dispatch
+    When the next parameter-free bare run re-proves it under lease
+    Then it allocates from actual controller geometry and starts only s108-implement
+    And it does not consume, archive, or append recovery state again
+
+  @AC4 @SCN005
+  Scenario: Started dispatch cannot be offered twice
+    Given same-invocation resumption has durably recorded standard worker start ownership
+    When discovery repeats before or after prompt activation
+    Then consumed dispatch is unavailable
+    And no duplicate worker or invocation is created
+
+  @AC5 @SCN006
+  Scenario Outline: Crash boundaries retain deterministic authority
+    Given repaired-publication dispatch reaches <boundary>
+    When controller execution stops
+    Then durable state identifies either unconsumed recovery or the same pending invocation
+    And cleanup closes only a proven-owned unused pane
+
+    Examples:
+      | boundary |
+      | split before consumption |
+      | pending persistence before start |
+      | agent start failure after consumption |
+      | successful start before prompt activation |
+
+  @AC6 @SCN007
+  Scenario Outline: Unsafe consumed dispatches stay blocked
+    Given an otherwise exact consumed-dispatch fixture with <defect>
+    When discovery or bare run evaluates resumption
+    Then consumed dispatch remains unavailable
+    And no run, recovery, handoff, archive, task, product, or workflow-evidence byte changes
+
+    Examples:
+      | defect |
+      | non-pane failure |
+      | missing or mutated archive |
+      | changed run or head |
+      | changed branch or owner |
+      | changed handoff or task |
+      | product or worktree drift |
+      | complete owner |
+      | existing worker, pane, or agent |
+      | wrong invocation |
+      | duplicate resume |
+      | controller lock |
+      | explicit selector |
+
+  @AC7 @SCN008
+  Scenario: Existing recoveries and generated surfaces remain stable
+    Given existing repaired-publication and safe-recovery fixtures plus public workflow surfaces
+    When focused, full, command-sync, plugin, current-spec, inventory, contribution, version, and diff checks run
+    Then only exact same-invocation consumed-dispatch resumption changes behavior
+    And every existing recovery class and one-time consumption rule remains unchanged
