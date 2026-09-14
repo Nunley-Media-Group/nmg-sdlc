@@ -722,6 +722,8 @@ describe('read-only owner-bound publication probe', () => {
 
   test('reports exact PathCast 18/12/6 scope and preserves all observed bytes', () => {
     const f = pathCastFixture();
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')))
+      .toMatchObject({ currentIssue: 108, currentStep: 'implement', completed: { 108: ['start'] } });
     const protectedPaths = [
       '.omp/sdlc/controller.lock',
       '.omp/sdlc/run.json',
@@ -914,6 +916,7 @@ describe('read-only owner-bound publication probe', () => {
       { ...valid, revision: 0 },
       { ...valid, branch: 42 },
       { ...valid, completed: null },
+      { ...valid, completed: {} },
       { ...valid, completed: { 109: [] } },
       { ...valid, failed: {} },
       { ...valid, workers: [] },

@@ -49,6 +49,10 @@ function objectRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function nextExecuteStep(completedForIssue) {
+  return VALID_STEPS.find((step) => !completedForIssue.includes(step)) ?? null;
+}
+
 function validExecuteCheckpoint(runData) {
   if (!objectRecord(runData)
     || runData.schemaVersion !== 1
@@ -71,6 +75,7 @@ function validExecuteCheckpoint(runData) {
       && Array.isArray(steps)
       && new Set(steps).size === steps.length
       && steps.every((step) => VALID_STEPS.includes(step)))
+    || nextExecuteStep(runData.completed[String(runData.currentIssue)] ?? []) !== runData.currentStep
     || !(runData.failed === null || (objectRecord(runData.failed)
       && Number.isSafeInteger(runData.failed.issue) && runData.issues.includes(runData.failed.issue)
       && VALID_STEPS.includes(runData.failed.step)
