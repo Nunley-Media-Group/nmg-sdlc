@@ -801,9 +801,11 @@ function publicationFileDeclarations(value) {
 }
 
 export function publicationFileEntries(value) {
-  return publicationFileDeclarations(value)
-    .filter(({ note }) => !/\bdelivery[- ]owner\s+only\b/i.test(note))
-    .map(({ path }) => path);
+  const entries = [];
+  for (const { path, note } of publicationFileDeclarations(value)) {
+    if (!/\bdelivery[- ]owner\s+only\b/i.test(note)) entries.push(path);
+  }
+  return entries;
 }
 
 function markdownFence(line) {
@@ -953,6 +955,10 @@ const WRITABLE_OPERATIONS = new Map([
   ['generate untracked', 'Generate untracked'],
 ]);
 
+const READ_ONLY_OPERATIONS = new Set(['Read-only', 'Acquire']);
+const UNTRACKED_OPERATIONS = new Set(['Download untracked', 'Generate untracked']);
+const SPEC_INPUT_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+
 function declaredOperation(note, typeValue) {
   const rawNote = note.trim();
   const normalizedNote = rawNote.replace(/\s+/g, ' ').toLowerCase();
@@ -966,14 +972,15 @@ function declaredOperation(note, typeValue) {
   }
   const typeText = String(typeValue ?? '').trim();
   if (!typeText) return 'Modify';
-  const operations = [...typeText.matchAll(/\b(Create|Modify|Delete)\b/gi)]
-    .map((match) => WRITABLE_OPERATIONS.get(match[1].toLowerCase()));
+  const operations = new Set();
+  for (const match of typeText.matchAll(/\b(Create|Modify|Delete)\b/gi)) {
+    operations.add(WRITABLE_OPERATIONS.get(match[1].toLowerCase()));
+  }
   const residue = typeText
     .replace(/\b(?:Create|Modify|Delete|or)\b/gi, '')
     .replace(/[\/|,\s]+/g, '');
-  const unique = [...new Set(operations)];
-  if (residue || unique.length !== 1) throw safeError('publication_scope_unproven');
-  return unique[0];
+  if (residue || operations.size !== 1) throw safeError('publication_scope_unproven');
+  return operations.values().next().value;
 }
 
 function readOnlyFileEntries(value) {
@@ -1189,13 +1196,14 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
   const issueScope = inspectIssueSpecScope({ projectRoot: cwd, issueNumber, specPath: spec });
   if (!['scoped', 'implicit_single_issue'].includes(issueScope.status)) throw safeError('spec_not_approved');
   const documents = {};
-  const specInputs = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
-    .map((file) => `${spec}/${file}`);
-  for (const [index, path] of specInputs.entries()) {
+  const specInputs = [];
+  for (const file of SPEC_INPUT_FILES) {
+    const path = `${spec}/${file}`;
     const content = readFileSync(join(cwd, path), 'utf8');
     if (!/^\*\*Status\*\*:\s*Approved\s*$/m.test(content)
       || !new RegExp(`^\\*\\*Issue\\*\\*:\\s*#${issueNumber}\\s*$`, 'm').test(content)) throw safeError('spec_not_approved');
-    documents[['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'][index]] = content;
+    documents[file] = content;
+    specInputs.push(path);
   }
   if (step === 'verify') {
     const report = `${spec}/verification-report.md`;
@@ -1218,7 +1226,7 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
   const readOnly = new Set(specInputs);
   for (const task of taskOperations) {
     for (const operation of task.operations) {
-      if (['Read-only', 'Acquire'].includes(operation.operation)) {
+      if (READ_ONLY_OPERATIONS.has(operation.operation)) {
         readOnly.add(operation.path);
         continue;
       }
@@ -1226,9 +1234,7 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
         readOnly.add(operation.path);
         continue;
       }
-      const target = ['Download untracked', 'Generate untracked'].includes(operation.operation)
-        ? untracked
-        : tracked;
+      const target = UNTRACKED_OPERATIONS.has(operation.operation) ? untracked : tracked;
       const expands = operation.path.endsWith('/') || /[*?\[]/.test(operation.path);
       if (!expands) target.add(operation.path);
       const matches = observePublicationPaths(run, cwd, operation.path);
@@ -1252,7 +1258,8 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
       syntax: PUBLICATION_FILE_SYNTAX,
     });
   }
-  const allowed = new Set([...tracked, ...untracked]);
+  const allowed = new Set(tracked);
+  for (const path of untracked) allowed.add(path);
   for (const path of allowed) readOnly.delete(path);
   if (!allowed.size) throw safeError('publication_scope_unproven');
   return {
