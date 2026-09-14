@@ -1369,6 +1369,54 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
   });
 
+  it('rejects same-byte target replacement during the final descriptor read boundary', () => {
+    const root = makeRoot();
+    const selected = 'specs/42-final-read-boundary';
+    writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
+    const tasksPath = path.join(root, selected, 'tasks.md');
+    const before = fs.readFileSync(tasksPath);
+    const beforeIdentity = fs.lstatSync(tasksPath).ino;
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    const originalOpen = fs.openSync.bind(fs);
+    const originalRead = fs.readFileSync.bind(fs);
+    const originalWrite = fs.writeFileSync.bind(fs);
+    const originalRename = fs.renameSync.bind(fs);
+    let targetOpenCount = 0;
+    let finalTargetDescriptor;
+    let commitRenames = 0;
+    const openSpy = jest.spyOn(fs, 'openSync').mockImplementation((target, ...args) => {
+      const descriptor = originalOpen(target, ...args);
+      if (target === tasksPath && ++targetOpenCount === 2) finalTargetDescriptor = descriptor;
+      return descriptor;
+    });
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((target, ...args) => {
+      if (target === finalTargetDescriptor) {
+        finalTargetDescriptor = undefined;
+        const replacement = path.join(root, 'same-byte-read-boundary-replacement');
+        originalWrite(replacement, before);
+        originalRename(replacement, tasksPath);
+      }
+      return originalRead(target, ...args);
+    });
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation((source, target) => {
+      if (String(source).endsWith('.staged')) commitRenames += 1;
+      return originalRename(source, target);
+    });
+    try {
+      expect(() => applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] }))
+        .toThrow(expect.objectContaining({ reasonCode: 'publication_files_plan_stale' }));
+    } finally {
+      renameSpy.mockRestore();
+      readSpy.mockRestore();
+      openSpy.mockRestore();
+    }
+    expect(commitRenames).toBe(0);
+    expect(fs.readFileSync(tasksPath)).toEqual(before);
+    expect(fs.lstatSync(tasksPath).ino).not.toBe(beforeIdentity);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc-publication.lock'))).toBe(false);
+  });
+
+
   it.each(['replacement', 'byte mutation'])(
     'rejects staged %s before installing unapproved bytes',
     (mutation) => {
@@ -1419,7 +1467,7 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     },
   );
 
-  it('leaves the original target byte- and identity-equal when atomic rename fails', () => {
+  it('leaves the original target byte- and identity-equal when atomic rename fails without external interference', () => {
     const root = makeRoot();
     const selected = 'specs/42-rename-failure';
     writeApprovedPackage(root, selected, '### T001: Rewrite\n**Files**: `src/a.ts`\n');
@@ -1670,6 +1718,45 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.readFileSync(tasksPath)).toEqual(before);
   });
 
+  it.each([
+    ['fenced', [
+      '```md',
+      '### T001: Hidden duplicate',
+      '```',
+      '### T001: Visible',
+      '**Files**: `src/a.ts`',
+      '',
+    ].join('\n')],
+    ['HTML-commented', [
+      '<!--',
+      '### T001: Hidden duplicate',
+      '-->',
+      '### T001: Visible',
+      '**Files**: `src/a.ts`',
+      '',
+    ].join('\n')],
+    ['escaped backtick before visible heading', [
+      `Prose with an escaped ${String.fromCharCode(92)}\` delimiter`,
+      '### T001: Visible',
+      '**Files**: `src/a.ts`',
+      '',
+    ].join('\n')],
+  ])('handles %s visibility and rewrites visible T001', (_kind, tasks) => {
+    const root = makeRoot();
+    const selected = 'specs/42-hidden-duplicate-heading';
+    writeApprovedPackage(root, selected, tasks);
+    const report = detectPublicationUpgrade(root, { specDirs: [selected] });
+    expect(report.writeCount).toBe(1);
+    expect(report.findingCount).toBe(0);
+    expect(report.item.packages[0].rewrites).toEqual([
+      expect.objectContaining({ before: '**Files**: `src/a.ts`' }),
+    ]);
+    applyPublicationUpgrade(root, report.item.id, { specDirs: [selected] });
+    expect(fs.readFileSync(path.join(root, selected, 'tasks.md'), 'utf8'))
+      .toContain('**File(s)**: `src/a.ts`');
+  });
+
+
   it('preserves invalid UTF-8 and every byte except four ASCII label-token rewrites', () => {
     const root = makeRoot();
     const selected = 'specs/42-byte-preservation';
@@ -1783,7 +1870,6 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     ['duplicate singleton option', ['--root', 'ROOT']],
     ['missing option value', ['--root']],
     ['option-like value', ['--spec', '--unknown']],
-    ['extra legacy command token', ['detect']],
     ['extra publication command token', ['detect-publication']],
     ['duplicate spec option', ['--spec', 'SELECTED']],
   ])('rejects an ambiguous %s before process-level mutation', (_name, extraArgs) => {
@@ -1815,6 +1901,7 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     expect(fs.readFileSync(tasksPath)).toEqual(before);
   });
 
+
   it('preserves legacy parsing of ignored forms and command-named option values', () => {
     const root = makeRoot();
     const fakeBin = path.join(root, 'bin');
@@ -1845,6 +1932,28 @@ describe('package-scoped publication-only upgrade (#388)', () => {
         'apply',
         '--approve',
         'detect-publication',
+        '--root',
+        root,
+      ]],
+      ['legacy apply ignores a detect-publication positional', [
+        'apply',
+        '--approve',
+        'not-an-id',
+        'detect-publication',
+        '--root',
+        root,
+      ]],
+      ['legacy apply ignores an apply-publication positional', [
+        'apply',
+        '--approve',
+        'not-an-id',
+        'apply-publication',
+        '--root',
+        root,
+      ]],
+      ['legacy command wins over an earlier publication-looking positional', [
+        'detect-publication',
+        'detect',
         '--root',
         root,
       ]],

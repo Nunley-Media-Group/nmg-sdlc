@@ -23,9 +23,9 @@ The existing publication item digest covers package rewrite/finding records and 
 Add a narrow sibling contract rather than overloading `includeIssueDependencies` or weakening `applyUpgrade()`:
 
 - `detectPublicationUpgrade(root, { specDirs })` requires exactly one package, rejects symlinked caller-root components, inventories every regular file without following symlinks, sorts repository-relative paths with a locale-independent comparator, compares issue digits as exact strings, and hashes exact root/package/inventory/rewrite/finding authority.
-- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that report, acquires one exclusive fsynced root lock file, creates one unique exclusive root stage, uses `O_NOFOLLOW` where available plus regular-file identity validation, writes/fsyncs the Buffer, reruns the report, revalidates target/stage, then performs one atomic rename. It never calls `applyUpgrade()`.
-- CLI commands `detect-publication` and `apply-publication` require exactly one command token and exactly one `--spec <specs/N-slug>`. Repeated specs, ambiguous arguments, and malformed approval fail before mutation. Structured transaction errors expose stable `reasonCode`, `state`, and `applied`.
-- Existing unbounded `detect`/`apply`, exports, parsing, and behavior remain unchanged.
+- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that report, acquires one exclusive fsynced root lock file, creates one unique exclusive root stage, writes/fsyncs the Buffer, reruns the report, validates the target through one opened descriptor plus the stage, then performs one atomic rename. It never calls `applyUpgrade()`.
+- CLI command resolution first scans with the pre-#388 legacy command set and option-value consumption. If any legacy `detect` or `apply` command resolves, publication-command tokens in positional locations remain ignored; only when no legacy command resolves may a publication command select strict parsing.
+- Existing unbounded `detect`/`apply`, exports, ignored command-looking positionals, command-named option values, and behavior remain unchanged.
 
 ### Selection validation
 
@@ -49,9 +49,13 @@ The item remains `publication-files:<sha256>` for compatibility with approval pr
 
 An item exists even when no rewrites/findings exist so the selected report remains explicit. `actionable` is true only when at least one rewrite exists. Repeated detection after apply therefore has the same validated selection but `writeCount: 0` and no actionable item.
 
+### Cooperative filesystem threat model
+
+Authorized nmg-sdlc invocations cooperate by honoring the exclusive root lock. Every inventory, lock, stage, and target change observed before its final validated boundary fails closed. Node has no portable identity-conditional pathname rename or unlink, so a non-cooperative same-credential actor that deliberately replaces or mutates the lock, stage, or target after the last identity/byte validation and inside the following `renameSync` or `unlinkSync` syscall boundary is out of scope and produces undefined external interference. The design therefore makes no absolute claim about replacement during either pathname syscall.
+
 ### Byte safety and transaction
 
-`publicationFilesUpgrade()` retains its compatible report shape and reversible Latin-1 grammar view. `applySinglePublicationFile()` constructs the final output with minimal ASCII Buffer slices. The root lock is one regular `.nmg-sdlc-publication.lock` file created `O_EXCL`, written with token/pid JSON, fsynced, and bound to exact identity/bytes. `O_NOFOLLOW` is used where available, but ownership never depends on it: cleanup requires matching regular-file lstat before open, matching opened-descriptor identity, exact bytes, and matching lstat again after read. Existing, symlinked, or replaced locks—including same-token copies on another inode—are never read through, overwritten, or deleted. Partial/wrong owner bytes remain unproven. The staged output is one unique root file created exclusive and fsynced, with the same regular-file safeguards. Under the lock, apply reruns complete detection and verifies target source/identity plus stage output/identity immediately before atomic rename. Stage replacement is retained; byte mutation is rejected. Rename failure leaves the original untouched. After rename, outcome is `applied: true`; failed exact lock unlink preserves that state and the lock as evidence.
+`publicationFilesUpgrade()` retains its compatible report shape and reversible Latin-1 grammar view. Task ID discovery masks Markdown-fenced and HTML-commented headings with the same visibility semantics used for declaration validation, so hidden duplicate headings neither create false expected counts nor suppress a visible task. `applySinglePublicationFile()` constructs the final output with minimal ASCII Buffer slices. The root lock is one regular `.nmg-sdlc-publication.lock` file created `O_EXCL`, written with token/pid JSON, fsynced, and bound to exact identity/bytes. Cleanup validates matching regular-file lstat identity before open, matching opened-descriptor identity, exact bytes, and matching lstat after read; `O_NOFOLLOW` is additional protection where available. Partial/wrong owner bytes remain unproven. The staged output is one unique regular root file created `O_EXCL`, written/fsynced, then checked for exact identity and bytes. Immediately before commit, the target is validated through one `O_RDONLY | O_NOFOLLOW` descriptor where supported: pre-open lstat, descriptor fstat, exact descriptor bytes, and post-read path identity. Without `O_NOFOLLOW`, the same lstat/fstat/post-lstat chain is the proof within the cooperative model. A final authority rerun precedes these checks, followed by one `renameSync(stage, target)`. Successful rename sets `applied: true` before lock cleanup; cleanup failure retains the validated lock and reports `applied_cleanup_failed`.
 
 ### Affected files
 
@@ -72,9 +76,10 @@ An item exists even when no rewrites/findings exist so the selected report remai
 | Package validation rejects legitimate issue packages | Medium | Require only the documented four files/frontmatter and exactly one explicit package |
 | Report ids vary by platform locale | Low | Sort the complete single-package inventory with direct string comparison |
 | Symlink escapes expose outside bytes | Low | Reject symlinked roots, specs directories, package paths, and recursive entries |
-| Stale or tampered bytes install | Low | Recompute full authority and directly verify target/stage identity and bytes before atomic rename |
-| Lock ownership is spoofed | Low | Require exact regular-file identity and full owner bytes before unlink |
-| Commit succeeds but cleanup fails | Low | Report `applied: true` and retain the valid root lock as evidence |
+| Stale or tampered bytes install | Low within cooperative model | Recompute full authority; validate target through pre-lstat, descriptor fstat/bytes, and post-lstat; directly verify stage before atomic rename |
+| Lock ownership is spoofed | Low within cooperative model | Require exact regular-file identity and full owner bytes before pathname unlink |
+| Pathname syscall race | Undefined external interference | Explicitly exclude deliberate same-credential replacement after final validation inside `renameSync`/`unlinkSync`; Node has no portable identity-conditional primitive |
+| Commit succeeds but cleanup fails | Low | Report `applied: true` and retain the validated root lock as evidence |
 
 ## Alternatives Considered
 

@@ -29,9 +29,10 @@
 - [x] Require exactly one complete Approved singular issue-owned package and compare issue digits exactly
 - [x] Reject symlinked roots and invalid, repeated, multiple, stale, or ambiguous selections with stable reasons
 - [x] Bind exact root/package, complete sorted inventory/digests/identities, and rewrite/finding plan
-- [x] Acquire one exclusive fsynced regular root lock whose deletion requires pre-open, descriptor, and post-read identity plus exact-byte proof
-- [x] Stage one exact Buffer output at repository root, fsync, revalidate full authority plus target/stage, and atomically rename
-- [x] Report post-rename cleanup failure with `applied: true` while retaining lock evidence
+- [x] Acquire one exclusive fsynced regular root lock and, within the cooperative model, validate pre-open, descriptor, post-read identity plus exact owner bytes before pathname unlink
+- [x] Stage one exact Buffer output at repository root, fsync, revalidate full authority/stage, and validate final target through pre-lstat, descriptor fstat/bytes, and post-lstat before atomic rename
+- [x] State that deliberate same-credential replacement after final validation inside `renameSync` or `unlinkSync` is undefined out-of-scope external interference
+- [x] Report post-rename cleanup failure with `applied: true` while retaining validated lock evidence
 - [x] Preserve existing `detectUpgrade` and `applyUpgrade` behavior
 
 ### T002: Expose CLI and workflow contract
@@ -41,8 +42,10 @@
 **Depends**: T001
 **Acceptance**:
 - [x] Add `detect-publication` and `apply-publication` commands requiring exactly one `--spec`
-- [x] Require exactly one command token and one exact publication approval id for apply
+- [x] Resolve the actual command with legacy command-position semantics before deciding whether strict publication parsing applies
+- [x] For a resolved publication command, require exactly one command token and one exact publication approval id for apply
 - [x] Reject repeated specs, unknown options, unexpected positionals, duplicate singleton options, missing/option-like values, and extra commands before mutation
+- [x] Preserve publication-command tokens in positional locations and command-named legacy option values whenever a legacy command resolves
 - [x] Emit stable structured `reasonCode`, `state`, and `applied` fields for transaction failures
 - [x] `/sdlc-upgrade-project` uses this entry point whenever publication authorization is package-bounded
 - [x] Workflow documentation distinguishes selected publication-only apply from full upgrade apply
@@ -55,15 +58,16 @@
 **Acceptance**:
 - [x] Selected single-package apply leaves unselected rewrites/findings byte-identical
 - [x] Selected apply causes no spec-created-label, dependency, or GitHub side effect
-- [x] Stale source bytes, changed package inventory/identity, different root/report/package, and invalid selections fail before mutation
+- [x] Stale source bytes, changed package inventory/identity, different root/report/package, and invalid selections fail before the final validated boundary
 - [x] Symlinked root, symlinked ancestor, and symlink-before-`..` spellings fail with the stable root-symlink reason
-- [x] Stage replacement and byte mutation never install unapproved bytes
-- [x] Atomic rename failure leaves original target bytes and identity untouched
-- [x] Pre-existing, symlinked, and same-token replacement locks receive zero writes/deletes
+- [x] Final target validation uses one opened descriptor and rejects same-byte replacement during its read boundary before rename
+- [x] Stage replacement and byte mutation detected before rename do not install unapproved bytes
+- [x] Injected atomic rename failure without external interference leaves original target bytes and identity untouched
+- [x] Pre-existing, symlinked, and same-token replacement locks detected before cleanup receive zero writes/deletes
 - [x] Partial and wrong-byte owner setup failures retain unproven lock evidence
 - [x] Post-commit lock unlink failure reports `applied: true` and retains valid owner bytes
 - [x] Complete inventory order is locale-independent and large issue digits compare exactly
-- [x] Invalid UTF-8, mixed line endings, duplicate findings, strict CLI, and legacy parsing remain covered
+- [x] Invalid UTF-8, mixed line endings, duplicate findings, fenced/commented duplicate headings, escaped-backtick visibility, strict CLI, and legacy command-position parsing remain covered
 - [x] Run a disposable actual-source fixture with unrelated dirty packages; do not install
 
 ### T004: Update public and contribution evidence

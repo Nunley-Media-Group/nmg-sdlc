@@ -55,15 +55,15 @@ Feature: Support package-scoped publication-only upgrades
 
   @SCN005 @regression
   Scenario Outline: Stale foreign or interrupted apply fails closed
-    Given an approved single-package report and exclusive root lock
-    When apply observes <change>
-    Then unapproved bytes never install
-    And foreign lock or staged identities are never overwritten or deleted
+    Given an approved single-package report and a cooperatively honored exclusive root lock
+    When apply observes <change> before the final validated boundary
+    Then it fails before rename and does not install unapproved bytes
+    And foreign lock or staged identities detected before pathname cleanup are not overwritten or deleted
     Examples:
       | change |
       | changed source bytes |
       | added package content after staging |
-      | same-byte target identity replacement |
+      | same-byte target identity replacement during descriptor read |
       | staged identity replacement |
       | staged byte mutation |
       | duplicate task declarations |
@@ -71,7 +71,7 @@ Feature: Support package-scoped publication-only upgrades
       | a pre-existing foreign lock |
       | a partial or wrong-byte owner write |
       | a same-token foreign lock replacement |
-      | an atomic rename failure |
+      | an injected atomic rename failure without external interference |
 
   @SCN006 @regression
   Scenario: Mixed line endings and arbitrary unrelated bytes are preserved
@@ -91,12 +91,13 @@ Feature: Support package-scoped publication-only upgrades
     And every unselected package remains unchanged
 
   @SCN008 @regression
-  Scenario: Workflow uses an unambiguous dedicated native entry point
+  Scenario: Workflow preserves legacy command resolution before strict parsing
     Given package-bounded publication authority in /sdlc-upgrade-project
     When the workflow renders detection and apply commands
     Then it uses detect-publication and apply-publication with exactly one command token and one spec option
-    And repeated specs ambiguous options values positionals and extra commands fail before mutation
-    And existing unbounded detect and apply commands retain their parsing semantics
+    And strict publication parsing runs only when legacy command-position semantics resolve a publication command
+    And a resolved publication command rejects repeated specs ambiguous options values positionals and extra commands before mutation
+    And publication-command positionals and command-named option values remain ignored whenever a legacy command resolves
 
   @SCN009 @regression
   Scenario: Applied cleanup failure remains truthful
@@ -105,3 +106,9 @@ Feature: Support package-scoped publication-only upgrades
     Then the stable outcome is publication_files_cleanup_failed
     And state is applied_cleanup_failed with applied true
     And the valid root lock remains as ownership evidence
+
+  Rule: Cooperative filesystem boundary
+    Authorized nmg-sdlc invocations honor the exclusive root lock.
+    A non-cooperative same-credential actor that deliberately mutates or replaces
+    the lock stage or target after final validation and inside renameSync or
+    unlinkSync is undefined external interference outside this contract.

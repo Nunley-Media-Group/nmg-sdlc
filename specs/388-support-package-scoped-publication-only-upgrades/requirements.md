@@ -23,6 +23,10 @@
 | **Expected** | A supported publication-only entry point validates an explicit package selection, detects only that selection, binds approval to the root, selection, complete selected-package bytes, rewrites, findings, and source digests, and applies only the selected rewrites with no other phase or side effect. |
 | **Actual** | Disabling issue-dependency lookup does not scope publication detection. The only approval item is repository-wide, and the only apply entry point also performs label backfill and other approved upgrade phases. |
 
+## Cooperative filesystem threat model
+
+Authorized nmg-sdlc invocations honor the exclusive repository-root publication lock. Within that cooperative model, apply detects and rejects lock, stage, target, inventory, or byte changes observed before the final validated boundary. Node provides no portable identity-conditional rename or unlink primitive: a non-cooperative same-credential actor that deliberately replaces or mutates the lock, stage, or target after its last identity/byte validation and inside the subsequent single `renameSync` or `unlinkSync` pathname syscall boundary is out of scope and constitutes undefined external interference. This contract does not claim that replacement inside either syscall boundary is impossible.
+
 ## Acceptance Criteria
 
 ### AC1: Explicit selected-package detection
@@ -42,22 +46,22 @@
 
 **Given** an approved single-package publication report
 **When** publication-only apply succeeds
-**Then** it creates one unique token-owned `O_EXCL` staged file at repository root, using `O_NOFOLLOW` where available plus exact regular-file identity checks, writes the exact Buffer output, fsyncs it, and revalidates complete package authority under the lock
-**And** immediately before atomic rename it verifies exact target bytes/identity and exact staged bytes/identity
-**And** rename failure leaves the original `tasks.md` bytes and identity untouched
-**And** it never runs dependency mutation, spec-created-label backfill, another upgrade phase, or any GitHub command
+**Then** it creates one unique token-owned `O_EXCL` staged file at repository root, using `O_NOFOLLOW` where available plus exact regular-file identity checks, writes the exact Buffer output, fsyncs it, and revalidates complete package authority under the cooperative root lock
+**And** immediately before atomic rename it validates the target through one opened no-follow descriptor where supported: pre-open lstat, descriptor fstat, exact descriptor bytes, and post-read path identity; without `O_NOFOLLOW`, the same lstat/fstat/post-lstat chain supplies the cooperative proof
+**And** it verifies exact staged bytes/identity before rename, and a failed `renameSync` that experiences no out-of-scope interference leaves the original `tasks.md` bytes and identity untouched
+**And** its publication-only code path does not run dependency mutation, spec-created-label backfill, another upgrade phase, or any GitHub command
 
 ### AC4: Invalid or stale authority fails closed
 
 **Given** a missing, outside-root, repeated, multiple, incomplete, wrongly named, issue-mismatched, non-Approved, or otherwise invalid selection
 **Or** a root whose final component or any raw lexical ancestor—including one later collapsed by `..`—traverses a symlink
 **Or** an approval from a different root, package, or report
-**Or** selected package bytes, inventory, target identity, staged identity/bytes, or duplicate task declarations changed after approval
-**When** detection or apply runs
-**Then** it fails before rename with a stable reason and does not install unapproved bytes
+**Or** selected package bytes, inventory, target identity/bytes, staged identity/bytes, visible duplicate task declarations, or hidden-heading visibility changed after approval
+**When** detection or apply runs without out-of-scope external interference
+**Then** every change observed before the final validated boundary fails before rename with a stable reason and does not install unapproved bytes
 **And** the root lock is one exclusive regular `.nmg-sdlc-publication.lock` file, fsynced and guarded by pre-open/post-read lstat plus opened-descriptor identity checks, with `O_NOFOLLOW` as defense in depth where available
-**And** pre-existing, partial, wrong-byte, or replaced foreign locks are never overwritten or deleted
-**And** cleanup failure after successful rename reports `publication_files_cleanup_failed`, `state: applied_cleanup_failed`, and `applied: true` while retaining the valid lock file as ownership evidence
+**And** pre-existing, partial, wrong-byte, or replaced foreign locks detected before unlink are not overwritten or deleted
+**And** cleanup failure after successful rename reports `publication_files_cleanup_failed`, `state: applied_cleanup_failed`, and `applied: true` while retaining the validated lock file as ownership evidence
 
 ### AC5: Byte preservation and convergence
 
@@ -77,8 +81,8 @@
 **Given** `/sdlc-upgrade-project` needs bounded publication repair
 **When** it renders detection and apply commands
 **Then** it uses exactly one `--spec specs/N-slug` with the documented native publication-only CLI or equivalent API
-**And** each new CLI invocation requires exactly one command token and rejects repeated specs, ambiguous options, values, and positionals before mutation
-**And** existing unbounded `detectUpgrade()` and `applyUpgrade()` parsing and behavior remain compatible
+**And** strict publication parsing applies only when the command resolved by legacy command-position semantics is `detect-publication` or `apply-publication`; those invocations reject repeated specs, ambiguous options, values, positionals, and extra command tokens before mutation
+**And** when any legacy `detect` or `apply` command resolves, publication-command tokens in positional locations remain ignored just as unknown legacy positionals were before #388; command-named legacy option values also retain existing unbounded behavior
 
 ## Functional Requirements
 
@@ -87,16 +91,17 @@
 | FR1 | Export dedicated single-package publication detect/apply APIs and equivalent CLI commands | Must |
 | FR2 | Require exactly one canonical direct `specs/` child containing a complete Approved singular issue-owned package; reject symlinked caller-root components | Must |
 | FR3 | Bind approval to exact root/package, complete locale-independently sorted inventory/digests/identities, exact-string issue identity, and rewrite/finding plan | Must |
-| FR4 | Use one exclusive fsynced regular root lock file and delete it only after pre-open, descriptor, post-read identity, and exact owner-byte proof | Must |
-| FR5 | Build one exact Buffer output in a unique fsynced root-stage file; revalidate complete authority, target, and stage before one atomic rename | Must |
+| FR4 | Under the cooperative filesystem model, use one exclusive fsynced regular root lock file and validate it with pre-open, descriptor, post-read identity, and exact owner bytes before pathname unlink | Must |
+| FR5 | Build one exact Buffer output in a unique fsynced root-stage file; revalidate complete authority and stage, and validate the final target through pre-open lstat, descriptor fstat/bytes, and post-read identity before one atomic rename | Must |
 | FR6 | Publication-only apply invokes no dependency, label, or general-upgrade code path | Must |
 | FR7 | Preserve arbitrary bytes, including invalid UTF-8, outside approved ASCII declaration spans and preserve each line ending | Must |
-| FR8 | New publication commands reject ambiguous syntax and repeated/multiple specs while legacy full-repository parsing remains compatible | Must |
-| FR9 | Cover stage tampering, rename/cleanup failure, foreign/partial/replaced locks, inventory order, large issue digits, and prior boundaries with focused Jest and disposable exercises | Must |
+| FR8 | Resolve the command with legacy command-position semantics first; apply strict parsing only to a resolved publication command while preserving legacy full-repository compatibility | Must |
+| FR9 | Cover target read-boundary replacement, stage tampering, rename/cleanup failure, foreign/partial/replaced locks, hidden task headings, command position, inventory order, large issue digits, and prior boundaries with focused Jest and disposable exercises | Must |
 | FR10 | Update public/workflow/changelog surfaces without implementation-time version bump | Must |
 
 ## Out of Scope
 
+- Non-cooperative same-credential mutation or replacement of the lock, stage, or target after its last validation and inside `renameSync` or `unlinkSync`
 - Applying any PathCast repository rewrite during this issue
 - Changing the publication declaration grammar introduced by #379
 - Removing or narrowing the existing full-repository upgrade behavior

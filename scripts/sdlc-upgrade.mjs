@@ -1027,6 +1027,187 @@ function recoverPublicationFileDeclaration(value) {
   return tokens.join(', ');
 }
 
+function publicationMarkdownFence(line) {
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesPublicationMarkdownFence(line, fence) {
+  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+  return !!match && match[1][0] === fence.marker && match[1].length >= fence.length;
+}
+
+function publicationCodeSpanSourceLines(lines) {
+  const visibleLines = [];
+  let fence = null;
+  let inComment = false;
+  for (const sourceLine of lines) {
+    if (fence) {
+      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
+      visibleLines.push(' '.repeat(sourceLine.length));
+      continue;
+    }
+    const chars = sourceLine.split('');
+    let offset = 0;
+    while (offset < sourceLine.length) {
+      if (inComment) {
+        const end = sourceLine.indexOf('-->', offset);
+        const limit = end === -1 ? sourceLine.length : end + 3;
+        chars.fill(' ', offset, limit);
+        offset = limit;
+        if (end === -1) break;
+        inComment = false;
+        continue;
+      }
+      const start = sourceLine.indexOf('<!--', offset);
+      if (start === -1) break;
+      chars.fill(' ', start, start + 4);
+      inComment = true;
+      offset = start + 4;
+    }
+    const visible = chars.join('');
+    fence = publicationMarkdownFence(visible);
+    visibleLines.push(fence ? ' '.repeat(sourceLine.length) : visible);
+  }
+  return visibleLines;
+}
+
+function publicationEscapedBacktick(line, offset) {
+  let backslashes = 0;
+  for (let index = offset - 1; index >= 0 && line[index] === '\\'; index -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
+function publicationCodeSpanDelimiters(lines) {
+  const roles = new Map();
+  const remaining = [];
+  const key = (line, offset) => `${line}:${offset}`;
+  for (const [lineIndex, line] of lines.entries()) {
+    const runs = [];
+    for (let offset = 0; offset < line.length;) {
+      if (line[offset] !== '`') {
+        offset += 1;
+        continue;
+      }
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      if (!publicationEscapedBacktick(line, offset)) {
+        runs.push({ line: lineIndex, offset, length: delimiter.length });
+      }
+      offset += delimiter.length;
+    }
+    if (!/^\*\*[^*]+\*\*:/.test(line)) {
+      remaining.push(...runs);
+      continue;
+    }
+    for (let index = 0; index < runs.length;) {
+      const opener = runs[index];
+      let close = index + 1;
+      while (close < runs.length && runs[close].length !== opener.length) close += 1;
+      if (close === runs.length) {
+        remaining.push(opener);
+        index += 1;
+        continue;
+      }
+      roles.set(key(opener.line, opener.offset), 'open');
+      roles.set(key(runs[close].line, runs[close].offset), 'close');
+      index = close + 1;
+    }
+  }
+  for (let index = 0; index < remaining.length;) {
+    const opener = remaining[index];
+    let close = index + 1;
+    while (close < remaining.length && remaining[close].length !== opener.length) close += 1;
+    if (close === remaining.length) {
+      index += 1;
+      continue;
+    }
+    roles.set(key(opener.line, opener.offset), 'open');
+    roles.set(key(remaining[close].line, remaining[close].offset), 'close');
+    index = close + 1;
+  }
+  return roles;
+}
+
+function stripPublicationHtmlComments(line, inComment, codeSpan, delimiterRole) {
+  let visible = '';
+  let offset = 0;
+  while (offset < line.length) {
+    if (inComment) {
+      const end = line.indexOf('-->', offset);
+      if (end === -1) return { line: visible, inComment: true, codeSpan };
+      inComment = false;
+      offset = end + 3;
+      continue;
+    }
+    if (line[offset] === '`') {
+      const delimiter = /^`+/.exec(line.slice(offset))[0];
+      visible += delimiter;
+      const role = delimiterRole(offset);
+      if (codeSpan === 0 && role === 'open') codeSpan = delimiter.length;
+      else if (codeSpan === delimiter.length && role === 'close') codeSpan = 0;
+      offset += delimiter.length;
+      continue;
+    }
+    if (codeSpan > 0) {
+      visible += line[offset++];
+      continue;
+    }
+    if (line.startsWith('<!--', offset)) {
+      inComment = true;
+      offset += 4;
+      continue;
+    }
+    visible += line[offset++];
+  }
+  return { line: visible, inComment, codeSpan };
+}
+
+function publicationTaskVisibility(sourceLines) {
+  const visibleTaskIds = new Set();
+  const parserLines = [...sourceLines];
+  const codeSpanRoles = publicationCodeSpanDelimiters(
+    publicationCodeSpanSourceLines(sourceLines),
+  );
+  let fence = null;
+  let inHtmlComment = false;
+  let codeSpan = 0;
+  for (const [index, sourceLine] of sourceLines.entries()) {
+    if (fence) {
+      if (closesPublicationMarkdownFence(sourceLine, fence)) fence = null;
+      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
+      continue;
+    }
+    const startsInCodeSpan = codeSpan > 0;
+    const stripped = stripPublicationHtmlComments(
+      sourceLine,
+      inHtmlComment,
+      codeSpan,
+      (offset) => codeSpanRoles.get(`${index}:${offset}`),
+    );
+    const line = stripped.line;
+    inHtmlComment = stripped.inComment;
+    codeSpan = stripped.codeSpan;
+    if (startsInCodeSpan) {
+      if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) parserLines[index] = '';
+      continue;
+    }
+    fence = publicationMarkdownFence(line);
+    if (fence) {
+      codeSpan = 0;
+      continue;
+    }
+    const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
+    if (taskId) {
+      visibleTaskIds.add(taskId);
+    } else if (/^#{2,3}[ \t]+T0*[1-9]\d*:/.test(sourceLine)) {
+      parserLines[index] = '';
+    }
+  }
+  return { parserLines, taskIds: visibleTaskIds };
+}
+
+
 function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
   const candidateLines = [...sourceLines];
   const rewrites = [];
@@ -1104,15 +1285,15 @@ function publicationFilesUpgrade(root, specDirs) {
     // parsing and rewriting this view cannot normalize unrelated invalid UTF-8.
     const source = sourceBytes.toString('latin1');
     const sourceLines = source.split(/\r?\n/);
-    const taskIds = new Set();
-    for (const line of sourceLines) {
-      const taskId = /^#{2,3}[ \t]+(T0*[1-9]\d*):/.exec(line)?.[1];
-      if (taskId) taskIds.add(taskId);
-    }
+    const visibility = publicationTaskVisibility(sourceLines);
     const rewrites = [];
     const findings = [];
-    for (const taskId of taskIds) {
-      const recovered = recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId);
+    for (const taskId of visibility.taskIds) {
+      const recovered = recoverTaskPublicationDeclarations(
+        visibility.parserLines,
+        relativePath,
+        taskId,
+      );
       rewrites.push(...recovered.rewrites);
       findings.push(...recovered.findings);
     }
@@ -1361,22 +1542,64 @@ function applyPublicationBufferRewrite(line, rewrite) {
   ]);
 }
 
-function publicationOutputSnapshot(root, plan) {
-  const target = path.join(root, plan.path);
-  const stat = lstatOrNull(target);
-  const source = safeReadBuffer(target);
-  if (
-    !stat?.isFile()
-    || stat.isSymbolicLink()
-    || source == null
-    || createHash('sha256').update(source).digest('hex') !== plan.sourceDigest
-    || plan.targetIdentity && !samePublicationFileIdentity(stat, plan.targetIdentity)
-  ) {
+function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes, expectedDigest } = {}) {
+  const before = lstatOrNull(target);
+  if (!before?.isFile() || before.isSymbolicLink()) {
     throw publicationContractError(
       'publication_files_plan_stale',
       'Publication File(s) changed after plan approval',
     );
   }
+  let descriptor;
+  try {
+    descriptor = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const opened = fs.fstatSync(descriptor);
+    const beforeIdentity = publicationFileIdentity(before);
+    if (
+      !samePublicationFileIdentity(opened, beforeIdentity)
+      || (expectedIdentity && !samePublicationFileIdentity(opened, expectedIdentity))
+    ) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        'Publication File(s) changed after plan approval',
+      );
+    }
+    const source = fs.readFileSync(descriptor);
+    const after = lstatOrNull(target);
+    if (
+      !samePublicationFileIdentity(after, beforeIdentity)
+      || (expectedBytes && !source.equals(expectedBytes))
+      || (expectedDigest && createHash('sha256').update(source).digest('hex') !== expectedDigest)
+    ) {
+      throw publicationContractError(
+        'publication_files_plan_stale',
+        'Publication File(s) changed after plan approval',
+      );
+    }
+    return {
+      source,
+      mode: opened.mode,
+      identity: publicationFileIdentity(opened),
+    };
+  } catch (error) {
+    if (error?.reasonCode === 'publication_files_plan_stale') throw error;
+    throw publicationContractError(
+      'publication_files_plan_stale',
+      `Publication File(s) could not be validated: ${error.message}`,
+    );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+
+function publicationOutputSnapshot(root, plan) {
+  const target = path.join(root, plan.path);
+  const snapshot = readPublicationTargetSnapshot(target, {
+    expectedIdentity: plan.targetIdentity,
+    expectedDigest: plan.sourceDigest,
+  });
+  const source = snapshot.source;
   const lines = splitBufferLines(source);
   for (const rewrite of plan.rewrites) {
     const index = rewrite.line - 1;
@@ -1392,8 +1615,8 @@ function publicationOutputSnapshot(root, plan) {
     target,
     source,
     output: Buffer.concat(lines),
-    mode: stat.mode,
-    identity: publicationFileIdentity(stat),
+    mode: snapshot.mode,
+    identity: snapshot.identity,
   };
 }
 
@@ -1426,9 +1649,11 @@ function applySinglePublicationFile(root, item, { revalidate } = {}) {
     try {
       stagedIdentity = durableCreateFile(stagedPath, output.output, output.mode);
       revalidate?.();
-      const liveStat = lstatOrNull(output.target);
-      const liveBytes = safeReadBuffer(output.target);
-      if (!samePublicationFileIdentity(liveStat, output.identity) || !liveBytes?.equals(output.source)) {
+      const liveTarget = readPublicationTargetSnapshot(output.target, {
+        expectedIdentity: output.identity,
+        expectedBytes: output.source,
+      });
+      if (!liveTarget.source.equals(output.source)) {
         throw publicationContractError(
           'publication_files_plan_stale',
           'Publication target identity or bytes changed immediately before commit',
@@ -2282,11 +2507,32 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 // CLI
 const UPGRADE_COMMANDS = new Set(['detect', 'apply', 'detect-publication', 'apply-publication']);
 const PUBLICATION_COMMANDS = new Set(['detect-publication', 'apply-publication']);
+const LEGACY_UPGRADE_COMMANDS = new Set(['detect', 'apply']);
+const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s']);
 
-function validatePublicationCli(argv) {
+function resolveUpgradeCommand(argv) {
+  const tokens = argv.slice(2);
+  let legacyCommand = null;
+  let publicationCommand = null;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (LEGACY_UPGRADE_COMMANDS.has(token)) {
+      legacyCommand = token;
+    } else if (PUBLICATION_COMMANDS.has(token)) {
+      publicationCommand = token;
+    } else if (CLI_VALUE_OPTIONS.has(token)) {
+      index += 1;
+    }
+  }
+  return legacyCommand ?? publicationCommand;
+}
+
+
+function validatePublicationCli(argv, resolvedCommand) {
+  if (!PUBLICATION_COMMANDS.has(resolvedCommand)) return;
   const tokens = argv.slice(2);
   const commands = [];
-  const legacyValueOptions = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s']);
+  const legacyValueOptions = CLI_VALUE_OPTIONS;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (UPGRADE_COMMANDS.has(token)) {
@@ -2295,8 +2541,7 @@ function validatePublicationCli(argv) {
       index += 1;
     }
   }
-  if (!commands.some(({ token }) => PUBLICATION_COMMANDS.has(token))) return;
-  if (commands.length !== 1 || !PUBLICATION_COMMANDS.has(commands[0].token)) {
+  if (commands.length !== 1 || commands[0].token !== resolvedCommand) {
     throw publicationContractError(
       'publication_cli_invalid',
       'Publication commands require exactly one command token',
@@ -2372,7 +2617,7 @@ function validatePublicationCli(argv) {
 
 function parseArgv(argv) {
   const args = {
-    cmd: null,
+    cmd: resolveUpgradeCommand(argv),
     root: process.cwd(),
     approve: [],
     approveOptionCount: 0,
@@ -2381,8 +2626,8 @@ function parseArgv(argv) {
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (UPGRADE_COMMANDS.has(a)) args.cmd = a;
-    else if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
+    if (UPGRADE_COMMANDS.has(a)) continue;
+    if (a === '--root' || a === '-r') { args.root = argv[++i] || args.root; }
     else if (a.startsWith('--root=')) args.root = a.split('=')[1];
     else if (a === '--approve' || a === '-a') {
       const value = argv[++i] ?? '';
@@ -2406,8 +2651,8 @@ function parseArgv(argv) {
 
 if (isCliEntry(import.meta.url)) {
   try {
-    validatePublicationCli(process.argv);
     const args = parseArgv(process.argv);
+    validatePublicationCli(process.argv, args.cmd);
     if (!args.cmd) {
       console.error([
         'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]',
