@@ -1064,8 +1064,10 @@ export function parseDeliveryTaskFileLines(content, {
     try {
       for (const item of declared) {
         if (/\bdelivery[- ]owner\s+only\b/i.test(item.note)) continue;
-        entries.push(item.path);
-        if (!structured) continue;
+        if (!structured) {
+          entries.push(item.path);
+          continue;
+        }
         const operation = declaredOperation(item.note, task.types[0]?.value);
         operations.push({
           path: item.path,

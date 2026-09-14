@@ -161,7 +161,7 @@ Spec publication validates this grammar and the exactly-one invariant before Git
 An execute-owned implementation worker inspects its owner and mutation authority before editing:
 
 ```text
-node scripts/sdlc-safe-recoveries.mjs probe --issue 42 --step implement --spec specs/42-add-user-auth --controller-run-id RUN_ID
+node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" probe --issue 42 --step implement --spec specs/42-add-user-auth --controller-run-id RUN_ID
 ```
 
 `probe` accepts exactly those four options. It derives the attached Git branch, reads the active execute checkpoint and unique matching incomplete safe-recovery owner, and validates the exact singular Approved spec. It does not acquire the controller lock, create or consume recovery state, or write run, handoff, spec, product, or `.pi-glla` files. Missing or ambiguous issue, step, run, owner, or branch identity fails closed. A stale `run.json.branch` is reported in `binding.discrepancies`; the probe never repairs it or silently substitutes it for the actual/owner branch.
