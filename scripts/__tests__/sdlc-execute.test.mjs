@@ -2882,6 +2882,25 @@ describe('runExecute controller', () => {
     }).state).not.toBe('loop-recovery-available');
   });
 
+  it('blocks a missing noncanonical prepared archive path before ordinary recovery', () => {
+    const fixture = makeRepairedPublicationFixture();
+    groundPreparedUnconsumedDispatch(fixture);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    checkpoint.consumedDispatch.archive.path = '.omp/sdlc/history/repaired-publication/foreign.json';
+    fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    const before = fixture.snapshot();
+
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      recoveryEvidenceReasonCode: 'handoff_archive_unproven',
+    });
+    expect(fixture.snapshot()).toEqual(before);
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.splits).toHaveLength(0);
+  });
+
   it('keeps a consumed invocation resumable after standard agent start fails', () => {
     const fixture = makeRepairedPublicationFixture();
     let attempts = 0;
@@ -3096,6 +3115,24 @@ describe('runExecute controller', () => {
         step: 'implement',
         head: checkpoint.head,
         branch: '108-wrong-branch',
+        archive: checkpoint.recoveries[0].source.handoffArchive,
+        paneId: 'pane-consumed-old',
+        agentName: 's108-implement',
+        disposition: 'pending',
+      };
+      f.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+    }],
+    ['passed recovery paired with pending dispatch', (f) => {
+      const checkpoint = f.readJson('.omp/sdlc/run.json');
+      checkpoint.recoveries[0].disposition = 'passed';
+      checkpoint.consumedDispatch = {
+        runId: f.runId,
+        invocationId: checkpoint.recoveries[0].invocationId,
+        class: 'repaired_publication_intervention',
+        issue: 108,
+        step: 'implement',
+        head: checkpoint.head,
+        branch: f.branch,
         archive: checkpoint.recoveries[0].source.handoffArchive,
         paneId: 'pane-consumed-old',
         agentName: 's108-implement',
